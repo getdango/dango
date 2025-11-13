@@ -1,0 +1,206 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "getdango"
+version = "0.0.1"
+description = "Local-first data platform - Laptop to cloud data stack in one weekend"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Dango Team", email = "hello@getdango.dev"}
+]
+keywords = ["data", "analytics", "dbt", "duckdb", "metabase", "etl", "local-first"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+dependencies = [
+    # Critical dependencies - use compatible release for stability
+    "duckdb~=1.1.0",      # Database - breaking changes likely
+    "dbt-core~=1.8.0",    # Core tool - API stability matters
+    "dbt-duckdb~=1.8.0",  # Adapter - must match dbt-core
+    "dlt[duckdb]~=1.2.0", # ETL tool - pipeline stability
+
+    # Framework and utilities - flexible versions
+    "click>=8.1.7",
+    "pyyaml>=6.0.1",
+    "pydantic>=2.0.0",
+    "jinja2>=3.1.4",
+    "watchdog>=5.0.0",
+    "rich>=13.7.0",
+    "inquirer>=3.4.0",
+    "requests>=2.31.0",
+    "httpx>=0.27.0",
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "websockets>=12.0",
+    "aiofiles>=23.2.0",
+    "psutil>=5.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "black>=24.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
+]
+
+# Individual source dependencies (install with: pip install dango-data[source_name])
+facebook_ads = ["dlt[facebook_ads]>=1.2.0"]
+google_ads = ["dlt[google_ads]>=1.2.0"]
+google_analytics = ["dlt[google_analytics]>=1.2.0"]
+google_sheets = ["dlt[google_sheets]>=1.2.0"]
+matomo = ["dlt[matomo]>=1.2.0"]
+mux = ["dlt[mux]>=1.2.0"]
+airtable = ["dlt[airtable]>=1.2.0"]
+hubspot = ["dlt[hubspot]>=1.2.0"]
+salesforce = ["dlt[salesforce]>=1.2.0"]
+pipedrive = ["dlt[pipedrive]>=1.2.0"]
+freshdesk = ["dlt[freshdesk]>=1.2.0"]
+zendesk = ["dlt[zendesk]>=1.2.0"]
+jira = ["dlt[jira]>=1.2.0"]
+workable = ["dlt[workable]>=1.2.0"]
+asana = ["dlt[asana_dlt]>=1.2.0"]
+stripe = ["dlt[stripe]>=1.2.0"]
+shopify = ["dlt[shopify_dlt]>=1.2.0"]
+notion = ["dlt[notion]>=1.2.0"]
+inbox = ["dlt[inbox]>=1.2.0"]
+mongodb = ["dlt[mongodb]>=1.2.0"]
+kafka = ["dlt[kafka]>=1.2.0"]
+kinesis = ["dlt[kinesis]>=1.2.0"]
+github = ["dlt[github]>=1.2.0"]
+slack = ["dlt[slack]>=1.2.0"]
+chess = ["dlt[chess]>=1.2.0"]
+strapi = ["dlt[strapi]>=1.2.0"]
+personio = ["dlt[personio]>=1.2.0"]
+
+# Source category bundles
+marketing = [
+    "dlt[facebook_ads]>=1.2.0",
+    "dlt[google_ads]>=1.2.0",
+    "dlt[google_analytics]>=1.2.0",
+    "dlt[google_sheets]>=1.2.0",
+    "dlt[matomo]>=1.2.0",
+    "dlt[mux]>=1.2.0",
+    "dlt[airtable]>=1.2.0",
+]
+
+crm = [
+    "dlt[hubspot]>=1.2.0",
+    "dlt[salesforce]>=1.2.0",
+    "dlt[pipedrive]>=1.2.0",
+    "dlt[freshdesk]>=1.2.0",
+    "dlt[zendesk]>=1.2.0",
+    "dlt[jira]>=1.2.0",
+    "dlt[workable]>=1.2.0",
+    "dlt[asana_dlt]>=1.2.0",
+]
+
+ecommerce = [
+    "dlt[stripe]>=1.2.0",
+    "dlt[shopify_dlt]>=1.2.0",
+]
+
+# Install all sources (install with: pip install dango-data[all_sources])
+all_sources = [
+    "dlt[facebook_ads]>=1.2.0",
+    "dlt[google_ads]>=1.2.0",
+    "dlt[google_analytics]>=1.2.0",
+    "dlt[google_sheets]>=1.2.0",
+    "dlt[matomo]>=1.2.0",
+    "dlt[mux]>=1.2.0",
+    "dlt[airtable]>=1.2.0",
+    "dlt[hubspot]>=1.2.0",
+    "dlt[salesforce]>=1.2.0",
+    "dlt[pipedrive]>=1.2.0",
+    "dlt[freshdesk]>=1.2.0",
+    "dlt[zendesk]>=1.2.0",
+    "dlt[jira]>=1.2.0",
+    "dlt[workable]>=1.2.0",
+    "dlt[asana_dlt]>=1.2.0",
+    "dlt[stripe]>=1.2.0",
+    "dlt[shopify_dlt]>=1.2.0",
+    "dlt[notion]>=1.2.0",
+    "dlt[inbox]>=1.2.0",
+    "dlt[mongodb]>=1.2.0",
+    "dlt[kafka]>=1.2.0",
+    "dlt[kinesis]>=1.2.0",
+    "dlt[github]>=1.2.0",
+    "dlt[slack]>=1.2.0",
+    "dlt[chess]>=1.2.0",
+    "dlt[strapi]>=1.2.0",
+    "dlt[personio]>=1.2.0",
+]
+
+[project.urls]
+Homepage = "https://getdango.dev"
+Documentation = "https://docs.getdango.dev"
+Repository = "https://github.com/getdango/dango"
+Issues = "https://github.com/getdango/dango/issues"
+
+[project.scripts]
+dango = "dango.cli.main:cli"
+
+[tool.setuptools]
+packages = [
+    "dango",
+    "dango.cli",
+    "dango.config",
+    "dango.ingestion",
+    "dango.ingestion.sources",
+    "dango.ingestion.dlt_sources",
+    "dango.transformation",
+    "dango.platform",
+    "dango.templates",
+    "dango.web",
+]
+include-package-data = true
+
+[tool.setuptools.package-data]
+dango = [
+    "templates/**/*",
+    "ingestion/dlt_sources/**/*",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

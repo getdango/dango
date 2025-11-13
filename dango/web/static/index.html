@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dango Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍡</text></svg>">
+
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Custom Tailwind Configuration -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'dango': {
+                            50: '#fef2f2',
+                            100: '#fee2e2',
+                            200: '#fecaca',
+                            300: '#fca5a5',
+                            400: '#f87171',
+                            500: '#ef4444',
+                            600: '#dc2626',
+                            700: '#b91c1c',
+                            800: '#991b1b',
+                            900: '#7f1d1d',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/main.css?v=1761590000">
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2 sm:space-x-3">
+                    <div class="text-2xl sm:text-3xl">🍡</div>
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Dango</h1>
+                        <p id="project-subtitle" class="text-xs sm:text-sm text-gray-500 hidden sm:block">Data Platform Dashboard</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-2 sm:space-x-4">
+                    <!-- Connection Status -->
+                    <div id="connection-status" class="flex items-center space-x-2">
+                        <div class="h-2 w-2 bg-gray-400 rounded-full animate-pulse" id="status-indicator"></div>
+                        <span class="text-xs sm:text-sm text-gray-600 hidden sm:inline" id="status-text">Connecting...</span>
+                    </div>
+
+                    <!-- Removed API Docs link - moved to footer -->
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Bar - Reordered with DuckDB added -->
+    <nav class="bg-gray-800 shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-12">
+                <div class="flex items-center space-x-1 sm:space-x-4">
+                    <a href="/" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-gray-900 hover:bg-gray-700 transition-colors">
+                        Overview
+                    </a>
+                    <a href="/health" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
+                        Health
+                    </a>
+                    <a href="/dbt-docs" target="_blank" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors hidden sm:block">
+                        Data Catalog
+                    </a>
+                    <a href="/metabase/question/new" id="nav-query-database" target="_blank" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors hidden sm:block">
+                        Query Database
+                    </a>
+                    <a href="/metabase" target="_blank" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
+                        Dashboards
+                    </a>
+                    <a href="/logs" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors hidden sm:block">
+                        Activity Logs
+                    </a>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-xs text-gray-400 hidden md:inline">Dango v0.1.0</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <!-- Platform Health Widget -->
+        <div class="mb-6">
+            <a href="/health" class="block">
+                <div id="health-widget" class="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer border-l-4 border-gray-400">
+                    <div class="flex items-center justify-between">
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-3">
+                                <span id="health-icon" class="text-2xl">⏳</span>
+                                <div>
+                                    <p class="text-sm font-medium text-gray-600">Platform Health</p>
+                                    <p id="health-status-text" class="text-lg font-semibold text-gray-900">Loading...</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-xs text-gray-500">Click for details →</p>
+                        </div>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <!-- Service Status Cards - Logical workflow order: Data Catalog, Query Database, Dashboards, Activity Logs -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            <!-- dbt Docs (Data Catalog) -->
+            <a href="/dbt-docs" target="_blank" class="block">
+                <div class="bg-white rounded-lg shadow p-4 sm:p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs sm:text-sm font-medium text-gray-600">dbt Docs</p>
+                            <p class="text-xl sm:text-2xl font-semibold text-gray-900" id="service-dbt">
+                                <span class="inline-block h-2 w-2 bg-gray-400 rounded-full"></span>
+                            </p>
+                        </div>
+                        <div class="text-2xl sm:text-3xl">📖</div>
+                    </div>
+                </div>
+            </a>
+
+            <!-- DuckDB (Query Database) -->
+            <a href="/metabase/question/new" id="duckdb-sql-link" target="_blank" class="block">
+                <div class="bg-white rounded-lg shadow p-4 sm:p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs sm:text-sm font-medium text-gray-600">DuckDB</p>
+                            <p class="text-xl sm:text-2xl font-semibold text-gray-900" id="service-duckdb">
+                                <span class="inline-block h-2 w-2 bg-gray-400 rounded-full"></span>
+                            </p>
+                        </div>
+                        <div class="text-2xl sm:text-3xl">🦆</div>
+                    </div>
+                </div>
+            </a>
+
+            <!-- Metabase (Dashboards) -->
+            <a href="/metabase" target="_blank" class="block">
+                <div class="bg-white rounded-lg shadow p-4 sm:p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs sm:text-sm font-medium text-gray-600">Metabase</p>
+                            <p class="text-xl sm:text-2xl font-semibold text-gray-900" id="service-metabase">
+                                <span class="inline-block h-2 w-2 bg-gray-400 rounded-full"></span>
+                            </p>
+                        </div>
+                        <div class="text-2xl sm:text-3xl">📊</div>
+                    </div>
+                </div>
+            </a>
+
+            <!-- Activity Logs -->
+            <a href="/logs" class="block">
+                <div class="bg-white rounded-lg shadow p-4 sm:p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs sm:text-sm font-medium text-gray-600">Activity Logs</p>
+                            <p class="text-xl sm:text-2xl font-semibold text-gray-900" id="service-api">
+                                <span class="inline-block h-2 w-2 bg-gray-400 rounded-full"></span>
+                            </p>
+                        </div>
+                        <div class="text-2xl sm:text-3xl">📋</div>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="bg-white rounded-t-lg shadow border-b border-gray-200">
+            <nav class="flex" id="tab-navigation">
+                <button onclick="switchTab('sources')" id="tab-btn-sources" class="tab-btn active flex-1 px-6 py-4 text-sm font-medium border-b-2 border-blue-600 text-blue-600 hover:bg-gray-50 transition-colors">
+                    Data Sources
+                </button>
+                <button onclick="switchTab('models')" id="tab-btn-models" class="tab-btn flex-1 px-6 py-4 text-sm font-medium border-b-2 border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors">
+                    dbt Models
+                </button>
+                <button onclick="switchTab('activity')" id="tab-btn-activity" class="tab-btn flex-1 px-6 py-4 text-sm font-medium border-b-2 border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors">
+                    Activity
+                </button>
+            </nav>
+        </div>
+
+        <!-- Tab Content -->
+        <div id="tab-content-container">
+            <!-- Data Sources Tab -->
+            <div id="tab-sources" class="tab-content">
+                <div class="bg-white rounded-b-lg shadow">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <div class="flex items-center justify-between">
+                            <h2 class="text-lg font-semibold text-gray-900">Data Sources</h2>
+                            <button onclick="refreshSources()" class="text-sm text-blue-600 hover:text-blue-800">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rows</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Sync</th>
+                                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sources-table-body" class="bg-white divide-y divide-gray-200">
+                                <!-- Will be populated by JavaScript -->
+                                <tr>
+                                    <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                                        <div class="flex flex-col items-center space-y-2">
+                                            <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                                            </svg>
+                                            <p>Loading sources...</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- dbt Models Tab -->
+            <div id="tab-models" class="tab-content hidden">
+            <div class="bg-white rounded-lg shadow">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-lg font-semibold text-gray-900">dbt Models</h2>
+                        <button onclick="refreshDbtModels()" class="text-sm text-blue-600 hover:text-blue-800">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Model</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Schema</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rows</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Run</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dbt-models-table-body" class="bg-white divide-y divide-gray-200">
+                            <!-- Will be populated by JavaScript -->
+                            <tr>
+                                <td colspan="7" class="px-6 py-8 text-center text-gray-500">
+                                    <div class="flex flex-col items-center space-y-2">
+                                        <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                        </svg>
+                                        <p>Loading dbt models...</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            </div>
+
+            <!-- Activity Tab -->
+            <div id="tab-activity" class="tab-content hidden">
+                <div class="bg-white rounded-lg shadow">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <div class="flex items-center justify-between">
+                            <h2 class="text-lg font-semibold text-gray-900">Recent Activity</h2>
+                            <a href="/logs" class="text-sm text-blue-600 hover:text-blue-800">View Full Logs →</a>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Level</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Message</th>
+                                </tr>
+                            </thead>
+                            <tbody id="activity-log" class="bg-white divide-y divide-gray-200">
+                                <tr>
+                                    <td colspan="4" class="px-6 py-8 text-center text-gray-500 text-sm">
+                                        No recent activity
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Source Detail Modal (CSV) -->
+    <div id="upload-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div class="relative top-20 mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+            <div class="flex items-center justify-between pb-3 border-b">
+                <h3 class="text-lg font-semibold text-gray-900">
+                    Source Details: <span id="upload-source-name" class="text-blue-600"></span>
+                </h3>
+                <button onclick="closeUploadModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="mt-4 space-y-4">
+                <!-- Source Configuration (Read-only) -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h4 class="text-sm font-medium text-gray-700 mb-2">Configuration</h4>
+                    <div class="text-sm text-gray-600 space-y-1">
+                        <div><strong>Directory:</strong> <span id="upload-directory"></span></div>
+                        <div><strong>File Pattern:</strong> <span id="upload-file-pattern"></span></div>
+                        <div id="upload-notes-container" style="display: none;">
+                            <strong>Regeneration Notes:</strong>
+                            <span id="upload-notes" class="text-gray-700"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Existing Files -->
+                <div class="bg-blue-50 rounded-lg p-4">
+                    <h4 class="text-sm font-medium text-gray-700 mb-2">Existing Files</h4>
+                    <div id="csv-files-list" class="text-sm text-gray-600">
+                        <div class="flex items-center justify-center py-4">
+                            <div class="spinner mr-2"></div>
+                            <span>Loading files...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- File Upload -->
+                <form id="csv-upload-form" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Select CSV File(s)</label>
+                        <input type="file" id="csv-file" accept=".csv" multiple required
+                            class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                        <div id="selected-files-list" class="mt-2 hidden">
+                            <p class="text-sm font-medium text-gray-700">Selected files:</p>
+                            <ul id="selected-files" class="mt-1 text-sm text-gray-600 list-disc list-inside"></ul>
+                        </div>
+                        <p class="mt-1 text-sm text-gray-500">Select one or more files. All files will be added to the source directory and processed with the configured deduplication strategy</p>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-4">
+                        <button type="button" id="modal-sync-btn" onclick="event.preventDefault(); syncSourceFromModal()"
+                            class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors">
+                            🔄 Sync Now
+                        </button>
+                        <div class="flex space-x-3">
+                            <button type="button" onclick="closeUploadModal()"
+                                class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors">
+                                Close
+                            </button>
+                            <button type="submit"
+                                class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                                Upload File
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="upload-progress" class="hidden mt-4">
+                        <div class="flex items-center space-x-2 text-sm text-gray-600">
+                            <div class="spinner"></div>
+                            <span>Uploading...</span>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Source Detail Modal -->
+    <div id="source-detail-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div class="relative top-10 mx-auto p-5 border w-full max-w-4xl shadow-lg rounded-md bg-white mb-10">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between pb-4 border-b">
+                <h3 class="text-xl font-semibold text-gray-900">
+                    Source Details: <span id="detail-source-name" class="text-blue-600"></span>
+                </h3>
+                <button onclick="closeSourceDetail()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Modal Content -->
+            <div class="mt-4 space-y-6">
+                <!-- Loading State -->
+                <div id="detail-loading" class="hidden flex items-center justify-center py-12">
+                    <div class="spinner"></div>
+                    <span class="ml-3 text-gray-600">Loading source details...</span>
+                </div>
+
+                <!-- Content -->
+                <div id="detail-content" class="hidden space-y-6">
+                    <!-- Stats Overview -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="bg-blue-50 p-4 rounded-lg">
+                            <div class="text-sm text-gray-600">Total Rows</div>
+                            <div id="detail-row-count" class="text-2xl font-bold text-gray-900">-</div>
+                        </div>
+                        <div class="bg-purple-50 p-4 rounded-lg">
+                            <div class="text-sm text-gray-600">Sync Count</div>
+                            <div id="detail-sync-count" class="text-2xl font-bold text-gray-900">0</div>
+                        </div>
+                    </div>
+
+                    <!-- Data Freshness Indicator -->
+                    <div class="mt-4">
+                        <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                            <div class="flex items-center justify-between">
+                                <div class="text-sm font-medium text-gray-600">Data Freshness</div>
+                                <div id="detail-freshness">
+                                    <span class="px-3 py-1 text-sm font-semibold rounded-full bg-gray-100 text-gray-800">Loading...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Error Alert (shown only if last sync failed) -->
+                    <div id="detail-error-alert" class="hidden">
+                        <div class="bg-red-50 border-l-4 border-red-400 p-4 rounded-lg">
+                            <div class="flex">
+                                <div class="flex-shrink-0">
+                                    <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                                    </svg>
+                                </div>
+                                <div class="ml-3 flex-1">
+                                    <h3 class="text-sm font-medium text-red-800">Last Sync Failed</h3>
+                                    <div id="detail-error-message" class="mt-2 text-sm text-red-700">
+                                        <pre class="log-message text-red-700"></pre>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Configuration -->
+                    <div>
+                        <h4 class="text-lg font-semibold text-gray-900 mb-3">Configuration</h4>
+                        <div class="bg-gray-50 rounded-lg p-4 overflow-auto max-h-96">
+                            <pre id="detail-config" class="text-sm text-gray-700 whitespace-pre-wrap"></pre>
+                        </div>
+                    </div>
+
+                    <!-- Sync History -->
+                    <div>
+                        <h4 class="text-lg font-semibold text-gray-900 mb-3">Sync History</h4>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Timestamp</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sync Mode</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="detail-history" class="bg-white divide-y divide-gray-200">
+                                    <!-- History rows will be inserted here -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="detail-no-history" class="hidden text-center py-8 text-gray-500">
+                            No sync history available
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed bottom-4 right-4 space-y-2 z-50">
+        <!-- Toasts will be added here dynamically -->
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-gray-200 mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div class="flex items-center justify-between text-sm text-gray-500">
+                <div>
+                    🍡 Dango v0.1.0 - Local Data Platform
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="/api/docs" target="_blank" class="hover:text-gray-700">API Docs</a>
+                    <a href="https://github.com/yourusername/dango" target="_blank" class="hover:text-gray-700">GitHub</a>
+                    <a href="/help" class="hover:text-gray-700">Help</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script src="/static/js/app.js?v=1761590000"></script>
+</body>
+</html>

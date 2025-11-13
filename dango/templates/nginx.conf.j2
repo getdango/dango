@@ -1,0 +1,110 @@
+# Nginx configuration for Dango reverse proxy
+# Handles Metabase at /metabase and dbt docs at root
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Logging
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    # Gzip compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+    # Upstream servers
+    upstream metabase {
+        server metabase:3000;
+    }
+
+    upstream dbt_docs {
+        server dbt-docs:80;
+    }
+
+    server {
+        listen 80;
+        server_name localhost;
+
+        # Increase buffer sizes for Metabase
+        proxy_buffer_size 128k;
+        proxy_buffers 4 256k;
+        proxy_busy_buffers_size 256k;
+
+        # dbt Docs at root /
+        location / {
+            proxy_pass http://dbt_docs/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Metabase at /metabase
+        # This is the tricky part - Metabase doesn't natively support subpaths
+        # We need to rewrite all requests
+        location /metabase/ {
+            # Remove /metabase prefix and proxy to root of Metabase
+            rewrite ^/metabase(/.*)$ $1 break;
+
+            proxy_pass http://metabase;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # Metabase-specific headers
+            proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Port $server_port;
+
+            # WebSocket support for Metabase
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+
+            # Timeouts for long-running queries
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 75s;
+
+            # CRITICAL: Rewrite responses to add /metabase prefix back
+            # This uses sub_filter to rewrite HTML content
+            sub_filter_types text/html text/css text/javascript application/javascript application/json;
+            sub_filter_once off;
+            sub_filter 'src="/' 'src="/metabase/';
+            sub_filter 'href="/' 'href="/metabase/';
+            sub_filter 'url(/' 'url(/metabase/';
+            sub_filter '"/' '"/metabase/';
+            sub_filter "url('/" "url('/metabase/";
+        }
+
+        # Handle Metabase API requests specifically
+        location /metabase/api/ {
+            rewrite ^/metabase(/.*)$ $1 break;
+
+            proxy_pass http://metabase;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            proxy_http_version 1.1;
+            proxy_read_timeout 300s;
+        }
+
+        # Handle Metabase static assets
+        location /metabase/app/ {
+            rewrite ^/metabase(/.*)$ $1 break;
+
+            proxy_pass http://metabase;
+            proxy_set_header Host $host;
+
+            # Cache static assets
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+}

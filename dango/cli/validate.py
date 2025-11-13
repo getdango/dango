@@ -1,0 +1,549 @@
+"""
+Project Validation
+
+Validates Dango project configuration and resources.
+
+Created: MVP Week 1 Day 5 (Oct 27, 2025)
+"""
+
+from pathlib import Path
+from typing import Dict, List, Any, Optional
+import importlib.util
+import subprocess
+
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+
+from dango.config import ConfigLoader
+
+console = Console()
+
+
+class ValidationResult:
+    """Result of a validation check"""
+
+    def __init__(self, name: str, status: str, message: str = ""):
+        """
+        Initialize validation result
+
+        Args:
+            name: Name of check
+            status: Status (pass, warn, fail)
+            message: Additional message
+        """
+        self.name = name
+        self.status = status  # pass, warn, fail
+        self.message = message
+
+    def __repr__(self):
+        return f"ValidationResult({self.name}, {self.status})"
+
+
+class ProjectValidator:
+    """Validates Dango project configuration and setup"""
+
+    def __init__(self, project_root: Path):
+        """
+        Initialize validator
+
+        Args:
+            project_root: Path to project root
+        """
+        self.project_root = project_root
+        self.results: List[ValidationResult] = []
+
+    def validate_all(self) -> Dict[str, Any]:
+        """
+        Run all validation checks
+
+        Returns:
+            Validation summary
+        """
+        console.print("[bold cyan]🔍 Validating Dango Project[/bold cyan]\n")
+
+        # Run all checks
+        self._check_project_structure()
+        self._check_config_files()
+        self._check_data_sources()
+        self._check_dbt_setup()
+        self._check_database()
+        self._check_dependencies()
+        self._check_permissions()
+
+        # Summarize results
+        summary = self._create_summary()
+        self._display_results()
+
+        return summary
+
+    def _check_project_structure(self):
+        """Check if project directory structure is correct"""
+        required_dirs = [
+            ".dango",
+            "data",
+            "dbt",
+            "dbt/models",
+            "dbt/models/staging",
+        ]
+
+        for dir_path in required_dirs:
+            full_path = self.project_root / dir_path
+            if full_path.exists():
+                self.results.append(ValidationResult(
+                    f"Directory: {dir_path}",
+                    "pass"
+                ))
+            else:
+                self.results.append(ValidationResult(
+                    f"Directory: {dir_path}",
+                    "warn",
+                    f"Missing directory: {dir_path}"
+                ))
+
+    def _check_config_files(self):
+        """Check if configuration files exist and are valid"""
+        # Check project.yml
+        project_yml = self.project_root / ".dango" / "project.yml"
+        if project_yml.exists():
+            try:
+                loader = ConfigLoader(self.project_root)
+                config = loader.load_config()
+
+                self.results.append(ValidationResult(
+                    "Config: project.yml",
+                    "pass",
+                    f"Project: {config.project.name}"
+                ))
+            except Exception as e:
+                self.results.append(ValidationResult(
+                    "Config: project.yml",
+                    "fail",
+                    f"Invalid YAML: {str(e)[:100]}"
+                ))
+        else:
+            self.results.append(ValidationResult(
+                "Config: project.yml",
+                "fail",
+                "File not found. Run 'dango init' first."
+            ))
+
+        # Check sources.yml
+        sources_yml = self.project_root / ".dango" / "sources.yml"
+        if sources_yml.exists():
+            try:
+                loader = ConfigLoader(self.project_root)
+                config = loader.load_config()
+                sources = config.sources.sources  # Direct attribute, not a method
+
+                self.results.append(ValidationResult(
+                    "Config: sources.yml",
+                    "pass",
+                    f"{len(sources)} source(s) configured"
+                ))
+            except Exception as e:
+                self.results.append(ValidationResult(
+                    "Config: sources.yml",
+                    "fail",
+                    f"Invalid YAML: {str(e)[:100]}"
+                ))
+        else:
+            self.results.append(ValidationResult(
+                "Config: sources.yml",
+                "warn",
+                "No sources configured. Run 'dango source add' to add sources."
+            ))
+
+    def _check_data_sources(self):
+        """Check if data sources are properly configured"""
+        try:
+            loader = ConfigLoader(self.project_root)
+            config = loader.load_config()
+            sources = config.sources.get_enabled_sources()
+
+            if not sources:
+                self.results.append(ValidationResult(
+                    "Data Sources",
+                    "warn",
+                    "No enabled sources found"
+                ))
+                return
+
+            for source in sources:
+                # Check if source has required parameters
+                missing_params = []
+
+                if source.type == "csv":
+                    if not source.config.get("directory"):
+                        missing_params.append("directory")
+                elif source.type in ["stripe", "shopify", "hubspot"]:
+                    if not source.credentials.get("api_key"):
+                        missing_params.append("api_key")
+
+                if missing_params:
+                    self.results.append(ValidationResult(
+                        f"Source: {source.name}",
+                        "fail",
+                        f"Missing required parameters: {', '.join(missing_params)}"
+                    ))
+                else:
+                    self.results.append(ValidationResult(
+                        f"Source: {source.name}",
+                        "pass",
+                        f"Type: {source.type}"
+                    ))
+
+        except Exception as e:
+            self.results.append(ValidationResult(
+                "Data Sources",
+                "fail",
+                f"Error checking sources: {str(e)[:100]}"
+            ))
+
+    def _check_dbt_setup(self):
+        """Check if dbt is properly configured"""
+        # Check dbt_project.yml
+        dbt_project_yml = self.project_root / "dbt" / "dbt_project.yml"
+        if dbt_project_yml.exists():
+            self.results.append(ValidationResult(
+                "dbt: dbt_project.yml",
+                "pass"
+            ))
+        else:
+            self.results.append(ValidationResult(
+                "dbt: dbt_project.yml",
+                "fail",
+                "File not found"
+            ))
+
+        # Check profiles.yml
+        profiles_yml = self.project_root / "dbt" / "profiles.yml"
+        if profiles_yml.exists():
+            self.results.append(ValidationResult(
+                "dbt: profiles.yml",
+                "pass"
+            ))
+        else:
+            self.results.append(ValidationResult(
+                "dbt: profiles.yml",
+                "fail",
+                "File not found"
+            ))
+
+        # Check if dbt models exist
+        staging_dir = self.project_root / "dbt" / "models" / "staging"
+        if staging_dir.exists():
+            staging_models = list(staging_dir.glob("*.sql"))
+            if staging_models:
+                self.results.append(ValidationResult(
+                    "dbt: Staging models",
+                    "pass",
+                    f"{len(staging_models)} model(s) found"
+                ))
+            else:
+                self.results.append(ValidationResult(
+                    "dbt: Staging models",
+                    "warn",
+                    "No staging models found. Run 'dango sync' to auto-generate."
+                ))
+
+        # Validate dbt models by running dbt parse
+        self._validate_dbt_models()
+
+    def _validate_dbt_models(self):
+        """Validate dbt models by running dbt parse"""
+        dbt_dir = self.project_root / "dbt"
+
+        if not dbt_dir.exists():
+            return
+
+        try:
+            # Run dbt parse to validate all models
+            result = subprocess.run(
+                ["dbt", "parse", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)],
+                cwd=str(self.project_root),
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+
+            if result.returncode == 0:
+                # Parse successful - extract stats from output
+                output = result.stdout
+
+                # Look for model count in output
+                import re
+                models_match = re.search(r'(\d+) model', output)
+                model_count = models_match.group(1) if models_match else "unknown number of"
+
+                self.results.append(ValidationResult(
+                    "dbt: Model validation",
+                    "pass",
+                    f"All {model_count} model(s) validated successfully"
+                ))
+            else:
+                # Parse failed - extract error message
+                error_output = result.stderr or result.stdout
+
+                # Try to extract meaningful error
+                error_lines = error_output.split('\n')
+                error_msg = "Syntax errors found"
+
+                # Look for specific error patterns
+                for line in error_lines:
+                    if 'ERROR' in line or 'Error' in line:
+                        # Extract the actual error message
+                        error_msg = line.strip()
+                        break
+
+                self.results.append(ValidationResult(
+                    "dbt: Model validation",
+                    "fail",
+                    f"{error_msg}. Run 'dbt parse' for details."
+                ))
+
+        except subprocess.TimeoutExpired:
+            self.results.append(ValidationResult(
+                "dbt: Model validation",
+                "warn",
+                "Validation timed out (>60s). Models may be complex."
+            ))
+        except FileNotFoundError:
+            self.results.append(ValidationResult(
+                "dbt: Model validation",
+                "fail",
+                "dbt command not found. Ensure dbt is installed."
+            ))
+        except Exception as e:
+            self.results.append(ValidationResult(
+                "dbt: Model validation",
+                "warn",
+                f"Could not validate models: {str(e)[:100]}"
+            ))
+
+    def _check_database(self):
+        """Check if DuckDB database exists and is accessible"""
+        db_path = self.project_root / "data" / "warehouse.duckdb"
+
+        if db_path.exists():
+            try:
+                import duckdb
+                con = duckdb.connect(str(db_path), read_only=True)
+
+                # Check if database has tables
+                tables = con.execute("SHOW TABLES").fetchall()
+                con.close()
+
+                if tables:
+                    self.results.append(ValidationResult(
+                        "Database: DuckDB",
+                        "pass",
+                        f"{len(tables)} table(s) found"
+                    ))
+                else:
+                    self.results.append(ValidationResult(
+                        "Database: DuckDB",
+                        "warn",
+                        "Database is empty. Run 'dango sync' to load data."
+                    ))
+
+            except Exception as e:
+                self.results.append(ValidationResult(
+                    "Database: DuckDB",
+                    "fail",
+                    f"Cannot open database: {str(e)[:100]}"
+                ))
+        else:
+            self.results.append(ValidationResult(
+                "Database: DuckDB",
+                "warn",
+                "Database not found. Run 'dango sync' to create."
+            ))
+
+    def _check_dependencies(self):
+        """Check if required Python packages are installed"""
+        required_packages = [
+            ("duckdb", "DuckDB"),
+            ("dlt", "dlt"),
+            ("dbt.adapters.duckdb", "dbt-duckdb"),  # Module name is different from package name
+            ("rich", "Rich"),
+            ("click", "Click"),
+            ("pydantic", "Pydantic"),
+            ("jinja2", "Jinja2"),
+            ("watchdog", "Watchdog"),
+        ]
+
+        for module_name, display_name in required_packages:
+            try:
+                spec = importlib.util.find_spec(module_name)
+                if spec is not None:
+                    self.results.append(ValidationResult(
+                        f"Package: {display_name}",
+                        "pass"
+                    ))
+                else:
+                    self.results.append(ValidationResult(
+                        f"Package: {display_name}",
+                        "fail",
+                        f"Package not installed: {display_name}"
+                    ))
+            except Exception:
+                self.results.append(ValidationResult(
+                    f"Package: {display_name}",
+                    "fail",
+                    f"Package not installed: {display_name}"
+                ))
+
+        # Check dbt CLI
+        try:
+            result = subprocess.run(
+                ["dbt", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                # Extract version from output
+                version_line = result.stdout.split('\n')[0]
+                self.results.append(ValidationResult(
+                    "CLI: dbt",
+                    "pass",
+                    version_line
+                ))
+            else:
+                self.results.append(ValidationResult(
+                    "CLI: dbt",
+                    "fail",
+                    "dbt command failed"
+                ))
+        except FileNotFoundError:
+            self.results.append(ValidationResult(
+                "CLI: dbt",
+                "fail",
+                "dbt not found in PATH"
+            ))
+        except Exception as e:
+            self.results.append(ValidationResult(
+                "CLI: dbt",
+                "fail",
+                f"Error checking dbt: {str(e)[:100]}"
+            ))
+
+    def _check_permissions(self):
+        """Check if directories are writable"""
+        check_dirs = [
+            "data",
+            "dbt/models",
+            ".dango",
+        ]
+
+        for dir_path in check_dirs:
+            full_path = self.project_root / dir_path
+            if full_path.exists():
+                # Try to create a test file
+                test_file = full_path / ".dango_test_write"
+                try:
+                    test_file.touch()
+                    test_file.unlink()
+                    self.results.append(ValidationResult(
+                        f"Permissions: {dir_path}",
+                        "pass"
+                    ))
+                except Exception:
+                    self.results.append(ValidationResult(
+                        f"Permissions: {dir_path}",
+                        "fail",
+                        "Directory is not writable"
+                    ))
+
+    def _create_summary(self) -> Dict[str, Any]:
+        """Create validation summary"""
+        pass_count = sum(1 for r in self.results if r.status == "pass")
+        warn_count = sum(1 for r in self.results if r.status == "warn")
+        fail_count = sum(1 for r in self.results if r.status == "fail")
+
+        return {
+            "total": len(self.results),
+            "pass": pass_count,
+            "warn": warn_count,
+            "fail": fail_count,
+            "results": self.results,
+            "is_valid": fail_count == 0
+        }
+
+    def _display_results(self):
+        """Display validation results in a table"""
+        # Group by category
+        categories = {}
+        for result in self.results:
+            category = result.name.split(":")[0] if ":" in result.name else "General"
+            if category not in categories:
+                categories[category] = []
+            categories[category].append(result)
+
+        # Display each category
+        for category, results in categories.items():
+            console.print(f"\n[bold]{category}[/bold]")
+
+            table = Table(show_header=True, header_style="bold cyan", box=None)
+            table.add_column("Check", style="white")
+            table.add_column("Status", style="white")
+            table.add_column("Details", style="dim")
+
+            for result in results:
+                # Status emoji and color
+                if result.status == "pass":
+                    status_str = "[green]✓ PASS[/green]"
+                elif result.status == "warn":
+                    status_str = "[yellow]⚠ WARN[/yellow]"
+                else:
+                    status_str = "[red]✗ FAIL[/red]"
+
+                # Clean name (remove category prefix)
+                clean_name = result.name.split(": ", 1)[1] if ": " in result.name else result.name
+
+                table.add_row(
+                    clean_name,
+                    status_str,
+                    result.message
+                )
+
+            console.print(table)
+
+        # Overall summary
+        summary = self._create_summary()
+
+        console.print()
+        if summary["is_valid"]:
+            console.print(Panel(
+                f"[green]✓ Project is valid![/green]\n\n"
+                f"Passed: {summary['pass']}\n"
+                f"Warnings: {summary['warn']}\n"
+                f"Failed: {summary['fail']}",
+                title="Validation Summary",
+                border_style="green"
+            ))
+        else:
+            console.print(Panel(
+                f"[red]✗ Project has issues[/red]\n\n"
+                f"Passed: {summary['pass']}\n"
+                f"Warnings: {summary['warn']}\n"
+                f"Failed: {summary['fail']}\n\n"
+                f"[dim]Fix the failed checks above and run 'dango validate' again.[/dim]",
+                title="Validation Summary",
+                border_style="red"
+            ))
+
+
+def validate_project(project_root: Path) -> Dict[str, Any]:
+    """
+    Validate a Dango project
+
+    Args:
+        project_root: Path to project root
+
+    Returns:
+        Validation summary
+    """
+    validator = ProjectValidator(project_root)
+    return validator.validate_all()

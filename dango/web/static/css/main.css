@@ -1,0 +1,200 @@
+/* Dango Dashboard Custom Styles */
+
+/* Smooth scrolling for activity log */
+#activity-log {
+    scroll-behavior: smooth;
+}
+
+/* Custom scrollbar for activity log */
+#activity-log::-webkit-scrollbar {
+    width: 6px;
+}
+
+#activity-log::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+#activity-log::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+}
+
+#activity-log::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Pulse animation for syncing status */
+@keyframes pulse-slow {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.animate-pulse-slow {
+    animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Loading spinner */
+.spinner {
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #3498db;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Smooth transitions for all interactive elements */
+button, a {
+    transition: all 0.2s ease-in-out;
+}
+
+/* Smooth fade-in for table rows */
+tbody tr {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Code blocks */
+code {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.875rem;
+}
+
+/* Responsive table improvements */
+@media (max-width: 768px) {
+    /* Make table scrollable on mobile */
+    .overflow-x-auto {
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Reduce padding on mobile */
+    .px-6 {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+
+    /* Stack service cards on mobile */
+    .grid-cols-1.md\:grid-cols-4 {
+        gap: 0.75rem;
+    }
+
+    /* Smaller fonts on mobile */
+    h1 {
+        font-size: 1.5rem !important;
+    }
+
+    h2 {
+        font-size: 1.125rem !important;
+    }
+}
+
+/* Touch-friendly buttons on mobile */
+@media (max-width: 768px) {
+    button {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 0.5rem 1rem;
+    }
+}
+
+/* Status badge animations */
+.rounded-full {
+    transition: background-color 0.3s ease, transform 0.2s ease;
+}
+
+/* Hover effects for service cards only (not tab content) */
+a > .bg-white.rounded-lg.shadow {
+    transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+a > .bg-white.rounded-lg.shadow:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    transform: translateY(-2px);
+}
+
+/* Smooth activity log entries */
+#activity-log > div {
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Compact formatting for activity log table */
+#activity-log tr {
+    line-height: 1.4;
+}
+
+/* Compact formatting for full logs page table */
+#logs-table-body td {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    line-height: 1.4; /* Compact line height */
+    padding-top: 0.5rem !important; /* Override default padding */
+    padding-bottom: 0.5rem !important;
+}
+
+#logs-table-body td:last-child {
+    /* Message column - allow wrapping */
+    max-width: 600px;
+    white-space: normal; /* Allow normal wrapping */
+}
+
+/* Formatted log messages - preserve newlines and spacing */
+pre.log-message {
+    font-family: 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+    font-size: 0.8125rem; /* 13px - compact */
+    white-space: pre-wrap; /* Preserve newlines but wrap long lines */
+    word-wrap: break-word;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    line-height: 1.5;
+}
+
+/* Progress bar for syncing (future enhancement) */
+.progress-bar {
+    height: 4px;
+    background: linear-gradient(90deg, #3498db, #2ecc71);
+    background-size: 200% 100%;
+    animation: progressFlow 2s linear infinite;
+}
+
+@keyframes progressFlow {
+    0% {
+        background-position: 0% 50%;
+    }
+    100% {
+        background-position: 100% 50%;
+    }
+}

@@ -1,0 +1,18 @@
+# Include documentation and license files
+include README.md
+include LICENSE
+include CHANGELOG.md
+
+# Include all template files
+recursive-include dango/templates *
+
+# Include all web static files
+recursive-include dango/web/static *
+
+# Include dlt source files (README, helpers, settings)
+recursive-include dango/ingestion/dlt_sources *
+
+# Exclude Python cache and compiled files
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude .DS_Store

@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Health - Dango</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍡</text></svg>">
+
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Custom Tailwind Configuration -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'dango': {
+                            50: '#fef2f2',
+                            100: '#fee2e2',
+                            200: '#fecaca',
+                            300: '#fca5a5',
+                            400: '#f87171',
+                            500: '#ef4444',
+                            600: '#dc2626',
+                            700: '#b91c1c',
+                            800: '#991b1b',
+                            900: '#7f1d1d',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/main.css?v=1761590000">
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2 sm:space-x-3">
+                    <div class="text-2xl sm:text-3xl">🍡</div>
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Dango</h1>
+                        <p class="text-xs sm:text-sm text-gray-500">Health</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Bar -->
+    <nav class="bg-gray-800 shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-12">
+                <div class="flex items-center space-x-1 sm:space-x-4">
+                    <a href="/" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
+                        Overview
+                    </a>
+                    <a href="/health" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-gray-900 hover:bg-gray-700 transition-colors">
+                        Health
+                    </a>
+                    <a href="/dbt-docs" target="_blank" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors hidden sm:block">
+                        Data Catalog
+                    </a>
+                    <a href="/metabase/question/new" target="_blank" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors hidden sm:block">
+                        Query Database
+                    </a>
+                    <a href="/metabase" target="_blank" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
+                        Dashboards
+                    </a>
+                    <a href="/logs" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors hidden sm:block">
+                        Activity Logs
+                    </a>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-xs text-gray-400 hidden md:inline">Dango v0.1.0</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <!-- Status Banner -->
+        <div id="status-banner" class="mb-6 p-4 rounded-lg border-2 hidden">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <span id="status-icon" class="text-2xl"></span>
+                </div>
+                <div class="ml-3">
+                    <h3 id="status-title" class="text-lg font-semibold"></h3>
+                    <div id="status-issues" class="mt-1 text-sm"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Key Metrics Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+            <!-- Database Health -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-medium text-gray-600">🗄️ Database</h3>
+                    <span id="db-status-badge" class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Loading...</span>
+                </div>
+                <div id="db-size" class="text-2xl font-bold text-gray-900">-</div>
+                <div id="db-tables" class="text-sm text-gray-500 mt-1">-</div>
+            </div>
+
+            <!-- Disk Space - Hidden for MVP -->
+            <div class="bg-white rounded-lg shadow p-6 hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-medium text-gray-600">💾 Disk Space</h3>
+                    <span id="disk-status-badge" class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Loading...</span>
+                </div>
+                <div id="disk-free" class="text-2xl font-bold text-gray-900">-</div>
+                <div id="disk-used" class="text-sm text-gray-500 mt-1">-</div>
+            </div>
+
+            <!-- Sync Status -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-medium text-gray-600">🔄 Syncs (24h)</h3>
+                    <span id="sync-status-badge" class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Loading...</span>
+                </div>
+                <div id="sync-status" class="text-2xl font-bold text-gray-900">-</div>
+                <div id="sync-enabled" class="text-sm text-gray-500 mt-1">-</div>
+            </div>
+
+            <!-- dbt Status -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-medium text-gray-600">⚙️ Transformations</h3>
+                    <span id="dbt-status-badge" class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Loading...</span>
+                </div>
+                <div id="dbt-status" class="text-2xl font-bold text-gray-900">-</div>
+                <div id="dbt-info" class="text-sm text-gray-500 mt-1">-</div>
+            </div>
+        </div>
+
+        <!-- Recent Issues -->
+        <div class="bg-white rounded-lg shadow mb-8">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-900">Recent Issues (Last 24h)</h2>
+            </div>
+            <div class="p-6">
+                <div id="issues-list" class="space-y-4">
+                    <div class="text-center text-gray-500 py-4">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detailed Stats -->
+        <div class="grid grid-cols-1 gap-6">
+            <!-- Database Details -->
+            <div class="bg-white rounded-lg shadow">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <h2 class="text-lg font-semibold text-gray-900">Database Details</h2>
+                </div>
+                <div class="p-6">
+                    <dl class="space-y-3">
+                        <div class="flex justify-between">
+                            <dt class="text-sm text-gray-600">Raw Tables</dt>
+                            <dd id="db-raw-tables" class="text-sm font-medium text-gray-900">-</dd>
+                        </div>
+                        <div class="flex justify-between">
+                            <dt class="text-sm text-gray-600">Staging Tables</dt>
+                            <dd id="db-staging-tables" class="text-sm font-medium text-gray-900">-</dd>
+                        </div>
+                        <div class="flex justify-between">
+                            <dt class="text-sm text-gray-600">Marts Tables</dt>
+                            <dd id="db-marts-tables" class="text-sm font-medium text-gray-900">-</dd>
+                        </div>
+                        <div class="flex justify-between">
+                            <dt class="text-sm text-gray-600">Total Size (MB)</dt>
+                            <dd id="db-size-mb" class="text-sm font-medium text-gray-900">-</dd>
+                        </div>
+                    </dl>
+                </div>
+            </div>
+
+            <!-- Disk Details - Hidden for MVP -->
+            <div class="bg-white rounded-lg shadow hidden">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <h2 class="text-lg font-semibold text-gray-900">Disk Usage</h2>
+                </div>
+                <div class="p-6">
+                    <dl class="space-y-3">
+                        <div class="flex justify-between">
+                            <dt class="text-sm text-gray-600">Total Capacity</dt>
+                            <dd id="disk-total" class="text-sm font-medium text-gray-900">-</dd>
+                        </div>
+                        <div class="flex justify-between">
+                            <dt class="text-sm text-gray-600">Used Space</dt>
+                            <dd id="disk-used-gb" class="text-sm font-medium text-gray-900">-</dd>
+                        </div>
+                        <div class="flex justify-between">
+                            <dt class="text-sm text-gray-600">Free Space</dt>
+                            <dd id="disk-free-gb" class="text-sm font-medium text-gray-900">-</dd>
+                        </div>
+                        <div class="flex justify-between">
+                            <dt class="text-sm text-gray-600">Usage Percentage</dt>
+                            <dd id="disk-used-pct" class="text-sm font-medium text-gray-900">-</dd>
+                        </div>
+                    </dl>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-gray-200 mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex items-center justify-between">
+                <p class="text-sm text-gray-500">Last updated: <span id="last-updated">-</span></p>
+                <button onclick="refreshHealth()" class="text-sm text-blue-600 hover:text-blue-800">
+                    🔄 Refresh
+                </button>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script>
+        let refreshInterval;
+
+        async function fetchHealth() {
+            try {
+                const response = await fetch('/api/health/platform');
+                const health = await response.json();
+
+                updateHealthUI(health);
+
+                // Update last updated time
+                document.getElementById('last-updated').textContent = new Date().toLocaleString();
+            } catch (error) {
+                console.error('Error fetching platform health:', error);
+                showError('Failed to load platform health');
+            }
+        }
+
+        function updateHealthUI(health) {
+            // Status Banner
+            const banner = document.getElementById('status-banner');
+            const statusIcon = document.getElementById('status-icon');
+            const statusTitle = document.getElementById('status-title');
+            const statusIssues = document.getElementById('status-issues');
+
+            banner.classList.remove('hidden', 'bg-green-50', 'border-green-200', 'bg-yellow-50', 'border-yellow-200', 'bg-red-50', 'border-red-200');
+
+            if (health.status === 'healthy') {
+                banner.classList.add('bg-green-50', 'border-green-200');
+                statusIcon.textContent = '✅';
+                statusTitle.textContent = 'Platform Healthy';
+                statusTitle.className = 'text-lg font-semibold text-green-800';
+                statusIssues.textContent = 'All systems operating normally';
+                statusIssues.className = 'mt-1 text-sm text-green-700';
+            } else if (health.status === 'warning') {
+                banner.classList.add('bg-yellow-50', 'border-yellow-200');
+                statusIcon.textContent = '⚠️';
+                statusTitle.textContent = 'Platform Has Warnings';
+                statusTitle.className = 'text-lg font-semibold text-yellow-800';
+                statusIssues.innerHTML = health.warnings.map(w => `• ${w}`).join('<br>');
+                statusIssues.className = 'mt-1 text-sm text-yellow-700';
+            } else if (health.status === 'critical') {
+                banner.classList.add('bg-red-50', 'border-red-200');
+                statusIcon.textContent = '❌';
+                statusTitle.textContent = 'Critical Issues Detected';
+                statusTitle.className = 'text-lg font-semibold text-red-800';
+                const allIssues = [...health.critical_issues, ...health.warnings];
+                statusIssues.innerHTML = allIssues.map(i => `• ${i}`).join('<br>');
+                statusIssues.className = 'mt-1 text-sm text-red-700';
+            }
+
+            // Database Metrics
+            const db = health.database;
+            document.getElementById('db-size').textContent = `${db.size_gb} GB`;
+            document.getElementById('db-tables').textContent = `${db.tables} tables total`;
+            document.getElementById('db-raw-tables').textContent = db.raw_tables;
+            document.getElementById('db-staging-tables').textContent = db.staging_tables;
+            document.getElementById('db-marts-tables').textContent = db.marts_tables;
+            document.getElementById('db-size-mb').textContent = `${db.size_mb} MB`;
+
+            const dbBadge = document.getElementById('db-status-badge');
+            dbBadge.className = 'px-2 py-1 text-xs rounded-full ';
+            if (db.status === 'healthy' || db.status === 'new') {
+                dbBadge.className += 'bg-green-100 text-green-800';
+                dbBadge.textContent = 'Healthy';
+            } else if (db.status === 'large') {
+                dbBadge.className += 'bg-yellow-100 text-yellow-800';
+                dbBadge.textContent = 'Large';
+            } else if (db.status === 'critical') {
+                dbBadge.className += 'bg-red-100 text-red-800';
+                dbBadge.textContent = 'Critical';
+            }
+
+            // Disk Metrics
+            const disk = health.disk;
+            document.getElementById('disk-free').textContent = `${disk.free_gb} GB`;
+            document.getElementById('disk-used').textContent = `${disk.used_pct}% used`;
+            document.getElementById('disk-total').textContent = `${disk.total_gb} GB`;
+            document.getElementById('disk-used-gb').textContent = `${disk.used_gb} GB`;
+            document.getElementById('disk-free-gb').textContent = `${disk.free_gb} GB`;
+            document.getElementById('disk-used-pct').textContent = `${disk.used_pct}%`;
+
+            const diskBadge = document.getElementById('disk-status-badge');
+            diskBadge.className = 'px-2 py-1 text-xs rounded-full ';
+            if (disk.status === 'healthy') {
+                diskBadge.className += 'bg-green-100 text-green-800';
+                diskBadge.textContent = 'Healthy';
+            } else if (disk.status === 'warning') {
+                diskBadge.className += 'bg-yellow-100 text-yellow-800';
+                diskBadge.textContent = 'Low Space';
+            } else if (disk.status === 'critical') {
+                diskBadge.className += 'bg-red-100 text-red-800';
+                diskBadge.textContent = 'Critical';
+            }
+
+            // Sync Status
+            const failedSyncs = health.sync_failures.length;
+            const totalSources = health.total_sources;
+            const enabledSources = health.enabled_sources;
+
+            document.getElementById('sync-status').textContent = failedSyncs === 0 ? 'All Pass' : `${failedSyncs} Failed`;
+            document.getElementById('sync-enabled').textContent = `${enabledSources} sources enabled`;
+
+            const syncBadge = document.getElementById('sync-status-badge');
+            syncBadge.className = 'px-2 py-1 text-xs rounded-full ';
+            if (failedSyncs === 0) {
+                syncBadge.className += 'bg-green-100 text-green-800';
+                syncBadge.textContent = 'All Pass';
+            } else {
+                syncBadge.className += 'bg-red-100 text-red-800';
+                syncBadge.textContent = `${failedSyncs} Failed`;
+            }
+
+            // dbt Status
+            const dbtFailed = health.dbt_failures.length;
+            document.getElementById('dbt-status').textContent = dbtFailed === 0 ? 'All Pass' : `${dbtFailed} Failed`;
+            document.getElementById('dbt-info').textContent = dbtFailed === 0 ? 'Transformations OK' : 'Check logs';
+
+            const dbtBadge = document.getElementById('dbt-status-badge');
+            dbtBadge.className = 'px-2 py-1 text-xs rounded-full ';
+            if (dbtFailed === 0) {
+                dbtBadge.className += 'bg-green-100 text-green-800';
+                dbtBadge.textContent = 'All Pass';
+            } else {
+                dbtBadge.className += 'bg-red-100 text-red-800';
+                dbtBadge.textContent = 'Failures';
+            }
+
+            // Recent Issues
+            const issuesList = document.getElementById('issues-list');
+            const allIssues = [
+                ...health.sync_failures.map(s => ({
+                    type: 'Sync Failure',
+                    icon: '🔄',
+                    title: s.source,
+                    message: s.last_error,
+                    count: s.count
+                })),
+                ...health.dbt_failures.map(d => ({
+                    type: 'dbt Failure',
+                    icon: '⚙️',
+                    title: 'Transformation Failed',
+                    message: `${d.failed_models} model(s) failed`,
+                    models: d.models
+                }))
+            ];
+
+            if (allIssues.length === 0) {
+                issuesList.innerHTML = '<div class="text-center text-green-600 py-4">✅ No issues in the last 24 hours</div>';
+            } else {
+                issuesList.innerHTML = allIssues.map(issue => `
+                    <div class="border border-red-200 rounded-lg p-4 bg-red-50">
+                        <div class="flex items-start">
+                            <div class="flex-shrink-0">
+                                <span class="text-2xl">${issue.icon}</span>
+                            </div>
+                            <div class="ml-3 flex-1">
+                                <h4 class="text-sm font-semibold text-red-800">${issue.type}: ${issue.title}</h4>
+                                <p class="mt-1 text-sm text-red-700">${issue.message}</p>
+                                ${issue.count ? `<p class="mt-1 text-xs text-red-600">Failed ${issue.count} time(s)</p>` : ''}
+                                ${issue.models ? `<p class="mt-1 text-xs text-red-600 font-mono">${issue.models.join(', ')}</p>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function showError(message) {
+            const banner = document.getElementById('status-banner');
+            banner.classList.remove('hidden');
+            banner.classList.add('bg-red-50', 'border-red-200');
+            document.getElementById('status-icon').textContent = '❌';
+            document.getElementById('status-title').textContent = 'Error';
+            document.getElementById('status-title').className = 'text-lg font-semibold text-red-800';
+            document.getElementById('status-issues').textContent = message;
+            document.getElementById('status-issues').className = 'mt-1 text-sm text-red-700';
+        }
+
+        function refreshHealth() {
+            fetchHealth();
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchHealth();
+
+            // Auto-refresh every 30 seconds
+            refreshInterval = setInterval(fetchHealth, 30000);
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
+    </script>
+</body>
+</html>

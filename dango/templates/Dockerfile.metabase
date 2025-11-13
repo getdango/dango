@@ -1,0 +1,40 @@
+# Metabase with DuckDB support
+# Based on MotherDuck documentation: https://motherduck.com/docs/integrations/bi-tools/metabase/
+#
+# Note: Standard Metabase images use Alpine Linux which lacks glibc/libstdc++
+# that DuckDB requires. This Dockerfile uses Eclipse Temurin (Debian-based) as base.
+
+FROM eclipse-temurin:11-jre-jammy
+
+# Metabase version
+ENV MB_VERSION=v0.50.26
+
+# Install Metabase
+USER root
+WORKDIR /app
+
+# Download Metabase jar
+ADD https://downloads.metabase.com/${MB_VERSION}/metabase.jar /app/metabase.jar
+
+# Create metabase user
+RUN groupadd -r metabase && \
+    useradd -r -g metabase -m -d /home/metabase metabase && \
+    chown -R metabase:metabase /app
+
+# Create plugins directory
+RUN mkdir -p /app/plugins && chown -R metabase:metabase /app/plugins
+
+# Create home directory for DuckDB extensions
+RUN mkdir -p /home/metabase && chown -R metabase:metabase /home/metabase
+
+# Create and set permissions for metabase-data directory (H2 database location)
+RUN mkdir -p /metabase-data && chown -R metabase:metabase /metabase-data
+
+# Switch to metabase user
+USER metabase
+
+# Expose port
+EXPOSE 3000
+
+# Run Metabase
+CMD ["java", "-jar", "/app/metabase.jar"]
