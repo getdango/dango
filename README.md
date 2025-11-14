@@ -4,64 +4,65 @@
 
 Dango deploys a complete data stack (DuckDB + dbt + Metabase) to your laptop with one command.
 
-## Status
+## Installation
 
-🚀 **MVP Development** - 75% Complete | Target Release: **November 29, 2025**
-
-- ✅ **Implemented:** CLI (9 commands), 29 data sources, Web UI, dbt auto-generation
-- ⏳ **Remaining:** Auto-triggers, demo project, bootstrap script, PyPI packaging
-- 📅 **Timeline:** 4 weeks to v0.1.0 release (see [TIMELINE.md](TIMELINE.md))
-
-## Quick Start (Coming Soon)
+**Requirements:** Python 3.10+, Docker Desktop
 
 ```bash
-# One-line install
-curl -sSL getdango.dev/bootstrap | bash -s my-analytics
+pip install getdango
+```
 
-# Interactive setup
+## Quick Start
+
+```bash
+# Create a new project
+mkdir my-analytics
 cd my-analytics
-dango init .
+dango init
 
-# Add data sources
-dango source add  # Interactive wizard
+# Add a data source
+dango source add
 
-# Start platform
+# Start the platform (DuckDB + dbt + Metabase)
 dango start
 
 # Load data
 dango sync
 
-# Open dashboards
-open http://my-analytics.dango
+# Open dashboard
+open http://localhost:8800
 ```
 
-## Features
+**What you get:**
+- **Web UI** at `http://localhost:8800` - Monitor your data pipeline
+- **Metabase** for dashboards and SQL queries
+- **dbt Docs** for data catalog
+- **DuckDB** as your analytics database
 
-### ✅ Implemented
-- **CLI Framework:** 9 commands (`init`, `start`, `stop`, `status`, `info`, `config`, `source`, `sync`, `dashboard`)
-- **Data Sources:** 29 sources integrated (27 dlt verified sources + CSV + REST API)
-- **Web UI:** FastAPI backend with live pipeline monitoring
-- **dbt Auto-Generation:** Automatically generate staging models from source schemas
-- **Metabase Dashboards:** API-based dashboard provisioning
-- **Incremental Loading:** CSV with metadata tracking and 4 dedup strategies
-- **Config Validation:** Pydantic-based schema validation with friendly errors
+## Features (v0.0.1)
 
-### 🚧 Coming in v0.1.0 (MVP Release: Nov 29)
-- **Network Architecture:** `<project>.dango` domains with shared port 80
-- **Auto-Triggers:** File watcher with 10-minute debounce → auto-sync → auto-dbt
-- **Demo Project:** Sample data + pre-built dashboards (`dango demo create`)
-- **Dashboard Persistence:** Export/import workflow for git
-- **Metabase Auto-Setup:** Zero-config with auto-login and organization branding
-- **dbt Modeling Wizard:** Template-based fact/dimension table creation
-- **OAuth Helpers:** Guided flows for Facebook, Google
-- **Bootstrap Install:** One-command setup via curl
-- **PyPI Package:** Install via `pip install dango-data`
+**✅ What Works Now:**
+- ✅ Full CLI with 9 commands
+- ✅ CSV data sources (upload and auto-sync)
+- ✅ Stripe integration (tested and working)
+- ✅ dbt auto-generation for staging models
+- ✅ Web UI with live monitoring
+- ✅ Metabase dashboards (auto-configured)
+- ✅ File watcher with auto-triggers
+- ✅ DuckDB as embedded analytics database
 
-### 📋 Post-MVP (v0.2+)
-- Orchestration with Prefect Cloud
-- Cloud deployment options (Railway, Render, DigitalOcean)
-- Advanced monitoring and alerting
-- Multi-user collaboration features
+**📝 v0.0.1 is an early preview release**
+- Tested with CSV and Stripe sources
+- 29 data sources available (most untested)
+- OAuth sources planned for v0.1.0
+- Not recommended for production use yet
+
+**🚧 Coming in v0.1.0 (Target: Late Nov 2025):**
+- OAuth helpers for Google Ads, Facebook Ads, GA4
+- REST API framework for custom sources
+- Demo project with sample data
+- Bootstrap installer script
+- Full documentation website
 
 ## Architecture
 
@@ -99,36 +100,9 @@ open http://my-analytics.dango
 - ✅ Wizard-driven AND fully customizable
 - ✅ Fast setup AND best practices built-in
 
-## Development
-
-```bash
-# Clone repo
-git clone https://github.com/getdango/dango
-cd dango
-
-# Install in development mode
-pip install -e ".[dev]"
-
-# Run CLI
-dango --help
-
-# Run tests (coming soon)
-pytest
-```
-
-## Documentation
-
-- **[MVP Roadmap](MVP_ROADMAP.md)** - Complete MVP specifications and timeline
-- **[Timeline](TIMELINE.md)** - Visual 4-week roadmap to v0.1.0 release
-- **[Implementation Progress](IMPLEMENTATION_PROGRESS.md)** - Development log
-- **[Architecture](architecture.md)** - System design overview
-- **[CSV Loading Design](CSV_LOADING_DESIGN_SUMMARY.md)** - Phase 1 decisions
-
 ## Contributing
 
-We're in active MVP development! Contributions welcome after v0.1.0 releases (Nov 29, 2025).
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) (coming soon) for guidelines.
+We're in active MVP development! Contributions welcome after v0.1.0 releases.
 
 ## License
 
@@ -136,11 +110,11 @@ Apache 2.0 - See [LICENSE](LICENSE) for details.
 
 ## Links
 
-- **Homepage:** https://getdango.dev (coming soon)
-- **Docs:** https://docs.getdango.dev (coming soon)
+- **PyPI:** https://pypi.org/project/getdango/
 - **GitHub:** https://github.com/getdango/dango
 - **Issues:** https://github.com/getdango/dango/issues
+- **Changelog:** [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
-Built with ❤️ for the data community
+Built with ❤️ for solo data professionals and small teams
