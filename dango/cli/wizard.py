@@ -55,9 +55,11 @@ class ProjectWizard:
         created_by = self._get_git_user() or "Unknown"
 
         # Use simple defaults for everything else
+        from dango import __version__
         project = ProjectContext(
             name=project_name,
             organization=organization,
+            dango_version=__version__,
             created=datetime.now(),
             created_by=created_by,
             purpose="Data analytics project",

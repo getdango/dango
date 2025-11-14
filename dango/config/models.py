@@ -88,6 +88,10 @@ class ProjectContext(BaseModel):
         None,
         description="Organization name (used in Metabase, Web UI, etc.)"
     )
+    dango_version: Optional[str] = Field(
+        None,
+        description="Version of Dango used to create this project"
+    )
     created: datetime = Field(default_factory=datetime.now)
     created_by: str
 

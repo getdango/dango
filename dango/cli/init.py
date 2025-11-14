@@ -128,6 +128,7 @@ class ProjectInitializer:
 
         project = ProjectContext(
             name=project_name,
+            dango_version=self._get_dango_version(),
             created_by="Unknown",
             purpose="Data analytics project",
         )
