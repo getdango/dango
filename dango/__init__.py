@@ -4,7 +4,7 @@ Dango - Local-first data platform
 Laptop to cloud data stack in one weekend.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.0.1"
 __author__ = "Dango Team"
 __license__ = "Apache-2.0"
 
