@@ -166,6 +166,8 @@ packages = [
     "dango.transformation",
     "dango.platform",
     "dango.templates",
+    "dango.utils",
+    "dango.visualization",
     "dango.web",
 ]
 include-package-data = true
