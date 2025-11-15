@@ -8,16 +8,22 @@ Dango deploys a complete data stack (DuckDB + dbt + Metabase) to your laptop wit
 
 ### Prerequisites
 
-- **Python 3.10+** - Check with `python3 --version`
+- **Python 3.10+** - Check with `python3 --version` (macOS/Linux) or `python --version` (Windows)
 - **Docker Desktop** - Required for Metabase dashboards
-- **macOS or Linux** - Windows support coming in v0.1.0
+- **Platform:** macOS, Linux, or Windows 10/11
 
 ### Quick Install (Recommended)
 
-**One-command installation:**
+**macOS / Linux:**
 
 ```bash
 curl -sSL get.getdango.dev | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm get.getdango.dev | iex
 ```
 
 This will:
@@ -28,6 +34,7 @@ This will:
 
 **For security-conscious users (inspect first):**
 
+**macOS / Linux:**
 ```bash
 # Download the installer
 curl -sSL get.getdango.dev -o install.sh
@@ -39,12 +46,25 @@ cat install.sh
 bash install.sh
 ```
 
-View the installer source: [install.sh](https://github.com/getdango/dango/blob/main/install.sh)
+**Windows (PowerShell):**
+```powershell
+# Download the installer
+Invoke-WebRequest -Uri get.getdango.dev -OutFile install.ps1
+
+# Review what it does
+Get-Content install.ps1
+
+# Run when ready
+.\install.ps1
+```
+
+View the installer source: [install.sh](https://github.com/getdango/dango/blob/main/install.sh) | [install.ps1](https://github.com/getdango/dango/blob/main/install.ps1)
 
 ### Manual Installation
 
 If you prefer to set things up yourself:
 
+**macOS / Linux:**
 ```bash
 # Create project directory
 mkdir my-analytics
@@ -61,8 +81,26 @@ pip install getdango
 dango init
 ```
 
+**Windows (PowerShell):**
+```powershell
+# Create project directory
+New-Item -ItemType Directory -Path my-analytics
+Set-Location my-analytics
+
+# Create virtual environment
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+# Install Dango
+pip install getdango
+
+# Initialize project
+dango init
+```
+
 ## Quick Start
 
+**macOS / Linux:**
 ```bash
 # If you used the bootstrap installer, activate your environment
 cd my-analytics
@@ -79,6 +117,25 @@ dango start
 
 # Open dashboard
 open http://localhost:8800
+```
+
+**Windows (PowerShell):**
+```powershell
+# If you used the bootstrap installer, activate your environment
+cd my-analytics
+.\venv\Scripts\Activate.ps1
+
+# Add a data source (CSV or Stripe)
+dango source add
+
+# Sync your data
+dango sync
+
+# Start the platform (Web UI + Metabase + dbt docs)
+dango start
+
+# Open dashboard
+Start-Process http://localhost:8800
 ```
 
 **What you get:**
@@ -108,7 +165,6 @@ open http://localhost:8800
 **🚧 Coming in v0.1.0 (Target: Dec 2025):**
 - OAuth authentication for Google Ads, Facebook Ads, GA4, Shopify
 - REST API framework for custom sources
-- Windows PowerShell installer
 - Demo project with sample data
 - Full documentation website
 
