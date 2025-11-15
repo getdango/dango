@@ -6,31 +6,136 @@ Dango deploys a complete data stack (DuckDB + dbt + Metabase) to your laptop wit
 
 ## Installation
 
-**Requirements:** Python 3.10+, Docker Desktop
+### Prerequisites
+
+- **Python 3.10+** - Check with `python3 --version` (macOS/Linux) or `python --version` (Windows)
+- **Docker Desktop** - Required for Metabase dashboards
+- **Platform:** macOS, Linux, or Windows 10/11
+
+### Quick Install (Recommended)
+
+**macOS / Linux:**
 
 ```bash
+curl -sSL get.getdango.dev | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm get.getdango.dev | iex
+```
+
+This will:
+- Create a project directory
+- Set up an isolated virtual environment
+- Install Dango from PyPI
+- Initialize your project interactively
+
+**For security-conscious users (inspect first):**
+
+**macOS / Linux:**
+```bash
+# Download the installer
+curl -sSL get.getdango.dev -o install.sh
+
+# Review what it does
+cat install.sh
+
+# Run when ready
+bash install.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+# Download the installer
+Invoke-WebRequest -Uri get.getdango.dev -OutFile install.ps1
+
+# Review what it does
+Get-Content install.ps1
+
+# Run when ready
+.\install.ps1
+```
+
+View the installer source: [install.sh](https://github.com/getdango/dango/blob/main/install.sh) | [install.ps1](https://github.com/getdango/dango/blob/main/install.ps1)
+
+### Manual Installation
+
+If you prefer to set things up yourself:
+
+**macOS / Linux:**
+```bash
+# Create project directory
+mkdir my-analytics
+cd my-analytics
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install Dango
 pip install getdango
+
+# Initialize project
+dango init
+```
+
+**Windows (PowerShell):**
+```powershell
+# Create project directory
+New-Item -ItemType Directory -Path my-analytics
+Set-Location my-analytics
+
+# Create virtual environment
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+# Install Dango
+pip install getdango
+
+# Initialize project
+dango init
 ```
 
 ## Quick Start
 
+**macOS / Linux:**
 ```bash
-# Create a new project
-mkdir my-analytics
+# If you used the bootstrap installer, activate your environment
 cd my-analytics
-dango init
+source venv/bin/activate
 
-# Add a data source
+# Add a data source (CSV or Stripe)
 dango source add
 
-# Start the platform (DuckDB + dbt + Metabase)
-dango start
-
-# Load data
+# Sync your data
 dango sync
+
+# Start the platform (Web UI + Metabase + dbt docs)
+dango start
 
 # Open dashboard
 open http://localhost:8800
+```
+
+**Windows (PowerShell):**
+```powershell
+# If you used the bootstrap installer, activate your environment
+cd my-analytics
+.\venv\Scripts\Activate.ps1
+
+# Add a data source (CSV or Stripe)
+dango source add
+
+# Sync your data
+dango sync
+
+# Start the platform (Web UI + Metabase + dbt docs)
+dango start
+
+# Open dashboard
+Start-Process http://localhost:8800
 ```
 
 **What you get:**
@@ -57,11 +162,10 @@ open http://localhost:8800
 - OAuth sources planned for v0.1.0
 - Not recommended for production use yet
 
-**🚧 Coming in v0.1.0 (Target: Late Nov 2025):**
-- OAuth helpers for Google Ads, Facebook Ads, GA4
+**🚧 Coming in v0.1.0 (Target: Dec 2025):**
+- OAuth authentication for Google Ads, Facebook Ads, GA4, Shopify
 - REST API framework for custom sources
 - Demo project with sample data
-- Bootstrap installer script
 - Full documentation website
 
 ## Architecture
@@ -99,6 +203,161 @@ open http://localhost:8800
 - ✅ Local-first AND production-ready
 - ✅ Wizard-driven AND fully customizable
 - ✅ Fast setup AND best practices built-in
+
+## Troubleshooting
+
+### Installation Issues
+
+**"Python version too old"**
+```bash
+# Check your version
+python3 --version
+
+# Install Python 3.11 (recommended)
+# macOS:
+brew install python@3.11
+
+# Ubuntu:
+sudo apt install python3.11
+```
+
+**"Docker not found" or "Docker not running"**
+- Install Docker Desktop: https://docs.docker.com/desktop/
+- Make sure Docker is running (check system tray icon)
+- You can continue without Docker, but Metabase won't work
+
+**"pip install getdango failed"**
+```bash
+# Check internet connection
+ping pypi.org
+
+# Upgrade pip
+pip install --upgrade pip
+
+# Try again
+pip install getdango
+```
+
+**"Permission denied"**
+- Don't use `sudo` with pip in a virtual environment
+- Check directory permissions: `ls -la`
+
+### Runtime Issues
+
+**"dango: command not found"**
+```bash
+# Make sure venv is activated
+source venv/bin/activate
+
+# Or use full path
+./venv/bin/dango --version
+```
+
+**"Port 8800 already in use"**
+```bash
+# Option 1: Kill the process using the port
+lsof -ti:8800 | xargs kill -9
+
+# Option 2: Change the port in .dango/project.yml
+# Edit platform.port to a different value
+```
+
+**"Metabase not starting"**
+```bash
+# Check Docker is running
+docker ps
+
+# Check container logs
+docker ps  # Get container ID
+docker logs <container-id>
+
+# Restart everything
+dango stop
+dango start
+```
+
+**"Sync failed" or "Source connection error"**
+- Check your API credentials in `.dango/sources.yml`
+- Verify internet connection
+- Check source-specific documentation
+
+### Getting Help
+
+- **GitHub Issues:** https://github.com/getdango/dango/issues
+- **View Documentation:** https://github.com/getdango/dango
+- **Check Changelog:** [CHANGELOG.md](CHANGELOG.md)
+
+---
+
+## Upgrading Dango
+
+### Automatic Upgrade (Recommended)
+
+If you installed with the bootstrap script:
+
+```bash
+cd your-project
+curl -sSL get.getdango.dev | bash
+# Select [u] to upgrade when prompted
+```
+
+### Manual Upgrade
+
+```bash
+cd your-project
+source venv/bin/activate
+
+# Upgrade to latest version
+pip install --upgrade getdango
+
+# Verify new version
+dango --version
+```
+
+### After Upgrading
+
+```bash
+# Validate project still works
+dango validate
+
+# Restart the platform
+dango stop
+dango start
+```
+
+### Breaking Changes
+
+Check [CHANGELOG.md](CHANGELOG.md) for breaking changes between versions.
+
+---
+
+## Uninstall
+
+Dango uses per-project virtual environments, making uninstall clean and simple.
+
+### Remove a Dango Project
+
+```bash
+# Just delete the project directory
+rm -rf my-analytics/
+```
+
+That's it! Everything (venv, data, config) is contained in the project directory.
+
+### Remove Docker Containers (Optional)
+
+```bash
+# List running containers
+docker ps
+
+# Stop Metabase container
+docker stop <metabase-container-id>
+
+# Remove Metabase image (optional, saves disk space)
+docker rmi metabase/metabase
+```
+
+---
 
 ## Contributing
 
