@@ -17,7 +17,7 @@ NC='\033[0m' # No Color
 # Print functions
 print_header() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}  Dango Installer - Local-First Data Platform${NC}"
+    echo -e "${CYAN}  Dango Installer - Open Source Data Platform${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo
 }
