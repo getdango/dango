@@ -46,35 +46,35 @@ print_step() {
 check_python() {
     print_step "Checking Python version..."
 
-    # Try python3 first, then python
-    if command -v python3 &> /dev/null; then
-        PYTHON_CMD="python3"
-    elif command -v python &> /dev/null; then
-        PYTHON_CMD="python"
-    else
-        print_error "Python not found"
+    # Try multiple Python commands in order of preference
+    PYTHON_CMD=""
+    for cmd in python3.12 python3.11 python3.10 python3 python; do
+        if command -v $cmd &> /dev/null; then
+            # Check if this version meets requirements
+            version=$($cmd -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)
+            if [ $? -eq 0 ]; then
+                major=$(echo $version | cut -d. -f1)
+                minor=$(echo $version | cut -d. -f2)
+
+                # Check if version is 3.10+
+                if [ "$major" -eq 3 ] && [ "$minor" -ge 10 ]; then
+                    PYTHON_CMD="$cmd"
+                    PYTHON_VERSION="$version"
+                    break
+                elif [ "$major" -gt 3 ]; then
+                    PYTHON_CMD="$cmd"
+                    PYTHON_VERSION="$version"
+                    break
+                fi
+            fi
+        fi
+    done
+
+    # If no suitable Python found
+    if [ -z "$PYTHON_CMD" ]; then
+        print_error "Python 3.10+ not found"
         echo
         echo "Please install Python 3.10 or higher:"
-        echo "  macOS:   brew install python@3.11"
-        echo "  Ubuntu:  sudo apt install python3.11"
-        echo
-        exit 1
-    fi
-
-    # Get Python version
-    PYTHON_VERSION=$($PYTHON_CMD -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-    PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d. -f1)
-    PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d. -f2)
-
-    # Check if version is 3.10+
-    if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 10 ]); then
-        print_error "Python $PYTHON_VERSION found, but 3.10+ required"
-        echo
-        echo "Please upgrade Python:"
-        echo "  Current: Python $PYTHON_VERSION"
-        echo "  Required: Python 3.10 or higher"
-        echo
-        echo "Install instructions:"
         echo "  macOS:   brew install python@3.11"
         echo "  Ubuntu:  sudo apt install python3.11"
         echo
