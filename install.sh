@@ -199,7 +199,7 @@ init_project() {
     echo
 
     source "$venv_path/bin/activate"
-    dango init
+    dango init < /dev/tty
 
     print_success "Project initialized"
     echo
