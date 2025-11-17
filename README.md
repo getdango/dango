@@ -1,8 +1,10 @@
 # 🍡 Dango
 
-**Production-ready analytics platform in minutes, not weeks**
+**Professional analytics stack built with production-grade tools**
 
-Dango deploys a complete data stack (DuckDB + dbt + Metabase) to your laptop with one command.
+Works on your laptop today. Designed to scale to production tomorrow.
+
+Dango deploys a complete data stack (dlt + dbt + DuckDB + Metabase) to your laptop with one command.
 
 ## Installation
 
@@ -140,9 +142,10 @@ Start-Process http://localhost:8800
 
 **What you get:**
 - **Web UI** at `http://localhost:8800` - Monitor your data pipeline
-- **Metabase** for dashboards and SQL queries
-- **dbt Docs** for data catalog
+- **dlt** for data ingestion (29+ verified sources)
+- **dbt** for SQL transformations and modeling
 - **DuckDB** as your analytics database
+- **Metabase** for dashboards and SQL queries
 
 ## Features (v0.0.1)
 
@@ -167,6 +170,12 @@ Start-Process http://localhost:8800
 - REST API framework for custom sources
 - Demo project with sample data
 - Full documentation website
+
+**🔮 Beyond v0.1.0:**
+- Cloud deployment guides and infrastructure templates
+- Advanced scheduling and orchestration
+- Team collaboration features
+- Enhanced monitoring and alerting
 
 ## Architecture
 
@@ -195,12 +204,12 @@ Start-Process http://localhost:8800
 ## Why Dango?
 
 **Most tools force you to choose:**
-- ❌ Local-first (limited features) OR Cloud (expensive, complex)
+- ❌ Simple setup (limited features) OR Enterprise platforms (expensive, complex)
 - ❌ No-code (inflexible) OR Full-code (steep learning curve)
 - ❌ Fast setup (toy project) OR Production-grade (weeks of work)
 
 **Dango gives you both:**
-- ✅ Local-first AND production-ready
+- ✅ Starts on your laptop, designed to scale to your infrastructure
 - ✅ Wizard-driven AND fully customizable
 - ✅ Fast setup AND best practices built-in
 
