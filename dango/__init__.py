@@ -1,7 +1,7 @@
 """
-Dango - Local-first data platform
+Dango - Open source data platform
 
-Laptop to cloud data stack in one weekend.
+Professional analytics stack built with production-grade tools.
 """
 
 __version__ = "0.0.1"

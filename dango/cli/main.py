@@ -18,9 +18,9 @@ console = Console(force_terminal=True, legacy_windows=False)
 @click.pass_context
 def cli(ctx):
     """
-    🍡 Dango - Local-first data platform
+    🍡 Dango - Open source data platform
 
-    Laptop to cloud data stack in one weekend.
+    Professional analytics stack built with production-grade tools.
 
     Common commands:
       dango init       Create a new data project
