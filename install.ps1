@@ -44,43 +44,47 @@ function Write-Step {
 function Test-PythonVersion {
     Write-Step "Checking Python version..."
 
-    # Try python first, then py launcher
+    # Try multiple Python commands in order of preference
     $pythonCmd = $null
     $pythonVersion = $null
+    $commands = @("python3.12", "python3.11", "python3.10", "python3", "python", "py")
 
-    if (Get-Command python -ErrorAction SilentlyContinue) {
-        $pythonCmd = "python"
-        $pythonVersion = & python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+    foreach ($cmd in $commands) {
+        if (Get-Command $cmd -ErrorAction SilentlyContinue) {
+            try {
+                $version = & $cmd -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+                if ($version) {
+                    $versionParts = $version -split '\.'
+                    $major = [int]$versionParts[0]
+                    $minor = [int]$versionParts[1]
+
+                    # Check if version is 3.10+
+                    if ($major -eq 3 -and $minor -ge 10) {
+                        $pythonCmd = $cmd
+                        $pythonVersion = $version
+                        break
+                    }
+                    elseif ($major -gt 3) {
+                        $pythonCmd = $cmd
+                        $pythonVersion = $version
+                        break
+                    }
+                }
+            }
+            catch {
+                # Skip this command and try next
+                continue
+            }
+        }
     }
-    elseif (Get-Command py -ErrorAction SilentlyContinue) {
-        $pythonCmd = "py"
-        $pythonVersion = & py -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
-    }
-    else {
-        Write-Error-Message "Python not found"
+
+    # If no suitable Python found
+    if (-not $pythonCmd) {
+        Write-Error-Message "Python 3.10+ not found"
         Write-Host ""
         Write-Host "Please install Python 3.10 or higher:"
         Write-Host "  Download: https://www.python.org/downloads/"
         Write-Host "  Or use: winget install Python.Python.3.11"
-        Write-Host ""
-        exit 1
-    }
-
-    # Parse version
-    $versionParts = $pythonVersion -split '\.'
-    $major = [int]$versionParts[0]
-    $minor = [int]$versionParts[1]
-
-    # Check if version is 3.10+
-    if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 10)) {
-        Write-Error-Message "Python $pythonVersion found, but 3.10+ required"
-        Write-Host ""
-        Write-Host "Please upgrade Python:"
-        Write-Host "  Current: Python $pythonVersion"
-        Write-Host "  Required: Python 3.10 or higher"
-        Write-Host ""
-        Write-Host "Download from: https://www.python.org/downloads/"
-        Write-Host "Or use: winget install Python.Python.3.11"
         Write-Host ""
         exit 1
     }
