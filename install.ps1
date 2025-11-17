@@ -275,17 +275,37 @@ function Initialize-Project {
 
 # Function to print activation instructions
 function Write-ActivationInstructions {
-    param([string]$VenvPath, [string]$ProjectDir)
+    param(
+        [string]$VenvPath,
+        [string]$ProjectDir,
+        [bool]$CreatedSubdir
+    )
 
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
     Write-Host "Installation complete!" -ForegroundColor Green
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "To activate your environment:"
-    Write-Host "  cd $ProjectDir" -ForegroundColor Yellow
-    Write-Host "  .\$VenvPath\Scripts\Activate.ps1" -ForegroundColor Yellow
+    Write-Host "⚠️  IMPORTANT: Activate your environment first!" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "Quick start commands:"
+
+    if ($CreatedSubdir) {
+        Write-Host "Run these commands to get started:"
+        Write-Host ""
+        Write-Host "  cd $ProjectDir" -ForegroundColor Yellow
+        Write-Host "  .\$VenvPath\Scripts\Activate.ps1" -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "Run this command to activate:"
+        Write-Host ""
+        Write-Host "  .\$VenvPath\Scripts\Activate.ps1" -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    Write-Host "You need to activate the environment EVERY TIME you work on this project." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Once activated, try these commands:"
     Write-Host "  dango source add" -ForegroundColor Yellow -NoNewline
     Write-Host "    # Add a data source (CSV or Stripe)"
     Write-Host "  dango sync" -ForegroundColor Yellow -NoNewline
@@ -293,21 +313,33 @@ function Write-ActivationInstructions {
     Write-Host "  dango start" -ForegroundColor Yellow -NoNewline
     Write-Host "         # Start platform (opens http://localhost:8800)"
     Write-Host ""
-    Write-Host "Documentation:"
-    Write-Host "  https://github.com/getdango/dango"
-    Write-Host ""
-    Write-Host "Get help:"
-    Write-Host "  https://github.com/getdango/dango/issues"
+    Write-Host "Documentation: https://github.com/getdango/dango"
+    Write-Host "Get help: https://github.com/getdango/dango/issues"
     Write-Host ""
 }
 
 # Function to print success message
 function Write-SuccessMessage {
+    param(
+        [string]$VenvPath,
+        [bool]$IsActivated
+    )
+
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
     Write-Host "Installation complete!" -ForegroundColor Green
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Your environment is ready!"
+
+    if ($IsActivated) {
+        Write-Host "✓ Your environment is already activated!" -ForegroundColor Green
+    }
+    else {
+        Write-Host "⚠️  Don't forget to activate your environment:" -ForegroundColor Yellow
+        Write-Host "  .\$VenvPath\Scripts\Activate.ps1" -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Quick start commands:"
     Write-Host "  dango source add" -ForegroundColor Yellow -NoNewline
@@ -317,11 +349,8 @@ function Write-SuccessMessage {
     Write-Host "  dango start" -ForegroundColor Yellow -NoNewline
     Write-Host "         # Start platform (opens http://localhost:8800)"
     Write-Host ""
-    Write-Host "Documentation:"
-    Write-Host "  https://github.com/getdango/dango"
-    Write-Host ""
-    Write-Host "Get help:"
-    Write-Host "  https://github.com/getdango/dango/issues"
+    Write-Host "Documentation: https://github.com/getdango/dango"
+    Write-Host "Get help: https://github.com/getdango/dango/issues"
     Write-Host ""
 }
 
@@ -374,7 +403,7 @@ function Main {
             Initialize-Project -VenvPath "venv"
 
             # Show activation instructions
-            Write-ActivationInstructions -VenvPath "venv" -ProjectDir $projectDir
+            Write-ActivationInstructions -VenvPath "venv" -ProjectDir $projectDir -CreatedSubdir $true
         }
 
         "existing_with_venv" {
@@ -394,11 +423,11 @@ function Main {
             switch ($action.ToLower()) {
                 "i" {
                     Install-Dango -VenvPath "venv"
-                    Write-SuccessMessage
+                    Write-SuccessMessage -VenvPath "venv" -IsActivated $true
                 }
                 "u" {
                     Update-Dango -VenvPath "venv"
-                    Write-SuccessMessage
+                    Write-SuccessMessage -VenvPath "venv" -IsActivated $true
                 }
                 default {
                     Write-Info "Cancelled"
@@ -437,7 +466,7 @@ function Main {
 
             # Show activation instructions
             $currentDir = Split-Path -Leaf (Get-Location)
-            Write-ActivationInstructions -VenvPath "venv" -ProjectDir $currentDir
+            Write-ActivationInstructions -VenvPath "venv" -ProjectDir $currentDir -CreatedSubdir $false
         }
     }
 }

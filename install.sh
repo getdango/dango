@@ -227,46 +227,77 @@ setup_direnv() {
 print_activation_instructions() {
     local venv_path=$1
     local project_dir=$2
+    local created_subdir=$3
 
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${GREEN}Installation complete!${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo
-    echo "To activate your environment:"
-    echo -e "  ${YELLOW}cd $project_dir${NC}"
-    echo -e "  ${YELLOW}source $venv_path/bin/activate${NC}"
+    echo -e "${YELLOW}⚠️  IMPORTANT: Activate your environment first!${NC}"
     echo
-    echo "Quick start commands:"
+
+    if [ "$created_subdir" = "true" ]; then
+        echo "Run these commands to get started:"
+        echo
+        echo -e "  ${YELLOW}cd $project_dir${NC}"
+        echo -e "  ${YELLOW}source $venv_path/bin/activate${NC}"
+    else
+        echo "Run this command to activate:"
+        echo
+        echo -e "  ${YELLOW}source $venv_path/bin/activate${NC}"
+    fi
+
+    echo
+    echo -e "${YELLOW}You need to activate the environment EVERY TIME you work on this project.${NC}"
+    echo
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo
+    echo "Once activated, try these commands:"
     echo -e "  ${YELLOW}dango source add${NC}    # Add a data source (CSV or Stripe)"
     echo -e "  ${YELLOW}dango sync${NC}          # Sync data"
     echo -e "  ${YELLOW}dango start${NC}         # Start platform (opens http://localhost:8800)"
     echo
-    echo "Documentation:"
-    echo "  https://github.com/getdango/dango"
+    echo "Optional: Auto-activate with direnv (advanced users)"
+    echo "  Install direnv: https://direnv.net/"
+    echo "  It will auto-activate the venv when you cd into this directory"
     echo
-    echo "Get help:"
-    echo "  https://github.com/getdango/dango/issues"
+    echo "Documentation: https://github.com/getdango/dango"
+    echo "Get help: https://github.com/getdango/dango/issues"
     echo
 }
 
 # Function to print success message (when direnv is active)
 print_success_message() {
+    local created_subdir=$1
+    local project_dir=$2
+
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${GREEN}Installation complete!${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo
-    echo "Your environment is ready!"
+    echo -e "${GREEN}✓${NC} Your environment is ready with direnv auto-activation!"
+    echo
+
+    if [ "$created_subdir" = "true" ]; then
+        echo "Next step:"
+        echo -e "  ${YELLOW}cd $project_dir${NC}"
+        echo
+        echo "The virtual environment will activate automatically."
+        echo
+    else
+        echo "Your virtual environment is already activated."
+        echo
+    fi
+
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo
     echo "Quick start commands:"
     echo -e "  ${YELLOW}dango source add${NC}    # Add a data source (CSV or Stripe)"
     echo -e "  ${YELLOW}dango sync${NC}          # Sync data"
     echo -e "  ${YELLOW}dango start${NC}         # Start platform (opens http://localhost:8800)"
     echo
-    echo "Documentation:"
-    echo "  https://github.com/getdango/dango"
-    echo
-    echo "Get help:"
-    echo "  https://github.com/getdango/dango/issues"
+    echo "Documentation: https://github.com/getdango/dango"
+    echo "Get help: https://github.com/getdango/dango/issues"
     echo
 }
 
@@ -321,9 +352,9 @@ main() {
 
             # Setup direnv or show activation instructions
             if ! setup_direnv "venv"; then
-                print_activation_instructions "venv" "$PROJECT_DIR"
+                print_activation_instructions "venv" "$PROJECT_DIR" "true"
             else
-                print_success_message
+                print_success_message "true" "$PROJECT_DIR"
             fi
             ;;
 
@@ -344,11 +375,11 @@ main() {
             case $action in
                 i|I)
                     install_dango "venv"
-                    print_success_message
+                    print_success_message "false" ""
                     ;;
                 u|U)
                     upgrade_dango "venv"
-                    print_success_message
+                    print_success_message "false" ""
                     ;;
                 *)
                     print_info "Cancelled"
@@ -388,9 +419,9 @@ main() {
             # Setup direnv or show activation instructions
             PROJECT_DIR=$(basename "$PWD")
             if ! setup_direnv "venv"; then
-                print_activation_instructions "venv" "$PROJECT_DIR"
+                print_activation_instructions "venv" "$PROJECT_DIR" "false"
             else
-                print_success_message
+                print_success_message "false" ""
             fi
             ;;
     esac
