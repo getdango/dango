@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "getdango"
 version = "0.0.1"
-description = "Local-first data platform - Laptop to cloud data stack in one weekend"
+description = "Professional analytics stack built with production-grade tools - Open source data platform with dlt, dbt, DuckDB, and Metabase"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Dango Team", email = "hello@getdango.dev"}
 ]
-keywords = ["data", "analytics", "dbt", "duckdb", "metabase", "etl", "local-first"]
+keywords = ["data", "analytics", "dbt", "duckdb", "metabase", "dlt", "etl", "data-platform", "open-source"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
