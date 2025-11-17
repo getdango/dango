@@ -98,7 +98,7 @@ check_docker() {
         echo "  Linux:   https://docs.docker.com/engine/install/"
         echo
         echo -n "Continue without Docker? (y/N): "
-        read -r response
+        read -r response < /dev/tty
         if [[ ! "$response" =~ ^[Yy]$ ]]; then
             print_info "Installation cancelled"
             echo
@@ -119,7 +119,7 @@ check_docker() {
         echo
         echo "Or continue without Docker (Metabase won't work):"
         echo -n "Continue? (y/N): "
-        read -r response
+        read -r response < /dev/tty
         if [[ ! "$response" =~ ^[Yy]$ ]]; then
             print_info "Installation cancelled"
             echo
@@ -288,7 +288,7 @@ main() {
 
             # Get project directory name
             echo -n "Enter project directory name (e.g., my-analytics): "
-            read -r PROJECT_DIR
+            read -r PROJECT_DIR < /dev/tty
 
             if [ -z "$PROJECT_DIR" ]; then
                 print_error "Project name cannot be empty"
@@ -339,7 +339,7 @@ main() {
             echo "  [c] Cancel"
             echo
             echo -n "Choice: "
-            read -r action
+            read -r action < /dev/tty
 
             case $action in
                 i|I)
@@ -364,7 +364,7 @@ main() {
             echo "This project needs a virtual environment for Dango."
             echo
             echo -n "Create virtual environment now? [Y/n]: "
-            read -r response
+            read -r response < /dev/tty
 
             if [[ "$response" =~ ^[Nn]$ ]]; then
                 print_info "Cancelled"
