@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "getdango"
 version = "0.0.1"
-description = "Professional analytics stack built with production-grade tools - Open source data platform with dlt, dbt, DuckDB, and Metabase"
+description = "Open source data platform built with production-grade tools - dlt, dbt, DuckDB, and Metabase"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}

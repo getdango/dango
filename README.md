@@ -1,6 +1,6 @@
 # 🍡 Dango
 
-**Professional analytics stack built with production-grade tools**
+**Open source data platform built with production-grade tools**
 
 Works on your laptop today. Designed to scale to production tomorrow.
 
