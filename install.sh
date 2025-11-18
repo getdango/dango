@@ -230,8 +230,45 @@ upgrade_dango() {
     echo
 }
 
+# Function to check for package conflicts before global install
+check_conflicts() {
+    print_step "Checking for potential package conflicts..."
+    echo
+
+    # Run dry-run to see what will be installed/upgraded
+    dry_run_output=$($PYTHON_CMD -m pip install --dry-run --user getdango 2>&1)
+
+    # Check if any packages will be upgraded
+    if echo "$dry_run_output" | grep -q "Would upgrade"; then
+        print_warning "The following packages will be upgraded:"
+        echo
+        echo "$dry_run_output" | grep "Would upgrade" | sed 's/Would upgrade: /  • /' | sed 's/ to / → /'
+        echo
+        print_warning "This may affect other Python applications on your computer."
+        echo
+        echo "Do you want to continue? This could break other tools."
+        echo -n "[y/N]: "
+        read -r response < /dev/tty
+
+        if [[ ! "$response" =~ ^[Yy]$ ]]; then
+            print_info "Installation cancelled"
+            echo
+            echo "Consider using Virtual Environment instead for complete isolation."
+            echo "Run the installer again and choose option [1]."
+            exit 0
+        fi
+        echo
+    else
+        print_success "No conflicts detected"
+        echo
+    fi
+}
+
 # Function to install Dango globally
 install_dango_global() {
+    # Check for conflicts first
+    check_conflicts
+
     print_step "Installing Dango globally..."
     echo
 
