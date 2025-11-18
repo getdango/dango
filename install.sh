@@ -189,13 +189,50 @@ prompt_install_mode() {
     esac
 }
 
+# Function to prompt for venv location
+prompt_venv_location() {
+    local default_location=$1
+    local scenario=$2
+
+    echo "Virtual environment location:"
+    if [ "$scenario" == "new_project" ]; then
+        echo "  [1] Default: $default_location (inside project directory)"
+    else
+        echo "  [1] Default: $default_location (current directory)"
+    fi
+    echo "  [2] Custom location"
+    echo
+    echo -n "Choose [1] or [2]: "
+    read -r choice < /dev/tty
+
+    case $choice in
+        1)
+            echo "$default_location"
+            ;;
+        2)
+            echo -n "Enter path for virtual environment: "
+            read -r custom_path < /dev/tty
+            if [ -z "$custom_path" ]; then
+                print_error "Path cannot be empty, using default"
+                echo "$default_location"
+            else
+                echo "$custom_path"
+            fi
+            ;;
+        *)
+            print_warning "Invalid choice, using default"
+            echo "$default_location"
+            ;;
+    esac
+}
+
 # Function to create virtual environment
 create_venv() {
     local venv_path=$1
-    print_step "Creating virtual environment..."
+    print_step "Creating virtual environment at $venv_path..."
 
     $PYTHON_CMD -m venv "$venv_path"
-    print_success "Virtual environment created at $venv_path"
+    print_success "Virtual environment created"
     echo
 }
 
@@ -479,18 +516,22 @@ main() {
 
             # Install based on mode
             if [ "$INSTALL_MODE" == "venv" ]; then
+                # Prompt for venv location
+                VENV_PATH=$(prompt_venv_location "venv" "new_project")
+                echo
+
                 # Create venv
-                create_venv "venv"
+                create_venv "$VENV_PATH"
 
                 # Install Dango
-                install_dango "venv"
+                install_dango "$VENV_PATH"
 
                 # Initialize project
-                init_project "venv"
+                init_project "$VENV_PATH"
 
                 # Setup direnv or show activation instructions
-                if ! setup_direnv "venv"; then
-                    print_activation_instructions "venv" "$PROJECT_DIR" "true"
+                if ! setup_direnv "$VENV_PATH"; then
+                    print_activation_instructions "$VENV_PATH" "$PROJECT_DIR" "true"
                 else
                     print_success_message "true" "$PROJECT_DIR"
                 fi
@@ -562,16 +603,20 @@ main() {
 
             echo
 
+            # Prompt for venv location
+            VENV_PATH=$(prompt_venv_location "venv" "existing")
+            echo
+
             # Create venv
-            create_venv "venv"
+            create_venv "$VENV_PATH"
 
             # Install Dango
-            install_dango "venv"
+            install_dango "$VENV_PATH"
 
             # Setup direnv or show activation instructions
             PROJECT_DIR=$(basename "$PWD")
-            if ! setup_direnv "venv"; then
-                print_activation_instructions "venv" "$PROJECT_DIR" "false"
+            if ! setup_direnv "$VENV_PATH"; then
+                print_activation_instructions "$VENV_PATH" "$PROJECT_DIR" "false"
             else
                 print_success_message "false" ""
             fi
