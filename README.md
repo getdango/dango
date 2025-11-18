@@ -342,19 +342,104 @@ Check [CHANGELOG.md](CHANGELOG.md) for breaking changes between versions.
 
 ## Uninstall
 
-Dango uses per-project virtual environments, making uninstall clean and simple.
+### Which Installation Method Did I Use?
 
-### Remove a Dango Project
+**Virtual Environment (venv):**
+- You have a `venv/` folder in your project directory
+- Need to activate with `source venv/bin/activate` (macOS/Linux) or `.\venv\Scripts\Activate.ps1` (Windows)
 
+**Global Install:**
+- No `venv/` folder in your project
+- `dango` command works from anywhere without activation
+
+### Uninstall Virtual Environment Installation
+
+**macOS / Linux:**
 ```bash
-# Just delete the project directory
+# Simply delete the project directory
 rm -rf my-analytics/
+```
+
+**Windows:**
+```powershell
+# Simply delete the project directory
+Remove-Item -Recurse -Force my-analytics
 ```
 
 That's it! Everything (venv, data, config) is contained in the project directory.
 
+### Uninstall Global Installation
+
+**Step 1: Find which Python has Dango**
+
+**macOS / Linux:**
+```bash
+# Check each Python version
+python3.11 -m pip list | grep getdango
+python3.10 -m pip list | grep getdango
+python3 -m pip list | grep getdango
+
+# Or find the command location
+which dango
+# Example output: /Users/you/Library/Python/3.11/bin/dango
+# This means use python3.11
+```
+
+**Windows:**
+```powershell
+# Check Python versions
+python -m pip list | findstr getdango
+py -3.11 -m pip list | findstr getdango
+```
+
+**Step 2: Uninstall Dango**
+
+**macOS / Linux:**
+```bash
+# Use the Python version that has it (e.g., python3.11)
+python3.11 -m pip uninstall getdango
+```
+
+**Windows:**
+```powershell
+python -m pip uninstall getdango
+```
+
+**Step 3: Clean up PATH (if you added it)**
+
+**macOS / Linux:**
+```bash
+# Edit your shell config file
+# zsh users:
+nano ~/.zshrc
+
+# bash users (macOS):
+nano ~/.bash_profile
+
+# bash users (Linux):
+nano ~/.bashrc
+
+# Remove the line that looks like:
+# export PATH="/Users/you/Library/Python/3.11/bin:$PATH"
+
+# Save and reload
+source ~/.zshrc  # or ~/.bash_profile or ~/.bashrc
+```
+
+**Windows:**
+1. Search for "Environment Variables" in Windows search
+2. Click "Edit the system environment variables"
+3. Click "Environment Variables" button
+4. Under "User variables", select "Path" and click "Edit"
+5. Find and remove the entry with `Python\...\Scripts`
+6. Click OK to save
+7. Restart PowerShell
+
 ### Remove Docker Containers (Optional)
 
+If you're done with Dango entirely, clean up Docker:
+
+**macOS / Linux:**
 ```bash
 # List running containers
 docker ps
@@ -362,7 +447,19 @@ docker ps
 # Stop Metabase container
 docker stop <metabase-container-id>
 
-# Remove Metabase image (optional, saves disk space)
+# Remove Metabase image (saves disk space)
+docker rmi metabase/metabase
+```
+
+**Windows:**
+```powershell
+# List running containers
+docker ps
+
+# Stop Metabase container
+docker stop <metabase-container-id>
+
+# Remove Metabase image (saves disk space)
 docker rmi metabase/metabase
 ```
 
