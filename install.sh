@@ -168,8 +168,8 @@ install_dango() {
 
     # Activate venv and install
     source "$venv_path/bin/activate"
-    pip install --upgrade pip -q
-    pip install getdango
+    $PYTHON_CMD -m pip install --upgrade pip -q
+    $PYTHON_CMD -m pip install getdango
 
     # Get installed version
     DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
@@ -184,7 +184,7 @@ upgrade_dango() {
     print_step "Upgrading Dango..."
 
     source "$venv_path/bin/activate"
-    pip install --upgrade getdango -q
+    $PYTHON_CMD -m pip install --upgrade getdango -q
 
     DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 
