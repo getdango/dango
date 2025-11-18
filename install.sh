@@ -375,14 +375,32 @@ install_dango_global() {
         read -r response < /dev/tty
 
         if [[ "$response" =~ ^[Yy]$ ]]; then
-            # Add to shell config
-            echo "export PATH=\"$USER_BIN_DIR:\$PATH\"" >> "$SHELL_CONFIG"
-            print_success "Added to $SHELL_CONFIG"
+            # Check if already in config file (avoid duplicates)
+            if grep -q "$USER_BIN_DIR" "$SHELL_CONFIG" 2>/dev/null; then
+                print_info "Already in $SHELL_CONFIG"
+            else
+                # Add to shell config
+                echo "export PATH=\"$USER_BIN_DIR:\$PATH\"" >> "$SHELL_CONFIG"
+                print_success "Added to $SHELL_CONFIG"
+            fi
             echo
-            echo "Restart your terminal or run:"
-            echo "  ${YELLOW}source $SHELL_CONFIG${NC}"
-            echo
-            return 0
+
+            # CRITICAL: Export in current session immediately
+            export PATH="$USER_BIN_DIR:$PATH"
+
+            # Verify dango is now accessible
+            if command -v dango &> /dev/null; then
+                print_success "dango command is now available!"
+                echo
+                return 0
+            else
+                print_error "Failed to add dango to PATH"
+                echo
+                echo "Please restart your terminal or run:"
+                echo "  ${YELLOW}source $SHELL_CONFIG${NC}"
+                echo
+                return 1
+            fi
         else
             echo
             print_info "Skipped automatic configuration"
