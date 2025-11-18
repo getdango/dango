@@ -301,8 +301,14 @@ function Install-DangoGlobal {
     # Get the user Scripts directory
     $userScriptsDir = & $PythonCmd -c "import site, os; print(os.path.join(site.USER_BASE, 'Scripts'))"
 
-    # Check if dango command is accessible
+    # Check if dango command is accessible BEFORE we modify PATH
+    $dangoWasInPath = $false
     if (Get-Command dango -ErrorAction SilentlyContinue) {
+        $dangoWasInPath = $true
+    }
+
+    # If dango already in PATH, we're done
+    if ($dangoWasInPath) {
         $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value }
         if (-not $version) { $version = "unknown" }
         Write-Success "Dango $version installed and ready to use!"
@@ -335,6 +341,9 @@ function Install-DangoGlobal {
             # CRITICAL: Refresh PATH in current session immediately
             $env:Path = [System.Environment]::GetEnvironmentVariable('Path','User') + ';' +
                         [System.Environment]::GetEnvironmentVariable('Path','Machine')
+
+            # Set script-level flag so we know to show restart warning later
+            $script:PathWasAdded = $true
 
             # Verify dango is now accessible
             if (Get-Command dango -ErrorAction SilentlyContinue) {
@@ -452,8 +461,9 @@ function Write-GlobalSuccess {
     Write-Host "✓ Dango is installed globally!" -ForegroundColor Green
     Write-Host ""
 
-    # Check if dango is accessible in current shell
-    if (-not (Get-Command dango -ErrorAction SilentlyContinue)) {
+    # If we added PATH during install, user needs to restart PowerShell
+    # (Even though dango works in THIS script, it won't work in user's terminal after script exits)
+    if ($script:PathWasAdded -eq $true) {
         Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
         Write-Host "⚠  ONE MORE STEP" -ForegroundColor Yellow
         Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow

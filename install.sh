@@ -365,8 +365,14 @@ install_dango_global() {
     # Get the actual user bin directory
     USER_BIN_DIR=$(get_user_bin_dir)
 
-    # Check if dango command is accessible
+    # Check if dango command is accessible BEFORE we modify PATH
+    DANGO_WAS_IN_PATH=false
     if command -v dango &> /dev/null; then
+        DANGO_WAS_IN_PATH=true
+    fi
+
+    # If dango already in PATH, we're done
+    if [ "$DANGO_WAS_IN_PATH" = true ]; then
         DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
         print_success "Dango $DANGO_VERSION installed and ready to use!"
         echo
@@ -402,6 +408,9 @@ install_dango_global() {
 
             # CRITICAL: Export in current session immediately
             export PATH="$USER_BIN_DIR:$PATH"
+
+            # Set flag so we know to show restart warning later
+            PATH_WAS_ADDED=true
 
             # Verify dango is now accessible
             if command -v dango &> /dev/null; then
@@ -493,8 +502,9 @@ print_global_success() {
     echo -e "${GREEN}✓${NC} Dango is installed globally!"
     echo
 
-    # Check if dango is accessible in current shell
-    if ! command -v dango &> /dev/null; then
+    # If we added PATH during install, user needs to restart terminal
+    # (Even though dango works in THIS script, it won't work in user's terminal after script exits)
+    if [ "${PATH_WAS_ADDED:-false}" = true ]; then
         SHELL_CONFIG=$(detect_shell_config)
         echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "${YELLOW}⚠  ONE MORE STEP${NC}"
