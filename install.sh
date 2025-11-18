@@ -12,6 +12,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+DIM='\033[2m'
 NC='\033[0m' # No Color
 
 # Print functions
@@ -165,27 +166,34 @@ prompt_install_mode() {
     echo "    ✗ Requires one setup command each time (we'll show you)" >&2
     echo "    ✗ Easy to forget - you'll see an error if you do" >&2
     echo >&2
-    echo -e "${YELLOW}[2] Global Install (Simpler but riskier)${NC}" >&2
+    echo -e "${YELLOW}[2] Global Install (More convenient)${NC}" >&2
     echo "    ✓ Works immediately - no setup needed" >&2
     echo "    ✓ Just type 'dango' anywhere" >&2
-    echo "    ✗ May upgrade packages that other Python programs use" >&2
-    echo "    ✗ Could stop other tools from working if they need older versions" >&2
+    echo "    ⚠ May upgrade packages that other Python programs use" >&2
+    echo "      (We'll check for conflicts before installing)" >&2
+    echo >&2
+    echo -e "${DIM}Tip: Press Ctrl+C anytime to quit${NC}" >&2
     echo >&2
     echo -n "Choose [1] or [2]: " >&2
-    read -r choice < /dev/tty
 
-    case $choice in
-        1)
-            echo "venv"
-            ;;
-        2)
-            echo "global"
-            ;;
-        *)
-            print_error "Invalid choice. Please run the installer again." >&2
-            exit 1
-            ;;
-    esac
+    while true; do
+        read -r choice < /dev/tty
+
+        case $choice in
+            1)
+                echo "venv"
+                return
+                ;;
+            2)
+                echo "global"
+                return
+                ;;
+            *)
+                echo -e "${RED}✗ Please enter 1 or 2${NC}" >&2
+                echo -n "Choose [1] or [2]: " >&2
+                ;;
+        esac
+    done
 }
 
 # Function to prompt for venv location
@@ -202,27 +210,34 @@ prompt_venv_location() {
     echo "  [2] Custom location" >&2
     echo >&2
     echo -n "Choose [1] or [2]: " >&2
-    read -r choice < /dev/tty
 
-    case $choice in
-        1)
-            echo "$default_location"
-            ;;
-        2)
-            echo -n "Enter path for virtual environment: " >&2
-            read -r custom_path < /dev/tty
-            if [ -z "$custom_path" ]; then
-                print_error "Path cannot be empty, using default" >&2
+    while true; do
+        read -r choice < /dev/tty
+
+        case $choice in
+            1)
                 echo "$default_location"
-            else
-                echo "$custom_path"
-            fi
-            ;;
-        *)
-            print_warning "Invalid choice, using default" >&2
-            echo "$default_location"
-            ;;
-    esac
+                return
+                ;;
+            2)
+                while true; do
+                    echo -n "Enter path for virtual environment: " >&2
+                    read -r custom_path < /dev/tty
+                    if [ -z "$custom_path" ]; then
+                        print_error "Path cannot be empty" >&2
+                        continue
+                    else
+                        echo "$custom_path"
+                        return
+                    fi
+                done
+                ;;
+            *)
+                echo -e "${RED}✗ Please enter 1 or 2${NC}" >&2
+                echo -n "Choose [1] or [2]: " >&2
+                ;;
+        esac
+    done
 }
 
 # Function to create virtual environment
@@ -521,21 +536,27 @@ main() {
             echo
 
             # Get project directory name
-            echo -n "Enter project directory name (e.g., my-analytics): "
-            read -r PROJECT_DIR < /dev/tty
+            while true; do
+                echo -n "Enter project directory name (e.g., my-analytics): "
+                read -r PROJECT_DIR < /dev/tty
 
-            if [ -z "$PROJECT_DIR" ]; then
-                print_error "Project name cannot be empty"
-                exit 1
-            fi
+                if [ -z "$PROJECT_DIR" ]; then
+                    print_error "Project name cannot be empty"
+                    echo
+                    continue
+                fi
 
-            # Check if directory exists
-            if [ -d "$PROJECT_DIR" ]; then
-                print_error "Directory '$PROJECT_DIR' already exists"
-                echo
-                echo "Please choose a different name or remove the existing directory."
-                exit 1
-            fi
+                # Check if directory exists
+                if [ -d "$PROJECT_DIR" ]; then
+                    print_error "Directory '$PROJECT_DIR' already exists"
+                    echo "Please choose a different name."
+                    echo
+                    continue
+                fi
+
+                # Valid input, break the loop
+                break
+            done
 
             echo
             print_step "Creating project directory: $PROJECT_DIR"

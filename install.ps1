@@ -188,15 +188,20 @@ function Get-InstallMode {
     Write-Host "    ✗ Requires one setup command each time (we'll show you)"
     Write-Host "    ✗ Easy to forget - you'll see an error if you do"
     Write-Host ""
-    Write-Host "[2] Global Install (Simpler but riskier)" -ForegroundColor Yellow
+    Write-Host "[2] Global Install (More convenient)" -ForegroundColor Yellow
     Write-Host "    ✓ Works immediately - no setup needed"
     Write-Host "    ✓ Just type 'dango' anywhere"
-    Write-Host "    ✗ May upgrade packages that other Python programs use"
-    Write-Host "    ✗ Could stop other tools from working if they need older versions"
+    Write-Host "    ⚠ May upgrade packages that other Python programs use"
+    Write-Host "      (We'll check for conflicts before installing)"
+    Write-Host ""
+    Write-Host "Tip: Press Ctrl+C anytime to quit" -ForegroundColor DarkGray
     Write-Host ""
 
     do {
         $choice = Read-Host "Choose [1] or [2]"
+        if ($choice -notmatch '^[12]$') {
+            Write-Host "✗ Please enter 1 or 2" -ForegroundColor Red
+        }
     } while ($choice -notmatch '^[12]$')
 
     if ($choice -eq "1") {
@@ -495,20 +500,26 @@ function Main {
             Write-Host ""
 
             # Get project directory name
-            $projectDir = Read-Host "Enter project directory name (e.g., my-analytics)"
+            do {
+                $projectDir = Read-Host "Enter project directory name (e.g., my-analytics)"
 
-            if ([string]::IsNullOrWhiteSpace($projectDir)) {
-                Write-Error-Message "Project name cannot be empty"
-                exit 1
-            }
+                if ([string]::IsNullOrWhiteSpace($projectDir)) {
+                    Write-Error-Message "Project name cannot be empty"
+                    Write-Host ""
+                    continue
+                }
 
-            # Check if directory exists
-            if (Test-Path $projectDir) {
-                Write-Error-Message "Directory '$projectDir' already exists"
-                Write-Host ""
-                Write-Host "Please choose a different name or remove the existing directory."
-                exit 1
-            }
+                # Check if directory exists
+                if (Test-Path $projectDir) {
+                    Write-Error-Message "Directory '$projectDir' already exists"
+                    Write-Host "Please choose a different name."
+                    Write-Host ""
+                    continue
+                }
+
+                # Valid input, break the loop
+                break
+            } while ($true)
 
             Write-Host ""
             Write-Step "Creating project directory: $projectDir"
