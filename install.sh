@@ -273,19 +273,32 @@ get_user_bin_dir() {
 
 # Function to detect shell config file
 detect_shell_config() {
-    # Check current shell
-    if [ -n "$ZSH_VERSION" ]; then
+    # Use $SHELL variable (works even when piped)
+    if [[ "$SHELL" == *"zsh"* ]]; then
         echo "$HOME/.zshrc"
-    elif [ -n "$BASH_VERSION" ]; then
+    elif [[ "$SHELL" == *"bash"* ]]; then
         # macOS uses .bash_profile, Linux uses .bashrc
         if [ "$(uname -s)" = "Darwin" ]; then
             echo "$HOME/.bash_profile"
         else
             echo "$HOME/.bashrc"
         fi
+    elif [[ "$SHELL" == *"fish"* ]]; then
+        echo "$HOME/.config/fish/config.fish"
     else
-        # Fallback to .profile
-        echo "$HOME/.profile"
+        # Fallback: check shell version variables (when SHELL not set)
+        if [ -n "$ZSH_VERSION" ]; then
+            echo "$HOME/.zshrc"
+        elif [ -n "$BASH_VERSION" ]; then
+            if [ "$(uname -s)" = "Darwin" ]; then
+                echo "$HOME/.bash_profile"
+            else
+                echo "$HOME/.bashrc"
+            fi
+        else
+            # Final fallback to .profile
+            echo "$HOME/.profile"
+        fi
     fi
 }
 
