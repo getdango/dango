@@ -449,8 +449,15 @@ function Write-GlobalSuccess {
     Write-Host "Installation complete!" -ForegroundColor Green
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "✓ Dango is installed globally and ready to use!" -ForegroundColor Green
+    Write-Host "✓ Dango is installed globally!" -ForegroundColor Green
     Write-Host ""
+
+    # Check if dango is accessible in current shell
+    if (-not (Get-Command dango -ErrorAction SilentlyContinue)) {
+        Write-Host "⚠ Important: " -ForegroundColor Yellow -NoNewline
+        Write-Host "To use 'dango', restart PowerShell or close and reopen this window."
+        Write-Host ""
+    }
 
     if ($ProjectDir) {
         Write-Host "Your project is ready at: " -NoNewline

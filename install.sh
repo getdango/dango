@@ -376,15 +376,15 @@ install_dango_global() {
         print_warning "Dango installed but not in PATH"
         echo
         echo "The 'dango' command is installed at:"
-        echo "  ${CYAN}$USER_BIN_DIR/dango${NC}"
+        echo -e "  ${CYAN}$USER_BIN_DIR/dango${NC}"
         echo
 
         SHELL_CONFIG=$(detect_shell_config)
 
         echo "To use 'dango' from anywhere, add this to your PATH:"
-        echo "  ${YELLOW}export PATH=\"$USER_BIN_DIR:\$PATH\"${NC}"
+        echo -e "  ${YELLOW}export PATH=\"$USER_BIN_DIR:\$PATH\"${NC}"
         echo
-        echo "This line should be added to: ${CYAN}$SHELL_CONFIG${NC}"
+        echo -e "This line should be added to: ${CYAN}$SHELL_CONFIG${NC}"
         echo
         echo -n "Would you like me to add it automatically? [y/N]: " >&2
         read -r response < /dev/tty
@@ -412,7 +412,7 @@ install_dango_global() {
                 print_error "Failed to add dango to PATH"
                 echo
                 echo "Please restart your terminal or run:"
-                echo "  ${YELLOW}source $SHELL_CONFIG${NC}"
+                echo -e "  ${YELLOW}source $SHELL_CONFIG${NC}"
                 echo
                 return 1
             fi
@@ -421,7 +421,7 @@ install_dango_global() {
             print_info "Skipped automatic configuration"
             echo
             echo "To use 'dango', run this command in your terminal:"
-            echo "  ${YELLOW}export PATH=\"$USER_BIN_DIR:\$PATH\"${NC}"
+            echo -e "  ${YELLOW}export PATH=\"$USER_BIN_DIR:\$PATH\"${NC}"
             echo
             echo "Or add it permanently to $SHELL_CONFIG"
             echo
@@ -490,11 +490,19 @@ print_global_success() {
     echo -e "${GREEN}Installation complete!${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo
-    echo -e "${GREEN}✓${NC} Dango is installed globally and ready to use!"
+    echo -e "${GREEN}✓${NC} Dango is installed globally!"
     echo
 
+    # Check if dango is accessible in current shell
+    if ! command -v dango &> /dev/null; then
+        echo -e "${YELLOW}⚠ Important:${NC} To use 'dango', restart your terminal or run:"
+        SHELL_CONFIG=$(detect_shell_config)
+        echo -e "  ${YELLOW}source $SHELL_CONFIG${NC}"
+        echo
+    fi
+
     if [ -n "$project_dir" ]; then
-        echo "Your project is ready at: ${GREEN}$project_dir${NC}"
+        echo -e "Your project is ready at: ${GREEN}$project_dir${NC}"
         echo
         echo "Next steps:"
         echo -e "  ${YELLOW}cd $project_dir${NC}"
@@ -584,7 +592,17 @@ main() {
                 print_activation_instructions "$VENV_PATH" "$PROJECT_DIR" "true"
             else
                 # Global install
-                install_dango_global
+                if ! install_dango_global; then
+                    print_error "Global installation failed"
+                    echo
+                    echo "Please restart your terminal and run:"
+                    echo -e "  ${YELLOW}source $(detect_shell_config)${NC}"
+                    echo
+                    echo "Then navigate to your project:"
+                    echo -e "  ${YELLOW}cd $PROJECT_DIR${NC}"
+                    echo -e "  ${YELLOW}dango init${NC}"
+                    exit 1
+                fi
 
                 # Initialize project (no venv needed)
                 print_step "Initializing Dango project..."
@@ -616,13 +634,13 @@ main() {
                 i|I)
                     install_dango "venv"
                     echo -e "${GREEN}✓ Dango is ready to use!${NC}"
-                    echo "Make sure to activate your venv: ${YELLOW}source venv/bin/activate${NC}"
+                    echo -e "Make sure to activate your venv: ${YELLOW}source venv/bin/activate${NC}"
                     echo
                     ;;
                 u|U)
                     upgrade_dango "venv"
                     echo -e "${GREEN}✓ Dango upgraded!${NC}"
-                    echo "Make sure to activate your venv: ${YELLOW}source venv/bin/activate${NC}"
+                    echo -e "Make sure to activate your venv: ${YELLOW}source venv/bin/activate${NC}"
                     echo
                     ;;
                 *)
