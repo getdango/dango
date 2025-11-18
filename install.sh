@@ -151,6 +151,44 @@ detect_scenario() {
     fi
 }
 
+# Function to prompt for installation mode
+prompt_install_mode() {
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  Installation Options${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo
+    echo "How would you like to install Dango?"
+    echo
+    echo -e "${GREEN}[1] Virtual Environment (Recommended for beginners)${NC}"
+    echo "    ✓ Keeps Dango separate from other Python programs"
+    echo "    ✓ Won't break anything else on your computer"
+    echo "    ✓ Safe for experimenting"
+    echo "    ✗ Must run 'source venv/bin/activate' before using Dango"
+    echo "    ✗ Needs activation EVERY TIME you open a new terminal"
+    echo
+    echo -e "${YELLOW}[2] Global Install (Simpler but less safe)${NC}"
+    echo "    ✓ Works immediately, no activation needed"
+    echo "    ✓ Run 'dango' from anywhere"
+    echo "    ✗ Might update Python packages that other programs use"
+    echo "    ✗ Could break other Python tools on your computer"
+    echo
+    echo -n "Choose [1] or [2]: "
+    read -r choice < /dev/tty
+
+    case $choice in
+        1)
+            echo "venv"
+            ;;
+        2)
+            echo "global"
+            ;;
+        *)
+            print_error "Invalid choice. Please run the installer again."
+            exit 1
+            ;;
+    esac
+}
+
 # Function to create virtual environment
 create_venv() {
     local venv_path=$1
