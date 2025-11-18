@@ -159,18 +159,17 @@ prompt_install_mode() {
     echo >&2
     echo "How would you like to install Dango?" >&2
     echo >&2
-    echo -e "${GREEN}[1] Virtual Environment (Recommended for beginners)${NC}" >&2
+    echo -e "${GREEN}[1] Virtual Environment (Recommended)${NC}" >&2
     echo "    ✓ Keeps Dango separate from other Python programs" >&2
-    echo "    ✓ Won't break anything else on your computer" >&2
-    echo "    ✓ Safe for experimenting" >&2
-    echo "    ✗ Must run 'source venv/bin/activate' before using Dango" >&2
-    echo "    ✗ Needs activation EVERY TIME you open a new terminal" >&2
+    echo "    ✓ Safe to experiment - won't affect anything else" >&2
+    echo "    ✗ Requires one setup command each time (we'll show you)" >&2
+    echo "    ✗ Easy to forget - you'll see an error if you do" >&2
     echo >&2
-    echo -e "${YELLOW}[2] Global Install (Simpler but less safe)${NC}" >&2
-    echo "    ✓ Works immediately, no activation needed" >&2
-    echo "    ✓ Run 'dango' from anywhere" >&2
-    echo "    ✗ Might update Python packages that other programs use" >&2
-    echo "    ✗ Could break other Python tools on your computer" >&2
+    echo -e "${YELLOW}[2] Global Install (Simpler but riskier)${NC}" >&2
+    echo "    ✓ Works immediately - no setup needed" >&2
+    echo "    ✓ Just type 'dango' anywhere" >&2
+    echo "    ✗ May upgrade packages that other Python programs use" >&2
+    echo "    ✗ Could stop other tools from working if they need older versions" >&2
     echo >&2
     echo -n "Choose [1] or [2]: " >&2
     read -r choice < /dev/tty
