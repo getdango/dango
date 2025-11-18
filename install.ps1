@@ -211,6 +211,32 @@ function Get-InstallMode {
     }
 }
 
+# Function to prompt for setup mode
+function Get-SetupMode {
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "  What would you like to do?" -ForegroundColor Cyan
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "[1] Just install Dango" -ForegroundColor Green -NoNewline
+    Write-Host " (set up projects later)"
+    Write-Host ""
+    Write-Host "[2] Install Dango + create a new project now" -ForegroundColor Green
+    Write-Host ""
+
+    do {
+        $choice = Read-Host "Choose [1] or [2]"
+        if ($choice -notmatch '^[12]$') {
+            Write-Host "✗ Please enter 1 or 2" -ForegroundColor Red
+        }
+    } while ($choice -notmatch '^[12]$')
+
+    if ($choice -eq "1") {
+        return "install_only"
+    } else {
+        return "install_and_project"
+    }
+}
+
 # Function to create virtual environment
 function New-VirtualEnvironment {
     param([string]$Path, [string]$PythonCmd)
@@ -435,7 +461,7 @@ function Write-ActivationInstructions {
     }
 
     Write-Host ""
-    Write-Host "You need to activate the environment EVERY TIME you work on this project." -ForegroundColor Yellow
+    Write-Host "You need to activate the environment every time you work on this project." -ForegroundColor Yellow
     Write-Host ""
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
     Write-Host ""
@@ -541,6 +567,76 @@ function Main {
             $installMode = Get-InstallMode
             Write-Host ""
 
+            # Prompt for setup mode
+            $setupMode = Get-SetupMode
+            Write-Host ""
+
+            # Handle install_only mode
+            if ($setupMode -eq "install_only") {
+                if ($installMode -eq "venv") {
+                    # Venv install only
+                    New-VirtualEnvironment -Path "venv" -PythonCmd $pythonInfo.Command
+                    Install-Dango -VenvPath "venv"
+
+                    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+                    Write-Host "Installation complete!" -ForegroundColor Green
+                    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+                    Write-Host ""
+                    Write-Host "✓ Dango is installed!" -ForegroundColor Green
+                    Write-Host ""
+                    Write-Host "To create your first project:"
+                    Write-Host "  .\venv\Scripts\Activate.ps1" -ForegroundColor Yellow
+                    Write-Host "  dango init my-project" -ForegroundColor Yellow
+                    Write-Host "  cd my-project" -ForegroundColor Yellow
+                    Write-Host "  dango source add" -ForegroundColor Yellow
+                    Write-Host "  dango sync" -ForegroundColor Yellow
+                    Write-Host "  dango start" -ForegroundColor Yellow
+                    Write-Host ""
+                    Write-Host "Documentation: https://github.com/getdango/dango"
+                    Write-Host "Get help: https://github.com/getdango/dango/issues"
+                    Write-Host ""
+                } else {
+                    # Global install only
+                    Install-DangoGlobal -PythonCmd $pythonInfo.Command
+
+                    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+                    Write-Host "Installation complete!" -ForegroundColor Green
+                    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+                    Write-Host ""
+                    Write-Host "✓ Dango is installed!" -ForegroundColor Green
+                    Write-Host ""
+
+                    # Show restart warning if PATH was added
+                    if ($script:PathWasAdded -eq $true) {
+                        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
+                        Write-Host "⚠  ONE MORE STEP" -ForegroundColor Yellow
+                        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
+                        Write-Host ""
+                        Write-Host "'dango' is installed, but your current PowerShell can't see it yet."
+                        Write-Host ""
+                        Write-Host "To fix this: Restart PowerShell (close and reopen this window)"
+                        Write-Host ""
+                        Write-Host "After that, 'dango' will work from anywhere!"
+                        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
+                        Write-Host ""
+                    }
+
+                    Write-Host "To create your first project:"
+                    Write-Host "  dango init my-project" -ForegroundColor Yellow
+                    Write-Host "  cd my-project" -ForegroundColor Yellow
+                    Write-Host "  dango source add" -ForegroundColor Yellow
+                    Write-Host "  dango sync" -ForegroundColor Yellow
+                    Write-Host "  dango start" -ForegroundColor Yellow
+                    Write-Host ""
+                    Write-Host "Documentation: https://github.com/getdango/dango"
+                    Write-Host "Get help: https://github.com/getdango/dango/issues"
+                    Write-Host ""
+                }
+
+                exit 0
+            }
+
+            # Handle install_and_project mode (existing behavior)
             # Get project directory name
             do {
                 $projectDir = Read-Host "Enter project directory name (e.g., my-analytics)"

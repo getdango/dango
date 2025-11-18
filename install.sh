@@ -196,6 +196,38 @@ prompt_install_mode() {
     done
 }
 
+# Function to prompt for setup mode
+prompt_setup_mode() {
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" >&2
+    echo -e "${CYAN}  What would you like to do?${NC}" >&2
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" >&2
+    echo >&2
+    echo -e "${GREEN}[1] Just install Dango${NC} (set up projects later)" >&2
+    echo >&2
+    echo -e "${GREEN}[2] Install Dango + create a new project now${NC}" >&2
+    echo >&2
+    echo -n "Choose [1] or [2]: " >&2
+
+    while true; do
+        read -r choice < /dev/tty
+
+        case $choice in
+            1)
+                echo "install_only"
+                return
+                ;;
+            2)
+                echo "install_and_project"
+                return
+                ;;
+            *)
+                echo -e "${RED}✗ Please enter 1 or 2${NC}" >&2
+                echo -n "Choose [1] or [2]: " >&2
+                ;;
+        esac
+    done
+}
+
 # Function to prompt for venv location
 prompt_venv_location() {
     local default_location=$1
@@ -505,7 +537,7 @@ print_activation_instructions() {
     fi
 
     echo
-    echo -e "${YELLOW}You need to activate the environment EVERY TIME you work on this project.${NC}"
+    echo -e "${YELLOW}You need to activate the environment every time you work on this project.${NC}"
     echo
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo
@@ -599,6 +631,83 @@ main() {
             INSTALL_MODE=$(prompt_install_mode)
             echo
 
+            # Prompt for setup mode
+            SETUP_MODE=$(prompt_setup_mode)
+            echo
+
+            # Handle install_only mode
+            if [ "$SETUP_MODE" == "install_only" ]; then
+                if [ "$INSTALL_MODE" == "venv" ]; then
+                    # Venv install only
+                    VENV_PATH="venv"
+                    create_venv "$VENV_PATH"
+                    install_dango "$VENV_PATH"
+
+                    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                    echo -e "${GREEN}Installation complete!${NC}"
+                    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                    echo
+                    echo -e "${GREEN}✓${NC} Dango is installed!"
+                    echo
+                    echo "To create your first project:"
+                    echo -e "  ${YELLOW}source venv/bin/activate${NC}"
+                    echo -e "  ${YELLOW}dango init my-project${NC}"
+                    echo -e "  ${YELLOW}cd my-project${NC}"
+                    echo -e "  ${YELLOW}dango source add${NC}"
+                    echo -e "  ${YELLOW}dango sync${NC}"
+                    echo -e "  ${YELLOW}dango start${NC}"
+                    echo
+                    echo "Documentation: https://github.com/getdango/dango"
+                    echo "Get help: https://github.com/getdango/dango/issues"
+                    echo
+                else
+                    # Global install only
+                    install_dango_global
+
+                    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                    echo -e "${GREEN}Installation complete!${NC}"
+                    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                    echo
+                    echo -e "${GREEN}✓${NC} Dango is installed!"
+                    echo
+
+                    # Show restart warning if PATH was added
+                    if [ "${PATH_WAS_ADDED:-false}" = true ]; then
+                        SHELL_CONFIG=$(detect_shell_config)
+                        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                        echo -e "${YELLOW}⚠  ONE MORE STEP${NC}"
+                        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                        echo
+                        echo "'dango' is installed, but your current terminal can't see it yet."
+                        echo
+                        echo "To fix this, choose ONE of these options:"
+                        echo
+                        echo -e "  ${GREEN}Option 1:${NC} Restart your terminal (close and reopen this window)"
+                        echo
+                        echo -e "  ${GREEN}Option 2:${NC} Run this command now:"
+                        echo -e "            ${YELLOW}source $SHELL_CONFIG${NC}"
+                        echo
+                        echo "After that, 'dango' will work from anywhere!"
+                        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                        echo
+                    fi
+
+                    echo "To create your first project:"
+                    echo -e "  ${YELLOW}dango init my-project${NC}"
+                    echo -e "  ${YELLOW}cd my-project${NC}"
+                    echo -e "  ${YELLOW}dango source add${NC}"
+                    echo -e "  ${YELLOW}dango sync${NC}"
+                    echo -e "  ${YELLOW}dango start${NC}"
+                    echo
+                    echo "Documentation: https://github.com/getdango/dango"
+                    echo "Get help: https://github.com/getdango/dango/issues"
+                    echo
+                fi
+
+                exit 0
+            fi
+
+            # Handle install_and_project mode (existing behavior)
             # Get project directory name
             while true; do
                 echo -n "Enter project directory name (e.g., my-analytics): "
