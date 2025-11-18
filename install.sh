@@ -230,6 +230,30 @@ upgrade_dango() {
     echo
 }
 
+# Function to install Dango globally
+install_dango_global() {
+    print_step "Installing Dango globally..."
+    echo
+
+    $PYTHON_CMD -m pip install --user getdango
+
+    # Get installed version
+    DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+
+    if [ "$DANGO_VERSION" != "unknown" ]; then
+        print_success "Dango $DANGO_VERSION installed globally"
+        echo
+        return 0
+    else
+        print_error "Installation completed but 'dango' command not found"
+        echo
+        echo "You may need to add ~/.local/bin to your PATH:"
+        echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+        echo
+        return 1
+    fi
+}
+
 # Function to initialize new project
 init_project() {
     local venv_path=$1
