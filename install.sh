@@ -266,6 +266,29 @@ upgrade_dango() {
     echo
 }
 
+# Function to detect user bin directory (works on macOS + Linux)
+get_user_bin_dir() {
+    echo "$($PYTHON_CMD -m site --user-base)/bin"
+}
+
+# Function to detect shell config file
+detect_shell_config() {
+    # Check current shell
+    if [ -n "$ZSH_VERSION" ]; then
+        echo "$HOME/.zshrc"
+    elif [ -n "$BASH_VERSION" ]; then
+        # macOS uses .bash_profile, Linux uses .bashrc
+        if [ "$(uname -s)" = "Darwin" ]; then
+            echo "$HOME/.bash_profile"
+        else
+            echo "$HOME/.bashrc"
+        fi
+    else
+        # Fallback to .profile
+        echo "$HOME/.profile"
+    fi
+}
+
 # Function to check for package conflicts before global install
 check_conflicts() {
     print_step "Checking for potential package conflicts..."
@@ -309,21 +332,55 @@ install_dango_global() {
     echo
 
     $PYTHON_CMD -m pip install --user getdango
+    echo
 
-    # Get installed version
-    DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    # Get the actual user bin directory
+    USER_BIN_DIR=$(get_user_bin_dir)
 
-    if [ "$DANGO_VERSION" != "unknown" ]; then
-        print_success "Dango $DANGO_VERSION installed globally"
+    # Check if dango command is accessible
+    if command -v dango &> /dev/null; then
+        DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+        print_success "Dango $DANGO_VERSION installed and ready to use!"
         echo
         return 0
     else
-        print_error "Installation completed but 'dango' command not found"
+        # Not in PATH - need to add it
+        print_warning "Dango installed but not in PATH"
         echo
-        echo "You may need to add ~/.local/bin to your PATH:"
-        echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+        echo "The 'dango' command is installed at:"
+        echo "  ${CYAN}$USER_BIN_DIR/dango${NC}"
         echo
-        return 1
+
+        SHELL_CONFIG=$(detect_shell_config)
+
+        echo "To use 'dango' from anywhere, add this to your PATH:"
+        echo "  ${YELLOW}export PATH=\"$USER_BIN_DIR:\$PATH\"${NC}"
+        echo
+        echo "This line should be added to: ${CYAN}$SHELL_CONFIG${NC}"
+        echo
+        echo -n "Would you like me to add it automatically? [y/N]: " >&2
+        read -r response < /dev/tty
+
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            # Add to shell config
+            echo "export PATH=\"$USER_BIN_DIR:\$PATH\"" >> "$SHELL_CONFIG"
+            print_success "Added to $SHELL_CONFIG"
+            echo
+            echo "Restart your terminal or run:"
+            echo "  ${YELLOW}source $SHELL_CONFIG${NC}"
+            echo
+            return 0
+        else
+            echo
+            print_info "Skipped automatic configuration"
+            echo
+            echo "To use 'dango', run this command in your terminal:"
+            echo "  ${YELLOW}export PATH=\"$USER_BIN_DIR:\$PATH\"${NC}"
+            echo
+            echo "Or add it permanently to $SHELL_CONFIG"
+            echo
+            return 1
+        fi
     fi
 }
 
