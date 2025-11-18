@@ -322,15 +322,27 @@ function Install-DangoGlobal {
             if ($currentPath -notlike "*$userScriptsDir*") {
                 [Environment]::SetEnvironmentVariable("Path", "$currentPath;$userScriptsDir", "User")
                 Write-Success "Added to PATH"
-                Write-Host ""
-                Write-Host "Restart PowerShell or run:"
-                Write-Host "  `$env:Path = [System.Environment]::GetEnvironmentVariable('Path','User')" -ForegroundColor Yellow
-                Write-Host ""
             } else {
                 Write-Info "Already in PATH"
-                Write-Host ""
             }
-            return $true
+            Write-Host ""
+
+            # CRITICAL: Refresh PATH in current session immediately
+            $env:Path = [System.Environment]::GetEnvironmentVariable('Path','User') + ';' +
+                        [System.Environment]::GetEnvironmentVariable('Path','Machine')
+
+            # Verify dango is now accessible
+            if (Get-Command dango -ErrorAction SilentlyContinue) {
+                Write-Success "dango command is now available!"
+                Write-Host ""
+                return $true
+            } else {
+                Write-Warning-Message "Failed to add dango to PATH"
+                Write-Host ""
+                Write-Host "Please restart PowerShell and try again."
+                Write-Host ""
+                return $false
+            }
         } else {
             Write-Host ""
             Write-Info "Skipped automatic configuration"
