@@ -10,9 +10,104 @@ Dango deploys a complete data stack (dlt + dbt + DuckDB + Metabase) to your lapt
 
 ### Prerequisites
 
-- **Python 3.10+** - Check with `python3 --version` (macOS/Linux) or `python --version` (Windows)
-- **Docker Desktop** - Required for Metabase dashboards
-- **Platform:** macOS, Linux, or Windows 10/11
+#### Python 3.10 or Higher (Required)
+
+**Check if you have Python:**
+```bash
+# Try these commands in order:
+python3.12 --version  # Check for Python 3.12
+python3.11 --version  # Check for Python 3.11
+python3.10 --version  # Check for Python 3.10
+
+# If any show "3.10" or higher, you're good!
+```
+
+**If you don't have Python 3.10+, install it:**
+
+**macOS:**
+1. Install Homebrew (if you don't have it):
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+2. Install Python:
+   ```bash
+   brew install python@3.11
+   ```
+3. Verify: `python3.11 --version`
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt update
+sudo apt install python3.11 python3.11-venv python3-pip
+```
+
+**Linux (Fedora):**
+```bash
+sudo dnf install python3.11
+```
+
+**Windows:**
+- Download from [python.org](https://www.python.org/downloads/)
+- OR install from Microsoft Store (search "Python 3.11")
+- **Important:** Check "Add Python to PATH" during installation
+
+#### Docker Desktop (Required)
+
+**Required for:** Metabase dashboards, Web UI, dbt docs visualization
+
+**All platforms:** [Download Docker Desktop](https://docs.docker.com/desktop/)
+
+After installing, start Docker Desktop and verify:
+```bash
+docker --version
+```
+
+#### Disk Space Requirements
+
+**Installation:** ~5GB
+- Docker Desktop: ~4.5GB
+- Python packages (dlt, dbt, DuckDB, etc.): ~400MB
+- Dango platform: ~100MB
+
+**Data Storage:** Varies by data volume
+- Small datasets (< 100K rows): < 100MB
+- Medium datasets (100K - 1M rows): 100MB - 1GB
+- Large datasets (> 1M rows): 1GB+
+
+**Recommendation:** Have at least 10GB free space before installing.
+
+#### Supported Platforms
+- macOS (Intel and Apple Silicon)
+- Linux (Ubuntu 20.04+, Debian 11+, Fedora 35+)
+- Windows 10/11
+
+---
+
+### Verify Prerequisites
+
+Before installing, check you have everything:
+
+**macOS / Linux:**
+```bash
+# Check Python (any of these should work):
+python3.12 --version  # 3.12.x ✓
+python3.11 --version  # 3.11.x ✓
+python3.10 --version  # 3.10.x ✓
+
+# Check Docker (required):
+docker --version
+
+# Check disk space:
+df -h .
+```
+
+**Windows:**
+```powershell
+python --version     # Should show 3.10 or higher
+docker --version
+```
+
+---
 
 ### Quick Install (Recommended)
 
