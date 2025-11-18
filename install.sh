@@ -400,6 +400,39 @@ print_success_message() {
     echo
 }
 
+# Function to print global install success message
+print_global_success() {
+    local project_dir=$1
+
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Installation complete!${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo
+    echo -e "${GREEN}✓${NC} Dango is installed globally and ready to use!"
+    echo
+
+    if [ -n "$project_dir" ]; then
+        echo "Your project is ready at: ${GREEN}$project_dir${NC}"
+        echo
+        echo "Next steps:"
+        echo -e "  ${YELLOW}cd $project_dir${NC}"
+    else
+        echo "Next steps:"
+        echo -e "  ${YELLOW}dango init my-project${NC}  # Create a new project"
+        echo -e "  ${YELLOW}cd my-project${NC}"
+    fi
+
+    echo -e "  ${YELLOW}dango source add${NC}       # Add a data source (CSV or Stripe)"
+    echo -e "  ${YELLOW}dango sync${NC}             # Sync data"
+    echo -e "  ${YELLOW}dango start${NC}            # Start platform (opens http://localhost:8800)"
+    echo
+    echo -e "${GREEN}No activation needed - 'dango' command works from anywhere!${NC}"
+    echo
+    echo "Documentation: https://github.com/getdango/dango"
+    echo "Get help: https://github.com/getdango/dango/issues"
+    echo
+}
+
 # Main installation logic
 main() {
     print_header
@@ -414,6 +447,10 @@ main() {
     case $SCENARIO in
         "new_project")
             print_info "Scenario: New Dango project"
+            echo
+
+            # Prompt for installation mode
+            INSTALL_MODE=$(prompt_install_mode)
             echo
 
             # Get project directory name
@@ -440,20 +477,36 @@ main() {
             print_success "Directory created"
             echo
 
-            # Create venv
-            create_venv "venv"
+            # Install based on mode
+            if [ "$INSTALL_MODE" == "venv" ]; then
+                # Create venv
+                create_venv "venv"
 
-            # Install Dango
-            install_dango "venv"
+                # Install Dango
+                install_dango "venv"
 
-            # Initialize project
-            init_project "venv"
+                # Initialize project
+                init_project "venv"
 
-            # Setup direnv or show activation instructions
-            if ! setup_direnv "venv"; then
-                print_activation_instructions "venv" "$PROJECT_DIR" "true"
+                # Setup direnv or show activation instructions
+                if ! setup_direnv "venv"; then
+                    print_activation_instructions "venv" "$PROJECT_DIR" "true"
+                else
+                    print_success_message "true" "$PROJECT_DIR"
+                fi
             else
-                print_success_message "true" "$PROJECT_DIR"
+                # Global install
+                install_dango_global
+
+                # Initialize project (no venv needed)
+                print_step "Initializing Dango project..."
+                echo
+                dango init < /dev/tty
+                print_success "Project initialized"
+                echo
+
+                # Show global success message
+                print_global_success "$PROJECT_DIR"
             fi
             ;;
 
