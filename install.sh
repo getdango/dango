@@ -411,7 +411,7 @@ install_dango_global() {
             else
                 print_error "Failed to add dango to PATH"
                 echo
-                echo "Please restart your terminal or run:"
+                echo "Please restart your terminal (close and reopen), or run:"
                 echo -e "  ${YELLOW}source $SHELL_CONFIG${NC}"
                 echo
                 return 1
@@ -495,9 +495,22 @@ print_global_success() {
 
     # Check if dango is accessible in current shell
     if ! command -v dango &> /dev/null; then
-        echo -e "${YELLOW}⚠ Important:${NC} To use 'dango', restart your terminal or run:"
         SHELL_CONFIG=$(detect_shell_config)
-        echo -e "  ${YELLOW}source $SHELL_CONFIG${NC}"
+        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${YELLOW}⚠  ONE MORE STEP${NC}"
+        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo
+        echo "'dango' is installed, but your current terminal can't see it yet."
+        echo
+        echo "To fix this, choose ONE of these options:"
+        echo
+        echo -e "  ${GREEN}Option 1:${NC} Restart your terminal (close and reopen this window)"
+        echo
+        echo -e "  ${GREEN}Option 2:${NC} Run this command now:"
+        echo -e "            ${YELLOW}source $SHELL_CONFIG${NC}"
+        echo
+        echo "After that, 'dango' will work from anywhere!"
+        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo
     fi
 
@@ -595,7 +608,7 @@ main() {
                 if ! install_dango_global; then
                     print_error "Global installation failed"
                     echo
-                    echo "Please restart your terminal and run:"
+                    echo "Please restart your terminal (close and reopen), or run:"
                     echo -e "  ${YELLOW}source $(detect_shell_config)${NC}"
                     echo
                     echo "Then navigate to your project:"

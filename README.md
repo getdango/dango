@@ -253,13 +253,39 @@ pip install getdango
 
 ### Runtime Issues
 
-**"dango: command not found"**
+**"dango: command not found" (virtual environment)**
 ```bash
 # Make sure venv is activated
 source venv/bin/activate
 
 # Or use full path
 ./venv/bin/dango --version
+```
+
+**"dango: command not found" (after global install)**
+
+If you just installed Dango globally, your terminal needs to reload:
+
+**Option 1: Restart terminal (recommended)**
+
+Close and reopen your terminal window, then verify:
+```bash
+dango --version
+```
+
+**Option 2: Reload shell config**
+```bash
+# For zsh users:
+source ~/.zshrc
+
+# For bash on macOS:
+source ~/.bash_profile
+
+# For bash on Linux:
+source ~/.bashrc
+
+# Then verify:
+dango --version
 ```
 
 **"Port 8800 already in use"**

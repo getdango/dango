@@ -454,8 +454,16 @@ function Write-GlobalSuccess {
 
     # Check if dango is accessible in current shell
     if (-not (Get-Command dango -ErrorAction SilentlyContinue)) {
-        Write-Host "⚠ Important: " -ForegroundColor Yellow -NoNewline
-        Write-Host "To use 'dango', restart PowerShell or close and reopen this window."
+        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
+        Write-Host "⚠  ONE MORE STEP" -ForegroundColor Yellow
+        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "'dango' is installed, but your current PowerShell can't see it yet."
+        Write-Host ""
+        Write-Host "To fix this: Restart PowerShell (close and reopen this window)"
+        Write-Host ""
+        Write-Host "After that, 'dango' will work from anywhere!"
+        Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Yellow
         Write-Host ""
     }
 
