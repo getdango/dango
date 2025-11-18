@@ -539,8 +539,13 @@ print_global_success() {
     echo -e "  ${YELLOW}dango sync${NC}             # Sync data"
     echo -e "  ${YELLOW}dango start${NC}            # Start platform (opens http://localhost:8800)"
     echo
-    echo -e "${GREEN}No activation needed - 'dango' command works from anywhere!${NC}"
-    echo
+
+    # Only show "no activation needed" if PATH didn't need to be added
+    if [ "${PATH_WAS_ADDED:-false}" != true ]; then
+        echo -e "${GREEN}No activation needed - 'dango' command works from anywhere!${NC}"
+        echo
+    fi
+
     echo "Documentation: https://github.com/getdango/dango"
     echo "Get help: https://github.com/getdango/dango/issues"
     echo

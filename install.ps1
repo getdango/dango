@@ -497,8 +497,13 @@ function Write-GlobalSuccess {
     Write-Host "  dango start" -ForegroundColor Yellow -NoNewline
     Write-Host "            # Start platform (opens http://localhost:8800)"
     Write-Host ""
-    Write-Host "No activation needed - 'dango' command works from anywhere!" -ForegroundColor Green
-    Write-Host ""
+
+    # Only show "no activation needed" if PATH didn't need to be added
+    if ($script:PathWasAdded -ne $true) {
+        Write-Host "No activation needed - 'dango' command works from anywhere!" -ForegroundColor Green
+        Write-Host ""
+    }
+
     Write-Host "Documentation: https://github.com/getdango/dango"
     Write-Host "Get help: https://github.com/getdango/dango/issues"
     Write-Host ""
