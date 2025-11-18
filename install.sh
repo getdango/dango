@@ -153,26 +153,26 @@ detect_scenario() {
 
 # Function to prompt for installation mode
 prompt_install_mode() {
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}  Installation Options${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo
-    echo "How would you like to install Dango?"
-    echo
-    echo -e "${GREEN}[1] Virtual Environment (Recommended for beginners)${NC}"
-    echo "    ✓ Keeps Dango separate from other Python programs"
-    echo "    ✓ Won't break anything else on your computer"
-    echo "    ✓ Safe for experimenting"
-    echo "    ✗ Must run 'source venv/bin/activate' before using Dango"
-    echo "    ✗ Needs activation EVERY TIME you open a new terminal"
-    echo
-    echo -e "${YELLOW}[2] Global Install (Simpler but less safe)${NC}"
-    echo "    ✓ Works immediately, no activation needed"
-    echo "    ✓ Run 'dango' from anywhere"
-    echo "    ✗ Might update Python packages that other programs use"
-    echo "    ✗ Could break other Python tools on your computer"
-    echo
-    echo -n "Choose [1] or [2]: "
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" >&2
+    echo -e "${CYAN}  Installation Options${NC}" >&2
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" >&2
+    echo >&2
+    echo "How would you like to install Dango?" >&2
+    echo >&2
+    echo -e "${GREEN}[1] Virtual Environment (Recommended for beginners)${NC}" >&2
+    echo "    ✓ Keeps Dango separate from other Python programs" >&2
+    echo "    ✓ Won't break anything else on your computer" >&2
+    echo "    ✓ Safe for experimenting" >&2
+    echo "    ✗ Must run 'source venv/bin/activate' before using Dango" >&2
+    echo "    ✗ Needs activation EVERY TIME you open a new terminal" >&2
+    echo >&2
+    echo -e "${YELLOW}[2] Global Install (Simpler but less safe)${NC}" >&2
+    echo "    ✓ Works immediately, no activation needed" >&2
+    echo "    ✓ Run 'dango' from anywhere" >&2
+    echo "    ✗ Might update Python packages that other programs use" >&2
+    echo "    ✗ Could break other Python tools on your computer" >&2
+    echo >&2
+    echo -n "Choose [1] or [2]: " >&2
     read -r choice < /dev/tty
 
     case $choice in
@@ -183,7 +183,7 @@ prompt_install_mode() {
             echo "global"
             ;;
         *)
-            print_error "Invalid choice. Please run the installer again."
+            print_error "Invalid choice. Please run the installer again." >&2
             exit 1
             ;;
     esac
@@ -194,15 +194,15 @@ prompt_venv_location() {
     local default_location=$1
     local scenario=$2
 
-    echo "Virtual environment location:"
+    echo "Virtual environment location:" >&2
     if [ "$scenario" == "new_project" ]; then
-        echo "  [1] Default: $default_location (inside project directory)"
+        echo "  [1] Default: $default_location (inside project directory)" >&2
     else
-        echo "  [1] Default: $default_location (current directory)"
+        echo "  [1] Default: $default_location (current directory)" >&2
     fi
-    echo "  [2] Custom location"
-    echo
-    echo -n "Choose [1] or [2]: "
+    echo "  [2] Custom location" >&2
+    echo >&2
+    echo -n "Choose [1] or [2]: " >&2
     read -r choice < /dev/tty
 
     case $choice in
@@ -210,17 +210,17 @@ prompt_venv_location() {
             echo "$default_location"
             ;;
         2)
-            echo -n "Enter path for virtual environment: "
+            echo -n "Enter path for virtual environment: " >&2
             read -r custom_path < /dev/tty
             if [ -z "$custom_path" ]; then
-                print_error "Path cannot be empty, using default"
+                print_error "Path cannot be empty, using default" >&2
                 echo "$default_location"
             else
                 echo "$custom_path"
             fi
             ;;
         *)
-            print_warning "Invalid choice, using default"
+            print_warning "Invalid choice, using default" >&2
             echo "$default_location"
             ;;
     esac
