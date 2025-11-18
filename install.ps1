@@ -296,6 +296,18 @@ function Install-DangoGlobal {
     Write-Host ""
 
     & $PythonCmd -m pip install --user getdango
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error-Message "Failed to install Dango from PyPI"
+        Write-Host ""
+        Write-Host "Possible causes:"
+        Write-Host "  • No internet connection"
+        Write-Host "  • PyPI is down"
+        Write-Host "  • Python version incompatible"
+        Write-Host ""
+        Write-Host "Check errors above and try again"
+        exit 1
+    }
     Write-Host ""
 
     # Get the user Scripts directory

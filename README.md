@@ -114,6 +114,10 @@ dango source add
 # Sync your data
 dango sync
 
+# Verify installation
+dango --version
+# Should show: dango, version X.X.X
+
 # Start the platform (Web UI + Metabase + dbt docs)
 dango start
 
@@ -132,6 +136,10 @@ dango source add
 
 # Sync your data
 dango sync
+
+# Verify installation
+dango --version
+# Should show: dango, version X.X.X
 
 # Start the platform (Web UI + Metabase + dbt docs)
 dango start

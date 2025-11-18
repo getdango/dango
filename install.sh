@@ -258,7 +258,18 @@ install_dango() {
     # Activate venv and install
     source "$venv_path/bin/activate"
     $PYTHON_CMD -m pip install --upgrade pip -q
-    $PYTHON_CMD -m pip install getdango
+
+    if ! $PYTHON_CMD -m pip install getdango; then
+        print_error "Failed to install Dango from PyPI"
+        echo
+        echo "Possible causes:"
+        echo "  • No internet connection"
+        echo "  • PyPI is down"
+        echo "  • Python version incompatible"
+        echo
+        echo "Check errors above and try again"
+        exit 1
+    fi
 
     # Get installed version
     DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
@@ -359,7 +370,17 @@ install_dango_global() {
     print_step "Installing Dango globally..."
     echo
 
-    $PYTHON_CMD -m pip install --user getdango
+    if ! $PYTHON_CMD -m pip install --user getdango; then
+        print_error "Failed to install Dango from PyPI"
+        echo
+        echo "Possible causes:"
+        echo "  • No internet connection"
+        echo "  • PyPI is down"
+        echo "  • Python version incompatible"
+        echo
+        echo "Check errors above and try again"
+        exit 1
+    fi
     echo
 
     # Get the actual user bin directory
@@ -446,10 +467,17 @@ init_project() {
     echo
 
     source "$venv_path/bin/activate"
-    dango init < /dev/tty
-
-    print_success "Project initialized"
-    echo
+    if dango init < /dev/tty; then
+        print_success "Project initialized"
+        echo
+    else
+        print_error "Failed to initialize project"
+        echo
+        echo "You can try initializing manually later:"
+        echo "  source $venv_path/bin/activate"
+        echo "  dango init"
+        exit 1
+    fi
 }
 
 # Function to print activation instructions
@@ -635,12 +663,20 @@ main() {
                 # Initialize project (no venv needed)
                 print_step "Initializing Dango project..."
                 echo
-                dango init < /dev/tty
-                print_success "Project initialized"
-                echo
+                if dango init < /dev/tty; then
+                    print_success "Project initialized"
+                    echo
 
-                # Show global success message
-                print_global_success "$PROJECT_DIR"
+                    # Show global success message
+                    print_global_success "$PROJECT_DIR"
+                else
+                    print_error "Failed to initialize project"
+                    echo
+                    echo "You can try initializing manually later:"
+                    echo -e "  ${YELLOW}cd $PROJECT_DIR${NC}"
+                    echo -e "  ${YELLOW}dango init${NC}"
+                    exit 1
+                fi
             fi
             ;;
 
