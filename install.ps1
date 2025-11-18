@@ -174,6 +174,38 @@ function Get-InstallScenario {
     }
 }
 
+# Function to prompt for installation mode
+function Get-InstallMode {
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host "  Installation Options" -ForegroundColor Cyan
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "How would you like to install Dango?"
+    Write-Host ""
+    Write-Host "[1] Virtual Environment (Recommended)" -ForegroundColor Green
+    Write-Host "    ✓ Keeps Dango separate from other Python programs"
+    Write-Host "    ✓ Safe to experiment - won't affect anything else"
+    Write-Host "    ✗ Requires one setup command each time (we'll show you)"
+    Write-Host "    ✗ Easy to forget - you'll see an error if you do"
+    Write-Host ""
+    Write-Host "[2] Global Install (Simpler but riskier)" -ForegroundColor Yellow
+    Write-Host "    ✓ Works immediately - no setup needed"
+    Write-Host "    ✓ Just type 'dango' anywhere"
+    Write-Host "    ✗ May upgrade packages that other Python programs use"
+    Write-Host "    ✗ Could stop other tools from working if they need older versions"
+    Write-Host ""
+
+    do {
+        $choice = Read-Host "Choose [1] or [2]"
+    } while ($choice -notmatch '^[12]$')
+
+    if ($choice -eq "1") {
+        return "venv"
+    } else {
+        return "global"
+    }
+}
+
 # Function to create virtual environment
 function New-VirtualEnvironment {
     param([string]$Path, [string]$PythonCmd)
@@ -251,6 +283,68 @@ function Update-Dango {
     Write-Host ""
 }
 
+# Function to install Dango globally
+function Install-DangoGlobal {
+    param([string]$PythonCmd)
+
+    Write-Step "Installing Dango globally..."
+    Write-Host ""
+
+    & $PythonCmd -m pip install --user getdango
+    Write-Host ""
+
+    # Get the user Scripts directory
+    $userScriptsDir = & $PythonCmd -c "import site, os; print(os.path.join(site.USER_BASE, 'Scripts'))"
+
+    # Check if dango command is accessible
+    if (Get-Command dango -ErrorAction SilentlyContinue) {
+        $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value }
+        if (-not $version) { $version = "unknown" }
+        Write-Success "Dango $version installed and ready to use!"
+        Write-Host ""
+        return $true
+    } else {
+        # Not in PATH - need to add it
+        Write-Warning-Message "Dango installed but not in PATH"
+        Write-Host ""
+        Write-Host "The 'dango' command is installed at:"
+        Write-Host "  $userScriptsDir\dango.exe" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "To use 'dango' from anywhere, add this to your PATH:"
+        Write-Host "  $userScriptsDir" -ForegroundColor Yellow
+        Write-Host ""
+
+        $response = Read-Host "Would you like me to add it automatically? [y/N]"
+
+        if ($response -match '^[Yy]$') {
+            # Add to user PATH
+            $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+            if ($currentPath -notlike "*$userScriptsDir*") {
+                [Environment]::SetEnvironmentVariable("Path", "$currentPath;$userScriptsDir", "User")
+                Write-Success "Added to PATH"
+                Write-Host ""
+                Write-Host "Restart PowerShell or run:"
+                Write-Host "  `$env:Path = [System.Environment]::GetEnvironmentVariable('Path','User')" -ForegroundColor Yellow
+                Write-Host ""
+            } else {
+                Write-Info "Already in PATH"
+                Write-Host ""
+            }
+            return $true
+        } else {
+            Write-Host ""
+            Write-Info "Skipped automatic configuration"
+            Write-Host ""
+            Write-Host "To add manually:"
+            Write-Host "  1. Search for 'Environment Variables' in Windows"
+            Write-Host "  2. Edit 'Path' under User variables"
+            Write-Host "  3. Add: $userScriptsDir"
+            Write-Host ""
+            return $false
+        }
+    }
+}
+
 # Function to initialize new project
 function Initialize-Project {
     param([string]$VenvPath)
@@ -258,9 +352,11 @@ function Initialize-Project {
     Write-Step "Initializing Dango project..."
     Write-Host ""
 
-    # Activate venv and run init
-    $activateScript = Join-Path $VenvPath "Scripts\Activate.ps1"
-    & $activateScript
+    if ($VenvPath) {
+        # Activate venv and run init
+        $activateScript = Join-Path $VenvPath "Scripts\Activate.ps1"
+        & $activateScript
+    }
 
     & dango init
 
@@ -318,36 +414,48 @@ function Write-ActivationInstructions {
     Write-Host ""
 }
 
-# Function to print success message
+# Function to print success message (for venv existing scenarios)
 function Write-SuccessMessage {
-    param(
-        [string]$VenvPath,
-        [bool]$IsActivated
-    )
+    param([string]$VenvPath)
+
+    Write-Host "✓ Dango is ready to use!" -ForegroundColor Green
+    Write-Host "Make sure to activate your venv: " -NoNewline
+    Write-Host ".\$VenvPath\Scripts\Activate.ps1" -ForegroundColor Yellow
+    Write-Host ""
+}
+
+# Function to print global install success message
+function Write-GlobalSuccess {
+    param([string]$ProjectDir)
 
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
     Write-Host "Installation complete!" -ForegroundColor Green
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
     Write-Host ""
-
-    if ($IsActivated) {
-        Write-Host "✓ Your environment is already activated!" -ForegroundColor Green
-    }
-    else {
-        Write-Host "⚠️  Don't forget to activate your environment:" -ForegroundColor Yellow
-        Write-Host "  .\$VenvPath\Scripts\Activate.ps1" -ForegroundColor Yellow
-    }
-
+    Write-Host "✓ Dango is installed globally and ready to use!" -ForegroundColor Green
     Write-Host ""
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "Quick start commands:"
+
+    if ($ProjectDir) {
+        Write-Host "Your project is ready at: " -NoNewline
+        Write-Host $ProjectDir -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Next steps:"
+        Write-Host "  cd $ProjectDir" -ForegroundColor Yellow
+    } else {
+        Write-Host "Next steps:"
+        Write-Host "  dango init my-project" -ForegroundColor Yellow -NoNewline
+        Write-Host "  # Create a new project"
+        Write-Host "  cd my-project" -ForegroundColor Yellow
+    }
+
     Write-Host "  dango source add" -ForegroundColor Yellow -NoNewline
-    Write-Host "    # Add a data source (CSV or Stripe)"
+    Write-Host "       # Add a data source (CSV or Stripe)"
     Write-Host "  dango sync" -ForegroundColor Yellow -NoNewline
-    Write-Host "          # Sync data"
+    Write-Host "             # Sync data"
     Write-Host "  dango start" -ForegroundColor Yellow -NoNewline
-    Write-Host "         # Start platform (opens http://localhost:8800)"
+    Write-Host "            # Start platform (opens http://localhost:8800)"
+    Write-Host ""
+    Write-Host "No activation needed - 'dango' command works from anywhere!" -ForegroundColor Green
     Write-Host ""
     Write-Host "Documentation: https://github.com/getdango/dango"
     Write-Host "Get help: https://github.com/getdango/dango/issues"
@@ -368,6 +476,10 @@ function Main {
     switch ($scenario) {
         "new_project" {
             Write-Info "Scenario: New Dango project"
+            Write-Host ""
+
+            # Prompt for installation mode
+            $installMode = Get-InstallMode
             Write-Host ""
 
             # Get project directory name
@@ -393,17 +505,34 @@ function Main {
             Write-Success "Directory created"
             Write-Host ""
 
-            # Create venv
-            New-VirtualEnvironment -Path "venv" -PythonCmd $pythonInfo.Command
+            # Install based on mode
+            if ($installMode -eq "venv") {
+                # Create venv
+                New-VirtualEnvironment -Path "venv" -PythonCmd $pythonInfo.Command
 
-            # Install Dango
-            Install-Dango -VenvPath "venv"
+                # Install Dango
+                Install-Dango -VenvPath "venv"
 
-            # Initialize project
-            Initialize-Project -VenvPath "venv"
+                # Initialize project
+                Initialize-Project -VenvPath "venv"
 
-            # Show activation instructions
-            Write-ActivationInstructions -VenvPath "venv" -ProjectDir $projectDir -CreatedSubdir $true
+                # Show activation instructions
+                Write-ActivationInstructions -VenvPath "venv" -ProjectDir $projectDir -CreatedSubdir $true
+            } else {
+                # Global install
+                $success = Install-DangoGlobal -PythonCmd $pythonInfo.Command
+
+                if ($success) {
+                    # Initialize project (no venv needed)
+                    Initialize-Project -VenvPath $null
+
+                    # Show global success message
+                    Write-GlobalSuccess -ProjectDir $projectDir
+                } else {
+                    Write-Warning-Message "Installation completed but PATH setup may be needed"
+                    Write-Host "Please restart PowerShell and run 'dango init' in your project directory."
+                }
+            }
         }
 
         "existing_with_venv" {
@@ -423,11 +552,11 @@ function Main {
             switch ($action.ToLower()) {
                 "i" {
                     Install-Dango -VenvPath "venv"
-                    Write-SuccessMessage -VenvPath "venv" -IsActivated $true
+                    Write-SuccessMessage -VenvPath "venv"
                 }
                 "u" {
                     Update-Dango -VenvPath "venv"
-                    Write-SuccessMessage -VenvPath "venv" -IsActivated $true
+                    Write-SuccessMessage -VenvPath "venv"
                 }
                 default {
                     Write-Info "Cancelled"
