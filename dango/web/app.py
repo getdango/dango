@@ -739,13 +739,17 @@ def check_service_status(service_name: str) -> str:
     """Check if a service is running (synchronous - use check_service_status_async for async)"""
     # For Docker services
     import subprocess
+    import sys
+
+    # Windows Docker Desktop is significantly slower than Mac/Linux
+    timeout = 30 if sys.platform == 'win32' else 10
 
     try:
         result = subprocess.run(
             ['docker', 'ps', '--filter', f'name={service_name}', '--format', '{{.Status}}'],
             capture_output=True,
             text=True,
-            timeout=10  # Increased from 5 to 10 seconds for Windows Docker Desktop
+            timeout=timeout
         )
 
         logger.info(f"Docker check for '{service_name}': returncode={result.returncode}, stdout='{result.stdout.strip()}', stderr='{result.stderr.strip()}'")
