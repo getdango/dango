@@ -630,7 +630,8 @@ async function loadServiceStatus() {
     isLoadingStatus = true;
 
     try {
-        const status = await apiCall('/api/status');
+        // Longer timeout for service status check (Windows Docker Desktop is slower)
+        const status = await apiCall('/api/status', 'GET', null, 15000);
 
         // Update service indicators
         updateServiceIndicator('service-api', status.services.api);
@@ -664,7 +665,8 @@ async function loadSources() {
     showSourcesLoading();
 
     try {
-        sources = await apiCall('/api/sources');
+        // Longer timeout for sources (includes DuckDB queries for row counts)
+        sources = await apiCall('/api/sources', 'GET', null, 15000);
         renderSourcesTable();
     } catch (error) {
         console.log('⏸️ [loadSources] Error (expected during sync):', error.message);
@@ -816,7 +818,8 @@ function updateServiceIndicator(elementId, status) {
 
 async function fetchPlatformHealth() {
     try {
-        const health = await apiCall('/api/health/platform');
+        // Longer timeout for platform health (includes DuckDB queries and disk checks)
+        const health = await apiCall('/api/health/platform', 'GET', null, 15000);
         updateHealthWidget(health);
     } catch (error) {
         console.error('Error fetching platform health:', error);
