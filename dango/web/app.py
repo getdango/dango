@@ -742,7 +742,7 @@ def check_service_via_http(service_name: str) -> str:
     # Map service names to their health check URLs
     health_urls = {
         "metabase": "http://localhost:3000/api/health",
-        "dbt-docs": "http://localhost:8080"
+        "dbt-docs": "http://localhost:8081"
     }
 
     url = health_urls.get(service_name)
