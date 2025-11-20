@@ -735,24 +735,41 @@ def load_all_logs(limit: int = 1000) -> List[Dict[str, Any]]:
         return []
 
 
-def check_service_status(service_name: str) -> str:
-    """Check if a service is running (synchronous - use check_service_status_async for async)"""
-    # For Docker services
-    import subprocess
-    import sys
+def check_service_via_http(service_name: str) -> str:
+    """Check service via HTTP health endpoint (faster on Windows)"""
+    import httpx
 
-    # Windows Docker Desktop is significantly slower than Mac/Linux
-    timeout = 30 if sys.platform == 'win32' else 10
+    # Map service names to their health check URLs
+    health_urls = {
+        "metabase": "http://localhost:3000/api/health",
+        "dbt-docs": "http://localhost:8080"
+    }
+
+    url = health_urls.get(service_name)
+    if not url:
+        return "unknown"
+
+    try:
+        response = httpx.get(url, timeout=5.0, follow_redirects=False)
+        if response.status_code in [200, 302]:  # 302 for dbt-docs redirect
+            return "running"
+        else:
+            return "stopped"
+    except Exception:
+        return "not_found"
+
+
+def check_service_via_docker(service_name: str) -> str:
+    """Check service via Docker command (fast on Mac/Linux)"""
+    import subprocess
 
     try:
         result = subprocess.run(
             ['docker', 'ps', '--filter', f'name={service_name}', '--format', '{{.Status}}'],
             capture_output=True,
             text=True,
-            timeout=timeout
+            timeout=10
         )
-
-        logger.info(f"Docker check for '{service_name}': returncode={result.returncode}, stdout='{result.stdout.strip()}', stderr='{result.stderr.strip()}'")
 
         if result.returncode == 0 and result.stdout.strip():
             if 'Up' in result.stdout:
@@ -761,16 +778,26 @@ def check_service_status(service_name: str) -> str:
                 return "stopped"
         else:
             return "not_found"
-
     except Exception as e:
         logger.error(f"Error checking service {service_name}: {e}")
         return "unknown"
 
 
 async def check_service_status_async(service_name: str) -> str:
-    """Check if a service is running (async version)"""
-    # Run blocking subprocess in thread pool to avoid blocking event loop
-    return await asyncio.to_thread(check_service_status, service_name)
+    """
+    Check if a service is running.
+
+    Windows: Uses HTTP health checks (Docker Desktop too slow)
+    Mac/Linux: Uses Docker commands (fast and reliable)
+    """
+    import sys
+
+    if sys.platform == 'win32':
+        # Windows: HTTP checks are much faster
+        return await asyncio.to_thread(check_service_via_http, service_name)
+    else:
+        # Mac/Linux: Docker commands work well
+        return await asyncio.to_thread(check_service_via_docker, service_name)
 
 
 # API Endpoints
