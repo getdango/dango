@@ -12,6 +12,12 @@ Dango deploys a complete data stack (dlt + dbt + DuckDB + Metabase) to your lapt
 
 #### Python 3.10 or Higher (Required)
 
+**Recommended:** Python 3.11 or 3.12 for fastest installation
+
+**Also supports:** Python 3.10, 3.13, 3.14
+
+**Note:** Python 3.13+ works but may have longer install times on Windows (10-15 min) due to package compilation.
+
 **Check if you have Python:**
 ```bash
 # Try these commands in order:
@@ -353,6 +359,11 @@ pip install getdango
 **"Permission denied"**
 - Don't use `sudo` with pip in a virtual environment
 - Check directory permissions: `ls -la`
+
+**"Installation stuck at 'Building wheel for duckdb'" (Windows)**
+- This is normal for Python 3.13+ on Windows (no pre-built binaries yet)
+- Takes 10-15 minutes - be patient, check Task Manager for CPU activity
+- **Faster alternative:** Use Python 3.12 instead (`winget install Python.Python.3.12`)
 
 ### Runtime Issues
 
