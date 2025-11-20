@@ -54,7 +54,7 @@ function Test-ExecutionPolicy {
     }
 
     # Policy is too restrictive
-    Write-Warning-Message "PowerShell execution policy is too restrictive: $policy"
+    Write-Warning-Message "PowerShell script execution is not enabled (current policy: $policy)"
     Write-Host ""
     Write-Host "To install Dango, we need to enable script execution."
     Write-Host "This is safe and only affects your user account (no admin needed)."
