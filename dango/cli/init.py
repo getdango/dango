@@ -224,15 +224,15 @@ secrets/
 
         # If .gitignore exists, merge
         if gitignore_path.exists():
-            with open(gitignore_path, 'r') as f:
+            with open(gitignore_path, 'r', encoding='utf-8') as f:
                 existing = f.read()
 
             if "# Dango" not in existing:
-                with open(gitignore_path, 'a') as f:
+                with open(gitignore_path, 'a', encoding='utf-8') as f:
                     f.write("\n" + gitignore_content)
                 print_success("Updated .gitignore")
         else:
-            with open(gitignore_path, 'w') as f:
+            with open(gitignore_path, 'w', encoding='utf-8') as f:
                 f.write(gitignore_content)
             print_success("Created .gitignore")
 
@@ -337,7 +337,7 @@ When creating dashboards and reports in Metabase, use tables in this priority or
 
         # Only create if doesn't exist
         if not readme_path.exists():
-            with open(readme_path, 'w') as f:
+            with open(readme_path, 'w', encoding='utf-8') as f:
                 f.write(readme_content)
             print_success("Created README.md")
 
@@ -420,7 +420,7 @@ SELECT * FROM marts.fct_orders
         marts_readme_path = self.project_dir / "dbt" / "models" / "marts" / "README.md"
 
         if not marts_readme_path.exists():
-            with open(marts_readme_path, 'w') as f:
+            with open(marts_readme_path, 'w', encoding='utf-8') as f:
                 f.write(marts_readme_content)
             console.print("[green]✓[/green] Created marts/README.md with guidance")
 
@@ -438,7 +438,7 @@ SELECT * FROM marts.fct_orders
         )
 
         docker_compose_path = self.project_dir / "docker-compose.yml"
-        with open(docker_compose_path, 'w') as f:
+        with open(docker_compose_path, 'w', encoding='utf-8') as f:
             f.write(content)
 
         print_success("Created docker-compose.yml")
@@ -462,7 +462,7 @@ SELECT * FROM marts.fct_orders
         dockerfile_content = dockerfile_template.render()
 
         dockerfile_path = self.project_dir / "Dockerfile.metabase"
-        with open(dockerfile_path, 'w') as f:
+        with open(dockerfile_path, 'w', encoding='utf-8') as f:
             f.write(dockerfile_content)
 
         console.print("[green]✓[/green] Created Dockerfile.metabase")
@@ -572,7 +572,7 @@ on-run-end:
 """
 
         dbt_project_path = self.project_dir / "dbt" / "dbt_project.yml"
-        with open(dbt_project_path, 'w') as f:
+        with open(dbt_project_path, 'w', encoding='utf-8') as f:
             f.write(dbt_project_content)
 
         # Create profiles.yml
@@ -600,7 +600,7 @@ on-run-end:
 """
 
         profiles_path = self.project_dir / "dbt" / "profiles.yml"
-        with open(profiles_path, 'w') as f:
+        with open(profiles_path, 'w', encoding='utf-8') as f:
             f.write(profiles_content)
 
         # Create dbt macro for clean schema naming (removes main_ prefix)
@@ -622,7 +622,7 @@ on-run-end:
 {%- endmacro %}
 """
         macro_path = self.project_dir / "dbt" / "macros" / "get_custom_schema.sql"
-        with open(macro_path, 'w') as f:
+        with open(macro_path, 'w', encoding='utf-8') as f:
             f.write(macro_content)
 
         print_success("Created dbt project files (dbt_project.yml, profiles.yml, macros)")
