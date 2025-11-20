@@ -502,27 +502,14 @@ function Write-ActivationInstructions {
     Write-Host "Installation complete!" -ForegroundColor Green
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "⚠️  IMPORTANT: Activate your environment first!" -ForegroundColor Yellow
+    Write-Host "✓ Your environment is activated and ready!" -ForegroundColor Green
     Write-Host ""
-
-    if ($CreatedSubdir) {
-        Write-Host "Run these commands to get started:"
-        Write-Host ""
-        Write-Host "  cd $ProjectDir" -ForegroundColor Yellow
-        Write-Host "  .\$VenvPath\Scripts\Activate.ps1" -ForegroundColor Yellow
-    }
-    else {
-        Write-Host "Run this command to activate:"
-        Write-Host ""
-        Write-Host "  .\$VenvPath\Scripts\Activate.ps1" -ForegroundColor Yellow
-    }
-
-    Write-Host ""
-    Write-Host "You need to activate the environment every time you work on this project." -ForegroundColor Yellow
+    Write-Host "💡 For future sessions, activate your environment with:" -ForegroundColor Cyan
+    Write-Host "  .\$VenvPath\Scripts\Activate.ps1" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Once activated, try these commands:"
+    Write-Host "Try these commands now:"
     Write-Host "  dango source add" -ForegroundColor Yellow -NoNewline
     Write-Host "    # Add a data source (CSV or Stripe)"
     Write-Host "  dango sync" -ForegroundColor Yellow -NoNewline
