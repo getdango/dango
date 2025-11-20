@@ -201,47 +201,6 @@ def get_project_root() -> Path:
     return app.state.project_root
 
 
-def connect_duckdb_with_retry(db_path: Path, read_only: bool = True, max_retries: int = None):
-    """
-    Connect to DuckDB with retry logic for Windows file locking issues.
-
-    On Windows, Explorer (dllhost.exe) can lock database files for indexing,
-    causing "File is already open" errors. This function retries the connection.
-
-    Args:
-        db_path: Path to DuckDB database file
-        read_only: Whether to open in read-only mode
-        max_retries: Number of retries (default: 3 on Windows, 1 on Mac/Linux)
-
-    Returns:
-        DuckDB connection object
-
-    Raises:
-        Exception: If connection fails after all retries
-    """
-    import sys
-    import time
-
-    if max_retries is None:
-        max_retries = 3 if sys.platform == 'win32' else 1
-
-    last_error = None
-    for attempt in range(max_retries):
-        try:
-            return duckdb.connect(str(db_path), read_only=read_only)
-        except Exception as e:
-            last_error = e
-            if "already open" in str(e).lower() and attempt < max_retries - 1:
-                # File locked by another process - wait and retry
-                time.sleep(0.5)
-                continue
-            raise
-
-    # All retries failed
-    if last_error:
-        raise last_error
-
-
 def load_sources_config() -> List[Dict[str, Any]]:
     """Load sources configuration from .dango/sources.yml"""
     sources_file = get_project_root() / ".dango" / "sources.yml"
@@ -286,7 +245,7 @@ def get_dbt_model_row_count(schema: str, model_name: str) -> Optional[int]:
         return None
 
     try:
-        conn = connect_duckdb_with_retry(db_path, read_only=True)
+        conn = duckdb.connect(str(db_path), read_only=True)
 
         # Check if table exists
         result = conn.execute(f"""
@@ -428,7 +387,7 @@ def get_source_row_count(source_name: str) -> Optional[int]:
 
     try:
         with timeout_context(2):  # 2 second timeout
-            conn = connect_duckdb_with_retry(db_path, read_only=True)
+            conn = duckdb.connect(str(db_path), read_only=True)
 
             # Check for multi-resource schema first (raw_{source_name})
             multi_schema = f"raw_{source_name}"
@@ -510,7 +469,7 @@ def get_source_tables_info(source_name: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        conn = connect_duckdb_with_retry(db_path, read_only=True)
+        conn = duckdb.connect(str(db_path), read_only=True)
 
         # Check for multi-resource schema first (raw_{source_name})
         multi_schema = f"raw_{source_name}"
@@ -776,41 +735,8 @@ def load_all_logs(limit: int = 1000) -> List[Dict[str, Any]]:
         return []
 
 
-# Cache for docker service status (to avoid overwhelming Docker Desktop with concurrent checks)
-_docker_status_cache = {}
-_docker_status_cache_lock = asyncio.Lock()
-
-
-async def check_service_status_cached(service_name: str, cache_seconds: int = 3) -> str:
-    """
-    Check if a service is running with caching to prevent overwhelming Docker Desktop.
-
-    Windows Docker Desktop struggles with many concurrent 'docker ps' commands.
-    This caches the result for a few seconds to reduce load.
-    """
-    import time
-
-    async with _docker_status_cache_lock:
-        now = time.time()
-
-        # Check cache
-        if service_name in _docker_status_cache:
-            cached_result, cached_time = _docker_status_cache[service_name]
-            if now - cached_time < cache_seconds:
-                logger.debug(f"Using cached status for '{service_name}': {cached_result}")
-                return cached_result
-
-        # Cache miss or expired - check Docker
-        status = await asyncio.to_thread(check_service_status_sync, service_name)
-
-        # Update cache
-        _docker_status_cache[service_name] = (status, now)
-
-        return status
-
-
-def check_service_status_sync(service_name: str) -> str:
-    """Check if a service is running (synchronous)"""
+def check_service_status(service_name: str) -> str:
+    """Check if a service is running (synchronous - use check_service_status_async for async)"""
     # For Docker services
     import subprocess
     import sys
@@ -841,6 +767,12 @@ def check_service_status_sync(service_name: str) -> str:
         return "unknown"
 
 
+async def check_service_status_async(service_name: str) -> str:
+    """Check if a service is running (async version)"""
+    # Run blocking subprocess in thread pool to avoid blocking event loop
+    return await asyncio.to_thread(check_service_status, service_name)
+
+
 # API Endpoints
 
 @app.get("/api/status", response_model=ServiceHealth)
@@ -856,9 +788,12 @@ async def get_status():
     # Check DuckDB
     duckdb_status = "healthy" if duckdb_path.exists() else "not_initialized"
 
-    # Check Docker services with caching (serialized to avoid overwhelming Docker Desktop)
-    metabase_status = await check_service_status_cached("metabase")
-    dbt_docs_status = await check_service_status_cached("dbt-docs")
+    # Check Docker services asynchronously (run in parallel)
+    metabase_status_task = asyncio.create_task(check_service_status_async("metabase"))
+    dbt_docs_status_task = asyncio.create_task(check_service_status_async("dbt-docs"))
+
+    metabase_status = await metabase_status_task
+    dbt_docs_status = await dbt_docs_status_task
 
     return ServiceHealth(
         status="healthy",
@@ -2141,7 +2076,7 @@ async def get_csv_files(source_name: str):
         duckdb_path = get_duckdb_path()
         if duckdb_path.exists():
             import duckdb
-            conn = connect_duckdb_with_retry(duckdb_path, read_only=True)
+            conn = duckdb.connect(str(duckdb_path))
 
             # Check if metadata table exists
             result = conn.execute("""
@@ -2303,7 +2238,7 @@ async def delete_csv_file(
 
         conn = None
         try:
-            conn = connect_duckdb_with_retry(duckdb_path_resolved, read_only=False)
+            conn = duckdb.connect(str(duckdb_path_resolved))
 
             # Debug: List all tables to verify connection
             all_tables = conn.execute("""
