@@ -776,8 +776,41 @@ def load_all_logs(limit: int = 1000) -> List[Dict[str, Any]]:
         return []
 
 
-def check_service_status(service_name: str) -> str:
-    """Check if a service is running (synchronous - use check_service_status_async for async)"""
+# Cache for docker service status (to avoid overwhelming Docker Desktop with concurrent checks)
+_docker_status_cache = {}
+_docker_status_cache_lock = asyncio.Lock()
+
+
+async def check_service_status_cached(service_name: str, cache_seconds: int = 3) -> str:
+    """
+    Check if a service is running with caching to prevent overwhelming Docker Desktop.
+
+    Windows Docker Desktop struggles with many concurrent 'docker ps' commands.
+    This caches the result for a few seconds to reduce load.
+    """
+    import time
+
+    async with _docker_status_cache_lock:
+        now = time.time()
+
+        # Check cache
+        if service_name in _docker_status_cache:
+            cached_result, cached_time = _docker_status_cache[service_name]
+            if now - cached_time < cache_seconds:
+                logger.debug(f"Using cached status for '{service_name}': {cached_result}")
+                return cached_result
+
+        # Cache miss or expired - check Docker
+        status = await asyncio.to_thread(check_service_status_sync, service_name)
+
+        # Update cache
+        _docker_status_cache[service_name] = (status, now)
+
+        return status
+
+
+def check_service_status_sync(service_name: str) -> str:
+    """Check if a service is running (synchronous)"""
     # For Docker services
     import subprocess
     import sys
@@ -808,12 +841,6 @@ def check_service_status(service_name: str) -> str:
         return "unknown"
 
 
-async def check_service_status_async(service_name: str) -> str:
-    """Check if a service is running (async version)"""
-    # Run blocking subprocess in thread pool to avoid blocking event loop
-    return await asyncio.to_thread(check_service_status, service_name)
-
-
 # API Endpoints
 
 @app.get("/api/status", response_model=ServiceHealth)
@@ -829,12 +856,9 @@ async def get_status():
     # Check DuckDB
     duckdb_status = "healthy" if duckdb_path.exists() else "not_initialized"
 
-    # Check Docker services asynchronously (run in parallel)
-    metabase_status_task = asyncio.create_task(check_service_status_async("metabase"))
-    dbt_docs_status_task = asyncio.create_task(check_service_status_async("dbt-docs"))
-
-    metabase_status = await metabase_status_task
-    dbt_docs_status = await dbt_docs_status_task
+    # Check Docker services with caching (serialized to avoid overwhelming Docker Desktop)
+    metabase_status = await check_service_status_cached("metabase")
+    dbt_docs_status = await check_service_status_cached("dbt-docs")
 
     return ServiceHealth(
         status="healthy",
