@@ -736,7 +736,7 @@ def load_all_logs(limit: int = 1000) -> List[Dict[str, Any]]:
 
 
 def check_service_status(service_name: str) -> str:
-    """Check if a service is running"""
+    """Check if a service is running (synchronous - use check_service_status_async for async)"""
     # For Docker services
     import subprocess
 
@@ -745,7 +745,7 @@ def check_service_status(service_name: str) -> str:
             ['docker', 'ps', '--filter', f'name={service_name}', '--format', '{{.Status}}'],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=10  # Increased from 5 to 10 seconds for Windows Docker Desktop
         )
 
         if result.returncode == 0 and result.stdout.strip():
@@ -759,6 +759,12 @@ def check_service_status(service_name: str) -> str:
     except Exception as e:
         logger.error(f"Error checking service {service_name}: {e}")
         return "unknown"
+
+
+async def check_service_status_async(service_name: str) -> str:
+    """Check if a service is running (async version)"""
+    # Run blocking subprocess in thread pool to avoid blocking event loop
+    return await asyncio.to_thread(check_service_status, service_name)
 
 
 # API Endpoints
@@ -776,9 +782,12 @@ async def get_status():
     # Check DuckDB
     duckdb_status = "healthy" if duckdb_path.exists() else "not_initialized"
 
-    # Check Docker services
-    metabase_status = check_service_status("metabase")
-    dbt_docs_status = check_service_status("dbt-docs")
+    # Check Docker services asynchronously (run in parallel)
+    metabase_status_task = asyncio.create_task(check_service_status_async("metabase"))
+    dbt_docs_status_task = asyncio.create_task(check_service_status_async("dbt-docs"))
+
+    metabase_status = await metabase_status_task
+    dbt_docs_status = await dbt_docs_status_task
 
     return ServiceHealth(
         status="healthy",
@@ -912,23 +921,35 @@ async def get_metabase_config():
         return {"database_id": None, "configured": False}
 
 
-@app.get("/api/health/platform")
-async def get_platform_health():
+async def get_platform_health_data():
     """
-    Get comprehensive platform health status
-
-    Returns:
-        Platform health including DB size, disk space, recent failures, and overall status
+    Helper function to gather platform health data (runs blocking operations in thread pool)
     """
     from dango.utils.db_health import check_duckdb_health, get_disk_usage_summary
     from dango.config import ConfigLoader
 
     project_root = get_project_root()
-
-    # Database health
     duckdb_path = get_duckdb_path()
+
+    # Run all blocking operations concurrently in thread pool
+    db_health_task = asyncio.create_task(
+        asyncio.to_thread(lambda: check_duckdb_health(duckdb_path) if duckdb_path.exists() else {
+            "size_gb": 0,
+            "size_mb": 0,
+            "tables": 0,
+            "status": "new",
+            "raw_tables": 0,
+            "staging_tables": 0,
+            "marts_tables": 0
+        })
+    )
+
+    disk_task = asyncio.create_task(asyncio.to_thread(get_disk_usage_summary, project_root))
+    sources_task = asyncio.create_task(asyncio.to_thread(load_sources_config))
+
+    # Wait for all tasks
     try:
-        db_health = check_duckdb_health(duckdb_path)
+        db_health = await db_health_task
     except Exception as e:
         logger.error(f"Error checking DB health: {e}")
         db_health = {
@@ -941,18 +962,15 @@ async def get_platform_health():
             "marts_tables": 0
         }
 
-    # Disk space
-    disk = get_disk_usage_summary(project_root)
+    disk = await disk_task
+    sources_config = await sources_task
 
-    # Failed syncs (only check most recent sync status)
-    sources_config = load_sources_config()
+    # Check for failed syncs
     failed_syncs = []
-
     for source in sources_config:
         source_name = source.get('name', 'unknown')
-        history = load_sync_history(source_name, limit=5)
+        history = await asyncio.to_thread(load_sync_history, source_name, 5)
 
-        # Only check if the MOST RECENT sync failed (not historical failures)
         if history and len(history) > 0:
             most_recent = history[0]
             if most_recent.get("status") == "failed":
@@ -960,7 +978,6 @@ async def get_platform_health():
                     timestamp = datetime.fromisoformat(most_recent.get("timestamp", "").replace('Z', '+00:00'))
                     hours_ago = (datetime.now() - timestamp.replace(tzinfo=None)).total_seconds() / 3600
 
-                    # Only report if failure is recent (within 24h)
                     if hours_ago < 24:
                         failed_syncs.append({
                             "source": source_name,
@@ -970,16 +987,18 @@ async def get_platform_health():
                 except:
                     pass
 
-    # Failed dbt runs (last 24h)
+    # Check for failed dbt runs
     failed_dbt = []
     run_results_path = project_root / "dbt" / "target" / "run_results.json"
 
     if run_results_path.exists():
         try:
-            with open(run_results_path, 'r', encoding='utf-8') as f:
-                run_results = json.load(f)
+            def read_dbt_results():
+                with open(run_results_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
 
-            # Check if last run had failures
+            run_results = await asyncio.to_thread(read_dbt_results)
+
             results = run_results.get("results", [])
             failed_models = [r for r in results if r.get("status") == "error"]
 
@@ -991,6 +1010,32 @@ async def get_platform_health():
                 })
         except Exception as e:
             logger.error(f"Error reading dbt run results: {e}")
+
+    return {
+        "db_health": db_health,
+        "disk": disk,
+        "sources_config": sources_config,
+        "failed_syncs": failed_syncs,
+        "failed_dbt": failed_dbt
+    }
+
+
+@app.get("/api/health/platform")
+async def get_platform_health():
+    """
+    Get comprehensive platform health status
+
+    Returns:
+        Platform health including DB size, disk space, recent failures, and overall status
+    """
+    # Gather health data asynchronously
+    data = await get_platform_health_data()
+
+    db_health = data["db_health"]
+    disk = data["disk"]
+    sources_config = data["sources_config"]
+    failed_syncs = data["failed_syncs"]
+    failed_dbt = data["failed_dbt"]
 
     # Determine overall status
     critical_issues = []
@@ -1033,6 +1078,55 @@ async def get_platform_health():
     }
 
 
+async def get_source_status_data(source: dict) -> SourceStatus:
+    """
+    Get status data for a single source (runs blocking operations in thread pool)
+    """
+    source_name = source.get('name', 'unknown')
+    source_type = source.get('type', 'unknown')
+    enabled = source.get('enabled', True)
+
+    # Run blocking operations in thread pool
+    tables_info = await asyncio.to_thread(get_source_tables_info, source_name)
+    last_sync = await asyncio.to_thread(get_last_sync_time, source_name)
+    last_sync_status = await asyncio.to_thread(get_last_sync_status, source_name)
+    history = await asyncio.to_thread(load_sync_history, source_name, 1)
+    freshness = await asyncio.to_thread(get_source_freshness, source_name)
+
+    # Extract row count and tables list
+    if tables_info:
+        row_count = tables_info['total_rows']
+        tables = [TableInfo(**t) for t in tables_info['tables']] if tables_info['is_multi_resource'] else None
+    else:
+        row_count = None
+        tables = None
+
+    rows_processed = history[0].get('rows_processed', 0) if history else None
+
+    # Determine status (priority: failed > synced > empty > not_synced)
+    if last_sync_status == "failed":
+        status = "failed"
+    elif last_sync_status == "success" and (rows_processed == 0 or row_count == 0 or row_count is None):
+        status = "empty"
+    elif row_count is not None and row_count > 0:
+        status = "synced"
+    elif row_count is not None and row_count == 0:
+        status = "empty"
+    else:
+        status = "not_synced"
+
+    return SourceStatus(
+        name=source_name,
+        type=source_type,
+        enabled=enabled,
+        last_sync=last_sync,
+        row_count=row_count,
+        status=status,
+        freshness=freshness,
+        tables=tables
+    )
+
+
 @app.get("/api/sources", response_model=List[SourceStatus])
 async def get_sources():
     """
@@ -1041,64 +1135,15 @@ async def get_sources():
     Returns:
         List of sources with sync status, row counts, and timestamps
     """
-    sources_config = load_sources_config()
+    # Load sources config in thread pool
+    sources_config = await asyncio.to_thread(load_sources_config)
 
-    source_statuses = []
-
-    for source in sources_config:
-        source_name = source.get('name', 'unknown')
-        source_type = source.get('type', 'unknown')
-        enabled = source.get('enabled', True)
-
-        # Get detailed table information (includes per-table breakdown)
-        tables_info = get_source_tables_info(source_name)
-
-        # Extract row count and tables list
-        if tables_info:
-            row_count = tables_info['total_rows']
-            tables = [TableInfo(**t) for t in tables_info['tables']] if tables_info['is_multi_resource'] else None
-        else:
-            row_count = None
-            tables = None
-
-        # Get last sync time and status
-        last_sync = get_last_sync_time(source_name)
-        last_sync_status = get_last_sync_status(source_name)
-
-        # Get rows processed from last sync history for more accurate status
-        history = load_sync_history(source_name, limit=1)
-        rows_processed = history[0].get('rows_processed', 0) if history else None
-
-        # Determine status (priority: failed > synced > empty > not_synced)
-        if last_sync_status == "failed":
-            # If last sync failed, show as failed regardless of row count
-            status = "failed"
-        elif last_sync_status == "success" and (rows_processed == 0 or row_count == 0 or row_count is None):
-            # If sync succeeded but has 0 rows or no tables at all, show as empty
-            status = "empty"
-        elif row_count is not None and row_count > 0:
-            status = "synced"
-        elif row_count is not None and row_count == 0:
-            status = "empty"
-        else:
-            status = "not_synced"
-
-        # Get freshness information
-        freshness = get_source_freshness(source_name)
-
-        source_statuses.append(SourceStatus(
-            name=source_name,
-            type=source_type,
-            enabled=enabled,
-            last_sync=last_sync,
-            row_count=row_count,
-            status=status,
-            freshness=freshness,
-            tables=tables
-        ))
+    # Process all sources concurrently
+    tasks = [get_source_status_data(source) for source in sources_config]
+    source_statuses = await asyncio.gather(*tasks)
 
     # Sort sources alphabetically by name for consistent ordering
-    source_statuses.sort(key=lambda s: s.name.lower())
+    source_statuses = sorted(source_statuses, key=lambda s: s.name.lower())
 
     return source_statuses
 
