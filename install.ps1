@@ -328,8 +328,9 @@ function Install-Dango {
     # Upgrade pip silently
     & pip install --upgrade pip --quiet
 
-    # Install getdango
-    & pip install getdango
+    # Install getdango from GitHub branch (testing Python 3.13/3.14 support)
+    # TODO: Change back to 'pip install getdango' after publishing v0.0.2 to PyPI
+    & pip install git+https://github.com/getdango/dango.git@feature/install-script-improvements
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to install Dango"
@@ -354,7 +355,8 @@ function Update-Dango {
     $activateScript = Join-Path $VenvPath "Scripts\Activate.ps1"
     & $activateScript
 
-    & pip install --upgrade getdango --quiet
+    # Install/upgrade from GitHub branch (testing Python 3.13/3.14 support)
+    & pip install --upgrade git+https://github.com/getdango/dango.git@feature/install-script-improvements --quiet
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to upgrade Dango"
@@ -376,7 +378,8 @@ function Install-DangoGlobal {
     Write-Step "Installing Dango globally..."
     Write-Host ""
 
-    & $PythonCmd -m pip install --user getdango
+    # Install from GitHub branch (testing Python 3.13/3.14 support)
+    & $PythonCmd -m pip install --user git+https://github.com/getdango/dango.git@feature/install-script-improvements
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to install Dango from PyPI"
@@ -797,7 +800,7 @@ function Main {
                 Write-Host "To create venv manually:"
                 Write-Host "  $($pythonInfo.Command) -m venv venv"
                 Write-Host "  .\venv\Scripts\Activate.ps1"
-                Write-Host "  pip install getdango"
+                Write-Host "  pip install git+https://github.com/getdango/dango.git@feature/install-script-improvements"
                 Write-Host ""
                 exit 0
             }
