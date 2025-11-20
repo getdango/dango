@@ -748,6 +748,8 @@ def check_service_status(service_name: str) -> str:
             timeout=10  # Increased from 5 to 10 seconds for Windows Docker Desktop
         )
 
+        logger.info(f"Docker check for '{service_name}': returncode={result.returncode}, stdout='{result.stdout.strip()}', stderr='{result.stderr.strip()}'")
+
         if result.returncode == 0 and result.stdout.strip():
             if 'Up' in result.stdout:
                 return "running"
