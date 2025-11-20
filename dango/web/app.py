@@ -201,6 +201,47 @@ def get_project_root() -> Path:
     return app.state.project_root
 
 
+def connect_duckdb_with_retry(db_path: Path, read_only: bool = True, max_retries: int = None):
+    """
+    Connect to DuckDB with retry logic for Windows file locking issues.
+
+    On Windows, Explorer (dllhost.exe) can lock database files for indexing,
+    causing "File is already open" errors. This function retries the connection.
+
+    Args:
+        db_path: Path to DuckDB database file
+        read_only: Whether to open in read-only mode
+        max_retries: Number of retries (default: 3 on Windows, 1 on Mac/Linux)
+
+    Returns:
+        DuckDB connection object
+
+    Raises:
+        Exception: If connection fails after all retries
+    """
+    import sys
+    import time
+
+    if max_retries is None:
+        max_retries = 3 if sys.platform == 'win32' else 1
+
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            return duckdb.connect(str(db_path), read_only=read_only)
+        except Exception as e:
+            last_error = e
+            if "already open" in str(e).lower() and attempt < max_retries - 1:
+                # File locked by another process - wait and retry
+                time.sleep(0.5)
+                continue
+            raise
+
+    # All retries failed
+    if last_error:
+        raise last_error
+
+
 def load_sources_config() -> List[Dict[str, Any]]:
     """Load sources configuration from .dango/sources.yml"""
     sources_file = get_project_root() / ".dango" / "sources.yml"
@@ -245,7 +286,7 @@ def get_dbt_model_row_count(schema: str, model_name: str) -> Optional[int]:
         return None
 
     try:
-        conn = duckdb.connect(str(db_path), read_only=True)
+        conn = connect_duckdb_with_retry(db_path, read_only=True)
 
         # Check if table exists
         result = conn.execute(f"""
@@ -387,7 +428,7 @@ def get_source_row_count(source_name: str) -> Optional[int]:
 
     try:
         with timeout_context(2):  # 2 second timeout
-            conn = duckdb.connect(str(db_path), read_only=True)
+            conn = connect_duckdb_with_retry(db_path, read_only=True)
 
             # Check for multi-resource schema first (raw_{source_name})
             multi_schema = f"raw_{source_name}"
@@ -469,7 +510,7 @@ def get_source_tables_info(source_name: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        conn = duckdb.connect(str(db_path), read_only=True)
+        conn = connect_duckdb_with_retry(db_path, read_only=True)
 
         # Check for multi-resource schema first (raw_{source_name})
         multi_schema = f"raw_{source_name}"
@@ -2076,7 +2117,7 @@ async def get_csv_files(source_name: str):
         duckdb_path = get_duckdb_path()
         if duckdb_path.exists():
             import duckdb
-            conn = duckdb.connect(str(duckdb_path))
+            conn = connect_duckdb_with_retry(duckdb_path, read_only=True)
 
             # Check if metadata table exists
             result = conn.execute("""
@@ -2238,7 +2279,7 @@ async def delete_csv_file(
 
         conn = None
         try:
-            conn = duckdb.connect(str(duckdb_path_resolved))
+            conn = connect_duckdb_with_retry(duckdb_path_resolved, read_only=False)
 
             # Debug: List all tables to verify connection
             all_tables = conn.execute("""
