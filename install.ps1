@@ -40,6 +40,61 @@ function Write-Step {
     Write-Host "▶ $Message" -ForegroundColor Cyan
 }
 
+# Function to check and fix PowerShell execution policy
+function Test-ExecutionPolicy {
+    Write-Step "Checking PowerShell execution policy..."
+
+    $policy = Get-ExecutionPolicy -Scope CurrentUser
+
+    # If policy allows scripts, we're good
+    if ($policy -eq "RemoteSigned" -or $policy -eq "Unrestricted" -or $policy -eq "Bypass") {
+        Write-Success "Execution policy is already set: $policy"
+        Write-Host ""
+        return
+    }
+
+    # Policy is too restrictive
+    Write-Warning-Message "PowerShell execution policy is too restrictive: $policy"
+    Write-Host ""
+    Write-Host "To install Dango, we need to enable script execution."
+    Write-Host "This is safe and only affects your user account (no admin needed)."
+    Write-Host ""
+    Write-Host "We will set the policy to 'RemoteSigned' which:"
+    Write-Host "  • Allows local scripts to run"
+    Write-Host "  • Requires downloaded scripts to be signed"
+    Write-Host "  • Only affects your user (not system-wide)"
+    Write-Host ""
+
+    # Prompt for permission
+    $response = Read-Host "Allow script execution for your user? [Y/n]"
+
+    if ($response -match '^[Yy]$' -or [string]::IsNullOrWhiteSpace($response)) {
+        try {
+            Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force -ErrorAction Stop
+            Write-Success "Execution policy updated to RemoteSigned"
+            Write-Host ""
+        }
+        catch {
+            Write-Error-Message "Failed to update execution policy: $_"
+            Write-Host ""
+            Write-Host "Please run this command manually:"
+            Write-Host "  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser"
+            Write-Host ""
+            exit 1
+        }
+    }
+    else {
+        Write-Error-Message "Cannot proceed without script execution enabled"
+        Write-Host ""
+        Write-Host "To enable manually, run:"
+        Write-Host "  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser"
+        Write-Host ""
+        Write-Host "Then run this installer again."
+        Write-Host ""
+        exit 1
+    }
+}
+
 # Function to check Python version
 function Test-PythonVersion {
     Write-Step "Checking Python version..."
@@ -552,6 +607,7 @@ function Main {
     Write-Header
 
     # Check prerequisites
+    Test-ExecutionPolicy
     $pythonInfo = Test-PythonVersion
     Test-Docker
 
