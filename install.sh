@@ -57,12 +57,8 @@ check_python() {
                 major=$(echo $version | cut -d. -f1)
                 minor=$(echo $version | cut -d. -f2)
 
-                # Check if version is 3.10+
-                if [ "$major" -eq 3 ] && [ "$minor" -ge 10 ]; then
-                    PYTHON_CMD="$cmd"
-                    PYTHON_VERSION="$version"
-                    break
-                elif [ "$major" -gt 3 ]; then
+                # Check if version is 3.10-3.12
+                if [ "$major" -eq 3 ] && [ "$minor" -ge 10 ] && [ "$minor" -le 12 ]; then
                     PYTHON_CMD="$cmd"
                     PYTHON_VERSION="$version"
                     break
@@ -73,11 +69,15 @@ check_python() {
 
     # If no suitable Python found
     if [ -z "$PYTHON_CMD" ]; then
-        print_error "Python 3.10+ not found"
+        print_error "Python 3.10-3.12 not found"
         echo
-        echo "Please install Python 3.10 or higher:"
-        echo "  macOS:   brew install python@3.11"
-        echo "  Ubuntu:  sudo apt install python3.11"
+        echo "Dango requires Python 3.10, 3.11, or 3.12 (recommended)"
+        echo
+        echo "Install options:"
+        echo "  macOS:   brew install python@3.12"
+        echo "  Ubuntu:  sudo apt install python3.12"
+        echo
+        echo "Note: Python 3.13+ not yet supported due to dependency compatibility"
         echo
         exit 1
     fi

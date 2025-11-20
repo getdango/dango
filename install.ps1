@@ -113,13 +113,8 @@ function Test-PythonVersion {
                     $major = [int]$versionParts[0]
                     $minor = [int]$versionParts[1]
 
-                    # Check if version is 3.10+
-                    if ($major -eq 3 -and $minor -ge 10) {
-                        $pythonCmd = $cmd
-                        $pythonVersion = $version
-                        break
-                    }
-                    elseif ($major -gt 3) {
+                    # Check if version is 3.10-3.12
+                    if ($major -eq 3 -and $minor -ge 10 -and $minor -le 12) {
                         $pythonCmd = $cmd
                         $pythonVersion = $version
                         break
@@ -135,11 +130,15 @@ function Test-PythonVersion {
 
     # If no suitable Python found
     if (-not $pythonCmd) {
-        Write-Error-Message "Python 3.10+ not found"
+        Write-Error-Message "Python 3.10-3.12 not found"
         Write-Host ""
-        Write-Host "Please install Python 3.10 or higher:"
-        Write-Host "  Download: https://www.python.org/downloads/"
-        Write-Host "  Or use: winget install Python.Python.3.11"
+        Write-Host "Dango requires Python 3.10, 3.11, or 3.12 (recommended)"
+        Write-Host ""
+        Write-Host "Install options:"
+        Write-Host "  winget install Python.Python.3.12"
+        Write-Host "  Or download: https://www.python.org/downloads/"
+        Write-Host ""
+        Write-Host "Note: Python 3.13+ not yet supported due to dependency compatibility"
         Write-Host ""
         exit 1
     }
