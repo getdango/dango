@@ -209,7 +209,7 @@ def load_sources_config() -> List[Dict[str, Any]]:
         return []
 
     try:
-        with open(sources_file, 'r') as f:
+        with open(sources_file, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f) or {}
             return config.get('sources', [])
     except Exception as e:
@@ -230,7 +230,7 @@ def get_dbt_manifest() -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        with open(manifest_path, 'r') as f:
+        with open(manifest_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
         logger.error(f"Error loading dbt manifest: {e}")
@@ -277,7 +277,7 @@ def get_dbt_model_last_run() -> Optional[str]:
         return None
 
     try:
-        with open(run_results_path, 'r') as f:
+        with open(run_results_path, 'r', encoding='utf-8') as f:
             run_results = json.load(f)
 
         # Get the generated_at time (when dbt command completed)
@@ -719,7 +719,7 @@ def load_all_logs(limit: int = 1000) -> List[Dict[str, Any]]:
 
     try:
         logs = []
-        with open(logs_file, 'r') as f:
+        with open(logs_file, 'r', encoding='utf-8') as f:
             for line in f:
                 if line.strip():
                     try:
@@ -897,7 +897,7 @@ async def get_metabase_config():
         if not metabase_yml_path.exists():
             return {"database_id": None, "configured": False}
 
-        with open(metabase_yml_path, 'r') as f:
+        with open(metabase_yml_path, 'r', encoding='utf-8') as f:
             import yaml
             metabase_config = yaml.safe_load(f)
 
@@ -976,7 +976,7 @@ async def get_platform_health():
 
     if run_results_path.exists():
         try:
-            with open(run_results_path, 'r') as f:
+            with open(run_results_path, 'r', encoding='utf-8') as f:
                 run_results = json.load(f)
 
             # Check if last run had failures
@@ -1607,7 +1607,7 @@ async def get_source_logs(source_name: str, limit: int = 100):
 
     try:
         logs = []
-        with open(log_file, 'r') as f:
+        with open(log_file, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
             # Get last N lines
@@ -1872,7 +1872,7 @@ async def upload_csv_to_source(
         if not sources_file.exists():
             raise HTTPException(status_code=404, detail="No sources configured")
 
-        with open(sources_file, 'r') as f:
+        with open(sources_file, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f) or {}
 
         # Find the source
@@ -1975,7 +1975,7 @@ async def get_csv_files(source_name: str):
         if not sources_file.exists():
             raise HTTPException(status_code=404, detail="No sources configured")
 
-        with open(sources_file, 'r') as f:
+        with open(sources_file, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f) or {}
 
         # Find the source
@@ -2344,7 +2344,7 @@ async def root():
     index_file = Path(__file__).parent / "static" / "index.html"
 
     if index_file.exists():
-        return index_file.read_text()
+        return index_file.read_text(encoding='utf-8')
     else:
         # Fallback if static files not found
         return """
@@ -2366,7 +2366,7 @@ async def health_page():
     health_file = Path(__file__).parent / "static" / "health.html"
 
     if health_file.exists():
-        return health_file.read_text()
+        return health_file.read_text(encoding='utf-8')
     else:
         return "<html><body><h1>Health page not found</h1></body></html>"
 
@@ -2378,7 +2378,7 @@ async def logs_page():
     logs_file = Path(__file__).parent / "static" / "logs.html"
 
     if logs_file.exists():
-        return logs_file.read_text()
+        return logs_file.read_text(encoding='utf-8')
     else:
         return """
         <html>
@@ -2577,7 +2577,7 @@ async def get_metabase_session() -> str:
             logger.error("Metabase config not found")
             return None
 
-        with open(metabase_config_file, 'r') as f:
+        with open(metabase_config_file, 'r', encoding='utf-8') as f:
             metabase_config = yaml.safe_load(f)
 
         admin_email = metabase_config.get('admin', {}).get('email')
