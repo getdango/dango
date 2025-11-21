@@ -6,13 +6,19 @@ DuckDB locking conflicts and data corruption.
 """
 
 import os
+import sys
 import json
 import psutil
-import fcntl
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any
 from contextlib import contextmanager
+
+# Platform-specific file locking
+if sys.platform == 'win32':
+    import msvcrt
+else:
+    import fcntl
 
 
 class DbtLockError(Exception):
@@ -86,12 +92,19 @@ class DbtLock:
 
     def _write_lock_info(self):
         """Write lock information to the lock info file."""
+        # Get hostname in a cross-platform way
+        try:
+            import socket
+            hostname = socket.gethostname()
+        except Exception:
+            hostname = "unknown"
+
         lock_info = {
             "pid": os.getpid(),
             "source": self.source,
             "operation": self.operation,
             "started_at": datetime.now().isoformat(),
-            "hostname": os.uname().nodename if hasattr(os, 'uname') else "unknown"
+            "hostname": hostname
         }
 
         with open(self.lock_info_path, 'w') as f:
@@ -144,7 +157,14 @@ class DbtLock:
         # Try to acquire the lock
         try:
             self._lock_file = open(self.lock_file_path, 'w')
-            fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+            # Platform-specific locking
+            if sys.platform == 'win32':
+                # Windows: use msvcrt
+                msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                # Unix: use fcntl
+                fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
             # Successfully acquired the lock
             self._write_lock_info()
@@ -189,7 +209,17 @@ class DbtLock:
 
         try:
             if self._lock_file:
-                fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
+                # Platform-specific unlocking
+                if sys.platform == 'win32':
+                    # Windows: use msvcrt
+                    try:
+                        msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                    except (IOError, OSError):
+                        pass  # Lock may already be released
+                else:
+                    # Unix: use fcntl
+                    fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
+
                 self._lock_file.close()
                 self._lock_file = None
 

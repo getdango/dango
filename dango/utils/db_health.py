@@ -86,6 +86,9 @@ def check_duckdb_health(duckdb_path: Path) -> Dict[str, Any]:
     Raises:
         DuckDBHealthError: If database cannot be checked
     """
+    import time
+    import sys
+
     try:
         # Check if database file exists
         if not duckdb_path.exists():
@@ -105,7 +108,26 @@ def check_duckdb_health(duckdb_path: Path) -> Dict[str, Any]:
         size_mb = size_bytes / (1024**2)
 
         # Connect to database (read-only to avoid locks)
-        conn = duckdb.connect(str(duckdb_path), read_only=True)
+        # On Windows, retry if file is locked by Explorer or other processes
+        max_retries = 3 if sys.platform == 'win32' else 1
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                conn = duckdb.connect(str(duckdb_path), read_only=True)
+                break
+            except Exception as e:
+                last_error = e
+                if "already open" in str(e).lower() and attempt < max_retries - 1:
+                    # File locked by another process (e.g., Windows Explorer)
+                    # Wait and retry
+                    time.sleep(0.5)
+                    continue
+                raise
+        else:
+            # All retries failed
+            if last_error:
+                raise last_error
 
         try:
             # Count tables by schema (including source-specific schemas like raw_stripe_test_1)

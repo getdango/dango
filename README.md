@@ -10,22 +10,121 @@ Dango deploys a complete data stack (dlt + dbt + DuckDB + Metabase) to your lapt
 
 ### Prerequisites
 
-- **Python 3.10+** - Check with `python3 --version` (macOS/Linux) or `python --version` (Windows)
-- **Docker Desktop** - Required for Metabase dashboards
-- **Platform:** macOS, Linux, or Windows 10/11
+#### Python 3.10-3.12 (Required)
+
+**Recommended:** Python 3.11 or 3.12
+
+**Supported versions:** Python 3.10, 3.11, 3.12
+
+**Check if you have Python:**
+```bash
+# Try these commands in order:
+python3.12 --version  # Check for Python 3.12
+python3.11 --version  # Check for Python 3.11
+python3.10 --version  # Check for Python 3.10
+
+# If any show "3.10" or higher, you're good!
+```
+
+**If you don't have Python 3.10+, install it:**
+
+**macOS:**
+1. Install Homebrew (if you don't have it):
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+2. Install Python:
+   ```bash
+   brew install python@3.11
+   ```
+3. Verify: `python3.11 --version`
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt update
+sudo apt install python3.11 python3.11-venv python3-pip
+```
+
+**Linux (Fedora):**
+```bash
+sudo dnf install python3.11
+```
+
+**Windows:**
+- Download from [python.org](https://www.python.org/downloads/)
+- OR install from Microsoft Store (search "Python 3.11")
+- **Important:** Check "Add Python to PATH" during installation
+
+#### Docker Desktop (Required)
+
+**Required for:** Metabase dashboards, Web UI, dbt docs visualization
+
+**All platforms:** [Download Docker Desktop](https://docs.docker.com/desktop/)
+
+After installing, start Docker Desktop and verify:
+```bash
+docker --version
+```
+
+#### Disk Space Requirements
+
+**Installation:** ~5GB
+- Docker Desktop: ~4.5GB
+- Python packages (dlt, dbt, DuckDB, etc.): ~400MB
+- Dango platform: ~100MB
+
+**Data Storage:** Varies by data volume
+- Small datasets (< 100K rows): < 100MB
+- Medium datasets (100K - 1M rows): 100MB - 1GB
+- Large datasets (> 1M rows): 1GB+
+
+**Recommendation:** Have at least 10GB free space before installing.
+
+#### Supported Platforms
+- macOS (Intel and Apple Silicon)
+- Linux (Ubuntu 20.04+, Debian 11+, Fedora 35+)
+- Windows 10/11
+
+---
+
+### Verify Prerequisites
+
+Before installing, check you have everything:
+
+**macOS / Linux:**
+```bash
+# Check Python (any of these should work):
+python3.12 --version  # 3.12.x ✓
+python3.11 --version  # 3.11.x ✓
+python3.10 --version  # 3.10.x ✓
+
+# Check Docker (required):
+docker --version
+
+# Check disk space:
+df -h .
+```
+
+**Windows:**
+```powershell
+python --version     # Should show 3.10 or higher
+docker --version
+```
+
+---
 
 ### Quick Install (Recommended)
 
 **macOS / Linux:**
 
 ```bash
-curl -sSL get.getdango.dev | bash
+curl -sSL https://raw.githubusercontent.com/getdango/dango/main/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm get.getdango.dev | iex
+irm https://raw.githubusercontent.com/getdango/dango/main/install.ps1 | iex
 ```
 
 This will:
@@ -39,7 +138,7 @@ This will:
 **macOS / Linux:**
 ```bash
 # Download the installer
-curl -sSL get.getdango.dev -o install.sh
+curl -sSL https://raw.githubusercontent.com/getdango/dango/main/install.sh -o install.sh
 
 # Review what it does
 cat install.sh
@@ -51,7 +150,7 @@ bash install.sh
 **Windows (PowerShell):**
 ```powershell
 # Download the installer
-Invoke-WebRequest -Uri get.getdango.dev -OutFile install.ps1
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/getdango/dango/main/install.ps1 -OutFile install.ps1
 
 # Review what it does
 Get-Content install.ps1
@@ -114,6 +213,10 @@ dango source add
 # Sync your data
 dango sync
 
+# Verify installation
+dango --version
+# Should show: dango, version X.X.X
+
 # Start the platform (Web UI + Metabase + dbt docs)
 dango start
 
@@ -133,6 +236,10 @@ dango source add
 # Sync your data
 dango sync
 
+# Verify installation
+dango --version
+# Should show: dango, version X.X.X
+
 # Start the platform (Web UI + Metabase + dbt docs)
 dango start
 
@@ -147,7 +254,7 @@ Start-Process http://localhost:8800
 - **DuckDB** as your analytics database
 - **Metabase** for dashboards and SQL queries
 
-## Features (v0.0.1)
+## Features (v0.0.2)
 
 **✅ What Works Now:**
 - ✅ Full CLI with 9 commands
@@ -253,13 +360,39 @@ pip install getdango
 
 ### Runtime Issues
 
-**"dango: command not found"**
+**"dango: command not found" (virtual environment)**
 ```bash
 # Make sure venv is activated
 source venv/bin/activate
 
 # Or use full path
 ./venv/bin/dango --version
+```
+
+**"dango: command not found" (after global install)**
+
+If you just installed Dango globally, your terminal needs to reload:
+
+**Option 1: Restart terminal (recommended)**
+
+Close and reopen your terminal window, then verify:
+```bash
+dango --version
+```
+
+**Option 2: Reload shell config**
+```bash
+# For zsh users:
+source ~/.zshrc
+
+# For bash on macOS:
+source ~/.bash_profile
+
+# For bash on Linux:
+source ~/.bashrc
+
+# Then verify:
+dango --version
 ```
 
 **"Port 8800 already in use"**
@@ -306,7 +439,7 @@ If you installed with the bootstrap script:
 
 ```bash
 cd your-project
-curl -sSL get.getdango.dev | bash
+curl -sSL https://raw.githubusercontent.com/getdango/dango/main/install.sh | bash
 # Select [u] to upgrade when prompted
 ```
 
@@ -342,19 +475,104 @@ Check [CHANGELOG.md](CHANGELOG.md) for breaking changes between versions.
 
 ## Uninstall
 
-Dango uses per-project virtual environments, making uninstall clean and simple.
+### Which Installation Method Did I Use?
 
-### Remove a Dango Project
+**Virtual Environment (venv):**
+- You have a `venv/` folder in your project directory
+- Need to activate with `source venv/bin/activate` (macOS/Linux) or `.\venv\Scripts\Activate.ps1` (Windows)
 
+**Global Install:**
+- No `venv/` folder in your project
+- `dango` command works from anywhere without activation
+
+### Uninstall Virtual Environment Installation
+
+**macOS / Linux:**
 ```bash
-# Just delete the project directory
+# Simply delete the project directory
 rm -rf my-analytics/
+```
+
+**Windows:**
+```powershell
+# Simply delete the project directory
+Remove-Item -Recurse -Force my-analytics
 ```
 
 That's it! Everything (venv, data, config) is contained in the project directory.
 
+### Uninstall Global Installation
+
+**Step 1: Find which Python has Dango**
+
+**macOS / Linux:**
+```bash
+# Check each Python version
+python3.11 -m pip list | grep getdango
+python3.10 -m pip list | grep getdango
+python3 -m pip list | grep getdango
+
+# Or find the command location
+which dango
+# Example output: /Users/you/Library/Python/3.11/bin/dango
+# This means use python3.11
+```
+
+**Windows:**
+```powershell
+# Check Python versions
+python -m pip list | findstr getdango
+py -3.11 -m pip list | findstr getdango
+```
+
+**Step 2: Uninstall Dango**
+
+**macOS / Linux:**
+```bash
+# Use the Python version that has it (e.g., python3.11)
+python3.11 -m pip uninstall getdango
+```
+
+**Windows:**
+```powershell
+python -m pip uninstall getdango
+```
+
+**Step 3: Clean up PATH (if you added it)**
+
+**macOS / Linux:**
+```bash
+# Edit your shell config file
+# zsh users:
+nano ~/.zshrc
+
+# bash users (macOS):
+nano ~/.bash_profile
+
+# bash users (Linux):
+nano ~/.bashrc
+
+# Remove the line that looks like:
+# export PATH="/Users/you/Library/Python/3.11/bin:$PATH"
+
+# Save and reload
+source ~/.zshrc  # or ~/.bash_profile or ~/.bashrc
+```
+
+**Windows:**
+1. Search for "Environment Variables" in Windows search
+2. Click "Edit the system environment variables"
+3. Click "Environment Variables" button
+4. Under "User variables", select "Path" and click "Edit"
+5. Find and remove the entry with `Python\...\Scripts`
+6. Click OK to save
+7. Restart PowerShell
+
 ### Remove Docker Containers (Optional)
 
+If you're done with Dango entirely, clean up Docker:
+
+**macOS / Linux:**
 ```bash
 # List running containers
 docker ps
@@ -362,7 +580,19 @@ docker ps
 # Stop Metabase container
 docker stop <metabase-container-id>
 
-# Remove Metabase image (optional, saves disk space)
+# Remove Metabase image (saves disk space)
+docker rmi metabase/metabase
+```
+
+**Windows:**
+```powershell
+# List running containers
+docker ps
+
+# Stop Metabase container
+docker stop <metabase-container-id>
+
+# Remove Metabase image (saves disk space)
 docker rmi metabase/metabase
 ```
 
