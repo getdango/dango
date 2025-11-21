@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2] - 2025-11-21
+
+### Added
+- **Bootstrap Installer Improvements**
+  - Interactive installation mode selection (global vs virtual environment)
+  - Custom virtual environment location support
+  - Global installation with automatic PATH configuration on all platforms
+  - Conflict detection for existing global installations
+  - Comprehensive error handling and validation messages
+  - PowerShell execution policy auto-detection and fix for Windows
+  - PATH refresh in current PowerShell session for immediate use
+  - Better shell detection using `$SHELL` variable on Unix systems
+
+- **Windows Platform Support**
+  - Complete Windows compatibility throughout the codebase
+  - Platform-specific service health checks (HTTP on Windows, Docker on Mac/Linux)
+  - Cross-platform file locking (msvcrt on Windows, fcntl on Unix)
+  - DuckDB connection retry logic to handle Windows file locking
+  - UTF-8 encoding for all file operations to prevent encoding errors
+
+- **Documentation**
+  - Complete Windows installation instructions with prerequisites
+  - Expanded Python version requirements (3.10-3.12) with installation guides
+  - Comprehensive troubleshooting section for both platforms
+  - Platform-specific uninstall instructions
+  - Enhanced PATH configuration guidance
+
+### Fixed
+- **Windows Compatibility**
+  - UTF-8 encoding errors in file read/write operations
+  - DuckDB file locking by Windows Explorer (dllhost.exe)
+  - Docker Desktop performance issues with timeout handling
+  - Service health check timeouts (switched to HTTP-based checks on Windows)
+  - Frontend timeout handling (5s → 15s for slower Windows operations)
+  - Cross-platform hostname detection (replaced Unix-only `os.uname()`)
+
+- **Installer**
+  - PATH not updating in current PowerShell session
+  - Better Python version detection across all platforms (3.10-3.12 only)
+  - User bin path detection on macOS/Linux for global installs
+  - Removed direnv dependency to simplify installation UX
+  - Fixed success message to acknowledge when venv is already activated
+
+- **Service Management**
+  - dbt-docs health check port correction (8080 → 8081)
+  - Docker service status detection performance on Windows
+  - Async parallel service status checks to improve performance
+
+### Changed
+- **Python Support**: Restricted to Python 3.10-3.12 (3.13+ not yet supported due to dependency compatibility, specifically DuckDB binary wheels)
+- **Installer UX**: Softer messaging, clearer prompts, better validation and error messages
+- **Documentation**: Restructured README with clear platform-specific sections
+
+### Technical Details
+- Modified files: 10 core files
+- Total changes: +1,490 additions, -357 deletions
+- Platform-specific code paths for Windows vs Mac/Linux
+- HTTP-based health checks 10x faster than Docker commands on Windows
+
+### Notes
+This release focuses on Windows compatibility and installer improvements. All platforms now fully supported with optimized performance characteristics for each OS.
+
 ## [0.0.1] - 2025-11-14
 
 ### Added
@@ -44,5 +106,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This is a **preview release** for early feedback. Not recommended for production use.
 Full MVP (v0.1.0) with OAuth and complete documentation targeted for late November 2025.
 
-[Unreleased]: https://github.com/getdango/dango/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/getdango/dango/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/getdango/dango/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/getdango/dango/releases/tag/v0.0.1

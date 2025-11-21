@@ -1,5 +1,5 @@
 # Dango Bootstrap Installer for Windows
-# Version: 0.0.1
+# Version: 0.0.2
 # Purpose: Install Dango with per-project virtual environment
 # Platform: Windows 10/11 with PowerShell 5.1+
 
@@ -327,9 +327,8 @@ function Install-Dango {
     # Upgrade pip silently
     & pip install --upgrade pip --quiet
 
-    # Install getdango from GitHub branch (testing Python 3.13/3.14 support)
-    # TODO: Change back to 'pip install getdango' after publishing v0.0.2 to PyPI
-    & pip install git+https://github.com/getdango/dango.git@feature/install-script-improvements
+    # Install getdango from PyPI
+    & pip install getdango
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to install Dango"

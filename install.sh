@@ -2,7 +2,7 @@
 set -e
 
 # Dango Bootstrap Installer
-# Version: 0.0.1
+# Version: 0.0.2
 # Purpose: Install Dango with per-project virtual environment
 # Platform: macOS / Linux (Windows support coming in v0.1.0)
 

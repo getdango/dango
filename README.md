@@ -118,13 +118,13 @@ docker --version
 **macOS / Linux:**
 
 ```bash
-curl -sSL get.getdango.dev | bash
+curl -sSL https://raw.githubusercontent.com/getdango/dango/main/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm get.getdango.dev | iex
+irm https://raw.githubusercontent.com/getdango/dango/main/install.ps1 | iex
 ```
 
 This will:
@@ -138,7 +138,7 @@ This will:
 **macOS / Linux:**
 ```bash
 # Download the installer
-curl -sSL get.getdango.dev -o install.sh
+curl -sSL https://raw.githubusercontent.com/getdango/dango/main/install.sh -o install.sh
 
 # Review what it does
 cat install.sh
@@ -150,7 +150,7 @@ bash install.sh
 **Windows (PowerShell):**
 ```powershell
 # Download the installer
-Invoke-WebRequest -Uri get.getdango.dev -OutFile install.ps1
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/getdango/dango/main/install.ps1 -OutFile install.ps1
 
 # Review what it does
 Get-Content install.ps1
@@ -254,7 +254,7 @@ Start-Process http://localhost:8800
 - **DuckDB** as your analytics database
 - **Metabase** for dashboards and SQL queries
 
-## Features (v0.0.1)
+## Features (v0.0.2)
 
 **✅ What Works Now:**
 - ✅ Full CLI with 9 commands
@@ -439,7 +439,7 @@ If you installed with the bootstrap script:
 
 ```bash
 cd your-project
-curl -sSL get.getdango.dev | bash
+curl -sSL https://raw.githubusercontent.com/getdango/dango/main/install.sh | bash
 # Select [u] to upgrade when prompted
 ```
 
