@@ -1619,7 +1619,7 @@ def source_remove(ctx, source_name, yes):
 
 
 @cli.command()
-@click.argument("provider", type=click.Choice(["google", "stripe", "shopify"]))
+@click.argument("provider", type=click.Choice(["google_ads", "google_analytics", "google_sheets", "facebook_ads", "shopify"]))
 @click.pass_context
 def auth(ctx, provider):
     """
@@ -1628,14 +1628,44 @@ def auth(ctx, provider):
     PROVIDER: API provider to authenticate with
 
     Examples:
-      dango auth google     Authenticate with Google (for Sheets)
-      dango auth stripe     Set up Stripe API key
-      dango auth shopify    Set up Shopify credentials
+      dango auth google_ads        Authenticate with Google Ads
+      dango auth google_analytics  Authenticate with Google Analytics
+      dango auth google_sheets     Authenticate with Google Sheets
+      dango auth facebook_ads      Authenticate with Facebook/Meta Ads
+      dango auth shopify           Authenticate with Shopify
     """
-    console.print(f"🍡 [bold]Authenticating with {provider}...[/bold]")
+    from pathlib import Path
+    from .utils import require_project_context
+    from dango.oauth import create_oauth_manager
+    from dango.oauth.providers import GoogleOAuthProvider, FacebookOAuthProvider, ShopifyOAuthProvider
 
-    # TODO: Implement OAuth flows
-    console.print("[red]Not implemented yet - Phase 2 in progress[/red]")
+    console.print(f"🍡 [bold]Authenticating with {provider.replace('_', ' ').title()}...[/bold]")
+
+    try:
+        project_root = require_project_context(ctx)
+        oauth_manager = create_oauth_manager(project_root)
+
+        # Dispatch to appropriate provider
+        if provider in ["google_ads", "google_analytics", "google_sheets"]:
+            # All Google services use the same provider
+            google_provider = GoogleOAuthProvider(oauth_manager)
+            success = google_provider.authenticate(service=provider)
+
+        elif provider == "facebook_ads":
+            facebook_provider = FacebookOAuthProvider(oauth_manager)
+            success = facebook_provider.authenticate()
+
+        elif provider == "shopify":
+            shopify_provider = ShopifyOAuthProvider(oauth_manager)
+            success = success = shopify_provider.authenticate()
+
+        if not success:
+            console.print("\n[red]Authentication failed[/red]")
+            raise click.Abort()
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort()
 
 
 @cli.group()

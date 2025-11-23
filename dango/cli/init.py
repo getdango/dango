@@ -175,6 +175,10 @@ class ProjectInitializer:
         # Create marts README with guidance
         self._create_marts_readme()
 
+        # Initialize .dlt/ directory for dlt-native credential storage
+        from dango.config.credentials import init_dlt_directory
+        init_dlt_directory(self.project_dir)
+
         print_success(f"Created project structure")
 
     def _create_gitignore(self):

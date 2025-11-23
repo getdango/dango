@@ -157,13 +157,14 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
         ],
         "setup_guide": [
-            "1. Enable Google Sheets API in Google Cloud Console",
-            "2. Create OAuth 2.0 credentials or Service Account",
-            "3. Run: dango auth google",
-            "4. Share your spreadsheet with the service account email",
+            "1. Run: dango auth google_sheets",
+            "2. Follow the OAuth flow to authenticate",
+            "3. Copy the spreadsheet ID from the URL",
+            "4. Credentials are permanent (refresh token)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_sheets",
         "cost_warning": "Subject to Google API quota limits",
+        "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 10,
     },
 
@@ -198,14 +199,14 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
         ],
         "setup_guide": [
-            "1. Go to: https://developers.facebook.com",
-            "2. Create a new app (Business type)",
-            "3. Add Marketing API permissions",
-            "4. Run: dango auth facebook",
-            "5. Generate long-lived access token",
+            "1. Run: dango auth facebook_ads",
+            "2. Follow the OAuth flow to authenticate",
+            "3. Note: Access token expires in 60 days",
+            "4. Set a reminder to re-authenticate before expiry",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/facebook_ads",
         "cost_warning": "Rate limited: 200 calls/hour per user, 4800/day per app",
+        "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 9,
     },
 
@@ -240,13 +241,14 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
         ],
         "setup_guide": [
-            "1. Create service account in Google Cloud Console",
-            "2. Enable Google Analytics Data API",
-            "3. Add service account email as viewer in GA4 property",
-            "4. Run: dango auth google",
+            "1. Run: dango auth google_analytics",
+            "2. Follow the OAuth flow to authenticate",
+            "3. Enter your GA4 Property ID when prompted",
+            "4. Credentials are permanent (refresh token)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_analytics",
         "cost_warning": "Subject to Google API quota limits",
+        "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 9,
     },
 
@@ -432,14 +434,14 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
         ],
         "setup_guide": [
-            "1. Log in to Shopify Admin",
-            "2. Go to Apps > Develop apps (or App development)",
-            "3. Create custom app with required scopes",
-            "4. Install app and copy Admin API access token",
-            "5. Add to .env as SHOPIFY_API_KEY",
+            "1. Run: dango auth shopify",
+            "2. Follow the prompts to create a custom app",
+            "3. Enter your shop URL and access token",
+            "4. Credentials are permanent (no expiry)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/shopify",
         "cost_warning": "Included with Shopify plan",
+        "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 9,
     },
 
@@ -622,13 +624,14 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
         ],
         "setup_guide": [
-            "1. Enable Google Ads API in Google Cloud Console",
-            "2. Create OAuth or Service Account credentials",
-            "3. Apply for Google Ads Developer Token",
-            "4. Add credentials to .env as GOOGLE_ADS_CREDENTIALS",
-            "5. Add developer token to .env as GOOGLE_ADS_DEV_TOKEN",
+            "1. Run: dango auth google_ads",
+            "2. Follow the OAuth flow to authenticate",
+            "3. Enter your Developer Token when prompted",
+            "4. Enter your Customer ID when prompted",
+            "5. Credentials are permanent (refresh token)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_ads",
+        "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 7,
     },
 

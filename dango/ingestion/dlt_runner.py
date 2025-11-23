@@ -63,10 +63,31 @@ class DltPipelineRunner:
         self.duckdb_path = project_root / "data" / "warehouse.duckdb"
         self.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Load .env file for credentials
-        env_file = project_root / ".env"
+        # Load credentials with priority: .dlt/ > .env
+        self._load_credentials()
+
+    def _load_credentials(self):
+        """
+        Load credentials from .dlt/ directory and .env file
+
+        Priority order:
+        1. .dlt/secrets.toml (highest priority - dlt native)
+        2. .env file (fallback for backward compatibility)
+
+        dlt automatically loads .dlt/secrets.toml and .dlt/config.toml,
+        but we also load .env for backward compatibility with existing projects.
+        """
+        # First, load .env file (lower priority)
+        env_file = self.project_root / ".env"
         if env_file.exists():
-            load_dotenv(env_file, override=True)
+            load_dotenv(env_file, override=False)  # Don't override existing env vars
+
+        # dlt will automatically load .dlt/secrets.toml and .dlt/config.toml
+        # from the current working directory when creating pipelines.
+        # We just need to ensure we're running from the project root.
+        #
+        # Note: dlt uses the current working directory to find .dlt/
+        # This is handled in the run_source method by changing directory.
 
     def _run_with_timeout(self, func, timeout_minutes: int, *args, **kwargs):
         """
@@ -510,12 +531,21 @@ class DltPipelineRunner:
         # Single-resource sources → raw (simple governance)
         dataset_name = self._get_dataset_name(source_config, source_type, metadata)
 
-        # Create pipeline with DuckDB destination
-        pipeline = dlt.pipeline(
-            pipeline_name=source_name,
-            destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
-            dataset_name=dataset_name,
-        )
+        # Change to project root so dlt can find .dlt/ directory
+        # dlt automatically loads .dlt/secrets.toml and .dlt/config.toml from cwd
+        original_cwd = os.getcwd()
+        os.chdir(self.project_root)
+
+        try:
+            # Create pipeline with DuckDB destination
+            pipeline = dlt.pipeline(
+                pipeline_name=source_name,
+                destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
+                dataset_name=dataset_name,
+            )
+        finally:
+            # Always restore original working directory
+            os.chdir(original_cwd)
 
         # Full refresh: drop pipeline state
         if full_refresh:
