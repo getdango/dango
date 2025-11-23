@@ -24,14 +24,17 @@ OAUTH_PROVIDER_MAP = {
 }
 
 
-def run_oauth_for_source(source_type: str, project_root: Path) -> bool:
+def run_oauth_for_source(source_type: str, source_name: str, project_root: Path) -> bool:
     """
-    Run OAuth authentication for a specific source type.
+    Run OAuth authentication for a specific source instance.
 
     This is the main entry point for inline OAuth during source wizard.
+    Saves credentials to [sources.{source_name}] in .dlt/secrets.toml,
+    enabling multi-account setups (e.g., facebook_us, facebook_eu).
 
     Args:
         source_type: Source type key (e.g., "google_ads", "facebook_ads")
+        source_name: Source instance name (e.g., "facebook_us")
         project_root: Path to project root
 
     Returns:
@@ -50,15 +53,18 @@ def run_oauth_for_source(source_type: str, project_root: Path) -> bool:
     try:
         if provider_name == "google":
             provider = GoogleOAuthProvider(oauth_manager)
-            return provider.authenticate(service=service)
+            # Pass source_name for instance-specific credentials
+            return provider.authenticate(service=service, source_name=source_name)
 
         elif provider_name == "facebook":
             provider = FacebookOAuthProvider(oauth_manager)
-            return provider.authenticate()
+            # Pass source_name for instance-specific credentials
+            return provider.authenticate(source_name=source_name)
 
         elif provider_name == "shopify":
             provider = ShopifyOAuthProvider(oauth_manager)
-            return provider.authenticate()
+            # Pass source_name for instance-specific credentials
+            return provider.authenticate(source_name=source_name)
 
         else:
             console.print(f"[red]❌ Unknown OAuth provider: {provider_name}[/red]")
@@ -69,12 +75,16 @@ def run_oauth_for_source(source_type: str, project_root: Path) -> bool:
         return False
 
 
-def check_oauth_credentials_exist(source_type: str, project_root: Path) -> bool:
+def check_oauth_credentials_exist(source_type: str, source_name: str, project_root: Path) -> bool:
     """
-    Check if OAuth credentials already exist for a source type.
+    Check if OAuth credentials already exist for a source instance.
+
+    Checks both instance-specific credentials [sources.{source_name}]
+    and shared provider credentials [sources.{source_type}].
 
     Args:
         source_type: Source type key (e.g., "google_ads")
+        source_name: Source instance name (e.g., "google_ads_us")
         project_root: Path to project root
 
     Returns:
@@ -92,6 +102,22 @@ def check_oauth_credentials_exist(source_type: str, project_root: Path) -> bool:
         if "sources" not in secrets:
             return False
 
+        # Check instance-specific credentials first (highest priority)
+        if source_name in secrets["sources"]:
+            source_creds = secrets["sources"][source_name]
+
+            # Check for required OAuth fields based on source type
+            if source_type in ["google_ads", "google_analytics", "google_sheets"]:
+                if all(k in source_creds for k in ["client_id", "client_secret", "refresh_token"]):
+                    return True
+            elif source_type == "facebook_ads":
+                if "access_token" in source_creds:
+                    return True
+            elif source_type == "shopify":
+                if "private_app_password" in source_creds:
+                    return True
+
+        # Check shared provider credentials (fallback)
         # For Google services, check for shared Google OAuth credentials
         if source_type in ["google_ads", "google_analytics", "google_sheets"]:
             # Check if any Google OAuth creds exist
@@ -103,13 +129,13 @@ def check_oauth_credentials_exist(source_type: str, project_root: Path) -> bool:
                         return True
             return False
 
-        # For Facebook Ads
+        # For Facebook Ads - check shared credentials
         elif source_type == "facebook_ads":
             if "facebook_ads" in secrets["sources"]:
                 return "access_token" in secrets["sources"]["facebook_ads"]
             return False
 
-        # For Shopify
+        # For Shopify - check shared credentials
         elif source_type == "shopify":
             if "shopify" in secrets["sources"]:
                 return "private_app_password" in secrets["sources"]["shopify"]

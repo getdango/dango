@@ -135,15 +135,6 @@ class SourceWizard:
                             state = "source"
                             continue
 
-                    # Check if OAuth setup is needed (inline flow)
-                    oauth_result = self._handle_oauth_setup(source_type, metadata)
-                    if oauth_result == "back":
-                        # User wants to go back
-                        state = "source"
-                        continue
-                    elif oauth_result == "cancel":
-                        return False
-
                     state = "name"
 
                 elif state == "name":
@@ -155,6 +146,16 @@ class SourceWizard:
                         continue
                     if not source_name:
                         return False  # User cancelled
+
+                    # Step 3b: Check if OAuth setup is needed (inline flow)
+                    # NOW we have source_name, so we can save instance-specific credentials
+                    oauth_result = self._handle_oauth_setup(source_type, source_name, metadata)
+                    if oauth_result == "back":
+                        # User wants to go back - return to name prompt
+                        continue
+                    elif oauth_result == "cancel":
+                        return False
+
                     state = "params"
 
                 elif state == "params":
@@ -368,14 +369,16 @@ class SourceWizard:
         if metadata.get("docs_url"):
             console.print(f"[dim]📚 Docs: {metadata['docs_url']}[/dim]\n")
 
-    def _handle_oauth_setup(self, source_type: str, metadata: Dict[str, Any]) -> Optional[str]:
+    def _handle_oauth_setup(self, source_type: str, source_name: str, metadata: Dict[str, Any]) -> Optional[str]:
         """
         Handle OAuth setup for sources that require it.
 
-        This runs inline during source wizard before collecting other parameters.
+        This runs inline during source wizard AFTER getting source name,
+        so we can save instance-specific credentials for multi-account setups.
 
         Args:
-            source_type: Source type key
+            source_type: Source type key (e.g., "facebook_ads")
+            source_name: Source instance name (e.g., "facebook_us")
             metadata: Source metadata from registry
 
         Returns:
@@ -396,11 +399,11 @@ class SourceWizard:
             console.print(f"[yellow]   You'll need to configure credentials manually in .dlt/secrets.toml[/yellow]\n")
             return None
 
-        # Check if credentials already exist
-        creds_exist = check_oauth_credentials_exist(source_type, self.project_root)
+        # Check if credentials already exist for THIS SOURCE INSTANCE
+        creds_exist = check_oauth_credentials_exist(source_type, source_name, self.project_root)
 
         if creds_exist:
-            console.print(f"[green]✓ OAuth credentials already configured for {source_type}[/green]")
+            console.print(f"[green]✓ OAuth credentials already configured for {source_name}[/green]")
             console.print(f"[dim]  Credentials found in .dlt/secrets.toml[/dim]")
             console.print(f"[dim]  To re-authenticate: dango auth {source_type}[/dim]\n")
             return None
@@ -443,8 +446,9 @@ class SourceWizard:
         else:  # "Set up OAuth now"
             console.print(f"\n[bold]Starting OAuth setup for {metadata.get('display_name')}...[/bold]\n")
 
-            # Run OAuth flow
-            success = run_oauth_for_source(source_type, self.project_root)
+            # Run OAuth flow with source_name for instance-specific credentials
+            # This allows multiple accounts: facebook_us, facebook_eu, etc.
+            success = run_oauth_for_source(source_type, source_name, self.project_root)
 
             if success:
                 console.print(f"\n[green]✅ OAuth credentials configured successfully![/green]")
