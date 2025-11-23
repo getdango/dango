@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from rich.console import Console
+from rich.prompt import Confirm
 from rich.table import Table
 from rich.panel import Panel
 import inquirer
@@ -23,10 +24,16 @@ from dango.ingestion.sources.registry import (
     get_source_metadata,
     get_sources_by_category,
     get_all_categories,
+    AuthType,
 )
 from dango.cli.env_helpers import (
     create_env_template,
     guide_env_setup,
+)
+from dango.oauth.router import (
+    run_oauth_for_source,
+    check_oauth_credentials_exist,
+    OAUTH_PROVIDER_MAP,
 )
 
 console = Console()
@@ -93,6 +100,50 @@ class SourceWizard:
 
                     # Show source info
                     self._show_source_info(metadata)
+
+                    # Special handling for dlt_native sources (file-based config only)
+                    if source_type == "dlt_native":
+                        console.print(f"\n[yellow]⚠️  dlt_native sources must be configured manually[/yellow]\n")
+                        console.print(f"[bold]This is an advanced feature for file-based configuration:[/bold]")
+                        console.print(f"  1. Edit .dango/sources.yml manually")
+                        console.print(f"  2. Add a source with type: dlt_native")
+                        console.print(f"  3. Configure source_module, source_function, and function_kwargs")
+                        console.print(f"\n[cyan]Example configuration:[/cyan]")
+                        console.print(f"  sources:")
+                        console.print(f"    - name: my_custom_source")
+                        console.print(f"      type: dlt_native")
+                        console.print(f"      dlt_native:")
+                        console.print(f"        source_module: my_source")
+                        console.print(f"        source_function: my_source_func")
+                        console.print(f"        function_kwargs:")
+                        console.print(f"          api_key_env: MY_API_KEY")
+                        console.print(f"\n[dim]See docs/ADVANCED_USAGE.md for more examples[/dim]\n")
+
+                        # Ask if user wants to go back
+                        import inquirer
+                        questions = [
+                            inquirer.List(
+                                "action",
+                                message="What would you like to do?",
+                                choices=["← Back to source selection", "Exit wizard"],
+                            )
+                        ]
+                        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+                        if not answers or answers["action"] == "Exit wizard":
+                            return False
+                        else:
+                            state = "source"
+                            continue
+
+                    # Check if OAuth setup is needed (inline flow)
+                    oauth_result = self._handle_oauth_setup(source_type, metadata)
+                    if oauth_result == "back":
+                        # User wants to go back
+                        state = "source"
+                        continue
+                    elif oauth_result == "cancel":
+                        return False
+
                     state = "name"
 
                 elif state == "name":
@@ -316,6 +367,105 @@ class SourceWizard:
 
         if metadata.get("docs_url"):
             console.print(f"[dim]📚 Docs: {metadata['docs_url']}[/dim]\n")
+
+    def _handle_oauth_setup(self, source_type: str, metadata: Dict[str, Any]) -> Optional[str]:
+        """
+        Handle OAuth setup for sources that require it.
+
+        This runs inline during source wizard before collecting other parameters.
+
+        Args:
+            source_type: Source type key
+            metadata: Source metadata from registry
+
+        Returns:
+            None if OAuth setup successful or not needed
+            "back" if user wants to go back
+            "cancel" if user cancelled
+        """
+        # Check if this source requires OAuth
+        auth_type = metadata.get("auth_type")
+        if auth_type != AuthType.OAUTH:
+            # Not an OAuth source, continue
+            return None
+
+        # Check if this source has an OAuth provider configured
+        if source_type not in OAUTH_PROVIDER_MAP:
+            # OAuth marked in registry but no provider - warn and continue
+            console.print(f"[yellow]⚠️  OAuth required but provider not yet implemented for {source_type}[/yellow]")
+            console.print(f"[yellow]   You'll need to configure credentials manually in .dlt/secrets.toml[/yellow]\n")
+            return None
+
+        # Check if credentials already exist
+        creds_exist = check_oauth_credentials_exist(source_type, self.project_root)
+
+        if creds_exist:
+            console.print(f"[green]✓ OAuth credentials already configured for {source_type}[/green]")
+            console.print(f"[dim]  Credentials found in .dlt/secrets.toml[/dim]")
+            console.print(f"[dim]  To re-authenticate: dango auth {source_type}[/dim]\n")
+            return None
+
+        # No credentials - prompt user to set up OAuth
+        console.print(f"[yellow]⚠️  OAuth authentication required[/yellow]")
+        console.print(f"[cyan]This source requires OAuth credentials to access your data.[/cyan]\n")
+
+        # Ask if user wants to set up OAuth now
+        questions = [
+            inquirer.List(
+                "oauth_action",
+                message="How would you like to proceed?",
+                choices=[
+                    "Set up OAuth now (recommended)",
+                    "Skip for now (configure manually later)",
+                    "← Back to source selection",
+                ],
+                carousel=True,
+            )
+        ]
+
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return "cancel"
+
+        action = answers["oauth_action"]
+
+        if action == "← Back to source selection":
+            return "back"
+
+        elif action == "Skip for now (configure manually later)":
+            console.print(f"\n[yellow]⚠️  Skipping OAuth setup[/yellow]")
+            console.print(f"[cyan]To authenticate later, run:[/cyan]")
+            console.print(f"  dango auth {source_type}")
+            console.print(f"\n[dim]You can still configure this source, but you won't be able to sync")
+            console.print(f"until you set up OAuth credentials.[/dim]\n")
+            return None
+
+        else:  # "Set up OAuth now"
+            console.print(f"\n[bold]Starting OAuth setup for {metadata.get('display_name')}...[/bold]\n")
+
+            # Run OAuth flow
+            success = run_oauth_for_source(source_type, self.project_root)
+
+            if success:
+                console.print(f"\n[green]✅ OAuth credentials configured successfully![/green]")
+                console.print(f"[dim]  Credentials saved to .dlt/secrets.toml[/dim]\n")
+                return None
+            else:
+                console.print(f"\n[red]❌ OAuth setup failed[/red]")
+                console.print(f"[yellow]You can try again later with: dango auth {source_type}[/yellow]\n")
+
+                # Ask if user wants to continue anyway
+                continue_anyway = Confirm.ask(
+                    "Continue configuring source without OAuth credentials?",
+                    default=False
+                )
+
+                if continue_anyway:
+                    console.print(f"[yellow]⚠️  Continuing without credentials[/yellow]")
+                    console.print(f"[yellow]   You won't be able to sync until you authenticate[/yellow]\n")
+                    return None
+                else:
+                    return "back"
 
     def _get_source_name(self, source_type_key: str, metadata: Dict[str, Any]) -> Optional[str]:
         """Get unique source name from user with contextual help

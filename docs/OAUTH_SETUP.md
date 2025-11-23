@@ -9,13 +9,15 @@ Dango supports OAuth authentication for the following data sources:
 - **Google Analytics (GA4)** - Website analytics
 - **Google Sheets** - Spreadsheet data
 - **Facebook/Meta Ads** - Social media advertising data
-- **Shopify** - E-commerce store data
+- **Shopify** - E-commerce store data (Custom App tokens)
 
 All OAuth credentials are stored securely in `.dlt/secrets.toml` (gitignored) and use refresh tokens for long-term access.
 
-## Quick Start
+## Quick Start (Two Methods)
 
-The general workflow is:
+### Method 1: Inline OAuth (Recommended)
+
+OAuth setup happens **automatically during source configuration**:
 
 1. **Initialize your Dango project** (if not already done):
    ```bash
@@ -23,22 +25,49 @@ The general workflow is:
    cd my-project
    ```
 
-2. **Run the auth command** for your data source:
-   ```bash
-   dango auth <provider>
-   ```
-
-3. **Follow the browser OAuth flow** - Dango will open your browser automatically
-
-4. **Add the source** to your project:
+2. **Add a source** (OAuth setup will run automatically):
    ```bash
    dango source add
    ```
 
-5. **Sync your data**:
+3. **Select an OAuth source** (e.g., Google Sheets, Facebook Ads)
+   - Dango detects OAuth requirement
+   - Prompts you to authenticate inline
+   - Opens browser for OAuth flow
+   - Continues with source configuration
+
+4. **Sync your data**:
    ```bash
    dango sync
    ```
+
+### Method 2: Separate OAuth Setup
+
+Authenticate first, then add sources:
+
+1. **Run the auth command** for your data source:
+   ```bash
+   dango auth <provider>
+   ```
+
+2. **Follow the browser OAuth flow**
+
+3. **Add the source** to your project:
+   ```bash
+   dango source add
+   ```
+   - OAuth credentials already configured
+   - Wizard will detect existing credentials
+   - Skip straight to source configuration
+
+4. **Sync your data**:
+   ```bash
+   dango sync
+   ```
+
+**When to use each method:**
+- **Inline** (Method 1): First-time setup, single source
+- **Separate** (Method 2): Re-authentication, multiple sources sharing credentials, troubleshooting
 
 ## Provider-Specific Setup
 

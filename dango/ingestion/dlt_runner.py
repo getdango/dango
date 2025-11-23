@@ -31,6 +31,7 @@ from dango.config.models import (
     SourceType,
     CSVSourceConfig,
     RESTAPISourceConfig,
+    DltNativeConfig,
 )
 from dango.ingestion.csv_loader import CSVLoader
 from dango.ingestion.sources.registry import get_source_metadata
@@ -217,6 +218,45 @@ class DltPipelineRunner:
             # CSV: Custom implementation (Phase 1 loader)
             if source_type == SourceType.CSV:
                 result = self._run_csv_source(source_config, full_refresh)
+            # DLT_NATIVE: Advanced registry bypass
+            elif source_type == SourceType.DLT_NATIVE:
+                try:
+                    result = self._run_with_timeout(
+                        self._run_dlt_native_source,
+                        timeout_minutes,
+                        source_config,
+                        full_refresh
+                    )
+                except SyncTimeoutError as e:
+                    error_message = str(e)
+                    console.print(f"[red]❌ {error_message}[/red]")
+                    console.print(f"[yellow]ℹ️  Pipeline state has been restored to prevent corruption[/yellow]")
+
+                    # Return failure result
+                    duration = (datetime.now() - start_time).total_seconds()
+                    history_entry = {
+                        "timestamp": start_time.isoformat(),
+                        "status": "failed",
+                        "duration_seconds": round(duration, 2),
+                        "rows_processed": 0,
+                        "full_refresh": full_refresh,
+                        "error_message": error_message
+                    }
+                    save_sync_history_entry(self.project_root, source_name, history_entry)
+
+                    log_activity(
+                        project_root=self.project_root,
+                        level="error",
+                        source=source_name,
+                        message=f"Sync timeout: {error_message}"
+                    )
+
+                    return {
+                        "status": "failed",
+                        "source": source_name,
+                        "error": error_message,
+                        "rows_loaded": 0,
+                    }
             # All other sources: dlt pipelines with timeout
             else:
                 try:
@@ -383,6 +423,136 @@ class DltPipelineRunner:
             "files_processed": result.get("new", 0) + result.get("updated", 0),
             **result,
         }
+
+    def _run_dlt_native_source(
+        self, source_config: DataSource, full_refresh: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Run dlt native source (registry bypass for advanced users)
+
+        This allows users to:
+        1. Use dlt sources not in Dango's registry
+        2. Place custom source files in custom_sources/ directory
+        3. Configure source directly via sources.yml
+
+        Args:
+            source_config: Source configuration with dlt_native config
+            full_refresh: Drop pipeline state and reload
+
+        Returns:
+            Load statistics
+        """
+        if not source_config.dlt_native:
+            raise ValueError(f"dlt_native config missing for source: {source_config.name}")
+
+        config = source_config.dlt_native
+        source_name = source_config.name
+
+        console.print(f"  📦 Loading dlt native source: {config.source_module}.{config.source_function}")
+        console.print(f"  [dim]Registry bypass - advanced mode[/dim]")
+
+        # Try to import source from custom_sources/ directory first
+        import sys
+        custom_sources_dir = self.project_root / "custom_sources"
+
+        if custom_sources_dir.exists():
+            # Add custom_sources to Python path temporarily
+            sys.path.insert(0, str(custom_sources_dir))
+
+        try:
+            # Try to import as module (from custom_sources or installed package)
+            try:
+                module = importlib.import_module(config.source_module)
+            except ImportError:
+                # If not found in custom_sources, try as dlt package
+                try:
+                    module = importlib.import_module(f"dlt.sources.{config.source_module}")
+                except ImportError:
+                    raise ValueError(
+                        f"Could not import source module: {config.source_module}\n"
+                        f"  - Not found in custom_sources/ directory\n"
+                        f"  - Not found as dlt package (dlt.sources.{config.source_module})\n"
+                        f"  - Make sure the module is installed or placed in custom_sources/"
+                    )
+
+            # Get source function
+            if not hasattr(module, config.source_function):
+                raise ValueError(
+                    f"Function '{config.source_function}' not found in module '{config.source_module}'\n"
+                    f"  Available functions: {[n for n in dir(module) if not n.startswith('_')]}"
+                )
+
+            source_function = getattr(module, config.source_function)
+
+            # Call source function with provided kwargs
+            console.print(f"  [dim]Calling {config.source_function}(**{config.function_kwargs})[/dim]")
+            source = source_function(**config.function_kwargs)
+
+        finally:
+            # Remove custom_sources from path
+            if custom_sources_dir.exists() and str(custom_sources_dir) in sys.path:
+                sys.path.remove(str(custom_sources_dir))
+
+        # Determine dataset name (use custom or default to raw_{source_name})
+        dataset_name = config.dataset_name or f"raw_{source_name}"
+
+        # Change to project root so dlt can find .dlt/ directory
+        original_cwd = os.getcwd()
+        os.chdir(self.project_root)
+
+        try:
+            # Create pipeline with DuckDB destination
+            pipeline_name = config.pipeline_name or source_name
+            pipeline = dlt.pipeline(
+                pipeline_name=pipeline_name,
+                destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
+                dataset_name=dataset_name,
+            )
+        finally:
+            # Always restore original working directory
+            os.chdir(original_cwd)
+
+        # Full refresh: drop pipeline state
+        if full_refresh:
+            console.print("  🔄 Full refresh: dropping pipeline state")
+            try:
+                pipeline.drop()
+            except Exception as e:
+                console.print(f"  ⚠️  Could not drop pipeline: {e}")
+
+        # Backup dlt state before running
+        state_backup = self._backup_dlt_state(pipeline_name)
+
+        try:
+            # Run pipeline with retry logic
+            load_info = self._run_with_retry(pipeline, source, max_retries=3)
+
+            # Extract load statistics
+            stats = self._extract_load_stats(load_info)
+            rows_loaded = stats.get("rows_loaded", 0)
+
+            if rows_loaded >= 0:
+                # Success
+                self._cleanup_state_backup(state_backup)
+                console.print(f"  ✓ Loaded {rows_loaded:,} rows")
+            else:
+                # rows_loaded == -1 means we got a valid LoadInfo but couldn't extract stats
+                console.print(f"  ✓ Load completed (unable to count rows)")
+                rows_loaded = 0  # Set to 0 for stats
+
+            return {
+                "status": "success",
+                "source": source_name,
+                "rows_loaded": rows_loaded,
+                **stats,
+            }
+
+        except Exception as e:
+            # Restore state on failure
+            if state_backup:
+                console.print("  ⚠️  Restoring pipeline state (failed load)")
+                self._restore_dlt_state(source_name, state_backup)
+            raise
 
     def _detect_write_disposition(self, source: Any) -> bool:
         """
