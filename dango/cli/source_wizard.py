@@ -35,6 +35,7 @@ from dango.oauth.router import (
     check_oauth_credentials_exist,
     OAUTH_PROVIDER_MAP,
 )
+from dango.oauth.storage import OAuthStorage
 
 console = Console()
 
@@ -54,6 +55,7 @@ class SourceWizard:
         self.sources_path = self.config_path / "sources.yml"
         self.env_file = project_root / ".env"
         self.secret_params = []  # Track secret parameters for .env setup
+        self.selected_oauth_ref = None  # Track selected OAuth credential
 
     def run(self) -> bool:
         """
@@ -369,6 +371,26 @@ class SourceWizard:
         if metadata.get("docs_url"):
             console.print(f"[dim]📚 Docs: {metadata['docs_url']}[/dim]\n")
 
+    def _get_provider_for_source(self, source_type: str) -> Optional[str]:
+        """
+        Get OAuth provider name for a source type.
+
+        Args:
+            source_type: Source type (e.g., "google_ads", "facebook_ads")
+
+        Returns:
+            Provider name (e.g., "google", "facebook_ads", "shopify") or None
+        """
+        # Map source types to provider names
+        provider_map = {
+            "google_ads": "google",
+            "google_analytics": "google",
+            "google_sheets": "google",
+            "facebook_ads": "facebook_ads",
+            "shopify": "shopify",
+        }
+        return provider_map.get(source_type)
+
     def _handle_oauth_setup(self, source_type: str, source_name: str, metadata: Dict[str, Any]) -> Optional[str]:
         """
         Handle OAuth setup for sources that require it.
@@ -399,16 +421,90 @@ class SourceWizard:
             console.print(f"[yellow]   You'll need to configure credentials manually in .dlt/secrets.toml[/yellow]\n")
             return None
 
-        # Check if credentials already exist for THIS SOURCE INSTANCE
-        creds_exist = check_oauth_credentials_exist(source_type, source_name, self.project_root)
+        # Get provider name for OAuth storage lookup
+        provider = self._get_provider_for_source(source_type)
 
-        if creds_exist:
-            console.print(f"[green]✓ OAuth credentials already configured for {source_name}[/green]")
-            console.print(f"[dim]  Credentials found in .dlt/secrets.toml[/dim]")
-            console.print(f"[dim]  To re-authenticate: dango auth {source_type}[/dim]\n")
-            return None
+        # Check for existing OAuth credentials using new storage
+        oauth_storage = OAuthStorage(self.project_root)
+        existing_creds = oauth_storage.list(provider=provider) if provider else []
 
-        # No credentials - prompt user to set up OAuth
+        # Present OAuth options based on what's available
+        if existing_creds:
+            # We have existing OAuth credentials - show selection
+            console.print(f"[cyan]Found {len(existing_creds)} existing OAuth credential(s) for {metadata.get('display_name')}[/cyan]\n")
+
+            # Build choices list
+            choices = []
+            for cred in existing_creds:
+                # Format: "account_info (expires in X days)" or "account_info"
+                if cred.is_expired():
+                    choice_text = f"{cred.account_info} [EXPIRED]"
+                elif cred.is_expiring_soon():
+                    days_left = cred.days_until_expiry()
+                    choice_text = f"{cred.account_info} (expires in {days_left} days)"
+                else:
+                    choice_text = cred.account_info
+                choices.append(choice_text)
+
+            choices.extend([
+                "───────────────",
+                "Set up new OAuth",
+                "Skip for now (configure manually later)",
+                "← Back to source selection",
+            ])
+
+            questions = [
+                inquirer.List(
+                    "oauth_action",
+                    message="Select OAuth credential to use:",
+                    choices=choices,
+                    carousel=True,
+                )
+            ]
+
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return "cancel"
+
+            action = answers["oauth_action"]
+
+            if action == "← Back to source selection":
+                return "back"
+            elif action == "Skip for now (configure manually later)":
+                console.print(f"\n[yellow]⚠️  Skipping OAuth setup[/yellow]")
+                console.print(f"[cyan]To authenticate later, run:[/cyan] dango auth {source_type}\n")
+                return None
+            elif action == "Set up new OAuth":
+                # User wants to create new OAuth - continue to setup below
+                pass
+            elif action == "───────────────":
+                # Separator selected somehow, ignore
+                return self._handle_oauth_setup(source_type, source_name, metadata)
+            else:
+                # User selected an existing credential
+                selected_index = choices.index(action)
+                selected_cred = existing_creds[selected_index]
+
+                # Check if expired
+                if selected_cred.is_expired():
+                    console.print(f"\n[red]✗ This OAuth credential has expired[/red]")
+                    console.print(f"[yellow]You need to re-authenticate with: dango auth refresh {selected_cred.name}[/yellow]\n")
+
+                    retry = Confirm.ask("Choose a different credential?", default=True)
+                    if retry:
+                        return self._handle_oauth_setup(source_type, source_name, metadata)
+                    else:
+                        return "cancel"
+
+                # Save the OAuth reference to source config
+                console.print(f"\n[green]✓ Using OAuth: {selected_cred.account_info}[/green]")
+                console.print(f"[dim]  OAuth credential: {selected_cred.name}[/dim]\n")
+
+                # Store the OAuth reference so it can be added to source config
+                self.selected_oauth_ref = selected_cred.name
+                return None
+
+        # No existing credentials - prompt to set up new OAuth
         console.print(f"[yellow]⚠️  OAuth authentication required[/yellow]")
         console.print(f"[cyan]This source requires OAuth credentials to access your data.[/cyan]\n")
 
@@ -443,33 +539,35 @@ class SourceWizard:
             console.print(f"until you set up OAuth credentials.[/dim]\n")
             return None
 
-        else:  # "Set up OAuth now"
-            console.print(f"\n[bold]Starting OAuth setup for {metadata.get('display_name')}...[/bold]\n")
+        # "Set up OAuth now" - run OAuth flow
+        console.print(f"\n[bold]Starting OAuth setup for {metadata.get('display_name')}...[/bold]\n")
 
-            # Run OAuth flow with source_name for instance-specific credentials
-            # This allows multiple accounts: facebook_us, facebook_eu, etc.
-            success = run_oauth_for_source(source_type, source_name, self.project_root)
+        # Run OAuth flow with source_name for instance-specific credentials
+        # This allows multiple accounts: facebook_us, facebook_eu, etc.
+        success = run_oauth_for_source(source_type, source_name, self.project_root)
 
-            if success:
-                console.print(f"\n[green]✅ OAuth credentials configured successfully![/green]")
-                console.print(f"[dim]  Credentials saved to .dlt/secrets.toml[/dim]\n")
+        if success:
+            console.print(f"\n[green]✅ OAuth credentials configured successfully![/green]")
+            console.print(f"[dim]  Credentials saved to .dlt/secrets.toml[/dim]\n")
+            # Note: The new OAuth credential name is returned by the provider
+            # and should be stored for reference
+            return None
+        else:
+            console.print(f"\n[red]❌ OAuth setup failed[/red]")
+            console.print(f"[yellow]You can try again later with: dango auth {source_type}[/yellow]\n")
+
+            # Ask if user wants to continue anyway
+            continue_anyway = Confirm.ask(
+                "Continue configuring source without OAuth credentials?",
+                default=False
+            )
+
+            if continue_anyway:
+                console.print(f"[yellow]⚠️  Continuing without credentials[/yellow]")
+                console.print(f"[yellow]   You won't be able to sync until you authenticate[/yellow]\n")
                 return None
             else:
-                console.print(f"\n[red]❌ OAuth setup failed[/red]")
-                console.print(f"[yellow]You can try again later with: dango auth {source_type}[/yellow]\n")
-
-                # Ask if user wants to continue anyway
-                continue_anyway = Confirm.ask(
-                    "Continue configuring source without OAuth credentials?",
-                    default=False
-                )
-
-                if continue_anyway:
-                    console.print(f"[yellow]⚠️  Continuing without credentials[/yellow]")
-                    console.print(f"[yellow]   You won't be able to sync until you authenticate[/yellow]\n")
-                    return None
-                else:
-                    return "back"
+                return "back"
 
     def _get_source_name(self, source_type_key: str, metadata: Dict[str, Any]) -> Optional[str]:
         """Get unique source name from user with contextual help
@@ -786,6 +884,10 @@ class SourceWizard:
             "enabled": True,
             "description": f"{metadata.get('display_name')} - added via wizard",
         }
+
+        # Add OAuth reference if one was selected
+        if self.selected_oauth_ref:
+            config["oauth_ref"] = self.selected_oauth_ref
 
         # Add type-specific config
         if params:
