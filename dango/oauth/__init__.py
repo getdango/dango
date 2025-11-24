@@ -136,8 +136,25 @@ class OAuthManager:
         """
         self.project_root = Path(project_root)
         self.cred_manager = CredentialManager(project_root)
-        self.callback_port = 8080
-        self.callback_url = f"http://localhost:{self.callback_port}/callback"
+
+        # Load callback URL from environment or use default
+        # This allows flexibility for:
+        # - Local development with custom ports
+        # - Cloud deployment with custom domains
+        from dotenv import load_dotenv
+        load_dotenv(self.project_root / ".env")
+
+        self.callback_url = os.getenv(
+            "DANGO_OAUTH_CALLBACK_URL",
+            "http://localhost:8080/callback"
+        )
+
+        # Extract port from callback URL for local server
+        # Format: http://localhost:8080/callback -> port 8080
+        # Format: https://domain.com/oauth/callback -> port 443 (not used for local server)
+        from urllib.parse import urlparse
+        parsed = urlparse(self.callback_url)
+        self.callback_port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
         # Ensure .dlt directory exists
         self.cred_manager.init_dlt_directory()
