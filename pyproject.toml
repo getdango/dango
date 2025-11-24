@@ -50,6 +50,11 @@ dependencies = [
     "websockets>=12.0",
     "aiofiles>=23.2.0",
     "psutil>=5.9.0",
+
+    # Security and encryption
+    "keyring>=24.0.0",    # Secure credential storage in OS keychain
+    "cryptography>=41.0.0",  # Token encryption
+    "toml>=0.10.2",       # TOML file parsing for .dlt/secrets.toml
 ]
 
 [project.optional-dependencies]
@@ -161,6 +166,7 @@ dango = "dango.cli.main:cli"
 packages = [
     "dango",
     "dango.cli",
+    "dango.cli.commands",
     "dango.config",
     "dango.ingestion",
     "dango.ingestion.sources",
@@ -171,6 +177,8 @@ packages = [
     "dango.utils",
     "dango.visualization",
     "dango.web",
+    "dango.oauth",      # OAuth management
+    "dango.security",   # Token encryption
 ]
 include-package-data = true
 

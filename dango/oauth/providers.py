@@ -24,6 +24,7 @@ from rich.prompt import Prompt, Confirm
 from rich.panel import Panel
 
 from dango.oauth import OAuthManager
+from dango.oauth.storage import OAuthStorage, OAuthCredential
 
 console = Console()
 
@@ -40,13 +41,17 @@ class BaseOAuthProvider:
         """
         self.oauth_manager = oauth_manager
         self.project_root = oauth_manager.project_root
+        self.oauth_storage = OAuthStorage(self.project_root)
 
-    def authenticate(self) -> bool:
+    def authenticate(self, source_name: Optional[str] = None) -> Optional[str]:
         """
         Run OAuth flow
 
+        Args:
+            source_name: Optional source name for instance-specific credentials
+
         Returns:
-            True if authentication successful, False otherwise
+            OAuth credential name if successful, None otherwise
         """
         raise NotImplementedError("Subclasses must implement authenticate()")
 
@@ -79,15 +84,16 @@ class GoogleOAuthProvider(BaseOAuthProvider):
         ],
     }
 
-    def authenticate(self, service: str = "google_ads") -> bool:
+    def authenticate(self, service: str = "google_ads", source_name: Optional[str] = None) -> Optional[str]:
         """
         Run Google OAuth flow
 
         Args:
             service: Service to authenticate (google_ads, google_analytics, google_sheets)
+            source_name: Optional source name (not used for Google - uses email as identifier)
 
         Returns:
-            True if successful, False otherwise
+            OAuth credential name if successful, None otherwise
         """
         try:
             console.print(f"\n[bold cyan]Google {service.replace('_', ' ').title()} Authentication[/bold cyan]\n")
@@ -159,7 +165,17 @@ class GoogleOAuthProvider(BaseOAuthProvider):
 
             if not tokens:
                 console.print("[red]✗ Token exchange failed[/red]")
-                return False
+                return None
+
+            # Fetch user info to get email (identifier)
+            console.print("\n[cyan]Fetching user info...[/cyan]")
+            user_info = self._fetch_user_info(tokens['access_token'])
+
+            if not user_info or 'email' not in user_info:
+                console.print("[red]✗ Could not get user email[/red]")
+                return None
+
+            email = user_info['email']
 
             # Save credentials in dlt format
             credentials = {
@@ -188,37 +204,52 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 property_id = Prompt.ask("GA4 Property ID (optional, can add later)", default="").strip()
 
                 if property_id:
-                    # Store in config, not secrets
-                    config = {"property_id": property_id}
-                    self.oauth_manager.save_oauth_credentials(service, credentials, config)
-                    console.print(f"\n[green]✅ Google Analytics authentication complete![/green]")
-                    return True
+                    credentials["property_id"] = property_id
 
             # For Google Sheets, ask for spreadsheet ID
             elif service == "google_sheets":
                 console.print("\n[bold]Step 3: Google Sheets Configuration[/bold]")
                 console.print("[dim]You can add spreadsheet IDs later when adding the source[/dim]")
 
-            # Save credentials
-            self.oauth_manager.save_oauth_credentials(service, credentials)
+            # Create OAuth credential with metadata
+            oauth_name = self.oauth_storage.generate_oauth_name("google", email)
+            oauth_cred = OAuthCredential(
+                name=oauth_name,
+                provider="google",
+                identifier=email,
+                account_info=f"{user_info.get('name', 'Unknown')} ({email})",
+                credentials=credentials,
+                created_at=datetime.now(),
+                expires_at=None,  # Google refresh tokens don't expire
+                metadata={
+                    "service": service,
+                    "scopes": self.SCOPES.get(service, [])
+                }
+            )
+
+            # Save using new storage
+            if not self.oauth_storage.save(oauth_cred):
+                return None
 
             # Success message
-            console.print(f"\n[green]✅ Google {service.replace('_', ' ').title()} authentication complete![/green]\n")
+            console.print(f"\n[green]✅ Google authentication complete![/green]\n")
+            console.print(f"[cyan]OAuth credential saved as:[/cyan] {oauth_name}")
             console.print("[cyan]Next steps:[/cyan]")
-            console.print(f"  1. Add {service.replace('_', ' ').title()} source: [bold]dango source add[/bold]")
+            console.print(f"  1. Add Google source: [bold]dango source add[/bold]")
             console.print(f"  2. Select '{service.replace('_', ' ').title()}' from the wizard")
-            console.print("  3. Run sync to load data")
+            console.print(f"  3. Select this OAuth credential when prompted")
+            console.print("  4. Run sync to load data")
 
-            return True
+            return oauth_name
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Authentication cancelled[/yellow]")
-            return False
+            return None
         except Exception as e:
             console.print(f"\n[red]✗ Error: {e}[/red]")
             import traceback
             traceback.print_exc()
-            return False
+            return None
 
     def _exchange_code_for_tokens(
         self,
@@ -268,6 +299,31 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 console.print(f"[red]Response: {e.response.text}[/red]")
             return None
 
+    def _fetch_user_info(self, access_token: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch user info from Google (email, etc.)
+
+        Args:
+            access_token: Access token from OAuth flow
+
+        Returns:
+            Dictionary with user info (email, name, etc.) or None if failed
+        """
+        try:
+            user_info_url = "https://www.googleapis.com/oauth2/v1/userinfo"
+            headers = {"Authorization": f"Bearer {access_token}"}
+
+            response = requests.get(user_info_url, headers=headers)
+            response.raise_for_status()
+
+            user_info = response.json()
+            console.print(f"[dim]Authenticated as: {user_info.get('email')}[/dim]")
+            return user_info
+
+        except requests.exceptions.RequestException as e:
+            console.print(f"[yellow]⚠️  Could not fetch user info: {e}[/yellow]")
+            return None
+
 
 class FacebookOAuthProvider(BaseOAuthProvider):
     """
@@ -281,15 +337,18 @@ class FacebookOAuthProvider(BaseOAuthProvider):
     # Token exchange endpoint
     TOKEN_EXCHANGE_URL = "https://graph.facebook.com/v18.0/oauth/access_token"
 
-    def authenticate(self) -> bool:
+    def authenticate(self, source_name: Optional[str] = None) -> Optional[str]:
         """
         Run Facebook OAuth flow
 
         For MVP, we use the simpler approach of exchanging
         short-lived tokens for long-lived tokens.
 
+        Args:
+            source_name: Optional source name (not used - uses account_id as identifier)
+
         Returns:
-            True if successful, False otherwise
+            OAuth credential name if successful, None otherwise
         """
         try:
             console.print("\n[bold cyan]Facebook Ads Authentication[/bold cyan]\n")
@@ -318,7 +377,7 @@ class FacebookOAuthProvider(BaseOAuthProvider):
 
             if not short_token:
                 console.print("[red]✗ Access token is required[/red]")
-                return False
+                return None
 
             # Get App credentials
             console.print("\n[bold]Step 2: App Credentials[/bold]")
@@ -329,7 +388,7 @@ class FacebookOAuthProvider(BaseOAuthProvider):
 
             if not app_id or not app_secret:
                 console.print("[red]✗ App ID and Secret are required[/red]")
-                return False
+                return None
 
             # Exchange for long-lived token
             console.print("\n[cyan]Exchanging for long-lived token (60 days)...[/cyan]")
@@ -337,38 +396,64 @@ class FacebookOAuthProvider(BaseOAuthProvider):
 
             if not long_token:
                 console.print("[red]✗ Token exchange failed[/red]")
-                return False
+                return None
 
             # Get Ad Account ID
             console.print("\n[bold]Step 3: Ad Account ID[/bold]")
             console.print("[dim]Find in Ads Manager URL: facebook.com/adsmanager/manage/accounts?act=ACCOUNT_ID[/dim]")
             account_id = Prompt.ask("Ad Account ID (e.g., act_123456789)").strip()
 
+            if not account_id:
+                console.print("[red]✗ Account ID is required[/red]")
+                return None
+
+            # Normalize account_id (remove "act_" prefix if present for consistency)
+            account_id_clean = account_id.replace("act_", "")
+
             # Save credentials
             credentials = {
                 "access_token": long_token,
-                "account_id": account_id
+                "account_id": account_id  # Keep original format for API calls
             }
 
-            self.oauth_manager.save_oauth_credentials("facebook_ads", credentials)
+            # Create OAuth credential with metadata
+            expires_at = datetime.now() + timedelta(days=60)
+            oauth_name = self.oauth_storage.generate_oauth_name("facebook_ads", account_id_clean)
+            oauth_cred = OAuthCredential(
+                name=oauth_name,
+                provider="facebook_ads",
+                identifier=account_id_clean,
+                account_info=f"Facebook Ads Account ({account_id})",
+                credentials=credentials,
+                created_at=datetime.now(),
+                expires_at=expires_at,
+                metadata={
+                    "app_id": app_id
+                }
+            )
+
+            # Save using new storage
+            if not self.oauth_storage.save(oauth_cred):
+                return None
 
             # Success message
-            expiry_date = datetime.now() + timedelta(days=60)
             console.print(f"\n[green]✅ Facebook Ads authentication complete![/green]\n")
-            console.print("[cyan]Next steps:[/cyan]")
+            console.print(f"[cyan]OAuth credential saved as:[/cyan] {oauth_name}")
+            console.print(f"[yellow]Token expires:[/yellow] {expires_at.strftime('%Y-%m-%d')} (60 days)")
+            console.print("\n[cyan]Next steps:[/cyan]")
             console.print("  1. Add Facebook Ads source: [bold]dango source add[/bold]")
             console.print("  2. Select 'Facebook Ads' from the wizard")
-            console.print(f"  3. Token expires on: [yellow]{expiry_date.strftime('%Y-%m-%d')}[/yellow]")
+            console.print("  3. Select this OAuth credential when prompted")
             console.print("\n[yellow]⚠️  Set a reminder to re-authenticate before expiry[/yellow]")
 
-            return True
+            return oauth_name
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Authentication cancelled[/yellow]")
-            return False
+            return None
         except Exception as e:
             console.print(f"\n[red]✗ Error: {e}[/red]")
-            return False
+            return None
 
     def _exchange_token(self, short_token: str, app_id: str, app_secret: str) -> Optional[str]:
         """
@@ -418,12 +503,15 @@ class ShopifyOAuthProvider(BaseOAuthProvider):
     Full OAuth app flow is complex and requires app review.
     """
 
-    def authenticate(self) -> bool:
+    def authenticate(self, source_name: Optional[str] = None) -> Optional[str]:
         """
         Run Shopify authentication (custom app method)
 
+        Args:
+            source_name: Optional source name (not used - uses shop_url as identifier)
+
         Returns:
-            True if successful, False otherwise
+            OAuth credential name if successful, None otherwise
         """
         try:
             console.print("\n[bold cyan]Shopify Authentication[/bold cyan]\n")
@@ -457,14 +545,15 @@ class ShopifyOAuthProvider(BaseOAuthProvider):
 
             if not shop_url or not access_token:
                 console.print("[red]✗ Shop URL and access token are required[/red]")
-                return False
+                return None
 
-            # Test the credentials
+            # Test the credentials and get shop name
             console.print("\n[cyan]Testing connection...[/cyan]")
-            if not self._test_connection(shop_url, access_token):
+            shop_name = self._test_connection(shop_url, access_token)
+            if not shop_name:
                 console.print("[red]✗ Connection test failed[/red]")
                 console.print("[yellow]Please verify your shop URL and access token[/yellow]")
-                return False
+                return None
 
             # Save credentials
             credentials = {
@@ -472,34 +561,56 @@ class ShopifyOAuthProvider(BaseOAuthProvider):
                 "shop_url": shop_url
             }
 
-            self.oauth_manager.save_oauth_credentials("shopify", credentials)
+            # Create OAuth credential with metadata
+            # Use shop_url without .myshopify.com as identifier
+            shop_identifier = shop_url.replace(".myshopify.com", "").replace(".", "_")
+            oauth_name = self.oauth_storage.generate_oauth_name("shopify", shop_identifier)
+            oauth_cred = OAuthCredential(
+                name=oauth_name,
+                provider="shopify",
+                identifier=shop_identifier,
+                account_info=f"{shop_name} ({shop_url})",
+                credentials=credentials,
+                created_at=datetime.now(),
+                expires_at=None,  # Shopify custom app tokens don't expire
+                metadata={
+                    "shop_url": shop_url
+                }
+            )
+
+            # Save using new storage
+            if not self.oauth_storage.save(oauth_cred):
+                return None
 
             # Success message
             console.print(f"\n[green]✅ Shopify authentication complete![/green]\n")
-            console.print("[cyan]Next steps:[/cyan]")
+            console.print(f"[cyan]OAuth credential saved as:[/cyan] {oauth_name}")
+            console.print(f"[cyan]Shop:[/cyan] {shop_name} ({shop_url})")
+            console.print("\n[cyan]Next steps:[/cyan]")
             console.print("  1. Add Shopify source: [bold]dango source add[/bold]")
             console.print("  2. Select 'Shopify' from the wizard")
-            console.print("  3. Run sync to load data")
+            console.print("  3. Select this OAuth credential when prompted")
+            console.print("  4. Run sync to load data")
 
-            return True
+            return oauth_name
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Authentication cancelled[/yellow]")
-            return False
+            return None
         except Exception as e:
             console.print(f"\n[red]✗ Error: {e}[/red]")
-            return False
+            return None
 
-    def _test_connection(self, shop_url: str, access_token: str) -> bool:
+    def _test_connection(self, shop_url: str, access_token: str) -> Optional[str]:
         """
-        Test Shopify connection
+        Test Shopify connection and get shop name
 
         Args:
             shop_url: Shop URL
             access_token: Admin API access token
 
         Returns:
-            True if connection successful, False otherwise
+            Shop name if connection successful, None otherwise
         """
         try:
             # Test with shop info endpoint
@@ -515,8 +626,8 @@ class ShopifyOAuthProvider(BaseOAuthProvider):
             shop_name = shop_data.get("shop", {}).get("name", "Unknown")
 
             console.print(f"[green]✓ Connected to shop: {shop_name}[/green]")
-            return True
+            return shop_name
 
         except requests.exceptions.RequestException as e:
             console.print(f"[red]✗ Connection test failed: {e}[/red]")
-            return False
+            return None
