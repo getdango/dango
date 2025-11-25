@@ -166,7 +166,6 @@ dango = "dango.cli.main:cli"
 packages = [
     "dango",
     "dango.cli",
-    "dango.cli.commands",
     "dango.config",
     "dango.ingestion",
     "dango.ingestion.sources",
