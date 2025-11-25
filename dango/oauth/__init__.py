@@ -55,7 +55,7 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
 
         # Check for authorization code
         if 'code' in params:
-            self.oauth_response = {
+            OAuthCallbackHandler.oauth_response = {
                 'code': params['code'][0],
                 'state': params.get('state', [None])[0]
             }
@@ -83,7 +83,7 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
 
         # Check for error
         elif 'error' in params:
-            self.oauth_error = {
+            OAuthCallbackHandler.oauth_error = {
                 'error': params['error'][0],
                 'error_description': params.get('error_description', ['Unknown error'])[0]
             }
