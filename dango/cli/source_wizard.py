@@ -887,11 +887,15 @@ class SourceWizard:
                 console.print(f"[yellow]⚠️  No sheets found in spreadsheet[/yellow]")
                 return None
 
+            # Show clear instructions before the checkbox
+            console.print(f"\n[bold]Select sheets to load:[/bold]")
+            console.print(f"[cyan]  ↑/↓  Navigate    Space  Select/deselect    Enter  Confirm[/cyan]\n")
+
             # Show checkbox for sheet selection
             questions = [
                 inquirer.Checkbox(
                     param_name,
-                    message=f"{prompt} (Space to select/deselect, Enter to continue)",
+                    message="Sheets",
                     choices=sheets,
                     default=[sheets[0]] if sheets else [],  # Default to first sheet
                 )
