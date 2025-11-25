@@ -145,14 +145,10 @@ class GoogleOAuthProvider(BaseOAuthProvider):
 
                 console.print(Panel("\n".join(instructions), title="Setup Instructions", border_style="cyan"))
 
-                if Confirm.ask("\n[cyan]Open Google Cloud Console?[/cyan]", default=True):
-                    import webbrowser
-                    webbrowser.open("https://console.cloud.google.com/apis/credentials")
-
                 # Get OAuth client credentials
-                console.print("\n[bold]Step 1: OAuth Client Credentials[/bold]")
-                client_id = Prompt.ask("Enter OAuth Client ID").strip()
-                client_secret = Prompt.ask("Enter Client Secret", password=True).strip()
+                console.print("\n[bold]Enter OAuth Client Credentials:[/bold]")
+                client_id = Prompt.ask("Client ID").strip()
+                client_secret = Prompt.ask("Client Secret", password=True).strip()
 
             if not client_id or not client_secret:
                 console.print("[red]✗ Client ID and Secret are required[/red]")
