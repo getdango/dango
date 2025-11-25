@@ -698,6 +698,15 @@ class DltPipelineRunner:
                     # Convert single string to list (e.g., sheet name -> [sheet_name])
                     source_kwargs[param_name] = [value]
 
+        # Load OAuth credentials if source has oauth_ref
+        if source_config.oauth_ref:
+            oauth_creds = self._load_oauth_credentials(source_config.oauth_ref)
+            if oauth_creds:
+                source_kwargs["credentials"] = oauth_creds
+                console.print(f"  🔑 Using OAuth credential: {source_config.oauth_ref}")
+            else:
+                console.print(f"  ⚠️  OAuth credential '{source_config.oauth_ref}' not found")
+
         # Dynamic import of dlt source
         source = self._load_dlt_source(dlt_package, dlt_function, source_kwargs)
 
@@ -918,6 +927,47 @@ class DltPipelineRunner:
             )
         except Exception as e:
             raise Exception(f"Error loading dlt source '{dlt_package}.{dlt_function}': {e}")
+
+    def _load_oauth_credentials(self, oauth_ref: str) -> Optional[Dict[str, Any]]:
+        """
+        Load OAuth credentials from storage and format for dlt
+
+        Args:
+            oauth_ref: Name of OAuth credential (e.g., 'google_teoh_kangkai_aaron_gmail_com')
+
+        Returns:
+            Credentials dict formatted for dlt GcpOAuthCredentials, or None if not found
+        """
+        try:
+            from dango.oauth.storage import OAuthStorage
+
+            oauth_storage = OAuthStorage(self.project_root)
+            cred = oauth_storage.get(oauth_ref)
+
+            if not cred:
+                console.print(f"  [yellow]OAuth credential '{oauth_ref}' not found[/yellow]")
+                return None
+
+            # Format credentials for dlt's GcpOAuthCredentials
+            # dlt expects: client_id, client_secret, refresh_token, project_id
+            raw_creds = cred.credentials
+            if not raw_creds:
+                console.print(f"  [yellow]OAuth credential '{oauth_ref}' has no credentials data[/yellow]")
+                return None
+
+            # Map our credential format to dlt's expected format
+            dlt_creds = {
+                "client_id": raw_creds.get("client_id"),
+                "client_secret": raw_creds.get("client_secret"),
+                "refresh_token": raw_creds.get("refresh_token"),
+                "project_id": raw_creds.get("project_id", "dango-oauth"),  # dlt requires project_id
+            }
+
+            return dlt_creds
+
+        except Exception as e:
+            console.print(f"  [red]Error loading OAuth credentials: {e}[/red]")
+            return None
 
     def _analyze_error(self, error: Exception, source_name: str) -> str:
         """

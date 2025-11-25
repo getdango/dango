@@ -384,6 +384,12 @@ class DataSource(BaseModel):
         description="Generic configuration for sources without dedicated models"
     )
 
+    # OAuth reference for OAuth-authenticated sources
+    oauth_ref: Optional[str] = Field(
+        default=None,
+        description="Reference to OAuth credential in .dlt/secrets.toml (e.g., 'google_user_email_com')"
+    )
+
     # Custom metadata
     description: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
