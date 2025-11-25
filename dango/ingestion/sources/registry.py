@@ -180,35 +180,31 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
     "google_sheets": {
         "display_name": "Google Sheets",
         "category": "Marketing & Analytics",
-        "description": "Load data from Google Sheets spreadsheets",
+        "description": "Load data from a single Google Sheet tab",
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_sheets",
         "dlt_function": "google_spreadsheet",
         "required_params": [
             {
-                "name": "spreadsheet_id",
+                "name": "spreadsheet_url_or_id",
                 "type": "string",
-                "prompt": "Spreadsheet ID",
+                "prompt": "Spreadsheet ID or URL",
                 "help": "Found in URL: docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit",
             },
             {
-                "name": "credentials_env",
-                "type": "secret",
-                "env_var": "GOOGLE_CREDENTIALS",
-                "prompt": "Google credentials (use 'dango auth google' to generate)",
-            },
-        ],
-        "optional_params": [
-            {
-                "name": "sheet_name",
+                "name": "range_names",
                 "type": "string",
-                "prompt": "Sheet name (leave empty for all sheets)",
-                "default": None,
+                "prompt": "Sheet/tab name to load",
+                "help": "The name of the sheet tab (e.g., 'Sheet1', 'Deposits'). Creates one table.",
             },
         ],
+        "param_transforms": {
+            # Transform single sheet name string into list for dlt
+            "range_names": "list",
+        },
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
-            "2. OR manually run: dango auth google_sheets",
+            "2. OR manually run: dango auth google --service sheets",
             "3. Follow the browser OAuth flow to authenticate",
             "4. Get spreadsheet ID from URL: docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit",
             "5. Credentials are permanent (refresh token stored in .dlt/secrets.toml)",

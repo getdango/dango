@@ -689,6 +689,15 @@ class DltPipelineRunner:
             source_config, source_type, start_date, end_date
         )
 
+        # Apply parameter transforms from registry (e.g., string -> list)
+        param_transforms = metadata.get("param_transforms", {})
+        for param_name, transform_type in param_transforms.items():
+            if param_name in source_kwargs:
+                value = source_kwargs[param_name]
+                if transform_type == "list" and isinstance(value, str):
+                    # Convert single string to list (e.g., sheet name -> [sheet_name])
+                    source_kwargs[param_name] = [value]
+
         # Dynamic import of dlt source
         source = self._load_dlt_source(dlt_package, dlt_function, source_kwargs)
 
