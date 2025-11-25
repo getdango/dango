@@ -223,12 +223,13 @@ class DbtModelGenerator:
             try:
                 source_dict = source_config.model_dump() if hasattr(source_config, 'model_dump') else {}
 
-                # Check for endpoints/resources/tables parameter
+                # Check for endpoints/resources/tables/range_names parameter
                 resources = (
                     source_dict.get('endpoints') or
                     source_dict.get('resources') or
                     source_dict.get('tables') or
                     source_dict.get('objects') or
+                    source_dict.get('range_names') or  # Google Sheets uses range_names
                     []
                 )
 
