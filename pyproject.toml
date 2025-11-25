@@ -55,6 +55,11 @@ dependencies = [
     "keyring>=24.0.0",    # Secure credential storage in OS keychain
     "cryptography>=41.0.0",  # Token encryption
     "toml>=0.10.2",       # TOML file parsing for .dlt/secrets.toml
+
+    # Google API dependencies (for bundled Google Sheets source)
+    "google-api-python-client>=2.100.0",  # Google Sheets API
+    "google-auth-oauthlib>=1.0.0",        # OAuth for Google services
+    "google-auth>=2.22.0",                # Google authentication
 ]
 
 [project.optional-dependencies]
