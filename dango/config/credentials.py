@@ -77,8 +77,12 @@ class CredentialManager:
             config_template = """# dlt configuration
 # This file contains non-sensitive parameters
 # Can be safely committed to git
-#
-# Example structure:
+
+# Clean up staging tables after successful load
+[load]
+truncate_staging_dataset = true
+
+# Example source configuration:
 # [sources.google_ads]
 # start_date = "2024-01-01"
 #
