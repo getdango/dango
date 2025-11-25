@@ -928,7 +928,11 @@ def sync_metabase_schema(
                     # Set description and visibility based on schema
                     visibility_type = None  # Normal visibility by default
 
-                    if schema == "raw" or (schema and schema.startswith("raw_")):
+                    # Hide dlt internal staging schemas (e.g., raw_source_staging)
+                    if schema and schema.endswith("_staging"):
+                        description = "⚙️ **DLT INTERNAL** - Temporary staging data (do not use)"
+                        visibility_type = "hidden"
+                    elif schema == "raw" or (schema and schema.startswith("raw_")):
                         description = (
                             "⚠️ **RAW SOURCE DATA** - Do not use for dashboards\n\n"
                             "This is unprocessed data exactly as loaded from the source. "
