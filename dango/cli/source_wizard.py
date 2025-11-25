@@ -69,30 +69,20 @@ class SourceWizard:
             console.print("[dim]Press Ctrl+C at any time to abort (nothing saved until the end)[/dim]\n")
 
             # State machine for navigation with back button support
-            category = None
             source_type = None
             metadata = None
             source_name = None
             params = None
 
-            # Navigation states: category -> source -> name -> params -> save
-            state = "category"
+            # Navigation states: source -> name -> params -> save
+            state = "source"
 
             while True:
-                if state == "category":
-                    # Step 1: Select category
-                    category = self._select_category()
-                    if not category:
-                        return False  # User cancelled
-                    state = "source"
-
-                elif state == "source":
-                    # Step 2: Select source from category
-                    source_type = self._select_source(category)
+                if state == "source":
+                    # Step 1: Select source (flat list, no categories)
+                    source_type = self._select_source_flat()
                     if not source_type:
-                        # User clicked back - go to category selection
-                        state = "category"
-                        continue
+                        return False  # User cancelled
 
                     # Get source metadata
                     metadata = get_source_metadata(source_type)
@@ -273,8 +263,47 @@ class SourceWizard:
             console.print(f"\n[red]❌ Error: {e}[/red]")
             return False
 
+    def _select_source_flat(self) -> Optional[str]:
+        """Select source from flat list (no categories)"""
+        # Get all v0-supported sources
+        all_sources = []
+        for source_type, source_meta in SOURCE_REGISTRY.items():
+            if source_meta.get("supported_in_v0", False):
+                display_name = source_meta.get("display_name", source_type)
+                all_sources.append((display_name, source_type))
+
+        if not all_sources:
+            console.print("[yellow]No sources available[/yellow]")
+            return None
+
+        # Sort alphabetically by display name
+        all_sources.sort(key=lambda x: x[0])
+
+        # Create choices list
+        choices = [s[0] for s in all_sources]
+
+        questions = [
+            inquirer.List(
+                "source",
+                message="Select data source",
+                choices=choices + ["← Cancel"],
+                carousel=True,
+            )
+        ]
+
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers or answers["source"] == "← Cancel":
+            return None
+
+        # Find source_type from display name
+        for display_name, source_type in all_sources:
+            if display_name == answers["source"]:
+                return source_type
+
+        return None
+
     def _select_category(self) -> Optional[str]:
-        """Select source category"""
+        """Select source category (deprecated - kept for reference)"""
         categories = get_all_categories()
 
         # Create display with counts and examples
