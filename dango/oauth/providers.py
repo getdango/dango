@@ -95,32 +95,47 @@ class GoogleOAuthProvider(BaseOAuthProvider):
         Returns:
             OAuth credential name if successful, None otherwise
         """
+        import os
+        from dotenv import load_dotenv
+
         try:
             console.print(f"\n[bold cyan]Google {service.replace('_', ' ').title()} Authentication[/bold cyan]\n")
 
-            # Show setup instructions
-            instructions = [
-                "[bold]Prerequisites:[/bold]",
-                "1. Create a Google Cloud Project at https://console.cloud.google.com/",
-                f"2. Enable the required API (Google Ads API / Analytics API / Sheets API)",
-                "3. Create OAuth 2.0 credentials:",
-                "   • Go to APIs & Services > Credentials",
-                "   • Create OAuth client ID",
-                "   • Application type: [yellow]Web application[/yellow] (NOT Desktop app)",
-                f"   • Authorized redirect URI: {self.oauth_manager.callback_url}",
-                "4. Download or copy the Client ID and Client Secret",
-            ]
+            # Try to load credentials from .env first
+            load_dotenv(self.project_root / ".env")
+            client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+            client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
 
-            console.print(Panel("\n".join(instructions), title="Setup Instructions", border_style="cyan"))
+            if client_id and client_secret:
+                # Credentials found in .env
+                console.print("[green]✓ Found OAuth credentials in .env[/green]")
+                console.print(f"[dim]  Client ID: {client_id[:20]}...{client_id[-10:]}[/dim]\n")
+            else:
+                # Show setup instructions only if credentials not found
+                instructions = [
+                    "[bold]Prerequisites:[/bold]",
+                    "1. Create a Google Cloud Project at https://console.cloud.google.com/",
+                    f"2. Enable the required API (Google Ads API / Analytics API / Sheets API)",
+                    "3. Create OAuth 2.0 credentials:",
+                    "   • Go to APIs & Services > Credentials",
+                    "   • Create OAuth client ID",
+                    "   • Application type: [yellow]Web application[/yellow] (NOT Desktop app)",
+                    f"   • Authorized redirect URI: {self.oauth_manager.callback_url}",
+                    "4. Download or copy the Client ID and Client Secret",
+                    "",
+                    "[dim]Tip: Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env to skip this step[/dim]",
+                ]
 
-            if Confirm.ask("\n[cyan]Open Google Cloud Console?[/cyan]", default=True):
-                import webbrowser
-                webbrowser.open("https://console.cloud.google.com/apis/credentials")
+                console.print(Panel("\n".join(instructions), title="Setup Instructions", border_style="cyan"))
 
-            # Get OAuth client credentials
-            console.print("\n[bold]Step 1: OAuth Client Credentials[/bold]")
-            client_id = Prompt.ask("Enter OAuth Client ID").strip()
-            client_secret = Prompt.ask("Enter Client Secret", password=True).strip()
+                if Confirm.ask("\n[cyan]Open Google Cloud Console?[/cyan]", default=True):
+                    import webbrowser
+                    webbrowser.open("https://console.cloud.google.com/apis/credentials")
+
+                # Get OAuth client credentials
+                console.print("\n[bold]Step 1: OAuth Client Credentials[/bold]")
+                client_id = Prompt.ask("Enter OAuth Client ID").strip()
+                client_secret = Prompt.ask("Enter Client Secret", password=True).strip()
 
             if not client_id or not client_secret:
                 console.print("[red]✗ Client ID and Secret are required[/red]")

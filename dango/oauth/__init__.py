@@ -62,20 +62,24 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
 
             # Send success page
             self.send_response(200)
-            self.send_header('Content-type', 'text/html')
+            self.send_header('Content-type', 'text/html; charset=utf-8')
             self.end_headers()
 
             success_html = """
+            <!DOCTYPE html>
             <html>
-            <head><title>OAuth Success</title></head>
+            <head>
+                <meta charset="utf-8">
+                <title>OAuth Success</title>
+            </head>
             <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-                <h1 style="color: green;">✓ Authentication Successful!</h1>
+                <h1 style="color: green;">&#10003; Authentication Successful!</h1>
                 <p>You can close this window and return to the terminal.</p>
                 <p style="color: #666; margin-top: 30px;">Dango is completing the setup...</p>
             </body>
             </html>
             """
-            self.wfile.write(success_html.encode())
+            self.wfile.write(success_html.encode('utf-8'))
 
         # Check for error
         elif 'error' in params:
@@ -86,21 +90,25 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
 
             # Send error page
             self.send_response(400)
-            self.send_header('Content-type', 'text/html')
+            self.send_header('Content-type', 'text/html; charset=utf-8')
             self.end_headers()
 
             error_html = f"""
+            <!DOCTYPE html>
             <html>
-            <head><title>OAuth Error</title></head>
+            <head>
+                <meta charset="utf-8">
+                <title>OAuth Error</title>
+            </head>
             <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-                <h1 style="color: red;">✗ Authentication Failed</h1>
+                <h1 style="color: red;">&#10007; Authentication Failed</h1>
                 <p><strong>Error:</strong> {params['error'][0]}</p>
                 <p>{params.get('error_description', [''])[0]}</p>
                 <p style="color: #666; margin-top: 30px;">Please return to the terminal for instructions.</p>
             </body>
             </html>
             """
-            self.wfile.write(error_html.encode())
+            self.wfile.write(error_html.encode('utf-8'))
 
         else:
             # Unknown request
