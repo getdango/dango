@@ -102,9 +102,21 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             console.print(f"\n[bold cyan]Google {service.replace('_', ' ').title()} Authentication[/bold cyan]\n")
 
             # Try to load credentials from .env first
-            load_dotenv(self.project_root / ".env")
+            env_file = self.project_root / ".env"
+            load_dotenv(env_file, override=True)
             client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
             client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+
+            # Debug: check if .env exists and has the keys
+            if not client_id and env_file.exists():
+                # Try reading directly from file as fallback
+                with open(env_file, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("GOOGLE_CLIENT_ID="):
+                            client_id = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        elif line.startswith("GOOGLE_CLIENT_SECRET="):
+                            client_secret = line.split("=", 1)[1].strip().strip('"').strip("'")
 
             if client_id and client_secret:
                 # Credentials found in .env
