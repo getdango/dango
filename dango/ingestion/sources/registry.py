@@ -184,6 +184,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_sheets",
         "dlt_function": "google_spreadsheet",
+        "multi_resource": True,  # Each source gets own schema (raw_{source_name})
         "required_params": [
             {
                 "name": "spreadsheet_url_or_id",
