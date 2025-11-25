@@ -887,31 +887,53 @@ class SourceWizard:
                 console.print(f"[yellow]⚠️  No sheets found in spreadsheet[/yellow]")
                 return None
 
-            # Show clear instructions before the checkbox
-            console.print(f"\n[bold]Select sheets to load:[/bold]")
-            console.print(f"[cyan]  ↑/↓  Navigate    Space  Select/deselect    Enter  Confirm[/cyan]\n")
+            # Loop until user confirms selection
+            while True:
+                # Show clear instructions before the checkbox
+                console.print(f"\n[bold]Select sheets to load:[/bold]")
+                console.print(f"[cyan]  ↑/↓  Navigate    Space  Select/deselect    Enter  Confirm[/cyan]\n")
 
-            # Show checkbox for sheet selection
-            questions = [
-                inquirer.Checkbox(
-                    param_name,
-                    message="Sheets",
-                    choices=sheets,
-                    default=[sheets[0]] if sheets else [],  # Default to first sheet
-                )
-            ]
-            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
-            if not answers:
-                return None
+                # Show checkbox for sheet selection
+                questions = [
+                    inquirer.Checkbox(
+                        param_name,
+                        message="Sheets",
+                        choices=sheets,
+                        default=[sheets[0]] if sheets else [],  # Default to first sheet
+                    )
+                ]
+                answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+                if not answers:
+                    return None
 
-            selected = answers[param_name]
-            if not selected:
-                console.print(f"[yellow]⚠️  You must select at least one sheet[/yellow]")
-                # Retry
-                return self._prompt_parameter(param, source_name, source_type, metadata, required)
+                selected = answers[param_name]
+                if not selected:
+                    console.print(f"[yellow]⚠️  You must select at least one sheet[/yellow]")
+                    continue
 
-            console.print(f"  [green]✓ Selected {len(selected)} sheet(s): {', '.join(selected)}[/green]")
-            return selected
+                # Show selection and ask for confirmation
+                console.print(f"\n[cyan]Selected {len(selected)} sheet(s):[/cyan]")
+                for sheet in selected:
+                    console.print(f"  • {sheet}")
+
+                confirm_questions = [
+                    inquirer.List(
+                        "action",
+                        message="Confirm selection?",
+                        choices=[
+                            ("Yes, continue", "confirm"),
+                            ("No, reselect sheets", "reselect"),
+                        ],
+                    )
+                ]
+                confirm_answers = inquirer.prompt(confirm_questions, theme=themes.GreenPassion())
+                if not confirm_answers:
+                    return None
+
+                if confirm_answers["action"] == "confirm":
+                    console.print(f"  [green]✓ {len(selected)} sheet(s) selected[/green]")
+                    return selected
+                # Otherwise loop back to reselect
 
         elif param_type == "date":
             # Date parameter - calculate actual date if default is None
