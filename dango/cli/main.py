@@ -1618,57 +1618,6 @@ def source_remove(ctx, source_name, yes):
         raise click.Abort()
 
 
-@cli.command()
-@click.argument("provider", type=click.Choice(["google_ads", "google_analytics", "google_sheets", "facebook_ads", "shopify"]))
-@click.pass_context
-def auth(ctx, provider):
-    """
-    Authenticate with API provider (OAuth flow).
-
-    PROVIDER: API provider to authenticate with
-
-    Examples:
-      dango auth google_ads        Authenticate with Google Ads
-      dango auth google_analytics  Authenticate with Google Analytics
-      dango auth google_sheets     Authenticate with Google Sheets
-      dango auth facebook_ads      Authenticate with Facebook/Meta Ads
-      dango auth shopify           Authenticate with Shopify
-    """
-    from pathlib import Path
-    from .utils import require_project_context
-    from dango.oauth import create_oauth_manager
-    from dango.oauth.providers import GoogleOAuthProvider, FacebookOAuthProvider, ShopifyOAuthProvider
-
-    console.print(f"🍡 [bold]Authenticating with {provider.replace('_', ' ').title()}...[/bold]")
-
-    try:
-        project_root = require_project_context(ctx)
-        oauth_manager = create_oauth_manager(project_root)
-
-        # Dispatch to appropriate provider
-        oauth_cred_name = None
-        if provider in ["google_ads", "google_analytics", "google_sheets"]:
-            # All Google services use the same provider
-            google_provider = GoogleOAuthProvider(oauth_manager)
-            oauth_cred_name = google_provider.authenticate(service=provider)
-
-        elif provider == "facebook_ads":
-            facebook_provider = FacebookOAuthProvider(oauth_manager)
-            oauth_cred_name = facebook_provider.authenticate()
-
-        elif provider == "shopify":
-            shopify_provider = ShopifyOAuthProvider(oauth_manager)
-            oauth_cred_name = shopify_provider.authenticate()
-
-        if not oauth_cred_name:
-            console.print("\n[red]Authentication failed[/red]")
-            raise click.Abort()
-
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise click.Abort()
-
-
 @cli.command("auth-list")
 @click.pass_context
 def auth_list(ctx):
@@ -1691,8 +1640,8 @@ def auth_list(ctx):
         if not credentials:
             console.print("\n[yellow]No OAuth credentials configured[/yellow]")
             console.print("\n[cyan]To authenticate:[/cyan]")
-            console.print("  dango auth google_ads")
-            console.print("  dango auth facebook_ads")
+            console.print("  dango auth google --service ads")
+            console.print("  dango auth facebook")
             console.print("  dango auth shopify")
             return
 
@@ -2328,8 +2277,9 @@ def auth(ctx):
     Authenticate with OAuth providers.
 
     Commands:
+      dango auth google      Authenticate with Google services (Ads, Analytics, Sheets)
       dango auth facebook    Authenticate with Facebook Ads
-      dango auth google      Authenticate with Google services
+      dango auth shopify     Authenticate with Shopify
     """
     pass
 
@@ -2338,24 +2288,31 @@ def auth(ctx):
 @click.pass_context
 def auth_facebook(ctx):
     """
-    Authenticate with Facebook Ads.
+    Authenticate with Facebook Ads using OAuth.
 
     This will guide you through:
-    1. Getting a short-lived access token from Facebook
+    1. Getting a short-lived access token from Facebook Graph API Explorer
     2. Exchanging it for a long-lived token (60 days)
-    3. Saving the token to .env
+    3. Credentials saved to .dlt/secrets.toml
 
     The token will need to be refreshed every 60 days.
     """
     from pathlib import Path
     from .utils import require_project_context
-    from .oauth import authenticate_facebook
+    from dango.oauth import OAuthManager
+    from dango.oauth.providers import FacebookOAuthProvider
 
     try:
         project_root = require_project_context(ctx)
-        success = authenticate_facebook(project_root)
 
-        if not success:
+        # Use new OAuth implementation
+        oauth_manager = OAuthManager(project_root)
+        provider = FacebookOAuthProvider(oauth_manager)
+
+        # Start OAuth flow
+        oauth_name = provider.authenticate()
+
+        if not oauth_name:
             console.print("[red]Authentication failed[/red]")
             raise click.Abort()
 
@@ -2367,33 +2324,86 @@ def auth_facebook(ctx):
 @auth.command("google")
 @click.option(
     "--service",
-    type=click.Choice(["sheets", "analytics", "ads"], case_sensitive=False),
-    default="sheets",
+    type=click.Choice(["ads", "analytics", "sheets"], case_sensitive=False),
+    default="ads",
     help="Google service to authenticate with",
 )
 @click.pass_context
 def auth_google(ctx, service):
     """
-    Authenticate with Google services.
+    Authenticate with Google services using OAuth.
 
-    This will guide you through setting up Google OAuth credentials.
+    This will guide you through the browser-based OAuth flow:
+    1. Create OAuth credentials in Google Cloud Console
+    2. Authorize Dango via browser
+    3. Credentials saved to .dlt/secrets.toml
 
     Services:
-      sheets     Google Sheets
+      ads        Google Ads (default)
       analytics  Google Analytics (GA4)
-      ads        Google Ads
-
-    For most services, we recommend using a Service Account for simplicity.
+      sheets     Google Sheets
     """
     from pathlib import Path
     from .utils import require_project_context
-    from .oauth import authenticate_google
+    from dango.oauth import OAuthManager
+    from dango.oauth.providers import GoogleOAuthProvider
 
     try:
         project_root = require_project_context(ctx)
-        success = authenticate_google(project_root, service=service)
 
-        if not success:
+        # Map CLI service names to provider service names
+        service_map = {
+            "ads": "google_ads",
+            "analytics": "google_analytics",
+            "sheets": "google_sheets",
+        }
+        provider_service = service_map.get(service.lower(), "google_ads")
+
+        # Use new OAuth implementation
+        oauth_manager = OAuthManager(project_root)
+        provider = GoogleOAuthProvider(oauth_manager)
+
+        # Start OAuth flow
+        oauth_name = provider.authenticate(service=provider_service)
+
+        if not oauth_name:
+            console.print("[red]Authentication failed[/red]")
+            raise click.Abort()
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort()
+
+
+@auth.command("shopify")
+@click.pass_context
+def auth_shopify(ctx):
+    """
+    Authenticate with Shopify.
+
+    This will guide you through:
+    1. Creating a custom app in Shopify admin
+    2. Configuring Admin API scopes
+    3. Credentials saved to .dlt/secrets.toml
+
+    Shopify custom app tokens don't expire.
+    """
+    from pathlib import Path
+    from .utils import require_project_context
+    from dango.oauth import OAuthManager
+    from dango.oauth.providers import ShopifyOAuthProvider
+
+    try:
+        project_root = require_project_context(ctx)
+
+        # Use new OAuth implementation
+        oauth_manager = OAuthManager(project_root)
+        provider = ShopifyOAuthProvider(oauth_manager)
+
+        # Start OAuth flow
+        oauth_name = provider.authenticate()
+
+        if not oauth_name:
             console.print("[red]Authentication failed[/red]")
             raise click.Abort()
 
