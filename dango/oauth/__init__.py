@@ -214,14 +214,16 @@ class OAuthManager:
         while time.time() - start_time < timeout_seconds:
             if OAuthCallbackHandler.oauth_response is not None:
                 console.print("[green]✓ Authorization received![/green]")
-                server.shutdown()
+                # Don't call server.shutdown() - it can hang
+                # The daemon thread will be cleaned up automatically
+                server.server_close()
                 return OAuthCallbackHandler.oauth_response
 
             if OAuthCallbackHandler.oauth_error is not None:
                 error = OAuthCallbackHandler.oauth_error
                 console.print(f"[red]✗ Authorization failed: {error['error']}[/red]")
                 console.print(f"[red]{error['error_description']}[/red]")
-                server.shutdown()
+                server.server_close()
                 return None
 
             time.sleep(0.5)
@@ -229,7 +231,7 @@ class OAuthManager:
         # Timeout
         console.print(f"[red]✗ Authorization timeout after {timeout_seconds} seconds[/red]")
         console.print("[yellow]Please try again and complete the authorization promptly.[/yellow]")
-        server.shutdown()
+        server.server_close()
         return None
 
     def generate_state(self) -> str:
