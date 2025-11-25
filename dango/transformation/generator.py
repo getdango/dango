@@ -319,6 +319,33 @@ class DbtModelGenerator:
         template = self.jinja_env.get_template("sources.yml.j2")
         return template.render(**context)
 
+    def generate_staging_schema_yml(
+        self,
+        source: DataSource,
+        models: List[Dict[str, Any]],
+    ) -> str:
+        """
+        Generate schema.yml documenting staging models
+
+        This documents the staging models themselves (not the raw sources).
+
+        Args:
+            source: Data source configuration
+            models: List of model definitions with columns
+                    [{"name": "stg_source__table", "table_name": "table", "schema_name": "raw_source", "columns": [...]}]
+
+        Returns:
+            Generated YAML content
+        """
+        context = {
+            "source_name": source.name,
+            "source_type": source.type.value,
+            "models": models,
+            "generated_at": datetime.now().isoformat(),
+        }
+
+        template = self.jinja_env.get_template("staging_schema.yml.j2")
+        return template.render(**context)
 
     def generate_all_models(
         self,
@@ -426,13 +453,31 @@ class DbtModelGenerator:
                             "columns": columns
                         })
 
-                    # Generate sources.yml for all endpoints
+                    # Generate sources.yml for all endpoints (documents raw tables)
                     sources_file = None
+                    staging_schema_file = None
                     if generate_schema_yml and tables_for_yml:
                         sources_yml = self.generate_sources_yml(source, schema_name, tables_for_yml)
                         sources_file = self.staging_dir / f"sources_{source.name}.yml"
                         with open(sources_file, "w") as f:
                             f.write(sources_yml)
+
+                        # Generate staging schema.yml (documents staging models)
+                        staging_models_for_yml = []
+                        for table in tables_for_yml:
+                            staging_models_for_yml.append({
+                                "name": f"stg_{source.name}__{table['name']}",
+                                "table_name": table["name"],
+                                "schema_name": schema_name,
+                                "columns": table["columns"],
+                            })
+
+                        staging_schema_yml = self.generate_staging_schema_yml(source, staging_models_for_yml)
+                        staging_schema_file = self.staging_dir / f"stg_{source.name}.yml"
+                        # Only write if file doesn't exist (don't overwrite user customizations)
+                        if not staging_schema_file.exists():
+                            with open(staging_schema_file, "w") as f:
+                                f.write(staging_schema_yml)
 
                     if generated_models:
                         summary["generated"].append({
@@ -484,7 +529,7 @@ class DbtModelGenerator:
                     with open(model_file, "w") as f:
                         f.write(model_sql)
 
-                    # Generate sources.yml
+                    # Generate sources.yml (documents raw tables)
                     sources_file = None
                     if generate_schema_yml:
                         tables_for_yml = [{
@@ -495,6 +540,20 @@ class DbtModelGenerator:
                         sources_file = self.staging_dir / f"sources_{source.name}.yml"
                         with open(sources_file, "w") as f:
                             f.write(sources_yml)
+
+                        # Generate staging schema.yml (documents staging models)
+                        staging_models_for_yml = [{
+                            "name": f"stg_{source.name}",
+                            "table_name": table_name,
+                            "schema_name": schema_name,
+                            "columns": columns,
+                        }]
+                        staging_schema_yml = self.generate_staging_schema_yml(source, staging_models_for_yml)
+                        staging_schema_file = self.staging_dir / f"stg_{source.name}.yml"
+                        # Only write if file doesn't exist (don't overwrite user customizations)
+                        if not staging_schema_file.exists():
+                            with open(staging_schema_file, "w") as f:
+                                f.write(staging_schema_yml)
 
                     summary["generated"].append({
                         "source": source.name,
