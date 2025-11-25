@@ -834,11 +834,22 @@ class DltPipelineRunner:
         else:
             config_dict = dict(config_obj) if isinstance(config_obj, dict) else {}
 
+        # Dango-specific fields that should NOT be passed to dlt source functions
+        DANGO_ONLY_FIELDS = {
+            "deduplication",  # Dango's deduplication strategy
+            "enabled",        # Dango's source enable/disable flag
+            "description",    # Dango's source description
+        }
+
         # Resolve environment variables (fields ending in _env)
         import os
 
         resolved_config = {}
         for key, value in config_dict.items():
+            # Skip Dango-specific fields
+            if key in DANGO_ONLY_FIELDS:
+                continue
+
             if key.endswith("_env") and isinstance(value, str):
                 # Get actual value from environment
                 env_value = os.getenv(value)
