@@ -71,6 +71,11 @@ class GoogleOAuthProvider(BaseOAuthProvider):
     TOKEN_URL = "https://oauth2.googleapis.com/token"
 
     # Scopes for different Google services
+    # Always include userinfo.email to identify the authenticated user
+    BASE_SCOPES = [
+        "https://www.googleapis.com/auth/userinfo.email",
+    ]
+
     SCOPES = {
         "google_ads": [
             "https://www.googleapis.com/auth/adwords"
@@ -154,14 +159,16 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 return False
 
             # Build authorization URL
-            scopes = self.SCOPES.get(service, self.SCOPES["google_ads"])
+            # Combine base scopes (userinfo) with service-specific scopes
+            service_scopes = self.SCOPES.get(service, self.SCOPES["google_ads"])
+            all_scopes = self.BASE_SCOPES + service_scopes
             state = self.oauth_manager.generate_state()
 
             auth_params = {
                 "client_id": client_id,
                 "redirect_uri": self.oauth_manager.callback_url,
                 "response_type": "code",
-                "scope": " ".join(scopes),
+                "scope": " ".join(all_scopes),
                 "access_type": "offline",  # Request refresh token
                 "prompt": "consent",  # Force consent screen to get refresh token
                 "state": state,
@@ -250,7 +257,7 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 expires_at=None,  # Google refresh tokens don't expire
                 metadata={
                     "service": service,
-                    "scopes": self.SCOPES.get(service, [])
+                    "scopes": all_scopes
                 }
             )
 
