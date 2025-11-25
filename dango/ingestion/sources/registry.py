@@ -180,7 +180,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
     "google_sheets": {
         "display_name": "Google Sheets",
         "category": "Marketing & Analytics",
-        "description": "Load data from a single Google Sheet tab",
+        "description": "Load data from Google Sheets (one or more tabs)",
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_sheets",
         "dlt_function": "google_spreadsheet",
@@ -194,14 +194,14 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
             {
                 "name": "range_names",
-                "type": "string",
-                "prompt": "Sheet/tab name to load",
-                "help": "The name of the sheet tab (e.g., 'Sheet1', 'Deposits'). Creates one table.",
+                "type": "sheet_selector",  # Special type: wizard fetches sheets and shows multi-select
+                "prompt": "Select sheets/tabs to load",
+                "help": "Each selected sheet becomes a table in the database",
             },
         ],
+        # Transform string to list for backward compatibility with old configs
         "param_transforms": {
-            # Transform single sheet name string into list for dlt
-            "range_names": "list",
+            "range_names": "list",  # Convert single string "Sheet1" to ["Sheet1"]
         },
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
@@ -209,6 +209,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             "3. Follow the browser OAuth flow to authenticate",
             "4. Get spreadsheet ID from URL: docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit",
             "5. Credentials are permanent (refresh token stored in .dlt/secrets.toml)",
+            "6. To add/remove sheets later: edit .dango/sources.yml and run 'dango sync'",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_sheets",
         "cost_warning": "Subject to Google API quota limits",

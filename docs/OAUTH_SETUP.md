@@ -13,6 +13,41 @@ Dango supports OAuth authentication for the following data sources:
 
 All OAuth credentials are stored securely in `.dlt/secrets.toml` (gitignored) and use refresh tokens for long-term access.
 
+## Privacy First: Why You Create Your Own OAuth App
+
+Dango asks you to create your own OAuth apps for **maximum privacy**:
+
+- **Your data flows directly:** Provider → Your Machine → Your Local Database
+- **Dango never touches your data** (no intermediary servers)
+- **You control the OAuth app** and can revoke access anytime
+- **No shared rate limits or quotas** with other users
+
+This aligns with Dango's local-first, privacy-focused architecture.
+
+### Understanding "External" OAuth Type
+
+When setting up Google OAuth, you'll select "External" user type. This refers to **WHO can authenticate**, NOT where your data goes:
+
+- **External** = Any Google account (@gmail.com, @company.com)
+- **Internal** = Only your organization (@yourcompany.com) - requires Google Workspace
+
+Your data stays local regardless of this setting.
+
+## Check Your OAuth Configuration
+
+Before starting, you can check your current OAuth status:
+
+```bash
+# Check OAuth credentials and status
+dango auth check
+
+# List saved OAuth tokens
+dango auth-list
+
+# Interactive setup wizard
+dango auth setup google
+```
+
 ## Quick Start (Two Methods)
 
 ### Method 1: Inline OAuth (Recommended)
@@ -71,104 +106,89 @@ Authenticate first, then add sources:
 
 ## Provider-Specific Setup
 
-### Google Ads
+### Google Services (Ads, Analytics, Sheets)
+
+Google services share the same OAuth credentials. You authenticate once with Google, selecting which service(s) you need.
+
+#### Common Setup (All Google Services)
 
 **Prerequisites:**
-- Google Cloud Project with Google Ads API enabled
+- Google Cloud Project
 - OAuth 2.0 Web Application credentials
+
+**Create OAuth credentials:**
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create/select a project
+3. Enable the required APIs:
+   - **Google Ads:** Enable "Google Ads API"
+   - **Google Analytics:** Enable "Google Analytics Data API"
+   - **Google Sheets:** Enable "Google Sheets API" and "Google Drive API"
+4. Go to APIs & Services > Credentials
+5. Create OAuth client ID → **Web application** (NOT Desktop app)
+6. Add authorized redirect URI: `http://localhost:8080/callback`
+7. Download/copy Client ID and Client Secret
+
+**Tip:** Add credentials to `.env` to skip prompts:
+```bash
+GOOGLE_CLIENT_ID=123456789.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxx
+```
+
+---
+
+#### Google Ads
+
+**Additional Prerequisites:**
 - Google Ads Developer Token
 - Customer ID
 
-**Steps:**
+**Run authentication:**
+```bash
+dango auth google --service ads
+```
 
-1. **Create OAuth credentials:**
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Create/select a project
-   - Enable "Google Ads API"
-   - Go to APIs & Services > Credentials
-   - Create OAuth client ID → Web application
-   - Add authorized redirect URI: `http://localhost:8080/callback`
-   - Download/copy Client ID and Client Secret
+**During the flow:**
+- Enter Client ID and Client Secret (or auto-detected from .env)
+- Browser opens → Sign in with Google → Grant permissions
+- Enter Developer Token when prompted
+- Enter Customer ID (optional, can add later)
 
-2. **Get Developer Token:**
-   - Go to [Google Ads API Center](https://ads.google.com/aw/apicenter)
-   - Apply for and receive your Developer Token
-
-3. **Run authentication:**
-   ```bash
-   dango auth google_ads
-   ```
-
-4. **During the flow:**
-   - Enter Client ID and Client Secret when prompted
-   - Browser opens → Sign in with Google → Grant permissions
-   - Enter Developer Token when prompted
-   - Enter Customer ID (optional, can add later)
-
-**Credentials stored in:** `.dlt/secrets.toml` under `sources.google_ads`
+**Get Developer Token:** [Google Ads API Center](https://ads.google.com/aw/apicenter)
 
 **Expiry:** Refresh token doesn't expire (permanent access)
 
 ---
 
-### Google Analytics (GA4)
+#### Google Analytics (GA4)
 
-**Prerequisites:**
-- Google Cloud Project with Google Analytics Data API enabled
-- OAuth 2.0 Web Application credentials
+**Additional Prerequisites:**
 - GA4 Property ID
 
-**Steps:**
+**Run authentication:**
+```bash
+dango auth google --service analytics
+```
 
-1. **Create OAuth credentials:**
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Create/select a project
-   - Enable "Google Analytics Data API"
-   - Create OAuth client ID → Web application
-   - Add authorized redirect URI: `http://localhost:8080/callback`
-
-2. **Run authentication:**
-   ```bash
-   dango auth google_analytics
-   ```
-
-3. **During the flow:**
-   - Enter Client ID and Client Secret
-   - Browser opens → Sign in → Grant permissions
-   - Enter GA4 Property ID when prompted
-
-**Credentials stored in:** `.dlt/secrets.toml` under `sources.google_analytics`
+**During the flow:**
+- Enter Client ID and Client Secret (or auto-detected from .env)
+- Browser opens → Sign in → Grant permissions
+- Enter GA4 Property ID when prompted
 
 **Expiry:** Refresh token doesn't expire
 
 ---
 
-### Google Sheets
+#### Google Sheets
 
-**Prerequisites:**
-- Google Cloud Project with Google Sheets API enabled
-- OAuth 2.0 Web Application credentials
-- Spreadsheet ID(s)
+**Run authentication:**
+```bash
+dango auth google --service sheets
+```
 
-**Steps:**
-
-1. **Create OAuth credentials:**
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Enable "Google Sheets API" and "Google Drive API"
-   - Create OAuth client ID → Web application
-   - Add authorized redirect URI: `http://localhost:8080/callback`
-
-2. **Run authentication:**
-   ```bash
-   dango auth google_sheets
-   ```
-
-3. **During the flow:**
-   - Enter Client ID and Client Secret
-   - Browser opens → Sign in → Grant permissions
-   - Spreadsheet IDs can be added later when creating sources
-
-**Credentials stored in:** `.dlt/secrets.toml` under `sources.google_sheets`
+**During the flow:**
+- Enter Client ID and Client Secret (or auto-detected from .env)
+- Browser opens → Sign in → Grant permissions
+- Spreadsheet IDs are selected when adding sources
 
 **Expiry:** Refresh token doesn't expire
 
@@ -309,8 +329,21 @@ When loading credentials, Dango uses this priority:
 **Problem:** OAuth callback server can't start.
 
 **Solution:**
-- Stop any process using port 8080
-- Or edit `dango/oauth/__init__.py` and change `self.callback_port = 8080` to another port
+1. **Stop the conflicting process:**
+   ```bash
+   # Find what's using port 8080
+   lsof -i :8080
+
+   # Kill the process
+   kill <PID>
+   ```
+
+2. **Or use a different port:**
+   Add to your `.env` file:
+   ```bash
+   DANGO_OAUTH_CALLBACK_URL=http://localhost:8081/callback
+   ```
+   Then update your OAuth app's redirect URI to match.
 
 ### Facebook token expires too quickly
 

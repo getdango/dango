@@ -167,8 +167,15 @@ class CSVSourceConfig(BaseModel):
 class GoogleSheetsSourceConfig(BaseModel):
     """Google Sheets source configuration"""
     spreadsheet_url_or_id: str  # Spreadsheet ID or full URL
-    range_names: str  # Sheet/tab name to load (single sheet per source)
+    range_names: List[str]  # Sheet/tab names to load (each becomes a table)
     deduplication: DeduplicationStrategy = DeduplicationStrategy.LATEST_ONLY
+
+    @validator('range_names', pre=True)
+    def ensure_list(cls, v):
+        """Convert single string to list for backward compatibility"""
+        if isinstance(v, str):
+            return [v]
+        return v
 
 
 class StripeSourceConfig(BaseModel):

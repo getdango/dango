@@ -705,7 +705,16 @@ class DltPipelineRunner:
                 source_kwargs["credentials"] = oauth_creds
                 console.print(f"  🔑 Using OAuth credential: {source_config.oauth_ref}")
             else:
-                console.print(f"  ⚠️  OAuth credential '{source_config.oauth_ref}' not found")
+                console.print(f"\n[red]✗ OAuth credential '{source_config.oauth_ref}' not found[/red]")
+                console.print("\n[yellow]Possible causes:[/yellow]")
+                console.print("  • OAuth credential was deleted")
+                console.print("  • Credential name changed")
+                console.print("  • .dlt/secrets.toml is missing or corrupted")
+                console.print("\n[cyan]How to fix:[/cyan]")
+                console.print("  1. Check available credentials: [bold]dango auth-list[/bold]")
+                console.print("  2. Re-authenticate: [bold]dango auth google --service sheets[/bold]")
+                console.print("  3. Update source with new credential: Edit .dango/sources.yml")
+                return {"status": "error", "error": f"OAuth credential '{source_config.oauth_ref}' not found"}
 
         # Dynamic import of dlt source
         source = self._load_dlt_source(dlt_package, dlt_function, source_kwargs)

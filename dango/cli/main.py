@@ -2412,6 +2412,315 @@ def auth_shopify(ctx):
         raise click.Abort()
 
 
+@auth.command("check")
+@click.pass_context
+def auth_check(ctx):
+    """
+    Check OAuth configuration and credential status.
+
+    Validates:
+    - OAuth client credentials in .env
+    - Saved OAuth tokens in .dlt/secrets.toml
+    - Token expiry status
+
+    Example:
+      dango auth check
+    """
+    from pathlib import Path
+    import os
+    from .utils import require_project_context
+    from dango.oauth.storage import OAuthStorage
+    from dotenv import load_dotenv
+
+    try:
+        project_root = require_project_context(ctx)
+
+        # Load .env
+        env_file = project_root / ".env"
+        if env_file.exists():
+            load_dotenv(env_file)
+
+        console.print("\n[bold cyan]OAuth Configuration Check[/bold cyan]\n")
+
+        # Define providers and their required env vars
+        providers = {
+            "Google": {
+                "env_vars": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+                "services": ["Google Ads", "Google Analytics", "Google Sheets"],
+                "auth_cmd": "dango auth google --service <ads|analytics|sheets>",
+            },
+            "Facebook": {
+                "env_vars": ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"],
+                "services": ["Facebook Ads"],
+                "auth_cmd": "dango auth facebook",
+            },
+            "Shopify": {
+                "env_vars": ["SHOPIFY_CLIENT_ID", "SHOPIFY_CLIENT_SECRET"],
+                "services": ["Shopify"],
+                "auth_cmd": "dango auth shopify",
+            },
+        }
+
+        # Check each provider's env vars
+        console.print("[bold]1. OAuth Client Credentials (.env)[/bold]\n")
+
+        all_configured = True
+        for provider_name, config in providers.items():
+            env_vars = config["env_vars"]
+            configured = all(os.getenv(var) for var in env_vars)
+
+            if configured:
+                console.print(f"  [green]✓[/green] {provider_name}")
+                for var in env_vars:
+                    value = os.getenv(var, "")
+                    masked = value[:8] + "..." if len(value) > 8 else "***"
+                    console.print(f"    [dim]{var}: {masked}[/dim]")
+            else:
+                console.print(f"  [red]✗[/red] {provider_name}")
+                for var in env_vars:
+                    if os.getenv(var):
+                        console.print(f"    [green]✓[/green] {var}: configured")
+                    else:
+                        console.print(f"    [red]✗[/red] {var}: [dim]missing[/dim]")
+                console.print(f"    [dim]→ Add credentials to .env file[/dim]")
+                all_configured = False
+
+        # Check saved OAuth tokens
+        console.print("\n[bold]2. Saved OAuth Tokens (.dlt/secrets.toml)[/bold]\n")
+
+        oauth_storage = OAuthStorage(project_root)
+        credentials = oauth_storage.list()
+
+        if not credentials:
+            console.print("  [yellow]No OAuth tokens saved yet[/yellow]")
+            console.print("  [dim]→ Run: dango auth <provider> to authenticate[/dim]")
+        else:
+            for cred in credentials:
+                if cred.is_expired():
+                    status = "[red]EXPIRED[/red]"
+                    action = f"[dim]→ Run: dango auth-refresh {cred.name}[/dim]"
+                elif cred.is_expiring_soon():
+                    days_left = cred.days_until_expiry()
+                    status = f"[yellow]Expires in {days_left}d[/yellow]"
+                    action = f"[dim]→ Consider refreshing: dango auth-refresh {cred.name}[/dim]"
+                else:
+                    status = "[green]Active[/green]"
+                    action = ""
+
+                console.print(f"  {status} {cred.account_info}")
+                console.print(f"    [dim]Provider: {cred.provider} | Name: {cred.name}[/dim]")
+                if action:
+                    console.print(f"    {action}")
+
+        # Summary and next steps
+        console.print("\n[bold]3. Summary[/bold]\n")
+
+        if all_configured and credentials:
+            active_creds = [c for c in credentials if not c.is_expired()]
+            if active_creds:
+                console.print("  [green]✓ OAuth is fully configured[/green]")
+                console.print("  [dim]You can add OAuth sources with: dango source add[/dim]")
+            else:
+                console.print("  [yellow]⚠️  OAuth credentials configured but tokens expired[/yellow]")
+                console.print("  [dim]Re-authenticate with: dango auth-refresh <name>[/dim]")
+        elif all_configured:
+            console.print("  [yellow]⚠️  OAuth credentials configured but not yet authenticated[/yellow]")
+            console.print("  [dim]Authenticate with: dango auth <provider>[/dim]")
+        else:
+            console.print("  [yellow]⚠️  Some OAuth credentials missing[/yellow]")
+            console.print("  [dim]Add missing credentials to .env file[/dim]")
+
+        console.print("")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort()
+
+
+@auth.command("setup")
+@click.argument("provider", type=click.Choice(["google", "facebook", "shopify"], case_sensitive=False))
+@click.pass_context
+def auth_setup(ctx, provider):
+    """
+    Interactive OAuth setup wizard.
+
+    Guides you through creating OAuth credentials for a provider.
+
+    PROVIDER: The OAuth provider to set up (google, facebook, shopify)
+
+    Examples:
+      dango auth setup google
+      dango auth setup facebook
+      dango auth setup shopify
+    """
+    from pathlib import Path
+    import os
+    from .utils import require_project_context
+    from rich.panel import Panel
+    from rich.prompt import Confirm
+    from dotenv import load_dotenv, set_key
+    import inquirer
+    from inquirer import themes
+
+    try:
+        project_root = require_project_context(ctx)
+
+        # Load existing .env
+        env_file = project_root / ".env"
+        if env_file.exists():
+            load_dotenv(env_file)
+
+        console.print(f"\n[bold cyan]OAuth Setup Wizard: {provider.title()}[/bold cyan]\n")
+
+        # Provider-specific configuration
+        provider_config = {
+            "google": {
+                "display_name": "Google",
+                "env_vars": [
+                    ("GOOGLE_CLIENT_ID", "OAuth Client ID"),
+                    ("GOOGLE_CLIENT_SECRET", "OAuth Client Secret"),
+                ],
+                "setup_url": "https://console.cloud.google.com/apis/credentials",
+                "setup_steps": [
+                    "1. Go to Google Cloud Console → APIs & Services → Credentials",
+                    "2. Click '+ CREATE CREDENTIALS' → 'OAuth client ID'",
+                    "3. Application type: 'Web application'",
+                    "4. Name: 'Dango Local' (or any name)",
+                    "5. Authorized redirect URIs: Add 'http://localhost:8080/callback'",
+                    "6. Click 'Create' and copy the Client ID and Client Secret",
+                ],
+                "services": ["Google Ads", "Google Analytics", "Google Sheets"],
+            },
+            "facebook": {
+                "display_name": "Facebook",
+                "env_vars": [
+                    ("FACEBOOK_APP_ID", "App ID"),
+                    ("FACEBOOK_APP_SECRET", "App Secret"),
+                ],
+                "setup_url": "https://developers.facebook.com/apps/",
+                "setup_steps": [
+                    "1. Go to Facebook Developers → My Apps → Create App",
+                    "2. Select 'Business' app type",
+                    "3. Add 'Marketing API' product",
+                    "4. Go to Settings → Basic to get App ID and App Secret",
+                    "5. Add 'http://localhost:8080/callback' to Valid OAuth Redirect URIs",
+                ],
+                "services": ["Facebook Ads"],
+            },
+            "shopify": {
+                "display_name": "Shopify",
+                "env_vars": [
+                    ("SHOPIFY_CLIENT_ID", "Client ID"),
+                    ("SHOPIFY_CLIENT_SECRET", "Client Secret"),
+                ],
+                "setup_url": "https://partners.shopify.com/",
+                "setup_steps": [
+                    "1. Go to Shopify Partners → Apps → Create app",
+                    "2. Or in store admin: Settings → Apps → Develop apps → Create app",
+                    "3. Configure Admin API scopes: read_orders, read_customers, read_products",
+                    "4. Install app and get Admin API access token",
+                ],
+                "services": ["Shopify"],
+            },
+        }
+
+        config = provider_config[provider.lower()]
+
+        # Show privacy message
+        console.print(Panel(
+            "[bold]Why create your own OAuth app?[/bold]\n\n"
+            "• Your data flows directly: Provider → Your Machine → Local Database\n"
+            "• Dango never touches your data (no intermediary servers)\n"
+            "• You control the OAuth app and can revoke access anytime\n"
+            "• No shared rate limits or quotas",
+            title="Privacy First",
+            border_style="green"
+        ))
+
+        # Check if already configured
+        all_configured = all(os.getenv(var) for var, _ in config["env_vars"])
+        if all_configured:
+            console.print(f"\n[green]✓ {config['display_name']} OAuth credentials already configured[/green]")
+
+            if not Confirm.ask("Update credentials anyway?", default=False):
+                console.print("\n[dim]To authenticate, run:[/dim]")
+                if provider.lower() == "google":
+                    console.print("  dango auth google --service <ads|analytics|sheets>")
+                else:
+                    console.print(f"  dango auth {provider.lower()}")
+                return
+
+        # Show setup steps
+        console.print(f"\n[bold]Setup Steps for {config['display_name']}:[/bold]\n")
+        for step in config["setup_steps"]:
+            console.print(f"  {step}")
+
+        console.print(f"\n[cyan]Setup URL:[/cyan] {config['setup_url']}\n")
+
+        # Ask if ready to continue
+        if not Confirm.ask("Ready to enter credentials?", default=True):
+            console.print("\n[yellow]Setup cancelled[/yellow]")
+            console.print(f"[dim]Run again when ready: dango auth setup {provider.lower()}[/dim]")
+            return
+
+        # Collect credentials
+        console.print("\n[bold]Enter your OAuth credentials:[/bold]\n")
+
+        credentials = {}
+        for env_var, display_name in config["env_vars"]:
+            current_value = os.getenv(env_var, "")
+            if current_value:
+                masked = current_value[:8] + "..." if len(current_value) > 8 else "***"
+                console.print(f"  [dim]Current {display_name}: {masked}[/dim]")
+
+            questions = [
+                inquirer.Text(
+                    env_var,
+                    message=display_name,
+                    default="" if not current_value else None,
+                )
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers or not answers[env_var]:
+                if current_value:
+                    console.print(f"  [dim]Keeping existing value[/dim]")
+                    credentials[env_var] = current_value
+                else:
+                    console.print(f"\n[red]✗ {display_name} is required[/red]")
+                    raise click.Abort()
+            else:
+                credentials[env_var] = answers[env_var]
+
+        # Save to .env
+        console.print("\n[dim]Saving credentials to .env...[/dim]")
+
+        # Create .env if doesn't exist
+        if not env_file.exists():
+            env_file.touch()
+
+        for env_var, value in credentials.items():
+            set_key(str(env_file), env_var, value)
+
+        console.print(f"\n[green]✓ {config['display_name']} OAuth credentials saved to .env[/green]")
+
+        # Next steps
+        console.print(f"\n[bold]Next Steps:[/bold]")
+        console.print(f"  1. Authenticate: ", end="")
+        if provider.lower() == "google":
+            console.print("[cyan]dango auth google --service <ads|analytics|sheets>[/cyan]")
+        else:
+            console.print(f"[cyan]dango auth {provider.lower()}[/cyan]")
+        console.print(f"  2. Add a source: [cyan]dango source add[/cyan]")
+        console.print("")
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Setup cancelled[/yellow]")
+        raise click.Abort()
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort()
+
+
 @cli.group()
 @click.pass_context
 def model(ctx):

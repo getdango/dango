@@ -730,6 +730,10 @@ class SourceWizard:
                     return "← Back"
                 params[param["name"]] = value
 
+                # Store spreadsheet ID for sheet_selector type to use
+                if param["name"] == "spreadsheet_url_or_id":
+                    self._current_spreadsheet_id = value
+
         # Ask optional parameters directly (no meta-question)
         optional_params = metadata.get("optional_params", [])
         if optional_params:
@@ -874,6 +878,53 @@ class SourceWizard:
                 )
             ]
 
+        elif param_type == "sheet_selector":
+            # Special type for Google Sheets: fetch sheets from API and show multi-select
+            # Requires spreadsheet_url_or_id to already be collected
+            sheets = self._fetch_google_sheets(source_name)
+            if sheets is None:
+                # Failed to fetch sheets - fall back to manual entry
+                console.print(f"[yellow]⚠️  Could not fetch sheet names. Enter manually.[/yellow]")
+                questions = [
+                    inquirer.Text(
+                        param_name,
+                        message="Sheet/tab names (comma-separated)",
+                        default="Sheet1",
+                    )
+                ]
+                answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+                if not answers:
+                    return None
+                # Parse comma-separated input into list
+                value = answers[param_name]
+                return [s.strip() for s in value.split(",") if s.strip()]
+
+            if not sheets:
+                console.print(f"[yellow]⚠️  No sheets found in spreadsheet[/yellow]")
+                return None
+
+            # Show checkbox for sheet selection
+            questions = [
+                inquirer.Checkbox(
+                    param_name,
+                    message=f"{prompt} (Space to select/deselect, Enter to continue)",
+                    choices=sheets,
+                    default=[sheets[0]] if sheets else [],  # Default to first sheet
+                )
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+
+            selected = answers[param_name]
+            if not selected:
+                console.print(f"[yellow]⚠️  You must select at least one sheet[/yellow]")
+                # Retry
+                return self._prompt_parameter(param, source_name, source_type, metadata, required)
+
+            console.print(f"  [green]✓ Selected {len(selected)} sheet(s): {', '.join(selected)}[/green]")
+            return selected
+
         elif param_type == "date":
             # Date parameter - calculate actual date if default is None
             if default is None:
@@ -925,6 +976,115 @@ class SourceWizard:
             console.print("\n[yellow]💡 Tip: Set start_date 7-14 days earlier to catch late data[/yellow]\n")
 
         return value
+
+    def _fetch_google_sheets(self, source_name: str) -> Optional[List[str]]:
+        """
+        Fetch sheet/tab names from a Google Spreadsheet using OAuth credentials.
+
+        Args:
+            source_name: Source name (used to find OAuth credentials)
+
+        Returns:
+            List of sheet names, or None if failed
+        """
+        try:
+            from googleapiclient.discovery import build
+            from google.oauth2.credentials import Credentials
+
+            # Get OAuth credentials
+            oauth_storage = OAuthStorage(self.project_root)
+
+            # Try to get the selected OAuth ref first
+            if self.selected_oauth_ref:
+                cred = oauth_storage.get(self.selected_oauth_ref)
+            else:
+                # No OAuth ref selected, try to find Google credentials
+                google_creds = oauth_storage.list(provider="google")
+                if not google_creds:
+                    console.print(f"[yellow]No Google OAuth credentials found[/yellow]")
+                    return None
+                cred = google_creds[0]  # Use first available
+
+            if not cred:
+                console.print(f"[yellow]Could not load OAuth credentials[/yellow]")
+                return None
+
+            # Decrypt and build credentials
+            tokens = cred.get_tokens()
+            if not tokens:
+                console.print(f"[yellow]Could not decrypt OAuth tokens[/yellow]")
+                return None
+
+            credentials = Credentials(
+                token=tokens.get("access_token"),
+                refresh_token=tokens.get("refresh_token"),
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=tokens.get("client_id"),
+                client_secret=tokens.get("client_secret"),
+            )
+
+            # Build Sheets API service
+            service = build('sheets', 'v4', credentials=credentials, cache_discovery=False)
+
+            # Get spreadsheet ID from the collected params
+            # This is a bit tricky since we're in the middle of collecting params
+            # We need to access the params collected so far
+            # The spreadsheet_url_or_id should already be collected before range_names
+            spreadsheet_id = getattr(self, '_current_spreadsheet_id', None)
+
+            if not spreadsheet_id:
+                console.print(f"[yellow]Spreadsheet ID not yet collected[/yellow]")
+                return None
+
+            # Extract ID from URL if needed
+            if "docs.google.com" in spreadsheet_id:
+                # URL format: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
+                import re
+                match = re.search(r'/d/([a-zA-Z0-9-_]+)', spreadsheet_id)
+                if match:
+                    spreadsheet_id = match.group(1)
+
+            # Fetch spreadsheet metadata
+            console.print(f"[dim]Fetching sheets from spreadsheet...[/dim]")
+            result = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+
+            # Extract sheet names
+            sheets = result.get('sheets', [])
+            sheet_names = [sheet['properties']['title'] for sheet in sheets]
+
+            console.print(f"[green]✓ Found {len(sheet_names)} sheet(s)[/green]")
+            return sheet_names
+
+        except Exception as e:
+            error_str = str(e).lower()
+
+            # Provide specific error messages for common issues
+            if "404" in error_str or "not found" in error_str:
+                console.print(f"\n[red]✗ Spreadsheet not found[/red]")
+                console.print("\n[yellow]Possible causes:[/yellow]")
+                console.print("  • Invalid spreadsheet ID or URL")
+                console.print("  • Spreadsheet was deleted")
+                console.print("  • You don't have access to this spreadsheet")
+                console.print("\n[cyan]How to fix:[/cyan]")
+                console.print("  1. Check the spreadsheet URL/ID is correct")
+                console.print("  2. Make sure the spreadsheet is shared with your Google account")
+                console.print(f"  3. Your account: check with [bold]dango auth-list[/bold]")
+            elif "403" in error_str or "permission" in error_str or "forbidden" in error_str:
+                console.print(f"\n[red]✗ Permission denied[/red]")
+                console.print("\n[yellow]Possible causes:[/yellow]")
+                console.print("  • You don't have access to this spreadsheet")
+                console.print("  • Spreadsheet is not shared with your Google account")
+                console.print("\n[cyan]How to fix:[/cyan]")
+                console.print("  1. Share the spreadsheet with your Google account")
+                console.print("  2. Or use a different OAuth credential: [bold]dango auth google --service sheets[/bold]")
+            elif "401" in error_str or "invalid" in error_str or "expired" in error_str:
+                console.print(f"\n[red]✗ OAuth credential expired or invalid[/red]")
+                console.print("\n[cyan]How to fix:[/cyan]")
+                console.print("  Re-authenticate: [bold]dango auth google --service sheets[/bold]")
+            else:
+                console.print(f"[yellow]Error fetching sheets: {e}[/yellow]")
+
+            return None
 
     def _create_source_config(
         self,

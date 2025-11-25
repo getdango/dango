@@ -192,7 +192,22 @@ class OAuthManager:
         OAuthCallbackHandler.oauth_error = None
 
         # Start callback server in a thread
-        server = socketserver.TCPServer(("localhost", self.callback_port), OAuthCallbackHandler)
+        try:
+            server = socketserver.TCPServer(("localhost", self.callback_port), OAuthCallbackHandler)
+        except OSError as e:
+            if "Address already in use" in str(e) or e.errno == 48:  # 48 = EADDRINUSE on macOS
+                console.print(f"\n[red]✗ Port {self.callback_port} is already in use[/red]")
+                console.print("\n[yellow]Possible solutions:[/yellow]")
+                console.print(f"  1. Stop the process using port {self.callback_port}:")
+                console.print(f"     [dim]lsof -i :{self.callback_port}[/dim]")
+                console.print(f"     [dim]kill <PID>[/dim]")
+                console.print(f"  2. Set a different callback port in .env:")
+                console.print(f"     [dim]DANGO_OAUTH_CALLBACK_URL=http://localhost:8081/callback[/dim]")
+                console.print(f"     [dim](Remember to update this in your OAuth app redirect URIs)[/dim]")
+                return None
+            else:
+                raise
+
         server.timeout = timeout_seconds
 
         server_thread = threading.Thread(target=server.handle_request, daemon=True)
