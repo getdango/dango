@@ -612,22 +612,15 @@ class SourceWizard:
         is_multi_resource = metadata.get("multi_resource", False)
 
         while True:
-            # Show contextual help based on source type
-            if is_multi_resource:
-                console.print(f"\n[bold]Name this {source_type_display} connection:[/bold]")
-                console.print(f"[cyan]Enter a suffix to identify this connection (e.g., 'test', 'prod', 'staging')[/cyan]")
-                console.print(f"[cyan]Full source name will be: {source_type_key}_<your_input>[/cyan]")
-                console.print(f"[dim]Examples: test, prod, staging, us, eu, company_name[/dim]")
-            else:
-                console.print(f"\n[bold]Name this data source:[/bold]")
-                console.print(f"[cyan]Use underscores, not spaces - e.g., 'orders', 'customer_data'[/cyan]")
-
+            # Consistent naming prompt for all source types
+            console.print(f"\n[bold]Name this {source_type_display} source:[/bold]")
+            console.print(f"[cyan]Use lowercase with underscores (e.g., 'my_sales_data', 'prod_analytics')[/cyan]")
             console.print("[dim]Type 'back' to return to source selection[/dim]")
 
             questions = [
                 inquirer.Text(
                     "name",
-                    message="Connection suffix" if is_multi_resource else "Source name",
+                    message="Source name",
                 )
             ]
 
@@ -635,10 +628,10 @@ class SourceWizard:
             if not answers:
                 return None
 
-            user_input = answers["name"].strip()
+            user_input = answers["name"].strip().lower()
 
             # Check if user wants to go back
-            if user_input.lower() == "back":
+            if user_input == "back":
                 return "← Back"
 
             # Validate name format
@@ -646,13 +639,8 @@ class SourceWizard:
                 console.print(f"[yellow]⚠️  Invalid format. Use letters, numbers, underscores, and hyphens only.[/yellow]")
                 continue
 
-            # Build final source name
-            if is_multi_resource:
-                # Auto-prefix with source type
-                final_source_name = f"{source_type_key}_{user_input}"
-            else:
-                # Use as-is for single-resource sources
-                final_source_name = user_input
+            # Use name as-is (no auto-prefixing)
+            final_source_name = user_input
 
             # Check if final name already exists
             if self._source_name_exists(final_source_name):
@@ -660,14 +648,10 @@ class SourceWizard:
                 continue
 
             # Show what will be created
+            console.print(f"\n[green]✓ Source name: '{final_source_name}'[/green]")
             if is_multi_resource:
-                console.print(f"\n[cyan]✓ Will create source: '{final_source_name}'[/cyan]")
                 console.print(f"  [dim]Raw schema: raw_{final_source_name}[/dim]")
-                console.print(f"  [dim]Raw tables: raw_{final_source_name}.charge, raw_{final_source_name}.customer, etc.[/dim]")
-                console.print(f"  [dim]Staging models: stg_{final_source_name}__charge, stg_{final_source_name}__customer, etc.[/dim]")
-                console.print(f"  [dim]Sync command: dango sync --source {final_source_name}[/dim]\n")
-            else:
-                console.print(f"\n[cyan]✓ Will create source: '{final_source_name}'[/cyan]\n")
+                console.print(f"  [dim]Staging models: stg_{final_source_name}__<table>[/dim]")
 
             return final_source_name
 
