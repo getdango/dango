@@ -166,8 +166,8 @@ class CSVSourceConfig(BaseModel):
 
 class GoogleSheetsSourceConfig(BaseModel):
     """Google Sheets source configuration"""
-    spreadsheet_id: str
-    sheet_name: Optional[str] = None  # If None, loads all sheets
+    spreadsheet_url_or_id: str  # Spreadsheet ID or full URL
+    range_names: str  # Sheet/tab name to load (single sheet per source)
     deduplication: DeduplicationStrategy = DeduplicationStrategy.LATEST_ONLY
 
 
