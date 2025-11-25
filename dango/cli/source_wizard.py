@@ -679,6 +679,27 @@ class SourceWizard:
         config = load_config(self.project_root)
         return any(s.name == name for s in config.sources.sources)
 
+    def _is_credential_param(self, param: Dict[str, Any]) -> bool:
+        """Check if a parameter is a credential/secret that should be skipped when using OAuth"""
+        param_name = param.get("name", "").lower()
+        param_type = param.get("type", "")
+
+        # Check if it's a secret type
+        if param_type == "secret":
+            return True
+
+        # Check common credential parameter name patterns
+        credential_patterns = [
+            "credentials", "credential", "access_token", "api_key", "secret",
+            "_env",  # Parameters ending in _env are typically env var references
+        ]
+
+        for pattern in credential_patterns:
+            if pattern in param_name:
+                return True
+
+        return False
+
     def _collect_parameters(self, metadata: Dict[str, Any], source_name: str) -> Optional[Dict[str, Any]]:
         """Collect required and optional parameters from user"""
         params = {}
@@ -690,6 +711,12 @@ class SourceWizard:
             console.print("[bold]Required Parameters:[/bold]")
             console.print("[dim]Type 'back' in any field to return to source name[/dim]")
             for param in required_params:
+                # Skip credential parameters if OAuth is being used
+                # OAuth credentials are stored in .dlt/secrets.toml, not .env
+                if self.selected_oauth_ref and self._is_credential_param(param):
+                    console.print(f"  [green]✓ {param.get('prompt', param['name'])}: Using OAuth credentials[/green]")
+                    continue
+
                 # Inject source_name into directory default for CSV sources
                 if param["name"] == "directory" and param.get("default") == "data/uploads":
                     param = param.copy()  # Don't modify registry
