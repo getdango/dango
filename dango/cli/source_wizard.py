@@ -993,14 +993,14 @@ class SourceWizard:
                 console.print(f"[yellow]Could not load OAuth credentials[/yellow]")
                 return None
 
-            # Decrypt and build credentials
-            tokens = cred.get_tokens()
+            # Get credentials from the OAuthCredential object
+            tokens = cred.credentials
             if not tokens:
-                console.print(f"[yellow]Could not decrypt OAuth tokens[/yellow]")
+                console.print(f"[yellow]Could not get OAuth tokens[/yellow]")
                 return None
 
             credentials = Credentials(
-                token=tokens.get("access_token"),
+                token=None,  # We use refresh_token to get a new access_token
                 refresh_token=tokens.get("refresh_token"),
                 token_uri="https://oauth2.googleapis.com/token",
                 client_id=tokens.get("client_id"),
