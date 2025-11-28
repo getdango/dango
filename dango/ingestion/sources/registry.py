@@ -224,6 +224,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.OAUTH,
         "dlt_package": "facebook_ads",
         "dlt_function": "facebook_ads_source",
+        "pip_dependencies": [{"pip": "facebook-business", "import": "facebook_business"}],
         "required_params": [
             {
                 "name": "account_id",
@@ -267,6 +268,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_analytics",
         "dlt_function": "google_analytics",
+        "pip_dependencies": [{"pip": "google-analytics-data", "import": "google.analytics.data_v1beta"}],
         "required_params": [
             {
                 "name": "property_id",
@@ -395,6 +397,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "multi_resource": True,  # Has multiple endpoints (Charge, Customer, Subscription, etc.)
         "dlt_package": "stripe_analytics",
         "dlt_function": "stripe_source",
+        "pip_dependencies": [{"pip": "stripe", "import": "stripe"}],
         "supported_in_v0": True,  # Fully tested for v0.0.1
         "required_params": [
             {
@@ -633,6 +636,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_ads",
         "dlt_function": "google_ads",
+        "pip_dependencies": [{"pip": "google-ads", "import": "google.ads"}],
         "required_params": [],  # OAuth handles credentials; developer_token and customer_id are collected during auth
         "optional_params": [
             {
@@ -736,6 +740,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "airtable",
         "dlt_function": "airtable_source",
+        "pip_dependencies": [{"pip": "pyairtable", "import": "pyairtable"}],
         "required_params": [
             {
                 "name": "base_id",
@@ -1146,6 +1151,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.NONE,
         "dlt_package": "kafka",
         "dlt_function": "kafka_consumer",
+        "pip_dependencies": [{"pip": "confluent-kafka", "import": "confluent_kafka"}],
         "required_params": [
             {
                 "name": "topics",
