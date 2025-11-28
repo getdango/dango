@@ -29,6 +29,19 @@ from dango.oauth.storage import OAuthStorage, OAuthCredential
 console = Console()
 
 
+def _clean_pasted_input(value: str) -> str:
+    """
+    Clean pasted input by removing newlines and extra whitespace.
+
+    This handles the common case where users accidentally copy trailing
+    newlines when pasting values from websites or text editors.
+    """
+    if not value:
+        return ""
+    # Remove newlines, carriage returns, and strip whitespace
+    return value.replace("\n", "").replace("\r", "").strip()
+
+
 class BaseOAuthProvider:
     """Base class for OAuth providers"""
 
@@ -147,8 +160,8 @@ class GoogleOAuthProvider(BaseOAuthProvider):
 
                 # Get OAuth client credentials
                 console.print("\n[bold]Enter OAuth Client Credentials:[/bold]")
-                client_id = Prompt.ask("Client ID").strip()
-                client_secret = Prompt.ask("Client Secret", password=True).strip()
+                client_id = _clean_pasted_input(Prompt.ask("Client ID"))
+                client_secret = _clean_pasted_input(Prompt.ask("Client Secret", password=True))
 
             if not client_id or not client_secret:
                 console.print("[red]✗ Client ID and Secret are required[/red]")
@@ -208,11 +221,13 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             email = user_info['email']
 
             # Save credentials in dlt format
+            # Include impersonated_email for Google Ads (required by dlt function signature)
             credentials = {
                 "client_id": client_id,
                 "client_secret": client_secret,
                 "refresh_token": tokens['refresh_token'],
-                "project_id": ""  # Optional, can be added later
+                "project_id": "",  # Optional, can be added later
+                "impersonated_email": email,  # Used by Google Ads
             }
 
             # For Google Ads, also ask for developer token and customer ID
@@ -221,24 +236,30 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 console.print("[dim]Find your Developer Token at: https://ads.google.com/aw/apicenter[/dim]")
                 console.print("[dim]Note: You need a Google Ads Manager Account to get a Developer Token[/dim]")
 
-                dev_token = Prompt.ask("Developer Token (required for sync, press Enter to skip for now)", default="").strip()
-                customer_id = Prompt.ask("Customer ID (digits only, no dashes, e.g., 1234567890)", default="").strip()
-
-                # Store in credentials dict for later use
-                if dev_token:
-                    credentials["developer_token"] = dev_token
-                if customer_id:
-                    # Remove any dashes the user might have entered
+                # Collect and confirm Google Ads credentials
+                while True:
+                    dev_token = _clean_pasted_input(Prompt.ask("Developer Token (required for sync, press Enter to skip for now)", default=""))
+                    customer_id = _clean_pasted_input(Prompt.ask("Customer ID (digits only, no dashes, e.g., 1234567890)", default=""))
                     customer_id = customer_id.replace("-", "")
-                    credentials["customer_id"] = customer_id
 
-                # Save Google Ads specific secrets to .dlt/secrets.toml
-                # This prevents dlt's automatic prompting for these values
-                self._save_google_ads_secrets(
-                    email=email,
-                    dev_token=dev_token,
-                    customer_id=customer_id
-                )
+                    # Show summary for confirmation
+                    console.print("\n[bold]Please verify:[/bold]")
+                    if dev_token:
+                        console.print(f"  Developer Token: {dev_token[:8]}...{dev_token[-4:]}")
+                    else:
+                        console.print("  Developer Token: [dim][skipped][/dim]")
+                    console.print(f"  Customer ID: {customer_id or '[dim][skipped][/dim]'}")
+
+                    if Confirm.ask("\n[cyan]Is this correct?[/cyan]", default=True):
+                        break
+
+                    console.print("\n[yellow]Let's re-enter these values:[/yellow]")
+
+                # Store in credentials dict - storage.py will write as sibling fields
+                if dev_token:
+                    credentials["dev_token"] = dev_token
+                if customer_id:
+                    credentials["customer_id"] = customer_id
 
             # For Google Analytics, property_id is collected during source wizard
             elif service == "google_analytics":
@@ -363,59 +384,6 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             console.print(f"[yellow]⚠️  Could not fetch user info: {e}[/yellow]")
             return None
 
-    def _save_google_ads_secrets(self, email: str, dev_token: str, customer_id: str) -> None:
-        """
-        Save Google Ads specific secrets to .dlt/secrets.toml
-
-        This prevents dlt's automatic secret injection from prompting for these values.
-        The impersonated_email is required by dlt's function signature even though
-        it's only used for service account authentication (not OAuth).
-
-        Args:
-            email: User's email from OAuth (used as impersonated_email placeholder)
-            dev_token: Google Ads Developer Token
-            customer_id: Google Ads Customer ID
-        """
-        try:
-            import toml
-
-            secrets_path = self.project_root / ".dlt" / "secrets.toml"
-
-            # Load existing secrets or create new
-            if secrets_path.exists():
-                secrets = toml.load(secrets_path)
-            else:
-                secrets_path.parent.mkdir(parents=True, exist_ok=True)
-                secrets = {}
-
-            # Ensure sources section exists
-            if "sources" not in secrets:
-                secrets["sources"] = {}
-            if "google_ads" not in secrets["sources"]:
-                secrets["sources"]["google_ads"] = {}
-
-            # Save Google Ads secrets
-            # impersonated_email: Required by dlt's function signature but not used for OAuth
-            # We use the OAuth user's email as a placeholder value
-            secrets["sources"]["google_ads"]["impersonated_email"] = email
-
-            # Only save dev_token and customer_id if provided
-            if dev_token:
-                secrets["sources"]["google_ads"]["dev_token"] = dev_token
-            if customer_id:
-                secrets["sources"]["google_ads"]["customer_id"] = customer_id
-
-            # Write back
-            with open(secrets_path, "w") as f:
-                toml.dump(secrets, f)
-
-            console.print(f"[green]✓ Saved Google Ads secrets to .dlt/secrets.toml[/green]")
-
-        except Exception as e:
-            console.print(f"[yellow]⚠️  Could not save Google Ads secrets: {e}[/yellow]")
-            console.print(f"[yellow]   You may need to manually add impersonated_email to .dlt/secrets.toml[/yellow]")
-
-
 class FacebookOAuthProvider(BaseOAuthProvider):
     """
     Facebook/Meta Ads OAuth Provider
@@ -464,18 +432,20 @@ class FacebookOAuthProvider(BaseOAuthProvider):
 
             # Get short-lived token
             console.print("\n[bold]Step 1: Short-lived Access Token[/bold]")
-            short_token = Prompt.ask("Paste short-lived access token").strip()
+            short_token = _clean_pasted_input(Prompt.ask("Paste short-lived access token"))
 
             if not short_token:
                 console.print("[red]✗ Access token is required[/red]")
                 return None
 
+            console.print(f"[dim]  Captured: {short_token[:15]}...{short_token[-8:]}[/dim]")
+
             # Get App credentials
             console.print("\n[bold]Step 2: App Credentials[/bold]")
             console.print("[dim]Find at: https://developers.facebook.com/apps/[/dim]")
 
-            app_id = Prompt.ask("Facebook App ID").strip()
-            app_secret = Prompt.ask("Facebook App Secret", password=True).strip()
+            app_id = _clean_pasted_input(Prompt.ask("Facebook App ID"))
+            app_secret = _clean_pasted_input(Prompt.ask("Facebook App Secret", password=True))
 
             if not app_id or not app_secret:
                 console.print("[red]✗ App ID and Secret are required[/red]")
@@ -489,18 +459,27 @@ class FacebookOAuthProvider(BaseOAuthProvider):
                 console.print("[red]✗ Token exchange failed[/red]")
                 return None
 
-            # Get Ad Account ID
+            # Get Ad Account ID with confirmation
             console.print("\n[bold]Step 3: Ad Account ID[/bold]")
             console.print("[dim]Find in Ads Manager URL: facebook.com/adsmanager/manage/accounts?act=ACCOUNT_ID[/dim]")
-            account_id = Prompt.ask("Ad Account ID (e.g., act_123456789)").strip()
 
-            if not account_id:
-                console.print("[red]✗ Account ID is required[/red]")
-                return None
+            while True:
+                account_id = _clean_pasted_input(Prompt.ask("Ad Account ID (e.g., act_123456789)"))
 
-            # Normalize account_id (remove "act_" prefix if present for consistency)
-            # Store clean ID - the API calls will add "act_" prefix as needed
-            account_id_clean = account_id.replace("act_", "")
+                if not account_id:
+                    console.print("[red]✗ Account ID is required[/red]")
+                    continue
+
+                # Normalize account_id (remove "act_" prefix if present for consistency)
+                account_id_clean = account_id.replace("act_", "")
+
+                console.print(f"\n[bold]Please verify:[/bold]")
+                console.print(f"  Account ID: {account_id_clean}")
+
+                if Confirm.ask("\n[cyan]Is this correct?[/cyan]", default=True):
+                    break
+
+                console.print("\n[yellow]Let's re-enter:[/yellow]")
 
             # Save credentials - store clean account_id without "act_" prefix
             credentials = {
@@ -624,7 +603,7 @@ class ShopifyOAuthProvider(BaseOAuthProvider):
 
             # Get shop URL
             console.print("\n[bold]Step 1: Shop Information[/bold]")
-            shop_url = Prompt.ask("Shop URL (e.g., mystore.myshopify.com)").strip()
+            shop_url = _clean_pasted_input(Prompt.ask("Shop URL (e.g., mystore.myshopify.com)"))
 
             # Normalize shop URL
             if not shop_url.endswith(".myshopify.com"):
@@ -632,7 +611,7 @@ class ShopifyOAuthProvider(BaseOAuthProvider):
 
             # Get access token
             console.print("\n[bold]Step 2: Admin API Access Token[/bold]")
-            access_token = Prompt.ask("Admin API access token", password=True).strip()
+            access_token = _clean_pasted_input(Prompt.ask("Admin API access token", password=True))
 
             if not shop_url or not access_token:
                 console.print("[red]✗ Shop URL and access token are required[/red]")

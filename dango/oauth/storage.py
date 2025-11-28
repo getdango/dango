@@ -129,13 +129,44 @@ class OAuthStorage:
             if 'oauth' not in secrets['dango']:
                 secrets['dango']['oauth'] = {}
 
-            # Write credentials in dlt's expected format
-            secrets['sources'][oauth_cred.source_type]['credentials'] = {
-                'client_id': oauth_cred.credentials.get('client_id'),
-                'client_secret': oauth_cred.credentials.get('client_secret'),
-                'refresh_token': oauth_cred.credentials.get('refresh_token'),
-                'project_id': oauth_cred.credentials.get('project_id', 'dango-oauth'),
-            }
+            # Write credentials in dlt's expected format (provider-specific)
+            source_section = secrets['sources'][oauth_cred.source_type]
+            creds = oauth_cred.credentials
+
+            # Google sources: credentials subsection + sibling fields for google_ads
+            if oauth_cred.source_type in ('google_ads', 'google_analytics', 'google_sheets'):
+                source_section['credentials'] = {
+                    'client_id': creds.get('client_id'),
+                    'client_secret': creds.get('client_secret'),
+                    'refresh_token': creds.get('refresh_token'),
+                    'project_id': creds.get('project_id', 'dango-oauth'),
+                }
+                # Google Ads specific sibling fields (per dlt docs)
+                if oauth_cred.source_type == 'google_ads':
+                    if creds.get('impersonated_email'):
+                        source_section['impersonated_email'] = creds['impersonated_email']
+                    if creds.get('dev_token'):
+                        source_section['dev_token'] = creds['dev_token']
+                    if creds.get('customer_id'):
+                        source_section['customer_id'] = creds['customer_id']
+
+            # Facebook: flat structure with access_token
+            elif oauth_cred.source_type == 'facebook_ads':
+                source_section['credentials'] = {
+                    'access_token': creds.get('access_token'),
+                    'account_id': creds.get('account_id'),
+                }
+
+            # Shopify: flat structure with private_app_password
+            elif oauth_cred.source_type == 'shopify':
+                source_section['credentials'] = {
+                    'private_app_password': creds.get('private_app_password'),
+                    'shop_url': creds.get('shop_url'),
+                }
+
+            # Default: store all credentials as-is
+            else:
+                source_section['credentials'] = creds
 
             # Write metadata for tracking (not used by dlt)
             secrets['dango']['oauth'][oauth_cred.source_type] = {

@@ -1718,18 +1718,18 @@ def auth_status(ctx):
         if expired:
             console.print("\n[red]⚠️  Expired OAuth Credentials:[/red]")
             for cred in expired:
-                console.print(f"  • {cred.account_info} ({cred.name})")
+                console.print(f"  • {cred.account_info} ({cred.source_type})")
                 console.print(f"    [dim]Expired: {cred.expires_at.strftime('%Y-%m-%d')}[/dim]")
-                console.print(f"    [yellow]Re-authenticate: dango auth-refresh {cred.name}[/yellow]\n")
+                console.print(f"    [yellow]Re-authenticate: dango auth-refresh {cred.source_type}[/yellow]\n")
 
         # Show expiring soon
         if expiring_soon:
             console.print("\n[yellow]⚠️  OAuth Credentials Expiring Soon:[/yellow]")
             for cred in expiring_soon:
                 days_left = cred.days_until_expiry()
-                console.print(f"  • {cred.account_info} ({cred.name})")
+                console.print(f"  • {cred.account_info} ({cred.source_type})")
                 console.print(f"    [dim]Expires: {cred.expires_at.strftime('%Y-%m-%d')} ({days_left} days)[/dim]")
-                console.print(f"    [cyan]Re-authenticate: dango auth-refresh {cred.name}[/cyan]\n")
+                console.print(f"    [cyan]Re-authenticate: dango auth-refresh {cred.source_type}[/cyan]\n")
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -1815,7 +1815,7 @@ def auth_refresh(ctx, oauth_name):
 
         # Show info
         console.print(f"\n🍡 [bold]Re-authenticating OAuth credential:[/bold]")
-        console.print(f"  Name: {cred.name}")
+        console.print(f"  Source Type: {cred.source_type}")
         console.print(f"  Provider: {cred.provider}")
         console.print(f"  Account: {cred.account_info}\n")
 
@@ -2498,17 +2498,17 @@ def auth_check(ctx):
             for cred in credentials:
                 if cred.is_expired():
                     status = "[red]EXPIRED[/red]"
-                    action = f"[dim]→ Run: dango auth-refresh {cred.name}[/dim]"
+                    action = f"[dim]→ Run: dango auth-refresh {cred.source_type}[/dim]"
                 elif cred.is_expiring_soon():
                     days_left = cred.days_until_expiry()
                     status = f"[yellow]Expires in {days_left}d[/yellow]"
-                    action = f"[dim]→ Consider refreshing: dango auth-refresh {cred.name}[/dim]"
+                    action = f"[dim]→ Consider refreshing: dango auth-refresh {cred.source_type}[/dim]"
                 else:
                     status = "[green]Active[/green]"
                     action = ""
 
                 console.print(f"  {status} {cred.account_info}")
-                console.print(f"    [dim]Provider: {cred.provider} | Name: {cred.name}[/dim]")
+                console.print(f"    [dim]Provider: {cred.provider} | Source: {cred.source_type}[/dim]")
                 if action:
                     console.print(f"    {action}")
 
