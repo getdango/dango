@@ -90,6 +90,33 @@ class DltPipelineRunner:
         # Note: dlt uses the current working directory to find .dlt/
         # This is handled in the run_source method by changing directory.
 
+    def _check_dependencies(self, source_type: str) -> tuple:
+        """
+        Check if source has required pip dependencies installed.
+
+        Args:
+            source_type: Source type key (e.g., "google_ads")
+
+        Returns:
+            Tuple of (all_installed: bool, missing: list of dep dicts)
+        """
+        metadata = get_source_metadata(source_type)
+        if not metadata:
+            return True, []
+
+        pip_deps = metadata.get("pip_dependencies", [])
+        if not pip_deps:
+            return True, []
+
+        missing = []
+        for dep in pip_deps:
+            try:
+                __import__(dep["import"])
+            except ImportError:
+                missing.append(dep)
+
+        return len(missing) == 0, missing
+
     def _run_with_timeout(self, func, timeout_minutes: int, *args, **kwargs):
         """
         Run a function with timeout (Unix-only using signals)
@@ -163,6 +190,43 @@ class DltPipelineRunner:
         console.print(f"\n{'='*60}")
         console.print(f"🍡 Syncing: [bold]{source_name}[/bold] ({source_type.value})")
         console.print(f"{'='*60}")
+
+        # Check pip dependencies before sync
+        deps_ok, missing_deps = self._check_dependencies(source_type.value)
+        if not deps_ok:
+            # Add missing to requirements.txt (avoid duplicates)
+            req_file = self.project_root / "requirements.txt"
+            existing = set()
+            if req_file.exists():
+                existing = {line.strip() for line in req_file.read_text().split("\n") if line.strip()}
+
+            new_deps = [d["pip"] for d in missing_deps if d["pip"] not in existing]
+            if new_deps:
+                with open(req_file, "a") as f:
+                    for dep in new_deps:
+                        f.write(f"{dep}\n")
+                console.print(f"\n[green]✓ Added to requirements.txt: {', '.join(new_deps)}[/green]")
+
+            # Show error and instructions
+            error_message = f"Missing required dependencies: {', '.join(d['pip'] for d in missing_deps)}"
+            console.print(f"\n[red]❌ {error_message}[/red]")
+            console.print(f"\n[bold]To fix, run:[/bold]")
+            console.print(f"  [cyan]pip install -r requirements.txt[/cyan]")
+            console.print(f"\nThen retry: [cyan]dango sync --source {source_name}[/cyan]\n")
+
+            log_activity(
+                project_root=self.project_root,
+                level="error",
+                source=source_name,
+                message=f"Sync blocked: {error_message}"
+            )
+
+            return {
+                "status": "failed",
+                "source": source_name,
+                "error": error_message,
+                "rows_loaded": 0,
+            }
 
         # Check disk space before starting sync
         try:

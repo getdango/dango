@@ -93,12 +93,6 @@ class SourceWizard:
                     # Show source info
                     self._show_source_info(metadata)
 
-                    # Check and install pip dependencies if needed
-                    if not self._ensure_dependencies(metadata):
-                        # User declined to install dependencies, go back
-                        state = "source"
-                        continue
-
                     # Special handling for dlt_native sources (file-based config only)
                     if source_type == "dlt_native":
                         console.print(f"\n[yellow]⚠️  dlt_native sources must be configured manually[/yellow]\n")
@@ -1144,62 +1138,6 @@ class SourceWizard:
                 console.print(f"[yellow]Error fetching sheets: {e}[/yellow]")
 
             return None
-
-    def _ensure_dependencies(self, metadata: Dict[str, Any]) -> bool:
-        """
-        Check if source has external pip dependencies and handle gracefully.
-
-        Returns True if deps are satisfied or user accepts.
-        Returns False if user needs to install and declined to continue.
-        """
-        pip_deps = metadata.get("pip_dependencies", [])
-
-        if not pip_deps:
-            return True  # No external deps needed
-
-        # Check which deps are missing (use import module name for checking)
-        missing = []
-        for dep in pip_deps:
-            import_name = dep["import"]
-            try:
-                __import__(import_name)
-            except ImportError:
-                missing.append(dep)
-
-        if not missing:
-            return True  # All deps installed
-
-        # Show missing dependencies
-        source_name = metadata.get("display_name", "This source")
-        console.print(f"\n[yellow]{source_name} requires additional dependencies:[/yellow]")
-        for dep in missing:
-            console.print(f"  • {dep['pip']}")
-
-        # Add pip package names to requirements.txt
-        req_file = self.project_root / "requirements.txt"
-        existing_lines = []
-        if req_file.exists():
-            existing_lines = [line.strip() for line in req_file.read_text().split("\n") if line.strip()]
-
-        existing_packages = set(existing_lines)
-        new_deps_added = []
-        for dep in missing:
-            if dep["pip"] not in existing_packages:
-                existing_lines.append(dep["pip"])
-                new_deps_added.append(dep["pip"])
-
-        if new_deps_added:
-            req_file.write_text("\n".join(existing_lines) + "\n")
-            console.print(f"\n[green]✓ Added to requirements.txt:[/green]")
-            for dep in new_deps_added:
-                console.print(f"  • {dep}")
-
-        # Print helpful instructions
-        console.print(f"\n[bold]To install the required dependencies:[/bold]")
-        console.print(f"  [cyan]pip install -r requirements.txt[/cyan]")
-        console.print(f"\nThen run [cyan]dango source add[/cyan] again to complete setup.\n")
-
-        return False
 
     def _ensure_google_ads_secrets(self, oauth_cred) -> None:
         """
