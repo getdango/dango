@@ -515,56 +515,58 @@ class DltPipelineRunner:
         console.print(f"  📦 Loading dlt native source: {config.source_module}.{config.source_function}")
         console.print(f"  [dim]Registry bypass - advanced mode[/dim]")
 
-        # Try to import source from custom_sources/ directory first
-        import sys
-        custom_sources_dir = self.project_root / "custom_sources"
-
-        if custom_sources_dir.exists():
-            # Add custom_sources to Python path temporarily
-            sys.path.insert(0, str(custom_sources_dir))
-
-        try:
-            # Try to import as module (from custom_sources or installed package)
-            try:
-                module = importlib.import_module(config.source_module)
-            except ImportError:
-                # If not found in custom_sources, try as dlt package
-                try:
-                    module = importlib.import_module(f"dlt.sources.{config.source_module}")
-                except ImportError:
-                    raise ValueError(
-                        f"Could not import source module: {config.source_module}\n"
-                        f"  - Not found in custom_sources/ directory\n"
-                        f"  - Not found as dlt package (dlt.sources.{config.source_module})\n"
-                        f"  - Make sure the module is installed or placed in custom_sources/"
-                    )
-
-            # Get source function
-            if not hasattr(module, config.source_function):
-                raise ValueError(
-                    f"Function '{config.source_function}' not found in module '{config.source_module}'\n"
-                    f"  Available functions: {[n for n in dir(module) if not n.startswith('_')]}"
-                )
-
-            source_function = getattr(module, config.source_function)
-
-            # Call source function with provided kwargs
-            console.print(f"  [dim]Calling {config.source_function}(**{config.function_kwargs})[/dim]")
-            source = source_function(**config.function_kwargs)
-
-        finally:
-            # Remove custom_sources from path
-            if custom_sources_dir.exists() and str(custom_sources_dir) in sys.path:
-                sys.path.remove(str(custom_sources_dir))
-
-        # Determine dataset name (use custom or default to raw_{source_name})
-        dataset_name = config.dataset_name or f"raw_{source_name}"
-
         # Change to project root so dlt can find .dlt/ directory
+        # IMPORTANT: Must happen BEFORE loading source (dlt.secrets.value resolution)
         original_cwd = os.getcwd()
         os.chdir(self.project_root)
 
         try:
+            # Try to import source from custom_sources/ directory first
+            import sys
+            custom_sources_dir = self.project_root / "custom_sources"
+
+            if custom_sources_dir.exists():
+                # Add custom_sources to Python path temporarily
+                sys.path.insert(0, str(custom_sources_dir))
+
+            try:
+                # Try to import as module (from custom_sources or installed package)
+                try:
+                    module = importlib.import_module(config.source_module)
+                except ImportError:
+                    # If not found in custom_sources, try as dlt package
+                    try:
+                        module = importlib.import_module(f"dlt.sources.{config.source_module}")
+                    except ImportError:
+                        raise ValueError(
+                            f"Could not import source module: {config.source_module}\n"
+                            f"  - Not found in custom_sources/ directory\n"
+                            f"  - Not found as dlt package (dlt.sources.{config.source_module})\n"
+                            f"  - Make sure the module is installed or placed in custom_sources/"
+                        )
+
+                # Get source function
+                if not hasattr(module, config.source_function):
+                    raise ValueError(
+                        f"Function '{config.source_function}' not found in module '{config.source_module}'\n"
+                        f"  Available functions: {[n for n in dir(module) if not n.startswith('_')]}"
+                    )
+
+                source_function = getattr(module, config.source_function)
+
+                # Call source function with provided kwargs
+                # dlt resolves dlt.secrets.value parameters at this point
+                console.print(f"  [dim]Calling {config.source_function}(**{config.function_kwargs})[/dim]")
+                source = source_function(**config.function_kwargs)
+
+            finally:
+                # Remove custom_sources from path
+                if custom_sources_dir.exists() and str(custom_sources_dir) in sys.path:
+                    sys.path.remove(str(custom_sources_dir))
+
+            # Determine dataset name (use custom or default to raw_{source_name})
+            dataset_name = config.dataset_name or f"raw_{source_name}"
+
             # Create pipeline with DuckDB destination
             pipeline_name = config.pipeline_name or source_name
             pipeline = dlt.pipeline(
@@ -780,24 +782,26 @@ class DltPipelineRunner:
                 console.print("  3. Update source with new credential: Edit .dango/sources.yml")
                 return {"status": "error", "error": f"OAuth credential '{source_config.oauth_ref}' not found"}
 
-        # Dynamic import of dlt source
-        source = self._load_dlt_source(dlt_package, dlt_function, source_kwargs)
-
-        # Detect actual load type from dlt source configuration
-        # Check if source uses replace write_disposition (full refresh by design)
-        uses_replace_mode = self._detect_write_disposition(source)
-
-        # Determine dataset name based on source characteristics
-        # Multi-resource sources → raw_{source_name} (prevents table collisions)
-        # Single-resource sources → raw (simple governance)
-        dataset_name = self._get_dataset_name(source_config, source_type, metadata)
-
         # Change to project root so dlt can find .dlt/ directory
         # dlt automatically loads .dlt/secrets.toml and .dlt/config.toml from cwd
+        # IMPORTANT: Must happen BEFORE loading source (dlt.secrets.value resolution)
         original_cwd = os.getcwd()
         os.chdir(self.project_root)
 
         try:
+            # Dynamic import of dlt source
+            # dlt resolves dlt.secrets.value parameters at this point
+            source = self._load_dlt_source(dlt_package, dlt_function, source_kwargs)
+
+            # Detect actual load type from dlt source configuration
+            # Check if source uses replace write_disposition (full refresh by design)
+            uses_replace_mode = self._detect_write_disposition(source)
+
+            # Determine dataset name based on source characteristics
+            # Multi-resource sources → raw_{source_name} (prevents table collisions)
+            # Single-resource sources → raw (simple governance)
+            dataset_name = self._get_dataset_name(source_config, source_type, metadata)
+
             # Create pipeline with DuckDB destination
             pipeline = dlt.pipeline(
                 pipeline_name=source_name,
@@ -1001,7 +1005,7 @@ class DltPipelineRunner:
         except Exception as e:
             raise Exception(f"Error loading dlt source '{dlt_package}.{dlt_function}': {e}")
 
-    def _load_oauth_credentials(self, oauth_ref: str) -> Optional[Dict[str, Any]]:
+    def _load_oauth_credentials(self, oauth_ref: str) -> Optional[Any]:
         """
         Load OAuth credentials from storage and format for dlt
 
@@ -1009,10 +1013,11 @@ class DltPipelineRunner:
             oauth_ref: Name of OAuth credential (e.g., 'google_teoh_kangkai_aaron_gmail_com')
 
         Returns:
-            Credentials dict formatted for dlt GcpOAuthCredentials, or None if not found
+            GcpOAuthCredentials object for dlt, or None if not found
         """
         try:
             from dango.oauth.storage import OAuthStorage
+            from dlt.sources.credentials import GcpOAuthCredentials
 
             oauth_storage = OAuthStorage(self.project_root)
             cred = oauth_storage.get(oauth_ref)
@@ -1028,13 +1033,13 @@ class DltPipelineRunner:
                 console.print(f"  [yellow]OAuth credential '{oauth_ref}' has no credentials data[/yellow]")
                 return None
 
-            # Map our credential format to dlt's expected format
-            dlt_creds = {
-                "client_id": raw_creds.get("client_id"),
-                "client_secret": raw_creds.get("client_secret"),
-                "refresh_token": raw_creds.get("refresh_token"),
-                "project_id": raw_creds.get("project_id", "dango-oauth"),  # dlt requires project_id
-            }
+            # Create GcpOAuthCredentials object that dlt sources expect
+            dlt_creds = GcpOAuthCredentials(
+                client_id=raw_creds.get("client_id"),
+                client_secret=raw_creds.get("client_secret"),
+                refresh_token=raw_creds.get("refresh_token"),
+                project_id=raw_creds.get("project_id", "dango-oauth"),
+            )
 
             return dlt_creds
 
