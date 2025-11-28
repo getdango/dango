@@ -60,6 +60,9 @@ dependencies = [
     "google-api-python-client>=2.100.0",  # Google Sheets API
     "google-auth-oauthlib>=1.0.0",        # OAuth for Google services
     "google-auth>=2.22.0",                # Google authentication
+
+    # Protobuf version constraint - dbt requires <6.0, google-ads works with 5.x
+    "protobuf>=5.0,<6.0",
 ]
 
 [project.optional-dependencies]
