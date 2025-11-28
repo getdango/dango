@@ -71,92 +71,9 @@ dev = [
     "mypy>=1.11.0",
 ]
 
-# Individual source dependencies (install with: pip install dango-data[source_name])
-facebook_ads = ["dlt[facebook_ads]>=1.17.0,<2.0"]
-google_ads = ["dlt[google_ads]>=1.17.0,<2.0"]
-google_analytics = ["dlt[google_analytics]>=1.17.0,<2.0"]
-google_sheets = ["dlt[google_sheets]>=1.17.0,<2.0"]
-matomo = ["dlt[matomo]>=1.17.0,<2.0"]
-mux = ["dlt[mux]>=1.17.0,<2.0"]
-airtable = ["dlt[airtable]>=1.17.0,<2.0"]
-hubspot = ["dlt[hubspot]>=1.17.0,<2.0"]
-salesforce = ["dlt[salesforce]>=1.17.0,<2.0"]
-pipedrive = ["dlt[pipedrive]>=1.17.0,<2.0"]
-freshdesk = ["dlt[freshdesk]>=1.17.0,<2.0"]
-zendesk = ["dlt[zendesk]>=1.17.0,<2.0"]
-jira = ["dlt[jira]>=1.17.0,<2.0"]
-workable = ["dlt[workable]>=1.17.0,<2.0"]
-asana = ["dlt[asana_dlt]>=1.17.0,<2.0"]
-stripe = ["dlt[stripe]>=1.17.0,<2.0"]
-shopify = ["dlt[shopify_dlt]>=1.17.0,<2.0"]
-notion = ["dlt[notion]>=1.17.0,<2.0"]
-inbox = ["dlt[inbox]>=1.17.0,<2.0"]
-mongodb = ["dlt[mongodb]>=1.17.0,<2.0"]
-kafka = ["dlt[kafka]>=1.17.0,<2.0"]
-kinesis = ["dlt[kinesis]>=1.17.0,<2.0"]
-github = ["dlt[github]>=1.17.0,<2.0"]
-slack = ["dlt[slack]>=1.17.0,<2.0"]
-chess = ["dlt[chess]>=1.17.0,<2.0"]
-strapi = ["dlt[strapi]>=1.17.0,<2.0"]
-personio = ["dlt[personio]>=1.17.0,<2.0"]
-
-# Source category bundles
-marketing = [
-    "dlt[facebook_ads]>=1.17.0,<2.0",
-    "dlt[google_ads]>=1.17.0,<2.0",
-    "dlt[google_analytics]>=1.17.0,<2.0",
-    "dlt[google_sheets]>=1.17.0,<2.0",
-    "dlt[matomo]>=1.17.0,<2.0",
-    "dlt[mux]>=1.17.0,<2.0",
-    "dlt[airtable]>=1.17.0,<2.0",
-]
-
-crm = [
-    "dlt[hubspot]>=1.17.0,<2.0",
-    "dlt[salesforce]>=1.17.0,<2.0",
-    "dlt[pipedrive]>=1.17.0,<2.0",
-    "dlt[freshdesk]>=1.17.0,<2.0",
-    "dlt[zendesk]>=1.17.0,<2.0",
-    "dlt[jira]>=1.17.0,<2.0",
-    "dlt[workable]>=1.17.0,<2.0",
-    "dlt[asana_dlt]>=1.17.0,<2.0",
-]
-
-ecommerce = [
-    "dlt[stripe]>=1.17.0,<2.0",
-    "dlt[shopify_dlt]>=1.17.0,<2.0",
-]
-
-# Install all sources (install with: pip install dango-data[all_sources])
-all_sources = [
-    "dlt[facebook_ads]>=1.17.0,<2.0",
-    "dlt[google_ads]>=1.17.0,<2.0",
-    "dlt[google_analytics]>=1.17.0,<2.0",
-    "dlt[google_sheets]>=1.17.0,<2.0",
-    "dlt[matomo]>=1.17.0,<2.0",
-    "dlt[mux]>=1.17.0,<2.0",
-    "dlt[airtable]>=1.17.0,<2.0",
-    "dlt[hubspot]>=1.17.0,<2.0",
-    "dlt[salesforce]>=1.17.0,<2.0",
-    "dlt[pipedrive]>=1.17.0,<2.0",
-    "dlt[freshdesk]>=1.17.0,<2.0",
-    "dlt[zendesk]>=1.17.0,<2.0",
-    "dlt[jira]>=1.17.0,<2.0",
-    "dlt[workable]>=1.17.0,<2.0",
-    "dlt[asana_dlt]>=1.17.0,<2.0",
-    "dlt[stripe]>=1.17.0,<2.0",
-    "dlt[shopify_dlt]>=1.17.0,<2.0",
-    "dlt[notion]>=1.17.0,<2.0",
-    "dlt[inbox]>=1.17.0,<2.0",
-    "dlt[mongodb]>=1.17.0,<2.0",
-    "dlt[kafka]>=1.17.0,<2.0",
-    "dlt[kinesis]>=1.17.0,<2.0",
-    "dlt[github]>=1.17.0,<2.0",
-    "dlt[slack]>=1.17.0,<2.0",
-    "dlt[chess]>=1.17.0,<2.0",
-    "dlt[strapi]>=1.17.0,<2.0",
-    "dlt[personio]>=1.17.0,<2.0",
-]
+# Note: dlt distributes sources via `dlt init <source>`, not pip extras.
+# dlt's pip extras are for DESTINATIONS (duckdb, bigquery, etc.) and infrastructure.
+# Source code is bundled in dango/ingestion/dlt_sources/ with all necessary dependencies.
 
 [project.urls]
 Homepage = "https://getdango.dev"

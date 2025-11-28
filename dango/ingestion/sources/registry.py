@@ -264,7 +264,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "display_name": "Google Analytics (GA4)",
         "category": "Marketing & Analytics",
         "description": "Load website analytics data from Google Analytics 4",
-        "auth_type": AuthType.SERVICE_ACCOUNT,
+        "auth_type": AuthType.OAUTH,
         "dlt_package": "google_analytics",
         "dlt_function": "google_analytics",
         "required_params": [
@@ -273,13 +273,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "type": "string",
                 "prompt": "GA4 Property ID",
                 "help": "Find in GA4 Admin > Property Settings",
-            },
-            {
-                "name": "credentials_env",
-                "type": "secret",
-                "env_var": "GOOGLE_CREDENTIALS",
-                "prompt": "Google service account credentials (use 'dango auth google')",
-                "help": "Service account JSON credentials from Google Cloud Console. Run 'dango auth google' or download from IAM > Service Accounts. Should be a JSON file with 'type': 'service_account'.",
             },
         ],
         "optional_params": [
@@ -640,35 +633,8 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_ads",
         "dlt_function": "google_ads",
-        "required_params": [
-            {
-                "name": "credentials_env",
-                "type": "secret",
-                "env_var": "GOOGLE_ADS_CREDENTIALS",
-                "prompt": "Google OAuth credentials JSON",
-                "help": "OAuth or Service Account credentials from Google Cloud Console",
-            },
-            {
-                "name": "dev_token_env",
-                "type": "secret",
-                "env_var": "GOOGLE_ADS_DEV_TOKEN",
-                "prompt": "Google Ads Developer Token",
-                "help": "Get from Google Ads API Center",
-            },
-            {
-                "name": "impersonated_email",
-                "type": "string",
-                "prompt": "Email address to impersonate (for service accounts)",
-                "help": "Required for service account authentication",
-            },
-        ],
+        "required_params": [],  # OAuth handles credentials; developer_token and customer_id are collected during auth
         "optional_params": [
-            {
-                "name": "customer_id",
-                "type": "string",
-                "prompt": "Customer ID (without hyphens)",
-                "help": "Find in Google Ads account URL",
-            },
             {
                 "name": "resources",
                 "type": "multiselect",

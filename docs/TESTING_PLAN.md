@@ -1,8 +1,280 @@
 # OAuth Implementation Testing Plan
 
 **Version:** v0.1.0
-**Last Updated:** November 24, 2025
-**Status:** OAuth implementation complete, testing in progress
+**Last Updated:** November 26, 2025
+**Status:** Google Sheets COMPLETE, code fixes done for remaining providers, testing in progress
+
+---
+
+## TESTING PROGRESS (as of Nov 26, 2025)
+
+### Phase 1: Google Sheets OAuth - COMPLETED ✅
+
+**All tests passed:**
+- [x] Google Cloud Project created
+- [x] APIs enabled (Sheets + Drive)
+- [x] OAuth credentials created (Web app, redirect URI)
+- [x] Test spreadsheet created with data (multi-sheet)
+- [x] `dango auth google_sheets` completed
+- [x] Browser opened automatically
+- [x] OAuth consent granted
+- [x] Refresh token received
+- [x] Credentials saved to .dlt/secrets.toml
+- [x] Google Sheets source added (multi-sheet selection working)
+- [x] Sync completed successfully
+- [x] Staging models auto-generated
+- [x] Intermediate model created with `dango model add`
+- [x] Marts model created with `dango model add`
+- [x] `dango run` executed successfully
+- [x] Metabase shows correct schemas (intermediate, marts, staging only - raw hidden)
+
+**Bugs Found & Fixed:**
+
+| Issue | Root Cause | Fix Applied |
+|-------|------------|-------------|
+| Marts schema not showing in Metabase | `dango run` only called `refresh_metabase_connection()` not `sync_metabase_schema()` | Added `sync_metabase_schema()` in `main.py:2992-3002` |
+| Raw schemas still visible in Metabase | PUT requests for visibility had no error handling | Added logging and status checking in `metabase.py:973-987` |
+| Model wizard success message oversimplified | Previous change removed too much content | Restored full message in `model_wizard.py:115-159` |
+| Empty sheets cause sync failure | dlt Google Sheets source has fragile error handling | Added empty sheet pre-filtering in `source_wizard.py:1065-1103` |
+
+**Remaining verification (user will test later):**
+- [ ] Empty sheet filtering verification
+- [ ] Model wizard success message review
+
+---
+
+### Code Review: Issues Found & Fixed (Nov 26, 2025)
+
+Before testing remaining providers, we conducted a code review to identify potential issues upfront. This avoids the debug-fix-retry cycle that made Google Sheets testing take a full day.
+
+#### Shopify Issues - FIXED ✅
+
+| # | Issue | Severity | File | Status |
+|---|-------|----------|------|--------|
+| S1 | Debug `print(data)` in production | HIGH | `shopify_dlt/helpers.py:138` | FIXED - Removed |
+| S2 | Invalid URL construction (missing https://) | HIGH | `shopify_dlt/helpers.py:50` | FIXED - Added protocol normalization |
+| S3 | Resources parameter not passed to source | HIGH | `shopify_dlt/__init__.py` | FIXED - Added resources param |
+
+#### Google Analytics Issues - FIXED ✅
+
+| # | Issue | Severity | File | Status |
+|---|-------|----------|------|--------|
+| GA1 | Wrong `auth_type` (SERVICE_ACCOUNT instead of OAUTH) | CRITICAL | `registry.py:267` | FIXED - Changed to OAUTH |
+| GA2 | Asks for `credentials_env` (duplicates OAuth) | CRITICAL | `registry.py:278-283` | FIXED - Removed |
+| GA3 | `property_id` prompted in OAuth (should be source param) | HIGH | `providers.py:232-237` | FIXED - Removed from OAuth |
+
+#### Google Ads Issues - FIXED ✅
+
+| # | Issue | Severity | File | Status |
+|---|-------|----------|------|--------|
+| GAD1 | Asks for `credentials_env` (duplicates OAuth) | CRITICAL | `registry.py:644-650` | FIXED - Removed |
+| GAD2 | `impersonated_email` param (service account only) | HIGH | `registry.py:658-663` | FIXED - Removed |
+
+#### Facebook Ads Issues - FIXED ✅
+
+| # | Issue | Severity | File | Status |
+|---|-------|----------|------|--------|
+| FB1 | Account ID prefix inconsistency ("act_" handling) | HIGH | `providers.py:446` | FIXED - Store clean ID |
+
+---
+
+### Phase 2: Shopify OAuth - NOT STARTED
+
+**Ready for testing.** Code fixes applied.
+
+### Phase 3: Google Ads/Analytics OAuth - NOT STARTED
+
+**Ready for testing.** Code fixes applied.
+
+### Phase 4: Facebook Ads OAuth - NOT STARTED
+
+**Ready for testing.** Code fixes applied.
+
+### Phase 5: Edge Cases - NOT STARTED
+
+### Phase 6: Advanced User Validation - NOT STARTED (NEW)
+
+**Purpose**: Validate that advanced users (dlt/dbt experts) can use Dango as a platform without the wizard.
+
+---
+
+## NEW: Phase 6 - Advanced User Validation Tests
+
+### Test 6.1: dlt_native Bypass Mode
+
+**Purpose**: Verify that users can configure any dlt source manually without using the wizard.
+
+**Steps:**
+```bash
+# 1. Create fresh project
+dango init advanced-test
+cd advanced-test
+
+# 2. Manually add a non-wizard source to sources.yml
+cat >> .dango/sources.yml << 'EOF'
+  - name: github_test
+    type: dlt_native
+    enabled: true
+    dlt_native:
+      source_module: "github"
+      source_function: "github_reactions"
+      function_kwargs:
+        owner: "dlt-hub"
+        name: "dlt"
+EOF
+
+# 3. Add credentials to .dlt/secrets.toml (standard dlt format)
+cat >> .dlt/secrets.toml << 'EOF'
+[sources.github]
+access_token = "ghp_your_token_here"
+EOF
+
+# 4. Run sync
+dango sync
+```
+
+**Expected:**
+- [ ] dlt pipeline executes successfully
+- [ ] Data appears in DuckDB under `raw_github_test` schema
+- [ ] No wizard-related errors
+- [ ] Staging models can be generated with `dango model add`
+
+---
+
+### Test 6.2: Custom dbt Macros
+
+**Purpose**: Verify users can add custom macros and use them in models.
+
+**Steps:**
+```bash
+# 1. Create custom macro
+cat > dbt/macros/custom_helpers.sql << 'EOF'
+{% macro cents_to_dollars(column_name) %}
+    ({{ column_name }} / 100.0)
+{% endmacro %}
+
+{% macro is_valid_email(column_name) %}
+    ({{ column_name }} LIKE '%@%.%')
+{% endmacro %}
+EOF
+
+# 2. Create model using custom macro
+cat > dbt/models/marts/test_custom_macro.sql << 'EOF'
+{{ config(schema='marts') }}
+
+SELECT
+    1 as id,
+    100 as amount_cents,
+    {{ cents_to_dollars('amount_cents') }} as amount_dollars
+EOF
+
+# 3. Run dbt
+dango run --select test_custom_macro
+```
+
+**Expected:**
+- [ ] Macro compiles without errors
+- [ ] Model runs successfully
+- [ ] `amount_dollars` column shows 1.0 (not 100)
+
+---
+
+### Test 6.3: Custom Schemas
+
+**Purpose**: Verify users can create schemas beyond staging/intermediate/marts.
+
+**Steps:**
+```bash
+# 1. Add custom schema config to dbt_project.yml
+# Add under models section:
+#   reporting:
+#     +materialized: table
+#     +schema: reporting
+
+# 2. Create reporting directory and model
+mkdir -p dbt/models/reporting
+cat > dbt/models/reporting/weekly_summary.sql << 'EOF'
+{{ config(schema='reporting') }}
+
+SELECT
+    'test' as metric_name,
+    100 as value
+EOF
+
+# 3. Run dbt
+dango run --select weekly_summary
+
+# 4. Check schema was created
+# In DuckDB: SHOW SCHEMAS; should include 'reporting'
+```
+
+**Expected:**
+- [ ] `reporting` schema created in DuckDB
+- [ ] Model appears in `reporting` schema
+- [ ] Metabase discovers new schema after sync
+
+---
+
+### Test 6.4: dbt Packages
+
+**Purpose**: Verify users can install and use dbt packages.
+
+**Steps:**
+```bash
+# 1. Create packages.yml
+cat > dbt/packages.yml << 'EOF'
+packages:
+  - package: dbt-labs/dbt_utils
+    version: 1.1.1
+EOF
+
+# 2. Install packages
+cd dbt && dbt deps && cd ..
+
+# 3. Use package macro in a model
+cat > dbt/models/marts/test_dbt_utils.sql << 'EOF'
+{{ config(schema='marts') }}
+
+SELECT
+    {{ dbt_utils.generate_surrogate_key(['id', 'name']) }} as surrogate_key,
+    1 as id,
+    'test' as name
+EOF
+
+# 4. Run model
+dango run --select test_dbt_utils
+```
+
+**Expected:**
+- [ ] `dbt deps` installs packages successfully
+- [ ] Model compiles and runs with package macro
+- [ ] Surrogate key is generated correctly
+
+---
+
+### Test 6.5: Direct dbt CLI Access
+
+**Purpose**: Verify users can run dbt commands directly without Dango wrapper.
+
+**Steps:**
+```bash
+cd dbt
+
+# Test various dbt commands
+dbt debug          # Should show connection working
+dbt parse          # Should parse all models
+dbt compile        # Should compile models
+dbt test           # Should run tests (if any)
+dbt docs generate  # Should generate docs
+dbt docs serve     # Should start docs server (manual check)
+```
+
+**Expected:**
+- [ ] All dbt commands work without errors
+- [ ] No Dango-specific interference
+- [ ] Users can work in standard dbt workflow
+
+---
 
 ## Overview
 

@@ -2991,10 +2991,13 @@ def run(ctx, dbt_args):
 
         # Refresh Metabase connection to see new/updated tables
         console.print("\n[dim]Refreshing Metabase connection...[/dim]")
-        from dango.visualization.metabase import refresh_metabase_connection
+        from dango.visualization.metabase import refresh_metabase_connection, sync_metabase_schema
 
         if refresh_metabase_connection(project_root):
             console.print("[green]✓ Metabase connection refreshed[/green]")
+            # Also sync schema to discover new tables/schemas from dbt run
+            if sync_metabase_schema(project_root):
+                console.print("[green]✓ Metabase schema synced[/green]")
         else:
             console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
 

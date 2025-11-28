@@ -531,6 +531,12 @@ class SourceWizard:
 
                 # Store the OAuth reference so it can be added to source config
                 self.selected_oauth_ref = selected_cred.name
+
+                # For Google Ads, ensure required secrets are in .dlt/secrets.toml
+                # This prevents dlt's automatic prompting for impersonated_email
+                if source_type == "google_ads":
+                    self._ensure_google_ads_secrets(selected_cred)
+
                 return None
 
         # No existing credentials - prompt to set up new OAuth
@@ -1062,8 +1068,45 @@ class SourceWizard:
             sheets = result.get('sheets', [])
             sheet_names = [sheet['properties']['title'] for sheet in sheets]
 
-            console.print(f"[green]✓ Found {len(sheet_names)} sheet(s)[/green]")
-            return sheet_names
+            # Check each sheet for data (need at least 2 rows: header + 1 data row)
+            # Fetch first 2 rows of each sheet to determine if empty
+            console.print(f"[dim]Checking for empty sheets...[/dim]")
+            non_empty_sheets = []
+            empty_sheets = []
+
+            for sheet_name in sheet_names:
+                try:
+                    # Fetch just the first 2 rows to check if sheet has data
+                    range_check = f"'{sheet_name}'!A1:Z2"
+                    data_result = service.spreadsheets().values().get(
+                        spreadsheetId=spreadsheet_id,
+                        range=range_check
+                    ).execute()
+
+                    values = data_result.get('values', [])
+                    # Sheet needs at least 2 rows (header + data) and first row needs content
+                    if len(values) >= 2 and len(values[0]) > 0:
+                        non_empty_sheets.append(sheet_name)
+                    elif len(values) == 1 and len(values[0]) > 0:
+                        # Has header but no data - still empty for our purposes
+                        empty_sheets.append(sheet_name)
+                    else:
+                        empty_sheets.append(sheet_name)
+                except Exception:
+                    # If we can't check, assume it's non-empty to be safe
+                    non_empty_sheets.append(sheet_name)
+
+            if empty_sheets:
+                console.print(f"[yellow]⚠️  {len(empty_sheets)} empty sheet(s) will be skipped:[/yellow]")
+                for sheet in empty_sheets:
+                    console.print(f"   [dim]• {sheet} (no data or header only)[/dim]")
+
+            if non_empty_sheets:
+                console.print(f"[green]✓ Found {len(non_empty_sheets)} sheet(s) with data[/green]")
+            else:
+                console.print(f"[yellow]⚠️  No sheets with data found[/yellow]")
+
+            return non_empty_sheets if non_empty_sheets else None
 
         except Exception as e:
             error_str = str(e).lower()
@@ -1095,6 +1138,61 @@ class SourceWizard:
                 console.print(f"[yellow]Error fetching sheets: {e}[/yellow]")
 
             return None
+
+    def _ensure_google_ads_secrets(self, oauth_cred) -> None:
+        """
+        Ensure Google Ads secrets are saved to .dlt/secrets.toml
+
+        This is called when selecting an existing OAuth credential for Google Ads.
+        dlt requires impersonated_email, dev_token, etc. to be in secrets.toml
+        even though impersonated_email is only used for service accounts (not OAuth).
+
+        Args:
+            oauth_cred: OAuthCredential object with Google credentials
+        """
+        try:
+            import toml
+
+            secrets_path = self.project_root / ".dlt" / "secrets.toml"
+
+            # Load existing secrets or create new
+            if secrets_path.exists():
+                secrets = toml.load(secrets_path)
+            else:
+                secrets_path.parent.mkdir(parents=True, exist_ok=True)
+                secrets = {}
+
+            # Check if Google Ads secrets already exist
+            google_ads_secrets = secrets.get("sources", {}).get("google_ads", {})
+
+            # Only update if impersonated_email is missing
+            if not google_ads_secrets.get("impersonated_email"):
+                # Ensure sources section exists
+                if "sources" not in secrets:
+                    secrets["sources"] = {}
+                if "google_ads" not in secrets["sources"]:
+                    secrets["sources"]["google_ads"] = {}
+
+                # Use OAuth user's email as impersonated_email placeholder
+                # This satisfies dlt's requirement without actually being used for OAuth
+                email = oauth_cred.identifier  # This is the email from OAuth
+                secrets["sources"]["google_ads"]["impersonated_email"] = email
+
+                # Copy dev_token and customer_id from OAuth credential if available
+                creds = oauth_cred.credentials or {}
+                if creds.get("developer_token") and not google_ads_secrets.get("dev_token"):
+                    secrets["sources"]["google_ads"]["dev_token"] = creds["developer_token"]
+                if creds.get("customer_id") and not google_ads_secrets.get("customer_id"):
+                    secrets["sources"]["google_ads"]["customer_id"] = creds["customer_id"]
+
+                # Write back
+                with open(secrets_path, "w") as f:
+                    toml.dump(secrets, f)
+
+                console.print(f"[green]✓ Updated Google Ads secrets in .dlt/secrets.toml[/green]")
+
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Could not update Google Ads secrets: {e}[/yellow]")
 
     def _create_source_config(
         self,

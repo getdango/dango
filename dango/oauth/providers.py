@@ -219,22 +219,31 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             if service == "google_ads":
                 console.print("\n[bold]Step 3: Google Ads Specific Credentials[/bold]")
                 console.print("[dim]Find your Developer Token at: https://ads.google.com/aw/apicenter[/dim]")
+                console.print("[dim]Note: You need a Google Ads Manager Account to get a Developer Token[/dim]")
 
-                dev_token = Prompt.ask("Developer Token (optional, can add later)", default="").strip()
-                customer_id = Prompt.ask("Customer ID (optional, can add later)", default="").strip()
+                dev_token = Prompt.ask("Developer Token (required for sync, press Enter to skip for now)", default="").strip()
+                customer_id = Prompt.ask("Customer ID (digits only, no dashes, e.g., 1234567890)", default="").strip()
 
+                # Store in credentials dict for later use
                 if dev_token:
                     credentials["developer_token"] = dev_token
                 if customer_id:
+                    # Remove any dashes the user might have entered
+                    customer_id = customer_id.replace("-", "")
                     credentials["customer_id"] = customer_id
 
-            # For Google Analytics, ask for property ID
-            elif service == "google_analytics":
-                console.print("\n[bold]Step 3: Google Analytics Property ID[/bold]")
-                property_id = Prompt.ask("GA4 Property ID (optional, can add later)", default="").strip()
+                # Save Google Ads specific secrets to .dlt/secrets.toml
+                # This prevents dlt's automatic prompting for these values
+                self._save_google_ads_secrets(
+                    email=email,
+                    dev_token=dev_token,
+                    customer_id=customer_id
+                )
 
-                if property_id:
-                    credentials["property_id"] = property_id
+            # For Google Analytics, property_id is collected during source wizard
+            elif service == "google_analytics":
+                console.print("\n[bold]Step 3: Google Analytics Configuration[/bold]")
+                console.print("[dim]You'll enter the GA4 Property ID when adding the source[/dim]")
 
             # For Google Sheets, ask for spreadsheet ID
             elif service == "google_sheets":
@@ -354,6 +363,58 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             console.print(f"[yellow]⚠️  Could not fetch user info: {e}[/yellow]")
             return None
 
+    def _save_google_ads_secrets(self, email: str, dev_token: str, customer_id: str) -> None:
+        """
+        Save Google Ads specific secrets to .dlt/secrets.toml
+
+        This prevents dlt's automatic secret injection from prompting for these values.
+        The impersonated_email is required by dlt's function signature even though
+        it's only used for service account authentication (not OAuth).
+
+        Args:
+            email: User's email from OAuth (used as impersonated_email placeholder)
+            dev_token: Google Ads Developer Token
+            customer_id: Google Ads Customer ID
+        """
+        try:
+            import toml
+
+            secrets_path = self.project_root / ".dlt" / "secrets.toml"
+
+            # Load existing secrets or create new
+            if secrets_path.exists():
+                secrets = toml.load(secrets_path)
+            else:
+                secrets_path.parent.mkdir(parents=True, exist_ok=True)
+                secrets = {}
+
+            # Ensure sources section exists
+            if "sources" not in secrets:
+                secrets["sources"] = {}
+            if "google_ads" not in secrets["sources"]:
+                secrets["sources"]["google_ads"] = {}
+
+            # Save Google Ads secrets
+            # impersonated_email: Required by dlt's function signature but not used for OAuth
+            # We use the OAuth user's email as a placeholder value
+            secrets["sources"]["google_ads"]["impersonated_email"] = email
+
+            # Only save dev_token and customer_id if provided
+            if dev_token:
+                secrets["sources"]["google_ads"]["dev_token"] = dev_token
+            if customer_id:
+                secrets["sources"]["google_ads"]["customer_id"] = customer_id
+
+            # Write back
+            with open(secrets_path, "w") as f:
+                toml.dump(secrets, f)
+
+            console.print(f"[green]✓ Saved Google Ads secrets to .dlt/secrets.toml[/green]")
+
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Could not save Google Ads secrets: {e}[/yellow]")
+            console.print(f"[yellow]   You may need to manually add impersonated_email to .dlt/secrets.toml[/yellow]")
+
 
 class FacebookOAuthProvider(BaseOAuthProvider):
     """
@@ -438,12 +499,13 @@ class FacebookOAuthProvider(BaseOAuthProvider):
                 return None
 
             # Normalize account_id (remove "act_" prefix if present for consistency)
+            # Store clean ID - the API calls will add "act_" prefix as needed
             account_id_clean = account_id.replace("act_", "")
 
-            # Save credentials
+            # Save credentials - store clean account_id without "act_" prefix
             credentials = {
                 "access_token": long_token,
-                "account_id": account_id  # Keep original format for API calls
+                "account_id": account_id_clean  # Clean ID - helpers.py will add "act_" prefix
             }
 
             # Create OAuth credential with metadata
