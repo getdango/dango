@@ -764,13 +764,10 @@ class DltPipelineRunner:
                     # Convert single string to list (e.g., sheet name -> [sheet_name])
                     source_kwargs[param_name] = [value]
 
-        # Load OAuth credentials if source has oauth_ref
+        # Inject OAuth credentials into secrets.toml if source has oauth_ref
+        # dlt resolves credentials from secrets.toml BEFORE looking at passed parameters
         if source_config.oauth_ref:
-            oauth_creds = self._load_oauth_credentials(source_config.oauth_ref)
-            if oauth_creds:
-                source_kwargs["credentials"] = oauth_creds
-                console.print(f"  🔑 Using OAuth credential: {source_config.oauth_ref}")
-            else:
+            if not self._inject_oauth_credentials(source_config.oauth_ref, source_type.value):
                 console.print(f"\n[red]✗ OAuth credential '{source_config.oauth_ref}' not found[/red]")
                 console.print("\n[yellow]Possible causes:[/yellow]")
                 console.print("  • OAuth credential was deleted")
@@ -1005,47 +1002,66 @@ class DltPipelineRunner:
         except Exception as e:
             raise Exception(f"Error loading dlt source '{dlt_package}.{dlt_function}': {e}")
 
-    def _load_oauth_credentials(self, oauth_ref: str) -> Optional[Any]:
+    def _inject_oauth_credentials(self, oauth_ref: str, source_type: str) -> bool:
         """
-        Load OAuth credentials from storage and format for dlt
+        Load OAuth credentials and write them to secrets.toml for dlt to find.
+
+        dlt resolves credentials from secrets.toml BEFORE looking at passed parameters,
+        so we must write credentials to the expected path in secrets.toml.
 
         Args:
-            oauth_ref: Name of OAuth credential (e.g., 'google_teoh_kangkai_aaron_gmail_com')
+            oauth_ref: Name of OAuth credential (e.g., 'google_badanglabs_gmail_com')
+            source_type: Source type key (e.g., 'google_ads', 'google_sheets')
 
         Returns:
-            GcpOAuthCredentials object for dlt, or None if not found
+            True if credentials were injected successfully, False otherwise
         """
         try:
+            import toml
             from dango.oauth.storage import OAuthStorage
-            from dlt.sources.credentials import GcpOAuthCredentials
 
             oauth_storage = OAuthStorage(self.project_root)
             cred = oauth_storage.get(oauth_ref)
 
             if not cred:
                 console.print(f"  [yellow]OAuth credential '{oauth_ref}' not found[/yellow]")
-                return None
+                return False
 
-            # Format credentials for dlt's GcpOAuthCredentials
-            # dlt expects: client_id, client_secret, refresh_token, project_id
             raw_creds = cred.credentials
             if not raw_creds:
                 console.print(f"  [yellow]OAuth credential '{oauth_ref}' has no credentials data[/yellow]")
-                return None
+                return False
 
-            # Create GcpOAuthCredentials object that dlt sources expect
-            dlt_creds = GcpOAuthCredentials(
-                client_id=raw_creds.get("client_id"),
-                client_secret=raw_creds.get("client_secret"),
-                refresh_token=raw_creds.get("refresh_token"),
-                project_id=raw_creds.get("project_id", "dango-oauth"),
-            )
+            # Read existing secrets.toml
+            secrets_path = self.project_root / ".dlt" / "secrets.toml"
+            secrets = {}
+            if secrets_path.exists():
+                secrets = toml.load(secrets_path)
 
-            return dlt_creds
+            # Ensure path exists: sources.{source_type}.credentials
+            if "sources" not in secrets:
+                secrets["sources"] = {}
+            if source_type not in secrets["sources"]:
+                secrets["sources"][source_type] = {}
+            if "credentials" not in secrets["sources"][source_type]:
+                secrets["sources"][source_type]["credentials"] = {}
+
+            # Write OAuth credentials in format dlt expects
+            secrets["sources"][source_type]["credentials"]["client_id"] = raw_creds.get("client_id")
+            secrets["sources"][source_type]["credentials"]["client_secret"] = raw_creds.get("client_secret")
+            secrets["sources"][source_type]["credentials"]["refresh_token"] = raw_creds.get("refresh_token")
+            secrets["sources"][source_type]["credentials"]["project_id"] = raw_creds.get("project_id", "dango-oauth")
+
+            # Write back to secrets.toml
+            with open(secrets_path, "w") as f:
+                toml.dump(secrets, f)
+
+            console.print(f"  🔑 Injected OAuth credentials for {source_type}")
+            return True
 
         except Exception as e:
-            console.print(f"  [red]Error loading OAuth credentials: {e}[/red]")
-            return None
+            console.print(f"  [red]Error injecting OAuth credentials: {e}[/red]")
+            return False
 
     def _analyze_error(self, error: Exception, source_name: str) -> str:
         """
