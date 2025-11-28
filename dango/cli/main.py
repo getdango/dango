@@ -1647,7 +1647,7 @@ def auth_list(ctx):
 
         # Create table
         table = Table(title=f"OAuth Credentials ({len(credentials)})", show_header=True)
-        table.add_column("Name", style="cyan")
+        table.add_column("Source Type", style="cyan")
         table.add_column("Provider", style="blue")
         table.add_column("Account", style="green")
         table.add_column("Status", style="yellow")
@@ -1667,7 +1667,7 @@ def auth_list(ctx):
             created = cred.created_at.strftime("%Y-%m-%d") if cred.created_at else "Unknown"
 
             table.add_row(
-                cred.name,
+                cred.source_type,
                 cred.provider,
                 cred.account_info,
                 status,
@@ -1676,8 +1676,8 @@ def auth_list(ctx):
 
         console.print("\n")
         console.print(table)
-        console.print("\n[dim]To re-authenticate: dango auth-refresh <name>[/dim]")
-        console.print("[dim]To remove: dango auth-remove <name>[/dim]\n")
+        console.print("\n[dim]To re-authenticate: dango auth <source_type>[/dim]")
+        console.print("[dim]To remove: dango auth-remove <source_type>[/dim]\n")
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -1737,16 +1737,16 @@ def auth_status(ctx):
 
 
 @cli.command("auth-remove")
-@click.argument("oauth_name")
+@click.argument("source_type")
 @click.pass_context
-def auth_remove(ctx, oauth_name):
+def auth_remove(ctx, source_type):
     """
     Remove OAuth credential
 
-    OAUTH_NAME: Name of OAuth credential to remove (from dango auth-list)
+    SOURCE_TYPE: Source type to remove credentials for (e.g., google_ads, facebook_ads)
 
     Example:
-      dango auth-remove facebook_ads_123456789
+      dango auth-remove google_ads
     """
     from .utils import require_project_context
     from dango.oauth.storage import OAuthStorage
@@ -1757,15 +1757,15 @@ def auth_remove(ctx, oauth_name):
         oauth_storage = OAuthStorage(project_root)
 
         # Check if credential exists
-        cred = oauth_storage.get(oauth_name)
+        cred = oauth_storage.get(source_type)
         if not cred:
-            console.print(f"\n[red]✗ OAuth credential '{oauth_name}' not found[/red]")
+            console.print(f"\n[red]✗ OAuth credentials for '{source_type}' not found[/red]")
             console.print("\n[cyan]To see all credentials:[/cyan] dango auth-list\n")
             raise click.Abort()
 
         # Show info and confirm
-        console.print(f"\n[yellow]⚠️  About to remove OAuth credential:[/yellow]")
-        console.print(f"  Name: {cred.name}")
+        console.print(f"\n[yellow]⚠️  About to remove OAuth credentials:[/yellow]")
+        console.print(f"  Source Type: {cred.source_type}")
         console.print(f"  Provider: {cred.provider}")
         console.print(f"  Account: {cred.account_info}\n")
 
@@ -1774,7 +1774,7 @@ def auth_remove(ctx, oauth_name):
             return
 
         # Remove credential
-        if oauth_storage.delete(oauth_name):
+        if oauth_storage.delete(source_type):
             console.print(f"\n[green]✓ OAuth credential removed successfully[/green]\n")
         else:
             console.print(f"\n[red]✗ Failed to remove OAuth credential[/red]\n")

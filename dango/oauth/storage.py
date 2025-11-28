@@ -1,19 +1,21 @@
 """
 OAuth Credential Storage
 
-Manages OAuth credentials with separate [oauth.*] sections in .dlt/secrets.toml.
-Provides auto-naming, expiry tracking, and credential lifecycle management.
+Stores OAuth credentials in dlt's expected format:
+- Credentials at sources.{source_type}.credentials.* (dlt reads this)
+- Metadata at dango.oauth.{source_type}.* (for tracking expiry, provider info)
+
+This follows dlt best practice - credentials are stored where dlt expects them,
+no injection or translation needed at sync time.
 """
 
 import re
 import toml
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 from dataclasses import dataclass, asdict
 from typing import Optional, List, Dict, Any
 from rich.console import Console
-
-from dango.security import SecureTokenStorage
 
 console = Console()
 
@@ -24,25 +26,23 @@ class OAuthCredential:
     OAuth credential with metadata
 
     Attributes:
-        name: Auto-generated name (e.g., "oauth.google_business_company_com")
+        source_type: dlt source type (e.g., "google_ads", "google_sheets")
         provider: Provider type (e.g., "google", "facebook_ads", "shopify")
         identifier: Provider-specific identifier (email, account_id, shop_url)
         account_info: Human-readable account description
-        credentials: Token data (encrypted)
+        credentials: Token data (client_id, client_secret, refresh_token, etc.)
         created_at: When credential was created
         expires_at: When credential expires (None for non-expiring)
-        last_used: Last time credential was used
-        last_refreshed: Last time token was refreshed (for auto-refresh providers)
+        last_refreshed: Last time token was refreshed
         metadata: Additional provider-specific metadata
     """
-    name: str
+    source_type: str
     provider: str
     identifier: str
     account_info: str
     credentials: Dict[str, Any]
     created_at: datetime
     expires_at: Optional[datetime] = None
-    last_used: Optional[datetime] = None
     last_refreshed: Optional[datetime] = None
     metadata: Optional[Dict[str, Any]] = None
 
@@ -64,59 +64,25 @@ class OAuthCredential:
         days_left = self.days_until_expiry()
         return days_left is not None and days_left <= days
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization"""
-        data = asdict(self)
-        # Convert datetime objects to ISO format strings
-        if data['created_at']:
-            data['created_at'] = data['created_at'].isoformat()
-        if data['expires_at']:
-            data['expires_at'] = data['expires_at'].isoformat()
-        if data['last_used']:
-            data['last_used'] = data['last_used'].isoformat()
-        if data['last_refreshed']:
-            data['last_refreshed'] = data['last_refreshed'].isoformat()
-        return data
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'OAuthCredential':
-        """Create from dictionary"""
-        # Convert ISO format strings back to datetime objects
-        if isinstance(data.get('created_at'), str):
-            data['created_at'] = datetime.fromisoformat(data['created_at'])
-        if isinstance(data.get('expires_at'), str):
-            data['expires_at'] = datetime.fromisoformat(data['expires_at'])
-        if isinstance(data.get('last_used'), str):
-            data['last_used'] = datetime.fromisoformat(data['last_used'])
-        if isinstance(data.get('last_refreshed'), str):
-            data['last_refreshed'] = datetime.fromisoformat(data['last_refreshed'])
-        return cls(**data)
-
 
 class OAuthStorage:
     """
     OAuth credential storage manager
 
-    Manages [oauth.*] sections in .dlt/secrets.toml with encryption and metadata tracking.
+    Stores credentials in dlt's expected format at sources.{source_type}.credentials.*
+    Stores metadata at dango.oauth.{source_type}.* for tracking.
     """
 
-    def __init__(self, project_root: Path, use_encryption: bool = True):
+    def __init__(self, project_root: Path):
         """
         Initialize OAuth storage
 
         Args:
             project_root: Project root directory
-            use_encryption: Whether to encrypt tokens (default: True)
         """
         self.project_root = Path(project_root)
         self.dlt_dir = self.project_root / ".dlt"
         self.secrets_file = self.dlt_dir / "secrets.toml"
-        self.use_encryption = use_encryption
-
-        if use_encryption:
-            self.token_storage = SecureTokenStorage(project_root)
-        else:
-            self.token_storage = None
 
         # Ensure .dlt directory exists
         self.dlt_dir.mkdir(parents=True, exist_ok=True)
@@ -125,41 +91,24 @@ class OAuthStorage:
         if not self.secrets_file.exists():
             self.secrets_file.write_text("")
 
-    def _sanitize_name(self, name: str) -> str:
-        """
-        Sanitize identifier for use in TOML key
+    def _load_secrets(self) -> Dict[str, Any]:
+        """Load secrets.toml"""
+        if self.secrets_file.exists() and self.secrets_file.stat().st_size > 0:
+            return toml.load(self.secrets_file)
+        return {}
 
-        Args:
-            name: Original identifier
-
-        Returns:
-            Sanitized identifier safe for TOML keys
-        """
-        # Replace invalid characters with underscores
-        sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', name)
-        # Remove consecutive underscores
-        sanitized = re.sub(r'__+', '_', sanitized)
-        # Remove leading/trailing underscores
-        sanitized = sanitized.strip('_')
-        return sanitized.lower()
-
-    def generate_oauth_name(self, provider: str, identifier: str) -> str:
-        """
-        Generate OAuth credential name from provider and identifier
-
-        Args:
-            provider: Provider type (e.g., "google", "facebook_ads")
-            identifier: Provider-specific identifier
-
-        Returns:
-            Auto-generated OAuth name (e.g., "google_business_company_com")
-        """
-        sanitized_id = self._sanitize_name(identifier)
-        return f"{provider}_{sanitized_id}"
+    def _save_secrets(self, secrets: Dict[str, Any]) -> None:
+        """Save secrets.toml"""
+        with open(self.secrets_file, 'w') as f:
+            toml.dump(secrets, f)
 
     def save(self, oauth_cred: OAuthCredential) -> bool:
         """
-        Save OAuth credential to .dlt/secrets.toml
+        Save OAuth credential in dlt's expected format
+
+        Writes to:
+        - sources.{source_type}.credentials.* (dlt reads this)
+        - dango.oauth.{source_type}.* (metadata for tracking)
 
         Args:
             oauth_cred: OAuth credential to save
@@ -168,76 +117,80 @@ class OAuthStorage:
             True if successful, False otherwise
         """
         try:
-            # Load existing secrets
-            if self.secrets_file.exists() and self.secrets_file.stat().st_size > 0:
-                secrets = toml.load(self.secrets_file)
-            else:
-                secrets = {}
+            secrets = self._load_secrets()
 
-            # Ensure oauth section exists
-            if 'oauth' not in secrets:
-                secrets['oauth'] = {}
+            # Ensure paths exist
+            if 'sources' not in secrets:
+                secrets['sources'] = {}
+            if oauth_cred.source_type not in secrets['sources']:
+                secrets['sources'][oauth_cred.source_type] = {}
+            if 'dango' not in secrets:
+                secrets['dango'] = {}
+            if 'oauth' not in secrets['dango']:
+                secrets['dango']['oauth'] = {}
 
-            # Prepare credential data
-            cred_data = oauth_cred.to_dict()
+            # Write credentials in dlt's expected format
+            secrets['sources'][oauth_cred.source_type]['credentials'] = {
+                'client_id': oauth_cred.credentials.get('client_id'),
+                'client_secret': oauth_cred.credentials.get('client_secret'),
+                'refresh_token': oauth_cred.credentials.get('refresh_token'),
+                'project_id': oauth_cred.credentials.get('project_id', 'dango-oauth'),
+            }
 
-            # Encrypt credentials if encryption enabled
-            if self.use_encryption and self.token_storage:
-                encrypted = self.token_storage.encrypt_token(cred_data['credentials'])
-                cred_data['credentials'] = {
-                    '_encrypted': True,
-                    '_data': encrypted
-                }
+            # Write metadata for tracking (not used by dlt)
+            secrets['dango']['oauth'][oauth_cred.source_type] = {
+                'provider': oauth_cred.provider,
+                'identifier': oauth_cred.identifier,
+                'account_info': oauth_cred.account_info,
+                'created_at': oauth_cred.created_at.isoformat(),
+                'expires_at': oauth_cred.expires_at.isoformat() if oauth_cred.expires_at else None,
+                'last_refreshed': oauth_cred.last_refreshed.isoformat() if oauth_cred.last_refreshed else None,
+                'metadata': oauth_cred.metadata,
+            }
 
-            # Save to oauth section
-            secrets['oauth'][oauth_cred.name] = cred_data
-
-            # Write back to file
-            with open(self.secrets_file, 'w') as f:
-                toml.dump(secrets, f)
-
-            console.print(f"[green]✓ Saved OAuth credential: {oauth_cred.name}[/green]")
+            self._save_secrets(secrets)
+            console.print(f"[green]✓ Saved OAuth credentials for {oauth_cred.source_type}[/green]")
             return True
 
         except Exception as e:
             console.print(f"[red]✗ Failed to save OAuth credential: {e}[/red]")
             return False
 
-    def get(self, oauth_name: str) -> Optional[OAuthCredential]:
+    def get(self, source_type: str) -> Optional[OAuthCredential]:
         """
-        Get OAuth credential by name
+        Get OAuth credential for a source type
 
         Args:
-            oauth_name: OAuth credential name
+            source_type: dlt source type (e.g., "google_ads")
 
         Returns:
             OAuthCredential if found, None otherwise
         """
         try:
-            if not self.secrets_file.exists():
+            secrets = self._load_secrets()
+
+            # Check if credentials exist
+            creds = secrets.get('sources', {}).get(source_type, {}).get('credentials')
+            if not creds:
                 return None
 
-            secrets = toml.load(self.secrets_file)
+            # Get metadata if available
+            meta = secrets.get('dango', {}).get('oauth', {}).get(source_type, {})
 
-            # Check oauth section
-            if 'oauth' not in secrets or oauth_name not in secrets['oauth']:
-                return None
-
-            cred_data = secrets['oauth'][oauth_name]
-
-            # Decrypt credentials if encrypted
-            if isinstance(cred_data.get('credentials'), dict) and cred_data['credentials'].get('_encrypted'):
-                if self.token_storage:
-                    encrypted_data = cred_data['credentials']['_data']
-                    cred_data['credentials'] = self.token_storage.decrypt_token(encrypted_data)
-                else:
-                    console.print(f"[red]Cannot decrypt {oauth_name}: encryption not available[/red]")
-                    return None
-
-            return OAuthCredential.from_dict(cred_data)
+            return OAuthCredential(
+                source_type=source_type,
+                provider=meta.get('provider', 'unknown'),
+                identifier=meta.get('identifier', ''),
+                account_info=meta.get('account_info', ''),
+                credentials=creds,
+                created_at=datetime.fromisoformat(meta['created_at']) if meta.get('created_at') else datetime.now(),
+                expires_at=datetime.fromisoformat(meta['expires_at']) if meta.get('expires_at') else None,
+                last_refreshed=datetime.fromisoformat(meta['last_refreshed']) if meta.get('last_refreshed') else None,
+                metadata=meta.get('metadata'),
+            )
 
         except Exception as e:
-            console.print(f"[red]✗ Failed to load OAuth credential {oauth_name}: {e}[/red]")
+            console.print(f"[red]✗ Failed to load OAuth credential for {source_type}: {e}[/red]")
             return None
 
     def list(self, provider: Optional[str] = None) -> List[OAuthCredential]:
@@ -251,34 +204,37 @@ class OAuthStorage:
             List of OAuth credentials
         """
         try:
-            if not self.secrets_file.exists():
-                return []
-
-            secrets = toml.load(self.secrets_file)
-
-            if 'oauth' not in secrets:
-                return []
-
+            secrets = self._load_secrets()
             credentials = []
-            for oauth_name, cred_data in secrets['oauth'].items():
+
+            # Check each source type for credentials
+            oauth_meta = secrets.get('dango', {}).get('oauth', {})
+
+            for source_type, meta in oauth_meta.items():
                 # Filter by provider if specified
-                if provider and cred_data.get('provider') != provider:
+                if provider and meta.get('provider') != provider:
                     continue
 
-                # Decrypt credentials if encrypted
-                if isinstance(cred_data.get('credentials'), dict) and cred_data['credentials'].get('_encrypted'):
-                    if self.token_storage:
-                        encrypted_data = cred_data['credentials']['_data']
-                        cred_data['credentials'] = self.token_storage.decrypt_token(encrypted_data)
-                    else:
-                        # Skip encrypted credentials if can't decrypt
-                        continue
+                # Check if credentials exist for this source type
+                creds = secrets.get('sources', {}).get(source_type, {}).get('credentials')
+                if not creds:
+                    continue
 
                 try:
-                    cred = OAuthCredential.from_dict(cred_data)
+                    cred = OAuthCredential(
+                        source_type=source_type,
+                        provider=meta.get('provider', 'unknown'),
+                        identifier=meta.get('identifier', ''),
+                        account_info=meta.get('account_info', ''),
+                        credentials=creds,
+                        created_at=datetime.fromisoformat(meta['created_at']) if meta.get('created_at') else datetime.now(),
+                        expires_at=datetime.fromisoformat(meta['expires_at']) if meta.get('expires_at') else None,
+                        last_refreshed=datetime.fromisoformat(meta['last_refreshed']) if meta.get('last_refreshed') else None,
+                        metadata=meta.get('metadata'),
+                    )
                     credentials.append(cred)
                 except Exception as e:
-                    console.print(f"[yellow]Warning: Could not load {oauth_name}: {e}[/yellow]")
+                    console.print(f"[yellow]Warning: Could not load {source_type}: {e}[/yellow]")
                     continue
 
             return credentials
@@ -287,80 +243,50 @@ class OAuthStorage:
             console.print(f"[red]✗ Failed to list OAuth credentials: {e}[/red]")
             return []
 
-    def delete(self, oauth_name: str) -> bool:
+    def delete(self, source_type: str) -> bool:
         """
-        Delete OAuth credential
+        Delete OAuth credential for a source type
 
         Args:
-            oauth_name: OAuth credential name to delete
+            source_type: dlt source type to delete credentials for
 
         Returns:
             True if successful, False otherwise
         """
         try:
-            if not self.secrets_file.exists():
-                console.print(f"[yellow]OAuth credential {oauth_name} not found[/yellow]")
-                return False
+            secrets = self._load_secrets()
 
-            secrets = toml.load(self.secrets_file)
+            # Remove credentials
+            if 'sources' in secrets and source_type in secrets['sources']:
+                if 'credentials' in secrets['sources'][source_type]:
+                    del secrets['sources'][source_type]['credentials']
+                # Clean up empty source section
+                if not secrets['sources'][source_type]:
+                    del secrets['sources'][source_type]
 
-            if 'oauth' not in secrets or oauth_name not in secrets['oauth']:
-                console.print(f"[yellow]OAuth credential {oauth_name} not found[/yellow]")
-                return False
+            # Remove metadata
+            if 'dango' in secrets and 'oauth' in secrets['dango']:
+                if source_type in secrets['dango']['oauth']:
+                    del secrets['dango']['oauth'][source_type]
 
-            # Delete the credential
-            del secrets['oauth'][oauth_name]
-
-            # Remove oauth section if empty
-            if not secrets['oauth']:
-                del secrets['oauth']
-
-            # Write back to file
-            with open(self.secrets_file, 'w') as f:
-                toml.dump(secrets, f)
-
-            console.print(f"[green]✓ Deleted OAuth credential: {oauth_name}[/green]")
+            self._save_secrets(secrets)
+            console.print(f"[green]✓ Deleted OAuth credentials for {source_type}[/green]")
             return True
 
         except Exception as e:
             console.print(f"[red]✗ Failed to delete OAuth credential: {e}[/red]")
             return False
 
-    def update_last_used(self, oauth_name: str) -> bool:
+    def exists(self, source_type: str) -> bool:
         """
-        Update last_used timestamp for OAuth credential
+        Check if OAuth credentials exist for a source type
 
         Args:
-            oauth_name: OAuth credential name
+            source_type: dlt source type
 
         Returns:
-            True if successful, False otherwise
+            True if credentials exist
         """
-        try:
-            cred = self.get(oauth_name)
-            if not cred:
-                return False
-
-            cred.last_used = datetime.now()
-            return self.save(cred)
-
-        except Exception as e:
-            console.print(f"[red]✗ Failed to update last_used: {e}[/red]")
-            return False
-
-    def find_by_provider_and_identifier(self, provider: str, identifier: str) -> Optional[OAuthCredential]:
-        """
-        Find OAuth credential by provider and identifier
-
-        Args:
-            provider: Provider type
-            identifier: Provider-specific identifier
-
-        Returns:
-            OAuthCredential if found, None otherwise
-        """
-        credentials = self.list(provider=provider)
-        for cred in credentials:
-            if cred.identifier == identifier:
-                return cred
-        return None
+        secrets = self._load_secrets()
+        creds = secrets.get('sources', {}).get(source_type, {}).get('credentials')
+        return creds is not None and 'client_id' in creds

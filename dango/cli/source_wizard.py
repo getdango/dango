@@ -55,7 +55,6 @@ class SourceWizard:
         self.sources_path = self.config_path / "sources.yml"
         self.env_file = project_root / ".env"
         self.secret_params = []  # Track secret parameters for .env setup
-        self.selected_oauth_ref = None  # Track selected OAuth credential
 
     def run(self) -> bool:
         """
@@ -400,36 +399,16 @@ class SourceWizard:
         if metadata.get("docs_url"):
             console.print(f"[dim]📚 Docs: {metadata['docs_url']}[/dim]\n")
 
-    def _get_provider_for_source(self, source_type: str) -> Optional[str]:
-        """
-        Get OAuth provider name for a source type.
-
-        Args:
-            source_type: Source type (e.g., "google_ads", "facebook_ads")
-
-        Returns:
-            Provider name (e.g., "google", "facebook_ads", "shopify") or None
-        """
-        # Map source types to provider names
-        provider_map = {
-            "google_ads": "google",
-            "google_analytics": "google",
-            "google_sheets": "google",
-            "facebook_ads": "facebook_ads",
-            "shopify": "shopify",
-        }
-        return provider_map.get(source_type)
-
     def _handle_oauth_setup(self, source_type: str, source_name: str, metadata: Dict[str, Any]) -> Optional[str]:
         """
         Handle OAuth setup for sources that require it.
 
-        This runs inline during source wizard AFTER getting source name,
-        so we can save instance-specific credentials for multi-account setups.
+        With dlt best practice, credentials are stored directly at
+        sources.{source_type}.credentials.* - one credential per source type.
 
         Args:
-            source_type: Source type key (e.g., "facebook_ads")
-            source_name: Source instance name (e.g., "facebook_us")
+            source_type: Source type key (e.g., "facebook_ads", "google_ads")
+            source_name: Source instance name (not used - credentials are per source type)
             metadata: Source metadata from registry
 
         Returns:
@@ -450,100 +429,54 @@ class SourceWizard:
             console.print(f"[yellow]   You'll need to configure credentials manually in .dlt/secrets.toml[/yellow]\n")
             return None
 
-        # Get provider name for OAuth storage lookup
-        provider = self._get_provider_for_source(source_type)
-
-        # Check for existing OAuth credentials using new storage
+        # Check for existing OAuth credentials for this source type
         oauth_storage = OAuthStorage(self.project_root)
-        existing_creds = oauth_storage.list(provider=provider) if provider else []
+        existing_cred = oauth_storage.get(source_type)
 
-        # Present OAuth options based on what's available
-        if existing_creds:
-            # We have existing OAuth credentials - show selection
-            console.print(f"[cyan]Found {len(existing_creds)} existing OAuth credential(s) for {metadata.get('display_name')}[/cyan]\n")
+        if existing_cred:
+            # Credentials exist for this source type
+            if existing_cred.is_expired():
+                console.print(f"[red]⚠️  OAuth credentials for {source_type} have expired[/red]")
+                console.print(f"[yellow]Re-authenticate with: dango auth {source_type}[/yellow]\n")
 
-            # Build choices list
-            choices = []
-            for cred in existing_creds:
-                # Format: "account_info (expires in X days)" or "account_info"
-                if cred.is_expired():
-                    choice_text = f"{cred.account_info} [EXPIRED]"
-                elif cred.is_expiring_soon():
-                    days_left = cred.days_until_expiry()
-                    choice_text = f"{cred.account_info} (expires in {days_left} days)"
-                else:
-                    choice_text = cred.account_info
-                choices.append(choice_text)
+                questions = [
+                    inquirer.List(
+                        "oauth_action",
+                        message="How would you like to proceed?",
+                        choices=[
+                            "Re-authenticate now",
+                            "Continue anyway (sync will fail)",
+                            "← Back to source selection",
+                        ],
+                        carousel=True,
+                    )
+                ]
+                answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+                if not answers:
+                    return "cancel"
 
-            choices.extend([
-                "───────────────",
-                "Set up new OAuth",
-                "Skip for now (configure manually later)",
-                "← Back to source selection",
-            ])
+                action = answers["oauth_action"]
+                if action == "← Back to source selection":
+                    return "back"
+                elif action == "Continue anyway (sync will fail)":
+                    return None
+                # Fall through to re-authenticate
 
-            questions = [
-                inquirer.List(
-                    "oauth_action",
-                    message="Select OAuth credential to use:",
-                    choices=choices,
-                    carousel=True,
-                )
-            ]
-
-            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
-            if not answers:
-                return "cancel"
-
-            action = answers["oauth_action"]
-
-            if action == "← Back to source selection":
-                return "back"
-            elif action == "Skip for now (configure manually later)":
-                console.print(f"\n[yellow]⚠️  Skipping OAuth setup[/yellow]")
-                console.print(f"[cyan]To authenticate later, run:[/cyan] dango auth {source_type}\n")
+            elif existing_cred.is_expiring_soon():
+                days_left = existing_cred.days_until_expiry()
+                console.print(f"[yellow]⚠️  OAuth credentials expire in {days_left} days[/yellow]")
+                console.print(f"[green]✓ Using: {existing_cred.account_info}[/green]\n")
                 return None
-            elif action == "Set up new OAuth":
-                # User wants to create new OAuth - continue to setup below
-                pass
-            elif action == "───────────────":
-                # Separator selected somehow, ignore
-                return self._handle_oauth_setup(source_type, source_name, metadata)
+
             else:
-                # User selected an existing credential
-                selected_index = choices.index(action)
-                selected_cred = existing_creds[selected_index]
-
-                # Check if expired
-                if selected_cred.is_expired():
-                    console.print(f"\n[red]✗ This OAuth credential has expired[/red]")
-                    console.print(f"[yellow]You need to re-authenticate with: dango auth refresh {selected_cred.name}[/yellow]\n")
-
-                    retry = Confirm.ask("Choose a different credential?", default=True)
-                    if retry:
-                        return self._handle_oauth_setup(source_type, source_name, metadata)
-                    else:
-                        return "cancel"
-
-                # Save the OAuth reference to source config
-                console.print(f"\n[green]✓ Using OAuth: {selected_cred.account_info}[/green]")
-                console.print(f"[dim]  OAuth credential: {selected_cred.name}[/dim]\n")
-
-                # Store the OAuth reference so it can be added to source config
-                self.selected_oauth_ref = selected_cred.name
-
-                # For Google Ads, ensure required secrets are in .dlt/secrets.toml
-                # This prevents dlt's automatic prompting for impersonated_email
-                if source_type == "google_ads":
-                    self._ensure_google_ads_secrets(selected_cred)
-
+                # Valid credentials exist
+                console.print(f"[green]✓ OAuth credentials found: {existing_cred.account_info}[/green]\n")
                 return None
 
         # No existing credentials - prompt to set up new OAuth
         console.print(f"[yellow]⚠️  OAuth authentication required[/yellow]")
         console.print(f"[cyan]This source requires OAuth credentials to access your data.[/cyan]\n")
 
-        # Ask if user wants to set up OAuth now
         questions = [
             inquirer.List(
                 "oauth_action",
@@ -577,21 +510,16 @@ class SourceWizard:
         # "Set up OAuth now" - run OAuth flow
         console.print(f"\n[bold]Starting OAuth setup for {metadata.get('display_name')}...[/bold]\n")
 
-        # Run OAuth flow with source_name for instance-specific credentials
-        # This allows multiple accounts: facebook_us, facebook_eu, etc.
         success = run_oauth_for_source(source_type, source_name, self.project_root)
 
         if success:
             console.print(f"\n[green]✅ OAuth credentials configured successfully![/green]")
             console.print(f"[dim]  Credentials saved to .dlt/secrets.toml[/dim]\n")
-            # Note: The new OAuth credential name is returned by the provider
-            # and should be stored for reference
             return None
         else:
             console.print(f"\n[red]❌ OAuth setup failed[/red]")
             console.print(f"[yellow]You can try again later with: dango auth {source_type}[/yellow]\n")
 
-            # Ask if user wants to continue anyway
             continue_anyway = Confirm.ask(
                 "Continue configuring source without OAuth credentials?",
                 default=False
@@ -700,10 +628,15 @@ class SourceWizard:
         if required_params:
             console.print("[bold]Required Parameters:[/bold]")
             console.print("[dim]Type 'back' in any field to return to source name[/dim]")
+
+            # Check if OAuth credentials exist for this source type
+            oauth_storage = OAuthStorage(self.project_root)
+            has_oauth = oauth_storage.exists(source_type)
+
             for param in required_params:
-                # Skip credential parameters if OAuth is being used
-                # OAuth credentials are stored in .dlt/secrets.toml, not .env
-                if self.selected_oauth_ref and self._is_credential_param(param):
+                # Skip credential parameters if OAuth credentials exist
+                # OAuth credentials are stored in .dlt/secrets.toml at sources.{type}.credentials.*
+                if has_oauth and self._is_credential_param(param):
                     console.print(f"  [green]✓ {param.get('prompt', param['name'])}: Using OAuth credentials[/green]")
                     continue
 
@@ -1007,22 +940,13 @@ class SourceWizard:
             from googleapiclient.discovery import build
             from google.oauth2.credentials import Credentials
 
-            # Get OAuth credentials
+            # Get OAuth credentials for Google Sheets
             oauth_storage = OAuthStorage(self.project_root)
-
-            # Try to get the selected OAuth ref first
-            if self.selected_oauth_ref:
-                cred = oauth_storage.get(self.selected_oauth_ref)
-            else:
-                # No OAuth ref selected, try to find Google credentials
-                google_creds = oauth_storage.list(provider="google")
-                if not google_creds:
-                    console.print(f"[yellow]No Google OAuth credentials found[/yellow]")
-                    return None
-                cred = google_creds[0]  # Use first available
+            cred = oauth_storage.get("google_sheets")
 
             if not cred:
-                console.print(f"[yellow]Could not load OAuth credentials[/yellow]")
+                console.print(f"[yellow]No Google Sheets OAuth credentials found[/yellow]")
+                console.print(f"[dim]Run 'dango auth google --service sheets' first[/dim]")
                 return None
 
             # Get credentials from the OAuthCredential object
@@ -1139,61 +1063,6 @@ class SourceWizard:
 
             return None
 
-    def _ensure_google_ads_secrets(self, oauth_cred) -> None:
-        """
-        Ensure Google Ads secrets are saved to .dlt/secrets.toml
-
-        This is called when selecting an existing OAuth credential for Google Ads.
-        dlt requires impersonated_email, dev_token, etc. to be in secrets.toml
-        even though impersonated_email is only used for service accounts (not OAuth).
-
-        Args:
-            oauth_cred: OAuthCredential object with Google credentials
-        """
-        try:
-            import toml
-
-            secrets_path = self.project_root / ".dlt" / "secrets.toml"
-
-            # Load existing secrets or create new
-            if secrets_path.exists():
-                secrets = toml.load(secrets_path)
-            else:
-                secrets_path.parent.mkdir(parents=True, exist_ok=True)
-                secrets = {}
-
-            # Check if Google Ads secrets already exist
-            google_ads_secrets = secrets.get("sources", {}).get("google_ads", {})
-
-            # Only update if impersonated_email is missing
-            if not google_ads_secrets.get("impersonated_email"):
-                # Ensure sources section exists
-                if "sources" not in secrets:
-                    secrets["sources"] = {}
-                if "google_ads" not in secrets["sources"]:
-                    secrets["sources"]["google_ads"] = {}
-
-                # Use OAuth user's email as impersonated_email placeholder
-                # This satisfies dlt's requirement without actually being used for OAuth
-                email = oauth_cred.identifier  # This is the email from OAuth
-                secrets["sources"]["google_ads"]["impersonated_email"] = email
-
-                # Copy dev_token and customer_id from OAuth credential if available
-                creds = oauth_cred.credentials or {}
-                if creds.get("developer_token") and not google_ads_secrets.get("dev_token"):
-                    secrets["sources"]["google_ads"]["dev_token"] = creds["developer_token"]
-                if creds.get("customer_id") and not google_ads_secrets.get("customer_id"):
-                    secrets["sources"]["google_ads"]["customer_id"] = creds["customer_id"]
-
-                # Write back
-                with open(secrets_path, "w") as f:
-                    toml.dump(secrets, f)
-
-                console.print(f"[green]✓ Updated Google Ads secrets in .dlt/secrets.toml[/green]")
-
-        except Exception as e:
-            console.print(f"[yellow]⚠️  Could not update Google Ads secrets: {e}[/yellow]")
-
     def _create_source_config(
         self,
         source_name: str,
@@ -1209,9 +1078,8 @@ class SourceWizard:
             "description": f"{metadata.get('display_name')} - added via wizard",
         }
 
-        # Add OAuth reference if one was selected
-        if self.selected_oauth_ref:
-            config["oauth_ref"] = self.selected_oauth_ref
+        # Note: OAuth credentials are stored at sources.{source_type}.credentials.*
+        # No oauth_ref needed - dlt finds credentials automatically
 
         # Add type-specific config
         if params:

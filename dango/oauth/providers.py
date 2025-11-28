@@ -251,12 +251,11 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 console.print("[dim]You can add spreadsheet IDs later when adding the source[/dim]")
 
             # Create OAuth credential with metadata
-            oauth_name = self.oauth_storage.generate_oauth_name("google", email)
             # Use email only if name not available (avoid "Unknown")
             name = user_info.get('name')
             account_info = f"{name} ({email})" if name else email
             oauth_cred = OAuthCredential(
-                name=oauth_name,
+                source_type=service,  # e.g., "google_ads", "google_sheets"
                 provider="google",
                 identifier=email,
                 account_info=account_info,
@@ -264,25 +263,23 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 created_at=datetime.now(),
                 expires_at=None,  # Google refresh tokens don't expire
                 metadata={
-                    "service": service,
                     "scopes": all_scopes
                 }
             )
 
-            # Save using new storage
+            # Save using new storage - writes to sources.{service}.credentials.*
             if not self.oauth_storage.save(oauth_cred):
                 return None
 
             # Success message
             console.print(f"\n[green]✅ Google authentication complete![/green]\n")
-            console.print(f"[cyan]OAuth credential saved as:[/cyan] {oauth_name}")
+            console.print(f"[cyan]OAuth credentials saved for:[/cyan] {service}")
             console.print("[cyan]Next steps:[/cyan]")
             console.print(f"  1. Add Google source: [bold]dango source add[/bold]")
             console.print(f"  2. Select '{service.replace('_', ' ').title()}' from the wizard")
-            console.print(f"  3. Select this OAuth credential when prompted")
-            console.print("  4. Run sync to load data")
+            console.print("  3. Run sync to load data")
 
-            return oauth_name
+            return service  # Return source_type, not oauth_name
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Authentication cancelled[/yellow]")
@@ -513,9 +510,8 @@ class FacebookOAuthProvider(BaseOAuthProvider):
 
             # Create OAuth credential with metadata
             expires_at = datetime.now() + timedelta(days=60)
-            oauth_name = self.oauth_storage.generate_oauth_name("facebook_ads", account_id_clean)
             oauth_cred = OAuthCredential(
-                name=oauth_name,
+                source_type="facebook_ads",
                 provider="facebook_ads",
                 identifier=account_id_clean,
                 account_info=f"Facebook Ads Account ({account_id})",
@@ -527,21 +523,21 @@ class FacebookOAuthProvider(BaseOAuthProvider):
                 }
             )
 
-            # Save using new storage
+            # Save using new storage - writes to sources.facebook_ads.credentials.*
             if not self.oauth_storage.save(oauth_cred):
                 return None
 
             # Success message
             console.print(f"\n[green]✅ Facebook Ads authentication complete![/green]\n")
-            console.print(f"[cyan]OAuth credential saved as:[/cyan] {oauth_name}")
+            console.print(f"[cyan]OAuth credentials saved for:[/cyan] facebook_ads")
             console.print(f"[yellow]Token expires:[/yellow] {expires_at.strftime('%Y-%m-%d')} (60 days)")
             console.print("\n[cyan]Next steps:[/cyan]")
             console.print("  1. Add Facebook Ads source: [bold]dango source add[/bold]")
             console.print("  2. Select 'Facebook Ads' from the wizard")
-            console.print("  3. Select this OAuth credential when prompted")
+            console.print("  3. Run sync to load data")
             console.print("\n[yellow]⚠️  Set a reminder to re-authenticate before expiry[/yellow]")
 
-            return oauth_name
+            return "facebook_ads"  # Return source_type
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Authentication cancelled[/yellow]")
@@ -659,9 +655,8 @@ class ShopifyOAuthProvider(BaseOAuthProvider):
             # Create OAuth credential with metadata
             # Use shop_url without .myshopify.com as identifier
             shop_identifier = shop_url.replace(".myshopify.com", "").replace(".", "_")
-            oauth_name = self.oauth_storage.generate_oauth_name("shopify", shop_identifier)
             oauth_cred = OAuthCredential(
-                name=oauth_name,
+                source_type="shopify",
                 provider="shopify",
                 identifier=shop_identifier,
                 account_info=f"{shop_name} ({shop_url})",
@@ -673,21 +668,20 @@ class ShopifyOAuthProvider(BaseOAuthProvider):
                 }
             )
 
-            # Save using new storage
+            # Save using new storage - writes to sources.shopify.credentials.*
             if not self.oauth_storage.save(oauth_cred):
                 return None
 
             # Success message
             console.print(f"\n[green]✅ Shopify authentication complete![/green]\n")
-            console.print(f"[cyan]OAuth credential saved as:[/cyan] {oauth_name}")
+            console.print(f"[cyan]OAuth credentials saved for:[/cyan] shopify")
             console.print(f"[cyan]Shop:[/cyan] {shop_name} ({shop_url})")
             console.print("\n[cyan]Next steps:[/cyan]")
             console.print("  1. Add Shopify source: [bold]dango source add[/bold]")
             console.print("  2. Select 'Shopify' from the wizard")
-            console.print("  3. Select this OAuth credential when prompted")
-            console.print("  4. Run sync to load data")
+            console.print("  3. Run sync to load data")
 
-            return oauth_name
+            return "shopify"  # Return source_type
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Authentication cancelled[/yellow]")
