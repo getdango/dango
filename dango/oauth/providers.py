@@ -252,11 +252,14 @@ class GoogleOAuthProvider(BaseOAuthProvider):
 
             # Create OAuth credential with metadata
             oauth_name = self.oauth_storage.generate_oauth_name("google", email)
+            # Use email only if name not available (avoid "Unknown")
+            name = user_info.get('name')
+            account_info = f"{name} ({email})" if name else email
             oauth_cred = OAuthCredential(
                 name=oauth_name,
                 provider="google",
                 identifier=email,
-                account_info=f"{user_info.get('name', 'Unknown')} ({email})",
+                account_info=account_info,
                 credentials=credentials,
                 created_at=datetime.now(),
                 expires_at=None,  # Google refresh tokens don't expire
