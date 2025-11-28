@@ -28,9 +28,9 @@ classifiers = [
 
 dependencies = [
     # Critical dependencies - use compatible release for stability
-    "duckdb~=1.1.0",      # Database - breaking changes likely
-    "dbt-core~=1.8.0",    # Core tool - API stability matters
-    "dbt-duckdb~=1.8.0",  # Adapter - must match dbt-core
+    "duckdb~=1.4.0",      # Database - latest stable
+    "dbt-core~=1.10.0",   # Core tool - latest stable (requires protobuf 6.x)
+    "dbt-duckdb~=1.10.0", # Adapter - must match dbt-core
     "dlt[duckdb]>=1.17.0,<2.0", # ETL tool - allow 1.17+ for Python 3.13/3.14 support
 
     # Framework and utilities - flexible versions
@@ -60,9 +60,6 @@ dependencies = [
     "google-api-python-client>=2.100.0",  # Google Sheets API
     "google-auth-oauthlib>=1.0.0",        # OAuth for Google services
     "google-auth>=2.22.0",                # Google authentication
-
-    # Protobuf version constraint - dbt requires <6.0, google-ads works with 5.x
-    "protobuf>=5.0,<6.0",
 ]
 
 [project.optional-dependencies]

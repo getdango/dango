@@ -636,7 +636,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_ads",
         "dlt_function": "google_ads",
-        "pip_dependencies": [{"pip": "google-ads<25.0.0", "import": "google.ads"}],  # Pin to avoid protobuf 6.x conflict with dbt
+        "pip_dependencies": [{"pip": "google-ads", "import": "google.ads"}],
         "required_params": [],  # OAuth handles credentials; developer_token and customer_id are collected during auth
         "optional_params": [
             {
