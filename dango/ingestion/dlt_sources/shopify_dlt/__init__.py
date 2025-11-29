@@ -1,6 +1,6 @@
 """Fetches Shopify Orders and Products."""
 
-from typing import Any, Dict, Iterator, Iterator, Optional, Iterable
+from typing import Any, Dict, Iterator, Iterator, Optional, Iterable, List
 
 import dlt
 
@@ -29,6 +29,7 @@ def shopify_source(
     created_at_min: TAnyDateTime = FIRST_DAY_OF_MILLENNIUM,
     items_per_page: int = DEFAULT_ITEMS_PER_PAGE,
     order_status: TOrderStatus = "any",
+    resources: Optional[List[str]] = None,
 ) -> Iterable[DltResource]:
     """
     The source for the Shopify pipeline. Available resources are products, orders, and customers.
@@ -51,10 +52,14 @@ def shopify_source(
             If end time is not provided, the incremental loading will be enabled and after initial run, only new data will be retrieved
         created_at_min: The minimum creation date of items to import. Items created on or after this date are loaded. Defaults to 2000-01-01.
         order_status: The order status to filter by. Can be 'open', 'closed', 'cancelled', or 'any'. Defaults to 'any'.
+        resources: Optional list of resources to sync. Can include 'products', 'orders', 'customers'. Defaults to all.
 
     Returns:
         Iterable[DltResource]: A list of DltResource objects representing the data resources.
     """
+    # Default to all resources if not specified
+    if resources is None:
+        resources = ["products", "orders", "customers"]
 
     # build client
     client = ShopifyApi(shop_url, private_app_password, api_version)
@@ -162,7 +167,13 @@ def shopify_source(
             params["updated_at_max"] = updated_at.end_value.isoformat()
         yield from client.get_pages("customers", params)
 
-    return (products, orders, customers)
+    # Return only the requested resources
+    all_resources = {
+        "products": products,
+        "orders": orders,
+        "customers": customers,
+    }
+    return tuple(all_resources[r] for r in resources if r in all_resources)
 
 
 @dlt.resource

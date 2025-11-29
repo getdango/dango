@@ -31,6 +31,7 @@ from dango.config.models import (
     SourceType,
     CSVSourceConfig,
     RESTAPISourceConfig,
+    DltNativeConfig,
 )
 from dango.ingestion.csv_loader import CSVLoader
 from dango.ingestion.sources.registry import get_source_metadata
@@ -63,10 +64,58 @@ class DltPipelineRunner:
         self.duckdb_path = project_root / "data" / "warehouse.duckdb"
         self.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Load .env file for credentials
-        env_file = project_root / ".env"
+        # Load credentials with priority: .dlt/ > .env
+        self._load_credentials()
+
+    def _load_credentials(self):
+        """
+        Load credentials from .dlt/ directory and .env file
+
+        Priority order:
+        1. .dlt/secrets.toml (highest priority - dlt native)
+        2. .env file (fallback for backward compatibility)
+
+        dlt automatically loads .dlt/secrets.toml and .dlt/config.toml,
+        but we also load .env for backward compatibility with existing projects.
+        """
+        # First, load .env file (lower priority)
+        env_file = self.project_root / ".env"
         if env_file.exists():
-            load_dotenv(env_file, override=True)
+            load_dotenv(env_file, override=False)  # Don't override existing env vars
+
+        # dlt will automatically load .dlt/secrets.toml and .dlt/config.toml
+        # from the current working directory when creating pipelines.
+        # We just need to ensure we're running from the project root.
+        #
+        # Note: dlt uses the current working directory to find .dlt/
+        # This is handled in the run_source method by changing directory.
+
+    def _check_dependencies(self, source_type: str) -> tuple:
+        """
+        Check if source has required pip dependencies installed.
+
+        Args:
+            source_type: Source type key (e.g., "google_ads")
+
+        Returns:
+            Tuple of (all_installed: bool, missing: list of dep dicts)
+        """
+        metadata = get_source_metadata(source_type)
+        if not metadata:
+            return True, []
+
+        pip_deps = metadata.get("pip_dependencies", [])
+        if not pip_deps:
+            return True, []
+
+        missing = []
+        for dep in pip_deps:
+            try:
+                __import__(dep["import"])
+            except ImportError:
+                missing.append(dep)
+
+        return len(missing) == 0, missing
 
     def _run_with_timeout(self, func, timeout_minutes: int, *args, **kwargs):
         """
@@ -142,6 +191,43 @@ class DltPipelineRunner:
         console.print(f"🍡 Syncing: [bold]{source_name}[/bold] ({source_type.value})")
         console.print(f"{'='*60}")
 
+        # Check pip dependencies before sync
+        deps_ok, missing_deps = self._check_dependencies(source_type.value)
+        if not deps_ok:
+            # Add missing to requirements.txt (avoid duplicates)
+            req_file = self.project_root / "requirements.txt"
+            existing = set()
+            if req_file.exists():
+                existing = {line.strip() for line in req_file.read_text().split("\n") if line.strip()}
+
+            new_deps = [d["pip"] for d in missing_deps if d["pip"] not in existing]
+            if new_deps:
+                with open(req_file, "a") as f:
+                    for dep in new_deps:
+                        f.write(f"{dep}\n")
+                console.print(f"\n[green]✓ Added to requirements.txt: {', '.join(new_deps)}[/green]")
+
+            # Show error and instructions
+            error_message = f"Missing required dependencies: {', '.join(d['pip'] for d in missing_deps)}"
+            console.print(f"\n[red]❌ {error_message}[/red]")
+            console.print(f"\n[bold]To fix, run:[/bold]")
+            console.print(f"  [cyan]pip install -r requirements.txt[/cyan]")
+            console.print(f"\nThen retry: [cyan]dango sync --source {source_name}[/cyan]\n")
+
+            log_activity(
+                project_root=self.project_root,
+                level="error",
+                source=source_name,
+                message=f"Sync blocked: {error_message}"
+            )
+
+            return {
+                "status": "failed",
+                "source": source_name,
+                "error": error_message,
+                "rows_loaded": 0,
+            }
+
         # Check disk space before starting sync
         try:
             check_disk_space(self.project_root, min_free_gb=5)
@@ -196,6 +282,45 @@ class DltPipelineRunner:
             # CSV: Custom implementation (Phase 1 loader)
             if source_type == SourceType.CSV:
                 result = self._run_csv_source(source_config, full_refresh)
+            # DLT_NATIVE: Advanced registry bypass
+            elif source_type == SourceType.DLT_NATIVE:
+                try:
+                    result = self._run_with_timeout(
+                        self._run_dlt_native_source,
+                        timeout_minutes,
+                        source_config,
+                        full_refresh
+                    )
+                except SyncTimeoutError as e:
+                    error_message = str(e)
+                    console.print(f"[red]❌ {error_message}[/red]")
+                    console.print(f"[yellow]ℹ️  Pipeline state has been restored to prevent corruption[/yellow]")
+
+                    # Return failure result
+                    duration = (datetime.now() - start_time).total_seconds()
+                    history_entry = {
+                        "timestamp": start_time.isoformat(),
+                        "status": "failed",
+                        "duration_seconds": round(duration, 2),
+                        "rows_processed": 0,
+                        "full_refresh": full_refresh,
+                        "error_message": error_message
+                    }
+                    save_sync_history_entry(self.project_root, source_name, history_entry)
+
+                    log_activity(
+                        project_root=self.project_root,
+                        level="error",
+                        source=source_name,
+                        message=f"Sync timeout: {error_message}"
+                    )
+
+                    return {
+                        "status": "failed",
+                        "source": source_name,
+                        "error": error_message,
+                        "rows_loaded": 0,
+                    }
             # All other sources: dlt pipelines with timeout
             else:
                 try:
@@ -363,6 +488,138 @@ class DltPipelineRunner:
             **result,
         }
 
+    def _run_dlt_native_source(
+        self, source_config: DataSource, full_refresh: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Run dlt native source (registry bypass for advanced users)
+
+        This allows users to:
+        1. Use dlt sources not in Dango's registry
+        2. Place custom source files in custom_sources/ directory
+        3. Configure source directly via sources.yml
+
+        Args:
+            source_config: Source configuration with dlt_native config
+            full_refresh: Drop pipeline state and reload
+
+        Returns:
+            Load statistics
+        """
+        if not source_config.dlt_native:
+            raise ValueError(f"dlt_native config missing for source: {source_config.name}")
+
+        config = source_config.dlt_native
+        source_name = source_config.name
+
+        console.print(f"  📦 Loading dlt native source: {config.source_module}.{config.source_function}")
+        console.print(f"  [dim]Registry bypass - advanced mode[/dim]")
+
+        # Change to project root so dlt can find .dlt/ directory
+        # IMPORTANT: Must happen BEFORE loading source (dlt.secrets.value resolution)
+        original_cwd = os.getcwd()
+        os.chdir(self.project_root)
+
+        try:
+            # Try to import source from custom_sources/ directory first
+            import sys
+            custom_sources_dir = self.project_root / "custom_sources"
+
+            if custom_sources_dir.exists():
+                # Add custom_sources to Python path temporarily
+                sys.path.insert(0, str(custom_sources_dir))
+
+            try:
+                # Try to import as module (from custom_sources or installed package)
+                try:
+                    module = importlib.import_module(config.source_module)
+                except ImportError:
+                    # If not found in custom_sources, try as dlt package
+                    try:
+                        module = importlib.import_module(f"dlt.sources.{config.source_module}")
+                    except ImportError:
+                        raise ValueError(
+                            f"Could not import source module: {config.source_module}\n"
+                            f"  - Not found in custom_sources/ directory\n"
+                            f"  - Not found as dlt package (dlt.sources.{config.source_module})\n"
+                            f"  - Make sure the module is installed or placed in custom_sources/"
+                        )
+
+                # Get source function
+                if not hasattr(module, config.source_function):
+                    raise ValueError(
+                        f"Function '{config.source_function}' not found in module '{config.source_module}'\n"
+                        f"  Available functions: {[n for n in dir(module) if not n.startswith('_')]}"
+                    )
+
+                source_function = getattr(module, config.source_function)
+
+                # Call source function with provided kwargs
+                # dlt resolves dlt.secrets.value parameters at this point
+                console.print(f"  [dim]Calling {config.source_function}(**{config.function_kwargs})[/dim]")
+                source = source_function(**config.function_kwargs)
+
+            finally:
+                # Remove custom_sources from path
+                if custom_sources_dir.exists() and str(custom_sources_dir) in sys.path:
+                    sys.path.remove(str(custom_sources_dir))
+
+            # Determine dataset name (use custom or default to raw_{source_name})
+            dataset_name = config.dataset_name or f"raw_{source_name}"
+
+            # Create pipeline with DuckDB destination
+            pipeline_name = config.pipeline_name or source_name
+            pipeline = dlt.pipeline(
+                pipeline_name=pipeline_name,
+                destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
+                dataset_name=dataset_name,
+            )
+        finally:
+            # Always restore original working directory
+            os.chdir(original_cwd)
+
+        # Full refresh: drop pipeline state
+        if full_refresh:
+            console.print("  🔄 Full refresh: dropping pipeline state")
+            try:
+                pipeline.drop()
+            except Exception as e:
+                console.print(f"  ⚠️  Could not drop pipeline: {e}")
+
+        # Backup dlt state before running
+        state_backup = self._backup_dlt_state(pipeline_name)
+
+        try:
+            # Run pipeline with retry logic
+            load_info = self._run_with_retry(pipeline, source, max_retries=3)
+
+            # Extract load statistics
+            stats = self._extract_load_stats(load_info)
+            rows_loaded = stats.get("rows_loaded", 0)
+
+            if rows_loaded >= 0:
+                # Success
+                self._cleanup_state_backup(state_backup)
+                console.print(f"  ✓ Loaded {rows_loaded:,} rows")
+            else:
+                # rows_loaded == -1 means we got a valid LoadInfo but couldn't extract stats
+                console.print(f"  ✓ Load completed (unable to count rows)")
+                rows_loaded = 0  # Set to 0 for stats
+
+            return {
+                "status": "success",
+                "source": source_name,
+                "rows_loaded": rows_loaded,
+                **stats,
+            }
+
+        except Exception as e:
+            # Restore state on failure
+            if state_backup:
+                console.print("  ⚠️  Restoring pipeline state (failed load)")
+                self._restore_dlt_state(source_name, state_backup)
+            raise
+
     def _detect_write_disposition(self, source: Any) -> bool:
         """
         Detect if dlt source uses 'replace' write_disposition.
@@ -498,24 +755,57 @@ class DltPipelineRunner:
             source_config, source_type, start_date, end_date
         )
 
-        # Dynamic import of dlt source
-        source = self._load_dlt_source(dlt_package, dlt_function, source_kwargs)
+        # Merge default_config from registry (e.g., GA4 default queries)
+        # Default config is applied first, then user config overrides
+        default_config = metadata.get("default_config", {})
+        if default_config:
+            for key, value in default_config.items():
+                if key not in source_kwargs:
+                    source_kwargs[key] = value
+                    console.print(f"  [dim]Using default {key} from registry[/dim]")
 
-        # Detect actual load type from dlt source configuration
-        # Check if source uses replace write_disposition (full refresh by design)
-        uses_replace_mode = self._detect_write_disposition(source)
+        # Apply parameter transforms from registry (e.g., string -> list)
+        param_transforms = metadata.get("param_transforms", {})
+        for param_name, transform_type in param_transforms.items():
+            if param_name in source_kwargs:
+                value = source_kwargs[param_name]
+                if transform_type == "list" and isinstance(value, str):
+                    # Convert single string to list (e.g., sheet name -> [sheet_name])
+                    source_kwargs[param_name] = [value]
 
-        # Determine dataset name based on source characteristics
-        # Multi-resource sources → raw_{source_name} (prevents table collisions)
-        # Single-resource sources → raw (simple governance)
-        dataset_name = self._get_dataset_name(source_config, source_type, metadata)
+        # Note: OAuth credentials are stored directly in secrets.toml at
+        # sources.{source_type}.credentials.* during the auth flow.
+        # No injection needed - dlt finds them automatically.
 
-        # Create pipeline with DuckDB destination
-        pipeline = dlt.pipeline(
-            pipeline_name=source_name,
-            destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
-            dataset_name=dataset_name,
-        )
+        # Change to project root so dlt can find .dlt/ directory
+        # dlt automatically loads .dlt/secrets.toml and .dlt/config.toml from cwd
+        # IMPORTANT: Must happen BEFORE loading source (dlt.secrets.value resolution)
+        original_cwd = os.getcwd()
+        os.chdir(self.project_root)
+
+        try:
+            # Dynamic import of dlt source
+            # dlt resolves dlt.secrets.value parameters at this point
+            source = self._load_dlt_source(dlt_package, dlt_function, source_kwargs)
+
+            # Detect actual load type from dlt source configuration
+            # Check if source uses replace write_disposition (full refresh by design)
+            uses_replace_mode = self._detect_write_disposition(source)
+
+            # Determine dataset name based on source characteristics
+            # Multi-resource sources → raw_{source_name} (prevents table collisions)
+            # Single-resource sources → raw (simple governance)
+            dataset_name = self._get_dataset_name(source_config, source_type, metadata)
+
+            # Create pipeline with DuckDB destination
+            pipeline = dlt.pipeline(
+                pipeline_name=source_name,
+                destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
+                dataset_name=dataset_name,
+            )
+        finally:
+            # Always restore original working directory
+            os.chdir(original_cwd)
 
         # Full refresh: drop pipeline state
         if full_refresh:
@@ -625,11 +915,22 @@ class DltPipelineRunner:
         else:
             config_dict = dict(config_obj) if isinstance(config_obj, dict) else {}
 
+        # Dango-specific fields that should NOT be passed to dlt source functions
+        DANGO_ONLY_FIELDS = {
+            "deduplication",  # Dango's deduplication strategy
+            "enabled",        # Dango's source enable/disable flag
+            "description",    # Dango's source description
+        }
+
         # Resolve environment variables (fields ending in _env)
         import os
 
         resolved_config = {}
         for key, value in config_dict.items():
+            # Skip Dango-specific fields
+            if key in DANGO_ONLY_FIELDS:
+                continue
+
             if key.endswith("_env") and isinstance(value, str):
                 # Get actual value from environment
                 env_value = os.getenv(value)

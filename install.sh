@@ -285,18 +285,18 @@ create_venv() {
 # Function to install Dango
 install_dango() {
     local venv_path=$1
-    print_step "Installing Dango from PyPI..."
+    print_step "Installing Dango from feature branch..."
 
     # Activate venv and install
     source "$venv_path/bin/activate"
     $PYTHON_CMD -m pip install --upgrade pip -q
 
-    if ! $PYTHON_CMD -m pip install getdango; then
-        print_error "Failed to install Dango from PyPI"
+    if ! $PYTHON_CMD -m pip install git+https://github.com/getdango/dango.git@feature/oauth-implementation; then
+        print_error "Failed to install Dango from git"
         echo
         echo "Possible causes:"
         echo "  • No internet connection"
-        echo "  • PyPI is down"
+        echo "  • GitHub is down"
         echo "  • Python version incompatible"
         echo
         echo "Check errors above and try again"
@@ -316,7 +316,7 @@ upgrade_dango() {
     print_step "Upgrading Dango..."
 
     source "$venv_path/bin/activate"
-    $PYTHON_CMD -m pip install --upgrade getdango -q
+    $PYTHON_CMD -m pip install --upgrade --force-reinstall git+https://github.com/getdango/dango.git@feature/oauth-implementation -q
 
     DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 
@@ -366,7 +366,7 @@ check_conflicts() {
     echo
 
     # Run dry-run to see what will be installed/upgraded
-    dry_run_output=$($PYTHON_CMD -m pip install --dry-run --user getdango 2>&1)
+    dry_run_output=$($PYTHON_CMD -m pip install --dry-run --user git+https://github.com/getdango/dango.git@feature/oauth-implementation 2>&1)
 
     # Check if any packages will be upgraded
     if echo "$dry_run_output" | grep -q "Would upgrade"; then
@@ -402,12 +402,12 @@ install_dango_global() {
     print_step "Installing Dango globally..."
     echo
 
-    if ! $PYTHON_CMD -m pip install --user getdango; then
-        print_error "Failed to install Dango from PyPI"
+    if ! $PYTHON_CMD -m pip install --user git+https://github.com/getdango/dango.git@feature/oauth-implementation; then
+        print_error "Failed to install Dango from git"
         echo
         echo "Possible causes:"
         echo "  • No internet connection"
-        echo "  • PyPI is down"
+        echo "  • GitHub is down"
         echo "  • Python version incompatible"
         echo
         echo "Check errors above and try again"
@@ -838,7 +838,7 @@ main() {
                 echo "To create venv manually:"
                 echo "  $PYTHON_CMD -m venv venv"
                 echo "  source venv/bin/activate"
-                echo "  pip install getdango"
+                echo "  pip install git+https://github.com/getdango/dango.git@feature/oauth-implementation"
                 echo
                 exit 0
             fi

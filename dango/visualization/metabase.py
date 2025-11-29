@@ -14,12 +14,15 @@ Auto-setup functionality (MVP):
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import json
+import logging
 import requests
 from datetime import datetime
 import secrets
 import string
 import yaml
 import time
+
+logger = logging.getLogger(__name__)
 
 
 # Dashboard SQL Queries
@@ -928,7 +931,11 @@ def sync_metabase_schema(
                     # Set description and visibility based on schema
                     visibility_type = None  # Normal visibility by default
 
-                    if schema == "raw" or (schema and schema.startswith("raw_")):
+                    # Hide dlt internal staging schemas (e.g., raw_source_staging)
+                    if schema and schema.endswith("_staging"):
+                        description = "⚙️ **DLT INTERNAL** - Temporary staging data (do not use)"
+                        visibility_type = "hidden"
+                    elif schema == "raw" or (schema and schema.startswith("raw_")):
                         description = (
                             "⚠️ **RAW SOURCE DATA** - Do not use for dashboards\n\n"
                             "This is unprocessed data exactly as loaded from the source. "
@@ -963,16 +970,21 @@ def sync_metabase_schema(
                     if visibility_type:
                         update_payload["visibility_type"] = visibility_type
 
-                    requests.put(
+                    response = requests.put(
                         f"{metabase_url}/api/table/{table_id}",
                         headers={"X-Metabase-Session": session_id},
                         json=update_payload,
                         timeout=5
                     )
+                    if response.status_code != 200:
+                        logger.warning(
+                            f"Failed to update table {schema}.{table_name} (id={table_id}): "
+                            f"status={response.status_code}, response={response.text[:200]}"
+                        )
 
-        except Exception:
-            # Silent failure - descriptions are nice-to-have
-            pass
+        except Exception as e:
+            # Log but don't fail - descriptions are nice-to-have
+            logger.warning(f"Error updating table metadata: {e}")
 
         return True
 
