@@ -755,6 +755,15 @@ class DltPipelineRunner:
             source_config, source_type, start_date, end_date
         )
 
+        # Merge default_config from registry (e.g., GA4 default queries)
+        # Default config is applied first, then user config overrides
+        default_config = metadata.get("default_config", {})
+        if default_config:
+            for key, value in default_config.items():
+                if key not in source_kwargs:
+                    source_kwargs[key] = value
+                    console.print(f"  [dim]Using default {key} from registry[/dim]")
+
         # Apply parameter transforms from registry (e.g., string -> list)
         param_transforms = metadata.get("param_transforms", {})
         for param_name, transform_type in param_transforms.items():

@@ -163,6 +163,15 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 client_id = _clean_pasted_input(Prompt.ask("Client ID"))
                 client_secret = _clean_pasted_input(Prompt.ask("Client Secret", password=True))
 
+                # Save to .env for future Google services (shared credentials)
+                if client_id and client_secret:
+                    from dotenv import set_key
+                    if not env_file.exists():
+                        env_file.touch()
+                    set_key(str(env_file), "GOOGLE_CLIENT_ID", client_id)
+                    set_key(str(env_file), "GOOGLE_CLIENT_SECRET", client_secret)
+                    console.print("[dim]Saved credentials to .env for future use[/dim]")
+
             if not client_id or not client_secret:
                 console.print("[red]✗ Client ID and Secret are required[/red]")
                 return False

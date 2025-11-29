@@ -285,15 +285,43 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "default": None,
             },
         ],
+        # Default queries based on industry best practices (Calibrate Analytics)
+        # GA4 Data API provides aggregated data only - each query becomes a table
+        "default_config": {
+            "queries": [
+                {
+                    "resource_name": "traffic",
+                    "dimensions": ["date", "sessionSource", "sessionMedium", "sessionCampaignName", "deviceCategory"],
+                    "metrics": ["sessions", "engagedSessions", "totalUsers", "newUsers", "averageSessionDuration", "bounceRate"]
+                },
+                {
+                    "resource_name": "pages",
+                    "dimensions": ["date", "pagePath", "pageTitle"],
+                    "metrics": ["screenPageViews", "totalUsers", "userEngagementDuration", "sessions"]
+                },
+                {
+                    "resource_name": "landing_pages",
+                    "dimensions": ["date", "landingPage", "sessionSource", "sessionMedium", "deviceCategory"],
+                    "metrics": ["sessions", "totalUsers", "engagedSessions", "bounceRate"]
+                },
+                {
+                    "resource_name": "geo",
+                    "dimensions": ["date", "country", "city"],
+                    "metrics": ["sessions", "totalUsers", "engagedSessions"]
+                }
+            ]
+        },
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
             "2. OR manually run: dango auth google_analytics",
             "3. Follow the browser OAuth flow to authenticate",
             "4. Get GA4 Property ID from Admin > Property Settings",
-            "5. Credentials are permanent (refresh token stored in .dlt/secrets.toml)",
+            "5. Default queries load 4 tables: traffic, pages, landing_pages, geo",
+            "6. Edit .dlt/config.toml to customize dimensions/metrics",
+            "7. Schema evolves automatically - can add queries anytime",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_analytics",
-        "cost_warning": "Subject to Google API quota limits",
+        "cost_warning": "Subject to Google API quota limits. Data is aggregated (not event-level).",
         "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 9,
     },
