@@ -83,8 +83,14 @@ def is_table_configured(
     Returns:
         True if table is configured, False if orphaned
     """
-    # Skip dlt internal tables (always considered configured)
+    # dlt internal tables are only configured if their schema belongs to an active source
     if table.startswith('_dlt_'):
+        # For 'raw' schema, always keep _dlt_ tables (shared schema)
+        if schema == 'raw':
+            return True
+        # For source-specific schemas (raw_{source_name}), check if schema is configured
+        if schema.startswith('raw_'):
+            return schema in schema_to_tables
         return True
 
     # Raw tables: check schema-specific expected tables
