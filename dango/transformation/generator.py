@@ -245,6 +245,43 @@ class DbtModelGenerator:
 
         return []
 
+    def _discover_tables_from_db(self, schema_name: str) -> List[str]:
+        """
+        Discover tables from database for a given schema.
+        Filters out dlt internal tables and metadata tables.
+
+        Args:
+            schema_name: The schema to query
+
+        Returns:
+            List of user data table names
+        """
+        try:
+            conn = duckdb.connect(str(self.duckdb_path), read_only=True)
+            result = conn.execute("""
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = ?
+                ORDER BY table_name
+            """, [schema_name]).fetchall()
+            conn.close()
+
+            # Filter out dlt internal tables and metadata tables
+            skip_prefixes = ('_dlt_', 'dimensions', 'metrics')
+            skip_suffixes = ('__deprecated_api_names',)
+
+            tables = []
+            for (table_name,) in result:
+                if table_name.startswith(skip_prefixes):
+                    continue
+                if table_name.endswith(skip_suffixes):
+                    continue
+                tables.append(table_name)
+
+            return tables
+        except Exception:
+            return []
+
     def generate_staging_model(
         self,
         source: DataSource,
@@ -391,10 +428,14 @@ class DbtModelGenerator:
                     schema_name = f"raw_{source.name}"
                     endpoints = self._get_source_endpoints(source)
 
+                    # Fallback: discover tables from database if config doesn't have endpoints
+                    if not endpoints:
+                        endpoints = self._discover_tables_from_db(schema_name)
+
                     if not endpoints:
                         summary["skipped"].append({
                             "source": source.name,
-                            "reason": "No endpoints configured in source config"
+                            "reason": "No tables found in database (run dango sync first)"
                         })
                         continue
 
