@@ -1618,239 +1618,6 @@ def source_remove(ctx, source_name, yes):
         raise click.Abort()
 
 
-@auth.command("list")
-@click.pass_context
-def auth_list(ctx):
-    """
-    List all OAuth credentials
-
-    Shows all configured OAuth credentials with account info, expiry status, and usage.
-    """
-    from .utils import require_project_context
-    from dango.oauth.storage import OAuthStorage
-    from rich.table import Table
-
-    try:
-        project_root = require_project_context(ctx)
-        oauth_storage = OAuthStorage(project_root)
-
-        # Get all OAuth credentials
-        credentials = oauth_storage.list()
-
-        if not credentials:
-            console.print("\n[yellow]No OAuth credentials configured[/yellow]")
-            console.print("\n[cyan]To authenticate:[/cyan]")
-            console.print("  dango auth google --service ads")
-            console.print("  dango auth facebook")
-            console.print("  dango auth shopify")
-            return
-
-        # Create table
-        table = Table(title=f"OAuth Credentials ({len(credentials)})", show_header=True)
-        table.add_column("Source Type", style="cyan")
-        table.add_column("Provider", style="blue")
-        table.add_column("Account", style="green")
-        table.add_column("Status", style="yellow")
-        table.add_column("Created", style="dim")
-
-        for cred in credentials:
-            # Determine status
-            if cred.is_expired():
-                status = "[red]EXPIRED[/red]"
-            elif cred.is_expiring_soon():
-                days_left = cred.days_until_expiry()
-                status = f"[yellow]Expires in {days_left}d[/yellow]"
-            else:
-                status = "[green]Active[/green]"
-
-            # Format created date
-            created = cred.created_at.strftime("%Y-%m-%d") if cred.created_at else "Unknown"
-
-            table.add_row(
-                cred.source_type,
-                cred.provider,
-                cred.account_info,
-                status,
-                created
-            )
-
-        console.print("\n")
-        console.print(table)
-        console.print("\n[dim]To re-authenticate: dango auth <source_type>[/dim]")
-        console.print("[dim]To remove: dango auth remove <source_type>[/dim]\n")
-
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise click.Abort()
-
-
-@auth.command("status")
-@click.pass_context
-def auth_status(ctx):
-    """
-    Show OAuth credential expiry status
-
-    Displays OAuth credentials that are expired or expiring soon.
-    """
-    from .utils import require_project_context
-    from dango.oauth.storage import OAuthStorage
-
-    try:
-        project_root = require_project_context(ctx)
-        oauth_storage = OAuthStorage(project_root)
-
-        # Get all OAuth credentials
-        credentials = oauth_storage.list()
-
-        if not credentials:
-            console.print("\n[yellow]No OAuth credentials configured[/yellow]\n")
-            return
-
-        # Find credentials that need attention
-        expired = [c for c in credentials if c.is_expired()]
-        expiring_soon = [c for c in credentials if c.is_expiring_soon() and not c.is_expired()]
-
-        if not expired and not expiring_soon:
-            console.print("\n[green]✓ All OAuth credentials are active[/green]\n")
-            return
-
-        # Show expired credentials
-        if expired:
-            console.print("\n[red]⚠️  Expired OAuth Credentials:[/red]")
-            for cred in expired:
-                console.print(f"  • {cred.account_info} ({cred.source_type})")
-                console.print(f"    [dim]Expired: {cred.expires_at.strftime('%Y-%m-%d')}[/dim]")
-                console.print(f"    [yellow]Re-authenticate: dango auth refresh {cred.source_type}[/yellow]\n")
-
-        # Show expiring soon
-        if expiring_soon:
-            console.print("\n[yellow]⚠️  OAuth Credentials Expiring Soon:[/yellow]")
-            for cred in expiring_soon:
-                days_left = cred.days_until_expiry()
-                console.print(f"  • {cred.account_info} ({cred.source_type})")
-                console.print(f"    [dim]Expires: {cred.expires_at.strftime('%Y-%m-%d')} ({days_left} days)[/dim]")
-                console.print(f"    [cyan]Re-authenticate: dango auth refresh {cred.source_type}[/cyan]\n")
-
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise click.Abort()
-
-
-@auth.command("remove")
-@click.argument("source_type")
-@click.pass_context
-def auth_remove(ctx, source_type):
-    """
-    Remove OAuth credential
-
-    SOURCE_TYPE: Source type to remove credentials for (e.g., google_ads, facebook_ads)
-
-    Example:
-      dango auth remove google_ads
-    """
-    from .utils import require_project_context
-    from dango.oauth.storage import OAuthStorage
-    from rich.prompt import Confirm
-
-    try:
-        project_root = require_project_context(ctx)
-        oauth_storage = OAuthStorage(project_root)
-
-        # Check if credential exists
-        cred = oauth_storage.get(source_type)
-        if not cred:
-            console.print(f"\n[red]✗ OAuth credentials for '{source_type}' not found[/red]")
-            console.print("\n[cyan]To see all credentials:[/cyan] dango auth list\n")
-            raise click.Abort()
-
-        # Show info and confirm
-        console.print(f"\n[yellow]⚠️  About to remove OAuth credentials:[/yellow]")
-        console.print(f"  Source Type: {cred.source_type}")
-        console.print(f"  Provider: {cred.provider}")
-        console.print(f"  Account: {cred.account_info}\n")
-
-        if not Confirm.ask("[red]Are you sure?[/red]", default=False):
-            console.print("\n[yellow]Cancelled[/yellow]\n")
-            return
-
-        # Remove credential
-        if oauth_storage.delete(source_type):
-            console.print(f"\n[green]✓ OAuth credential removed successfully[/green]\n")
-        else:
-            console.print(f"\n[red]✗ Failed to remove OAuth credential[/red]\n")
-            raise click.Abort()
-
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise click.Abort()
-
-
-@auth.command("refresh")
-@click.argument("oauth_name")
-@click.pass_context
-def auth_refresh(ctx, oauth_name):
-    """
-    Re-authenticate OAuth credential
-
-    OAUTH_NAME: Name of OAuth credential to refresh (from dango auth list)
-
-    Example:
-      dango auth refresh facebook_ads_123456789
-    """
-    from .utils import require_project_context
-    from dango.oauth.storage import OAuthStorage
-    from dango.oauth import create_oauth_manager
-    from dango.oauth.providers import GoogleOAuthProvider, FacebookOAuthProvider, ShopifyOAuthProvider
-
-    try:
-        project_root = require_project_context(ctx)
-        oauth_storage = OAuthStorage(project_root)
-
-        # Check if credential exists
-        cred = oauth_storage.get(oauth_name)
-        if not cred:
-            console.print(f"\n[red]✗ OAuth credential '{oauth_name}' not found[/red]")
-            console.print("\n[cyan]To see all credentials:[/cyan] dango auth list\n")
-            raise click.Abort()
-
-        # Show info
-        console.print(f"\n🍡 [bold]Re-authenticating OAuth credential:[/bold]")
-        console.print(f"  Source Type: {cred.source_type}")
-        console.print(f"  Provider: {cred.provider}")
-        console.print(f"  Account: {cred.account_info}\n")
-
-        # Dispatch to appropriate provider
-        oauth_manager = create_oauth_manager(project_root)
-        new_oauth_name = None
-
-        if cred.provider == "google":
-            service = cred.metadata.get("service", "google_ads") if cred.metadata else "google_ads"
-            google_provider = GoogleOAuthProvider(oauth_manager)
-            new_oauth_name = google_provider.authenticate(service=service)
-
-        elif cred.provider == "facebook_ads":
-            facebook_provider = FacebookOAuthProvider(oauth_manager)
-            new_oauth_name = facebook_provider.authenticate()
-
-        elif cred.provider == "shopify":
-            shopify_provider = ShopifyOAuthProvider(oauth_manager)
-            new_oauth_name = shopify_provider.authenticate()
-        else:
-            console.print(f"\n[red]✗ Unsupported provider: {cred.provider}[/red]\n")
-            raise click.Abort()
-
-        if not new_oauth_name:
-            console.print("\n[red]✗ Re-authentication failed[/red]\n")
-            raise click.Abort()
-
-        console.print(f"\n[green]✓ OAuth credential refreshed successfully[/green]")
-        console.print(f"[dim]  New credential: {new_oauth_name}[/dim]\n")
-
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise click.Abort()
-
-
 @cli.group()
 def config():
     """
@@ -2282,6 +2049,239 @@ def auth(ctx):
       dango auth shopify     Authenticate with Shopify
     """
     pass
+
+
+@auth.command("list")
+@click.pass_context
+def auth_list(ctx):
+    """
+    List all OAuth credentials
+
+    Shows all configured OAuth credentials with account info, expiry status, and usage.
+    """
+    from .utils import require_project_context
+    from dango.oauth.storage import OAuthStorage
+    from rich.table import Table
+
+    try:
+        project_root = require_project_context(ctx)
+        oauth_storage = OAuthStorage(project_root)
+
+        # Get all OAuth credentials
+        credentials = oauth_storage.list()
+
+        if not credentials:
+            console.print("\n[yellow]No OAuth credentials configured[/yellow]")
+            console.print("\n[cyan]To authenticate:[/cyan]")
+            console.print("  dango auth google --service ads")
+            console.print("  dango auth facebook")
+            console.print("  dango auth shopify")
+            return
+
+        # Create table
+        table = Table(title=f"OAuth Credentials ({len(credentials)})", show_header=True)
+        table.add_column("Source Type", style="cyan")
+        table.add_column("Provider", style="blue")
+        table.add_column("Account", style="green")
+        table.add_column("Status", style="yellow")
+        table.add_column("Created", style="dim")
+
+        for cred in credentials:
+            # Determine status
+            if cred.is_expired():
+                status = "[red]EXPIRED[/red]"
+            elif cred.is_expiring_soon():
+                days_left = cred.days_until_expiry()
+                status = f"[yellow]Expires in {days_left}d[/yellow]"
+            else:
+                status = "[green]Active[/green]"
+
+            # Format created date
+            created = cred.created_at.strftime("%Y-%m-%d") if cred.created_at else "Unknown"
+
+            table.add_row(
+                cred.source_type,
+                cred.provider,
+                cred.account_info,
+                status,
+                created
+            )
+
+        console.print("\n")
+        console.print(table)
+        console.print("\n[dim]To re-authenticate: dango auth <source_type>[/dim]")
+        console.print("[dim]To remove: dango auth remove <source_type>[/dim]\n")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort()
+
+
+@auth.command("status")
+@click.pass_context
+def auth_status(ctx):
+    """
+    Show OAuth credential expiry status
+
+    Displays OAuth credentials that are expired or expiring soon.
+    """
+    from .utils import require_project_context
+    from dango.oauth.storage import OAuthStorage
+
+    try:
+        project_root = require_project_context(ctx)
+        oauth_storage = OAuthStorage(project_root)
+
+        # Get all OAuth credentials
+        credentials = oauth_storage.list()
+
+        if not credentials:
+            console.print("\n[yellow]No OAuth credentials configured[/yellow]\n")
+            return
+
+        # Find credentials that need attention
+        expired = [c for c in credentials if c.is_expired()]
+        expiring_soon = [c for c in credentials if c.is_expiring_soon() and not c.is_expired()]
+
+        if not expired and not expiring_soon:
+            console.print("\n[green]✓ All OAuth credentials are active[/green]\n")
+            return
+
+        # Show expired credentials
+        if expired:
+            console.print("\n[red]⚠️  Expired OAuth Credentials:[/red]")
+            for cred in expired:
+                console.print(f"  • {cred.account_info} ({cred.source_type})")
+                console.print(f"    [dim]Expired: {cred.expires_at.strftime('%Y-%m-%d')}[/dim]")
+                console.print(f"    [yellow]Re-authenticate: dango auth refresh {cred.source_type}[/yellow]\n")
+
+        # Show expiring soon
+        if expiring_soon:
+            console.print("\n[yellow]⚠️  OAuth Credentials Expiring Soon:[/yellow]")
+            for cred in expiring_soon:
+                days_left = cred.days_until_expiry()
+                console.print(f"  • {cred.account_info} ({cred.source_type})")
+                console.print(f"    [dim]Expires: {cred.expires_at.strftime('%Y-%m-%d')} ({days_left} days)[/dim]")
+                console.print(f"    [cyan]Re-authenticate: dango auth refresh {cred.source_type}[/cyan]\n")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort()
+
+
+@auth.command("remove")
+@click.argument("source_type")
+@click.pass_context
+def auth_remove(ctx, source_type):
+    """
+    Remove OAuth credential
+
+    SOURCE_TYPE: Source type to remove credentials for (e.g., google_ads, facebook_ads)
+
+    Example:
+      dango auth remove google_ads
+    """
+    from .utils import require_project_context
+    from dango.oauth.storage import OAuthStorage
+    from rich.prompt import Confirm
+
+    try:
+        project_root = require_project_context(ctx)
+        oauth_storage = OAuthStorage(project_root)
+
+        # Check if credential exists
+        cred = oauth_storage.get(source_type)
+        if not cred:
+            console.print(f"\n[red]✗ OAuth credentials for '{source_type}' not found[/red]")
+            console.print("\n[cyan]To see all credentials:[/cyan] dango auth list\n")
+            raise click.Abort()
+
+        # Show info and confirm
+        console.print(f"\n[yellow]⚠️  About to remove OAuth credentials:[/yellow]")
+        console.print(f"  Source Type: {cred.source_type}")
+        console.print(f"  Provider: {cred.provider}")
+        console.print(f"  Account: {cred.account_info}\n")
+
+        if not Confirm.ask("[red]Are you sure?[/red]", default=False):
+            console.print("\n[yellow]Cancelled[/yellow]\n")
+            return
+
+        # Remove credential
+        if oauth_storage.delete(source_type):
+            console.print(f"\n[green]✓ OAuth credential removed successfully[/green]\n")
+        else:
+            console.print(f"\n[red]✗ Failed to remove OAuth credential[/red]\n")
+            raise click.Abort()
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort()
+
+
+@auth.command("refresh")
+@click.argument("oauth_name")
+@click.pass_context
+def auth_refresh(ctx, oauth_name):
+    """
+    Re-authenticate OAuth credential
+
+    OAUTH_NAME: Name of OAuth credential to refresh (from dango auth list)
+
+    Example:
+      dango auth refresh facebook_ads_123456789
+    """
+    from .utils import require_project_context
+    from dango.oauth.storage import OAuthStorage
+    from dango.oauth import create_oauth_manager
+    from dango.oauth.providers import GoogleOAuthProvider, FacebookOAuthProvider, ShopifyOAuthProvider
+
+    try:
+        project_root = require_project_context(ctx)
+        oauth_storage = OAuthStorage(project_root)
+
+        # Check if credential exists
+        cred = oauth_storage.get(oauth_name)
+        if not cred:
+            console.print(f"\n[red]✗ OAuth credential '{oauth_name}' not found[/red]")
+            console.print("\n[cyan]To see all credentials:[/cyan] dango auth list\n")
+            raise click.Abort()
+
+        # Show info
+        console.print(f"\n🍡 [bold]Re-authenticating OAuth credential:[/bold]")
+        console.print(f"  Source Type: {cred.source_type}")
+        console.print(f"  Provider: {cred.provider}")
+        console.print(f"  Account: {cred.account_info}\n")
+
+        # Dispatch to appropriate provider
+        oauth_manager = create_oauth_manager(project_root)
+        new_oauth_name = None
+
+        if cred.provider == "google":
+            service = cred.metadata.get("service", "google_ads") if cred.metadata else "google_ads"
+            google_provider = GoogleOAuthProvider(oauth_manager)
+            new_oauth_name = google_provider.authenticate(service=service)
+
+        elif cred.provider == "facebook_ads":
+            facebook_provider = FacebookOAuthProvider(oauth_manager)
+            new_oauth_name = facebook_provider.authenticate()
+
+        elif cred.provider == "shopify":
+            shopify_provider = ShopifyOAuthProvider(oauth_manager)
+            new_oauth_name = shopify_provider.authenticate()
+        else:
+            console.print(f"\n[red]✗ Unsupported provider: {cred.provider}[/red]\n")
+            raise click.Abort()
+
+        if not new_oauth_name:
+            console.print("\n[red]✗ Re-authentication failed[/red]\n")
+            raise click.Abort()
+
+        console.print(f"\n[green]✓ OAuth credential refreshed successfully[/green]")
+        console.print(f"[dim]  New credential: {new_oauth_name}[/dim]\n")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort()
 
 
 @auth.command("facebook")
