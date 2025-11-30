@@ -1999,31 +1999,38 @@ def db_clean(ctx, yes):
             except Exception as e:
                 console.print(f"[red]✗[/red] Failed to drop {schema}.{table}: {e}")
 
-        # Clean up metadata for orphaned sources
+        # Clean up metadata for orphaned sources (only if metadata table exists)
         if orphaned_sources:
-            console.print()
-            console.print("[dim]Cleaning metadata...[/dim]")
+            # Check if metadata table exists (only created for CSV sources)
+            metadata_table_exists = conn.execute("""
+                SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_name = '_dango_file_metadata'
+            """).fetchone()[0] > 0
 
-            metadata_cleaned = 0
-            for source_name in orphaned_sources:
-                try:
-                    # Count entries first
-                    count = conn.execute("""
-                        SELECT COUNT(*) FROM _dango_file_metadata
-                        WHERE source_name = ?
-                    """, [source_name]).fetchone()[0]
+            if metadata_table_exists:
+                console.print()
+                console.print("[dim]Cleaning metadata...[/dim]")
 
-                    if count > 0:
-                        # Delete entries
-                        conn.execute("""
-                            DELETE FROM _dango_file_metadata
+                metadata_cleaned = 0
+                for source_name in orphaned_sources:
+                    try:
+                        # Count entries first
+                        count = conn.execute("""
+                            SELECT COUNT(*) FROM _dango_file_metadata
                             WHERE source_name = ?
-                        """, [source_name])
+                        """, [source_name]).fetchone()[0]
 
-                        console.print(f"[green]✓[/green] Cleaned metadata for '{source_name}' ({count} entries)")
-                        metadata_cleaned += 1
-                except Exception as e:
-                    console.print(f"[yellow]⚠[/yellow] Could not clean metadata for '{source_name}': {e}")
+                        if count > 0:
+                            # Delete entries
+                            conn.execute("""
+                                DELETE FROM _dango_file_metadata
+                                WHERE source_name = ?
+                            """, [source_name])
+
+                            console.print(f"[green]✓[/green] Cleaned metadata for '{source_name}' ({count} entries)")
+                            metadata_cleaned += 1
+                    except Exception as e:
+                        console.print(f"[yellow]⚠[/yellow] Could not clean metadata for '{source_name}': {e}")
 
         conn.close()
 
