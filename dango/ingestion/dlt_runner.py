@@ -756,13 +756,30 @@ class DltPipelineRunner:
         )
 
         # Merge default_config from registry (e.g., GA4 default queries)
-        # Default config is applied first, then user config overrides
+        # Only apply if:
+        # 1. Key not already in source_kwargs (from sources.yml)
+        # 2. Key not in .dlt/config.toml (user-owned config created at source add time)
+        # This ensures user customizations in config.toml are respected
         default_config = metadata.get("default_config", {})
         if default_config:
+            # Check what's already in config.toml
+            config_toml_keys = set()
+            config_toml_path = self.project_root / ".dlt" / "config.toml"
+            if config_toml_path.exists():
+                try:
+                    import tomlkit
+                    doc = tomlkit.parse(config_toml_path.read_text())
+                    source_section = doc.get("sources", {}).get(source_type_key, {})
+                    config_toml_keys = set(source_section.keys())
+                except Exception:
+                    pass  # If we can't read config.toml, fall back to defaults
+
             for key, value in default_config.items():
-                if key not in source_kwargs:
+                if key not in source_kwargs and key not in config_toml_keys:
                     source_kwargs[key] = value
                     console.print(f"  [dim]Using default {key} from registry[/dim]")
+                elif key in config_toml_keys:
+                    console.print(f"  [dim]Using {key} from .dlt/config.toml[/dim]")
 
         # Apply parameter transforms from registry (e.g., string -> list)
         param_transforms = metadata.get("param_transforms", {})

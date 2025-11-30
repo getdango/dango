@@ -161,6 +161,10 @@ class SourceWizard:
                     # All inputs collected, break out of state machine
                     break
 
+            # Step 6: Write default_config to .dlt/config.toml (for stability across upgrades)
+            if metadata.get("default_config"):
+                self._write_config_template(source_type, metadata)
+
             # Step 6b: Create directory if this is a CSV source
             if source_type == "csv" and "directory" in params:
                 directory_path = self.project_root / params["directory"]
@@ -1087,6 +1091,75 @@ class SourceWizard:
             config[source_type] = params
 
         return config
+
+    def _write_config_template(self, source_type: str, metadata: Dict[str, Any]) -> None:
+        """
+        Write default_config to .dlt/config.toml for pipeline stability.
+
+        This writes the default configuration at source creation time so that:
+        1. Users can customize the config before first sync
+        2. Defaults don't change unexpectedly on Dango upgrades
+        3. Config is visible and documented in user's project
+
+        Args:
+            source_type: Source type key (e.g., "google_analytics")
+            metadata: Source metadata from registry containing default_config
+        """
+        try:
+            import tomlkit
+
+            default_config = metadata.get("default_config", {})
+            if not default_config:
+                return
+
+            dlt_dir = self.project_root / ".dlt"
+            config_path = dlt_dir / "config.toml"
+
+            # Ensure .dlt directory exists
+            dlt_dir.mkdir(parents=True, exist_ok=True)
+
+            # Load existing config or create new
+            if config_path.exists():
+                doc = tomlkit.parse(config_path.read_text())
+            else:
+                doc = tomlkit.document()
+
+            # Ensure [sources] table exists
+            if "sources" not in doc:
+                doc.add("sources", tomlkit.table())
+
+            # Ensure [sources.{source_type}] table exists
+            if source_type not in doc["sources"]:
+                doc["sources"].add(source_type, tomlkit.table())
+
+            # Write default_config values
+            source_table = doc["sources"][source_type]
+
+            for key, value in default_config.items():
+                if key not in source_table:
+                    # Add comment explaining this is a default that can be customized
+                    if key == "queries":
+                        # Special handling for queries (GA4)
+                        source_table.add(tomlkit.comment(""))
+                        source_table.add(tomlkit.comment("Default queries for Google Analytics 4"))
+                        source_table.add(tomlkit.comment("Each query creates a table with the specified dimensions and metrics"))
+                        source_table.add(tomlkit.comment("Customize by editing, adding, or removing queries"))
+                        source_table.add(tomlkit.comment("GA4 API limits: max 9 dimensions, 10 metrics per query"))
+                        source_table.add(tomlkit.comment("Docs: https://developers.google.com/analytics/devguides/reporting/data/v1"))
+                        source_table.add(tomlkit.comment(""))
+
+                    # Convert value to TOML-compatible format
+                    source_table.add(key, value)
+
+            # Write config file
+            config_path.write_text(tomlkit.dumps(doc))
+            console.print(f"[green]✅ Created config template: .dlt/config.toml[/green]")
+            console.print(f"[dim]   Edit this file to customize {metadata.get('display_name')} queries[/dim]")
+
+        except ImportError:
+            console.print(f"[yellow]⚠️  tomlkit not installed - skipping config template[/yellow]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Could not write config template: {e}[/yellow]")
 
     def _save_source(self, source_config: Dict[str, Any]) -> None:
         """Save source to sources.yml"""
