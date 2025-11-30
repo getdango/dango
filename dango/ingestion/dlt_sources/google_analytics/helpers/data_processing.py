@@ -125,13 +125,14 @@ def process_report(response: RunReportResponse) -> Iterator[TDataItems]:
             )
         }
         for i in range(len(metrics_headers)):
-            # get metric type and process the value depending on type
+            # get metric type and process the value depending on type. Save metric name including type as well for the columns
             metric_type = response.metric_headers[i].type_
             metric_value = process_metric_value(
                 metric_type=metric_type, value=row.metric_values[i].value
             )
-            # Use clean metric name without type suffix
-            response_dict[metrics_headers[i]] = metric_value
+            response_dict[
+                f"{metrics_headers[i]}_{metric_type.name.split('_')[1]}"
+            ] = metric_value
         yield response_dict
 
 

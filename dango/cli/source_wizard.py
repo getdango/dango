@@ -544,10 +544,9 @@ class SourceWizard:
             metadata: Source metadata from registry
 
         Returns:
-            Full source name (auto-prefixed for multi-resource sources)
+            Full source name
         """
         source_type_display = metadata.get("display_name", "source")
-        is_multi_resource = metadata.get("multi_resource", False)
 
         while True:
             # Consistent naming prompt for all source types
@@ -585,11 +584,10 @@ class SourceWizard:
                 console.print(f"[yellow]⚠️  Source '{final_source_name}' already exists. Choose a different name.[/yellow]")
                 continue
 
-            # Show what will be created
+            # Show what will be created (all sources use raw_{source_name} schema)
             console.print(f"\n[green]✓ Source name: '{final_source_name}'[/green]")
-            if is_multi_resource:
-                console.print(f"  [dim]Raw schema: raw_{final_source_name}[/dim]")
-                console.print(f"  [dim]Staging models: stg_{final_source_name}__<table>[/dim]")
+            console.print(f"  [dim]Raw schema: raw_{final_source_name}[/dim]")
+            console.print(f"  [dim]Staging models: stg_{final_source_name}__<table>[/dim]")
 
             return final_source_name
 
@@ -684,7 +682,7 @@ class SourceWizard:
             param: Parameter configuration from registry
             source_name: Full name of the source being configured (e.g., "stripe_test")
             source_type: Display name of source type (e.g., "Stripe")
-            metadata: Source metadata from registry (contains multi_resource flag)
+            metadata: Source metadata from registry
             required: Whether this parameter is required
         """
         param_name = param["name"]
@@ -705,30 +703,13 @@ class SourceWizard:
             # Get base env var from registry (e.g., "STRIPE_API_KEY")
             base_env_var = param.get("env_var", param_name.upper())
 
-            # For multi-resource sources, source_name is auto-prefixed (e.g., "stripe_test")
-            # We need to extract just the suffix for env var generation
-            # Example: "stripe_test" → extract "test" → generate "STRIPE_TEST_API_KEY"
-            is_multi_resource = metadata.get("multi_resource", False)
-
-            if is_multi_resource:
-                # Extract suffix from auto-prefixed source name
-                # source_name format: "{source_type_key}_{suffix}"
-                # We need to find the first underscore and take everything after it
-                parts = source_name.split("_", 1)
-                if len(parts) == 2:
-                    name_suffix = parts[1]  # e.g., "test" from "stripe_test"
-                else:
-                    # Fallback if no underscore found (shouldn't happen)
-                    name_suffix = source_name
-            else:
-                # For single-resource sources, use full source_name
-                name_suffix = source_name
+            # Use full source_name to generate unique env var
+            name_suffix = source_name
 
             # Generate unique env var by injecting name suffix
             # Examples:
-            #   test (from stripe_test) + STRIPE_API_KEY → STRIPE_TEST_API_KEY
-            #   prod (from stripe_prod) + STRIPE_API_KEY → STRIPE_PROD_API_KEY
-            #   us (from shopify_us) + SHOPIFY_ACCESS_TOKEN → SHOPIFY_US_ACCESS_TOKEN
+            #   stripe_test + STRIPE_API_KEY → STRIPE_STRIPE_TEST_API_KEY
+            #   my_store + SHOPIFY_ACCESS_TOKEN → SHOPIFY_MY_STORE_ACCESS_TOKEN
 
             # Extract the prefix (source type) from base env var
             # STRIPE_API_KEY → STRIPE, SHOPIFY_ACCESS_TOKEN → SHOPIFY

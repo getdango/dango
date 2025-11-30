@@ -35,7 +35,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Local & Custom",
         "description": "Load data from local CSV files with incremental loading support",
         "auth_type": AuthType.NONE,
-        "multi_resource": False,  # Single table per source instance
         "dlt_package": None,  # Custom implementation, not dlt
         "dlt_function": None,
         "supported_in_v0": True,  # Fully tested for v0.0.1
@@ -79,7 +78,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Local & Custom",
         "description": "Use any dlt verified source or custom source not in Dango's registry. Advanced users only.",
         "auth_type": AuthType.NONE,  # Auth handled by source itself
-        "multi_resource": True,  # Depends on source
         "dlt_package": None,  # User specifies
         "dlt_function": None,  # User specifies
         "supported_in_v0": True,  # Registry bypass implementation complete
@@ -129,7 +127,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Local & Custom",
         "description": "Connect to any custom REST API (e.g., Shopee, Lazada, internal APIs)",
         "auth_type": AuthType.API_KEY,
-        "multi_resource": True,  # Can have multiple endpoints
         "dlt_package": "rest_api",  # Built-in dlt source
         "dlt_function": "rest_api_source",
         "required_params": [
@@ -184,7 +181,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_sheets",
         "dlt_function": "google_spreadsheet",
-        "multi_resource": True,  # Each source gets own schema (raw_{source_name})
         "required_params": [
             {
                 "name": "spreadsheet_url_or_id",
@@ -222,7 +218,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Marketing & Analytics",
         "description": "Load ad campaigns, insights, and performance metrics from Facebook Ads",
         "auth_type": AuthType.OAUTH,
-        "multi_resource": True,  # Creates multiple tables (campaigns, ads, ad_sets, leads, etc.)
         "dlt_package": "facebook_ads",
         "dlt_function": "facebook_ads_source",
         "pip_dependencies": [{"pip": "facebook-business", "import": "facebook_business"}],
@@ -267,7 +262,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Marketing & Analytics",
         "description": "Load website analytics data from Google Analytics 4",
         "auth_type": AuthType.OAUTH,
-        "multi_resource": True,  # Each query creates a separate table
         "dlt_package": "google_analytics",
         "dlt_function": "google_analytics",
         "pip_dependencies": [{"pip": "google-analytics-data", "import": "google.analytics.data_v1beta"}],
@@ -336,7 +330,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Business & CRM",
         "description": "Load contacts, companies, deals, and tickets from HubSpot CRM",
         "auth_type": AuthType.API_KEY,
-        "multi_resource": True,  # Has multiple resources (contacts, companies, deals, etc.)
         "dlt_package": "hubspot",
         "dlt_function": "hubspot",
         "required_params": [
@@ -373,7 +366,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Business & CRM",
         "description": "Load data from Salesforce CRM (accounts, contacts, opportunities, etc.)",
         "auth_type": AuthType.BASIC,
-        "multi_resource": True,  # Has multiple objects (Account, Contact, Opportunity, etc.)
         "dlt_package": "salesforce",
         "dlt_function": "salesforce_source",
         "required_params": [
@@ -424,7 +416,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "E-commerce & Payment",
         "description": "Load payment data from Stripe (charges, customers, subscriptions, etc.)",
         "auth_type": AuthType.API_KEY,
-        "multi_resource": True,  # Has multiple endpoints (Charge, Customer, Subscription, etc.)
         "dlt_package": "stripe_analytics",
         "dlt_function": "stripe_source",
         "pip_dependencies": [{"pip": "stripe", "import": "stripe"}],
@@ -477,7 +468,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "E-commerce & Payment",
         "description": "Load e-commerce data from Shopify (orders, customers, products, etc.)",
         "auth_type": AuthType.API_KEY,
-        "multi_resource": True,  # Has multiple resources (orders, customers, products, etc.)
         "dlt_package": "shopify_dlt",  # Note: source name is shopify_dlt
         "dlt_function": "shopify_source",
         "required_params": [
@@ -664,7 +654,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Marketing & Analytics",
         "description": "Load ad campaigns and performance data from Google Ads",
         "auth_type": AuthType.OAUTH,
-        "multi_resource": True,  # Creates multiple tables (customers, campaigns, etc.)
         "dlt_package": "google_ads",
         "dlt_function": "google_ads",
         "pip_dependencies": [{"pip": "google-ads", "import": "google.ads"}],

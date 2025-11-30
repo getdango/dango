@@ -669,45 +669,13 @@ class DltPipelineRunner:
         metadata: Dict[str, Any]
     ) -> str:
         """
-        Determine dataset name based on source characteristics.
+        Determine dataset name for a source.
 
-        Logic:
-        - Multi-resource API sources (Stripe, Shopify, etc.) → raw_{source_name}
-        - Single-resource sources (CSV, single table) → raw
-
-        This prevents table name collisions while keeping simple governance rules.
+        Always uses raw_{source_name} pattern for schema isolation.
+        This follows dlt best practice and industry standard (Airbyte, Fivetran)
+        to prevent table name collisions across sources.
         """
-        source_name = source_config.name
-
-        # Check if source is marked as multi-resource in registry
-        if metadata.get("multi_resource", False):
-            return f"raw_{source_name}"
-
-        # Additional check: inspect source config for multiple resources
-        # This handles database sources that can sync multiple tables
-        source_config_obj = getattr(source_config, source_type.value, None)
-        if source_config_obj:
-            try:
-                source_dict = source_config_obj.model_dump() if hasattr(source_config_obj, 'model_dump') else {}
-
-                # Check for endpoints/resources/tables/queries parameter
-                resources = (
-                    source_dict.get('endpoints') or
-                    source_dict.get('resources') or
-                    source_dict.get('tables') or
-                    source_dict.get('objects') or
-                    source_dict.get('queries')  # GA4 uses queries, each creates a table
-                )
-
-                # If multiple resources configured, use prefixed schema
-                if resources and isinstance(resources, list) and len(resources) > 1:
-                    return f"raw_{source_name}"
-            except Exception:
-                # If we can't inspect config, default to single-resource
-                pass
-
-        # Default: single-resource source uses shared "raw" schema
-        return "raw"
+        return f"raw_{source_config.name}"
 
     def _run_dlt_source(
         self,
