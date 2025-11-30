@@ -952,10 +952,13 @@ class DltPipelineRunner:
                 # Get actual value from environment
                 env_value = os.getenv(value)
                 if env_value is None:
-                    console.print(f"  ⚠️  Warning: Environment variable '{value}' not set")
-                # Remove _env suffix for actual parameter name
-                param_name = key[:-4]  # Remove '_env'
-                resolved_config[param_name] = env_value
+                    # Don't add to config - let dlt's auto-injection resolve from secrets.toml
+                    # This follows dlt best practice: only pass explicit values, let dlt handle the rest
+                    console.print(f"  [dim]Note: {value} not set, using dlt credential resolution[/dim]")
+                else:
+                    # Remove _env suffix for actual parameter name
+                    param_name = key[:-4]  # Remove '_env'
+                    resolved_config[param_name] = env_value
             else:
                 resolved_config[key] = value
 
