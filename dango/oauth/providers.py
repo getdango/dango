@@ -231,11 +231,12 @@ class GoogleOAuthProvider(BaseOAuthProvider):
 
             # Save credentials in dlt format
             # Include impersonated_email for Google Ads (required by dlt function signature)
+            # project_id is required by dlt's GcpOAuthCredentials - use placeholder
             credentials = {
                 "client_id": client_id,
                 "client_secret": client_secret,
                 "refresh_token": tokens['refresh_token'],
-                "project_id": "",  # Optional, can be added later
+                "project_id": "dango-oauth",  # Required by dlt GcpOAuthCredentials
                 "impersonated_email": email,  # Used by Google Ads
             }
 
