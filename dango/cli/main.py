@@ -2036,8 +2036,6 @@ def db_clean(ctx, yes):
 
         console.print()
         console.print(f"[green]✅ Removed {dropped_count}/{len(orphaned_tables)} orphaned table(s)[/green]")
-        if orphaned_sources and metadata_cleaned > 0:
-            console.print(f"[green]✅ Cleaned metadata for {metadata_cleaned} source(s)[/green]")
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
