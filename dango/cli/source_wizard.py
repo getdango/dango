@@ -879,13 +879,8 @@ class SourceWizard:
                 # Otherwise loop back to reselect
 
         elif param_type == "date":
-            # Date parameter - calculate actual date if default is None
-            if default is None:
-                # Use 30 days ago as default (same as old "30_days_ago" intent)
-                calculated_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-                default_display = calculated_date
-            else:
-                default_display = str(default)
+            # Date parameter - leave blank if no default specified
+            default_display = str(default) if default else None
 
             questions = [
                 inquirer.Text(
