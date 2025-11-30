@@ -58,6 +58,16 @@ def basic_report(
     else:
         start_date = start_date or START_DATE
 
+    # Calculate end_date as yesterday
+    end_date = pendulum.yesterday().to_date_string()
+
+    # Skip if start_date > end_date (already up to date, or timezone edge case)
+    if start_date > end_date:
+        logger.info(
+            f"Skipping {resource_name}: already up to date (start_date={start_date} > end_date={end_date})"
+        )
+        return
+
     processed_response = get_report(
         client=client,
         property_id=property_id,
@@ -66,7 +76,6 @@ def basic_report(
         metric_list=[Metric(name=metric) for metric in metrics],
         limit=rows_per_page,
         start_date=start_date,
-        # configure end_date to yesterday as a date string
-        end_date=pendulum.yesterday().to_date_string(),
+        end_date=end_date,
     )
     yield from processed_response

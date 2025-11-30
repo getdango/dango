@@ -223,21 +223,64 @@ class DbtModelGenerator:
             try:
                 source_dict = source_config.model_dump() if hasattr(source_config, 'model_dump') else {}
 
-                # Check for endpoints/resources/tables parameter
+                # Check for endpoints/resources/tables/range_names parameter
                 resources = (
                     source_dict.get('endpoints') or
                     source_dict.get('resources') or
                     source_dict.get('tables') or
                     source_dict.get('objects') or
+                    source_dict.get('range_names') or  # Google Sheets uses range_names
                     []
                 )
 
-                if isinstance(resources, list):
+                if isinstance(resources, list) and resources:
                     return resources
+
+                # Handle GA4 queries format - each query has a resource_name
+                queries = source_dict.get('queries', [])
+                if isinstance(queries, list) and queries:
+                    return [q.get('resource_name') for q in queries if q.get('resource_name')]
             except Exception:
                 pass
 
         return []
+
+    def _discover_tables_from_db(self, schema_name: str) -> List[str]:
+        """
+        Discover tables from database for a given schema.
+        Filters out dlt internal tables and metadata tables.
+
+        Args:
+            schema_name: The schema to query
+
+        Returns:
+            List of user data table names
+        """
+        try:
+            conn = duckdb.connect(str(self.duckdb_path), read_only=True)
+            result = conn.execute("""
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = ?
+                ORDER BY table_name
+            """, [schema_name]).fetchall()
+            conn.close()
+
+            # Filter out dlt internal tables and metadata tables
+            skip_prefixes = ('_dlt_', 'dimensions', 'metrics')
+            skip_suffixes = ('__deprecated_api_names',)
+
+            tables = []
+            for (table_name,) in result:
+                if table_name.startswith(skip_prefixes):
+                    continue
+                if table_name.endswith(skip_suffixes):
+                    continue
+                tables.append(table_name)
+
+            return tables
+        except Exception:
+            return []
 
     def generate_staging_model(
         self,
@@ -318,6 +361,33 @@ class DbtModelGenerator:
         template = self.jinja_env.get_template("sources.yml.j2")
         return template.render(**context)
 
+    def generate_staging_schema_yml(
+        self,
+        source: DataSource,
+        models: List[Dict[str, Any]],
+    ) -> str:
+        """
+        Generate schema.yml documenting staging models
+
+        This documents the staging models themselves (not the raw sources).
+
+        Args:
+            source: Data source configuration
+            models: List of model definitions with columns
+                    [{"name": "stg_source__table", "table_name": "table", "schema_name": "raw_source", "columns": [...]}]
+
+        Returns:
+            Generated YAML content
+        """
+        context = {
+            "source_name": source.name,
+            "source_type": source.type.value,
+            "models": models,
+            "generated_at": datetime.now().isoformat(),
+        }
+
+        template = self.jinja_env.get_template("staging_schema.yml.j2")
+        return template.render(**context)
 
     def generate_all_models(
         self,
@@ -346,123 +416,51 @@ class DbtModelGenerator:
 
         for source in sources:
             try:
-                # Get metadata from registry
-                metadata = get_source_metadata(source.type.value)
-                is_multi_resource = metadata.get("multi_resource", False)
-
                 # Ensure staging directory exists
                 self.staging_dir.mkdir(parents=True, exist_ok=True)
 
-                if is_multi_resource:
-                    # Multi-resource source: Generate model for each endpoint
-                    schema_name = f"raw_{source.name}"
-                    endpoints = self._get_source_endpoints(source)
+                # Always use raw_{source_name} schema (industry best practice)
+                schema_name = f"raw_{source.name}"
 
-                    if not endpoints:
-                        summary["skipped"].append({
-                            "source": source.name,
-                            "reason": "No endpoints configured in source config"
-                        })
-                        continue
+                # Try to get endpoints from config, fall back to DB discovery
+                endpoints = self._get_source_endpoints(source)
+                if not endpoints:
+                    endpoints = self._discover_tables_from_db(schema_name)
 
-                    # Collect tables for sources.yml
-                    tables_for_yml = []
-                    generated_models = []
+                if not endpoints:
+                    summary["skipped"].append({
+                        "source": source.name,
+                        "reason": "No tables found in database (run dango sync first)"
+                    })
+                    continue
 
-                    for endpoint in endpoints:
-                        table_name = endpoint.lower()
+                # Collect tables for sources.yml
+                tables_for_yml = []
+                generated_models = []
 
-                        # Get schema from DuckDB
-                        columns = self.get_table_schema(table_name, schema=schema_name)
-
-                        if not columns:
-                            # Skip this endpoint if table doesn't exist yet
-                            summary["skipped"].append({
-                                "source": source.name,
-                                "endpoint": endpoint,
-                                "reason": f"Table {schema_name}.{table_name} not found (run dango sync first)"
-                            })
-                            continue
-
-                        # Check if model exists and is customized
-                        # Naming: stg_{source_name}__{endpoint}.sql
-                        model_file = self.staging_dir / f"stg_{source.name}__{table_name}.sql"
-
-                        if skip_customized and not self.is_auto_generated(model_file):
-                            summary["skipped"].append({
-                                "source": source.name,
-                                "endpoint": endpoint,
-                                "reason": "User-customized (marker comment removed)"
-                            })
-                            continue
-
-                        # Infer deduplication strategy
-                        dedup_strategy, dedup_columns = self.infer_dedup_strategy(source, columns)
-
-                        # Generate staging model SQL
-                        model_sql = self.generate_staging_model(
-                            source=source,
-                            table_name=table_name,
-                            schema_name=schema_name,
-                            dedup_strategy=dedup_strategy,
-                            dedup_columns=dedup_columns,
-                        )
-
-                        # Write model file
-                        with open(model_file, "w") as f:
-                            f.write(model_sql)
-
-                        generated_models.append({
-                            "endpoint": endpoint,
-                            "model": str(model_file),
-                            "columns": len(columns),
-                            "dedup_strategy": dedup_strategy or "none",
-                        })
-
-                        # Add to sources.yml tables list
-                        tables_for_yml.append({
-                            "name": table_name,
-                            "columns": columns
-                        })
-
-                    # Generate sources.yml for all endpoints
-                    sources_file = None
-                    if generate_schema_yml and tables_for_yml:
-                        sources_yml = self.generate_sources_yml(source, schema_name, tables_for_yml)
-                        sources_file = self.staging_dir / f"sources_{source.name}.yml"
-                        with open(sources_file, "w") as f:
-                            f.write(sources_yml)
-
-                    if generated_models:
-                        summary["generated"].append({
-                            "source": source.name,
-                            "schema": schema_name,
-                            "models": generated_models,
-                            "sources": str(sources_file) if sources_file else None,
-                        })
-
-                else:
-                    # Single-resource source: One table, one model
-                    schema_name = "raw"
-                    table_name = source.name
+                for endpoint in endpoints:
+                    table_name = endpoint.lower()
 
                     # Get schema from DuckDB
                     columns = self.get_table_schema(table_name, schema=schema_name)
 
                     if not columns:
-                        # Skip if table doesn't exist yet
+                        # Skip this endpoint if table doesn't exist yet
                         summary["skipped"].append({
                             "source": source.name,
+                            "endpoint": endpoint,
                             "reason": f"Table {schema_name}.{table_name} not found (run dango sync first)"
                         })
                         continue
 
                     # Check if model exists and is customized
-                    model_file = self.staging_dir / f"stg_{source.name}.sql"
+                    # Naming: stg_{source_name}__{table_name}.sql
+                    model_file = self.staging_dir / f"stg_{source.name}__{table_name}.sql"
 
                     if skip_customized and not self.is_auto_generated(model_file):
                         summary["skipped"].append({
                             "source": source.name,
+                            "endpoint": endpoint,
                             "reason": "User-customized (marker comment removed)"
                         })
                         continue
@@ -483,25 +481,51 @@ class DbtModelGenerator:
                     with open(model_file, "w") as f:
                         f.write(model_sql)
 
-                    # Generate sources.yml
-                    sources_file = None
-                    if generate_schema_yml:
-                        tables_for_yml = [{
-                            "name": table_name,
-                            "columns": columns
-                        }]
-                        sources_yml = self.generate_sources_yml(source, schema_name, tables_for_yml)
-                        sources_file = self.staging_dir / f"sources_{source.name}.yml"
-                        with open(sources_file, "w") as f:
-                            f.write(sources_yml)
+                    generated_models.append({
+                        "endpoint": endpoint,
+                        "model": str(model_file),
+                        "columns": len(columns),
+                        "dedup_strategy": dedup_strategy or "none",
+                    })
 
+                    # Add to sources.yml tables list
+                    tables_for_yml.append({
+                        "name": table_name,
+                        "columns": columns
+                    })
+
+                # Generate sources.yml for all tables (documents raw tables)
+                sources_file = None
+                staging_schema_file = None
+                if generate_schema_yml and tables_for_yml:
+                    sources_yml = self.generate_sources_yml(source, schema_name, tables_for_yml)
+                    sources_file = self.staging_dir / f"sources_{source.name}.yml"
+                    with open(sources_file, "w") as f:
+                        f.write(sources_yml)
+
+                    # Generate staging schema.yml (documents staging models)
+                    staging_models_for_yml = []
+                    for table in tables_for_yml:
+                        staging_models_for_yml.append({
+                            "name": f"stg_{source.name}__{table['name']}",
+                            "table_name": table["name"],
+                            "schema_name": schema_name,
+                            "columns": table["columns"],
+                        })
+
+                    staging_schema_yml = self.generate_staging_schema_yml(source, staging_models_for_yml)
+                    staging_schema_file = self.staging_dir / f"stg_{source.name}.yml"
+                    # Only write if file doesn't exist (don't overwrite user customizations)
+                    if not staging_schema_file.exists():
+                        with open(staging_schema_file, "w") as f:
+                            f.write(staging_schema_yml)
+
+                if generated_models:
                     summary["generated"].append({
                         "source": source.name,
                         "schema": schema_name,
-                        "model": str(model_file),
+                        "models": generated_models,
                         "sources": str(sources_file) if sources_file else None,
-                        "columns": len(columns),
-                        "dedup_strategy": dedup_strategy or "none",
                     })
 
             except Exception as e:

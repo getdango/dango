@@ -26,6 +26,7 @@ class SourceType(str, Enum):
     # Local/Custom
     CSV = "csv"
     REST_API = "rest_api"
+    DLT_NATIVE = "dlt_native"  # Advanced: Direct dlt source bypass
 
     # Marketing & Analytics (7)
     FACEBOOK_ADS = "facebook_ads"
@@ -165,9 +166,16 @@ class CSVSourceConfig(BaseModel):
 
 class GoogleSheetsSourceConfig(BaseModel):
     """Google Sheets source configuration"""
-    spreadsheet_id: str
-    sheet_name: Optional[str] = None  # If None, loads all sheets
+    spreadsheet_url_or_id: str  # Spreadsheet ID or full URL
+    range_names: List[str]  # Sheet/tab names to load (each becomes a table)
     deduplication: DeduplicationStrategy = DeduplicationStrategy.LATEST_ONLY
+
+    @validator('range_names', pre=True)
+    def ensure_list(cls, v):
+        """Convert single string to list for backward compatibility"""
+        if isinstance(v, str):
+            return [v]
+        return v
 
 
 class StripeSourceConfig(BaseModel):
@@ -303,6 +311,49 @@ class RESTAPISourceConfig(BaseModel):
     )
 
 
+class DltNativeConfig(BaseModel):
+    """
+    Advanced: Direct dlt source configuration (registry bypass)
+
+    For dlt sources not in Dango's registry, or for advanced users who want
+    full control over dlt source configuration.
+
+    Users can:
+    1. Place custom dlt source files in custom_sources/ directory
+    2. Configure source parameters directly in sources.yml
+    3. Use any dlt verified source or custom source
+
+    Example sources.yml:
+        sources:
+          - name: my_custom_source
+            type: dlt_native
+            dlt_native:
+              source_module: "my_source"  # custom_sources/my_source.py
+              source_function: "my_source_func"
+              function_kwargs:
+                api_key_env: "MY_API_KEY"
+                endpoint: "https://api.example.com"
+    """
+    source_module: str = Field(
+        description="Python module name (from custom_sources/ directory or dlt package name)"
+    )
+    source_function: str = Field(
+        description="Function name to call for source (e.g., 'google_ads', 'my_custom_source')"
+    )
+    function_kwargs: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Keyword arguments to pass to source function"
+    )
+    pipeline_name: Optional[str] = Field(
+        default=None,
+        description="Custom pipeline name (defaults to source name)"
+    )
+    dataset_name: Optional[str] = Field(
+        default=None,
+        description="Custom dataset name (defaults to source name)"
+    )
+
+
 class DataSource(BaseModel):
     """Data source definition"""
     name: str = Field(description="Unique source name (used as table prefix)")
@@ -312,6 +363,7 @@ class DataSource(BaseModel):
     # Type-specific configs (only one should be set based on source type)
     csv: Optional[CSVSourceConfig] = None
     rest_api: Optional[RESTAPISourceConfig] = None
+    dlt_native: Optional[DltNativeConfig] = None  # Advanced: Direct dlt source
 
     # Marketing & Analytics
     facebook_ads: Optional[FacebookAdsSourceConfig] = None

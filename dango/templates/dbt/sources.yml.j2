@@ -37,7 +37,6 @@ sources:
         columns:
 {% for column in table.columns %}
           - name: {{ column.name }}
-            description: {{ column.description | default('TODO: Add column description (edit dbt/models/staging/sources_' + source_name + '.yml)') }}
 {% if column.tests %}
             tests:
 {% for test in column.tests %}

@@ -455,11 +455,13 @@ def get_source_tables_info(source_name: str) -> Optional[Dict[str, Any]]:
     """
     Get detailed table information for a source, including per-table breakdown.
 
+    All sources use raw_{source_name} schema pattern (industry best practice).
+
     Returns:
         Dictionary with:
         - total_rows: Total row count across all tables
         - tables: List of {name, row_count, schema} for each table
-        - is_multi_resource: Whether this is a multi-resource source
+        - has_multiple_tables: Whether source has multiple tables
 
     Returns None if source not found or database unavailable.
     """
@@ -471,21 +473,21 @@ def get_source_tables_info(source_name: str) -> Optional[Dict[str, Any]]:
     try:
         conn = duckdb.connect(str(db_path), read_only=True)
 
-        # Check for multi-resource schema first (raw_{source_name})
-        multi_schema = f"raw_{source_name}"
+        # All sources use raw_{source_name} schema
+        schema_name = f"raw_{source_name}"
         result = conn.execute(f"""
             SELECT COUNT(*)
             FROM information_schema.tables
-            WHERE table_schema = '{multi_schema}'
+            WHERE table_schema = '{schema_name}'
               AND table_name NOT LIKE '_dlt_%'
         """).fetchone()
 
         if result and result[0] > 0:
-            # Multi-resource source: get per-table breakdown
+            # Get per-table breakdown
             tables_result = conn.execute(f"""
                 SELECT table_name
                 FROM information_schema.tables
-                WHERE table_schema = '{multi_schema}'
+                WHERE table_schema = '{schema_name}'
                   AND table_name NOT LIKE '_dlt_%'
                 ORDER BY table_name
             """).fetchall()
@@ -493,45 +495,24 @@ def get_source_tables_info(source_name: str) -> Optional[Dict[str, Any]]:
             tables = []
             total_rows = 0
             for (table_name,) in tables_result:
-                count_result = conn.execute(f'SELECT COUNT(*) FROM "{multi_schema}"."{table_name}"').fetchone()
+                count_result = conn.execute(f'SELECT COUNT(*) FROM "{schema_name}"."{table_name}"').fetchone()
                 if count_result:
                     row_count = count_result[0]
                     total_rows += row_count
                     tables.append({
                         "name": table_name,
                         "row_count": row_count,
-                        "schema": multi_schema
+                        "schema": schema_name
                     })
 
             conn.close()
             return {
                 "total_rows": total_rows,
                 "tables": tables,
-                "is_multi_resource": True
+                "has_multiple_tables": len(tables) > 1
             }
 
-        # Single-resource source: check raw.{source_name} table
-        result = conn.execute(f"""
-            SELECT COUNT(*)
-            FROM information_schema.tables
-            WHERE table_schema = 'raw' AND table_name = '{source_name}'
-        """).fetchone()
-
-        if result and result[0] > 0:
-            count_result = conn.execute(f'SELECT COUNT(*) FROM "raw"."{source_name}"').fetchone()
-            row_count = count_result[0] if count_result else 0
-            conn.close()
-            return {
-                "total_rows": row_count,
-                "tables": [{
-                    "name": source_name,
-                    "row_count": row_count,
-                    "schema": "raw"
-                }],
-                "is_multi_resource": False
-            }
-
-        # Fall back to staging table
+        # Fall back to staging table (for backward compatibility)
         result = conn.execute(f"""
             SELECT COUNT(*)
             FROM information_schema.tables
@@ -549,7 +530,7 @@ def get_source_tables_info(source_name: str) -> Optional[Dict[str, Any]]:
                     "row_count": row_count,
                     "schema": "staging"
                 }],
-                "is_multi_resource": False
+                "has_multiple_tables": False
             }
 
         conn.close()
@@ -1129,7 +1110,8 @@ async def get_source_status_data(source: dict) -> SourceStatus:
     # Extract row count and tables list
     if tables_info:
         row_count = tables_info['total_rows']
-        tables = [TableInfo(**t) for t in tables_info['tables']] if tables_info['is_multi_resource'] else None
+        # Show tables breakdown if source has multiple tables
+        tables = [TableInfo(**t) for t in tables_info['tables']] if tables_info.get('has_multiple_tables') else None
     else:
         row_count = None
         tables = None
@@ -1216,10 +1198,10 @@ async def get_source_details(source_name: str):
     # Get freshness information
     freshness = get_source_freshness(source_name)
 
-    # Get table breakdown for multi-resource sources
+    # Get table breakdown for sources with multiple tables
     tables_info = get_source_tables_info(source_name)
     tables = None
-    if tables_info and tables_info['is_multi_resource']:
+    if tables_info and tables_info.get('has_multiple_tables'):
         tables = [TableInfo(**t) for t in tables_info['tables']]
 
     return {

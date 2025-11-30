@@ -6,20 +6,18 @@ Utilities for matching tables to source configurations, used by db status and db
 
 from typing import Dict, Set, Tuple
 from dango.config import DangoConfig
-from dango.ingestion.sources.registry import get_source_metadata
 
 
 def build_schema_table_mapping(config: DangoConfig) -> Tuple[Dict[str, Set[str]], Dict[str, str]]:
     """
     Build mapping of schemas to expected tables based on source configurations.
 
-    For multi-resource sources (Stripe, Shopify, etc.):
-      - Schema: raw_{source_name} (e.g., raw_stripe_test)
-      - Tables: endpoint names (e.g., charge, customer, subscription)
+    All sources use the pattern:
+      - Schema: raw_{source_name} (e.g., raw_stripe_test, raw_orders)
+      - Tables: endpoint/resource names from config
 
-    For single-resource sources (CSV, etc.):
-      - Schema: raw
-      - Tables: source names (e.g., orders)
+    This follows industry best practice (Airbyte, Fivetran) of one schema per source
+    to prevent table name collisions.
 
     Args:
         config: Dango configuration with source definitions
@@ -35,32 +33,25 @@ def build_schema_table_mapping(config: DangoConfig) -> Tuple[Dict[str, Set[str]]
     for source in config.sources.sources:
         source_name = source.name.lower()
 
-        # Get source metadata to check if multi-resource
-        metadata = get_source_metadata(source.type.value)
-        is_multi_resource = metadata.get("multi_resource", False) if metadata else False
+        # All sources use raw_{source_name} schema pattern
+        schema_name = f"raw_{source_name}"
+        source_to_schema[source_name] = schema_name
 
-        if is_multi_resource:
-            # Multi-resource source: one schema per source, tables are endpoint names
-            schema_name = f"raw_{source_name}"
-            source_to_schema[source_name] = schema_name
+        # Get source-specific config to find endpoints/resources/tables
+        source_config = getattr(source, source.type.value, None)
+        if source_config:
+            source_dict = source_config.model_dump() if hasattr(source_config, 'model_dump') else {}
+            endpoints = source_dict.get('endpoints') or source_dict.get('resources') or source_dict.get('tables')
 
-            # Get source-specific config
-            source_config = getattr(source, source.type.value, None)
-            if source_config:
-                source_dict = source_config.model_dump() if hasattr(source_config, 'model_dump') else {}
-                endpoints = source_dict.get('endpoints') or source_dict.get('resources') or source_dict.get('tables')
-
-                if endpoints:
-                    if schema_name not in schema_to_tables:
-                        schema_to_tables[schema_name] = set()
-                    for endpoint in endpoints:
-                        schema_to_tables[schema_name].add(endpoint.lower())
-        else:
-            # Single-resource source: 'raw' schema, table name is source name
-            if 'raw' not in schema_to_tables:
-                schema_to_tables['raw'] = set()
-            schema_to_tables['raw'].add(source_name)
-            source_to_schema[source_name] = 'raw'
+            if endpoints:
+                if schema_name not in schema_to_tables:
+                    schema_to_tables[schema_name] = set()
+                for endpoint in endpoints:
+                    schema_to_tables[schema_name].add(endpoint.lower())
+            else:
+                # No explicit endpoints - schema will be discovered from DB
+                if schema_name not in schema_to_tables:
+                    schema_to_tables[schema_name] = set()
 
     return schema_to_tables, source_to_schema
 
@@ -83,13 +74,20 @@ def is_table_configured(
     Returns:
         True if table is configured, False if orphaned
     """
-    # Skip dlt internal tables (always considered configured)
+    # dlt internal tables are only configured if their schema belongs to an active source
     if table.startswith('_dlt_'):
+        # For source-specific schemas (raw_{source_name}), check if schema is configured
+        if schema.startswith('raw_'):
+            return schema in schema_to_tables
         return True
 
     # Raw tables: check schema-specific expected tables
-    if schema == 'raw' or schema.startswith('raw_'):
+    if schema.startswith('raw_'):
         expected_in_schema = schema_to_tables.get(schema, set())
+        # If no expected tables in mapping, the schema exists so table is valid
+        # (tables are discovered from DB, not always pre-known)
+        if not expected_in_schema:
+            return schema in schema_to_tables
         return table in expected_in_schema
 
     # Staging tables: stg_{source_name}__{endpoint} or stg_{source_name}
@@ -99,16 +97,8 @@ def is_table_configured(
             for source_name, raw_schema in source_to_schema.items():
                 # Check if staging table belongs to this source
                 if table.startswith(f"stg_{source_name}__") or table == f"stg_{source_name}":
-                    # Extract endpoint/table name
-                    if "__" in table:
-                        endpoint = table.split("__", 1)[1]
-                    else:
-                        endpoint = source_name
-
-                    # Check if this endpoint exists in the raw schema
-                    expected_in_raw = schema_to_tables.get(raw_schema, set())
-                    if endpoint in expected_in_raw or source_name in expected_in_raw:
-                        return True
+                    # Source exists, so staging table is valid
+                    return True
             return False
         else:
             # Other staging tables - assume configured

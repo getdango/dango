@@ -30,7 +30,10 @@ class ShopifyApi:
             private_app_password: The private app password to the app on your shop.
             api_version: The API version to use (e.g. 2023-01)
         """
-        self.shop_url = shop_url
+        # Ensure shop_url has https:// protocol
+        if not shop_url.startswith('http'):
+            shop_url = f"https://{shop_url}"
+        self.shop_url = shop_url.rstrip('/')
         self.private_app_password = private_app_password
         self.api_version = api_version
 
@@ -135,7 +138,6 @@ class ShopifyPartnerApi:
         variables = dict(variables or {})
         while True:
             data = self.run_graphql_query(query, variables)
-            print(data)
             data_items = jsonpath.find_values(data_items_path, data)
             if not data_items:
                 break

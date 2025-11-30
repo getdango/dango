@@ -35,7 +35,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Local & Custom",
         "description": "Load data from local CSV files with incremental loading support",
         "auth_type": AuthType.NONE,
-        "multi_resource": False,  # Single table per source instance
         "dlt_package": None,  # Custom implementation, not dlt
         "dlt_function": None,
         "supported_in_v0": True,  # Fully tested for v0.0.1
@@ -74,12 +73,60 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "popularity": 10,  # 1-10, used for sorting
     },
 
+    "dlt_native": {
+        "display_name": "dlt Native Source (Advanced)",
+        "category": "Local & Custom",
+        "description": "Use any dlt verified source or custom source not in Dango's registry. Advanced users only.",
+        "auth_type": AuthType.NONE,  # Auth handled by source itself
+        "dlt_package": None,  # User specifies
+        "dlt_function": None,  # User specifies
+        "supported_in_v0": True,  # Registry bypass implementation complete
+        "required_params": [
+            {
+                "name": "source_module",
+                "type": "string",
+                "prompt": "Source module name",
+                "help": "Module name: from custom_sources/ or dlt package (e.g., 'my_source', 'google_ads')",
+            },
+            {
+                "name": "source_function",
+                "type": "string",
+                "prompt": "Source function name",
+                "help": "Function to call (e.g., 'my_source_func', 'google_ads')",
+            },
+        ],
+        "optional_params": [],
+        "setup_guide": [
+            "ADVANCED FEATURE - For developers familiar with dlt",
+            "",
+            "1. File-based approach (recommended):",
+            "   - Manually edit .dango/sources.yml",
+            "   - Add source with type: dlt_native",
+            "   - Configure source_module, source_function, function_kwargs",
+            "   - See docs/ADVANCED_USAGE.md for examples",
+            "",
+            "2. Custom sources:",
+            "   - Place Python files in custom_sources/ directory",
+            "   - Define dlt source functions",
+            "   - Configure in sources.yml",
+            "",
+            "3. Using dlt verified sources:",
+            "   - Install dlt source package",
+            "   - Configure credentials in .dlt/secrets.toml",
+            "   - Add to sources.yml",
+            "",
+            "Documentation: docs/ADVANCED_USAGE.md, docs/REGISTRY_BYPASS.md",
+        ],
+        "docs_url": "https://dlthub.com/docs/build-a-pipeline-tutorial",
+        "cost_warning": "⚠️  ADVANCED FEATURE - Manual configuration required",
+        "popularity": 3,  # Low - for advanced users only
+    },
+
     "rest_api": {
         "display_name": "REST API (Generic)",
         "category": "Local & Custom",
         "description": "Connect to any custom REST API (e.g., Shopee, Lazada, internal APIs)",
         "auth_type": AuthType.API_KEY,
-        "multi_resource": True,  # Can have multiple endpoints
         "dlt_package": "rest_api",  # Built-in dlt source
         "dlt_function": "rest_api_source",
         "required_params": [
@@ -130,40 +177,39 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
     "google_sheets": {
         "display_name": "Google Sheets",
         "category": "Marketing & Analytics",
-        "description": "Load data from Google Sheets spreadsheets",
+        "description": "Load data from Google Sheets (one or more tabs)",
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_sheets",
         "dlt_function": "google_spreadsheet",
         "required_params": [
             {
-                "name": "spreadsheet_id",
+                "name": "spreadsheet_url_or_id",
                 "type": "string",
-                "prompt": "Spreadsheet ID",
+                "prompt": "Spreadsheet ID or URL",
                 "help": "Found in URL: docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit",
             },
             {
-                "name": "credentials_env",
-                "type": "secret",
-                "env_var": "GOOGLE_CREDENTIALS",
-                "prompt": "Google credentials (use 'dango auth google' to generate)",
+                "name": "range_names",
+                "type": "sheet_selector",  # Special type: wizard fetches sheets and shows multi-select
+                "prompt": "Select sheets/tabs to load",
+                "help": "Each selected sheet becomes a table in the database",
             },
         ],
-        "optional_params": [
-            {
-                "name": "sheet_name",
-                "type": "string",
-                "prompt": "Sheet name (leave empty for all sheets)",
-                "default": None,
-            },
-        ],
+        # Transform string to list for backward compatibility with old configs
+        "param_transforms": {
+            "range_names": "list",  # Convert single string "Sheet1" to ["Sheet1"]
+        },
         "setup_guide": [
-            "1. Enable Google Sheets API in Google Cloud Console",
-            "2. Create OAuth 2.0 credentials or Service Account",
-            "3. Run: dango auth google",
-            "4. Share your spreadsheet with the service account email",
+            "1. OAuth setup runs automatically during 'dango source add'",
+            "2. OR manually run: dango auth google --service sheets",
+            "3. Follow the browser OAuth flow to authenticate",
+            "4. Get spreadsheet ID from URL: docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit",
+            "5. Credentials are permanent (refresh token stored in .dlt/secrets.toml)",
+            "6. To add/remove sheets later: edit .dango/sources.yml and run 'dango sync'",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_sheets",
         "cost_warning": "Subject to Google API quota limits",
+        "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 10,
     },
 
@@ -174,6 +220,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.OAUTH,
         "dlt_package": "facebook_ads",
         "dlt_function": "facebook_ads_source",
+        "pip_dependencies": [{"pip": "facebook-business", "import": "facebook_business"}],
         "required_params": [
             {
                 "name": "account_id",
@@ -198,14 +245,15 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
         ],
         "setup_guide": [
-            "1. Go to: https://developers.facebook.com",
-            "2. Create a new app (Business type)",
-            "3. Add Marketing API permissions",
-            "4. Run: dango auth facebook",
-            "5. Generate long-lived access token",
+            "1. OAuth setup runs automatically during 'dango source add'",
+            "2. OR manually run: dango auth facebook_ads",
+            "3. Follow the prompts to exchange short-lived token for long-lived token",
+            "4. IMPORTANT: Access token expires in 60 days",
+            "5. Set a reminder to re-authenticate before expiry",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/facebook_ads",
         "cost_warning": "Rate limited: 200 calls/hour per user, 4800/day per app",
+        "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 9,
     },
 
@@ -213,22 +261,16 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "display_name": "Google Analytics (GA4)",
         "category": "Marketing & Analytics",
         "description": "Load website analytics data from Google Analytics 4",
-        "auth_type": AuthType.SERVICE_ACCOUNT,
+        "auth_type": AuthType.OAUTH,
         "dlt_package": "google_analytics",
         "dlt_function": "google_analytics",
+        "pip_dependencies": [{"pip": "google-analytics-data", "import": "google.analytics.data_v1beta"}],
         "required_params": [
             {
                 "name": "property_id",
                 "type": "string",
                 "prompt": "GA4 Property ID",
                 "help": "Find in GA4 Admin > Property Settings",
-            },
-            {
-                "name": "credentials_env",
-                "type": "secret",
-                "env_var": "GOOGLE_CREDENTIALS",
-                "prompt": "Google service account credentials (use 'dango auth google')",
-                "help": "Service account JSON credentials from Google Cloud Console. Run 'dango auth google' or download from IAM > Service Accounts. Should be a JSON file with 'type': 'service_account'.",
             },
         ],
         "optional_params": [
@@ -239,14 +281,44 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "default": None,
             },
         ],
+        # Default queries based on industry best practices (Calibrate Analytics)
+        # GA4 Data API provides aggregated data only - each query becomes a table
+        "default_config": {
+            "queries": [
+                {
+                    "resource_name": "traffic",
+                    "dimensions": ["date", "sessionSource", "sessionMedium", "sessionCampaignName", "deviceCategory"],
+                    "metrics": ["sessions", "engagedSessions", "totalUsers", "newUsers", "averageSessionDuration", "bounceRate"]
+                },
+                {
+                    "resource_name": "pages",
+                    "dimensions": ["date", "pagePath", "pageTitle"],
+                    "metrics": ["screenPageViews", "totalUsers", "userEngagementDuration", "sessions"]
+                },
+                {
+                    "resource_name": "landing_pages",
+                    "dimensions": ["date", "landingPage", "sessionSource", "sessionMedium", "deviceCategory"],
+                    "metrics": ["sessions", "totalUsers", "engagedSessions", "bounceRate"]
+                },
+                {
+                    "resource_name": "geo",
+                    "dimensions": ["date", "country", "city"],
+                    "metrics": ["sessions", "totalUsers", "engagedSessions"]
+                }
+            ]
+        },
         "setup_guide": [
-            "1. Create service account in Google Cloud Console",
-            "2. Enable Google Analytics Data API",
-            "3. Add service account email as viewer in GA4 property",
-            "4. Run: dango auth google",
+            "1. OAuth setup runs automatically during 'dango source add'",
+            "2. OR manually run: dango auth google_analytics",
+            "3. Follow the browser OAuth flow to authenticate",
+            "4. Get GA4 Property ID from Admin > Property Settings",
+            "5. Default queries load 4 tables: traffic, pages, landing_pages, geo",
+            "6. Edit .dlt/config.toml to customize dimensions/metrics",
+            "7. Schema evolves automatically - can add queries anytime",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_analytics",
-        "cost_warning": "Subject to Google API quota limits",
+        "cost_warning": "Subject to Google API quota limits. Data is aggregated (not event-level).",
+        "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 9,
     },
 
@@ -258,7 +330,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Business & CRM",
         "description": "Load contacts, companies, deals, and tickets from HubSpot CRM",
         "auth_type": AuthType.API_KEY,
-        "multi_resource": True,  # Has multiple resources (contacts, companies, deals, etc.)
         "dlt_package": "hubspot",
         "dlt_function": "hubspot",
         "required_params": [
@@ -295,7 +366,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Business & CRM",
         "description": "Load data from Salesforce CRM (accounts, contacts, opportunities, etc.)",
         "auth_type": AuthType.BASIC,
-        "multi_resource": True,  # Has multiple objects (Account, Contact, Opportunity, etc.)
         "dlt_package": "salesforce",
         "dlt_function": "salesforce_source",
         "required_params": [
@@ -346,9 +416,9 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "E-commerce & Payment",
         "description": "Load payment data from Stripe (charges, customers, subscriptions, etc.)",
         "auth_type": AuthType.API_KEY,
-        "multi_resource": True,  # Has multiple endpoints (Charge, Customer, Subscription, etc.)
         "dlt_package": "stripe_analytics",
         "dlt_function": "stripe_source",
+        "pip_dependencies": [{"pip": "stripe", "import": "stripe"}],
         "supported_in_v0": True,  # Fully tested for v0.0.1
         "required_params": [
             {
@@ -398,7 +468,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "E-commerce & Payment",
         "description": "Load e-commerce data from Shopify (orders, customers, products, etc.)",
         "auth_type": AuthType.API_KEY,
-        "multi_resource": True,  # Has multiple resources (orders, customers, products, etc.)
         "dlt_package": "shopify_dlt",  # Note: source name is shopify_dlt
         "dlt_function": "shopify_source",
         "required_params": [
@@ -432,14 +501,17 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
         ],
         "setup_guide": [
-            "1. Log in to Shopify Admin",
-            "2. Go to Apps > Develop apps (or App development)",
-            "3. Create custom app with required scopes",
-            "4. Install app and copy Admin API access token",
-            "5. Add to .env as SHOPIFY_API_KEY",
+            "1. Custom app setup runs automatically during 'dango source add'",
+            "2. OR manually run: dango auth shopify",
+            "3. Create custom app in Shopify Admin > Apps > Develop apps",
+            "4. Configure Admin API scopes (read permissions needed)",
+            "5. Install app and reveal Admin API access token",
+            "6. Enter shop URL (e.g., mystore.myshopify.com) and access token",
+            "7. Credentials are permanent (stored in .dlt/secrets.toml)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/shopify",
         "cost_warning": "Included with Shopify plan",
+        "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 9,
     },
 
@@ -584,35 +656,9 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_ads",
         "dlt_function": "google_ads",
-        "required_params": [
-            {
-                "name": "credentials_env",
-                "type": "secret",
-                "env_var": "GOOGLE_ADS_CREDENTIALS",
-                "prompt": "Google OAuth credentials JSON",
-                "help": "OAuth or Service Account credentials from Google Cloud Console",
-            },
-            {
-                "name": "dev_token_env",
-                "type": "secret",
-                "env_var": "GOOGLE_ADS_DEV_TOKEN",
-                "prompt": "Google Ads Developer Token",
-                "help": "Get from Google Ads API Center",
-            },
-            {
-                "name": "impersonated_email",
-                "type": "string",
-                "prompt": "Email address to impersonate (for service accounts)",
-                "help": "Required for service account authentication",
-            },
-        ],
+        "pip_dependencies": [{"pip": "google-ads", "import": "google.ads"}],
+        "required_params": [],  # OAuth handles credentials; developer_token and customer_id are collected during auth
         "optional_params": [
-            {
-                "name": "customer_id",
-                "type": "string",
-                "prompt": "Customer ID (without hyphens)",
-                "help": "Find in Google Ads account URL",
-            },
             {
                 "name": "resources",
                 "type": "multiselect",
@@ -622,13 +668,15 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
         ],
         "setup_guide": [
-            "1. Enable Google Ads API in Google Cloud Console",
-            "2. Create OAuth or Service Account credentials",
-            "3. Apply for Google Ads Developer Token",
-            "4. Add credentials to .env as GOOGLE_ADS_CREDENTIALS",
-            "5. Add developer token to .env as GOOGLE_ADS_DEV_TOKEN",
+            "1. OAuth setup runs automatically during 'dango source add'",
+            "2. OR manually run: dango auth google_ads",
+            "3. Follow the browser OAuth flow to authenticate",
+            "4. Enter Developer Token from Google Ads API Center",
+            "5. Enter Customer ID (find in Google Ads account URL, no hyphens)",
+            "6. Credentials are permanent (refresh token stored in .dlt/secrets.toml)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_ads",
+        "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 7,
     },
 
@@ -712,6 +760,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "airtable",
         "dlt_function": "airtable_source",
+        "pip_dependencies": [{"pip": "pyairtable", "import": "pyairtable"}],
         "required_params": [
             {
                 "name": "base_id",
@@ -1122,6 +1171,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.NONE,
         "dlt_package": "kafka",
         "dlt_function": "kafka_consumer",
+        "pip_dependencies": [{"pip": "confluent-kafka", "import": "confluent_kafka"}],
         "required_params": [
             {
                 "name": "topics",
