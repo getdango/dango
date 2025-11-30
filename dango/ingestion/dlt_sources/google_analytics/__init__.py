@@ -73,9 +73,9 @@ def google_analytics(
 
     # Build the service object for Google Analytics api.
     client = BetaAnalyticsDataClient(credentials=credentials.to_native_credentials())
-    # get metadata needed for some resources
-    metadata = get_metadata(client=client, property_id=property_id)
-    resource_list = [metadata | metrics_table, metadata | dimensions_table]
+    # Skip loading metadata tables (dimensions/metrics) - they're GA4 API reference data
+    # that most users don't need. Only load the actual query results.
+    resource_list = []
     for query in queries:
         # always add "date" to dimensions so we are able to track the last day of a report
         dimensions = query["dimensions"]
