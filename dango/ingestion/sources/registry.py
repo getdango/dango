@@ -222,6 +222,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Marketing & Analytics",
         "description": "Load ad campaigns, insights, and performance metrics from Facebook Ads",
         "auth_type": AuthType.OAUTH,
+        "multi_resource": True,  # Creates multiple tables (campaigns, ads, ad_sets, leads, etc.)
         "dlt_package": "facebook_ads",
         "dlt_function": "facebook_ads_source",
         "pip_dependencies": [{"pip": "facebook-business", "import": "facebook_business"}],
@@ -663,6 +664,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Marketing & Analytics",
         "description": "Load ad campaigns and performance data from Google Ads",
         "auth_type": AuthType.OAUTH,
+        "multi_resource": True,  # Creates multiple tables (customers, campaigns, etc.)
         "dlt_package": "google_ads",
         "dlt_function": "google_ads",
         "pip_dependencies": [{"pip": "google-ads", "import": "google.ads"}],
