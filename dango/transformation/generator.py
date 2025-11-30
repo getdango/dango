@@ -233,8 +233,13 @@ class DbtModelGenerator:
                     []
                 )
 
-                if isinstance(resources, list):
+                if isinstance(resources, list) and resources:
                     return resources
+
+                # Handle GA4 queries format - each query has a resource_name
+                queries = source_dict.get('queries', [])
+                if isinstance(queries, list) and queries:
+                    return [q.get('resource_name') for q in queries if q.get('resource_name')]
             except Exception:
                 pass
 

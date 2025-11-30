@@ -266,6 +266,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "Marketing & Analytics",
         "description": "Load website analytics data from Google Analytics 4",
         "auth_type": AuthType.OAUTH,
+        "multi_resource": True,  # Each query creates a separate table
         "dlt_package": "google_analytics",
         "dlt_function": "google_analytics",
         "pip_dependencies": [{"pip": "google-analytics-data", "import": "google.analytics.data_v1beta"}],

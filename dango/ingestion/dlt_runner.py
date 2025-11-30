@@ -690,12 +690,13 @@ class DltPipelineRunner:
             try:
                 source_dict = source_config_obj.model_dump() if hasattr(source_config_obj, 'model_dump') else {}
 
-                # Check for endpoints/resources/tables parameter
+                # Check for endpoints/resources/tables/queries parameter
                 resources = (
                     source_dict.get('endpoints') or
                     source_dict.get('resources') or
                     source_dict.get('tables') or
-                    source_dict.get('objects')
+                    source_dict.get('objects') or
+                    source_dict.get('queries')  # GA4 uses queries, each creates a table
                 )
 
                 # If multiple resources configured, use prefixed schema
