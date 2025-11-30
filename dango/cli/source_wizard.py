@@ -1044,7 +1044,7 @@ class SourceWizard:
                 console.print("\n[cyan]How to fix:[/cyan]")
                 console.print("  1. Check the spreadsheet URL/ID is correct")
                 console.print("  2. Make sure the spreadsheet is shared with your Google account")
-                console.print(f"  3. Your account: check with [bold]dango auth-list[/bold]")
+                console.print(f"  3. Your account: check with [bold]dango auth list[/bold]")
             elif "403" in error_str or "permission" in error_str or "forbidden" in error_str:
                 console.print(f"\n[red]✗ Permission denied[/red]")
                 console.print("\n[yellow]Possible causes:[/yellow]")

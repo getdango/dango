@@ -1618,7 +1618,7 @@ def source_remove(ctx, source_name, yes):
         raise click.Abort()
 
 
-@cli.command("auth-list")
+@auth.command("list")
 @click.pass_context
 def auth_list(ctx):
     """
@@ -1677,14 +1677,14 @@ def auth_list(ctx):
         console.print("\n")
         console.print(table)
         console.print("\n[dim]To re-authenticate: dango auth <source_type>[/dim]")
-        console.print("[dim]To remove: dango auth-remove <source_type>[/dim]\n")
+        console.print("[dim]To remove: dango auth remove <source_type>[/dim]\n")
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise click.Abort()
 
 
-@cli.command("auth-status")
+@auth.command("status")
 @click.pass_context
 def auth_status(ctx):
     """
@@ -1720,7 +1720,7 @@ def auth_status(ctx):
             for cred in expired:
                 console.print(f"  • {cred.account_info} ({cred.source_type})")
                 console.print(f"    [dim]Expired: {cred.expires_at.strftime('%Y-%m-%d')}[/dim]")
-                console.print(f"    [yellow]Re-authenticate: dango auth-refresh {cred.source_type}[/yellow]\n")
+                console.print(f"    [yellow]Re-authenticate: dango auth refresh {cred.source_type}[/yellow]\n")
 
         # Show expiring soon
         if expiring_soon:
@@ -1729,14 +1729,14 @@ def auth_status(ctx):
                 days_left = cred.days_until_expiry()
                 console.print(f"  • {cred.account_info} ({cred.source_type})")
                 console.print(f"    [dim]Expires: {cred.expires_at.strftime('%Y-%m-%d')} ({days_left} days)[/dim]")
-                console.print(f"    [cyan]Re-authenticate: dango auth-refresh {cred.source_type}[/cyan]\n")
+                console.print(f"    [cyan]Re-authenticate: dango auth refresh {cred.source_type}[/cyan]\n")
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise click.Abort()
 
 
-@cli.command("auth-remove")
+@auth.command("remove")
 @click.argument("source_type")
 @click.pass_context
 def auth_remove(ctx, source_type):
@@ -1746,7 +1746,7 @@ def auth_remove(ctx, source_type):
     SOURCE_TYPE: Source type to remove credentials for (e.g., google_ads, facebook_ads)
 
     Example:
-      dango auth-remove google_ads
+      dango auth remove google_ads
     """
     from .utils import require_project_context
     from dango.oauth.storage import OAuthStorage
@@ -1760,7 +1760,7 @@ def auth_remove(ctx, source_type):
         cred = oauth_storage.get(source_type)
         if not cred:
             console.print(f"\n[red]✗ OAuth credentials for '{source_type}' not found[/red]")
-            console.print("\n[cyan]To see all credentials:[/cyan] dango auth-list\n")
+            console.print("\n[cyan]To see all credentials:[/cyan] dango auth list\n")
             raise click.Abort()
 
         # Show info and confirm
@@ -1785,17 +1785,17 @@ def auth_remove(ctx, source_type):
         raise click.Abort()
 
 
-@cli.command("auth-refresh")
+@auth.command("refresh")
 @click.argument("oauth_name")
 @click.pass_context
 def auth_refresh(ctx, oauth_name):
     """
     Re-authenticate OAuth credential
 
-    OAUTH_NAME: Name of OAuth credential to refresh (from dango auth-list)
+    OAUTH_NAME: Name of OAuth credential to refresh (from dango auth list)
 
     Example:
-      dango auth-refresh facebook_ads_123456789
+      dango auth refresh facebook_ads_123456789
     """
     from .utils import require_project_context
     from dango.oauth.storage import OAuthStorage
@@ -1810,7 +1810,7 @@ def auth_refresh(ctx, oauth_name):
         cred = oauth_storage.get(oauth_name)
         if not cred:
             console.print(f"\n[red]✗ OAuth credential '{oauth_name}' not found[/red]")
-            console.print("\n[cyan]To see all credentials:[/cyan] dango auth-list\n")
+            console.print("\n[cyan]To see all credentials:[/cyan] dango auth list\n")
             raise click.Abort()
 
         # Show info
@@ -2498,11 +2498,11 @@ def auth_check(ctx):
             for cred in credentials:
                 if cred.is_expired():
                     status = "[red]EXPIRED[/red]"
-                    action = f"[dim]→ Run: dango auth-refresh {cred.source_type}[/dim]"
+                    action = f"[dim]→ Run: dango auth refresh {cred.source_type}[/dim]"
                 elif cred.is_expiring_soon():
                     days_left = cred.days_until_expiry()
                     status = f"[yellow]Expires in {days_left}d[/yellow]"
-                    action = f"[dim]→ Consider refreshing: dango auth-refresh {cred.source_type}[/dim]"
+                    action = f"[dim]→ Consider refreshing: dango auth refresh {cred.source_type}[/dim]"
                 else:
                     status = "[green]Active[/green]"
                     action = ""
@@ -2522,7 +2522,7 @@ def auth_check(ctx):
                 console.print("  [dim]You can add OAuth sources with: dango source add[/dim]")
             else:
                 console.print("  [yellow]⚠️  OAuth credentials configured but tokens expired[/yellow]")
-                console.print("  [dim]Re-authenticate with: dango auth-refresh <name>[/dim]")
+                console.print("  [dim]Re-authenticate with: dango auth refresh <name>[/dim]")
         elif all_configured:
             console.print("  [yellow]⚠️  OAuth credentials configured but not yet authenticated[/yellow]")
             console.print("  [dim]Authenticate with: dango auth <provider>[/dim]")
@@ -3628,7 +3628,7 @@ def metabase_load(ctx, overwrite, dry_run):
         raise click.Abort()
 
 
-@cli.command("metabase-refresh")
+@metabase.command("refresh")
 @click.pass_context
 def metabase_refresh(ctx):
     """
@@ -3638,7 +3638,7 @@ def metabase_refresh(ctx):
     Metabase to discover them. This recreates the database connection.
 
     Examples:
-      dango metabase-refresh    # Refresh to discover new schemas
+      dango metabase refresh    # Refresh to discover new schemas
     """
     from pathlib import Path
     from .utils import require_project_context
