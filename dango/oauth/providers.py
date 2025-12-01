@@ -436,10 +436,6 @@ class FacebookOAuthProvider(BaseOAuthProvider):
 
             console.print(Panel("\n".join(instructions), title="Setup Instructions", border_style="cyan"))
 
-            if Confirm.ask("\n[cyan]Open Facebook Graph API Explorer?[/cyan]", default=True):
-                import webbrowser
-                webbrowser.open("https://developers.facebook.com/tools/explorer/")
-
             # Get short-lived token
             console.print("\n[bold]Step 1: Short-lived Access Token[/bold]")
             short_token = _clean_pasted_input(Prompt.ask("Paste short-lived access token"))
