@@ -2,7 +2,7 @@
 set -e
 
 # Dango Bootstrap Installer
-# Version: 0.0.2
+# Version: 0.0.3
 # Purpose: Install Dango with per-project virtual environment
 # Platform: macOS / Linux (Windows support coming in v0.1.0)
 
@@ -291,7 +291,7 @@ install_dango() {
     source "$venv_path/bin/activate"
     $PYTHON_CMD -m pip install --upgrade pip -q
 
-    if ! $PYTHON_CMD -m pip install git+https://github.com/getdango/dango.git@feature/oauth-implementation; then
+    if ! $PYTHON_CMD -m pip install git+https://github.com/getdango/dango.git@v0.0.3; then
         print_error "Failed to install Dango from git"
         echo
         echo "Possible causes:"
@@ -316,7 +316,7 @@ upgrade_dango() {
     print_step "Upgrading Dango..."
 
     source "$venv_path/bin/activate"
-    $PYTHON_CMD -m pip install --upgrade --force-reinstall git+https://github.com/getdango/dango.git@feature/oauth-implementation -q
+    $PYTHON_CMD -m pip install --upgrade --force-reinstall git+https://github.com/getdango/dango.git@v0.0.3 -q
 
     DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 
@@ -366,7 +366,7 @@ check_conflicts() {
     echo
 
     # Run dry-run to see what will be installed/upgraded
-    dry_run_output=$($PYTHON_CMD -m pip install --dry-run --user git+https://github.com/getdango/dango.git@feature/oauth-implementation 2>&1)
+    dry_run_output=$($PYTHON_CMD -m pip install --dry-run --user git+https://github.com/getdango/dango.git@v0.0.3 2>&1)
 
     # Check if any packages will be upgraded
     if echo "$dry_run_output" | grep -q "Would upgrade"; then
@@ -402,7 +402,7 @@ install_dango_global() {
     print_step "Installing Dango globally..."
     echo
 
-    if ! $PYTHON_CMD -m pip install --user git+https://github.com/getdango/dango.git@feature/oauth-implementation; then
+    if ! $PYTHON_CMD -m pip install --user git+https://github.com/getdango/dango.git@v0.0.3; then
         print_error "Failed to install Dango from git"
         echo
         echo "Possible causes:"
@@ -838,7 +838,7 @@ main() {
                 echo "To create venv manually:"
                 echo "  $PYTHON_CMD -m venv venv"
                 echo "  source venv/bin/activate"
-                echo "  pip install git+https://github.com/getdango/dango.git@feature/oauth-implementation"
+                echo "  pip install git+https://github.com/getdango/dango.git@v0.0.3"
                 echo
                 exit 0
             fi
