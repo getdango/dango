@@ -151,7 +151,7 @@ class SourceWizard:
 
                 elif state == "params":
                     # Step 4: Collect parameters
-                    params = self._collect_parameters(metadata, source_name)
+                    params = self._collect_parameters(source_type, metadata, source_name)
                     if params == "← Back":
                         # Go back to source name
                         state = "name"
@@ -599,8 +599,13 @@ class SourceWizard:
         config = load_config(self.project_root)
         return any(s.name == name for s in config.sources.sources)
 
-    def _is_credential_param(self, param: Dict[str, Any]) -> bool:
-        """Check if a parameter is a credential/secret that should be skipped when using OAuth"""
+    def _is_credential_param(self, param: Dict[str, Any], source_type: str) -> bool:
+        """Check if a parameter is a credential/secret that should be skipped when using OAuth
+
+        Args:
+            param: Parameter configuration from registry
+            source_type: Source type key (e.g., "facebook_ads", "google_ads")
+        """
         param_name = param.get("name", "").lower()
         param_type = param.get("type", "")
 
@@ -618,12 +623,30 @@ class SourceWizard:
             if pattern in param_name:
                 return True
 
+        # Source-specific credential parameters that are collected during OAuth
+        # These are stored in .dlt/secrets.toml by the OAuth provider
+        oauth_collected_params = {
+            "facebook_ads": ["account_id"],  # Facebook OAuth collects account_id
+            "google_ads": ["customer_id"],   # Google Ads OAuth collects customer_id
+            "shopify": ["shop_url"],         # Shopify OAuth collects shop_url
+        }
+
+        if source_type in oauth_collected_params:
+            if param_name in oauth_collected_params[source_type]:
+                return True
+
         return False
 
-    def _collect_parameters(self, metadata: Dict[str, Any], source_name: str) -> Optional[Dict[str, Any]]:
-        """Collect required and optional parameters from user"""
+    def _collect_parameters(self, source_type_key: str, metadata: Dict[str, Any], source_name: str) -> Optional[Dict[str, Any]]:
+        """Collect required and optional parameters from user
+
+        Args:
+            source_type_key: Source type key from registry (e.g., "facebook_ads")
+            metadata: Source metadata from registry
+            source_name: Name for this source instance
+        """
         params = {}
-        source_type = metadata.get("display_name", "source")
+        source_type_display = metadata.get("display_name", "source")
 
         # Collect required parameters
         required_params = metadata.get("required_params", [])
@@ -633,12 +656,12 @@ class SourceWizard:
 
             # Check if OAuth credentials exist for this source type
             oauth_storage = OAuthStorage(self.project_root)
-            has_oauth = oauth_storage.exists(source_type)
+            has_oauth = oauth_storage.exists(source_type_key)
 
             for param in required_params:
                 # Skip credential parameters if OAuth credentials exist
                 # OAuth credentials are stored in .dlt/secrets.toml at sources.{type}.credentials.*
-                if has_oauth and self._is_credential_param(param):
+                if has_oauth and self._is_credential_param(param, source_type_key):
                     console.print(f"  [green]✓ {param.get('prompt', param['name'])}: Using OAuth credentials[/green]")
                     continue
 
@@ -647,7 +670,7 @@ class SourceWizard:
                     param = param.copy()  # Don't modify registry
                     param["default"] = f"data/uploads/{source_name}"
 
-                value = self._prompt_parameter(param, source_name, source_type, metadata, required=True)
+                value = self._prompt_parameter(param, source_name, source_type_display, metadata, required=True)
                 if value is None:
                     return None
                 # Check if user wants to go back
@@ -664,7 +687,7 @@ class SourceWizard:
         if optional_params:
             console.print("\n[bold]Optional settings[/bold] [dim](press Enter to use defaults, edit .dango/sources.yml to change later)[/dim]")
             for param in optional_params:
-                value = self._prompt_parameter(param, source_name, source_type, metadata, required=False)
+                value = self._prompt_parameter(param, source_name, source_type_display, metadata, required=False)
                 # Check if user wants to go back
                 if isinstance(value, str) and value.lower() == "back":
                     return "← Back"
