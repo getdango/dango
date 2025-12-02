@@ -129,12 +129,21 @@ class OAuthStorage:
             if 'oauth' not in secrets['dango']:
                 secrets['dango']['oauth'] = {}
 
-            # Write credentials in dlt's expected format (provider-specific)
+            # Write credentials in dlt's expected format
+            #
+            # dlt sources have two credential patterns:
+            # 1. Google sources use GcpOAuthCredentials - expects nested 'credentials' object
+            # 2. All other sources use flat parameters (dlt.secrets.value for individual params)
+            #
+            # This generalized approach future-proofs all OAuth sources without per-source hardcoding.
             source_section = secrets['sources'][oauth_cred.source_type]
             creds = oauth_cred.credentials
 
-            # Google sources: credentials subsection + sibling fields for google_ads
-            if oauth_cred.source_type in ('google_ads', 'google_analytics', 'google_sheets'):
+            # Only Google sources use credentials object (GcpOAuthCredentials pattern)
+            CREDENTIALS_OBJECT_SOURCES = {'google_ads', 'google_analytics', 'google_sheets'}
+
+            if oauth_cred.source_type in CREDENTIALS_OBJECT_SOURCES:
+                # Google: nested credentials object (dlt GcpOAuthCredentials)
                 source_section['credentials'] = {
                     'client_id': creds.get('client_id'),
                     'client_secret': creds.get('client_secret'),
@@ -149,24 +158,12 @@ class OAuthStorage:
                         source_section['dev_token'] = creds['dev_token']
                     if creds.get('customer_id'):
                         source_section['customer_id'] = creds['customer_id']
-
-            # Facebook: flat structure with access_token
-            elif oauth_cred.source_type == 'facebook_ads':
-                source_section['credentials'] = {
-                    'access_token': creds.get('access_token'),
-                    'account_id': creds.get('account_id'),
-                }
-
-            # Shopify: flat structure with private_app_password
-            elif oauth_cred.source_type == 'shopify':
-                source_section['credentials'] = {
-                    'private_app_password': creds.get('private_app_password'),
-                    'shop_url': creds.get('shop_url'),
-                }
-
-            # Default: store all credentials as-is
             else:
-                source_section['credentials'] = creds
+                # All other sources: flat parameters (dlt.secrets.value pattern)
+                # This covers Facebook, Shopify, Slack, HubSpot, Notion, etc.
+                for key, value in creds.items():
+                    if value is not None:
+                        source_section[key] = value
 
             # Write metadata for tracking (not used by dlt)
             secrets['dango']['oauth'][oauth_cred.source_type] = {
