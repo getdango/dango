@@ -511,7 +511,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/shopify",
         "cost_warning": "Included with Shopify plan",
-        "supported_in_v0": True,  # OAuth implementation complete
+        "supported_in_v0": False,  # Blocked: Shopify deprecating legacy auth Jan 2026, awaiting dlt update
         "popularity": 9,
     },
 
