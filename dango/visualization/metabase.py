@@ -611,25 +611,47 @@ def setup_metabase(
             )
 
             if response.status_code != 200:
-                summary["errors"].append(f"Failed to create admin user: {response.text}")
-                return summary
+                # Check if user already exists - fall back to login
+                if "user currently exists" in response.text or "first user" in response.text:
+                    print("  ⚠ User already exists, attempting login with default credentials...")
+                    login_response = requests.post(
+                        f"{metabase_url}/api/session",
+                        json={"username": admin_email, "password": admin_password},
+                        timeout=10
+                    )
 
-            summary["admin_created"] = True
-            print(f"  ✓ Created admin user: {admin_email}")
+                    if login_response.status_code == 200:
+                        session_token = login_response.json().get("id")
+                        print("  ✓ Login successful with default credentials")
+                        summary["admin_created"] = True
+                        headers = {"X-Metabase-Session": session_token}
+                    else:
+                        summary["errors"].append(
+                            f"Failed to create admin user: {response.text}\n"
+                            "And could not login with default credentials.\n"
+                            "To reset: docker volume rm <project>_metabase_data && dango start"
+                        )
+                        return summary
+                else:
+                    summary["errors"].append(f"Failed to create admin user: {response.text}")
+                    return summary
+            else:
+                summary["admin_created"] = True
+                print(f"  ✓ Created admin user: {admin_email}")
 
-            # Login to get session token
-            login_response = requests.post(
-                f"{metabase_url}/api/session",
-                json={"username": admin_email, "password": admin_password},
-                timeout=10
-            )
+                # Login to get session token
+                login_response = requests.post(
+                    f"{metabase_url}/api/session",
+                    json={"username": admin_email, "password": admin_password},
+                    timeout=10
+                )
 
-            if login_response.status_code != 200:
-                summary["errors"].append("Could not login after creating admin")
-                return summary
+                if login_response.status_code != 200:
+                    summary["errors"].append("Could not login after creating admin")
+                    return summary
 
-            session_token = login_response.json().get("id")
-            headers = {"X-Metabase-Session": session_token}
+                session_token = login_response.json().get("id")
+                headers = {"X-Metabase-Session": session_token}
 
         # At this point, we have headers with session token from either path
 

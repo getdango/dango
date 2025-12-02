@@ -759,13 +759,15 @@ class DltPipelineRunner:
                     # Convert single string to list (e.g., sheet name -> [sheet_name])
                     source_kwargs[param_name] = [value]
 
-        # Note: OAuth credentials are stored directly in secrets.toml at
-        # sources.{source_type}.credentials.* during the auth flow.
-        # No injection needed - dlt finds them automatically.
+        # Inject OAuth credentials from secrets.toml as explicit kwargs
+        # This ensures credentials are passed even if dlt's config resolution misses them
+        source_kwargs = self._inject_oauth_credentials(source_type.value, source_kwargs)
 
-        # Change to project root so dlt can find .dlt/ directory
-        # dlt automatically loads .dlt/secrets.toml and .dlt/config.toml from cwd
-        # IMPORTANT: Must happen BEFORE loading source (dlt.secrets.value resolution)
+        # Set DLT_PROJECT_DIR so dlt finds .dlt/ regardless of when import happened
+        # This is dlt's official mechanism for specifying project location
+        os.environ["DLT_PROJECT_DIR"] = str(self.project_root)
+
+        # Change to project root as additional fallback
         original_cwd = os.getcwd()
         os.chdir(self.project_root)
 
@@ -938,6 +940,60 @@ class DltPipelineRunner:
             resolved_config["end_date"] = end_date
 
         return resolved_config
+
+    def _inject_oauth_credentials(self, source_type: str, source_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Inject OAuth credentials from secrets.toml into source kwargs.
+
+        This ensures credentials are explicitly passed to dlt sources even if
+        dlt's automatic config resolution fails (e.g., due to import timing).
+
+        Args:
+            source_type: dlt source type (e.g., "facebook_ads", "google_sheets")
+            source_kwargs: Existing source kwargs
+
+        Returns:
+            Updated source kwargs with injected credentials
+        """
+        import toml
+
+        secrets_file = self.project_root / ".dlt" / "secrets.toml"
+        if not secrets_file.exists():
+            return source_kwargs
+
+        try:
+            secrets = toml.load(secrets_file)
+            source_secrets = secrets.get("sources", {}).get(source_type, {})
+
+            if not source_secrets:
+                return source_kwargs
+
+            # Google sources use nested credentials object (GcpOAuthCredentials)
+            CREDENTIALS_OBJECT_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
+
+            if source_type in CREDENTIALS_OBJECT_SOURCES:
+                # Google: inject 'credentials' dict if not already present
+                if "credentials" not in source_kwargs and "credentials" in source_secrets:
+                    source_kwargs["credentials"] = source_secrets["credentials"]
+                    console.print(f"  [dim]Injected OAuth credentials for {source_type}[/dim]")
+            else:
+                # Non-Google: inject flat parameters (access_token, api_key, etc.)
+                # Common OAuth credential keys to inject
+                CREDENTIAL_KEYS = {"access_token", "api_key", "api_secret", "refresh_token", "shop_url"}
+
+                for key in CREDENTIAL_KEYS:
+                    # Inject if key is missing OR if key exists but value is None/empty
+                    if key in source_secrets:
+                        current_value = source_kwargs.get(key)
+                        if current_value is None or current_value == "":
+                            source_kwargs[key] = source_secrets[key]
+                            console.print(f"  [dim]Injected {key} for {source_type}[/dim]")
+
+            return source_kwargs
+
+        except Exception as e:
+            console.print(f"  [dim]Warning: Could not inject credentials: {e}[/dim]")
+            return source_kwargs
 
     def _load_dlt_source(self, dlt_package: str, dlt_function: str, source_kwargs: Dict[str, Any]) -> Any:
         """

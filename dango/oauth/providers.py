@@ -436,10 +436,6 @@ class FacebookOAuthProvider(BaseOAuthProvider):
 
             console.print(Panel("\n".join(instructions), title="Setup Instructions", border_style="cyan"))
 
-            if Confirm.ask("\n[cyan]Open Facebook Graph API Explorer?[/cyan]", default=True):
-                import webbrowser
-                webbrowser.open("https://developers.facebook.com/tools/explorer/")
-
             # Get short-lived token
             console.print("\n[bold]Step 1: Short-lived Access Token[/bold]")
             short_token = _clean_pasted_input(Prompt.ask("Paste short-lived access token"))
@@ -452,9 +448,10 @@ class FacebookOAuthProvider(BaseOAuthProvider):
 
             # Get App credentials
             console.print("\n[bold]Step 2: App Credentials[/bold]")
-            console.print("[dim]Find at: https://developers.facebook.com/apps/[/dim]")
+            console.print("[dim]Find at: developers.facebook.com/apps → Your App → Settings → Basic[/dim]")
 
             app_id = _clean_pasted_input(Prompt.ask("Facebook App ID"))
+            console.print("[dim]Click 'Show' next to App Secret to reveal it[/dim]")
             app_secret = _clean_pasted_input(Prompt.ask("Facebook App Secret", password=True))
 
             if not app_id or not app_secret:
@@ -471,10 +468,10 @@ class FacebookOAuthProvider(BaseOAuthProvider):
 
             # Get Ad Account ID with confirmation
             console.print("\n[bold]Step 3: Ad Account ID[/bold]")
-            console.print("[dim]Find in Ads Manager URL: facebook.com/adsmanager/manage/accounts?act=ACCOUNT_ID[/dim]")
+            console.print("[dim]Go to adsmanager.facebook.com → Look at URL for act=XXXXX or click account dropdown[/dim]")
 
             while True:
-                account_id = _clean_pasted_input(Prompt.ask("Ad Account ID (e.g., act_123456789)"))
+                account_id = _clean_pasted_input(Prompt.ask("Ad Account ID (e.g., 123456789)"))
 
                 if not account_id:
                     console.print("[red]✗ Account ID is required[/red]")
