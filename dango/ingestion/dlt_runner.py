@@ -982,9 +982,12 @@ class DltPipelineRunner:
                 CREDENTIAL_KEYS = {"access_token", "api_key", "api_secret", "refresh_token", "shop_url"}
 
                 for key in CREDENTIAL_KEYS:
-                    if key not in source_kwargs and key in source_secrets:
-                        source_kwargs[key] = source_secrets[key]
-                        console.print(f"  [dim]Injected {key} for {source_type}[/dim]")
+                    # Inject if key is missing OR if key exists but value is None/empty
+                    if key in source_secrets:
+                        current_value = source_kwargs.get(key)
+                        if current_value is None or current_value == "":
+                            source_kwargs[key] = source_secrets[key]
+                            console.print(f"  [dim]Injected {key} for {source_type}[/dim]")
 
             return source_kwargs
 
