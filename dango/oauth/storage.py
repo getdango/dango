@@ -197,10 +197,27 @@ class OAuthStorage:
         try:
             secrets = self._load_secrets()
 
-            # Check if credentials exist
-            creds = secrets.get('sources', {}).get(source_type, {}).get('credentials')
-            if not creds:
+            # Get source section
+            source_section = secrets.get('sources', {}).get(source_type, {})
+            if not source_section:
                 return None
+
+            # Google sources use nested credentials object (GcpOAuthCredentials)
+            # All other sources use flat parameters
+            CREDENTIALS_OBJECT_SOURCES = {'google_ads', 'google_analytics', 'google_sheets'}
+
+            if source_type in CREDENTIALS_OBJECT_SOURCES:
+                # Google: look for nested 'credentials' object
+                creds = source_section.get('credentials')
+                if not creds:
+                    return None
+            else:
+                # Non-Google: flat parameters are the credentials
+                # Check for common OAuth credential keys
+                if 'access_token' in source_section or 'api_key' in source_section:
+                    creds = source_section
+                else:
+                    return None
 
             # Get metadata if available
             meta = secrets.get('dango', {}).get('oauth', {}).get(source_type, {})
@@ -238,15 +255,31 @@ class OAuthStorage:
             # Check each source type for credentials
             oauth_meta = secrets.get('dango', {}).get('oauth', {})
 
+            # Google sources use nested credentials object (GcpOAuthCredentials)
+            CREDENTIALS_OBJECT_SOURCES = {'google_ads', 'google_analytics', 'google_sheets'}
+
             for source_type, meta in oauth_meta.items():
                 # Filter by provider if specified
                 if provider and meta.get('provider') != provider:
                     continue
 
-                # Check if credentials exist for this source type
-                creds = secrets.get('sources', {}).get(source_type, {}).get('credentials')
-                if not creds:
+                # Get source section
+                source_section = secrets.get('sources', {}).get(source_type, {})
+                if not source_section:
                     continue
+
+                # Check credentials based on source type
+                if source_type in CREDENTIALS_OBJECT_SOURCES:
+                    # Google: look for nested 'credentials' object
+                    creds = source_section.get('credentials')
+                    if not creds:
+                        continue
+                else:
+                    # Non-Google: flat parameters are the credentials
+                    if 'access_token' in source_section or 'api_key' in source_section:
+                        creds = source_section
+                    else:
+                        continue
 
                 try:
                     cred = OAuthCredential(
@@ -284,10 +317,22 @@ class OAuthStorage:
         try:
             secrets = self._load_secrets()
 
+            # Google sources use nested credentials object
+            CREDENTIALS_OBJECT_SOURCES = {'google_ads', 'google_analytics', 'google_sheets'}
+
             # Remove credentials
             if 'sources' in secrets and source_type in secrets['sources']:
-                if 'credentials' in secrets['sources'][source_type]:
-                    del secrets['sources'][source_type]['credentials']
+                if source_type in CREDENTIALS_OBJECT_SOURCES:
+                    # Google: remove nested credentials object
+                    if 'credentials' in secrets['sources'][source_type]:
+                        del secrets['sources'][source_type]['credentials']
+                else:
+                    # Non-Google: remove flat credential keys
+                    CREDENTIAL_KEYS = {'access_token', 'api_key', 'api_secret', 'refresh_token', 'shop_url'}
+                    for key in CREDENTIAL_KEYS:
+                        if key in secrets['sources'][source_type]:
+                            del secrets['sources'][source_type][key]
+
                 # Clean up empty source section
                 if not secrets['sources'][source_type]:
                     del secrets['sources'][source_type]
@@ -316,5 +361,14 @@ class OAuthStorage:
             True if credentials exist
         """
         secrets = self._load_secrets()
-        creds = secrets.get('sources', {}).get(source_type, {}).get('credentials')
-        return creds is not None and 'client_id' in creds
+        source_section = secrets.get('sources', {}).get(source_type, {})
+
+        # Google sources use nested credentials object
+        CREDENTIALS_OBJECT_SOURCES = {'google_ads', 'google_analytics', 'google_sheets'}
+
+        if source_type in CREDENTIALS_OBJECT_SOURCES:
+            creds = source_section.get('credentials')
+            return creds is not None and 'client_id' in creds
+        else:
+            # Non-Google: check for common OAuth credential keys
+            return 'access_token' in source_section or 'api_key' in source_section
