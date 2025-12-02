@@ -979,7 +979,7 @@ class DltPipelineRunner:
             else:
                 # Non-Google: inject flat parameters (access_token, api_key, etc.)
                 # Common OAuth credential keys to inject
-                CREDENTIAL_KEYS = {"access_token", "api_key", "api_secret", "refresh_token", "shop_url"}
+                CREDENTIAL_KEYS = {"access_token", "api_key", "api_secret", "refresh_token", "shop_url", "private_app_password"}
 
                 for key in CREDENTIAL_KEYS:
                     # Inject if key is missing OR if key exists but value is None/empty
