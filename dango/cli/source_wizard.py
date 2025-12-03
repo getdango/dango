@@ -966,6 +966,10 @@ class SourceWizard:
                 client_secret=tokens.get("client_secret"),
             )
 
+            # Refresh credentials to get a new access token
+            from google.auth.transport.requests import Request
+            credentials.refresh(Request())
+
             # Build Sheets API service
             service = build('sheets', 'v4', credentials=credentials, cache_discovery=False)
 
