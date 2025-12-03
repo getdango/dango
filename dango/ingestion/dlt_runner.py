@@ -759,6 +759,9 @@ class DltPipelineRunner:
                     # Convert single string to list (e.g., sheet name -> [sheet_name])
                     source_kwargs[param_name] = [value]
 
+        # Check OAuth token expiry before attempting sync
+        self._check_oauth_token_expiry(source_type.value, source_name)
+
         # Inject OAuth credentials from secrets.toml as explicit kwargs
         # This ensures credentials are passed even if dlt's config resolution misses them
         source_kwargs = self._inject_oauth_credentials(source_type.value, source_kwargs)
@@ -940,6 +943,48 @@ class DltPipelineRunner:
             resolved_config["end_date"] = end_date
 
         return resolved_config
+
+    def _check_oauth_token_expiry(self, source_type: str, source_name: str) -> None:
+        """
+        Check if OAuth credentials are expired or expiring soon.
+
+        Raises exception if credentials are expired (prevents sync).
+        Shows warning if credentials expire within 7 days (allows sync).
+
+        Args:
+            source_type: dlt source type (e.g., "facebook_ads")
+            source_name: User-defined source name
+
+        Raises:
+            ValueError: If credentials are expired
+        """
+        from dango.oauth.storage import OAuthStorage
+
+        # Check if OAuth credentials exist for this source type
+        storage = OAuthStorage(self.project_root)
+        oauth_cred = storage.get(source_type)
+
+        # Skip if no OAuth credentials (not an OAuth source)
+        if not oauth_cred:
+            return
+
+        # Check expiration status
+        if oauth_cred.is_expired():
+            # FATAL ERROR: Token expired - prevent sync
+            console.print(f"\n[red]❌ OAuth token expired for {source_name}![/red]")
+            console.print(f"[yellow]Token expired on:[/yellow] {oauth_cred.expires_at.strftime('%Y-%m-%d')}")
+            console.print(f"\n[cyan]To re-authenticate:[/cyan]")
+            console.print(f"  1. Run: [bold]dango auth {source_type}[/bold]")
+            console.print(f"  2. Follow the OAuth flow to get a new token")
+            console.print(f"  3. Run sync again\n")
+            raise ValueError(f"OAuth credentials expired for {source_name}. Re-authentication required.")
+
+        elif oauth_cred.is_expiring_soon(days=7):
+            # WARNING: Token expires within 7 days - allow sync but warn
+            days_left = oauth_cred.days_until_expiry()
+            console.print(f"\n[yellow]⚠️  OAuth token for {source_name} expires in {days_left} day(s)[/yellow]")
+            console.print(f"[yellow]Expiry date:[/yellow] {oauth_cred.expires_at.strftime('%Y-%m-%d')}")
+            console.print(f"[cyan]Re-authenticate soon:[/cyan] dango auth {source_type}\n")
 
     def _inject_oauth_credentials(self, source_type: str, source_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """
