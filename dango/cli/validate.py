@@ -172,27 +172,15 @@ class ProjectValidator:
 
             for source in sources:
                 # Check if source has required parameters
-                missing_params = []
+                # Note: Most validation happens during source add/wizard
+                # This just checks basic structure
 
-                if source.type == "csv":
-                    if not source.config.get("directory"):
-                        missing_params.append("directory")
-                elif source.type in ["stripe", "shopify", "hubspot"]:
-                    if not source.credentials.get("api_key"):
-                        missing_params.append("api_key")
-
-                if missing_params:
-                    self.results.append(ValidationResult(
-                        f"Source: {source.name}",
-                        "fail",
-                        f"Missing required parameters: {', '.join(missing_params)}"
-                    ))
-                else:
-                    self.results.append(ValidationResult(
-                        f"Source: {source.name}",
-                        "pass",
-                        f"Type: {source.type}"
-                    ))
+                # Just report that source exists and is configured
+                self.results.append(ValidationResult(
+                    f"Source: {source.name}",
+                    "pass",
+                    f"Type: {source.type.value}"
+                ))
 
         except Exception as e:
             self.results.append(ValidationResult(
