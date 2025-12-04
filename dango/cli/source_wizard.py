@@ -958,12 +958,16 @@ class SourceWizard:
                 console.print(f"[yellow]Could not get OAuth tokens[/yellow]")
                 return None
 
+            # Get scopes from metadata (saved during OAuth authentication)
+            scopes = cred.metadata.get("scopes", []) if cred.metadata else []
+
             credentials = Credentials(
                 token=None,  # We use refresh_token to get a new access_token
                 refresh_token=tokens.get("refresh_token"),
                 token_uri="https://oauth2.googleapis.com/token",
                 client_id=tokens.get("client_id"),
                 client_secret=tokens.get("client_secret"),
+                scopes=scopes,
             )
 
             # Refresh credentials to get a new access token
