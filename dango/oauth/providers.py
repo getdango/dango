@@ -97,8 +97,9 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             "https://www.googleapis.com/auth/analytics.readonly"
         ],
         "google_sheets": [
-            "https://www.googleapis.com/auth/spreadsheets.readonly",
-            "https://www.googleapis.com/auth/drive.readonly"
+            "https://www.googleapis.com/auth/spreadsheets.readonly"
+            # Note: Drive scope removed - we only read specific spreadsheets via Sheets API,
+            # don't need access to all Drive files
         ],
     }
 
