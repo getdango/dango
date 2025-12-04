@@ -812,10 +812,17 @@ class SourceWizard:
         elif param_type == "sheet_selector":
             # Special type for Google Sheets: fetch sheets from API and show multi-select
             # Requires spreadsheet_url_or_id to already be collected
-            sheets = self._fetch_google_sheets(source_name)
+            try:
+                sheets = self._fetch_google_sheets(source_name)
+            except Exception as e:
+                # OAuth authentication failed - abort wizard
+                console.print(f"\n[red]Cannot continue without valid OAuth credentials.[/red]")
+                console.print(f"[yellow]Please re-authenticate first, then try again.[/yellow]")
+                return None
+
             if sheets is None:
-                # Failed to fetch sheets - fall back to manual entry
-                console.print(f"[yellow]⚠️  Could not fetch sheet names. Enter manually.[/yellow]")
+                # No OAuth configured yet - fall back to manual entry
+                console.print(f"[yellow]⚠️  No OAuth configured. Enter sheet names manually.[/yellow]")
                 questions = [
                     inquirer.Text(
                         param_name,
@@ -961,6 +968,19 @@ class SourceWizard:
             # Get scopes from metadata (saved during OAuth authentication)
             scopes = cred.metadata.get("scopes", []) if cred.metadata else []
 
+            # Debug: Check what we have
+            if not tokens.get("refresh_token"):
+                console.print(f"[red]Error: No refresh token found in credentials[/red]")
+                console.print(f"[dim]This usually means OAuth wasn't completed properly[/dim]")
+                console.print(f"[cyan]Run: dango auth google --service sheets[/cyan]")
+                return None
+
+            if not tokens.get("client_id") or not tokens.get("client_secret"):
+                console.print(f"[red]Error: Missing client_id or client_secret[/red]")
+                console.print(f"[dim]OAuth configuration is incomplete[/dim]")
+                console.print(f"[cyan]Run: dango auth google --service sheets[/cyan]")
+                return None
+
             credentials = Credentials(
                 token=None,  # We use refresh_token to get a new access_token
                 refresh_token=tokens.get("refresh_token"),
@@ -972,7 +992,14 @@ class SourceWizard:
 
             # Refresh credentials to get a new access token
             from google.auth.transport.requests import Request
-            credentials.refresh(Request())
+            try:
+                credentials.refresh(Request())
+            except Exception as refresh_error:
+                console.print(f"[red]Failed to refresh OAuth token[/red]")
+                console.print(f"[dim]Details: {refresh_error}[/dim]")
+                console.print(f"[dim]Error type: {type(refresh_error).__name__}[/dim]")
+                # Re-raise so the outer try-except can handle it
+                raise
 
             # Build Sheets API service
             service = build('sheets', 'v4', credentials=credentials, cache_discovery=False)
@@ -1057,6 +1084,7 @@ class SourceWizard:
                 console.print("  1. Check the spreadsheet URL/ID is correct")
                 console.print("  2. Make sure the spreadsheet is shared with your Google account")
                 console.print(f"  3. Your account: check with [bold]dango auth list[/bold]")
+                raise  # Re-raise to abort wizard
             elif "403" in error_str or "permission" in error_str or "forbidden" in error_str:
                 console.print(f"\n[red]✗ Permission denied[/red]")
                 console.print("\n[yellow]Possible causes:[/yellow]")
@@ -1064,15 +1092,18 @@ class SourceWizard:
                 console.print("  • Spreadsheet is not shared with your Google account")
                 console.print("\n[cyan]How to fix:[/cyan]")
                 console.print("  1. Share the spreadsheet with your Google account")
-                console.print("  2. Or use a different OAuth credential: [bold]dango auth google --service sheets[/bold]")
-            elif "401" in error_str or "invalid" in error_str or "expired" in error_str:
+                console.print("  2. Or re-authenticate: [bold]dango auth google --service sheets[/bold]")
+                raise  # Re-raise to abort wizard
+            elif "401" in error_str or "invalid" in error_str or "expired" in error_str or "refresh" in error_str:
                 console.print(f"\n[red]✗ OAuth credential expired or invalid[/red]")
+                console.print(f"[dim]Error details: {e}[/dim]")
                 console.print("\n[cyan]How to fix:[/cyan]")
                 console.print("  Re-authenticate: [bold]dango auth google --service sheets[/bold]")
+                raise  # Re-raise to abort wizard
             else:
                 console.print(f"[yellow]Error fetching sheets: {e}[/yellow]")
-
-            return None
+                console.print(f"[dim]Error type: {type(e).__name__}[/dim]")
+                raise  # Re-raise to abort wizard
 
     def _create_source_config(
         self,
