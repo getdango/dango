@@ -490,6 +490,89 @@ def wait_for_metabase_ready(metabase_url: str = "http://localhost:3000", timeout
     return False
 
 
+def hide_internal_tables(
+    metabase_url: str,
+    headers: Dict[str, str],
+    db_id: int
+) -> Dict[str, Any]:
+    """
+    Hide internal tables from Metabase UI (raw_* schemas, _dlt_* tables).
+
+    Uses Metabase's PUT /api/table/:id with visibility_type="technical"
+    to hide tables from normal users while keeping them accessible for advanced queries.
+
+    Args:
+        metabase_url: Metabase URL
+        headers: Request headers with session token
+        db_id: Database ID in Metabase
+
+    Returns:
+        Summary of hidden tables
+    """
+    result = {"hidden_count": 0, "errors": []}
+
+    try:
+        # First, trigger a sync to ensure tables are discovered
+        requests.post(
+            f"{metabase_url}/api/database/{db_id}/sync_schema",
+            headers=headers,
+            timeout=10
+        )
+
+        # Wait briefly for sync to start discovering tables
+        time.sleep(3)
+
+        # Get all tables from this database
+        metadata_response = requests.get(
+            f"{metabase_url}/api/database/{db_id}/metadata",
+            headers=headers,
+            timeout=30
+        )
+
+        if metadata_response.status_code != 200:
+            result["errors"].append(f"Could not get database metadata: {metadata_response.status_code}")
+            return result
+
+        metadata = metadata_response.json()
+        tables = metadata.get("tables", [])
+
+        # Hide tables from raw_* schemas or internal dlt tables
+        for table in tables:
+            table_id = table.get("id")
+            table_name = table.get("name", "")
+            schema = table.get("schema", "")
+
+            # Skip if already hidden
+            if table.get("visibility_type") in ("hidden", "technical"):
+                continue
+
+            # Hide if: raw_* schema, _dlt_* table, or metadata tables
+            should_hide = (
+                schema.startswith("raw_") or
+                table_name.startswith("_dlt_") or
+                table_name in ("spreadsheet", "spreadsheet_info") or
+                schema == "main"  # main schema has dlt internal tables
+            )
+
+            if should_hide:
+                try:
+                    hide_response = requests.put(
+                        f"{metabase_url}/api/table/{table_id}",
+                        headers=headers,
+                        json={"visibility_type": "technical"},
+                        timeout=10
+                    )
+                    if hide_response.status_code == 200:
+                        result["hidden_count"] += 1
+                except Exception as e:
+                    result["errors"].append(f"Failed to hide {schema}.{table_name}: {e}")
+
+    except Exception as e:
+        result["errors"].append(f"Error hiding tables: {e}")
+
+    return result
+
+
 def setup_metabase(
     project_root: Path,
     project_name: str,
@@ -730,6 +813,13 @@ def setup_metabase(
                     )
                 except Exception:
                     pass  # Not critical
+
+                # Hide internal tables (raw_* schemas, _dlt_* tables)
+                # This uses Metabase's table visibility API after sync
+                hide_result = hide_internal_tables(metabase_url, headers, duckdb_id)
+                if hide_result["hidden_count"] > 0:
+                    print(f"  ✓ Hidden {hide_result['hidden_count']} internal table(s)")
+                    summary["tables_hidden"] = hide_result["hidden_count"]
             else:
                 # Got 200 but no ID - connection validation failed
                 error_msg = response_data.get("message") or response_data.get("errors") or str(response_data)
