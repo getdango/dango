@@ -358,16 +358,17 @@ def start(ctx):
         # Check for duplicate port configuration
         _check_duplicate_ports(platform_config)
 
-        # Check Docker service ports (Metabase and dbt-docs)
-        _check_docker_ports(platform_config)
-
-        # Initialize Docker manager
+        # Initialize Docker manager FIRST so we can stop services before port check
         manager = DockerManager(project_root)
 
         # Clean up any zombie containers from previous failed runs
-        console.print("[dim]Checking for zombie containers from previous runs...[/dim]")
+        # This must happen BEFORE port checks to allow ports to be freed
+        console.print("[dim]Stopping any existing Dango services...[/dim]")
         manager.stop_services()
         console.print()
+
+        # Check Docker service ports (Metabase and dbt-docs) AFTER stopping services
+        _check_docker_ports(platform_config)
 
         # Pre-flight check: Docker daemon must be running
         if not manager.is_docker_daemon_running():
