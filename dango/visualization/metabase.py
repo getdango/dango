@@ -655,30 +655,64 @@ def setup_metabase(
 
         # At this point, we have headers with session token from either path
 
-        # Add DuckDB connection
+        # Check for existing DuckDB connection to prevent duplicates
+        existing_db_id = None
+        db_name = f"{org_name} Analytics"
+
+        try:
+            db_list = requests.get(
+                f"{metabase_url}/api/database",
+                headers=headers,
+                timeout=10
+            )
+            if db_list.status_code == 200:
+                databases = db_list.json().get("data", [])
+                for db in databases:
+                    if db.get("engine") == "duckdb" and db.get("name") == db_name:
+                        existing_db_id = db.get("id")
+                        print(f"  ℹ DuckDB connection already exists (ID: {existing_db_id}), will update it")
+                        break
+        except Exception:
+            pass  # If check fails, proceed with creation
+
+        # Add or update DuckDB connection
         # Note: Metabase runs in Docker with data mounted at /data (see docker-compose.yml)
         docker_duckdb_path = "/data/warehouse.duckdb"
 
         duckdb_config = {
-            "name": f"{org_name} Analytics",
+            "name": db_name,
             "engine": "duckdb",
             "details": {
                 "database_file": docker_duckdb_path,
                 "old_implicit_casting": True,
-                "read_only": False
+                "read_only": False,
+                # Schema filtering: only show staging schema to users
+                "schema-filters-type": "inclusion",
+                "schema-filters-patterns": "staging"
             }
         }
 
-        db_response = requests.post(
-            f"{metabase_url}/api/database",
-            headers=headers,
-            json=duckdb_config,
-            timeout=10
-        )
+        if existing_db_id:
+            # Update existing connection
+            db_response = requests.put(
+                f"{metabase_url}/api/database/{existing_db_id}",
+                headers=headers,
+                json=duckdb_config,
+                timeout=10
+            )
+        else:
+            # Create new connection
+            db_response = requests.post(
+                f"{metabase_url}/api/database",
+                headers=headers,
+                json=duckdb_config,
+                timeout=10
+            )
 
         if db_response.status_code == 200:
             response_data = db_response.json()
-            duckdb_id = response_data.get("id")
+            # For updates, use existing_db_id; for creates, get from response
+            duckdb_id = existing_db_id or response_data.get("id")
 
             # Verify we actually got a database ID (not just a 200 response)
             if duckdb_id:
