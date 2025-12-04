@@ -473,11 +473,13 @@ class DltPipelineRunner:
                 conn.close()
 
         # Run CSV loader
+        # Use raw_{source_name} schema pattern (consistent with all other sources)
+        target_schema = f"raw_{source_config.name}"
         loader = CSVLoader(self.project_root, self.duckdb_path)
         result = loader.load(
             source_name=source_config.name,
             config=source_config.csv,
-            target_schema="raw",
+            target_schema=target_schema,
         )
 
         return {

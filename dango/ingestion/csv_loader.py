@@ -118,10 +118,13 @@ class CSVLoader:
         )
 
         # Target table name
-        target_table = f"{target_schema}.{source_name}"
+        # Use "data" as the table name within raw_{source_name} schema
+        # This follows the pattern: raw_test_csv_1.data (not raw_test_csv_1.test_csv_1)
+        table_name = "data"
+        target_table = f"{target_schema}.{table_name}"
 
         # Create table on first run
-        table_exists = self._check_table_exists(conn, target_schema, source_name)
+        table_exists = self._check_table_exists(conn, target_schema, table_name)
 
         # PRE-VALIDATE: Check ALL file schemas match before loading ANY data
         # This prevents partial data loading when schema mismatches exist
@@ -185,7 +188,7 @@ class CSVLoader:
                     stats["deleted"] += 1
 
             # Get final row count (only if table exists)
-            table_exists = self._check_table_exists(conn, target_schema, source_name)
+            table_exists = self._check_table_exists(conn, target_schema, table_name)
             if table_exists:
                 stats["total_rows"] = conn.execute(f"SELECT COUNT(*) FROM {target_table}").fetchone()[
                     0
