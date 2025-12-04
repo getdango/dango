@@ -814,12 +814,15 @@ def setup_metabase(
                 except Exception:
                     pass  # Not critical
 
-                # Hide internal tables (raw_* schemas, _dlt_* tables)
-                # This uses Metabase's table visibility API after sync
-                hide_result = hide_internal_tables(metabase_url, headers, duckdb_id)
-                if hide_result["hidden_count"] > 0:
-                    print(f"  ✓ Hidden {hide_result['hidden_count']} internal table(s)")
-                    summary["tables_hidden"] = hide_result["hidden_count"]
+                # NOTE: hide_internal_tables disabled - it breaks Metabase schema navigation
+                # When tables are marked as "technical", Metabase collapses from schema-based
+                # view to flat table list. Users will see all tables including internal ones,
+                # but schema organization is preserved.
+                # TODO: Find alternative approach that hides tables without breaking schema nav
+                # hide_result = hide_internal_tables(metabase_url, headers, duckdb_id)
+                # if hide_result["hidden_count"] > 0:
+                #     print(f"  ✓ Hidden {hide_result['hidden_count']} internal table(s)")
+                #     summary["tables_hidden"] = hide_result["hidden_count"]
             else:
                 # Got 200 but no ID - connection validation failed
                 error_msg = response_data.get("message") or response_data.get("errors") or str(response_data)

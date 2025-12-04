@@ -118,9 +118,10 @@ class CSVLoader:
         )
 
         # Target table name
-        # Use "data" as the table name within raw_{source_name} schema
-        # This follows the pattern: raw_test_csv_1.data (not raw_test_csv_1.test_csv_1)
-        table_name = "data"
+        # Use source_name as the table name within raw_{source_name} schema
+        # This follows industry practice (Fivetran, Airbyte) where table name = resource name
+        # Result: raw_test_csv_1.test_csv_1 (redundant but clear when schema not shown)
+        table_name = source_name
         target_table = f"{target_schema}.{table_name}"
 
         # Create table on first run
