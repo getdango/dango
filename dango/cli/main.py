@@ -3205,16 +3205,21 @@ def generate(ctx, models, generate_all):
             table.add_column("Files", style="dim")
 
             for item in summary["generated"]:
-                files = "model"
-                if item.get("schema"):
-                    files += " + schema"
+                source_name = item["source"]
+                models = item.get("models", [])
 
-                table.add_row(
-                    item["source"],
-                    str(item["columns"]),
-                    item["dedup_strategy"],
-                    files
-                )
+                # For each model generated for this source
+                for model in models:
+                    files = "model"
+                    if item.get("schema"):
+                        files += " + schema"
+
+                    table.add_row(
+                        f"{source_name} ({model['endpoint']})",
+                        str(model.get("columns", "N/A")),
+                        model.get("dedup_strategy", "N/A"),
+                        files
+                    )
 
             console.print(table)
             console.print()
