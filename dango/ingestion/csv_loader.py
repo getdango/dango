@@ -124,6 +124,14 @@ class CSVLoader:
         table_name = source_name
         target_table = f"{target_schema}.{table_name}"
 
+        # Clean up legacy "data" table if it exists (from old CSV loader behavior)
+        # This prevents orphaned tables when migrating from old naming scheme
+        if table_name != "data":
+            legacy_table_exists = self._check_table_exists(conn, target_schema, "data")
+            if legacy_table_exists:
+                console.print(f"  [dim]Cleaning up legacy 'data' table...[/dim]")
+                conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."data"')
+
         # Create table on first run
         table_exists = self._check_table_exists(conn, target_schema, table_name)
 
