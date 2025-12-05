@@ -608,12 +608,15 @@ class DltPipelineRunner:
                 console.print(f"  ✓ Load completed (unable to count rows)")
                 rows_loaded = 0  # Set to 0 for stats
 
-            return {
+            result = {
                 "status": "success",
                 "source": source_name,
                 "rows_loaded": rows_loaded,
                 **stats,
             }
+            if getattr(self, '_current_oauth_warning', None):
+                result["oauth_warning"] = self._current_oauth_warning
+            return result
 
         except Exception as e:
             # Restore state on failure
@@ -762,7 +765,9 @@ class DltPipelineRunner:
                     source_kwargs[param_name] = [value]
 
         # Check OAuth token expiry before attempting sync
-        self._check_oauth_token_expiry(source_type.value, source_name)
+        oauth_warning = self._check_oauth_token_expiry(source_type.value, source_name)
+        # Store for inclusion in result
+        self._current_oauth_warning = oauth_warning
 
         # Inject OAuth credentials from secrets.toml as explicit kwargs
         # This ensures credentials are passed even if dlt's config resolution misses them
@@ -827,24 +832,30 @@ class DltPipelineRunner:
                 self._cleanup_state_backup(state_backup)
                 console.print(f"  ✓ Loaded {rows_loaded:,} rows")
 
-                return {
+                result = {
                     "status": "success",
                     "source": source_name,
                     "uses_replace_mode": uses_replace_mode,
                     **stats,
                 }
+                if getattr(self, '_current_oauth_warning', None):
+                    result["oauth_warning"] = self._current_oauth_warning
+                return result
             else:
                 # rows_loaded is -1: unknown row count but load succeeded
                 # This should also be treated as success
                 self._cleanup_state_backup(state_backup)
                 console.print(f"  ✓ Load completed (row count unavailable)")
 
-                return {
+                result = {
                     "status": "success",
                     "source": source_name,
                     "uses_replace_mode": uses_replace_mode,
                     **stats,
                 }
+                if getattr(self, '_current_oauth_warning', None):
+                    result["oauth_warning"] = self._current_oauth_warning
+                return result
 
         except Exception as e:
             # Pipeline failed - restore previous state
@@ -955,16 +966,19 @@ class DltPipelineRunner:
 
         return resolved_config
 
-    def _check_oauth_token_expiry(self, source_type: str, source_name: str) -> None:
+    def _check_oauth_token_expiry(self, source_type: str, source_name: str) -> Optional[Dict[str, Any]]:
         """
         Check if OAuth credentials are expired or expiring soon.
 
         Raises exception if credentials are expired (prevents sync).
-        Shows warning if credentials expire within 7 days (allows sync).
+        Returns warning dict if credentials expire within 7 days (allows sync).
 
         Args:
             source_type: dlt source type (e.g., "facebook_ads")
             source_name: User-defined source name
+
+        Returns:
+            Warning dict with expiry info if expiring soon, None otherwise
 
         Raises:
             ValueError: If credentials are expired
@@ -977,7 +991,7 @@ class DltPipelineRunner:
 
         # Skip if no OAuth credentials (not an OAuth source)
         if not oauth_cred:
-            return
+            return None
 
         # Check expiration status
         if oauth_cred.is_expired():
@@ -996,6 +1010,15 @@ class DltPipelineRunner:
             console.print(f"\n[yellow]⚠️  OAuth token for {source_name} expires in {days_left} day(s)[/yellow]")
             console.print(f"[yellow]Expiry date:[/yellow] {oauth_cred.expires_at.strftime('%Y-%m-%d')}")
             console.print(f"[cyan]Re-authenticate soon:[/cyan] dango auth {source_type}\n")
+            # Return warning info for end-of-sync summary
+            return {
+                "source_name": source_name,
+                "source_type": source_type,
+                "days_left": days_left,
+                "expires_at": oauth_cred.expires_at.strftime('%Y-%m-%d'),
+            }
+
+        return None
 
     def _inject_oauth_credentials(self, source_type: str, source_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1566,6 +1589,15 @@ def run_sync(
     if total > 0:
         success_rate = (len(success_sources) / total) * 100
         console.print(f"Overall: {len(success_sources)}/{total} sources succeeded ({success_rate:.0f}%)")
+
+    # Collect and display OAuth warnings at the end (so users don't miss them)
+    oauth_warnings = [r.get("oauth_warning") for r in results if r.get("oauth_warning")]
+    if oauth_warnings:
+        console.print()
+        console.print("[yellow]⚠️  OAuth Token Warnings:[/yellow]")
+        for warning in oauth_warnings:
+            console.print(f"  • {warning['source_name']}: expires in {warning['days_left']} day(s) ({warning['expires_at']})")
+            console.print(f"    [cyan]Re-authenticate:[/cyan] dango auth {warning['source_type']}")
 
     console.print(f"{'='*60}\n")
 
