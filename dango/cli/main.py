@@ -2068,9 +2068,10 @@ def auth(ctx):
     Authenticate with OAuth providers.
 
     Commands:
-      dango auth google      Authenticate with Google services (Ads, Analytics, Sheets)
-      dango auth facebook    Authenticate with Facebook Ads
-      dango auth shopify     Authenticate with Shopify
+      dango auth google_sheets      Authenticate with Google Sheets
+      dango auth google_analytics   Authenticate with Google Analytics (GA4)
+      dango auth google_ads         Authenticate with Google Ads
+      dango auth facebook           Authenticate with Facebook Ads
     """
     pass
 
@@ -2097,9 +2098,10 @@ def auth_list(ctx):
         if not credentials:
             console.print("\n[yellow]No OAuth credentials configured[/yellow]")
             console.print("\n[cyan]To authenticate:[/cyan]")
-            console.print("  dango auth google --service ads")
+            console.print("  dango auth google_sheets")
+            console.print("  dango auth google_analytics")
+            console.print("  dango auth google_ads")
             console.print("  dango auth facebook")
-            console.print("  dango auth shopify")
             return
 
         # Create table
@@ -2345,27 +2347,16 @@ def auth_facebook(ctx):
         raise click.Abort()
 
 
-@auth.command("google")
-@click.option(
-    "--service",
-    type=click.Choice(["ads", "analytics", "sheets"], case_sensitive=False),
-    default="ads",
-    help="Google service to authenticate with",
-)
+@auth.command("google_sheets")
 @click.pass_context
-def auth_google(ctx, service):
+def auth_google_sheets(ctx):
     """
-    Authenticate with Google services using OAuth.
+    Authenticate with Google Sheets using OAuth.
 
     This will guide you through the browser-based OAuth flow:
     1. Create OAuth credentials in Google Cloud Console
     2. Authorize Dango via browser
     3. Credentials saved to .dlt/secrets.toml
-
-    Services:
-      ads        Google Ads (default)
-      analytics  Google Analytics (GA4)
-      sheets     Google Sheets
     """
     from pathlib import Path
     from .utils import require_project_context
@@ -2375,20 +2366,9 @@ def auth_google(ctx, service):
     try:
         project_root = require_project_context(ctx)
 
-        # Map CLI service names to provider service names
-        service_map = {
-            "ads": "google_ads",
-            "analytics": "google_analytics",
-            "sheets": "google_sheets",
-        }
-        provider_service = service_map.get(service.lower(), "google_ads")
-
-        # Use new OAuth implementation
         oauth_manager = OAuthManager(project_root)
         provider = GoogleOAuthProvider(oauth_manager)
-
-        # Start OAuth flow
-        oauth_name = provider.authenticate(service=provider_service)
+        oauth_name = provider.authenticate(service="google_sheets")
 
         if not oauth_name:
             console.print("[red]Authentication failed[/red]")
@@ -2399,33 +2379,60 @@ def auth_google(ctx, service):
         raise click.Abort()
 
 
-@auth.command("shopify")
+@auth.command("google_analytics")
 @click.pass_context
-def auth_shopify(ctx):
+def auth_google_analytics(ctx):
     """
-    Authenticate with Shopify.
+    Authenticate with Google Analytics (GA4) using OAuth.
 
-    This will guide you through:
-    1. Creating a custom app in Shopify admin
-    2. Configuring Admin API scopes
+    This will guide you through the browser-based OAuth flow:
+    1. Create OAuth credentials in Google Cloud Console
+    2. Authorize Dango via browser
     3. Credentials saved to .dlt/secrets.toml
-
-    Shopify custom app tokens don't expire.
     """
     from pathlib import Path
     from .utils import require_project_context
     from dango.oauth import OAuthManager
-    from dango.oauth.providers import ShopifyOAuthProvider
+    from dango.oauth.providers import GoogleOAuthProvider
 
     try:
         project_root = require_project_context(ctx)
 
-        # Use new OAuth implementation
         oauth_manager = OAuthManager(project_root)
-        provider = ShopifyOAuthProvider(oauth_manager)
+        provider = GoogleOAuthProvider(oauth_manager)
+        oauth_name = provider.authenticate(service="google_analytics")
 
-        # Start OAuth flow
-        oauth_name = provider.authenticate()
+        if not oauth_name:
+            console.print("[red]Authentication failed[/red]")
+            raise click.Abort()
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort()
+
+
+@auth.command("google_ads")
+@click.pass_context
+def auth_google_ads(ctx):
+    """
+    Authenticate with Google Ads using OAuth.
+
+    This will guide you through the browser-based OAuth flow:
+    1. Create OAuth credentials in Google Cloud Console
+    2. Authorize Dango via browser
+    3. Credentials saved to .dlt/secrets.toml
+    """
+    from pathlib import Path
+    from .utils import require_project_context
+    from dango.oauth import OAuthManager
+    from dango.oauth.providers import GoogleOAuthProvider
+
+    try:
+        project_root = require_project_context(ctx)
+
+        oauth_manager = OAuthManager(project_root)
+        provider = GoogleOAuthProvider(oauth_manager)
+        oauth_name = provider.authenticate(service="google_ads")
 
         if not oauth_name:
             console.print("[red]Authentication failed[/red]")
@@ -2471,17 +2478,12 @@ def auth_check(ctx):
             "Google": {
                 "env_vars": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
                 "services": ["Google Ads", "Google Analytics", "Google Sheets"],
-                "auth_cmd": "dango auth google --service <ads|analytics|sheets>",
+                "auth_cmd": "dango auth google_<sheets|analytics|ads>",
             },
             "Facebook": {
                 "env_vars": ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"],
                 "services": ["Facebook Ads"],
                 "auth_cmd": "dango auth facebook",
-            },
-            "Shopify": {
-                "env_vars": ["SHOPIFY_CLIENT_ID", "SHOPIFY_CLIENT_SECRET"],
-                "services": ["Shopify"],
-                "auth_cmd": "dango auth shopify",
             },
         }
 
@@ -2562,7 +2564,7 @@ def auth_check(ctx):
 
 
 @auth.command("setup")
-@click.argument("provider", type=click.Choice(["google", "facebook", "shopify"], case_sensitive=False))
+@click.argument("provider", type=click.Choice(["google", "facebook"], case_sensitive=False))
 @click.pass_context
 def auth_setup(ctx, provider):
     """
@@ -2570,12 +2572,11 @@ def auth_setup(ctx, provider):
 
     Guides you through creating OAuth credentials for a provider.
 
-    PROVIDER: The OAuth provider to set up (google, facebook, shopify)
+    PROVIDER: The OAuth provider to set up (google, facebook)
 
     Examples:
       dango auth setup google
       dango auth setup facebook
-      dango auth setup shopify
     """
     from pathlib import Path
     import os
@@ -2631,21 +2632,6 @@ def auth_setup(ctx, provider):
                 ],
                 "services": ["Facebook Ads"],
             },
-            "shopify": {
-                "display_name": "Shopify",
-                "env_vars": [
-                    ("SHOPIFY_CLIENT_ID", "Client ID"),
-                    ("SHOPIFY_CLIENT_SECRET", "Client Secret"),
-                ],
-                "setup_url": "https://partners.shopify.com/",
-                "setup_steps": [
-                    "1. Go to Shopify Partners → Apps → Create app",
-                    "2. Or in store admin: Settings → Apps → Develop apps → Create app",
-                    "3. Configure Admin API scopes: read_orders, read_customers, read_products",
-                    "4. Install app and get Admin API access token",
-                ],
-                "services": ["Shopify"],
-            },
         }
 
         config = provider_config[provider.lower()]
@@ -2669,7 +2655,9 @@ def auth_setup(ctx, provider):
             if not Confirm.ask("Update credentials anyway?", default=False):
                 console.print("\n[dim]To authenticate, run:[/dim]")
                 if provider.lower() == "google":
-                    console.print("  dango auth google --service <ads|analytics|sheets>")
+                    console.print("  dango auth google_sheets")
+                    console.print("  dango auth google_analytics")
+                    console.print("  dango auth google_ads")
                 else:
                     console.print(f"  dango auth {provider.lower()}")
                 return
