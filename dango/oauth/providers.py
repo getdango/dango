@@ -426,45 +426,52 @@ class FacebookOAuthProvider(BaseOAuthProvider):
         try:
             console.print("\n[bold cyan]Facebook Ads Authentication[/bold cyan]\n")
 
-            # Check for existing valid credentials that can be auto-extended
+            # Check for existing credentials
             existing_cred = self.oauth_storage.get("facebook_ads")
-            if existing_cred and not existing_cred.is_expired():
-                # Check if we have app_secret stored for auto-extend
-                app_id = existing_cred.metadata.get("app_id") if existing_cred.metadata else None
-                app_secret = existing_cred.metadata.get("app_secret") if existing_cred.metadata else None
-                current_token = existing_cred.credentials.get("access_token") if existing_cred.credentials else None
+            if existing_cred:
+                if existing_cred.is_expired():
+                    # Token is expired - inform user and proceed with re-auth
+                    expired_date = existing_cred.expires_at.strftime('%Y-%m-%d') if existing_cred.expires_at else 'unknown'
+                    console.print(f"[red]⚠️  Your Facebook token has expired ({expired_date})[/red]")
+                    console.print(f"[dim]Account: {existing_cred.account_info or existing_cred.identifier}[/dim]")
+                    console.print("[cyan]Let's get you a new token...[/cyan]\n")
+                else:
+                    # Token is still valid - check for auto-extend capability
+                    app_id = existing_cred.metadata.get("app_id") if existing_cred.metadata else None
+                    app_secret = existing_cred.metadata.get("app_secret") if existing_cred.metadata else None
+                    current_token = existing_cred.credentials.get("access_token") if existing_cred.credentials else None
 
-                if app_id and app_secret and current_token:
-                    days_left = existing_cred.days_until_expiry()
-                    console.print(f"[cyan]Found existing valid token (expires in {days_left} days)[/cyan]")
-                    console.print(f"[dim]Account: {existing_cred.account_info or existing_cred.identifier}[/dim]\n")
+                    if app_id and app_secret and current_token:
+                        days_left = existing_cred.days_until_expiry()
+                        console.print(f"[cyan]Found existing valid token (expires in {days_left} days)[/cyan]")
+                        console.print(f"[dim]Account: {existing_cred.account_info or existing_cred.identifier}[/dim]\n")
 
-                    if Confirm.ask("[cyan]Extend token for another 60 days?[/cyan]", default=True):
-                        # Attempt auto-extend
-                        console.print("\n[cyan]Exchanging token for new 60-day token...[/cyan]")
-                        new_token = self._exchange_token(current_token, app_id, app_secret)
+                        if Confirm.ask("[cyan]Extend token for another 60 days?[/cyan]", default=True):
+                            # Attempt auto-extend
+                            console.print("\n[cyan]Exchanging token for new 60-day token...[/cyan]")
+                            new_token = self._exchange_token(current_token, app_id, app_secret)
 
-                        if new_token:
-                            # Update credentials with new token and expiry
-                            existing_cred.credentials["access_token"] = new_token
-                            existing_cred.expires_at = datetime.now() + timedelta(days=60)
-                            existing_cred.created_at = datetime.now()
+                            if new_token:
+                                # Update credentials with new token and expiry
+                                existing_cred.credentials["access_token"] = new_token
+                                existing_cred.expires_at = datetime.now() + timedelta(days=60)
+                                existing_cred.created_at = datetime.now()
 
-                            if self.oauth_storage.save(existing_cred):
-                                console.print(f"\n[green]✅ Token extended successfully![/green]")
-                                console.print(f"[yellow]New expiry:[/yellow] {existing_cred.expires_at.strftime('%Y-%m-%d')} (60 days)")
-                                return "facebook_ads"
+                                if self.oauth_storage.save(existing_cred):
+                                    console.print(f"\n[green]✅ Token extended successfully![/green]")
+                                    console.print(f"[yellow]New expiry:[/yellow] {existing_cred.expires_at.strftime('%Y-%m-%d')} (60 days)")
+                                    return "facebook_ads"
+                                else:
+                                    console.print("[red]✗ Failed to save extended token[/red]")
                             else:
-                                console.print("[red]✗ Failed to save extended token[/red]")
+                                console.print("[yellow]Auto-extend failed (token may have been invalidated).[/yellow]")
+                                console.print("[dim]Falling back to manual re-authentication...[/dim]\n")
                         else:
-                            console.print("[yellow]Auto-extend failed (token may have been invalidated).[/yellow]")
-                            console.print("[dim]Falling back to manual re-authentication...[/dim]\n")
-                    else:
-                        console.print("[dim]Proceeding with full re-authentication...[/dim]\n")
-                elif app_id and current_token and not app_secret:
-                    # Legacy credentials without app_secret - inform user
-                    console.print("[yellow]Found existing token but missing app credentials for auto-extend.[/yellow]")
-                    console.print("[dim]After this re-authentication, future extends will be automatic.[/dim]\n")
+                            console.print("[dim]Proceeding with full re-authentication...[/dim]\n")
+                    elif app_id and current_token and not app_secret:
+                        # Legacy credentials without app_secret - inform user
+                        console.print("[yellow]Found existing token but missing app credentials for auto-extend.[/yellow]")
+                        console.print("[dim]After this re-authentication, future extends will be automatic.[/dim]\n")
 
             # Show instructions for manual flow
             instructions = [
