@@ -66,6 +66,7 @@ class ProjectValidator:
         self._check_project_structure()
         self._check_config_files()
         self._check_data_sources()
+        self._check_oauth_credentials()  # NEW: OAuth validation
         self._check_dbt_setup()
         self._check_database()
         self._check_dependencies()
@@ -171,33 +172,97 @@ class ProjectValidator:
 
             for source in sources:
                 # Check if source has required parameters
-                missing_params = []
+                # Note: Most validation happens during source add/wizard
+                # This just checks basic structure
 
-                if source.type == "csv":
-                    if not source.config.get("directory"):
-                        missing_params.append("directory")
-                elif source.type in ["stripe", "shopify", "hubspot"]:
-                    if not source.credentials.get("api_key"):
-                        missing_params.append("api_key")
-
-                if missing_params:
-                    self.results.append(ValidationResult(
-                        f"Source: {source.name}",
-                        "fail",
-                        f"Missing required parameters: {', '.join(missing_params)}"
-                    ))
-                else:
-                    self.results.append(ValidationResult(
-                        f"Source: {source.name}",
-                        "pass",
-                        f"Type: {source.type}"
-                    ))
+                # Just report that source exists and is configured
+                self.results.append(ValidationResult(
+                    f"Source: {source.name}",
+                    "pass",
+                    f"Type: {source.type.value}"
+                ))
 
         except Exception as e:
             self.results.append(ValidationResult(
                 "Data Sources",
                 "fail",
                 f"Error checking sources: {str(e)[:100]}"
+            ))
+
+    def _check_oauth_credentials(self):
+        """Check OAuth credentials for configured sources"""
+        from dango.oauth.storage import OAuthStorage
+        from dango.ingestion.sources.registry import get_source_metadata, AuthType
+
+        try:
+            loader = ConfigLoader(self.project_root)
+            config = loader.load_config()
+            sources = config.sources.sources  # All sources (enabled and disabled)
+
+            storage = OAuthStorage(self.project_root)
+
+            # Filter to OAuth sources only
+            oauth_sources = [
+                s for s in sources
+                if get_source_metadata(s.type.value).get("auth_type") == AuthType.OAUTH
+            ]
+
+            if not oauth_sources:
+                # No OAuth sources configured - skip check
+                return
+
+            for source in oauth_sources:
+                source_type = source.type.value
+                source_name = source.name
+
+                # Check if OAuth credentials exist
+                oauth_cred = storage.get(source_type)
+
+                if not oauth_cred:
+                    # OAuth source but no credentials found
+                    self.results.append(ValidationResult(
+                        f"OAuth: {source_name}",
+                        "fail",
+                        f"No OAuth credentials found. Run 'dango auth {source_type}'"
+                    ))
+                    continue
+
+                # Check if credentials are expired
+                if oauth_cred.is_expired():
+                    self.results.append(ValidationResult(
+                        f"OAuth: {source_name}",
+                        "fail",
+                        f"Token expired on {oauth_cred.expires_at.strftime('%Y-%m-%d')}. Run 'dango auth {source_type}'"
+                    ))
+                elif oauth_cred.is_expiring_soon(days=7):
+                    # Expiring soon - warning but not failure
+                    days_left = oauth_cred.days_until_expiry()
+                    self.results.append(ValidationResult(
+                        f"OAuth: {source_name}",
+                        "warn",
+                        f"Token expires in {days_left} day(s) on {oauth_cred.expires_at.strftime('%Y-%m-%d')}"
+                    ))
+                else:
+                    # Valid OAuth credentials
+                    if oauth_cred.expires_at:
+                        days_left = oauth_cred.days_until_expiry()
+                        self.results.append(ValidationResult(
+                            f"OAuth: {source_name}",
+                            "pass",
+                            f"Valid ({days_left} days until expiry)"
+                        ))
+                    else:
+                        self.results.append(ValidationResult(
+                            f"OAuth: {source_name}",
+                            "pass",
+                            "Valid (no expiry)"
+                        ))
+
+        except Exception as e:
+            self.results.append(ValidationResult(
+                "OAuth Credentials",
+                "fail",
+                f"Error checking OAuth: {str(e)[:100]}"
             ))
 
     def _check_dbt_setup(self):

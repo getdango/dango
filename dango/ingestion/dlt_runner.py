@@ -473,11 +473,13 @@ class DltPipelineRunner:
                 conn.close()
 
         # Run CSV loader
+        # Use raw_{source_name} schema pattern (consistent with all other sources)
+        target_schema = f"raw_{source_config.name}"
         loader = CSVLoader(self.project_root, self.duckdb_path)
         result = loader.load(
             source_name=source_config.name,
             config=source_config.csv,
-            target_schema="raw",
+            target_schema=target_schema,
         )
 
         return {
@@ -606,12 +608,15 @@ class DltPipelineRunner:
                 console.print(f"  ✓ Load completed (unable to count rows)")
                 rows_loaded = 0  # Set to 0 for stats
 
-            return {
+            result = {
                 "status": "success",
                 "source": source_name,
                 "rows_loaded": rows_loaded,
                 **stats,
             }
+            if getattr(self, '_current_oauth_warning', None):
+                result["oauth_warning"] = self._current_oauth_warning
+            return result
 
         except Exception as e:
             # Restore state on failure
@@ -759,6 +764,11 @@ class DltPipelineRunner:
                     # Convert single string to list (e.g., sheet name -> [sheet_name])
                     source_kwargs[param_name] = [value]
 
+        # Check OAuth token expiry before attempting sync
+        oauth_warning = self._check_oauth_token_expiry(source_type.value, source_name)
+        # Store for inclusion in result
+        self._current_oauth_warning = oauth_warning
+
         # Inject OAuth credentials from secrets.toml as explicit kwargs
         # This ensures credentials are passed even if dlt's config resolution misses them
         source_kwargs = self._inject_oauth_credentials(source_type.value, source_kwargs)
@@ -822,24 +832,30 @@ class DltPipelineRunner:
                 self._cleanup_state_backup(state_backup)
                 console.print(f"  ✓ Loaded {rows_loaded:,} rows")
 
-                return {
+                result = {
                     "status": "success",
                     "source": source_name,
                     "uses_replace_mode": uses_replace_mode,
                     **stats,
                 }
+                if getattr(self, '_current_oauth_warning', None):
+                    result["oauth_warning"] = self._current_oauth_warning
+                return result
             else:
                 # rows_loaded is -1: unknown row count but load succeeded
                 # This should also be treated as success
                 self._cleanup_state_backup(state_backup)
                 console.print(f"  ✓ Load completed (row count unavailable)")
 
-                return {
+                result = {
                     "status": "success",
                     "source": source_name,
                     "uses_replace_mode": uses_replace_mode,
                     **stats,
                 }
+                if getattr(self, '_current_oauth_warning', None):
+                    result["oauth_warning"] = self._current_oauth_warning
+                return result
 
         except Exception as e:
             # Pipeline failed - restore previous state
@@ -893,9 +909,18 @@ class DltPipelineRunner:
         else:
             config_obj = getattr(source_config, config_field, None)
             if config_obj is None:
-                raise ValueError(
-                    f"Missing {config_field} configuration for source: {source_config.name}"
-                )
+                # For OAuth sources, config might be in secrets.toml instead of sources.yml
+                # This happens when all required params are OAuth-collected (e.g., facebook_ads)
+                from dango.ingestion.sources.registry import get_source_metadata, AuthType
+                metadata = get_source_metadata(source_type.value)
+                if metadata.get("auth_type") == AuthType.OAUTH:
+                    # Allow empty config - OAuth injection will provide credentials
+                    config_obj = {}
+                    console.print(f"  [dim]Note: Using OAuth credentials from secrets.toml[/dim]")
+                else:
+                    raise ValueError(
+                        f"Missing {config_field} configuration for source: {source_config.name}"
+                    )
 
         # Convert Pydantic model to dict if needed
         if hasattr(config_obj, "dict"):
@@ -941,6 +966,60 @@ class DltPipelineRunner:
 
         return resolved_config
 
+    def _check_oauth_token_expiry(self, source_type: str, source_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Check if OAuth credentials are expired or expiring soon.
+
+        Raises exception if credentials are expired (prevents sync).
+        Returns warning dict if credentials expire within 7 days (allows sync).
+
+        Args:
+            source_type: dlt source type (e.g., "facebook_ads")
+            source_name: User-defined source name
+
+        Returns:
+            Warning dict with expiry info if expiring soon, None otherwise
+
+        Raises:
+            ValueError: If credentials are expired
+        """
+        from dango.oauth.storage import OAuthStorage
+
+        # Check if OAuth credentials exist for this source type
+        storage = OAuthStorage(self.project_root)
+        oauth_cred = storage.get(source_type)
+
+        # Skip if no OAuth credentials (not an OAuth source)
+        if not oauth_cred:
+            return None
+
+        # Check expiration status
+        if oauth_cred.is_expired():
+            # FATAL ERROR: Token expired - prevent sync
+            console.print(f"\n[red]❌ OAuth token expired for {source_name}![/red]")
+            console.print(f"[yellow]Token expired on:[/yellow] {oauth_cred.expires_at.strftime('%Y-%m-%d')}")
+            console.print(f"\n[cyan]To re-authenticate:[/cyan]")
+            console.print(f"  1. Run: [bold]dango auth {source_type}[/bold]")
+            console.print(f"  2. Follow the OAuth flow to get a new token")
+            console.print(f"  3. Run sync again\n")
+            raise ValueError(f"OAuth credentials expired for {source_name}. Re-authentication required.")
+
+        elif oauth_cred.is_expiring_soon(days=7):
+            # WARNING: Token expires within 7 days - allow sync but warn
+            days_left = oauth_cred.days_until_expiry()
+            console.print(f"\n[yellow]⚠️  OAuth token for {source_name} expires in {days_left} day(s)[/yellow]")
+            console.print(f"[yellow]Expiry date:[/yellow] {oauth_cred.expires_at.strftime('%Y-%m-%d')}")
+            console.print(f"[cyan]Re-authenticate soon:[/cyan] dango auth {source_type}\n")
+            # Return warning info for end-of-sync summary
+            return {
+                "source_name": source_name,
+                "source_type": source_type,
+                "days_left": days_left,
+                "expires_at": oauth_cred.expires_at.strftime('%Y-%m-%d'),
+            }
+
+        return None
+
     def _inject_oauth_credentials(self, source_type: str, source_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """
         Inject OAuth credentials from secrets.toml into source kwargs.
@@ -977,9 +1056,9 @@ class DltPipelineRunner:
                     source_kwargs["credentials"] = source_secrets["credentials"]
                     console.print(f"  [dim]Injected OAuth credentials for {source_type}[/dim]")
             else:
-                # Non-Google: inject flat parameters (access_token, api_key, etc.)
+                # Non-Google: inject flat parameters (access_token, api_key, account_id, etc.)
                 # Common OAuth credential keys to inject
-                CREDENTIAL_KEYS = {"access_token", "api_key", "api_secret", "refresh_token", "shop_url", "private_app_password"}
+                CREDENTIAL_KEYS = {"access_token", "api_key", "api_secret", "refresh_token", "shop_url", "private_app_password", "account_id"}
 
                 for key in CREDENTIAL_KEYS:
                     # Inject if key is missing OR if key exists but value is None/empty
@@ -1511,6 +1590,9 @@ def run_sync(
         success_rate = (len(success_sources) / total) * 100
         console.print(f"Overall: {len(success_sources)}/{total} sources succeeded ({success_rate:.0f}%)")
 
+    # Collect OAuth warnings (will be displayed at very end of sync in main.py)
+    oauth_warnings = [r.get("oauth_warning") for r in results if r.get("oauth_warning")]
+
     console.print(f"{'='*60}\n")
 
     # Auto-generate staging models for successful sources
@@ -1600,4 +1682,5 @@ def run_sync(
         "failed_sources": failed_sources,
         "skipped_sources": skipped_sources,
         "results": results,
+        "oauth_warnings": oauth_warnings,  # For display at very end of sync
     }

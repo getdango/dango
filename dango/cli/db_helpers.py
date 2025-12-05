@@ -60,7 +60,8 @@ def is_table_configured(
     schema: str,
     table: str,
     schema_to_tables: Dict[str, Set[str]],
-    source_to_schema: Dict[str, str]
+    source_to_schema: Dict[str, str],
+    actual_raw_tables: Dict[str, Set[str]] = None
 ) -> bool:
     """
     Check if a table is configured in sources.yml
@@ -70,6 +71,7 @@ def is_table_configured(
         table: Table name
         schema_to_tables: Mapping from schema to expected tables
         source_to_schema: Mapping from source name to schema
+        actual_raw_tables: Optional dict of raw schema -> set of actual table names in DB
 
     Returns:
         True if table is configured, False if orphaned
@@ -96,8 +98,20 @@ def is_table_configured(
             # Try to match against source schemas
             for source_name, raw_schema in source_to_schema.items():
                 # Check if staging table belongs to this source
-                if table.startswith(f"stg_{source_name}__") or table == f"stg_{source_name}":
-                    # Source exists, so staging table is valid
+                if table.startswith(f"stg_{source_name}__"):
+                    # Extract the raw table name from staging table
+                    # stg_{source_name}__{table_name} -> table_name
+                    prefix = f"stg_{source_name}__"
+                    raw_table_name = table[len(prefix):]
+
+                    # If we have actual raw tables, verify the corresponding raw table exists
+                    if actual_raw_tables and raw_schema in actual_raw_tables:
+                        return raw_table_name in actual_raw_tables[raw_schema]
+
+                    # Fallback: source exists, so staging table is valid
+                    return True
+                elif table == f"stg_{source_name}":
+                    # Single-table staging model
                     return True
             return False
         else:

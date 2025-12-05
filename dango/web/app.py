@@ -396,6 +396,7 @@ def get_source_row_count(source_name: str) -> Optional[int]:
                 FROM information_schema.tables
                 WHERE table_schema = '{multi_schema}'
                   AND table_name NOT LIKE '_dlt_%'
+                  AND table_name NOT IN ('spreadsheet', 'spreadsheet_info')
             """).fetchone()
 
             if result and result[0] > 0:
@@ -405,6 +406,7 @@ def get_source_row_count(source_name: str) -> Optional[int]:
                     FROM information_schema.tables
                     WHERE table_schema = '{multi_schema}'
                       AND table_name NOT LIKE '_dlt_%'
+                      AND table_name NOT IN ('spreadsheet', 'spreadsheet_info')
                 """).fetchall()
 
                 total_rows = 0
@@ -480,6 +482,7 @@ def get_source_tables_info(source_name: str) -> Optional[Dict[str, Any]]:
             FROM information_schema.tables
             WHERE table_schema = '{schema_name}'
               AND table_name NOT LIKE '_dlt_%'
+              AND table_name NOT IN ('spreadsheet', 'spreadsheet_info')
         """).fetchone()
 
         if result and result[0] > 0:
@@ -489,6 +492,7 @@ def get_source_tables_info(source_name: str) -> Optional[Dict[str, Any]]:
                 FROM information_schema.tables
                 WHERE table_schema = '{schema_name}'
                   AND table_name NOT LIKE '_dlt_%'
+                  AND table_name NOT IN ('spreadsheet', 'spreadsheet_info')
                 ORDER BY table_name
             """).fetchall()
 
@@ -1121,13 +1125,17 @@ async def get_source_status_data(source: dict) -> SourceStatus:
     # Determine status (priority: failed > synced > empty > not_synced)
     if last_sync_status == "failed":
         status = "failed"
+    elif not history:
+        # Never synced - no history at all
+        status = "not_synced"
     elif last_sync_status == "success" and (rows_processed == 0 or row_count == 0 or row_count is None):
+        # Synced but no data loaded
         status = "empty"
     elif row_count is not None and row_count > 0:
+        # Has data
         status = "synced"
-    elif row_count is not None and row_count == 0:
-        status = "empty"
     else:
+        # Edge case
         status = "not_synced"
 
     return SourceStatus(

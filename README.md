@@ -254,27 +254,32 @@ Start-Process http://localhost:8800
 - **DuckDB** as your analytics database
 - **Metabase** for dashboards and SQL queries
 
-## Features (v0.0.2)
+## Features (v0.0.3)
 
 **✅ What Works Now:**
-- ✅ Full CLI with 9 commands
+- ✅ Full CLI with 10+ commands
 - ✅ CSV data sources (upload and auto-sync)
 - ✅ Stripe integration (tested and working)
+- ✅ **Google Sheets** with OAuth authentication
+- ✅ **Google Analytics (GA4)** with OAuth authentication
+- ✅ **Facebook Ads** with OAuth authentication (60-day token)
 - ✅ dbt auto-generation for staging models
 - ✅ Web UI with live monitoring
 - ✅ Metabase dashboards (auto-configured)
 - ✅ File watcher with auto-triggers
 - ✅ DuckDB as embedded analytics database
+- ✅ Token expiry warnings and validation
+- ✅ Custom sources via `dlt_native` type
 
-**📝 v0.0.1 is an early preview release**
-- Tested with CSV and Stripe sources
-- 29 data sources available (most untested)
-- OAuth sources planned for v0.1.0
-- Not recommended for production use yet
+**📝 v0.0.3 adds OAuth authentication**
+- Browser-based OAuth flows for Google and Facebook sources
+- Token expiry tracking with warnings before expiration
+- Easy re-authentication when tokens expire
+- Build custom connectors in `custom_sources/` directory
 
-**🚧 Coming in v0.1.0 (Target: Dec 2025):**
-- OAuth authentication for Google Ads, Facebook Ads, GA4, Shopify
-- REST API framework for custom sources
+**🚧 Coming in v0.1.0:**
+- Google Ads
+- Additional OAuth sources
 - Demo project with sample data
 - Full documentation website
 

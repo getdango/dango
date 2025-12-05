@@ -490,6 +490,89 @@ def wait_for_metabase_ready(metabase_url: str = "http://localhost:3000", timeout
     return False
 
 
+def hide_internal_tables(
+    metabase_url: str,
+    headers: Dict[str, str],
+    db_id: int
+) -> Dict[str, Any]:
+    """
+    Hide internal tables from Metabase UI (raw_* schemas, _dlt_* tables).
+
+    Uses Metabase's PUT /api/table/:id with visibility_type="technical"
+    to hide tables from normal users while keeping them accessible for advanced queries.
+
+    Args:
+        metabase_url: Metabase URL
+        headers: Request headers with session token
+        db_id: Database ID in Metabase
+
+    Returns:
+        Summary of hidden tables
+    """
+    result = {"hidden_count": 0, "errors": []}
+
+    try:
+        # First, trigger a sync to ensure tables are discovered
+        requests.post(
+            f"{metabase_url}/api/database/{db_id}/sync_schema",
+            headers=headers,
+            timeout=10
+        )
+
+        # Wait briefly for sync to start discovering tables
+        time.sleep(3)
+
+        # Get all tables from this database
+        metadata_response = requests.get(
+            f"{metabase_url}/api/database/{db_id}/metadata",
+            headers=headers,
+            timeout=30
+        )
+
+        if metadata_response.status_code != 200:
+            result["errors"].append(f"Could not get database metadata: {metadata_response.status_code}")
+            return result
+
+        metadata = metadata_response.json()
+        tables = metadata.get("tables", [])
+
+        # Hide tables from raw_* schemas or internal dlt tables
+        for table in tables:
+            table_id = table.get("id")
+            table_name = table.get("name", "")
+            schema = table.get("schema", "")
+
+            # Skip if already hidden
+            if table.get("visibility_type") in ("hidden", "technical"):
+                continue
+
+            # Hide if: raw_* schema, _dlt_* table, or metadata tables
+            should_hide = (
+                schema.startswith("raw_") or
+                table_name.startswith("_dlt_") or
+                table_name in ("spreadsheet", "spreadsheet_info") or
+                schema == "main"  # main schema has dlt internal tables
+            )
+
+            if should_hide:
+                try:
+                    hide_response = requests.put(
+                        f"{metabase_url}/api/table/{table_id}",
+                        headers=headers,
+                        json={"visibility_type": "technical"},
+                        timeout=10
+                    )
+                    if hide_response.status_code == 200:
+                        result["hidden_count"] += 1
+                except Exception as e:
+                    result["errors"].append(f"Failed to hide {schema}.{table_name}: {e}")
+
+    except Exception as e:
+        result["errors"].append(f"Error hiding tables: {e}")
+
+    return result
+
+
 def setup_metabase(
     project_root: Path,
     project_name: str,
@@ -655,30 +738,64 @@ def setup_metabase(
 
         # At this point, we have headers with session token from either path
 
-        # Add DuckDB connection
+        # Check for existing DuckDB connection to prevent duplicates
+        existing_db_id = None
+        db_name = f"{org_name} Analytics"
+
+        try:
+            db_list = requests.get(
+                f"{metabase_url}/api/database",
+                headers=headers,
+                timeout=10
+            )
+            if db_list.status_code == 200:
+                databases = db_list.json().get("data", [])
+                for db in databases:
+                    if db.get("engine") == "duckdb" and db.get("name") == db_name:
+                        existing_db_id = db.get("id")
+                        print(f"  ℹ DuckDB connection already exists (ID: {existing_db_id}), will update it")
+                        break
+        except Exception:
+            pass  # If check fails, proceed with creation
+
+        # Add or update DuckDB connection
         # Note: Metabase runs in Docker with data mounted at /data (see docker-compose.yml)
         docker_duckdb_path = "/data/warehouse.duckdb"
 
         duckdb_config = {
-            "name": f"{org_name} Analytics",
+            "name": db_name,
             "engine": "duckdb",
             "details": {
                 "database_file": docker_duckdb_path,
                 "old_implicit_casting": True,
                 "read_only": False
+                # Note: DuckDB driver doesn't support schema-filters-type/patterns
+                # Users will see all schemas (raw_*, main, staging)
+                # This is a limitation of the DuckDB Metabase driver
             }
         }
 
-        db_response = requests.post(
-            f"{metabase_url}/api/database",
-            headers=headers,
-            json=duckdb_config,
-            timeout=10
-        )
+        if existing_db_id:
+            # Update existing connection
+            db_response = requests.put(
+                f"{metabase_url}/api/database/{existing_db_id}",
+                headers=headers,
+                json=duckdb_config,
+                timeout=10
+            )
+        else:
+            # Create new connection
+            db_response = requests.post(
+                f"{metabase_url}/api/database",
+                headers=headers,
+                json=duckdb_config,
+                timeout=10
+            )
 
         if db_response.status_code == 200:
             response_data = db_response.json()
-            duckdb_id = response_data.get("id")
+            # For updates, use existing_db_id; for creates, get from response
+            duckdb_id = existing_db_id or response_data.get("id")
 
             # Verify we actually got a database ID (not just a 200 response)
             if duckdb_id:
@@ -696,6 +813,16 @@ def setup_metabase(
                     )
                 except Exception:
                     pass  # Not critical
+
+                # NOTE: hide_internal_tables disabled - it breaks Metabase schema navigation
+                # When tables are marked as "technical", Metabase collapses from schema-based
+                # view to flat table list. Users will see all tables including internal ones,
+                # but schema organization is preserved.
+                # TODO: Find alternative approach that hides tables without breaking schema nav
+                # hide_result = hide_internal_tables(metabase_url, headers, duckdb_id)
+                # if hide_result["hidden_count"] > 0:
+                #     print(f"  ✓ Hidden {hide_result['hidden_count']} internal table(s)")
+                #     summary["tables_hidden"] = hide_result["hidden_count"]
             else:
                 # Got 200 but no ID - connection validation failed
                 error_msg = response_data.get("message") or response_data.get("errors") or str(response_data)

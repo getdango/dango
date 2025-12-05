@@ -358,16 +358,17 @@ def start(ctx):
         # Check for duplicate port configuration
         _check_duplicate_ports(platform_config)
 
-        # Check Docker service ports (Metabase and dbt-docs)
-        _check_docker_ports(platform_config)
-
-        # Initialize Docker manager
+        # Initialize Docker manager FIRST so we can stop services before port check
         manager = DockerManager(project_root)
 
         # Clean up any zombie containers from previous failed runs
-        console.print("[dim]Checking for zombie containers from previous runs...[/dim]")
+        # This must happen BEFORE port checks to allow ports to be freed
+        console.print("[dim]Stopping any existing Dango services...[/dim]")
         manager.stop_services()
         console.print()
+
+        # Check Docker service ports (Metabase and dbt-docs) AFTER stopping services
+        _check_docker_ports(platform_config)
 
         # Pre-flight check: Docker daemon must be running
         if not manager.is_docker_daemon_running():
@@ -1243,6 +1244,18 @@ def sync(ctx, source, start_date, end_date, full_refresh):
                 # Silent skip if Metabase isn't configured or running
                 console.print("[dim]ℹ Metabase not running (schema will sync automatically when started)[/dim]")
 
+        # Display OAuth warnings at the very end (so users don't miss them)
+        oauth_warnings = summary.get("oauth_warnings", [])
+        if oauth_warnings:
+            console.print()
+            console.print("[yellow]" + "="*60 + "[/yellow]")
+            console.print("[yellow]⚠️  OAuth Token Warnings:[/yellow]")
+            console.print("[yellow]" + "="*60 + "[/yellow]")
+            for warning in oauth_warnings:
+                console.print(f"  • {warning['source_name']}: expires in {warning['days_left']} day(s) ({warning['expires_at']})")
+                console.print(f"    [cyan]Re-authenticate:[/cyan] dango auth {warning['source_type']}")
+            console.print()
+
         # Exit with error code if any sources failed
         if summary["failed_count"] > 0:
             lock.release()
@@ -1433,20 +1446,43 @@ def source_list(ctx, enabled_only):
                 console.print("[yellow]No enabled sources found[/yellow]")
                 return
 
-        # Get last sync times from metadata table
+        # Get last sync times from multiple sources:
+        # 1. _dlt_loads table in each raw_{source_name} schema (for dlt-based sources)
+        # 2. _dango_file_metadata table in main schema (for CSV sources)
         last_sync_times = {}
         duckdb_path = project_root / "data" / "warehouse.duckdb"
         if duckdb_path.exists():
             try:
                 conn = duckdb.connect(str(duckdb_path), read_only=True)
-                # Check if metadata table exists
+
+                # Method 1: Check _dlt_loads tables for dlt-based sources
+                # Each source has raw_{source_name}._dlt_loads with inserted_at timestamp
+                for source in sources:
+                    raw_schema = f"raw_{source.name}"
+                    try:
+                        # Check if _dlt_loads table exists for this source
+                        result = conn.execute(f"""
+                            SELECT MAX(inserted_at) as last_sync
+                            FROM "{raw_schema}"._dlt_loads
+                            WHERE status = 0
+                        """).fetchone()
+                        if result and result[0]:
+                            # Convert to naive datetime if timezone-aware
+                            last_sync_dt = result[0]
+                            if hasattr(last_sync_dt, 'replace') and last_sync_dt.tzinfo:
+                                last_sync_dt = last_sync_dt.replace(tzinfo=None)
+                            last_sync_times[source.name] = last_sync_dt
+                    except Exception:
+                        # Table doesn't exist for this source, continue
+                        pass
+
+                # Method 2: Check CSV metadata table (may override with more recent time)
                 tables = conn.execute("""
                     SELECT table_name FROM information_schema.tables
                     WHERE table_schema = 'main' AND table_name = '_dango_file_metadata'
                 """).fetchall()
 
                 if tables:
-                    # Get max loaded_at for each source
                     result = conn.execute("""
                         SELECT source_name, MAX(loaded_at) as last_sync
                         FROM _dango_file_metadata
@@ -1455,7 +1491,9 @@ def source_list(ctx, enabled_only):
                     """).fetchall()
 
                     for source_name, last_sync in result:
-                        last_sync_times[source_name] = last_sync
+                        # Only update if more recent than dlt load time
+                        if source_name not in last_sync_times or last_sync > last_sync_times[source_name]:
+                            last_sync_times[source_name] = last_sync
 
                 conn.close()
             except Exception:
@@ -1842,11 +1880,20 @@ def db_status(ctx):
         from .db_helpers import build_schema_table_mapping, is_table_configured
         schema_to_tables, source_to_schema = build_schema_table_mapping(config)
 
+        # Build actual raw tables mapping from database
+        # This is used to validate that staging tables have corresponding raw tables
+        actual_raw_tables = {}
+        for schema, table, size in result:
+            if schema.startswith('raw_') and not table.startswith('_dlt_'):
+                if schema not in actual_raw_tables:
+                    actual_raw_tables[schema] = set()
+                actual_raw_tables[schema].add(table)
+
         configured_tables = []
         orphaned_tables = []
 
         for schema, table, size in result:
-            if is_table_configured(schema, table, schema_to_tables, source_to_schema):
+            if is_table_configured(schema, table, schema_to_tables, source_to_schema, actual_raw_tables):
                 if not table.startswith('_dlt_'):
                     configured_tables.append((schema, table, size, "✅"))
             else:
@@ -1948,11 +1995,20 @@ def db_clean(ctx, yes):
         from .db_helpers import build_schema_table_mapping, is_table_configured
         schema_to_tables, source_to_schema = build_schema_table_mapping(config)
 
+        # Build actual raw tables mapping from database
+        # This is used to validate that staging tables have corresponding raw tables
+        actual_raw_tables = {}
+        for schema, table, size in result:
+            if schema.startswith('raw_') and not table.startswith('_dlt_'):
+                if schema not in actual_raw_tables:
+                    actual_raw_tables[schema] = set()
+                actual_raw_tables[schema].add(table)
+
         # Find orphaned tables
         orphaned_tables = []
 
         for schema, table, size in result:
-            if not is_table_configured(schema, table, schema_to_tables, source_to_schema):
+            if not is_table_configured(schema, table, schema_to_tables, source_to_schema, actual_raw_tables):
                 orphaned_tables.append((schema, table, size))
             # Note: We do NOT clean intermediate or marts tables
             # These are custom models created by users with dango model add
@@ -2049,9 +2105,10 @@ def auth(ctx):
     Authenticate with OAuth providers.
 
     Commands:
-      dango auth google      Authenticate with Google services (Ads, Analytics, Sheets)
-      dango auth facebook    Authenticate with Facebook Ads
-      dango auth shopify     Authenticate with Shopify
+      dango auth google_sheets      Authenticate with Google Sheets
+      dango auth google_analytics   Authenticate with Google Analytics (GA4)
+      dango auth google_ads         Authenticate with Google Ads
+      dango auth facebook_ads       Authenticate with Facebook Ads
     """
     pass
 
@@ -2078,9 +2135,10 @@ def auth_list(ctx):
         if not credentials:
             console.print("\n[yellow]No OAuth credentials configured[/yellow]")
             console.print("\n[cyan]To authenticate:[/cyan]")
-            console.print("  dango auth google --service ads")
-            console.print("  dango auth facebook")
-            console.print("  dango auth shopify")
+            console.print("  dango auth google_sheets")
+            console.print("  dango auth google_analytics")
+            console.print("  dango auth google_ads")
+            console.print("  dango auth facebook_ads")
             return
 
         # Create table
@@ -2289,9 +2347,9 @@ def auth_refresh(ctx, oauth_name):
         raise click.Abort()
 
 
-@auth.command("facebook")
+@auth.command("facebook_ads")
 @click.pass_context
-def auth_facebook(ctx):
+def auth_facebook_ads(ctx):
     """
     Authenticate with Facebook Ads using OAuth.
 
@@ -2326,27 +2384,16 @@ def auth_facebook(ctx):
         raise click.Abort()
 
 
-@auth.command("google")
-@click.option(
-    "--service",
-    type=click.Choice(["ads", "analytics", "sheets"], case_sensitive=False),
-    default="ads",
-    help="Google service to authenticate with",
-)
+@auth.command("google_sheets")
 @click.pass_context
-def auth_google(ctx, service):
+def auth_google_sheets(ctx):
     """
-    Authenticate with Google services using OAuth.
+    Authenticate with Google Sheets using OAuth.
 
     This will guide you through the browser-based OAuth flow:
     1. Create OAuth credentials in Google Cloud Console
     2. Authorize Dango via browser
     3. Credentials saved to .dlt/secrets.toml
-
-    Services:
-      ads        Google Ads (default)
-      analytics  Google Analytics (GA4)
-      sheets     Google Sheets
     """
     from pathlib import Path
     from .utils import require_project_context
@@ -2356,20 +2403,9 @@ def auth_google(ctx, service):
     try:
         project_root = require_project_context(ctx)
 
-        # Map CLI service names to provider service names
-        service_map = {
-            "ads": "google_ads",
-            "analytics": "google_analytics",
-            "sheets": "google_sheets",
-        }
-        provider_service = service_map.get(service.lower(), "google_ads")
-
-        # Use new OAuth implementation
         oauth_manager = OAuthManager(project_root)
         provider = GoogleOAuthProvider(oauth_manager)
-
-        # Start OAuth flow
-        oauth_name = provider.authenticate(service=provider_service)
+        oauth_name = provider.authenticate(service="google_sheets")
 
         if not oauth_name:
             console.print("[red]Authentication failed[/red]")
@@ -2380,33 +2416,60 @@ def auth_google(ctx, service):
         raise click.Abort()
 
 
-@auth.command("shopify")
+@auth.command("google_analytics")
 @click.pass_context
-def auth_shopify(ctx):
+def auth_google_analytics(ctx):
     """
-    Authenticate with Shopify.
+    Authenticate with Google Analytics (GA4) using OAuth.
 
-    This will guide you through:
-    1. Creating a custom app in Shopify admin
-    2. Configuring Admin API scopes
+    This will guide you through the browser-based OAuth flow:
+    1. Create OAuth credentials in Google Cloud Console
+    2. Authorize Dango via browser
     3. Credentials saved to .dlt/secrets.toml
-
-    Shopify custom app tokens don't expire.
     """
     from pathlib import Path
     from .utils import require_project_context
     from dango.oauth import OAuthManager
-    from dango.oauth.providers import ShopifyOAuthProvider
+    from dango.oauth.providers import GoogleOAuthProvider
 
     try:
         project_root = require_project_context(ctx)
 
-        # Use new OAuth implementation
         oauth_manager = OAuthManager(project_root)
-        provider = ShopifyOAuthProvider(oauth_manager)
+        provider = GoogleOAuthProvider(oauth_manager)
+        oauth_name = provider.authenticate(service="google_analytics")
 
-        # Start OAuth flow
-        oauth_name = provider.authenticate()
+        if not oauth_name:
+            console.print("[red]Authentication failed[/red]")
+            raise click.Abort()
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort()
+
+
+@auth.command("google_ads")
+@click.pass_context
+def auth_google_ads(ctx):
+    """
+    Authenticate with Google Ads using OAuth.
+
+    This will guide you through the browser-based OAuth flow:
+    1. Create OAuth credentials in Google Cloud Console
+    2. Authorize Dango via browser
+    3. Credentials saved to .dlt/secrets.toml
+    """
+    from pathlib import Path
+    from .utils import require_project_context
+    from dango.oauth import OAuthManager
+    from dango.oauth.providers import GoogleOAuthProvider
+
+    try:
+        project_root = require_project_context(ctx)
+
+        oauth_manager = OAuthManager(project_root)
+        provider = GoogleOAuthProvider(oauth_manager)
+        oauth_name = provider.authenticate(service="google_ads")
 
         if not oauth_name:
             console.print("[red]Authentication failed[/red]")
@@ -2452,17 +2515,12 @@ def auth_check(ctx):
             "Google": {
                 "env_vars": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
                 "services": ["Google Ads", "Google Analytics", "Google Sheets"],
-                "auth_cmd": "dango auth google --service <ads|analytics|sheets>",
+                "auth_cmd": "dango auth google_<sheets|analytics|ads>",
             },
             "Facebook": {
                 "env_vars": ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"],
                 "services": ["Facebook Ads"],
-                "auth_cmd": "dango auth facebook",
-            },
-            "Shopify": {
-                "env_vars": ["SHOPIFY_CLIENT_ID", "SHOPIFY_CLIENT_SECRET"],
-                "services": ["Shopify"],
-                "auth_cmd": "dango auth shopify",
+                "auth_cmd": "dango auth facebook_ads",
             },
         }
 
@@ -2543,7 +2601,7 @@ def auth_check(ctx):
 
 
 @auth.command("setup")
-@click.argument("provider", type=click.Choice(["google", "facebook", "shopify"], case_sensitive=False))
+@click.argument("provider", type=click.Choice(["google", "facebook"], case_sensitive=False))
 @click.pass_context
 def auth_setup(ctx, provider):
     """
@@ -2551,12 +2609,11 @@ def auth_setup(ctx, provider):
 
     Guides you through creating OAuth credentials for a provider.
 
-    PROVIDER: The OAuth provider to set up (google, facebook, shopify)
+    PROVIDER: The OAuth provider to set up (google, facebook)
 
     Examples:
       dango auth setup google
       dango auth setup facebook
-      dango auth setup shopify
     """
     from pathlib import Path
     import os
@@ -2612,21 +2669,6 @@ def auth_setup(ctx, provider):
                 ],
                 "services": ["Facebook Ads"],
             },
-            "shopify": {
-                "display_name": "Shopify",
-                "env_vars": [
-                    ("SHOPIFY_CLIENT_ID", "Client ID"),
-                    ("SHOPIFY_CLIENT_SECRET", "Client Secret"),
-                ],
-                "setup_url": "https://partners.shopify.com/",
-                "setup_steps": [
-                    "1. Go to Shopify Partners → Apps → Create app",
-                    "2. Or in store admin: Settings → Apps → Develop apps → Create app",
-                    "3. Configure Admin API scopes: read_orders, read_customers, read_products",
-                    "4. Install app and get Admin API access token",
-                ],
-                "services": ["Shopify"],
-            },
         }
 
         config = provider_config[provider.lower()]
@@ -2650,7 +2692,9 @@ def auth_setup(ctx, provider):
             if not Confirm.ask("Update credentials anyway?", default=False):
                 console.print("\n[dim]To authenticate, run:[/dim]")
                 if provider.lower() == "google":
-                    console.print("  dango auth google --service <ads|analytics|sheets>")
+                    console.print("  dango auth google_sheets")
+                    console.print("  dango auth google_analytics")
+                    console.print("  dango auth google_ads")
                 else:
                     console.print(f"  dango auth {provider.lower()}")
                 return
@@ -2712,7 +2756,7 @@ def auth_setup(ctx, provider):
         console.print(f"\n[bold]Next Steps:[/bold]")
         console.print(f"  1. Authenticate: ", end="")
         if provider.lower() == "google":
-            console.print("[cyan]dango auth google --service <ads|analytics|sheets>[/cyan]")
+            console.print("[cyan]dango auth <google_ads|google_analytics|google_sheets>[/cyan]")
         else:
             console.print(f"[cyan]dango auth {provider.lower()}[/cyan]")
         console.print(f"  2. Add a source: [cyan]dango source add[/cyan]")
@@ -3205,16 +3249,21 @@ def generate(ctx, models, generate_all):
             table.add_column("Files", style="dim")
 
             for item in summary["generated"]:
-                files = "model"
-                if item.get("schema"):
-                    files += " + schema"
+                source_name = item["source"]
+                models = item.get("models", [])
 
-                table.add_row(
-                    item["source"],
-                    str(item["columns"]),
-                    item["dedup_strategy"],
-                    files
-                )
+                # For each model generated for this source
+                for model in models:
+                    files = "model"
+                    if item.get("schema"):
+                        files += " + schema"
+
+                    table.add_row(
+                        f"{source_name} ({model['endpoint']})",
+                        str(model.get("columns", "N/A")),
+                        model.get("dedup_strategy", "N/A"),
+                        files
+                    )
 
             console.print(table)
             console.print()

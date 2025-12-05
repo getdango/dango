@@ -118,10 +118,22 @@ class CSVLoader:
         )
 
         # Target table name
-        target_table = f"{target_schema}.{source_name}"
+        # Use source_name as the table name within raw_{source_name} schema
+        # This follows industry practice (Fivetran, Airbyte) where table name = resource name
+        # Result: raw_test_csv_1.test_csv_1 (redundant but clear when schema not shown)
+        table_name = source_name
+        target_table = f"{target_schema}.{table_name}"
+
+        # Clean up legacy "data" table if it exists (from old CSV loader behavior)
+        # This prevents orphaned tables when migrating from old naming scheme
+        if table_name != "data":
+            legacy_table_exists = self._check_table_exists(conn, target_schema, "data")
+            if legacy_table_exists:
+                console.print(f"  [dim]Cleaning up legacy 'data' table...[/dim]")
+                conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."data"')
 
         # Create table on first run
-        table_exists = self._check_table_exists(conn, target_schema, source_name)
+        table_exists = self._check_table_exists(conn, target_schema, table_name)
 
         # PRE-VALIDATE: Check ALL file schemas match before loading ANY data
         # This prevents partial data loading when schema mismatches exist
@@ -185,7 +197,7 @@ class CSVLoader:
                     stats["deleted"] += 1
 
             # Get final row count (only if table exists)
-            table_exists = self._check_table_exists(conn, target_schema, source_name)
+            table_exists = self._check_table_exists(conn, target_schema, table_name)
             if table_exists:
                 stats["total_rows"] = conn.execute(f"SELECT COUNT(*) FROM {target_table}").fetchone()[
                     0

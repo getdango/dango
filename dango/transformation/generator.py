@@ -269,12 +269,15 @@ class DbtModelGenerator:
             # Filter out dlt internal tables and metadata tables
             skip_prefixes = ('_dlt_', 'dimensions', 'metrics')
             skip_suffixes = ('__deprecated_api_names',)
+            skip_exact = ('spreadsheet', 'spreadsheet_info')  # Google Sheets metadata
 
             tables = []
             for (table_name,) in result:
                 if table_name.startswith(skip_prefixes):
                     continue
                 if table_name.endswith(skip_suffixes):
+                    continue
+                if table_name in skip_exact:
                     continue
                 tables.append(table_name)
 
@@ -439,7 +442,13 @@ class DbtModelGenerator:
                 generated_models = []
 
                 for endpoint in endpoints:
+                    # Normalize table name the same way dlt does:
+                    # - Convert to lowercase
+                    # - Replace spaces and special chars with underscores
+                    # - Remove consecutive underscores
                     table_name = endpoint.lower()
+                    table_name = ''.join(c if c.isalnum() else '_' for c in table_name)
+                    table_name = '_'.join(filter(None, table_name.split('_')))  # Remove consecutive underscores
 
                     # Get schema from DuckDB
                     columns = self.get_table_schema(table_name, schema=schema_name)

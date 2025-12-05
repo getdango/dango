@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.3] - 2025-12-05
+
+### Added
+- **OAuth Authentication**
+  - Google Sheets OAuth with browser-based flow
+  - Google Analytics (GA4) OAuth with browser-based flow
+  - Facebook Ads OAuth with long-lived token support (60-day expiry)
+  - `dango auth <provider>` commands for all OAuth sources
+  - Inline OAuth prompts during `dango source add` wizard
+
+- **OAuth Token Management**
+  - Token expiry tracking and validation
+  - Pre-sync expiry warnings (7 days before expiration)
+  - Expired token blocking with clear re-auth instructions
+  - Facebook token auto-extend for still-valid tokens
+
+- **Pre-flight Validation**
+  - OAuth credential validation in `dango validate`
+  - Shows pass/warn/fail status for each OAuth source
+
+- **dlt_native Source Type**
+  - Support for ANY dlt source via `type: dlt_native`
+  - Custom source support from `custom_sources/` directory
+  - Full dlt configuration control via `sources.yml`
+
+### Changed
+- Shopify support deferred (awaiting upstream dlt updates)
+- Google Ads deferred to future release
+
+### Notes
+This release adds OAuth support for Google and Facebook data sources, enabling users to connect to Google Sheets, Google Analytics (GA4), and Facebook Ads with browser-based authentication flows.
+
 ## [0.0.2] - 2025-11-21
 
 ### Added
@@ -97,15 +129,11 @@ This release focuses on Windows compatibility and installer improvements. All pl
 ### Known Limitations
 - **Only CSV and Stripe sources tested** in v0.0.1
 - Other dlt sources available but not verified
-- OAuth sources (Google Ads, Meta Ads, GA4, Shopify) planned for v0.1.0
-- REST API framework for custom sources planned for v0.1.0
-- Bootstrap installer script coming in v0.1.0
-- Demo project coming in v0.1.0
 
 ### Notes
 This is a **preview release** for early feedback. Not recommended for production use.
-Full MVP (v0.1.0) with OAuth and complete documentation targeted for late November 2025.
 
-[Unreleased]: https://github.com/getdango/dango/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/getdango/dango/compare/v0.0.3...HEAD
+[0.0.3]: https://github.com/getdango/dango/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/getdango/dango/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/getdango/dango/releases/tag/v0.0.1
