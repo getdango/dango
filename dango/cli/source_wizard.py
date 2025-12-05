@@ -956,7 +956,7 @@ class SourceWizard:
 
             if not cred:
                 console.print(f"[yellow]No Google Sheets OAuth credentials found[/yellow]")
-                console.print(f"[dim]Run 'dango auth google --service sheets' first[/dim]")
+                console.print(f"[dim]Run 'dango auth google_sheets' first[/dim]")
                 return None
 
             # Get credentials from the OAuthCredential object
@@ -972,13 +972,13 @@ class SourceWizard:
             if not tokens.get("refresh_token"):
                 console.print(f"[red]Error: No refresh token found in credentials[/red]")
                 console.print(f"[dim]This usually means OAuth wasn't completed properly[/dim]")
-                console.print(f"[cyan]Run: dango auth google --service sheets[/cyan]")
+                console.print(f"[cyan]Run: dango auth google_sheets[/cyan]")
                 return None
 
             if not tokens.get("client_id") or not tokens.get("client_secret"):
                 console.print(f"[red]Error: Missing client_id or client_secret[/red]")
                 console.print(f"[dim]OAuth configuration is incomplete[/dim]")
-                console.print(f"[cyan]Run: dango auth google --service sheets[/cyan]")
+                console.print(f"[cyan]Run: dango auth google_sheets[/cyan]")
                 return None
 
             credentials = Credentials(
@@ -1092,13 +1092,13 @@ class SourceWizard:
                 console.print("  • Spreadsheet is not shared with your Google account")
                 console.print("\n[cyan]How to fix:[/cyan]")
                 console.print("  1. Share the spreadsheet with your Google account")
-                console.print("  2. Or re-authenticate: [bold]dango auth google --service sheets[/bold]")
+                console.print("  2. Or re-authenticate: [bold]dango auth google_sheets[/bold]")
                 raise  # Re-raise to abort wizard
             elif "401" in error_str or "invalid" in error_str or "expired" in error_str or "refresh" in error_str:
                 console.print(f"\n[red]✗ OAuth credential expired or invalid[/red]")
                 console.print(f"[dim]Error details: {e}[/dim]")
                 console.print("\n[cyan]How to fix:[/cyan]")
-                console.print("  Re-authenticate: [bold]dango auth google --service sheets[/bold]")
+                console.print("  Re-authenticate: [bold]dango auth google_sheets[/bold]")
                 raise  # Re-raise to abort wizard
             else:
                 console.print(f"[yellow]Error fetching sheets: {e}[/yellow]")

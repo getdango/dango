@@ -201,7 +201,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         },
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
-            "2. OR manually run: dango auth google --service sheets",
+            "2. OR manually run: dango auth google_sheets",
             "3. Follow the browser OAuth flow to authenticate",
             "4. Get spreadsheet ID from URL: docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit",
             "5. Credentials are permanent (refresh token stored in .dlt/secrets.toml)",

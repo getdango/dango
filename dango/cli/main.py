@@ -2756,7 +2756,7 @@ def auth_setup(ctx, provider):
         console.print(f"\n[bold]Next Steps:[/bold]")
         console.print(f"  1. Authenticate: ", end="")
         if provider.lower() == "google":
-            console.print("[cyan]dango auth google --service <ads|analytics|sheets>[/cyan]")
+            console.print("[cyan]dango auth <google_ads|google_analytics|google_sheets>[/cyan]")
         else:
             console.print(f"[cyan]dango auth {provider.lower()}[/cyan]")
         console.print(f"  2. Add a source: [cyan]dango source add[/cyan]")
