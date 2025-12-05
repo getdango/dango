@@ -1244,6 +1244,18 @@ def sync(ctx, source, start_date, end_date, full_refresh):
                 # Silent skip if Metabase isn't configured or running
                 console.print("[dim]ℹ Metabase not running (schema will sync automatically when started)[/dim]")
 
+        # Display OAuth warnings at the very end (so users don't miss them)
+        oauth_warnings = summary.get("oauth_warnings", [])
+        if oauth_warnings:
+            console.print()
+            console.print("[yellow]" + "="*60 + "[/yellow]")
+            console.print("[yellow]⚠️  OAuth Token Warnings:[/yellow]")
+            console.print("[yellow]" + "="*60 + "[/yellow]")
+            for warning in oauth_warnings:
+                console.print(f"  • {warning['source_name']}: expires in {warning['days_left']} day(s) ({warning['expires_at']})")
+                console.print(f"    [cyan]Re-authenticate:[/cyan] dango auth {warning['source_type']}")
+            console.print()
+
         # Exit with error code if any sources failed
         if summary["failed_count"] > 0:
             lock.release()

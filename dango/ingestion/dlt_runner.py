@@ -1590,14 +1590,8 @@ def run_sync(
         success_rate = (len(success_sources) / total) * 100
         console.print(f"Overall: {len(success_sources)}/{total} sources succeeded ({success_rate:.0f}%)")
 
-    # Collect and display OAuth warnings at the end (so users don't miss them)
+    # Collect OAuth warnings (will be displayed at very end of sync in main.py)
     oauth_warnings = [r.get("oauth_warning") for r in results if r.get("oauth_warning")]
-    if oauth_warnings:
-        console.print()
-        console.print("[yellow]⚠️  OAuth Token Warnings:[/yellow]")
-        for warning in oauth_warnings:
-            console.print(f"  • {warning['source_name']}: expires in {warning['days_left']} day(s) ({warning['expires_at']})")
-            console.print(f"    [cyan]Re-authenticate:[/cyan] dango auth {warning['source_type']}")
 
     console.print(f"{'='*60}\n")
 
@@ -1688,4 +1682,5 @@ def run_sync(
         "failed_sources": failed_sources,
         "skipped_sources": skipped_sources,
         "results": results,
+        "oauth_warnings": oauth_warnings,  # For display at very end of sync
     }
