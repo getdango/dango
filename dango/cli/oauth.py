@@ -427,9 +427,9 @@ def check_token_expiry(project_root: Path, source_type: str) -> Optional[str]:
                         days_remaining = (expiry_date - datetime.now()).days
 
                         if days_remaining < 0:
-                            return f"[red]Facebook token expired {abs(days_remaining)} days ago[/red]\nRun: dango auth facebook"
+                            return f"[red]Facebook token expired {abs(days_remaining)} days ago[/red]\nRun: dango auth facebook_ads"
                         elif days_remaining < 7:
-                            return f"[yellow]Facebook token expires in {days_remaining} days[/yellow]\nConsider running: dango auth facebook"
+                            return f"[yellow]Facebook token expires in {days_remaining} days[/yellow]\nConsider running: dango auth facebook_ads"
                 except Exception:
                     pass
 

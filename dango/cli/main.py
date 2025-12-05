@@ -2108,7 +2108,7 @@ def auth(ctx):
       dango auth google_sheets      Authenticate with Google Sheets
       dango auth google_analytics   Authenticate with Google Analytics (GA4)
       dango auth google_ads         Authenticate with Google Ads
-      dango auth facebook           Authenticate with Facebook Ads
+      dango auth facebook_ads       Authenticate with Facebook Ads
     """
     pass
 
@@ -2138,7 +2138,7 @@ def auth_list(ctx):
             console.print("  dango auth google_sheets")
             console.print("  dango auth google_analytics")
             console.print("  dango auth google_ads")
-            console.print("  dango auth facebook")
+            console.print("  dango auth facebook_ads")
             return
 
         # Create table
@@ -2347,9 +2347,9 @@ def auth_refresh(ctx, oauth_name):
         raise click.Abort()
 
 
-@auth.command("facebook")
+@auth.command("facebook_ads")
 @click.pass_context
-def auth_facebook(ctx):
+def auth_facebook_ads(ctx):
     """
     Authenticate with Facebook Ads using OAuth.
 
@@ -2520,7 +2520,7 @@ def auth_check(ctx):
             "Facebook": {
                 "env_vars": ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"],
                 "services": ["Facebook Ads"],
-                "auth_cmd": "dango auth facebook",
+                "auth_cmd": "dango auth facebook_ads",
             },
         }
 

@@ -232,8 +232,8 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "name": "access_token_env",
                 "type": "secret",
                 "env_var": "FB_ACCESS_TOKEN",
-                "prompt": "Access Token (use 'dango auth facebook' to generate)",
-                "help": "Long-lived User Access Token (60 days). Generate via 'dango auth facebook' or manually at https://developers.facebook.com/tools/accesstoken. Requires 'ads_read' permission.",
+                "prompt": "Access Token (use 'dango auth facebook_ads' to generate)",
+                "help": "Long-lived User Access Token (60 days). Generate via 'dango auth facebook_ads' or manually at https://developers.facebook.com/tools/accesstoken. Requires 'ads_read' permission.",
             },
         ],
         "optional_params": [
