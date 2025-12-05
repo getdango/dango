@@ -254,7 +254,7 @@ Start-Process http://localhost:8800
 - **DuckDB** as your analytics database
 - **Metabase** for dashboards and SQL queries
 
-## Features (v0.0.3)
+## Features (v0.0.4)
 
 **✅ What Works Now:**
 - ✅ Full CLI with 10+ commands
@@ -271,7 +271,7 @@ Start-Process http://localhost:8800
 - ✅ Token expiry warnings and validation
 - ✅ Custom sources via `dlt_native` type
 
-**📝 v0.0.3 adds OAuth authentication**
+**📝 v0.0.4 adds OAuth authentication**
 - Browser-based OAuth flows for Google and Facebook sources
 - Token expiry tracking with warnings before expiration
 - Easy re-authentication when tokens expire

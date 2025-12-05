@@ -1,5 +1,5 @@
 # Dango Bootstrap Installer for Windows
-# Version: 0.0.2
+# Version: 0.0.4
 # Purpose: Install Dango with per-project virtual environment
 # Platform: Windows 10/11 with PowerShell 5.1+
 
@@ -353,8 +353,8 @@ function Update-Dango {
     $activateScript = Join-Path $VenvPath "Scripts\Activate.ps1"
     & $activateScript
 
-    # Install/upgrade from GitHub branch (testing Python 3.13/3.14 support)
-    & pip install --upgrade git+https://github.com/getdango/dango.git@feature/install-script-improvements --quiet
+    # Upgrade from PyPI
+    & pip install --upgrade getdango --quiet
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to upgrade Dango"
@@ -376,8 +376,8 @@ function Install-DangoGlobal {
     Write-Step "Installing Dango globally..."
     Write-Host ""
 
-    # Install from GitHub branch (testing Python 3.13/3.14 support)
-    & $PythonCmd -m pip install --user git+https://github.com/getdango/dango.git@feature/install-script-improvements
+    # Install from PyPI
+    & $PythonCmd -m pip install --user getdango
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to install Dango from PyPI"
@@ -785,7 +785,7 @@ function Main {
                 Write-Host "To create venv manually:"
                 Write-Host "  $($pythonInfo.Command) -m venv venv"
                 Write-Host "  .\venv\Scripts\Activate.ps1"
-                Write-Host "  pip install git+https://github.com/getdango/dango.git@feature/install-script-improvements"
+                Write-Host "  pip install getdango"
                 Write-Host ""
                 exit 0
             }

@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed version string mismatch between `pyproject.toml` and `__init__.py`
 
+### Changed
+- Install scripts now use PyPI (`pip install getdango`) instead of git tags
+
 ## [0.0.3] - 2025-12-05
 
 ### Added
