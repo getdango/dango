@@ -1843,11 +1843,20 @@ def db_status(ctx):
         from .db_helpers import build_schema_table_mapping, is_table_configured
         schema_to_tables, source_to_schema = build_schema_table_mapping(config)
 
+        # Build actual raw tables mapping from database
+        # This is used to validate that staging tables have corresponding raw tables
+        actual_raw_tables = {}
+        for schema, table, size in result:
+            if schema.startswith('raw_') and not table.startswith('_dlt_'):
+                if schema not in actual_raw_tables:
+                    actual_raw_tables[schema] = set()
+                actual_raw_tables[schema].add(table)
+
         configured_tables = []
         orphaned_tables = []
 
         for schema, table, size in result:
-            if is_table_configured(schema, table, schema_to_tables, source_to_schema):
+            if is_table_configured(schema, table, schema_to_tables, source_to_schema, actual_raw_tables):
                 if not table.startswith('_dlt_'):
                     configured_tables.append((schema, table, size, "✅"))
             else:
@@ -1949,11 +1958,20 @@ def db_clean(ctx, yes):
         from .db_helpers import build_schema_table_mapping, is_table_configured
         schema_to_tables, source_to_schema = build_schema_table_mapping(config)
 
+        # Build actual raw tables mapping from database
+        # This is used to validate that staging tables have corresponding raw tables
+        actual_raw_tables = {}
+        for schema, table, size in result:
+            if schema.startswith('raw_') and not table.startswith('_dlt_'):
+                if schema not in actual_raw_tables:
+                    actual_raw_tables[schema] = set()
+                actual_raw_tables[schema].add(table)
+
         # Find orphaned tables
         orphaned_tables = []
 
         for schema, table, size in result:
-            if not is_table_configured(schema, table, schema_to_tables, source_to_schema):
+            if not is_table_configured(schema, table, schema_to_tables, source_to_schema, actual_raw_tables):
                 orphaned_tables.append((schema, table, size))
             # Note: We do NOT clean intermediate or marts tables
             # These are custom models created by users with dango model add
