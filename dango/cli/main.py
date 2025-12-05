@@ -1434,20 +1434,43 @@ def source_list(ctx, enabled_only):
                 console.print("[yellow]No enabled sources found[/yellow]")
                 return
 
-        # Get last sync times from metadata table
+        # Get last sync times from multiple sources:
+        # 1. _dlt_loads table in each raw_{source_name} schema (for dlt-based sources)
+        # 2. _dango_file_metadata table in main schema (for CSV sources)
         last_sync_times = {}
         duckdb_path = project_root / "data" / "warehouse.duckdb"
         if duckdb_path.exists():
             try:
                 conn = duckdb.connect(str(duckdb_path), read_only=True)
-                # Check if metadata table exists
+
+                # Method 1: Check _dlt_loads tables for dlt-based sources
+                # Each source has raw_{source_name}._dlt_loads with inserted_at timestamp
+                for source in sources:
+                    raw_schema = f"raw_{source.name}"
+                    try:
+                        # Check if _dlt_loads table exists for this source
+                        result = conn.execute(f"""
+                            SELECT MAX(inserted_at) as last_sync
+                            FROM "{raw_schema}"._dlt_loads
+                            WHERE status = 0
+                        """).fetchone()
+                        if result and result[0]:
+                            # Convert to naive datetime if timezone-aware
+                            last_sync_dt = result[0]
+                            if hasattr(last_sync_dt, 'replace') and last_sync_dt.tzinfo:
+                                last_sync_dt = last_sync_dt.replace(tzinfo=None)
+                            last_sync_times[source.name] = last_sync_dt
+                    except Exception:
+                        # Table doesn't exist for this source, continue
+                        pass
+
+                # Method 2: Check CSV metadata table (may override with more recent time)
                 tables = conn.execute("""
                     SELECT table_name FROM information_schema.tables
                     WHERE table_schema = 'main' AND table_name = '_dango_file_metadata'
                 """).fetchall()
 
                 if tables:
-                    # Get max loaded_at for each source
                     result = conn.execute("""
                         SELECT source_name, MAX(loaded_at) as last_sync
                         FROM _dango_file_metadata
@@ -1456,7 +1479,9 @@ def source_list(ctx, enabled_only):
                     """).fetchall()
 
                     for source_name, last_sync in result:
-                        last_sync_times[source_name] = last_sync
+                        # Only update if more recent than dlt load time
+                        if source_name not in last_sync_times or last_sync > last_sync_times[source_name]:
+                            last_sync_times[source_name] = last_sync
 
                 conn.close()
             except Exception:
