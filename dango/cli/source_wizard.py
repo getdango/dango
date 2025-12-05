@@ -1123,10 +1123,11 @@ class SourceWizard:
         # Note: OAuth credentials are stored at sources.{source_type}.credentials.*
         # No oauth_ref needed - dlt finds credentials automatically
 
-        # Add type-specific config
-        if params:
-            # Convert source_type to config field name (e.g., "facebook_ads" -> "facebook_ads")
-            config[source_type] = params
+        # Add type-specific config block
+        # Always create this block even if empty - it indicates the source type
+        # and allows users to add config later
+        # Convert source_type to config field name (e.g., "facebook_ads" -> "facebook_ads")
+        config[source_type] = params if params else {}
 
         return config
 

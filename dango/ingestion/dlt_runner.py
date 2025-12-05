@@ -898,9 +898,18 @@ class DltPipelineRunner:
         else:
             config_obj = getattr(source_config, config_field, None)
             if config_obj is None:
-                raise ValueError(
-                    f"Missing {config_field} configuration for source: {source_config.name}"
-                )
+                # For OAuth sources, config might be in secrets.toml instead of sources.yml
+                # This happens when all required params are OAuth-collected (e.g., facebook_ads)
+                from dango.ingestion.sources.registry import get_source_metadata, AuthType
+                metadata = get_source_metadata(source_type.value)
+                if metadata.get("auth_type") == AuthType.OAUTH:
+                    # Allow empty config - OAuth injection will provide credentials
+                    config_obj = {}
+                    console.print(f"  [dim]Note: Using OAuth credentials from secrets.toml[/dim]")
+                else:
+                    raise ValueError(
+                        f"Missing {config_field} configuration for source: {source_config.name}"
+                    )
 
         # Convert Pydantic model to dict if needed
         if hasattr(config_obj, "dict"):
@@ -1024,9 +1033,9 @@ class DltPipelineRunner:
                     source_kwargs["credentials"] = source_secrets["credentials"]
                     console.print(f"  [dim]Injected OAuth credentials for {source_type}[/dim]")
             else:
-                # Non-Google: inject flat parameters (access_token, api_key, etc.)
+                # Non-Google: inject flat parameters (access_token, api_key, account_id, etc.)
                 # Common OAuth credential keys to inject
-                CREDENTIAL_KEYS = {"access_token", "api_key", "api_secret", "refresh_token", "shop_url", "private_app_password"}
+                CREDENTIAL_KEYS = {"access_token", "api_key", "api_secret", "refresh_token", "shop_url", "private_app_password", "account_id"}
 
                 for key in CREDENTIAL_KEYS:
                     # Inject if key is missing OR if key exists but value is None/empty
