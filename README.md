@@ -263,22 +263,23 @@ Start-Process http://localhost:8800
 - ✅ **Google Sheets** with OAuth authentication
 - ✅ **Google Analytics (GA4)** with OAuth authentication
 - ✅ **Facebook Ads** with OAuth authentication (60-day token)
-- ✅ **Database connectors** (PostgreSQL, MySQL, etc. via dlt's sql_database)
 - ✅ dbt auto-generation for staging models
 - ✅ Web UI with live monitoring
 - ✅ Metabase dashboards (auto-configured)
 - ✅ File watcher with auto-triggers
 - ✅ DuckDB as embedded analytics database
 - ✅ Token expiry warnings and validation
-- ✅ Custom REST API sources via `dlt_native` type
-- ✅ `dango sync --dry-run` to preview without executing
+- ✅ Custom sources via `dlt_native` type
 
-**📝 v0.0.4 adds OAuth authentication**
+**📝 v0.0.3 added OAuth authentication**
 - Browser-based OAuth flows for Google and Facebook sources
 - Token expiry tracking with warnings before expiration
 - Easy re-authentication when tokens expire
 - Build custom connectors in `custom_sources/` directory
-- Warning when custom sources aren't referenced in sources.yml
+
+**📝 v0.0.4 was a patch release**
+- Fixed version string mismatch
+- Install scripts now use PyPI
 
 **🚧 Coming in v0.1.0:**
 - Google Ads
