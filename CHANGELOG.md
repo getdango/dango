@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Unreferenced Custom Sources Warning**
+  - Detects Python files in `custom_sources/` not referenced in `sources.yml`
+  - Shows actionable warning in `dango sync`, `dango validate`, and `dango source list`
+  - Includes example configuration snippet to help users fix the issue
+
 ## [0.0.4] - 2025-12-06
 
 ### Fixed
