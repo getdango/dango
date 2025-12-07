@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.5] - 2025-12-08
+
+### Added
+- **Unreferenced Custom Sources Warning**
+  - Detects Python files in `custom_sources/` not referenced in `sources.yml`
+  - Shows actionable warning in `dango sync`, `dango validate`, and `dango source list`
+  - Includes example configuration snippet to help users fix the issue
+- **Dry Run Mode for Sync**
+  - `dango sync --dry-run` shows what would be synced without executing
+- **`__init__.py` in custom_sources/**
+  - `dango init` now creates `__init__.py` for proper Python imports
+
+### Fixed
+- **Database validation check** now correctly counts tables across all schemas (not just `main`)
+- **Model validation count** now shows accurate count instead of "unknown number of"
+- **Skip message in sync** now correctly categorizes reasons:
+  - "user-customized" for models where marker was removed
+  - "tables pending" for tables not yet synced
+
 ## [0.0.4] - 2025-12-06
 
 ### Fixed
@@ -141,7 +160,8 @@ This release focuses on Windows compatibility and installer improvements. All pl
 ### Notes
 This is a **preview release** for early feedback. Not recommended for production use.
 
-[Unreleased]: https://github.com/getdango/dango/compare/v0.0.4...HEAD
+[Unreleased]: https://github.com/getdango/dango/compare/v0.0.5...HEAD
+[0.0.5]: https://github.com/getdango/dango/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/getdango/dango/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/getdango/dango/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/getdango/dango/compare/v0.0.1...v0.0.2

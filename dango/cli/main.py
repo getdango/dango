@@ -8,6 +8,7 @@ import click
 from rich.console import Console
 
 from dango import __version__
+from dango.config.loader import check_unreferenced_custom_sources, format_unreferenced_sources_warning
 
 # Enable hyperlinks in terminal output (for clickable URLs)
 console = Console(force_terminal=True, legacy_windows=False)
@@ -1127,8 +1128,9 @@ def rename(ctx, new_name):
 @click.option("--start-date", help="Start date for incremental loading (YYYY-MM-DD)")
 @click.option("--end-date", help="End date for incremental loading (YYYY-MM-DD)")
 @click.option("--full-refresh", is_flag=True, help="Drop existing data and reload from scratch")
+@click.option("--dry-run", is_flag=True, help="Show what would be synced without executing")
 @click.pass_context
-def sync(ctx, source, start_date, end_date, full_refresh):
+def sync(ctx, source, start_date, end_date, full_refresh, dry_run):
     """
     Load data from all sources (or specific source).
 
@@ -1137,6 +1139,7 @@ def sync(ctx, source, start_date, end_date, full_refresh):
       dango sync --source orders               Sync only 'orders' source
       dango sync --start-date 2024-01-01       Override start date
       dango sync --full-refresh                Reset state and reload all data
+      dango sync --dry-run                     Preview what would be synced
 
     This command:
       1. Runs CSV loaders (incremental)
@@ -1175,6 +1178,11 @@ def sync(ctx, source, start_date, end_date, full_refresh):
 
         # Load configuration
         config = get_config(project_root)
+
+        # Check for unreferenced custom sources
+        unreferenced = check_unreferenced_custom_sources(project_root, config.sources)
+        if unreferenced:
+            console.print(format_unreferenced_sources_warning(unreferenced))
 
         # Parse dates if provided
         start_date_obj = None
@@ -1222,6 +1230,28 @@ def sync(ctx, source, start_date, end_date, full_refresh):
             console.print("[yellow]⚠️  Full refresh mode: existing data will be dropped[/yellow]")
 
         console.print()
+
+        # Dry run mode - show what would be synced without executing
+        if dry_run:
+            console.print("[bold cyan]Dry run mode - no changes will be made[/bold cyan]\n")
+            console.print("Sources that would be synced:")
+            for src in sources_to_sync:
+                console.print(f"  • {src.name} ({src.type.value})")
+                if src.type.value == "csv":
+                    console.print(f"    Path: {src.csv.file_path if src.csv else 'N/A'}")
+                elif src.type.value == "dlt_native":
+                    console.print(f"    Module: {src.dlt_native.source_module if src.dlt_native else 'N/A'}")
+                elif src.dlt_config:
+                    console.print(f"    dlt source: {src.dlt_config.source_name}")
+
+            console.print()
+            console.print("[dim]Options:[/dim]")
+            console.print(f"  • Full refresh: {'Yes' if full_refresh else 'No'}")
+            console.print(f"  • Start date: {start_date or 'Default'}")
+            console.print(f"  • End date: {end_date or 'Default'}")
+            console.print()
+            console.print("[dim]Run without --dry-run to execute sync[/dim]")
+            return
 
         # Run sync
         summary = run_sync(
@@ -1430,6 +1460,11 @@ def source_list(ctx, enabled_only):
     try:
         project_root = require_project_context(ctx)
         config = get_config(project_root)
+
+        # Check for unreferenced custom sources
+        unreferenced = check_unreferenced_custom_sources(project_root, config.sources)
+        if unreferenced:
+            console.print(format_unreferenced_sources_warning(unreferenced))
 
         # Get sources
         sources = config.sources.sources
