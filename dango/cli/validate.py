@@ -375,19 +375,28 @@ class ProjectValidator:
             )
 
             if result.returncode == 0:
-                # Parse successful - extract stats from output
-                output = result.stdout
+                # Parse successful - count model files directly for accurate count
+                staging_dir = dbt_dir / "models" / "staging"
+                intermediate_dir = dbt_dir / "models" / "intermediate"
+                marts_dir = dbt_dir / "models" / "marts"
 
-                # Look for model count in output
-                import re
-                models_match = re.search(r'(\d+) model', output)
-                model_count = models_match.group(1) if models_match else "unknown number of"
+                model_count = 0
+                for models_dir in [staging_dir, intermediate_dir, marts_dir]:
+                    if models_dir.exists():
+                        model_count += len(list(models_dir.glob("*.sql")))
 
-                self.results.append(ValidationResult(
-                    "dbt: Model validation",
-                    "pass",
-                    f"All {model_count} model(s) validated successfully"
-                ))
+                if model_count > 0:
+                    self.results.append(ValidationResult(
+                        "dbt: Model validation",
+                        "pass",
+                        f"All {model_count} model(s) validated successfully"
+                    ))
+                else:
+                    self.results.append(ValidationResult(
+                        "dbt: Model validation",
+                        "pass",
+                        "No models to validate (run 'dango sync' to generate)"
+                    ))
             else:
                 # Parse failed - extract error message
                 error_output = result.stderr or result.stdout
@@ -437,15 +446,27 @@ class ProjectValidator:
                 import duckdb
                 con = duckdb.connect(str(db_path), read_only=True)
 
-                # Check if database has tables
-                tables = con.execute("SHOW TABLES").fetchall()
+                # Check if database has tables across ALL schemas (not just main)
+                # Query information_schema to get all user tables
+                result = con.execute("""
+                    SELECT table_schema, COUNT(*) as table_count
+                    FROM information_schema.tables
+                    WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
+                      AND table_type = 'BASE TABLE'
+                      AND table_name NOT LIKE '_dlt_%'
+                    GROUP BY table_schema
+                """).fetchall()
                 con.close()
 
-                if tables:
+                # Count total tables and format schema summary
+                total_tables = sum(row[1] for row in result)
+                schema_summary = ", ".join(f"{row[0]}: {row[1]}" for row in result if row[1] > 0)
+
+                if total_tables > 0:
                     self.results.append(ValidationResult(
                         "Database: DuckDB",
                         "pass",
-                        f"{len(tables)} table(s) found"
+                        f"{total_tables} table(s) found ({schema_summary})"
                     ))
                 else:
                     self.results.append(ValidationResult(

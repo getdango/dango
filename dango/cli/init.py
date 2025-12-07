@@ -176,7 +176,8 @@ class ProjectInitializer:
         # Create marts README with guidance
         self._create_marts_readme()
 
-        # Create custom_sources README with guidance
+        # Create custom_sources __init__.py and README with guidance
+        self._create_custom_sources_init()
         self._create_custom_sources_readme()
 
         # Initialize .dlt/ directory for dlt-native credential storage
@@ -431,6 +432,14 @@ SELECT * FROM marts.fct_orders
             with open(marts_readme_path, 'w', encoding='utf-8') as f:
                 f.write(marts_readme_content)
             console.print("[green]✓[/green] Created marts/README.md with guidance")
+
+    def _create_custom_sources_init(self):
+        """Create __init__.py in custom_sources/ directory for Python imports"""
+        init_path = self.project_dir / "custom_sources" / "__init__.py"
+
+        if not init_path.exists():
+            with open(init_path, 'w', encoding='utf-8') as f:
+                f.write("# Custom dlt sources for this project\n")
 
     def _create_custom_sources_readme(self):
         """Create README.md in custom_sources/ directory with guidance"""

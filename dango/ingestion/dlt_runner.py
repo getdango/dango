@@ -1618,9 +1618,19 @@ def run_sync(
                 console.print(f"  • {item['source']}")
 
         if gen_summary.get("skipped"):
-            console.print(f"[yellow]⚠️  Skipped {len(gen_summary['skipped'])} model(s) (user-customized)[/yellow]")
-            for item in gen_summary['skipped']:
-                console.print(f"  • {item['source']}: {item['reason']}")
+            # Categorize skipped models by reason type
+            customized = [s for s in gen_summary['skipped'] if 'customized' in s.get('reason', '').lower()]
+            not_found = [s for s in gen_summary['skipped'] if 'not found' in s.get('reason', '').lower()]
+
+            if customized:
+                console.print(f"[dim]⏭  Skipped {len(customized)} model(s) (user-customized)[/dim]")
+                for item in customized:
+                    console.print(f"  • {item['source']}: {item.get('endpoint', '')}")
+
+            if not_found:
+                console.print(f"[dim]⏭  Skipped {len(not_found)} model(s) (tables pending)[/dim]")
+                for item in not_found:
+                    console.print(f"  • {item['source']}: {item['reason']}")
 
         console.print()
 
