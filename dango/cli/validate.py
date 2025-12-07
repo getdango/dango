@@ -66,6 +66,7 @@ class ProjectValidator:
         self._check_project_structure()
         self._check_config_files()
         self._check_data_sources()
+        self._check_custom_sources()  # Check for unreferenced custom sources
         self._check_oauth_credentials()  # NEW: OAuth validation
         self._check_dbt_setup()
         self._check_database()
@@ -187,6 +188,47 @@ class ProjectValidator:
                 "Data Sources",
                 "fail",
                 f"Error checking sources: {str(e)[:100]}"
+            ))
+
+    def _check_custom_sources(self):
+        """Check for unreferenced Python files in custom_sources/"""
+        from dango.config.loader import check_unreferenced_custom_sources
+
+        try:
+            loader = ConfigLoader(self.project_root)
+            config = loader.load_config()
+
+            unreferenced = check_unreferenced_custom_sources(
+                self.project_root,
+                config.sources
+            )
+
+            if unreferenced:
+                files_list = ", ".join(f"{f}.py" for f in unreferenced)
+                self.results.append(ValidationResult(
+                    "Custom Sources",
+                    "warn",
+                    f"Unreferenced files in custom_sources/: {files_list}. "
+                    "Add dlt_native entries to sources.yml to use them."
+                ))
+            else:
+                # Only report if custom_sources dir exists
+                custom_sources_dir = self.project_root / "custom_sources"
+                if custom_sources_dir.exists():
+                    py_files = list(custom_sources_dir.glob("*.py"))
+                    py_files = [f for f in py_files if f.name != "__init__.py"]
+                    if py_files:
+                        self.results.append(ValidationResult(
+                            "Custom Sources",
+                            "pass",
+                            "All custom sources are referenced in sources.yml"
+                        ))
+
+        except Exception as e:
+            self.results.append(ValidationResult(
+                "Custom Sources",
+                "fail",
+                f"Error checking custom sources: {str(e)[:100]}"
             ))
 
     def _check_oauth_credentials(self):

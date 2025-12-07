@@ -1176,6 +1176,12 @@ def sync(ctx, source, start_date, end_date, full_refresh):
         # Load configuration
         config = get_config(project_root)
 
+        # Check for unreferenced custom sources
+        from dango.config.loader import check_unreferenced_custom_sources, format_unreferenced_sources_warning
+        unreferenced = check_unreferenced_custom_sources(project_root, config.sources)
+        if unreferenced:
+            console.print(format_unreferenced_sources_warning(unreferenced))
+
         # Parse dates if provided
         start_date_obj = None
         end_date_obj = None
@@ -1430,6 +1436,12 @@ def source_list(ctx, enabled_only):
     try:
         project_root = require_project_context(ctx)
         config = get_config(project_root)
+
+        # Check for unreferenced custom sources
+        from dango.config.loader import check_unreferenced_custom_sources, format_unreferenced_sources_warning
+        unreferenced = check_unreferenced_custom_sources(project_root, config.sources)
+        if unreferenced:
+            console.print(format_unreferenced_sources_warning(unreferenced))
 
         # Get sources
         sources = config.sources.sources
