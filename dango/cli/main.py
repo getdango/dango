@@ -8,6 +8,7 @@ import click
 from rich.console import Console
 
 from dango import __version__
+from dango.config.loader import check_unreferenced_custom_sources, format_unreferenced_sources_warning
 
 # Enable hyperlinks in terminal output (for clickable URLs)
 console = Console(force_terminal=True, legacy_windows=False)
@@ -1179,7 +1180,6 @@ def sync(ctx, source, start_date, end_date, full_refresh, dry_run):
         config = get_config(project_root)
 
         # Check for unreferenced custom sources
-        from dango.config.loader import check_unreferenced_custom_sources, format_unreferenced_sources_warning
         unreferenced = check_unreferenced_custom_sources(project_root, config.sources)
         if unreferenced:
             console.print(format_unreferenced_sources_warning(unreferenced))
@@ -1462,7 +1462,6 @@ def source_list(ctx, enabled_only):
         config = get_config(project_root)
 
         # Check for unreferenced custom sources
-        from dango.config.loader import check_unreferenced_custom_sources, format_unreferenced_sources_warning
         unreferenced = check_unreferenced_custom_sources(project_root, config.sources)
         if unreferenced:
             console.print(format_unreferenced_sources_warning(unreferenced))
