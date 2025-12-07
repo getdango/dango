@@ -254,7 +254,7 @@ Start-Process http://localhost:8800
 - **DuckDB** as your analytics database
 - **Metabase** for dashboards and SQL queries
 
-## Features (v0.0.4)
+## Features (v0.0.5)
 
 **✅ What Works Now:**
 - ✅ Full CLI with 10+ commands
@@ -277,9 +277,10 @@ Start-Process http://localhost:8800
 - Easy re-authentication when tokens expire
 - Build custom connectors in `custom_sources/` directory
 
-**📝 v0.0.4 was a patch release**
-- Fixed version string mismatch
-- Install scripts now use PyPI
+**📝 v0.0.5 adds UX improvements**
+- `dango sync --dry-run` to preview without executing
+- Unreferenced custom sources warning
+- Better validation output (database check, model count)
 
 **🚧 Coming in v0.1.0:**
 - Google Ads

@@ -4,7 +4,7 @@ Dango - Open source data platform
 Professional analytics stack built with production-grade tools.
 """
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 __author__ = "Dango Team"
 __license__ = "Apache-2.0"
 
