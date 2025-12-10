@@ -13,6 +13,8 @@ import json
 import logging
 import os
 
+import dango
+
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, UploadFile, File, Form, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -2406,13 +2408,18 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 # Root endpoint - Serve dashboard UI
+def _inject_version(html_content: str) -> str:
+    """Replace version placeholder with actual dango version."""
+    return html_content.replace("{{DANGO_VERSION}}", dango.__version__)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Serve the dashboard UI"""
     index_file = Path(__file__).parent / "static" / "index.html"
 
     if index_file.exists():
-        return index_file.read_text(encoding='utf-8')
+        return _inject_version(index_file.read_text(encoding='utf-8'))
     else:
         # Fallback if static files not found
         return """
@@ -2434,7 +2441,7 @@ async def health_page():
     health_file = Path(__file__).parent / "static" / "health.html"
 
     if health_file.exists():
-        return health_file.read_text(encoding='utf-8')
+        return _inject_version(health_file.read_text(encoding='utf-8'))
     else:
         return "<html><body><h1>Health page not found</h1></body></html>"
 
@@ -2446,7 +2453,7 @@ async def logs_page():
     logs_file = Path(__file__).parent / "static" / "logs.html"
 
     if logs_file.exists():
-        return logs_file.read_text(encoding='utf-8')
+        return _inject_version(logs_file.read_text(encoding='utf-8'))
     else:
         return """
         <html>
