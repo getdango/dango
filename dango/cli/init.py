@@ -785,7 +785,7 @@ on-run-end:
         try:
             # Run dbt docs generate
             result = subprocess.run(
-                [dbt_cmd, "docs", "generate"],
+                [dbt_cmd, "docs", "generate", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)],
                 cwd=dbt_dir,
                 capture_output=True,
                 text=True,
