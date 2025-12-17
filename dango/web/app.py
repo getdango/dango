@@ -1602,6 +1602,12 @@ async def run_sync_task(
                 "source": source_name,
                 "message": f"Sync completed in {round(duration, 1)}s - {rows_processed:,} rows"
             })
+
+            # Trigger Metabase schema sync to ensure new tables are discoverable
+            # This matches CLI behavior (main.py:1265-1275) which calls sync_metabase_schema
+            # after run_sync() as a backup in case the internal call was skipped
+            from dango.visualization.metabase import sync_metabase_schema
+            sync_metabase_schema(project_root)
         else:
             # For failures, log with error details
             append_log_entry({

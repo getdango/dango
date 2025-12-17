@@ -572,8 +572,8 @@ class SourceWizard:
                 return "← Back"
 
             # Validate name format
-            if not user_input or not user_input.replace("_", "").replace("-", "").isalnum():
-                console.print(f"[yellow]⚠️  Invalid format. Use letters, numbers, underscores, and hyphens only.[/yellow]")
+            if not user_input or not user_input.replace("_", "").isalnum():
+                console.print(f"[yellow]⚠️  Invalid format. Use letters, numbers, and underscores only (no hyphens).[/yellow]")
                 continue
 
             # Use name as-is (no auto-prefixing)

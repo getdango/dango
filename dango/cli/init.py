@@ -772,20 +772,18 @@ on-run-end:
 
         dbt_dir = self.project_dir / "dbt"
 
-        # Find dbt command - use venv's dbt if available
-        dbt_cmd = shutil.which("dbt")
-        if not dbt_cmd:
-            # Try venv's bin directory (same as current Python)
-            venv_dbt = Path(sys.executable).parent / "dbt"
-            if venv_dbt.exists():
-                dbt_cmd = str(venv_dbt)
-            else:
-                dbt_cmd = "dbt"  # Fall back to PATH lookup
+        # Find dbt command - prefer venv's dbt to avoid using system dbt
+        # (system dbt may use ~/.dbt/profiles.yml which won't have this project's profile)
+        venv_dbt = Path(sys.executable).parent / "dbt"
+        if venv_dbt.exists():
+            dbt_cmd = str(venv_dbt)
+        else:
+            dbt_cmd = shutil.which("dbt") or "dbt"
 
         try:
             # Run dbt docs generate
             result = subprocess.run(
-                [dbt_cmd, "docs", "generate"],
+                [dbt_cmd, "docs", "generate", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)],
                 cwd=dbt_dir,
                 capture_output=True,
                 text=True,
@@ -804,7 +802,9 @@ on-run-end:
                     print_error("✗ index.html not found after generation")
                     return False
             else:
-                print_error(f"✗ dbt docs generate failed: {result.stderr}")
+                # dbt outputs errors to stdout, not stderr
+                error_output = result.stderr or result.stdout or "Unknown error"
+                print_error(f"✗ dbt docs generate failed: {error_output}")
                 console.print("    You can generate docs later with: cd dbt && dbt docs generate")
                 return False
 

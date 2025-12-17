@@ -395,6 +395,15 @@ class DataSource(BaseModel):
     description: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
 
+    @validator('name')
+    def validate_name_format(cls, v):
+        """Ensure source name uses only letters, numbers, and underscores (no hyphens)."""
+        if not v or not v.replace("_", "").isalnum():
+            raise ValueError(
+                f"Source name '{v}' is invalid. Use only lowercase letters, numbers, and underscores (no hyphens)."
+            )
+        return v.lower()  # Also enforce lowercase
+
 
 class SourcesConfig(BaseModel):
     """sources.yml configuration"""
