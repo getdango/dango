@@ -706,11 +706,10 @@ on-run-end:
             f.write(dbt_project_content)
 
         # Create profiles.yml
-        # Note: Profile name is quoted to handle names starting with numbers (e.g., "2025_project")
         profiles_content = f"""# dbt Profile Configuration for DuckDB
 # Connects to local DuckDB warehouse
 
-'{dbt_project_name}':
+{dbt_project_name}:
   target: dev
   outputs:
     dev:
@@ -780,17 +779,6 @@ on-run-end:
             dbt_cmd = str(venv_dbt)
         else:
             dbt_cmd = shutil.which("dbt") or "dbt"
-
-        # Debug: verify profiles.yml exists and show which dbt we're using
-        profiles_path = dbt_dir / "profiles.yml"
-        console.print(f"    Using dbt: {dbt_cmd}")
-        console.print(f"    profiles.yml exists: {profiles_path.exists()}")
-        if profiles_path.exists():
-            with open(profiles_path) as f:
-                first_line = f.readline().strip()
-                second_line = f.readline().strip()
-                third_line = f.readline().strip()
-                console.print(f"    profiles.yml content: {first_line} / {second_line} / {third_line}")
 
         try:
             # Run dbt docs generate

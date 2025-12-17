@@ -80,15 +80,28 @@ class ProjectWizard:
 
     def _ask_project_name(self) -> str:
         """Ask for project name"""
-        questions = [
-            inquirer.Text(
-                'name',
-                message="Project name",
-                default=self.project_dir.name.replace('-', ' ').replace('_', ' ').title()
-            )
-        ]
-        answers = inquirer.prompt(questions)
-        return answers['name']
+        default_name = self.project_dir.name.replace('-', ' ').replace('_', ' ').title()
+
+        while True:
+            questions = [
+                inquirer.Text(
+                    'name',
+                    message="Project name",
+                    default=default_name
+                )
+            ]
+            answers = inquirer.prompt(questions)
+            name = answers['name']
+
+            # Validate: dbt requires names to start with letter/underscore, not digit
+            sanitized = name.lower().replace(' ', '_').replace('-', '_')
+            if sanitized and sanitized[0].isdigit():
+                console.print("[yellow]Project name cannot start with a number (dbt requirement).[/yellow]")
+                console.print("[yellow]Please enter a name starting with a letter.[/yellow]")
+                default_name = name  # Keep their input as new default
+                continue
+
+            return name
 
     def _ask_organization(self) -> Optional[str]:
         """Ask for organization name (optional)"""
