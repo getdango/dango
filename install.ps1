@@ -1,5 +1,5 @@
 # Dango Bootstrap Installer for Windows
-# Version: 0.0.5
+# Version: 0.1.0
 # Purpose: Install Dango with per-project virtual environment
 # Platform: Windows 10/11 with PowerShell 5.1+
 
