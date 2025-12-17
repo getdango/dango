@@ -780,6 +780,17 @@ on-run-end:
         else:
             dbt_cmd = shutil.which("dbt") or "dbt"
 
+        # Debug: verify profiles.yml exists and show which dbt we're using
+        profiles_path = dbt_dir / "profiles.yml"
+        console.print(f"    Using dbt: {dbt_cmd}")
+        console.print(f"    profiles.yml exists: {profiles_path.exists()}")
+        if profiles_path.exists():
+            with open(profiles_path) as f:
+                first_line = f.readline().strip()
+                second_line = f.readline().strip()
+                third_line = f.readline().strip()
+                console.print(f"    profiles.yml content: {first_line} / {second_line} / {third_line}")
+
         try:
             # Run dbt docs generate
             result = subprocess.run(
