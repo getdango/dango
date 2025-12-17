@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2025-12-17
+
+### Added
+- **MVP Release** - First stable release for early adopters
+- **Google Ads** - Full OAuth support (tested and working)
+
+### Changed
+- Install scripts now available at `getdango.dev/install.sh` (shorter URL)
+- Windows support fully tested and documented
+
+### Notes
+This is the v0.1.0 MVP release marking Dango as ready for early adopters. All OAuth sources (Google Sheets, GA4, Facebook Ads, Google Ads) are production-ready.
+
 ## [0.0.5] - 2025-12-08
 
 ### Added
@@ -160,7 +173,8 @@ This release focuses on Windows compatibility and installer improvements. All pl
 ### Notes
 This is a **preview release** for early feedback. Not recommended for production use.
 
-[Unreleased]: https://github.com/getdango/dango/compare/v0.0.5...HEAD
+[Unreleased]: https://github.com/getdango/dango/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/getdango/dango/compare/v0.0.5...v0.1.0
 [0.0.5]: https://github.com/getdango/dango/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/getdango/dango/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/getdango/dango/compare/v0.0.2...v0.0.3

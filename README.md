@@ -118,13 +118,13 @@ docker --version
 **macOS / Linux:**
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/getdango/dango/main/install.sh | bash
+curl -sSL https://getdango.dev/install.sh | bash
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/getdango/dango/main/install.ps1 | iex
+irm https://getdango.dev/install.ps1 | iex
 ```
 
 This will:
@@ -138,7 +138,7 @@ This will:
 **macOS / Linux:**
 ```bash
 # Download the installer
-curl -sSL https://raw.githubusercontent.com/getdango/dango/main/install.sh -o install.sh
+curl -sSL https://getdango.dev/install.sh -o install.sh
 
 # Review what it does
 cat install.sh
@@ -150,7 +150,7 @@ bash install.sh
 **Windows (PowerShell):**
 ```powershell
 # Download the installer
-Invoke-WebRequest -Uri https://raw.githubusercontent.com/getdango/dango/main/install.ps1 -OutFile install.ps1
+Invoke-WebRequest -Uri https://getdango.dev/install.ps1 -OutFile install.ps1
 
 # Review what it does
 Get-Content install.ps1
@@ -254,7 +254,7 @@ Start-Process http://localhost:8800
 - **DuckDB** as your analytics database
 - **Metabase** for dashboards and SQL queries
 
-## Features (v0.0.5)
+## Features (v0.1.0)
 
 **✅ What Works Now:**
 - ✅ Full CLI with 10+ commands
@@ -263,6 +263,7 @@ Start-Process http://localhost:8800
 - ✅ **Google Sheets** with OAuth authentication
 - ✅ **Google Analytics (GA4)** with OAuth authentication
 - ✅ **Facebook Ads** with OAuth authentication (60-day token)
+- ✅ **Google Ads** with OAuth authentication
 - ✅ dbt auto-generation for staging models
 - ✅ Web UI with live monitoring
 - ✅ Metabase dashboards (auto-configured)
@@ -271,22 +272,19 @@ Start-Process http://localhost:8800
 - ✅ Token expiry warnings and validation
 - ✅ Custom sources via `dlt_native` type
 
-**📝 v0.0.3 added OAuth authentication**
-- Browser-based OAuth flows for Google and Facebook sources
-- Token expiry tracking with warnings before expiration
-- Easy re-authentication when tokens expire
-- Build custom connectors in `custom_sources/` directory
+**📝 v0.1.0 MVP Release**
+- First stable release for early adopters
+- Google Ads OAuth support fully tested
+- Shorter install URLs via getdango.dev
+- Windows support fully tested
 
-**📝 v0.0.5 adds UX improvements**
-- `dango sync --dry-run` to preview without executing
-- Unreferenced custom sources warning
-- Better validation output (database check, model count)
+**📝 Previous releases**
+- v0.0.5: `--dry-run` flag, unreferenced sources warning
+- v0.0.3: OAuth authentication for Google and Facebook sources
 
-**🚧 Coming in v0.1.0:**
-- Google Ads
-- Additional OAuth sources
+**🔮 Coming Soon:**
 - Demo project with sample data
-- Full documentation website
+- Full documentation website at docs.getdango.dev
 
 **🔮 Beyond v0.1.0:**
 - Cloud deployment guides and infrastructure templates
@@ -449,7 +447,7 @@ If you installed with the bootstrap script:
 
 ```bash
 cd your-project
-curl -sSL https://raw.githubusercontent.com/getdango/dango/main/install.sh | bash
+curl -sSL https://getdango.dev/install.sh | bash
 # Select [u] to upgrade when prompted
 ```
 
