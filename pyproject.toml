@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "getdango"
-version = "0.1.0"
+version = "0.1.1"
 description = "Open source data platform built with production-grade tools - dlt, dbt, DuckDB, and Metabase"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "Dango Team", email = "hello@getdango.dev"}
+    {name = "Dango Team"}
 ]
 keywords = ["data", "analytics", "dbt", "duckdb", "metabase", "dlt", "etl", "data-platform", "open-source"]
 classifiers = [
