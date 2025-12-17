@@ -91,6 +91,8 @@ class ProjectWizard:
                 )
             ]
             answers = inquirer.prompt(questions)
+            if answers is None:
+                raise KeyboardInterrupt()
             name = answers['name']
 
             # Validate: dbt requires names to start with letter/underscore, not digit
@@ -114,6 +116,8 @@ class ProjectWizard:
             )
         ]
         answers = inquirer.prompt(questions)
+        if answers is None:
+            raise KeyboardInterrupt()
         org = answers.get('organization', '').strip()
         return org if org else None
 
