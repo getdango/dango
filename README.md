@@ -2,7 +2,7 @@
 
 **Open source data platform built with production-grade tools**
 
-Works on your laptop today. Designed to scale to production tomorrow.
+Works on your laptop today. Production deployment coming soon.
 
 Dango deploys a complete data stack (dlt + dbt + DuckDB + Metabase) to your laptop with one command.
 
@@ -324,7 +324,7 @@ Start-Process http://localhost:8800
 - ❌ Fast setup (toy project) OR Production-grade (weeks of work)
 
 **Dango gives you both:**
-- ✅ Starts on your laptop, designed to scale to your infrastructure
+- ✅ Runs on your laptop now. Production infrastructure support planned.
 - ✅ Wizard-driven AND fully customizable
 - ✅ Fast setup AND best practices built-in
 
