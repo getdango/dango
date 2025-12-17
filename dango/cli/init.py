@@ -706,10 +706,11 @@ on-run-end:
             f.write(dbt_project_content)
 
         # Create profiles.yml
+        # Note: Profile name is quoted to handle names starting with numbers (e.g., "2025_project")
         profiles_content = f"""# dbt Profile Configuration for DuckDB
 # Connects to local DuckDB warehouse
 
-{dbt_project_name}:
+'{dbt_project_name}':
   target: dev
   outputs:
     dev:
