@@ -24,16 +24,16 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
               ┌────────────────────┴───────────┴──────────┴────────────────┐
               │                     Level 3 — UI                           │
               │                                                            │
-              │   cli/             web/                                    │
-              │   (3927 lines)     (2900 lines)                            │
-              └──────────┬────────────────┬────────────────────────────────┘
-                         │                │
-              ┌──────────┴────────────────┴────────────────────────────────┐
+              │   cli/                                                     │
+              │   (3927 lines)                                             │
+              └──────────┬─────────────────────────────────────────────────┘
+                         │
+              ┌──────────┴─────────────────────────────────────────────────┐
               │                  Level 2 — Platform                        │
               │                                                            │
-              │   platform/        visualization/       auth/* (Phase 2)   │
-              │   (Docker,         (Metabase)                              │
-              │    watcher)                                                │
+              │   platform/        web/            visualization/          │
+              │   (Docker,         (2900 lines)    (Metabase)              │
+              │    watcher)                        auth/* (Phase 2)        │
               └──────────┬────────────────┬────────────────────────────────┘
                          │                │
               ┌──────────┴────────────────┴────────────────────────────────┐
@@ -67,7 +67,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 | Level | Role | Modules |
 |-------|------|---------|
-| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `templates/` , `exceptions.py`\*, `logging.py`\* |
+| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `templates/`, `exceptions.py`\*, `logging.py`\* |
 | 1 (core) | Imports Level 0 only | `oauth/`, `ingestion/`, `transformation/`, `auth/`\* |
 | 2 (platform) | Imports Level 0-1 | `platform/`, `web/`, `visualization/` |
 | 3 (ui) | Imports any level | `cli/` |
@@ -166,7 +166,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 **Public API:** `DltPipelineRunner`, `run_sync()`, `CSVLoader`, `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata()`
 
-**Imports from:** `config/` (Level 0), `utils/` (Level 0). Lazy imports from `transformation/` (Level 1) and `visualization/` (Level 2) inside `run_sync()`.
+**Imports from:** `config/` (Level 0), `utils/` (Level 0). Lazy imports inside function bodies: `transformation/` (Level 1), `visualization/` (Level 2), `oauth/storage` (Level 1).
 
 ---
 
@@ -180,7 +180,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 **Public API:** `run_dbt_models(project_root, select)`, `generate_dbt_docs(project_root)`
 
-**Imports from:** `config/` (Level 0), `utils/` (Level 0).
+**Imports from:** `config/` (Level 0), `utils/` (Level 0), `ingestion/sources/registry` (Level 1, same-level).
 
 ---
 
@@ -214,7 +214,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 **Public API:** `DockerManager`, `ServiceStatus` (enum: RUNNING, STOPPED, UNHEALTHY, STARTING, UNKNOWN)
 
-**Imports from:** `config/` (Level 0), `utils/` (Level 0).
+**Imports from:** `config/` (Level 0), `utils/` (Level 0). `watcher_runner.py` also lazy-imports `transformation/` (Level 1).
 
 ---
 
@@ -229,7 +229,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 **Public API:** `provision_dashboard()`, `create_pipeline_health_dashboard()`
 
-**Imports from:** `config/` (Level 0), `utils/` (Level 0).
+**Imports from:** None (self-contained — receives `project_root` and `metabase_url` as parameters).
 
 ### Level 3 — UI
 
