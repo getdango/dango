@@ -6,8 +6,8 @@ from dango.config.loader import ConfigLoader
 from dango.config.models import DangoConfig
 
 
+@pytest.mark.integration
 class TestConfigLoading:
-    @pytest.mark.integration
     def test_load_config_from_valid_project(self, tmp_project_dir):
         """Loading config from a valid project directory produces a DangoConfig."""
         loader = ConfigLoader(project_root=tmp_project_dir)
