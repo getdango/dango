@@ -423,6 +423,92 @@ class ProjectContext(BaseModel):
 
 ## 10. File Header Standard
 
-*Added by STD-003. See [Section 10](#10-file-header-standard) for the file header format, examples, and validation.*
+Every Python file should begin with a docstring header that identifies the file and its purpose. This helps LLMs and developers navigate the codebase quickly.
 
-<!-- STD-003 adds the full content of this section -->
+### Required format
+
+```python
+"""
+dango/{module}/{filename}.py
+
+{One-line purpose.}
+
+Related files:
+- {related_file} - {why}
+
+Entry points:
+- {function_or_class} - {description}
+"""
+```
+
+**Required elements:** file path line, purpose line.
+**Recommended elements:** related files, entry points (include when the file has non-obvious relationships or multiple public symbols).
+
+### Incremental adoption
+
+Currently 0 of ~151 Python files have headers. Headers are added when files are created or actively modified — not in a bulk update pass. The `scripts/validate_headers.py --all` audit mode tracks progress.
+
+### Examples
+
+**1. Module file** — `dango/config/loader.py`:
+
+```python
+"""
+dango/config/loader.py
+
+Loads and validates YAML configuration files for dango projects.
+
+Related files:
+- dango/config/models.py - Pydantic models this loader populates
+- dango/config/exceptions.py - Errors raised during loading
+
+Entry points:
+- ConfigLoader - Main class for loading/saving config
+- get_config() - Helper to load config in one call
+"""
+```
+
+**2. Helpers file** — `dango/utils/database.py`:
+
+```python
+"""
+dango/utils/database.py
+
+DuckDB schema management utilities.
+
+Related files:
+- dango/transformation/ - dbt uses schemas created here
+
+Entry points:
+- ensure_dbt_schemas() - Creates raw/staging/intermediate/marts schemas
+"""
+```
+
+**3. Test file** — `tests/unit/test_config_loader.py`:
+
+```python
+"""
+tests/unit/test_config_loader.py
+
+Unit tests for ConfigLoader YAML loading, saving, and project discovery.
+
+Related files:
+- dango/config/loader.py - Module under test
+- tests/conftest.py - Shared fixtures (tmp_project_dir)
+"""
+```
+
+### Validation
+
+Run the header validation script:
+
+```bash
+# Check specific files
+python scripts/validate_headers.py dango/config/loader.py
+
+# Check only files changed in current branch
+python scripts/validate_headers.py --changed
+
+# Audit all files (reports compliance, does not fail CI)
+python scripts/validate_headers.py --all
+```
