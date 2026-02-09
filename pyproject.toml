@@ -69,6 +69,8 @@ dev = [
     "black>=24.0.0",
     "ruff>=0.6.0",
     "mypy>=1.11.0",
+    "pre-commit>=3.6.0",
+    "pip-audit>=2.7.0",
 ]
 
 # Note: dlt distributes sources via `dlt init <source>`, not pip extras.
@@ -137,3 +139,12 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "unit: Unit tests (no I/O, no network, no database)",
+    "integration: Integration tests (may use temp dirs, real files, DuckDB)",
+]
+addopts = "--strict-markers"

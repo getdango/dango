@@ -1,0 +1,7 @@
+version: "1.0"
+sources:
+  - name: sales_data
+    type: csv
+    csv:
+      directory: ./data/sales
+      file_pattern: "*.csv"
