@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from dango.config.models import DataSource, ProjectContext, SourceType
 
 
+@pytest.mark.unit
 class TestSourceType:
     def test_source_type_has_expected_members(self):
         """SourceType enum contains key source types used by Dango."""
@@ -14,6 +15,7 @@ class TestSourceType:
         assert expected.issubset(actual)
 
 
+@pytest.mark.unit
 class TestProjectContext:
     def test_project_context_creation(self, sample_project_context):
         """ProjectContext can be created with required fields and has correct values."""
@@ -24,6 +26,7 @@ class TestProjectContext:
         assert ctx.created is not None
 
 
+@pytest.mark.unit
 class TestDataSource:
     def test_data_source_rejects_hyphenated_names(self):
         """DataSource name validator rejects hyphens and raises ValueError."""

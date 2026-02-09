@@ -31,7 +31,7 @@ def sample_sources_config():
             DataSource(
                 name="test_csv",
                 type=SourceType.CSV,
-                csv=CSVSourceConfig(directory="/tmp/test_data"),
+                csv=CSVSourceConfig(directory="data/test_csv"),
             )
         ]
     )
