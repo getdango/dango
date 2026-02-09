@@ -29,7 +29,7 @@ Standards apply incrementally — not retroactively to the entire codebase.
 - **Existing files** are exempt until actively modified. TASK-084 creates an exemption registry tracking known violations.
 - **Bulk reformatting PRs** are not allowed. Standards adoption happens organically through normal development.
 
-**Example:** If you fix a bug in `dango/cli/main.py` (a ~4600-line file that predates these standards), apply standards only to the lines you change. You do not need to restructure the entire file — that happens in TASK-005.
+**Example:** If you fix a bug in `dango/cli/main.py` (a ~3900-line file that predates these standards), apply standards only to the lines you change. You do not need to restructure the entire file — that happens in TASK-005.
 
 ---
 
