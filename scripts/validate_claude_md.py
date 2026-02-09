@@ -29,9 +29,14 @@ REQUIRED_SECTIONS = [
 SKIP_PATHS = {"CLAUDE.md"}
 
 
+def strip_code_fences(content: str) -> str:
+    """Remove fenced code blocks so we don't match headings inside them."""
+    return re.sub(r"^```.*?^```", "", content, flags=re.MULTILINE | re.DOTALL)
+
+
 def find_h2_sections(content: str) -> list[str]:
-    """Extract all H2 section titles from markdown content."""
-    return re.findall(r"^## (.+)$", content, re.MULTILINE)
+    """Extract all H2 section titles from markdown content (outside code fences)."""
+    return re.findall(r"^## (.+)$", strip_code_fences(content), re.MULTILINE)
 
 
 def get_section_content(content: str, section_name: str) -> str:
@@ -65,8 +70,9 @@ def validate_file(file_path: Path) -> list[str]:
     if not file_path.exists():
         return [f"File not found: {file_path}"]
 
-    content = file_path.read_text(encoding="utf-8")
-    sections = find_h2_sections(content)
+    raw_content = file_path.read_text(encoding="utf-8")
+    content = strip_code_fences(raw_content)
+    sections = find_h2_sections(raw_content)
 
     # Check all required sections exist
     for required in REQUIRED_SECTIONS:

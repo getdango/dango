@@ -47,7 +47,7 @@ module/
 └── {responsibility}.py # One file per distinct responsibility
 ```
 
-**Good example — `dango/config/`** (5 files, each <200 lines, clear responsibilities):
+**Good example — `dango/config/`** (5 files, each focused on one responsibility):
 ```
 config/
 ├── __init__.py      # Re-exports all public symbols
@@ -57,7 +57,7 @@ config/
 └── credentials.py   # Credential encryption/decryption
 ```
 
-**Counter-example — `dango/cli/main.py`** (~4600 lines, many responsibilities in one file). This is refactored by TASK-005.
+**Counter-example — `dango/cli/main.py`** (~3900 lines, many responsibilities in one file). This is refactored by TASK-005.
 
 ### File size
 
@@ -376,7 +376,7 @@ Every `__init__.py` must have:
 1. A module docstring (what the module does)
 2. An explicit `__all__` list
 
-See the [__init__.py pattern](#initpy-pattern) in Section 2.
+See the [`__init__.py` pattern](#__init__py-pattern) in Section 2.
 
 ### Comments
 
@@ -446,7 +446,7 @@ Entry points:
 
 ### Incremental adoption
 
-Currently 0 of ~151 Python files have headers. Headers are added when files are created or actively modified — not in a bulk update pass. The `scripts/validate_headers.py --all` audit mode tracks progress.
+Currently 0 of ~101 non-`__init__.py` Python files have headers (the validator skips `__init__.py` files). Headers are added when files are created or actively modified — not in a bulk update pass. The `scripts/validate_headers.py --all` audit mode tracks progress.
 
 ### Examples
 
