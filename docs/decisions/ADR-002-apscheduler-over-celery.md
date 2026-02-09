@@ -16,7 +16,7 @@ VAL-005 validated APScheduler 3.11.2 with 16/16 tests passing:
 
 - **Non-blocking:** `AsyncIOScheduler` integrates with FastAPI's asyncio loop. HTTP requests remain responsive while background jobs execute in the thread pool.
 - **Persistence:** SQLAlchemy job store backed by SQLite survives process restarts. Jobs are recovered automatically on startup.
-- **Missed schedule handling:** `coalesce=True` merges multiple missed runs into one execution (prevents flood on restart). `misfire_grace_time=3600` allows jobs up to 1 hour late to still run.
+- **Missed schedule handling:** `coalesce=True` merges multiple missed runs into one execution (prevents flood on restart). `misfire_grace_time=3600` (Dango-configured; APScheduler's default is undefined) allows jobs up to 1 hour late to still run.
 - **Overlap prevention:** `max_instances=1` ensures the same job never runs concurrently. This directly enforces DuckDB's single-writer constraint — a sync job that takes longer than its interval simply skips the next trigger.
 - **Dynamic management:** Jobs can be added, listed, and removed at runtime via API, enabling user-configurable schedules.
 - **Event system:** `EVENT_JOB_EXECUTED` and `EVENT_JOB_ERROR` listeners provide execution history tracking.

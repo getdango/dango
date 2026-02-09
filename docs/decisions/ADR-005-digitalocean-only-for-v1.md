@@ -12,7 +12,7 @@ Support only DigitalOcean for cloud deployment in Dango v1. Default to the `s-2v
 ## Rationale
 VAL-002 validated DigitalOcean provisioning end-to-end:
 
-- **Fast provisioning:** Total time from API call to running Docker is ~114 seconds. Droplet creation takes 34s, SSH is available after a 30s wait, and Docker installs in 42s via the official `get.docker.com` script. Under 2 minutes total — no need for pre-built snapshots.
+- **Fast provisioning:** Total time from API call to running Docker is ~114 seconds. Droplet creation takes 34s, SSH is available after a 30s wait, and Docker installs in 42s via the official `get.docker.com` script. Under 2 minutes total (benchmarked on Ubuntu 25.10; times may vary slightly on the pinned 22.04 LTS) — no need for pre-built snapshots.
 - **Simple API:** REST API with bearer token authentication. Straightforward CRUD for droplets, SSH keys, and firewalls. No complex IAM, VPC, or region configuration required.
 - **Right-sized for small teams:** The `s-2vcpu-4gb` tier ($24/mo) provides 2 vCPUs, 4GB RAM, and 80GB disk — sufficient for DuckDB, Metabase, dbt, and the Dango server. A budget option (`s-1vcpu-2gb`, $12/mo) is available with a performance warning.
 - **Predictable pricing:** Fixed monthly pricing with no surprise charges for bandwidth, API calls, or storage IOPS. Small teams can budget accurately.
