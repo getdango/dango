@@ -1,0 +1,54 @@
+# config/
+
+## Purpose
+
+Loads, validates, and manages dango project configuration files (project.yml, sources.yml) and dlt credentials.
+
+## Files
+
+| File | Purpose | Key Functions/Classes |
+|------|---------|----------------------|
+| `__init__.py` | Public exports, `__all__` | Re-exports all public symbols |
+| `models.py` | Pydantic models for config data | `DangoConfig`, `ProjectContext`, `SourcesConfig`, `DataSource`, `SourceType`, `DeduplicationStrategy`, `PlatformSettings`, `Stakeholder`, `CSVSourceConfig`, `GoogleSheetsSourceConfig`, `StripeSourceConfig`, `ShopifySourceConfig` |
+| `loader.py` | Load/save YAML config files | `ConfigLoader`, `get_config`, `load_config`, `save_config` |
+| `credentials.py` | Credential loading for dlt sources | `CredentialManager`, `init_dlt_directory` |
+| `exceptions.py` | Config-specific exception hierarchy | `ConfigError`, `ConfigNotFoundError`, `ConfigValidationError`, `ProjectNotFoundError` |
+
+## Common Tasks
+
+| To... | Modify... | Test with... |
+|-------|-----------|--------------|
+| Add a new config field | `models.py` | `pytest tests/unit/test_config_models.py` |
+| Add a new source type | `models.py` (`SourceType` enum) | `pytest tests/unit/test_config_models.py` |
+| Change config loading logic | `loader.py` | `pytest tests/unit/test_config_loader.py` |
+| Add a new config error type | `exceptions.py` | `pytest tests/unit/test_config_loader.py` |
+| Add a new credential provider | `credentials.py` | Manual: create test project with `.dlt/secrets.toml` |
+
+## Dependencies
+
+**Imports from:**
+- `pydantic` — model validation (`BaseModel`, `Field`, `validator`)
+- `yaml` — YAML parsing in `loader.py`
+- `toml` — TOML parsing in `credentials.py`
+
+**Used by:**
+- `dango/cli/` — loads config to drive CLI commands
+- `dango/ingestion/` — reads `DataSource`, `SourceType`, `DeduplicationStrategy`, `CSVSourceConfig`
+- `dango/transformation/` — reads `DataSource`, `SourceType`, `DeduplicationStrategy`
+- `dango/oauth/` — uses `CredentialManager` for token storage
+- `dango/web/` — serves config through API endpoints
+- `dango/platform/` — reads config for Docker and watcher setup
+
+## Testing
+
+- **Unit:** `pytest tests/unit/test_config_loader.py tests/unit/test_config_models.py`
+- **Integration:** `pytest tests/integration/test_config_loading.py`
+- **Manual:** `dango config show` in a dango project directory
+
+## Don't Modify
+
+| File | Reason |
+|------|--------|
+| `models.py` field names | Changing field names breaks existing project.yml/sources.yml files |
+| `models.py` `SourceType` enum values | Enum values are stored in user config files and referenced across modules |
+| `exceptions.py` class hierarchy | Exception classes are caught by name in cli/, web/, and ingestion/ |
