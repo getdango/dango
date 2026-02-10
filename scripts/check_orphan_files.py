@@ -71,6 +71,7 @@ def _is_mentioned(path: str, claude_md_path: str, mentioned: set[str]) -> bool:
 
 
 def main() -> int:
+    """Detect Python files not referenced in any CLAUDE.md."""
     py_files = _find_python_files()
     if not py_files:
         print("No Python files >100 lines found.")
@@ -85,8 +86,7 @@ def main() -> int:
     orphans = []
     for path, line_count in py_files:
         found = any(
-            _is_mentioned(path, claude_md, mentioned)
-            for claude_md, mentioned in claude_md_mentions
+            _is_mentioned(path, claude_md, mentioned) for claude_md, mentioned in claude_md_mentions
         )
         if not found:
             orphans.append((path, line_count))

@@ -1,27 +1,20 @@
-"""
-Data Validation Utilities
+"""dango/utils/data_validation.py
 
-Provides validation for:
-- Schema change detection
-- Cursor field validation
-- Data integrity checks
+Data Validation Utilities.
 """
+
+from pathlib import Path
+from typing import Any
 
 import duckdb
-from pathlib import Path
-from typing import Dict, Any, List, Optional
 from rich.console import Console
-from datetime import datetime
 
 console = Console()
 
 
 def validate_cursor_field(
-    duckdb_path: Path,
-    source_name: str,
-    cursor_field: str,
-    schema: str = "raw"
-) -> Dict[str, Any]:
+    duckdb_path: Path, source_name: str, cursor_field: str, schema: str = "raw"
+) -> dict[str, Any]:
     """
     Validate that cursor field exists and has correct format
 
@@ -41,13 +34,7 @@ def validate_cursor_field(
             "issues": list
         }
     """
-    result = {
-        "valid": False,
-        "exists": False,
-        "data_type": None,
-        "sample_values": [],
-        "issues": []
-    }
+    result = {"valid": False, "exists": False, "data_type": None, "sample_values": [], "issues": []}
 
     try:
         conn = duckdb.connect(str(duckdb_path), read_only=True)
@@ -94,7 +81,7 @@ def validate_cursor_field(
         result["sample_values"] = [str(row[0]) for row in samples]
 
         # Validate data type is appropriate for cursor
-        valid_types = ['TIMESTAMP', 'DATE', 'INTEGER', 'BIGINT', 'VARCHAR']
+        valid_types = ["TIMESTAMP", "DATE", "INTEGER", "BIGINT", "VARCHAR"]
         if not any(vtype in result["data_type"].upper() for vtype in valid_types):
             result["issues"].append(
                 f"Cursor field has unexpected type '{result['data_type']}'. "
@@ -126,9 +113,9 @@ def validate_cursor_field(
 def detect_schema_changes(
     duckdb_path: Path,
     source_name: str,
-    expected_schema: Optional[List[str]] = None,
-    schema: str = "raw"
-) -> Dict[str, Any]:
+    expected_schema: list[str] | None = None,
+    schema: str = "raw",
+) -> dict[str, Any]:
     """
     Detect schema changes in a source table
 
@@ -153,7 +140,7 @@ def detect_schema_changes(
         "current_columns": [],
         "added_columns": [],
         "removed_columns": [],
-        "column_types": {}
+        "column_types": {},
     }
 
     try:
@@ -177,7 +164,9 @@ def detect_schema_changes(
 
             result["added_columns"] = list(current_set - expected_set)
             result["removed_columns"] = list(expected_set - current_set)
-            result["changed"] = len(result["added_columns"]) > 0 or len(result["removed_columns"]) > 0
+            result["changed"] = (
+                len(result["added_columns"]) > 0 or len(result["removed_columns"]) > 0
+            )
 
         conn.close()
         return result
@@ -188,10 +177,8 @@ def detect_schema_changes(
 
 
 def validate_data_completeness(
-    duckdb_path: Path,
-    source_name: str,
-    schema: str = "raw"
-) -> Dict[str, Any]:
+    duckdb_path: Path, source_name: str, schema: str = "raw"
+) -> dict[str, Any]:
     """
     Validate data completeness and integrity
 
@@ -209,12 +196,7 @@ def validate_data_completeness(
             "health_score": str
         }
     """
-    result = {
-        "row_count": 0,
-        "has_data": False,
-        "last_loaded": None,
-        "health_score": "unknown"
-    }
+    result = {"row_count": 0, "has_data": False, "last_loaded": None, "health_score": "unknown"}
 
     try:
         conn = duckdb.connect(str(duckdb_path), read_only=True)
@@ -237,7 +219,7 @@ def validate_data_completeness(
 
             if last_load and last_load[0]:
                 result["last_loaded"] = str(last_load[0])
-        except:
+        except Exception:
             pass
 
         # Determine health score
@@ -262,9 +244,9 @@ def validate_data_completeness(
 
 def print_validation_report(
     source_name: str,
-    cursor_validation: Dict[str, Any],
-    schema_info: Dict[str, Any],
-    completeness: Dict[str, Any]
+    cursor_validation: dict[str, Any],
+    schema_info: dict[str, Any],
+    completeness: dict[str, Any],
 ):
     """
     Print a comprehensive validation report
@@ -281,32 +263,36 @@ def print_validation_report(
     console.print("[bold cyan]Data Completeness:[/bold cyan]")
     console.print(f"  Rows: {completeness['row_count']:,}")
     console.print(f"  Health Score: {completeness['health_score']}")
-    if completeness['last_loaded']:
+    if completeness["last_loaded"]:
         console.print(f"  Last Loaded: {completeness['last_loaded']}")
 
     # Schema Info
-    console.print(f"\n[bold cyan]Schema:[/bold cyan]")
+    console.print("\n[bold cyan]Schema:[/bold cyan]")
     console.print(f"  Columns: {len(schema_info['current_columns'])}")
 
-    if schema_info['added_columns']:
-        console.print(f"  [green]✅ Added columns: {', '.join(schema_info['added_columns'])}[/green]")
+    if schema_info["added_columns"]:
+        console.print(
+            f"  [green]✅ Added columns: {', '.join(schema_info['added_columns'])}[/green]"
+        )
 
-    if schema_info['removed_columns']:
-        console.print(f"  [yellow]⚠️  Removed columns: {', '.join(schema_info['removed_columns'])}[/yellow]")
+    if schema_info["removed_columns"]:
+        console.print(
+            f"  [yellow]⚠️  Removed columns: {', '.join(schema_info['removed_columns'])}[/yellow]"
+        )
 
     # Cursor Validation
-    if cursor_validation.get('exists'):
-        console.print(f"\n[bold cyan]Cursor Field Validation:[/bold cyan]")
-        console.print(f"  Field: ✅ Exists")
+    if cursor_validation.get("exists"):
+        console.print("\n[bold cyan]Cursor Field Validation:[/bold cyan]")
+        console.print("  Field: ✅ Exists")
         console.print(f"  Type: {cursor_validation['data_type']}")
 
-        if cursor_validation['sample_values']:
+        if cursor_validation["sample_values"]:
             console.print(f"  Sample: {cursor_validation['sample_values'][0]}")
 
     # Issues
-    if cursor_validation.get('issues'):
-        console.print(f"\n[bold yellow]⚠️  Issues:[/bold yellow]")
-        for issue in cursor_validation['issues']:
+    if cursor_validation.get("issues"):
+        console.print("\n[bold yellow]⚠️  Issues:[/bold yellow]")
+        for issue in cursor_validation["issues"]:
             console.print(f"  • {issue}")
 
     console.print()

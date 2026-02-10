@@ -1,14 +1,13 @@
-"""
-Secure Token Storage
+"""dango/security/token_storage.py
 
-Encrypts OAuth tokens using OS keychain for key storage and Fernet for encryption.
-Provides secure storage and retrieval of sensitive credentials.
+Encrypts OAuth tokens using OS keychain for key storage and Fernet for encryption. Provides secure storage and retrieval of sensitive credentials.
 """
 
 import json
-import keyring
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
+
+import keyring
 from cryptography.fernet import Fernet
 from rich.console import Console
 
@@ -55,13 +54,13 @@ class SecureTokenStorage:
             if not key_str:
                 # Generate new key
                 key = Fernet.generate_key()
-                key_str = key.decode('utf-8')
+                key_str = key.decode("utf-8")
 
                 # Save to keychain
                 keyring.set_password(self.SERVICE_NAME, self.KEY_NAME, key_str)
                 console.print("[dim]Created new encryption key in OS keychain[/dim]")
 
-            return key_str.encode('utf-8')
+            return key_str.encode("utf-8")
 
         except Exception as e:
             console.print(f"[yellow]Warning: Could not access OS keychain: {e}[/yellow]")
@@ -76,7 +75,7 @@ class SecureTokenStorage:
                 key_file.chmod(0o600)  # Restrict permissions
                 return key
 
-    def encrypt_token(self, token_data: Dict[str, Any]) -> str:
+    def encrypt_token(self, token_data: dict[str, Any]) -> str:
         """
         Encrypt token data
 
@@ -91,16 +90,16 @@ class SecureTokenStorage:
             f = Fernet(key)
 
             # Serialize to JSON and encrypt
-            json_data = json.dumps(token_data).encode('utf-8')
+            json_data = json.dumps(token_data).encode("utf-8")
             encrypted = f.encrypt(json_data)
 
-            return encrypted.decode('utf-8')
+            return encrypted.decode("utf-8")
 
         except Exception as e:
             console.print(f"[red]Encryption error: {e}[/red]")
             raise
 
-    def decrypt_token(self, encrypted_data: str) -> Dict[str, Any]:
+    def decrypt_token(self, encrypted_data: str) -> dict[str, Any]:
         """
         Decrypt token data
 
@@ -115,8 +114,8 @@ class SecureTokenStorage:
             f = Fernet(key)
 
             # Decrypt and deserialize
-            decrypted = f.decrypt(encrypted_data.encode('utf-8'))
-            token_data = json.loads(decrypted.decode('utf-8'))
+            decrypted = f.decrypt(encrypted_data.encode("utf-8"))
+            token_data = json.loads(decrypted.decode("utf-8"))
 
             return token_data
 

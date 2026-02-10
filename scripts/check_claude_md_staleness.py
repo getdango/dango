@@ -4,6 +4,8 @@ Warn when Python files are modified but the module's CLAUDE.md is not staged.
 Pre-commit only. Always exits 0 (warning only).
 """
 
+from __future__ import annotations
+
 import os
 import sys
 
@@ -19,6 +21,7 @@ def _get_module_dir(path: str) -> str | None:
 
 
 def main() -> int:
+    """Warn when Python files change without updating their module CLAUDE.md."""
     files = sys.argv[1:]
     if not files:
         return 0

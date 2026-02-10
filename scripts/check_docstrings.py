@@ -68,6 +68,7 @@ def check_file(path: str) -> list[str]:
 
 
 def main() -> int:
+    """Check that public functions and classes have docstrings."""
     parser = argparse.ArgumentParser(description="Check public function/class docstrings")
     parser.add_argument("files", nargs="*", help="Files to check (pre-commit mode)")
     parser.add_argument("--all", action="store_true", help="Audit all Python files (CI mode)")
@@ -75,10 +76,8 @@ def main() -> int:
 
     if args.all:
         files = _find_all_python_files()
-        audit_mode = True
     elif args.files:
         files = args.files
-        audit_mode = False
     else:
         parser.error("Provide file paths or use --all")
         return 1
@@ -102,8 +101,6 @@ def main() -> int:
 
     if total_violations > 0:
         print(f"\n{total_violations} missing docstring(s) in {files_with_violations} file(s).")
-        if audit_mode:
-            return 0  # Audit mode: report only
         return 1
     else:
         print("All public functions/classes have docstrings.")

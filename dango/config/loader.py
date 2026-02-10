@@ -1,18 +1,15 @@
-"""
-Dango Config Loader
+"""dango/config/loader.py
 
 Handles loading and validation of YAML configuration files.
 """
 
-import os
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from pydantic import ValidationError
 
-from .models import DangoConfig, ProjectContext, SourcesConfig
 from .exceptions import ConfigError, ConfigNotFoundError, ConfigValidationError
+from .models import DangoConfig, ProjectContext, SourcesConfig
 
 
 class ConfigLoader:
@@ -22,7 +19,7 @@ class ConfigLoader:
     PROJECT_FILE = "project.yml"
     SOURCES_FILE = "sources.yml"
 
-    def __init__(self, project_root: Optional[Path] = None):
+    def __init__(self, project_root: Path | None = None):
         """
         Initialize config loader.
 
@@ -38,7 +35,7 @@ class ConfigLoader:
         """Check if current directory is a Dango project"""
         return self.dango_dir.exists() and self.project_file.exists()
 
-    def find_project_root(self, start_path: Optional[Path] = None) -> Optional[Path]:
+    def find_project_root(self, start_path: Path | None = None) -> Path | None:
         """
         Find Dango project root by walking up directory tree.
 
@@ -78,17 +75,13 @@ class ConfigLoader:
             )
 
         try:
-            with open(file_path, 'r') as f:
+            with open(file_path) as f:
                 data = yaml.safe_load(f)
                 return data or {}
         except yaml.YAMLError as e:
-            raise ConfigError(
-                f"Invalid YAML in {file_path}:\n{e}"
-            )
+            raise ConfigError(f"Invalid YAML in {file_path}:\n{e}") from e
         except Exception as e:
-            raise ConfigError(
-                f"Error reading {file_path}: {e}"
-            )
+            raise ConfigError(f"Error reading {file_path}: {e}") from e
 
     def save_yaml(self, data: dict, file_path: Path):
         """
@@ -104,17 +97,11 @@ class ConfigLoader:
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write to temp file first (atomic operation)
-        temp_path = file_path.with_suffix(file_path.suffix + '.tmp')
+        temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
 
         try:
-            with open(temp_path, 'w') as f:
-                yaml.safe_dump(
-                    data,
-                    f,
-                    default_flow_style=False,
-                    sort_keys=False,
-                    indent=2
-                )
+            with open(temp_path, "w") as f:
+                yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False, indent=2)
 
             # Atomic rename (overwrites destination on POSIX systems)
             temp_path.replace(file_path)
@@ -124,9 +111,9 @@ class ConfigLoader:
             try:
                 if temp_path.exists():
                     temp_path.unlink()
-            except:
+            except Exception:
                 pass
-            raise ConfigError(f"Error writing {file_path}: {e}")
+            raise ConfigError(f"Error writing {file_path}: {e}") from None
 
     def load_project_context(self) -> ProjectContext:
         """
@@ -146,7 +133,7 @@ class ConfigLoader:
         except ValidationError as e:
             raise ConfigValidationError(
                 f"Invalid project configuration in {self.project_file}:\n{e}"
-            )
+            ) from e
 
     def load_sources_config(self) -> SourcesConfig:
         """
@@ -170,7 +157,7 @@ class ConfigLoader:
         except ValidationError as e:
             raise ConfigValidationError(
                 f"Invalid sources configuration in {self.sources_file}:\n{e}"
-            )
+            ) from e
 
     def load_config(self) -> DangoConfig:
         """
@@ -189,13 +176,10 @@ class ConfigLoader:
         # Load platform settings from project.yml
         data = self.load_yaml(self.project_file)
         from dango.config.models import PlatformSettings
-        platform = PlatformSettings(**data.get('platform', {}))
 
-        return DangoConfig(
-            project=project,
-            sources=sources,
-            platform=platform
-        )
+        platform = PlatformSettings(**data.get("platform", {}))
+
+        return DangoConfig(project=project, sources=sources, platform=platform)
 
     def save_project_context(self, project: ProjectContext):
         """Save project context to project.yml"""
@@ -203,11 +187,11 @@ class ConfigLoader:
         existing_platform = {}
         if self.project_file.exists():
             existing_data = self.load_yaml(self.project_file)
-            existing_platform = existing_data.get('platform', {})
+            existing_platform = existing_data.get("platform", {})
 
         data = {
             "project": project.model_dump(mode="json", exclude_none=True),
-            "platform": existing_platform  # Preserve existing platform settings
+            "platform": existing_platform,  # Preserve existing platform settings
         }
         self.save_yaml(data, self.project_file)
 
@@ -221,7 +205,9 @@ class ConfigLoader:
         # Save project context and platform settings together in project.yml
         data = {
             "project": config.project.model_dump(mode="json", exclude_none=True),
-            "platform": config.platform.model_dump(mode="json", exclude_none=False)  # Include all fields
+            "platform": config.platform.model_dump(
+                mode="json", exclude_none=False
+            ),  # Include all fields
         }
         self.save_yaml(data, self.project_file)
 
@@ -249,7 +235,7 @@ class ConfigLoader:
         return (len(errors) == 0, errors)
 
 
-def get_config(project_root: Optional[Path] = None) -> DangoConfig:
+def get_config(project_root: Path | None = None) -> DangoConfig:
     """
     Helper function to load config.
 
@@ -263,7 +249,7 @@ def get_config(project_root: Optional[Path] = None) -> DangoConfig:
     return loader.load_config()
 
 
-def load_config(project_root: Optional[Path] = None) -> DangoConfig:
+def load_config(project_root: Path | None = None) -> DangoConfig:
     """
     Alias for get_config - load configuration.
 
@@ -276,7 +262,7 @@ def load_config(project_root: Optional[Path] = None) -> DangoConfig:
     return get_config(project_root)
 
 
-def save_config(config: DangoConfig, project_root: Optional[Path] = None) -> None:
+def save_config(config: DangoConfig, project_root: Path | None = None) -> None:
     """
     Helper function to save config.
 
@@ -289,8 +275,7 @@ def save_config(config: DangoConfig, project_root: Optional[Path] = None) -> Non
 
 
 def check_unreferenced_custom_sources(
-    project_dir: Path,
-    sources_config: SourcesConfig
+    project_dir: Path, sources_config: SourcesConfig
 ) -> list[str]:
     """
     Find Python files in custom_sources/ that aren't referenced in sources.yml.
@@ -311,7 +296,8 @@ def check_unreferenced_custom_sources(
 
     # Get all .py files (excluding __init__.py and __pycache__)
     py_files = [
-        f.stem for f in custom_sources_dir.glob("*.py")
+        f.stem
+        for f in custom_sources_dir.glob("*.py")
         if f.name not in ("__init__.py",) and not f.name.startswith(".")
     ]
 

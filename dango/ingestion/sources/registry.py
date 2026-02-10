@@ -1,20 +1,15 @@
-"""
-Dango Source Registry
+"""dango/ingestion/sources/registry.py
 
 Metadata registry for all 33 supported data sources (31 dlt verified + CSV + REST API).
-
-This registry is used by:
-- DltPipelineRunner: To determine how to load each source type
-- Source Wizard: To show categorized source selection and collect params
-- CLI: To display source information and setup guides
 """
 
-from typing import Dict, List, Any, Optional
 from enum import Enum
+from typing import Any
 
 
 class AuthType(str, Enum):
     """Authentication types for data sources"""
+
     NONE = "none"  # No auth needed (e.g., CSV)
     API_KEY = "api_key"  # Simple API key
     OAUTH = "oauth"  # OAuth 2.0 flow
@@ -26,7 +21,7 @@ class AuthType(str, Enum):
 # SOURCE REGISTRY - Top 10 Sources (Fully Implemented)
 # ============================================================================
 
-SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
+SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
     # ========================================
     # LOCAL / CUSTOM
     # ========================================
@@ -72,7 +67,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "cost_warning": None,
         "popularity": 10,  # 1-10, used for sorting
     },
-
     "dlt_native": {
         "display_name": "dlt Native Source (Advanced)",
         "category": "Local & Custom",
@@ -121,7 +115,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "cost_warning": "⚠️  ADVANCED FEATURE - Manual configuration required",
         "popularity": 3,  # Low - for advanced users only
     },
-
     "rest_api": {
         "display_name": "REST API (Generic)",
         "category": "Local & Custom",
@@ -170,7 +163,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "cost_warning": "Check API provider's rate limits and pricing",
         "popularity": 8,
     },
-
     # ========================================
     # MARKETING & ANALYTICS
     # ========================================
@@ -212,7 +204,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 10,
     },
-
     "facebook_ads": {
         "display_name": "Facebook Ads",
         "category": "Marketing & Analytics",
@@ -256,7 +247,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 9,
     },
-
     "google_analytics": {
         "display_name": "Google Analytics (GA4)",
         "category": "Marketing & Analytics",
@@ -264,7 +254,9 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_analytics",
         "dlt_function": "google_analytics",
-        "pip_dependencies": [{"pip": "google-analytics-data", "import": "google.analytics.data_v1beta"}],
+        "pip_dependencies": [
+            {"pip": "google-analytics-data", "import": "google.analytics.data_v1beta"}
+        ],
         "required_params": [
             {
                 "name": "property_id",
@@ -287,24 +279,48 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             "queries": [
                 {
                     "resource_name": "traffic",
-                    "dimensions": ["date", "sessionSource", "sessionMedium", "sessionCampaignName", "deviceCategory"],
-                    "metrics": ["sessions", "engagedSessions", "totalUsers", "newUsers", "averageSessionDuration", "bounceRate"]
+                    "dimensions": [
+                        "date",
+                        "sessionSource",
+                        "sessionMedium",
+                        "sessionCampaignName",
+                        "deviceCategory",
+                    ],
+                    "metrics": [
+                        "sessions",
+                        "engagedSessions",
+                        "totalUsers",
+                        "newUsers",
+                        "averageSessionDuration",
+                        "bounceRate",
+                    ],
                 },
                 {
                     "resource_name": "pages",
                     "dimensions": ["date", "pagePath", "pageTitle"],
-                    "metrics": ["screenPageViews", "totalUsers", "userEngagementDuration", "sessions"]
+                    "metrics": [
+                        "screenPageViews",
+                        "totalUsers",
+                        "userEngagementDuration",
+                        "sessions",
+                    ],
                 },
                 {
                     "resource_name": "landing_pages",
-                    "dimensions": ["date", "landingPage", "sessionSource", "sessionMedium", "deviceCategory"],
-                    "metrics": ["sessions", "totalUsers", "engagedSessions", "bounceRate"]
+                    "dimensions": [
+                        "date",
+                        "landingPage",
+                        "sessionSource",
+                        "sessionMedium",
+                        "deviceCategory",
+                    ],
+                    "metrics": ["sessions", "totalUsers", "engagedSessions", "bounceRate"],
                 },
                 {
                     "resource_name": "geo",
                     "dimensions": ["date", "country", "city"],
-                    "metrics": ["sessions", "totalUsers", "engagedSessions"]
-                }
+                    "metrics": ["sessions", "totalUsers", "engagedSessions"],
+                },
             ]
         },
         "setup_guide": [
@@ -321,7 +337,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 9,
     },
-
     # ========================================
     # BUSINESS & CRM
     # ========================================
@@ -360,7 +375,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "cost_warning": "Subject to HubSpot API limits (varies by plan)",
         "popularity": 9,
     },
-
     "salesforce": {
         "display_name": "Salesforce",
         "category": "Business & CRM",
@@ -407,7 +421,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "cost_warning": "Salesforce API limits depend on edition (check your limits)",
         "popularity": 8,
     },
-
     # ========================================
     # E-COMMERCE & PAYMENT
     # ========================================
@@ -462,7 +475,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "cost_warning": "No additional cost (included with Stripe account)",
         "popularity": 10,
     },
-
     "shopify": {
         "display_name": "Shopify",
         "category": "E-commerce & Payment",
@@ -514,7 +526,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "supported_in_v0": False,  # Blocked: Shopify deprecating legacy auth Jan 2026, awaiting dlt update
         "popularity": 9,
     },
-
     # ========================================
     # DEVELOPMENT
     # ========================================
@@ -551,7 +562,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "cost_warning": "Rate limited: 5000 requests/hour (authenticated)",
         "popularity": 8,
     },
-
     # ========================================
     # OTHER
     # ========================================
@@ -598,7 +608,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "cost_warning": "Subject to Slack API rate limits",
         "popularity": 7,
     },
-
     "zendesk": {
         "display_name": "Zendesk",
         "category": "Business & CRM",
@@ -647,7 +656,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "cost_warning": "Subject to Zendesk API rate limits",
         "popularity": 7,
     },
-
     # Additional verified sources (skeleton metadata - to be expanded)
     "google_ads": {
         "display_name": "Google Ads",
@@ -679,7 +687,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "supported_in_v0": True,  # OAuth implementation complete
         "popularity": 7,
     },
-
     "matomo": {
         "display_name": "Matomo Analytics",
         "category": "Marketing & Analytics",
@@ -718,7 +725,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/matomo",
         "popularity": 5,
     },
-
     "mux": {
         "display_name": "Mux",
         "category": "Marketing & Analytics",
@@ -752,7 +758,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/mux",
         "popularity": 4,
     },
-
     "airtable": {
         "display_name": "Airtable",
         "category": "Marketing & Analytics",
@@ -795,7 +800,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/airtable",
         "popularity": 7,
     },
-
     "pipedrive": {
         "display_name": "Pipedrive",
         "category": "Business & CRM",
@@ -824,7 +828,24 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "name": "resources",
                 "type": "multiselect",
                 "prompt": "Resources to sync",
-                "choices": ["activities", "deals", "deals_flow", "deals_participants", "files", "filters", "leads", "notes", "organizations", "persons", "pipelines", "products", "projects", "stages", "tasks", "users"],
+                "choices": [
+                    "activities",
+                    "deals",
+                    "deals_flow",
+                    "deals_participants",
+                    "files",
+                    "filters",
+                    "leads",
+                    "notes",
+                    "organizations",
+                    "persons",
+                    "pipelines",
+                    "products",
+                    "projects",
+                    "stages",
+                    "tasks",
+                    "users",
+                ],
                 "default": ["activities", "deals", "persons", "organizations"],
             },
         ],
@@ -837,7 +858,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/pipedrive",
         "popularity": 7,
     },
-
     "freshdesk": {
         "display_name": "Freshdesk",
         "category": "Business & CRM",
@@ -865,7 +885,15 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "name": "endpoints",
                 "type": "multiselect",
                 "prompt": "Resources to sync",
-                "choices": ["tickets", "agents", "companies", "contacts", "groups", "roles", "skills"],
+                "choices": [
+                    "tickets",
+                    "agents",
+                    "companies",
+                    "contacts",
+                    "groups",
+                    "roles",
+                    "skills",
+                ],
                 "default": ["tickets", "agents", "companies"],
             },
             {
@@ -885,7 +913,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/freshdesk",
         "popularity": 6,
     },
-
     "jira": {
         "display_name": "Jira",
         "category": "Business & CRM",
@@ -941,7 +968,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/jira",
         "popularity": 8,
     },
-
     "workable": {
         "display_name": "Workable",
         "category": "Business & CRM",
@@ -989,7 +1015,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/workable",
         "popularity": 5,
     },
-
     "asana": {
         "display_name": "Asana",
         "category": "Business & CRM",
@@ -1011,7 +1036,16 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "name": "resources",
                 "type": "multiselect",
                 "prompt": "Resources to sync",
-                "choices": ["workspaces", "projects", "sections", "tags", "tasks", "stories", "teams", "users"],
+                "choices": [
+                    "workspaces",
+                    "projects",
+                    "sections",
+                    "tags",
+                    "tasks",
+                    "stories",
+                    "teams",
+                    "users",
+                ],
                 "default": ["workspaces", "projects", "tasks"],
             },
         ],
@@ -1024,7 +1058,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/asana",
         "popularity": 7,
     },
-
     "notion": {
         "display_name": "Notion",
         "category": "Files & Storage",
@@ -1047,7 +1080,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "type": "json",
                 "prompt": "Database IDs to sync (JSON array, empty = all)",
                 "default": None,
-                "help": "Format: [{\"id\": \"db_id\", \"use_name\": \"my_db\"}] - Leave empty to sync all databases",
+                "help": 'Format: [{"id": "db_id", "use_name": "my_db"}] - Leave empty to sync all databases',
             },
             {
                 "name": "page_ids",
@@ -1066,7 +1099,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/notion",
         "popularity": 7,
     },
-
     "inbox": {
         "display_name": "Email Inbox (IMAP)",
         "category": "Files & Storage",
@@ -1114,7 +1146,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/inbox",
         "popularity": 5,
     },
-
     "mongodb": {
         "display_name": "MongoDB",
         "category": "Databases",
@@ -1163,7 +1194,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/mongodb",
         "popularity": 8,
     },
-
     "kafka": {
         "display_name": "Apache Kafka",
         "category": "Streaming",
@@ -1220,7 +1250,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/kafka",
         "popularity": 7,
     },
-
     "kinesis": {
         "display_name": "Amazon Kinesis",
         "category": "Streaming",
@@ -1269,13 +1298,12 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "setup_guide": [
             "1. Create IAM user with Kinesis read permissions",
             "2. Get AWS access key ID and secret access key",
-            "3. Create JSON: {\"aws_access_key_id\": \"...\", \"aws_secret_access_key\": \"...\", \"region_name\": \"us-east-1\"}",
+            '3. Create JSON: {"aws_access_key_id": "...", "aws_secret_access_key": "...", "region_name": "us-east-1"}',
             "4. Add to .env as AWS_CREDENTIALS",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/kinesis",
         "popularity": 6,
     },
-
     "chess": {
         "display_name": "Chess.com",
         "category": "Other",
@@ -1300,7 +1328,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/chess",
         "popularity": 3,
     },
-
     "strapi": {
         "display_name": "Strapi",
         "category": "Other",
@@ -1333,7 +1360,6 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/strapi",
         "popularity": 5,
     },
-
     "personio": {
         "display_name": "Personio",
         "category": "Other",
@@ -1410,22 +1436,22 @@ CATEGORIES = {
 # ============================================================================
 
 
-def get_source_metadata(source_type: str) -> Optional[Dict[str, Any]]:
+def get_source_metadata(source_type: str) -> dict[str, Any] | None:
     """Get metadata for a specific source type"""
     return SOURCE_REGISTRY.get(source_type)
 
 
-def get_sources_by_category(category: str) -> List[str]:
+def get_sources_by_category(category: str) -> list[str]:
     """Get all source types in a category"""
     return CATEGORIES.get(category, [])
 
 
-def get_all_categories() -> List[str]:
+def get_all_categories() -> list[str]:
     """Get list of all categories"""
     return list(CATEGORIES.keys())
 
 
-def get_popular_sources(limit: int = 10) -> List[str]:
+def get_popular_sources(limit: int = 10) -> list[str]:
     """Get most popular sources (sorted by popularity score)"""
     sources_with_popularity = [
         (source_type, metadata.get("popularity", 0))

@@ -7,7 +7,7 @@ Handles dbt integration and SQL model generation.
 import subprocess
 import sys
 from pathlib import Path
-from typing import Tuple, Optional
+
 from rich.console import Console
 
 console = Console()
@@ -36,7 +36,7 @@ def _get_dbt_executable() -> str:
     return "dbt"
 
 
-def run_dbt_models(project_root: Path, select: Optional[str] = None) -> Tuple[bool, str]:
+def run_dbt_models(project_root: Path, select: str | None = None) -> tuple[bool, str]:
     """
     Run dbt models to create staging/marts tables in DuckDB.
 
@@ -66,7 +66,7 @@ def run_dbt_models(project_root: Path, select: Optional[str] = None) -> Tuple[bo
             cwd=dbt_dir,
             capture_output=True,
             text=True,
-            timeout=300  # 5 minute timeout
+            timeout=300,  # 5 minute timeout
         )
 
         # Update persistent model status after successful run
@@ -81,7 +81,7 @@ def run_dbt_models(project_root: Path, select: Optional[str] = None) -> Tuple[bo
         return (False, f"dbt run failed: {str(e)}")
 
 
-def generate_dbt_docs(project_root: Path) -> Tuple[bool, str]:
+def generate_dbt_docs(project_root: Path) -> tuple[bool, str]:
     """
     Generate dbt documentation.
 
@@ -98,11 +98,19 @@ def generate_dbt_docs(project_root: Path) -> Tuple[bool, str]:
 
     try:
         result = subprocess.run(
-            [dbt_cmd, "docs", "generate", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)],
+            [
+                dbt_cmd,
+                "docs",
+                "generate",
+                "--project-dir",
+                str(dbt_dir),
+                "--profiles-dir",
+                str(dbt_dir),
+            ],
             cwd=dbt_dir,
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=60,
         )
 
         return (result.returncode == 0, result.stdout + result.stderr)

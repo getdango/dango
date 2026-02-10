@@ -1,11 +1,12 @@
-"""
-Centralized activity logging for both CLI and Web UI
+"""dango/utils/activity_log.py
+
+Centralized activity logging for both CLI and Web UI.
 """
 
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 LogLevel = Literal["info", "success", "warning", "error"]
 
@@ -18,11 +19,7 @@ def get_activity_log_file(project_root: Path) -> Path:
 
 
 def log_activity(
-    project_root: Path,
-    level: LogLevel,
-    source: str,
-    message: str,
-    timestamp: Optional[str] = None
+    project_root: Path, level: LogLevel, source: str, message: str, timestamp: str | None = None
 ):
     """
     Write an activity log entry
@@ -41,14 +38,14 @@ def log_activity(
         "timestamp": timestamp,
         "level": level,
         "source": source,
-        "message": message.strip()  # Remove leading/trailing whitespace
+        "message": message.strip(),  # Remove leading/trailing whitespace
     }
 
     log_file = get_activity_log_file(project_root)
 
     try:
-        with open(log_file, 'a') as f:
-            f.write(json.dumps(log_entry) + '\n')
+        with open(log_file, "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
     except Exception as e:
         # Don't fail if logging fails
         print(f"Warning: Failed to write activity log: {e}")

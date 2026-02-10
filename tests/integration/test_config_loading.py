@@ -1,4 +1,7 @@
-"""Integration tests for full config loading from disk."""
+"""tests/integration/test_config_loading.py
+
+Integration tests for full config loading from disk.
+"""
 
 import pytest
 import yaml

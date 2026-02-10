@@ -1,29 +1,16 @@
-"""
-OAuth Authentication Helpers
+"""dango/cli/oauth.py
 
 Provides semi-automated OAuth flows for data sources that require OAuth.
-Supports:
-- Facebook Ads: Short-lived → Long-lived token exchange
-- Google: OAuth 2.0 with refresh tokens
-
-Tokens are stored in .env file for manual management.
 """
 
-import os
-import sys
 import json
 import webbrowser
-from pathlib import Path
-from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
-from urllib.parse import urlencode, parse_qs, urlparse
-import http.server
-import socketserver
-import threading
+from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Confirm, Prompt
 
 console = Console()
 
@@ -41,7 +28,7 @@ class OAuthHelper:
         self.project_root = project_root
         self.env_file = project_root / ".env"
 
-    def save_to_env(self, key: str, value: str, comment: Optional[str] = None) -> None:
+    def save_to_env(self, key: str, value: str, comment: str | None = None) -> None:
         """
         Save or update a value in .env file
 
@@ -53,7 +40,7 @@ class OAuthHelper:
         # Read existing .env if it exists
         env_lines = []
         if self.env_file.exists():
-            with open(self.env_file, "r") as f:
+            with open(self.env_file) as f:
                 env_lines = f.readlines()
 
         # Remove existing key if present
@@ -81,12 +68,12 @@ class OAuthHelper:
 
         console.print(f"[green]✓[/green] Saved {key} to .env")
 
-    def read_from_env(self, key: str) -> Optional[str]:
+    def read_from_env(self, key: str) -> str | None:
         """Read a value from .env file"""
         if not self.env_file.exists():
             return None
 
-        with open(self.env_file, "r") as f:
+        with open(self.env_file) as f:
             for line in f:
                 line = line.strip()
                 if line.startswith(f"{key}="):
@@ -172,7 +159,9 @@ class FacebookOAuthHelper(OAuthHelper):
 
             # Get Ad Account ID
             console.print("\n[bold]Step 3: Get Ad Account ID[/bold]")
-            console.print("[dim]Find in Ads Manager URL: facebook.com/adsmanager/manage/accounts?act=ACCOUNT_ID[/dim]")
+            console.print(
+                "[dim]Find in Ads Manager URL: facebook.com/adsmanager/manage/accounts?act=ACCOUNT_ID[/dim]"
+            )
             account_id = Prompt.ask("Ad Account ID (e.g., act_123456789)")
 
             if account_id:
@@ -195,9 +184,7 @@ class FacebookOAuthHelper(OAuthHelper):
             console.print(f"\n[red]✗ Error: {e}[/red]")
             return False
 
-    def _exchange_token(
-        self, short_token: str, app_id: str, app_secret: str
-    ) -> Optional[str]:
+    def _exchange_token(self, short_token: str, app_id: str, app_secret: str) -> str | None:
         """
         Exchange short-lived token for long-lived token
 
@@ -287,9 +274,9 @@ class GoogleOAuthHelper(OAuthHelper):
                 "1. Go to: https://console.cloud.google.com/",
                 "2. Create a new project (or select existing)",
                 "3. Enable the required API:",
-                f"   - Google Sheets API (for sheets)",
-                f"   - Google Analytics Data API (for analytics)",
-                f"   - Google Ads API (for ads)",
+                "   - Google Sheets API (for sheets)",
+                "   - Google Analytics Data API (for analytics)",
+                "   - Google Ads API (for ads)",
                 "4. Go to 'Credentials' > 'Create Credentials' > 'OAuth client ID'",
                 "5. Application type: 'Desktop app'",
                 "6. Download the credentials JSON file",
@@ -327,7 +314,7 @@ class GoogleOAuthHelper(OAuthHelper):
 
             # Read and validate JSON
             try:
-                with open(creds_path, "r") as f:
+                with open(creds_path) as f:
                     creds_data = json.load(f)
 
                 # Check if it's service account or OAuth client
@@ -357,14 +344,20 @@ class GoogleOAuthHelper(OAuthHelper):
                 console.print("\n[bold]Google Ads requires additional credentials:[/bold]")
                 dev_token = Prompt.ask("Developer Token (from Google Ads API Center)")
                 if dev_token:
-                    self.save_to_env("GOOGLE_ADS_DEV_TOKEN", dev_token, "Google Ads Developer Token")
+                    self.save_to_env(
+                        "GOOGLE_ADS_DEV_TOKEN", dev_token, "Google Ads Developer Token"
+                    )
 
                 customer_id = Prompt.ask("Customer ID (optional, can add later)", default="")
                 if customer_id:
-                    self.save_to_env("GOOGLE_ADS_CUSTOMER_ID", customer_id, "Google Ads Customer ID")
+                    self.save_to_env(
+                        "GOOGLE_ADS_CUSTOMER_ID", customer_id, "Google Ads Customer ID"
+                    )
 
             # Success message
-            console.print(f"\n[green]✅ Google {service.title()} authentication complete![/green]\n")
+            console.print(
+                f"\n[green]✅ Google {service.title()} authentication complete![/green]\n"
+            )
             console.print("[cyan]Next steps:[/cyan]")
             console.print(f"  1. Add Google {service.title()} source: dango source add")
             console.print(f"  2. Select 'Google {service.title()}' from wizard")
@@ -396,7 +389,7 @@ def authenticate_google(project_root: Path, service: str = "sheets") -> bool:
     return helper.authenticate(service)
 
 
-def check_token_expiry(project_root: Path, source_type: str) -> Optional[str]:
+def check_token_expiry(project_root: Path, source_type: str) -> str | None:
     """
     Check if tokens for a source are expired or expiring soon
 
@@ -412,8 +405,7 @@ def check_token_expiry(project_root: Path, source_type: str) -> Optional[str]:
         return None
 
     # Read .env file
-    env_vars = {}
-    with open(env_file, "r") as f:
+    with open(env_file) as f:
         for line in f:
             line = line.strip()
             # Check for expiry comments

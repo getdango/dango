@@ -134,6 +134,7 @@ select = [
 ignore = [
     "E501",  # line too long (handled by black)
     "B008",  # do not perform function calls in argument defaults
+    "UP038", # isinstance(x, A | B) requires Python 3.10+ (scripts run on system 3.9)
 ]
 
 [tool.mypy]

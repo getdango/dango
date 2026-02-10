@@ -1,19 +1,16 @@
-"""
-File Watcher for Auto-Triggering Data Pipelines
+"""dango/platform/watcher.py
 
-Monitors data directories for changes and triggers sync operations
-with debounce logic to batch multiple file uploads.
-
-Created: MVP Week 1 Day 4 (Oct 27, 2025)
+Monitors data directories for changes and triggers sync operations with debounce logic to batch multiple file uploads.
 """
 
-import time
 import threading
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Callable, Dict, Set, Any
-from datetime import datetime, timedelta
+from typing import Any
+
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileSystemEvent
 
 
 class DebouncedFileHandler(FileSystemEventHandler):
@@ -28,7 +25,7 @@ class DebouncedFileHandler(FileSystemEventHandler):
         self,
         callback: Callable,
         debounce_seconds: int = 600,  # 10 minutes
-        watch_patterns: Optional[Set[str]] = None
+        watch_patterns: set[str] | None = None,
     ):
         """
         Initialize handler
@@ -43,17 +40,17 @@ class DebouncedFileHandler(FileSystemEventHandler):
         self.debounce_seconds = debounce_seconds
         self.watch_patterns = watch_patterns or {"*.csv"}
 
-        self._timer: Optional[threading.Timer] = None
+        self._timer: threading.Timer | None = None
         self._lock = threading.Lock()
-        self._last_trigger_time: Optional[datetime] = None
-        self._pending_files: Set[str] = set()
+        self._last_trigger_time: datetime | None = None
+        self._pending_files: set[str] = set()
 
     def _should_process_file(self, file_path: str) -> bool:
         """Check if file matches watch patterns"""
         path = Path(file_path)
 
         # Ignore hidden files and directories
-        if any(part.startswith('.') for part in path.parts):
+        if any(part.startswith(".") for part in path.parts):
             return False
 
         # Check if file matches any pattern
@@ -80,10 +77,7 @@ class DebouncedFileHandler(FileSystemEventHandler):
                 self._timer.cancel()
 
             # Start new timer
-            self._timer = threading.Timer(
-                self.debounce_seconds,
-                self._trigger_callback
-            )
+            self._timer = threading.Timer(self.debounce_seconds, self._trigger_callback)
             self._timer.daemon = True
             self._timer.start()
 
@@ -144,7 +138,7 @@ class FileWatcher:
         self,
         callback: Callable,
         debounce_seconds: int = 600,
-        watch_patterns: Optional[Set[str]] = None
+        watch_patterns: set[str] | None = None,
     ):
         """
         Initialize file watcher
@@ -162,19 +156,15 @@ class FileWatcher:
         self.handler = DebouncedFileHandler(
             callback=self._wrapped_callback,
             debounce_seconds=debounce_seconds,
-            watch_patterns=watch_patterns
+            watch_patterns=watch_patterns,
         )
 
-        self.watched_paths: Dict[str, Any] = {}
+        self.watched_paths: dict[str, Any] = {}
         self._is_running = False
 
     def _wrapped_callback(self, files: list):
         """Wrapper to provide additional context to callback"""
-        self.callback({
-            "files": files,
-            "timestamp": datetime.now().isoformat(),
-            "trigger": "auto"
-        })
+        self.callback({"files": files, "timestamp": datetime.now().isoformat(), "trigger": "auto"})
 
     def watch_directory(self, path: Path, recursive: bool = True):
         """
@@ -197,16 +187,12 @@ class FileWatcher:
             return
 
         # Schedule the path with observer
-        watch_handle = self.observer.schedule(
-            self.handler,
-            str(path),
-            recursive=recursive
-        )
+        watch_handle = self.observer.schedule(self.handler, str(path), recursive=recursive)
 
         self.watched_paths[path_str] = {
             "path": path,
             "handle": watch_handle,
-            "recursive": recursive
+            "recursive": recursive,
         }
 
         print(f"[FileWatcher] Now watching: {path} (recursive={recursive})")
@@ -276,15 +262,11 @@ class MultiTargetWatcher:
 
     def __init__(self):
         """Initialize multi-target watcher"""
-        self.watchers: Dict[str, FileWatcher] = {}
+        self.watchers: dict[str, FileWatcher] = {}
         self._is_running = False
 
     def add_watch_target(
-        self,
-        name: str,
-        callback: Callable,
-        watch_patterns: Set[str],
-        debounce_seconds: int = 600
+        self, name: str, callback: Callable, watch_patterns: set[str], debounce_seconds: int = 600
     ):
         """
         Add a watch target
@@ -299,9 +281,7 @@ class MultiTargetWatcher:
             raise ValueError(f"Watch target '{name}' already exists")
 
         watcher = FileWatcher(
-            callback=callback,
-            debounce_seconds=debounce_seconds,
-            watch_patterns=watch_patterns
+            callback=callback, debounce_seconds=debounce_seconds, watch_patterns=watch_patterns
         )
 
         self.watchers[name] = watcher
@@ -347,7 +327,7 @@ class MultiTargetWatcher:
 
         self._is_running = False
 
-    def cancel_pending(self, target_name: Optional[str] = None):
+    def cancel_pending(self, target_name: str | None = None):
         """
         Cancel pending triggers
 
@@ -365,17 +345,17 @@ class MultiTargetWatcher:
         """Check if watcher is running"""
         return self._is_running
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get status of all watch targets"""
         return {
             "running": self._is_running,
             "targets": {
                 name: {
                     "running": watcher.is_running(),
-                    "watched_directories": [str(p) for p in watcher.get_watched_directories()]
+                    "watched_directories": [str(p) for p in watcher.get_watched_directories()],
                 }
                 for name, watcher in self.watchers.items()
-            }
+            },
         }
 
 
@@ -392,11 +372,11 @@ class SyncTrigger:
     def __init__(
         self,
         sync_callback: Callable,
-        dbt_callback: Optional[Callable] = None,
+        dbt_callback: Callable | None = None,
         sync_debounce: int = 600,
         dbt_debounce: int = 600,
         enable_auto_sync: bool = True,
-        enable_auto_dbt: bool = True
+        enable_auto_dbt: bool = True,
     ):
         """
         Initialize sync trigger
@@ -416,14 +396,14 @@ class SyncTrigger:
         self.enable_auto_sync = enable_auto_sync
         self.enable_auto_dbt = enable_auto_dbt
 
-        self._dbt_timer: Optional[threading.Timer] = None
+        self._dbt_timer: threading.Timer | None = None
         self._lock = threading.Lock()
 
         # Create file watcher
         self.file_watcher = FileWatcher(
             callback=self._on_files_changed,
             debounce_seconds=sync_debounce,
-            watch_patterns={"*.csv"}
+            watch_patterns={"*.csv"},
         )
 
     def _on_files_changed(self, event_data: dict):
@@ -454,10 +434,7 @@ class SyncTrigger:
                 self._dbt_timer.cancel()
 
             # Start new timer
-            self._dbt_timer = threading.Timer(
-                self.dbt_debounce,
-                self._trigger_dbt
-            )
+            self._dbt_timer = threading.Timer(self.dbt_debounce, self._trigger_dbt)
             self._dbt_timer.daemon = True
             self._dbt_timer.start()
 
@@ -525,7 +502,5 @@ class SyncTrigger:
             "auto_dbt_enabled": self.enable_auto_dbt,
             "sync_debounce": self.sync_debounce,
             "dbt_debounce": self.dbt_debounce,
-            "watched_directories": [
-                str(p) for p in self.file_watcher.get_watched_directories()
-            ]
+            "watched_directories": [str(p) for p in self.file_watcher.get_watched_directories()],
         }

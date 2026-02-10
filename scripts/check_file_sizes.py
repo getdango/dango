@@ -7,6 +7,8 @@ CI mode (--all): fail >500 lines, detect stale exemptions.
 Exemptions loaded from docs/file-exemptions.yml (TASK-084).
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import sys

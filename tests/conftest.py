@@ -1,4 +1,7 @@
-"""Root test fixtures for the Dango test suite."""
+"""tests/conftest.py
+
+Root test fixtures for the Dango test suite.
+"""
 
 import pytest
 import yaml

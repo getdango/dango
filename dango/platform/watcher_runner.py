@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""
-Dango File Watcher Runner
+"""dango/platform/watcher_runner.py
 
-Background process that monitors file changes and triggers sync/dbt operations.
-Started by `dango start` and stopped by `dango stop`.
+Background process that monitors file changes and triggers sync/dbt operations. Started by `dango start` and stopped by `dango stop`.
 """
 
-import sys
 import signal
-import time
 import subprocess
-from pathlib import Path
+import sys
+import time
 from datetime import datetime
+from pathlib import Path
 
 
 def setup_signal_handlers(watcher):
     """Set up graceful shutdown on SIGTERM/SIGINT"""
+
     def signal_handler(signum, frame):
+        """Handle SIGTERM/SIGINT for graceful watcher shutdown."""
         print("[FileWatcher] Received shutdown signal, stopping...")
         watcher.stop()
         sys.exit(0)
@@ -35,7 +35,7 @@ def run_sync_command(project_root: Path):
             cwd=project_root,
             capture_output=True,
             text=True,
-            timeout=3600  # 1 hour timeout
+            timeout=3600,  # 1 hour timeout
         )
 
         if result.returncode == 0:
@@ -77,7 +77,7 @@ def run_dbt_command(project_root: Path, changed_files: list = None):
         lock = DbtLock(
             project_root=project_root,
             source="watcher",
-            operation=f"dbt run (auto-triggered by file watcher)"
+            operation="dbt run (auto-triggered by file watcher)",
         )
         lock.acquire()
     except DbtLockError as e:
@@ -113,12 +113,13 @@ def run_dbt_command(project_root: Path, changed_files: list = None):
             cwd=dbt_dir,
             capture_output=True,
             text=True,
-            timeout=3600  # 1 hour timeout
+            timeout=3600,  # 1 hour timeout
         )
 
         if result.returncode == 0:
             # Update persistent model status
             from dango.utils.dbt_status import update_model_status
+
             update_model_status(project_root)
 
             print("[FileWatcher] dbt run completed successfully")
@@ -150,7 +151,7 @@ def run_validate_command(project_root: Path):
             cwd=project_root,
             capture_output=True,
             text=True,
-            timeout=300  # 5 minutes timeout
+            timeout=300,  # 5 minutes timeout
         )
 
         if result.returncode == 0:
@@ -214,6 +215,7 @@ def main():
 
     # Target 1: CSV files → sync (auto-generates staging + dbt)
     if platform.auto_sync:
+
         def csv_callback(event_data: dict):
             """CSV file changes → trigger sync"""
             files = event_data["files"]
@@ -224,7 +226,7 @@ def main():
             name="csv_sync",
             callback=csv_callback,
             watch_patterns=set(platform.watch_patterns),  # Default: ["*.csv"]
-            debounce_seconds=platform.debounce_seconds
+            debounce_seconds=platform.debounce_seconds,
         )
 
         # Watch configured CSV directories
@@ -236,17 +238,20 @@ def main():
 
     # Target 2: dbt models (SQL files) → dbt run
     if platform.auto_dbt:
+
         def dbt_callback(event_data: dict):
             """dbt model changes → trigger selective dbt run"""
             files = event_data["files"]
-            print(f"[FileWatcher] dbt model changes detected ({len(files)} files), triggering selective dbt run")
+            print(
+                f"[FileWatcher] dbt model changes detected ({len(files)} files), triggering selective dbt run"
+            )
             run_dbt_command(project_root, changed_files=files)
 
         multi_watcher.add_watch_target(
             name="dbt_models",
             callback=dbt_callback,
             watch_patterns={"*.sql", "*.yml"},  # Watch SQL models and schema files
-            debounce_seconds=platform.debounce_seconds
+            debounce_seconds=platform.debounce_seconds,
         )
 
         # Watch dbt/models directory
@@ -260,12 +265,13 @@ def main():
     # Target 3: sources.yml → validation + docs regeneration
     def sources_callback(event_data: dict):
         """sources.yml changes → trigger validation + regenerate docs"""
-        print(f"[FileWatcher] sources.yml changed, triggering validation")
+        print("[FileWatcher] sources.yml changed, triggering validation")
         run_validate_command(project_root)
 
         # Auto-regenerate dbt docs after sources.yml changes
         print("[FileWatcher] Regenerating dbt docs after sources.yml changes...")
         from dango.transformation import generate_dbt_docs
+
         success, output = generate_dbt_docs(project_root)
         if success:
             print("[FileWatcher] ✓ dbt docs regenerated")
@@ -276,7 +282,7 @@ def main():
         name="sources_config",
         callback=sources_callback,
         watch_patterns={"sources.yml"},
-        debounce_seconds=60  # Shorter debounce for config changes (1 minute)
+        debounce_seconds=60,  # Shorter debounce for config changes (1 minute)
     )
 
     # Watch .dango directory for sources.yml
@@ -287,6 +293,7 @@ def main():
 
     # Set up signal handlers
     def signal_handler(signum, frame):
+        """Handle SIGTERM/SIGINT for graceful multi-watcher shutdown."""
         print("[FileWatcher] Received shutdown signal, stopping...")
         multi_watcher.stop()
         sys.exit(0)

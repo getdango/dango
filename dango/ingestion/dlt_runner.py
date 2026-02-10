@@ -1,37 +1,25 @@
-"""
-Dango dlt Pipeline Runner
+"""dango/ingestion/dlt_runner.py
 
 Generic runner for all dlt verified sources + custom CSV/REST API sources.
-
-Key features:
-- Dynamic source loading (importlib) - no hardcoded source logic
-- Automatic DuckDB configuration
-- State management for incremental loading
-- Full-refresh support
-- Error handling with retry logic
-- CSV special handling (uses custom CSV loader)
 """
 
 import importlib
-import time
-import signal
-import platform
 import os
-from pathlib import Path
+import platform
+import signal
+import time
 from datetime import datetime
-from typing import Optional, Dict, Any, List
-from rich.console import Console
-from dotenv import load_dotenv
+from pathlib import Path
+from typing import Any
 
 import dlt
 from dlt.common.pipeline import LoadInfo
+from dotenv import load_dotenv
+from rich.console import Console
 
 from dango.config.models import (
     DataSource,
     SourceType,
-    CSVSourceConfig,
-    RESTAPISourceConfig,
-    DltNativeConfig,
 )
 from dango.ingestion.csv_loader import CSVLoader
 from dango.ingestion.sources.registry import get_source_metadata
@@ -41,6 +29,7 @@ console = Console()
 
 class SyncTimeoutError(Exception):
     """Raised when sync exceeds timeout"""
+
     pass
 
 
@@ -133,14 +122,17 @@ class DltPipelineRunner:
             SyncTimeoutError: If execution exceeds timeout
         """
         # Check if we're on a Unix-like system (signal.alarm not available on Windows)
-        is_unix = platform.system() in ['Linux', 'Darwin']  # Darwin = macOS
+        is_unix = platform.system() in ["Linux", "Darwin"]  # Darwin = macOS
 
         if not is_unix:
             # Windows: No timeout (signal.alarm not available)
-            console.print(f"[dim]⚠️  Timeout not supported on Windows - running without timeout[/dim]")
+            console.print(
+                "[dim]⚠️  Timeout not supported on Windows - running without timeout[/dim]"
+            )
             return func(*args, **kwargs)
 
         def timeout_handler(signum, frame):
+            """Raise SyncTimeoutError when SIGALRM fires."""
             raise SyncTimeoutError(f"Sync exceeded {timeout_minutes} minute timeout")
 
         # Set up signal handler
@@ -161,11 +153,11 @@ class DltPipelineRunner:
     def run_source(
         self,
         source_config: DataSource,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         full_refresh: bool = False,
         timeout_minutes: int = 60,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Run data pipeline for any source type
 
@@ -180,16 +172,16 @@ class DltPipelineRunner:
             Dictionary with load statistics and status
         """
         from dango.utils.activity_log import log_activity
+        from dango.utils.db_health import DiskSpaceError, check_disk_space, check_duckdb_health
         from dango.utils.sync_history import save_sync_history_entry
-        from dango.utils.db_health import check_disk_space, check_duckdb_health, DiskSpaceError
 
         source_name = source_config.name
         source_type = source_config.type
         start_time = datetime.now()
 
-        console.print(f"\n{'='*60}")
+        console.print(f"\n{'=' * 60}")
         console.print(f"🍡 Syncing: [bold]{source_name}[/bold] ({source_type.value})")
-        console.print(f"{'='*60}")
+        console.print(f"{'=' * 60}")
 
         # Check pip dependencies before sync
         deps_ok, missing_deps = self._check_dependencies(source_type.value)
@@ -198,27 +190,33 @@ class DltPipelineRunner:
             req_file = self.project_root / "requirements.txt"
             existing = set()
             if req_file.exists():
-                existing = {line.strip() for line in req_file.read_text().split("\n") if line.strip()}
+                existing = {
+                    line.strip() for line in req_file.read_text().split("\n") if line.strip()
+                }
 
             new_deps = [d["pip"] for d in missing_deps if d["pip"] not in existing]
             if new_deps:
                 with open(req_file, "a") as f:
                     for dep in new_deps:
                         f.write(f"{dep}\n")
-                console.print(f"\n[green]✓ Added to requirements.txt: {', '.join(new_deps)}[/green]")
+                console.print(
+                    f"\n[green]✓ Added to requirements.txt: {', '.join(new_deps)}[/green]"
+                )
 
             # Show error and instructions
-            error_message = f"Missing required dependencies: {', '.join(d['pip'] for d in missing_deps)}"
+            error_message = (
+                f"Missing required dependencies: {', '.join(d['pip'] for d in missing_deps)}"
+            )
             console.print(f"\n[red]❌ {error_message}[/red]")
-            console.print(f"\n[bold]To fix, run:[/bold]")
-            console.print(f"  [cyan]pip install -r requirements.txt[/cyan]")
+            console.print("\n[bold]To fix, run:[/bold]")
+            console.print("  [cyan]pip install -r requirements.txt[/cyan]")
             console.print(f"\nThen retry: [cyan]dango sync --source {source_name}[/cyan]\n")
 
             log_activity(
                 project_root=self.project_root,
                 level="error",
                 source=source_name,
-                message=f"Sync blocked: {error_message}"
+                message=f"Sync blocked: {error_message}",
             )
 
             return {
@@ -242,7 +240,7 @@ class DltPipelineRunner:
                 "duration_seconds": 0,
                 "rows_processed": 0,
                 "full_refresh": full_refresh,
-                "error_message": error_message
+                "error_message": error_message,
             }
             save_sync_history_entry(self.project_root, source_name, history_entry)
 
@@ -250,7 +248,7 @@ class DltPipelineRunner:
                 project_root=self.project_root,
                 level="error",
                 source=source_name,
-                message=f"Sync blocked: {error_message}"
+                message=f"Sync blocked: {error_message}",
             )
 
             return {
@@ -263,10 +261,14 @@ class DltPipelineRunner:
         # Check DuckDB health and log warnings
         try:
             db_health = check_duckdb_health(self.duckdb_path)
-            if db_health['status'] == 'large':
-                console.print(f"[yellow]⚠️  Database is large ({db_health['size_gb']}GB) - consider archiving old data[/yellow]")
-            elif db_health['status'] == 'critical':
-                console.print(f"[yellow]⚠️  Database is very large ({db_health['size_gb']}GB) - performance may be affected[/yellow]")
+            if db_health["status"] == "large":
+                console.print(
+                    f"[yellow]⚠️  Database is large ({db_health['size_gb']}GB) - consider archiving old data[/yellow]"
+                )
+            elif db_health["status"] == "critical":
+                console.print(
+                    f"[yellow]⚠️  Database is very large ({db_health['size_gb']}GB) - performance may be affected[/yellow]"
+                )
         except Exception as e:
             console.print(f"[dim]⚠️  Could not check database health: {e}[/dim]")
 
@@ -275,7 +277,7 @@ class DltPipelineRunner:
             project_root=self.project_root,
             level="info",
             source=source_name,
-            message=f"Starting sync"
+            message="Starting sync",
         )
 
         try:
@@ -286,15 +288,14 @@ class DltPipelineRunner:
             elif source_type == SourceType.DLT_NATIVE:
                 try:
                     result = self._run_with_timeout(
-                        self._run_dlt_native_source,
-                        timeout_minutes,
-                        source_config,
-                        full_refresh
+                        self._run_dlt_native_source, timeout_minutes, source_config, full_refresh
                     )
                 except SyncTimeoutError as e:
                     error_message = str(e)
                     console.print(f"[red]❌ {error_message}[/red]")
-                    console.print(f"[yellow]ℹ️  Pipeline state has been restored to prevent corruption[/yellow]")
+                    console.print(
+                        "[yellow]ℹ️  Pipeline state has been restored to prevent corruption[/yellow]"
+                    )
 
                     # Return failure result
                     duration = (datetime.now() - start_time).total_seconds()
@@ -304,7 +305,7 @@ class DltPipelineRunner:
                         "duration_seconds": round(duration, 2),
                         "rows_processed": 0,
                         "full_refresh": full_refresh,
-                        "error_message": error_message
+                        "error_message": error_message,
                     }
                     save_sync_history_entry(self.project_root, source_name, history_entry)
 
@@ -312,7 +313,7 @@ class DltPipelineRunner:
                         project_root=self.project_root,
                         level="error",
                         source=source_name,
-                        message=f"Sync timeout: {error_message}"
+                        message=f"Sync timeout: {error_message}",
                     )
 
                     return {
@@ -330,12 +331,14 @@ class DltPipelineRunner:
                         source_config,
                         start_date,
                         end_date,
-                        full_refresh
+                        full_refresh,
                     )
                 except SyncTimeoutError as e:
                     error_message = str(e)
                     console.print(f"[red]❌ {error_message}[/red]")
-                    console.print(f"[yellow]ℹ️  Pipeline state has been restored to prevent corruption[/yellow]")
+                    console.print(
+                        "[yellow]ℹ️  Pipeline state has been restored to prevent corruption[/yellow]"
+                    )
 
                     # Return failure result
                     duration = (datetime.now() - start_time).total_seconds()
@@ -345,7 +348,7 @@ class DltPipelineRunner:
                         "duration_seconds": round(duration, 2),
                         "rows_processed": 0,
                         "full_refresh": full_refresh,
-                        "error_message": error_message
+                        "error_message": error_message,
                     }
                     save_sync_history_entry(self.project_root, source_name, history_entry)
 
@@ -353,7 +356,7 @@ class DltPipelineRunner:
                         project_root=self.project_root,
                         level="error",
                         source=source_name,
-                        message=f"Sync timeout: {error_message}"
+                        message=f"Sync timeout: {error_message}",
                     )
 
                     return {
@@ -382,7 +385,7 @@ class DltPipelineRunner:
                 "duration_seconds": round(duration, 2),
                 "rows_processed": rows_loaded,
                 "full_refresh": is_full_refresh,
-                "error_message": error_message
+                "error_message": error_message,
             }
             save_sync_history_entry(self.project_root, source_name, history_entry)
 
@@ -391,14 +394,14 @@ class DltPipelineRunner:
                     project_root=self.project_root,
                     level="success",
                     source=source_name,
-                    message=f"Sync completed in {round(duration, 1)}s - {rows_loaded:,} rows"
+                    message=f"Sync completed in {round(duration, 1)}s - {rows_loaded:,} rows",
                 )
             else:
                 log_activity(
                     project_root=self.project_root,
                     level="error",
                     source=source_name,
-                    message=f"Sync failed: {error_message}"
+                    message=f"Sync failed: {error_message}",
                 )
 
             return result
@@ -418,7 +421,7 @@ class DltPipelineRunner:
                 "duration_seconds": round(duration, 2),
                 "rows_processed": 0,
                 "full_refresh": full_refresh,
-                "error_message": error_message
+                "error_message": error_message,
             }
             save_sync_history_entry(self.project_root, source_name, history_entry)
 
@@ -426,7 +429,7 @@ class DltPipelineRunner:
                 project_root=self.project_root,
                 level="error",
                 source=source_name,
-                message=f"Sync failed: {error_message}"
+                message=f"Sync failed: {error_message}",
             )
 
             return {
@@ -438,7 +441,7 @@ class DltPipelineRunner:
 
     def _run_csv_source(
         self, source_config: DataSource, full_refresh: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Run CSV source using custom CSV loader
 
@@ -462,10 +465,13 @@ class DltPipelineRunner:
                 console.print("  🔄 Full refresh: dropped existing table")
 
                 # Also clear metadata for this source so files are treated as new
-                conn.execute("""
+                conn.execute(
+                    """
                     DELETE FROM _dango_file_metadata
                     WHERE source_name = ?
-                """, [source_config.name])
+                """,
+                    [source_config.name],
+                )
                 console.print("  🔄 Full refresh: cleared file metadata")
             except Exception as e:
                 console.print(f"  ⚠️  Could not drop table/metadata: {e}")
@@ -492,7 +498,7 @@ class DltPipelineRunner:
 
     def _run_dlt_native_source(
         self, source_config: DataSource, full_refresh: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Run dlt native source (registry bypass for advanced users)
 
@@ -514,8 +520,10 @@ class DltPipelineRunner:
         config = source_config.dlt_native
         source_name = source_config.name
 
-        console.print(f"  📦 Loading dlt native source: {config.source_module}.{config.source_function}")
-        console.print(f"  [dim]Registry bypass - advanced mode[/dim]")
+        console.print(
+            f"  📦 Loading dlt native source: {config.source_module}.{config.source_function}"
+        )
+        console.print("  [dim]Registry bypass - advanced mode[/dim]")
 
         # Change to project root so dlt can find .dlt/ directory
         # IMPORTANT: Must happen BEFORE loading source (dlt.secrets.value resolution)
@@ -525,6 +533,7 @@ class DltPipelineRunner:
         try:
             # Try to import source from custom_sources/ directory first
             import sys
+
             custom_sources_dir = self.project_root / "custom_sources"
 
             if custom_sources_dir.exists():
@@ -545,7 +554,7 @@ class DltPipelineRunner:
                             f"  - Not found in custom_sources/ directory\n"
                             f"  - Not found as dlt package (dlt.sources.{config.source_module})\n"
                             f"  - Make sure the module is installed or placed in custom_sources/"
-                        )
+                        ) from None
 
                 # Get source function
                 if not hasattr(module, config.source_function):
@@ -558,7 +567,9 @@ class DltPipelineRunner:
 
                 # Call source function with provided kwargs
                 # dlt resolves dlt.secrets.value parameters at this point
-                console.print(f"  [dim]Calling {config.source_function}(**{config.function_kwargs})[/dim]")
+                console.print(
+                    f"  [dim]Calling {config.source_function}(**{config.function_kwargs})[/dim]"
+                )
                 source = source_function(**config.function_kwargs)
 
             finally:
@@ -605,7 +616,7 @@ class DltPipelineRunner:
                 console.print(f"  ✓ Loaded {rows_loaded:,} rows")
             else:
                 # rows_loaded == -1 means we got a valid LoadInfo but couldn't extract stats
-                console.print(f"  ✓ Load completed (unable to count rows)")
+                console.print("  ✓ Load completed (unable to count rows)")
                 rows_loaded = 0  # Set to 0 for stats
 
             result = {
@@ -614,11 +625,11 @@ class DltPipelineRunner:
                 "rows_loaded": rows_loaded,
                 **stats,
             }
-            if getattr(self, '_current_oauth_warning', None):
+            if getattr(self, "_current_oauth_warning", None):
                 result["oauth_warning"] = self._current_oauth_warning
             return result
 
-        except Exception as e:
+        except Exception:
             # Restore state on failure
             if state_backup:
                 console.print("  ⚠️  Restoring pipeline state (failed load)")
@@ -641,22 +652,22 @@ class DltPipelineRunner:
         try:
             # dlt sources can be callables or DltResource objects
             # Try to extract resources and check their write_disposition
-            if hasattr(source, 'resources'):
+            if hasattr(source, "resources"):
                 # Source has resources attribute (DltSource object)
                 resources = source.resources
-                if hasattr(resources, 'values'):
+                if hasattr(resources, "values"):
                     # resources is a dict-like object
                     for resource in resources.values():
-                        if hasattr(resource, 'write_disposition'):
+                        if hasattr(resource, "write_disposition"):
                             if resource.write_disposition == "replace":
                                 return True
-            elif hasattr(source, '__iter__'):
+            elif hasattr(source, "__iter__"):
                 # Source is iterable (list of resources)
                 for resource in source:
-                    if hasattr(resource, 'write_disposition'):
+                    if hasattr(resource, "write_disposition"):
                         if resource.write_disposition == "replace":
                             return True
-            elif hasattr(source, 'write_disposition'):
+            elif hasattr(source, "write_disposition"):
                 # Source itself has write_disposition
                 if source.write_disposition == "replace":
                     return True
@@ -668,10 +679,7 @@ class DltPipelineRunner:
             return False
 
     def _get_dataset_name(
-        self,
-        source_config: DataSource,
-        source_type: Any,
-        metadata: Dict[str, Any]
+        self, source_config: DataSource, source_type: Any, metadata: dict[str, Any]
     ) -> str:
         """
         Determine dataset name for a source.
@@ -685,10 +693,10 @@ class DltPipelineRunner:
     def _run_dlt_source(
         self,
         source_config: DataSource,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         full_refresh: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Run dlt pipeline for any verified source (generic implementation)
 
@@ -720,14 +728,14 @@ class DltPipelineRunner:
         dlt_package = metadata.get("dlt_package")
         dlt_function = metadata.get("dlt_function")
         if not dlt_package or not dlt_function:
-            raise ValueError(f"No dlt package/function defined for source type: {source_type.value}")
+            raise ValueError(
+                f"No dlt package/function defined for source type: {source_type.value}"
+            )
 
         console.print(f"  📦 Loading dlt source: {dlt_package}.{dlt_function}")
 
         # Build source configuration
-        source_kwargs = self._build_source_config(
-            source_config, source_type, start_date, end_date
-        )
+        source_kwargs = self._build_source_config(source_config, source_type, start_date, end_date)
 
         # Merge default_config from registry (e.g., GA4 default queries)
         # Only apply if:
@@ -742,8 +750,9 @@ class DltPipelineRunner:
             if config_toml_path.exists():
                 try:
                     import tomlkit
+
                     doc = tomlkit.parse(config_toml_path.read_text())
-                    source_section = doc.get("sources", {}).get(source_type_key, {})
+                    source_section = doc.get("sources", {}).get(source_type.value, {})
                     config_toml_keys = set(source_section.keys())
                 except Exception:
                     pass  # If we can't read config.toml, fall back to defaults
@@ -838,14 +847,14 @@ class DltPipelineRunner:
                     "uses_replace_mode": uses_replace_mode,
                     **stats,
                 }
-                if getattr(self, '_current_oauth_warning', None):
+                if getattr(self, "_current_oauth_warning", None):
                     result["oauth_warning"] = self._current_oauth_warning
                 return result
             else:
                 # rows_loaded is -1: unknown row count but load succeeded
                 # This should also be treated as success
                 self._cleanup_state_backup(state_backup)
-                console.print(f"  ✓ Load completed (row count unavailable)")
+                console.print("  ✓ Load completed (row count unavailable)")
 
                 result = {
                     "status": "success",
@@ -853,14 +862,14 @@ class DltPipelineRunner:
                     "uses_replace_mode": uses_replace_mode,
                     **stats,
                 }
-                if getattr(self, '_current_oauth_warning', None):
+                if getattr(self, "_current_oauth_warning", None):
                     result["oauth_warning"] = self._current_oauth_warning
                 return result
 
         except Exception as e:
             # Pipeline failed - restore previous state
             console.print(f"  ❌ Pipeline failed: {e}")
-            console.print(f"  🔄 Restoring previous state...")
+            console.print("  🔄 Restoring previous state...")
             self._restore_dlt_state(state_backup)
             raise
 
@@ -868,9 +877,9 @@ class DltPipelineRunner:
         self,
         source_config: DataSource,
         source_type: SourceType,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> dict[str, Any]:
         """
         Build source-specific configuration dictionary
 
@@ -911,12 +920,13 @@ class DltPipelineRunner:
             if config_obj is None:
                 # For OAuth sources, config might be in secrets.toml instead of sources.yml
                 # This happens when all required params are OAuth-collected (e.g., facebook_ads)
-                from dango.ingestion.sources.registry import get_source_metadata, AuthType
+                from dango.ingestion.sources.registry import AuthType, get_source_metadata
+
                 metadata = get_source_metadata(source_type.value)
                 if metadata.get("auth_type") == AuthType.OAUTH:
                     # Allow empty config - OAuth injection will provide credentials
                     config_obj = {}
-                    console.print(f"  [dim]Note: Using OAuth credentials from secrets.toml[/dim]")
+                    console.print("  [dim]Note: Using OAuth credentials from secrets.toml[/dim]")
                 else:
                     raise ValueError(
                         f"Missing {config_field} configuration for source: {source_config.name}"
@@ -931,8 +941,8 @@ class DltPipelineRunner:
         # Dango-specific fields that should NOT be passed to dlt source functions
         DANGO_ONLY_FIELDS = {
             "deduplication",  # Dango's deduplication strategy
-            "enabled",        # Dango's source enable/disable flag
-            "description",    # Dango's source description
+            "enabled",  # Dango's source enable/disable flag
+            "description",  # Dango's source description
         }
 
         # Resolve environment variables (fields ending in _env)
@@ -950,7 +960,9 @@ class DltPipelineRunner:
                 if env_value is None:
                     # Don't add to config - let dlt's auto-injection resolve from secrets.toml
                     # This follows dlt best practice: only pass explicit values, let dlt handle the rest
-                    console.print(f"  [dim]Note: {value} not set, using dlt credential resolution[/dim]")
+                    console.print(
+                        f"  [dim]Note: {value} not set, using dlt credential resolution[/dim]"
+                    )
                 else:
                     # Remove _env suffix for actual parameter name
                     param_name = key[:-4]  # Remove '_env'
@@ -966,7 +978,9 @@ class DltPipelineRunner:
 
         return resolved_config
 
-    def _check_oauth_token_expiry(self, source_type: str, source_name: str) -> Optional[Dict[str, Any]]:
+    def _check_oauth_token_expiry(
+        self, source_type: str, source_name: str
+    ) -> dict[str, Any] | None:
         """
         Check if OAuth credentials are expired or expiring soon.
 
@@ -997,30 +1011,40 @@ class DltPipelineRunner:
         if oauth_cred.is_expired():
             # FATAL ERROR: Token expired - prevent sync
             console.print(f"\n[red]❌ OAuth token expired for {source_name}![/red]")
-            console.print(f"[yellow]Token expired on:[/yellow] {oauth_cred.expires_at.strftime('%Y-%m-%d')}")
-            console.print(f"\n[cyan]To re-authenticate:[/cyan]")
+            console.print(
+                f"[yellow]Token expired on:[/yellow] {oauth_cred.expires_at.strftime('%Y-%m-%d')}"
+            )
+            console.print("\n[cyan]To re-authenticate:[/cyan]")
             console.print(f"  1. Run: [bold]dango auth {source_type}[/bold]")
-            console.print(f"  2. Follow the OAuth flow to get a new token")
-            console.print(f"  3. Run sync again\n")
-            raise ValueError(f"OAuth credentials expired for {source_name}. Re-authentication required.")
+            console.print("  2. Follow the OAuth flow to get a new token")
+            console.print("  3. Run sync again\n")
+            raise ValueError(
+                f"OAuth credentials expired for {source_name}. Re-authentication required."
+            )
 
         elif oauth_cred.is_expiring_soon(days=7):
             # WARNING: Token expires within 7 days - allow sync but warn
             days_left = oauth_cred.days_until_expiry()
-            console.print(f"\n[yellow]⚠️  OAuth token for {source_name} expires in {days_left} day(s)[/yellow]")
-            console.print(f"[yellow]Expiry date:[/yellow] {oauth_cred.expires_at.strftime('%Y-%m-%d')}")
+            console.print(
+                f"\n[yellow]⚠️  OAuth token for {source_name} expires in {days_left} day(s)[/yellow]"
+            )
+            console.print(
+                f"[yellow]Expiry date:[/yellow] {oauth_cred.expires_at.strftime('%Y-%m-%d')}"
+            )
             console.print(f"[cyan]Re-authenticate soon:[/cyan] dango auth {source_type}\n")
             # Return warning info for end-of-sync summary
             return {
                 "source_name": source_name,
                 "source_type": source_type,
                 "days_left": days_left,
-                "expires_at": oauth_cred.expires_at.strftime('%Y-%m-%d'),
+                "expires_at": oauth_cred.expires_at.strftime("%Y-%m-%d"),
             }
 
         return None
 
-    def _inject_oauth_credentials(self, source_type: str, source_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    def _inject_oauth_credentials(
+        self, source_type: str, source_kwargs: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Inject OAuth credentials from secrets.toml into source kwargs.
 
@@ -1058,7 +1082,15 @@ class DltPipelineRunner:
             else:
                 # Non-Google: inject flat parameters (access_token, api_key, account_id, etc.)
                 # Common OAuth credential keys to inject
-                CREDENTIAL_KEYS = {"access_token", "api_key", "api_secret", "refresh_token", "shop_url", "private_app_password", "account_id"}
+                CREDENTIAL_KEYS = {
+                    "access_token",
+                    "api_key",
+                    "api_secret",
+                    "refresh_token",
+                    "shop_url",
+                    "private_app_password",
+                    "account_id",
+                }
 
                 for key in CREDENTIAL_KEYS:
                     # Inject if key is missing OR if key exists but value is None/empty
@@ -1074,7 +1106,9 @@ class DltPipelineRunner:
             console.print(f"  [dim]Warning: Could not inject credentials: {e}[/dim]")
             return source_kwargs
 
-    def _load_dlt_source(self, dlt_package: str, dlt_function: str, source_kwargs: Dict[str, Any]) -> Any:
+    def _load_dlt_source(
+        self, dlt_package: str, dlt_function: str, source_kwargs: dict[str, Any]
+    ) -> Any:
         """
         Dynamically import and instantiate a dlt source from bundled or built-in sources
 
@@ -1102,7 +1136,7 @@ class DltPipelineRunner:
                 raise ImportError(
                     f"Could not import dlt source package '{dlt_package}' from bundled sources or built-in dlt sources. "
                     f"Error: {e}"
-                )
+                ) from e
 
         try:
             # Get the source function from the module
@@ -1120,9 +1154,9 @@ class DltPipelineRunner:
                 f"dlt source package '{dlt_package}' does not have function '{dlt_function}'. "
                 f"Available functions: {[name for name in dir(source_module) if not name.startswith('_')]}"
                 f"\nError: {e}"
-            )
+            ) from e
         except Exception as e:
-            raise Exception(f"Error loading dlt source '{dlt_package}.{dlt_function}': {e}")
+            raise Exception(f"Error loading dlt source '{dlt_package}.{dlt_function}': {e}") from e
 
     def _analyze_error(self, error: Exception, source_name: str) -> str:
         """
@@ -1136,10 +1170,21 @@ class DltPipelineRunner:
             User-friendly error message with guidance
         """
         error_str = str(error).lower()
-        error_type = type(error).__name__
 
         # Authentication errors
-        if any(keyword in error_str for keyword in ['unauthorized', '401', 'invalid api key', 'invalid token', 'authentication failed', 'invalid credentials', 'forbidden', '403']):
+        if any(
+            keyword in error_str
+            for keyword in [
+                "unauthorized",
+                "401",
+                "invalid api key",
+                "invalid token",
+                "authentication failed",
+                "invalid credentials",
+                "forbidden",
+                "403",
+            ]
+        ):
             return f"""
 Authentication Error: Invalid credentials for '{source_name}'
 
@@ -1162,7 +1207,10 @@ Error details: {str(error)}
 """
 
         # Rate limit errors
-        if any(keyword in error_str for keyword in ['rate limit', '429', 'too many requests', 'quota exceeded', 'throttled']):
+        if any(
+            keyword in error_str
+            for keyword in ["rate limit", "429", "too many requests", "quota exceeded", "throttled"]
+        ):
             return f"""
 Rate Limit Error: API rate limit exceeded for '{source_name}'
 
@@ -1193,7 +1241,10 @@ Error details: {str(error)}
 """
 
         # Schema/data validation errors
-        if any(keyword in error_str for keyword in ['schema', 'validation', 'column', 'field', 'type error', 'data type']):
+        if any(
+            keyword in error_str
+            for keyword in ["schema", "validation", "column", "field", "type error", "data type"]
+        ):
             return f"""
 Data Validation Error: Schema mismatch or invalid data for '{source_name}'
 
@@ -1218,7 +1269,10 @@ Error details: {str(error)}
 """
 
         # Connection/network errors
-        if any(keyword in error_str for keyword in ['connection', 'timeout', 'network', 'dns', 'unreachable', 'refused']):
+        if any(
+            keyword in error_str
+            for keyword in ["connection", "timeout", "network", "dns", "unreachable", "refused"]
+        ):
             return f"""
 Connection Error: Cannot reach API for '{source_name}'
 
@@ -1299,7 +1353,7 @@ Need help? Visit: https://github.com/anthropics/dango/issues
 
         raise last_exception
 
-    def _extract_load_stats(self, load_info: LoadInfo) -> Dict[str, Any]:
+    def _extract_load_stats(self, load_info: LoadInfo) -> dict[str, Any]:
         """
         Extract statistics from dlt LoadInfo and query database for row counts.
 
@@ -1322,15 +1376,15 @@ Need help? Visit: https://github.com/anthropics/dango/issues
         loaded_tables = set()
         try:
             if hasattr(load_info, "metrics") and isinstance(load_info.metrics, dict):
-                for load_id, metric_list in load_info.metrics.items():
+                for _load_id, metric_list in load_info.metrics.items():
                     if isinstance(metric_list, list):
                         for metric_entry in metric_list:
-                            if isinstance(metric_entry, dict) and 'job_metrics' in metric_entry:
-                                for job_metrics in metric_entry['job_metrics'].values():
-                                    if hasattr(job_metrics, 'table_name'):
+                            if isinstance(metric_entry, dict) and "job_metrics" in metric_entry:
+                                for job_metrics in metric_entry["job_metrics"].values():
+                                    if hasattr(job_metrics, "table_name"):
                                         table_name = job_metrics.table_name
                                         # Skip dlt internal tables
-                                        if not table_name.startswith('_dlt_'):
+                                        if not table_name.startswith("_dlt_"):
                                             loaded_tables.add(table_name)
                                             stats["tables_loaded"].append(table_name)
         except Exception as e:
@@ -1343,6 +1397,7 @@ Need help? Visit: https://github.com/anthropics/dango/issues
         if loaded_tables and dataset_name:
             try:
                 import duckdb
+
                 conn = duckdb.connect(str(self.duckdb_path))
 
                 total_rows = 0
@@ -1355,7 +1410,9 @@ Need help? Visit: https://github.com/anthropics/dango/issues
                             table_rows = result[0]
                             total_rows += table_rows
                     except Exception as table_err:
-                        console.print(f"[dim]Warning: Could not count rows for {table_name}: {table_err}[/dim]")
+                        console.print(
+                            f"[dim]Warning: Could not count rows for {table_name}: {table_err}[/dim]"
+                        )
                         continue
 
                 conn.close()
@@ -1371,7 +1428,7 @@ Need help? Visit: https://github.com/anthropics/dango/issues
 
         return stats
 
-    def _backup_dlt_state(self, pipeline_name: str) -> Optional[Path]:
+    def _backup_dlt_state(self, pipeline_name: str) -> Path | None:
         """
         Backup dlt pipeline state before running.
 
@@ -1383,8 +1440,8 @@ Need help? Visit: https://github.com/anthropics/dango/issues
         Returns:
             Path to backup directory if backup was created, None otherwise
         """
-        import shutil
         import os
+        import shutil
 
         # Determine dlt state location
         # dlt uses ~/.dlt by default
@@ -1407,7 +1464,7 @@ Need help? Visit: https://github.com/anthropics/dango/issues
             console.print(f"  [dim]⚠️  Could not backup state: {e}[/dim]")
             return None
 
-    def _restore_dlt_state(self, backup_dir: Optional[Path]):
+    def _restore_dlt_state(self, backup_dir: Path | None):
         """
         Restore dlt pipeline state from backup.
 
@@ -1417,7 +1474,7 @@ Need help? Visit: https://github.com/anthropics/dango/issues
         import shutil
 
         if not backup_dir or not backup_dir.exists():
-            console.print(f"  [dim]ℹ️  No state backup to restore[/dim]")
+            console.print("  [dim]ℹ️  No state backup to restore[/dim]")
             return
 
         # Extract pipeline name from backup directory name
@@ -1435,17 +1492,17 @@ Need help? Visit: https://github.com/anthropics/dango/issues
 
             # Restore from backup
             shutil.copytree(backup_dir, pipeline_state_dir)
-            console.print(f"  [green]✓ State restored from backup[/green]")
+            console.print("  [green]✓ State restored from backup[/green]")
 
             # Clean up backup
             shutil.rmtree(backup_dir)
-            console.print(f"  [dim]✓ Backup cleaned up[/dim]")
+            console.print("  [dim]✓ Backup cleaned up[/dim]")
 
         except Exception as e:
             console.print(f"  [yellow]⚠️  Could not restore state: {e}[/yellow]")
             console.print(f"  [dim]Backup preserved at: {backup_dir}[/dim]")
 
-    def _cleanup_state_backup(self, backup_dir: Optional[Path]):
+    def _cleanup_state_backup(self, backup_dir: Path | None):
         """
         Clean up state backup after successful pipeline run.
 
@@ -1459,7 +1516,7 @@ Need help? Visit: https://github.com/anthropics/dango/issues
 
         try:
             shutil.rmtree(backup_dir)
-            console.print(f"  [dim]✓ State backup cleaned up[/dim]")
+            console.print("  [dim]✓ State backup cleaned up[/dim]")
         except Exception as e:
             console.print(f"  [dim]⚠️  Could not clean up backup: {e}[/dim]")
 
@@ -1482,21 +1539,19 @@ def _display_dbt_output(dbt_output: str) -> None:
     import re
 
     # Strip ANSI color codes from dbt output
-    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    clean_output = ansi_escape.sub('', dbt_output)
+    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    clean_output = ansi_escape.sub("", dbt_output)
 
     # Parse dbt output for model execution lines
     # Format: "1 of 3 OK created sql table model staging.stg_name ... [OK in 0.10s]"
     # or: "1 of 3 ERROR creating sql table model ... [ERROR in 0.10s]"
 
     # Match lines like: "1 of 3 OK created sql table model staging.stg_stripe_test_1__charge ............ [OK in 0.10s]"
-    success_pattern = r'(\d+) of (\d+) (OK|ERROR|SKIP) .*? model (\w+)\.(\S+).*?\[(OK|ERROR|SKIP)(?: in ([\d.]+)s)?\]'
+    success_pattern = r"(\d+) of (\d+) (OK|ERROR|SKIP) .*? model (\w+)\.(\S+).*?\[(OK|ERROR|SKIP)(?: in ([\d.]+)s)?\]"
 
-    found_any = False
-    for line in clean_output.split('\n'):
+    for line in clean_output.split("\n"):
         match = re.search(success_pattern, line)
         if match:
-            found_any = True
             seq_num, total, status_word, schema, model_name, result, timing = match.groups()
 
             # Format output consistently
@@ -1513,16 +1568,18 @@ def _display_dbt_output(dbt_output: str) -> None:
                 continue
 
             timing_str = f" in {timing}s" if timing else ""
-            console.print(f"  [{status_color}]{status_icon}[/{status_color}] {schema}.{model_name}{timing_str}")
+            console.print(
+                f"  [{status_color}]{status_icon}[/{status_color}] {schema}.{model_name}{timing_str}"
+            )
 
 
 def run_sync(
     project_root: Path,
-    sources: List[DataSource],
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
+    sources: list[DataSource],
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
     full_refresh: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Sync multiple sources and return summary
 
@@ -1555,15 +1612,14 @@ def run_sync(
         if result.get("status") == "success":
             success_sources.append(source_config.name)
         else:
-            failed_sources.append({
-                "name": source_config.name,
-                "error": result.get("error", "Unknown error")
-            })
+            failed_sources.append(
+                {"name": source_config.name, "error": result.get("error", "Unknown error")}
+            )
 
     # Print detailed summary
-    console.print(f"\n{'='*60}")
-    console.print(f"📊 Sync Summary:")
-    console.print(f"{'='*60}\n")
+    console.print(f"\n{'=' * 60}")
+    console.print("📊 Sync Summary:")
+    console.print(f"{'=' * 60}\n")
 
     if success_sources:
         console.print(f"[green]✓ Succeeded ({len(success_sources)}):[/green]")
@@ -1588,12 +1644,14 @@ def run_sync(
     total = len(success_sources) + len(failed_sources)
     if total > 0:
         success_rate = (len(success_sources) / total) * 100
-        console.print(f"Overall: {len(success_sources)}/{total} sources succeeded ({success_rate:.0f}%)")
+        console.print(
+            f"Overall: {len(success_sources)}/{total} sources succeeded ({success_rate:.0f}%)"
+        )
 
     # Collect OAuth warnings (will be displayed at very end of sync in main.py)
     oauth_warnings = [r.get("oauth_warning") for r in results if r.get("oauth_warning")]
 
-    console.print(f"{'='*60}\n")
+    console.print(f"{'=' * 60}\n")
 
     # Auto-generate staging models for successful sources
     if success_sources:
@@ -1613,14 +1671,20 @@ def run_sync(
         )
 
         if gen_summary.get("generated"):
-            console.print(f"[green]✓ Generated/updated {len(gen_summary['generated'])} staging model(s)[/green]")
-            for item in gen_summary['generated']:
+            console.print(
+                f"[green]✓ Generated/updated {len(gen_summary['generated'])} staging model(s)[/green]"
+            )
+            for item in gen_summary["generated"]:
                 console.print(f"  • {item['source']}")
 
         if gen_summary.get("skipped"):
             # Categorize skipped models by reason type
-            customized = [s for s in gen_summary['skipped'] if 'customized' in s.get('reason', '').lower()]
-            not_found = [s for s in gen_summary['skipped'] if 'not found' in s.get('reason', '').lower()]
+            customized = [
+                s for s in gen_summary["skipped"] if "customized" in s.get("reason", "").lower()
+            ]
+            not_found = [
+                s for s in gen_summary["skipped"] if "not found" in s.get("reason", "").lower()
+            ]
 
             if customized:
                 console.print(f"[dim]⏭  Skipped {len(customized)} model(s) (user-customized)[/dim]")
@@ -1666,7 +1730,10 @@ def run_sync(
 
             # Refresh Metabase connection to see new data
             console.print("[dim]Refreshing Metabase connection...[/dim]")
-            from dango.visualization.metabase import refresh_metabase_connection, sync_metabase_schema
+            from dango.visualization.metabase import (
+                refresh_metabase_connection,
+                sync_metabase_schema,
+            )
 
             if refresh_metabase_connection(project_root):
                 console.print("[green]✓ Metabase connection refreshed[/green]")

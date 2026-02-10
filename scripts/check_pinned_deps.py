@@ -12,6 +12,7 @@ VERSION_PATTERN = re.compile(r"[><=~!]")
 
 
 def main() -> int:
+    """Check that all dependencies in pyproject.toml are pinned."""
     try:
         with open(PYPROJECT_PATH, encoding="utf-8") as f:
             content = f.read()

@@ -1,11 +1,14 @@
-"""Tests for dango.config.models — Pydantic models and enums."""
+"""tests/unit/test_config_models.py
+
+Tests for dango.config.models — Pydantic models and enums.
+"""
+
+from datetime import datetime
 
 import pytest
-from datetime import datetime
 from pydantic import ValidationError
 
 from dango.config.models import (
-    CSVSourceConfig,
     DangoConfig,
     DataSource,
     DeduplicationStrategy,
@@ -21,15 +24,14 @@ from dango.config.models import (
     SalesforceSourceConfig,
     ShopifySourceConfig,
     SlackSourceConfig,
-    SourcesConfig,
     SourceType,
     Stakeholder,
     StripeSourceConfig,
 )
 from tests.factories.config_factories import (
     make_csv_source_config,
-    make_data_source,
     make_dango_config,
+    make_data_source,
     make_google_sheets_source_config,
     make_project_context,
     make_sources_config,
@@ -192,14 +194,20 @@ class TestSourceConfigModels:
             (SalesforceSourceConfig, {}),
             (GitHubSourceConfig, {"repos": ["owner/repo"]}),
             (SlackSourceConfig, {}),
-            (RESTAPISourceConfig, {
-                "base_url": "https://api.example.com",
-                "endpoints": [{"path": "/users"}],
-            }),
-            (DltNativeConfig, {
-                "source_module": "my_source",
-                "source_function": "my_func",
-            }),
+            (
+                RESTAPISourceConfig,
+                {
+                    "base_url": "https://api.example.com",
+                    "endpoints": [{"path": "/users"}],
+                },
+            ),
+            (
+                DltNativeConfig,
+                {
+                    "source_module": "my_source",
+                    "source_function": "my_func",
+                },
+            ),
         ],
         ids=[
             "Stripe",

@@ -1,4 +1,7 @@
-"""Tests for dango.config.credentials — CredentialManager."""
+"""tests/unit/test_config_credentials.py
+
+Tests for dango.config.credentials — CredentialManager.
+"""
 
 import pytest
 import toml
@@ -175,9 +178,7 @@ class TestGetSourceCredentials:
     def test_found(self, tmp_path):
         cm = CredentialManager(tmp_path)
         cm.dlt_dir.mkdir()
-        cm.secrets_file.write_text(
-            '[sources.google]\nclient_id = "abc"\n'
-        )
+        cm.secrets_file.write_text('[sources.google]\nclient_id = "abc"\n')
         result = cm.get_source_credentials("google")
         assert result == {"client_id": "abc"}
 

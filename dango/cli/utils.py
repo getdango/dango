@@ -1,24 +1,23 @@
-"""
-CLI Utilities
+"""dango/cli/utils.py
 
 Helper functions for CLI operations.
 """
 
 import subprocess
+import time
 from pathlib import Path
-from typing import Optional
 
 import click
+import psutil
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 
 from dango.config import ConfigLoader, ProjectNotFoundError
 
 console = Console()
 
 
-def find_project_root(start_path: Optional[Path] = None) -> Path:
+def find_project_root(start_path: Path | None = None) -> Path:
     """
     Find Dango project root directory.
 
@@ -36,8 +35,7 @@ def find_project_root(start_path: Optional[Path] = None) -> Path:
 
     if root is None:
         raise ProjectNotFoundError(
-            "Not in a Dango project.\n"
-            "Run 'dango init' to create a new project."
+            "Not in a Dango project.\nRun 'dango init' to create a new project."
         )
 
     return root
@@ -60,7 +58,7 @@ def require_project_context(ctx: click.Context) -> Path:
         return find_project_root()
     except ProjectNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise click.Abort()
+        raise click.Abort() from e
 
 
 def print_error(message: str):
@@ -102,7 +100,7 @@ def confirm(message: str, default: bool = False) -> bool:
     return click.confirm(message, default=default)
 
 
-def get_git_branch(project_root: Optional[Path] = None) -> Optional[str]:
+def get_git_branch(project_root: Path | None = None) -> str | None:
     """
     Get current git branch name.
 
@@ -129,7 +127,7 @@ def get_git_branch(project_root: Optional[Path] = None) -> Optional[str]:
     return None
 
 
-def check_git_branch_warning(project_root: Optional[Path] = None) -> None:
+def check_git_branch_warning(project_root: Path | None = None) -> None:
     """
     Check if on main/master branch and show gentle warning.
 
@@ -143,25 +141,22 @@ def check_git_branch_warning(project_root: Optional[Path] = None) -> None:
 
     if branch in ["main", "master"]:
         console.print()
-        console.print(Panel(
-            "[yellow]⚠️  You're on the [bold]{}[/bold] branch.[/yellow]\n\n"
-            "💡 Consider creating a feature branch for data changes:\n"
-            "   [dim]git checkout -b data/update-sources[/dim]\n\n"
-            "This makes it easier to review and rollback changes if needed.".format(branch),
-            title="Git Branch Reminder",
-            border_style="yellow",
-        ))
+        console.print(
+            Panel(
+                f"[yellow]⚠️  You're on the [bold]{branch}[/bold] branch.[/yellow]\n\n"
+                "💡 Consider creating a feature branch for data changes:\n"
+                "   [dim]git checkout -b data/update-sources[/dim]\n\n"
+                "This makes it easier to review and rollback changes if needed.",
+                title="Git Branch Reminder",
+                border_style="yellow",
+            )
+        )
         console.print()
 
 
 # ==============================================================================
 # Process/PID Management
 # ==============================================================================
-
-import os
-import signal
-import psutil
-import time
 
 
 def get_pid_file_path(project_root: Path) -> Path:
@@ -182,7 +177,7 @@ def write_pid_file(project_root: Path, pid: int) -> None:
     pid_file.write_text(str(pid))
 
 
-def read_pid_file(project_root: Path) -> Optional[int]:
+def read_pid_file(project_root: Path) -> int | None:
     """
     Read PID from file.
 
@@ -315,7 +310,7 @@ def check_port_in_use(port: int) -> bool:
             return True
 
 
-def get_process_using_port(port: int) -> Optional[int]:
+def get_process_using_port(port: int) -> int | None:
     """
     Get PID of process using a specific port.
 
@@ -327,7 +322,7 @@ def get_process_using_port(port: int) -> Optional[int]:
     """
     try:
         for conn in psutil.net_connections():
-            if conn.laddr.port == port and conn.status == 'LISTEN':
+            if conn.laddr.port == port and conn.status == "LISTEN":
                 return conn.pid
     except (psutil.AccessDenied, AttributeError):
         pass
@@ -335,7 +330,7 @@ def get_process_using_port(port: int) -> Optional[int]:
     return None
 
 
-def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 8080) -> Optional[int]:
+def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 8080) -> int | None:
     """
     Start FastAPI server in background.
 
@@ -380,8 +375,6 @@ def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 
             )
 
     # Start server as subprocess
-    import sys
-    from pathlib import Path
 
     # Log file for server output
     log_file = project_root / ".dango" / "web.log"
@@ -389,21 +382,26 @@ def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 
 
     try:
         # Open log file
-        log_handle = open(log_file, 'w')
+        log_handle = open(log_file, "w")
 
         # Start uvicorn server
         proc = subprocess.Popen(
             [
-                sys.executable, "-m", "uvicorn",
+                sys.executable,
+                "-m",
+                "uvicorn",
                 "dango.web.app:app",
-                "--host", host,
-                "--port", str(port),
-                "--log-level", "info"
+                "--host",
+                host,
+                "--port",
+                str(port),
+                "--log-level",
+                "info",
             ],
             cwd=project_root,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
-            start_new_session=True  # Detach from parent session
+            start_new_session=True,  # Detach from parent session
         )
 
         # Give server a moment to start
@@ -413,9 +411,7 @@ def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 
         if proc.poll() is not None:
             # Process exited immediately, something went wrong
             log_handle.close()
-            raise RuntimeError(
-                f"FastAPI server failed to start. Check logs at {log_file}"
-            )
+            raise RuntimeError(f"FastAPI server failed to start. Check logs at {log_file}")
 
         # Write PID file
         write_pid_file(project_root, proc.pid)
@@ -425,9 +421,9 @@ def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 
         return proc.pid
 
     except Exception as e:
-        if 'log_handle' in locals():
+        if "log_handle" in locals():
             log_handle.close()
-        raise RuntimeError(f"Failed to start FastAPI server: {e}")
+        raise RuntimeError(f"Failed to start FastAPI server: {e}") from e
 
 
 def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
@@ -442,6 +438,7 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
         True if server was stopped, False if it wasn't running
     """
     import subprocess
+
     from dango.config import ConfigLoader
 
     # Try to stop using PID file first
@@ -480,14 +477,11 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
 
         # Find processes using this port
         result = subprocess.run(
-            ['lsof', '-ti', f':{port}'],
-            capture_output=True,
-            text=True,
-            timeout=5
+            ["lsof", "-ti", f":{port}"], capture_output=True, text=True, timeout=5
         )
 
         if result.returncode == 0 and result.stdout.strip():
-            pids = result.stdout.strip().split('\n')
+            pids = result.stdout.strip().split("\n")
 
             # Check each process to see if it's a Dango process
             dango_pids = []
@@ -499,17 +493,17 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
 
                     # Get process command line
                     cmd_result = subprocess.run(
-                        ['ps', '-p', str(proc_pid), '-o', 'command='],
+                        ["ps", "-p", str(proc_pid), "-o", "command="],
                         capture_output=True,
                         text=True,
-                        timeout=2
+                        timeout=2,
                     )
 
                     if cmd_result.returncode == 0:
                         cmd_line = cmd_result.stdout.strip()
 
                         # Check if it's a Dango uvicorn process
-                        if 'uvicorn' in cmd_line and 'dango.web.app' in cmd_line:
+                        if "uvicorn" in cmd_line and "dango.web.app" in cmd_line:
                             dango_pids.append(proc_pid)
                         else:
                             other_pids.append((proc_pid, cmd_line))
@@ -544,8 +538,10 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
                         display_cmd = cmd_line if len(cmd_line) <= 60 else cmd_line[:57] + "..."
                         console.print(f"  PID {proc_pid}: {display_cmd}")
                     console.print()
-                    console.print(f"[yellow]Refusing to kill non-Dango processes.[/yellow]")
-                    console.print(f"[dim]Please manually stop these processes or change Dango's port.[/dim]")
+                    console.print("[yellow]Refusing to kill non-Dango processes.[/yellow]")
+                    console.print(
+                        "[dim]Please manually stop these processes or change Dango's port.[/dim]"
+                    )
                 return False
 
             # No processes found (might have exited between lsof and ps)
@@ -585,13 +581,7 @@ def get_fastapi_status(project_root: Path) -> dict:
     log_file = project_root / ".dango" / "web.log"
     port = 8080  # Default port
 
-    status = {
-        "running": False,
-        "pid": None,
-        "port": port,
-        "url": None,
-        "log_file": log_file
-    }
+    status = {"running": False, "pid": None, "port": port, "url": None, "log_file": log_file}
 
     if pid and is_process_running(pid):
         status["running"] = True
@@ -611,7 +601,7 @@ def get_watcher_pid_file_path(project_root: Path) -> Path:
     return project_root / ".dango" / "watcher.pid"
 
 
-def start_file_watcher(project_root: Path) -> Optional[int]:
+def start_file_watcher(project_root: Path) -> int | None:
     """
     Start file watcher in background.
 
@@ -649,23 +639,20 @@ def start_file_watcher(project_root: Path) -> Optional[int]:
 
     try:
         # Open log file
-        log_handle = open(log_file, 'w')
+        log_handle = open(log_file, "w")
 
         # Get path to watcher_runner.py
         import dango.platform
+
         platform_dir = Path(dango.platform.__file__).parent
         watcher_runner = platform_dir / "watcher_runner.py"
 
         # Start watcher runner
         proc = subprocess.Popen(
-            [
-                sys.executable,
-                str(watcher_runner),
-                str(project_root)
-            ],
+            [sys.executable, str(watcher_runner), str(project_root)],
             stdout=log_handle,
             stderr=subprocess.STDOUT,
-            start_new_session=True  # Detach from parent session
+            start_new_session=True,  # Detach from parent session
         )
 
         # Give watcher a moment to start
@@ -675,9 +662,7 @@ def start_file_watcher(project_root: Path) -> Optional[int]:
         if proc.poll() is not None:
             # Process exited immediately, something went wrong
             log_handle.close()
-            raise RuntimeError(
-                f"File watcher failed to start. Check logs at {log_file}"
-            )
+            raise RuntimeError(f"File watcher failed to start. Check logs at {log_file}")
 
         # Write PID file
         pid_file.write_text(str(proc.pid))
@@ -687,9 +672,9 @@ def start_file_watcher(project_root: Path) -> Optional[int]:
         return proc.pid
 
     except Exception as e:
-        if 'log_handle' in locals():
+        if "log_handle" in locals():
             log_handle.close()
-        raise RuntimeError(f"Failed to start file watcher: {e}")
+        raise RuntimeError(f"Failed to start file watcher: {e}") from e
 
 
 def stop_file_watcher(project_root: Path, verbose: bool = True) -> bool:
@@ -762,11 +747,7 @@ def get_watcher_status(project_root: Path) -> dict:
     pid_file = get_watcher_pid_file_path(project_root)
     log_file = project_root / ".dango" / "watcher.log"
 
-    status = {
-        "running": False,
-        "pid": None,
-        "log_file": log_file
-    }
+    status = {"running": False, "pid": None, "log_file": log_file}
 
     if pid_file.exists():
         try:

@@ -1,23 +1,19 @@
-"""
-.env File Helpers
+"""dango/cli/env_helpers.py
 
 Utilities for creating, validating, and managing .env files for credentials.
 """
 
-import os
 import platform
 import subprocess
 from pathlib import Path
-from typing import List, Dict, Set, Optional, Tuple
+
 from rich.console import Console
 
 console = Console()
 
 
 def create_env_template(
-    env_file: Path,
-    env_vars: List[Dict[str, str]],
-    backup: bool = True
+    env_file: Path, env_vars: list[dict[str, str]], backup: bool = True
 ) -> None:
     """
     Create or update .env file with helpful templates for required variables.
@@ -40,30 +36,30 @@ def create_env_template(
         existing_lines = [
             "# Dango Data Platform - Environment Variables",
             "# Add your credentials below",
-            ""
+            "",
         ]
 
     # Backup existing file if requested
     if backup and env_file.exists():
-        backup_file = env_file.with_suffix('.env.backup')
+        backup_file = env_file.with_suffix(".env.backup")
         backup_file.write_text(original_content)
 
     # Parse existing vars
     existing_vars = set()
     for line in existing_lines:
-        if '=' in line and not line.strip().startswith('#'):
-            var_name = line.split('=')[0].strip()
+        if "=" in line and not line.strip().startswith("#"):
+            var_name = line.split("=")[0].strip()
             existing_vars.add(var_name)
 
     # Build new vars section (only if not already present)
     new_content = []
     for var_config in env_vars:
-        var_name = var_config.get('name')
+        var_name = var_config.get("name")
 
         if var_name not in existing_vars:
             # Add section header with source information
-            source_name = var_config.get('source_name')
-            source_type = var_config.get('source_type')
+            source_name = var_config.get("source_name")
+            source_type = var_config.get("source_type")
 
             if source_name and source_type:
                 new_content.append(f"\n# {var_config.get('display_name', var_name)}")
@@ -72,15 +68,15 @@ def create_env_template(
                 new_content.append(f"\n# {var_config.get('display_name', var_name)}")
 
             # Add help text
-            if 'help' in var_config:
+            if "help" in var_config:
                 new_content.append(f"# {var_config['help']}")
 
             # Add format hint
-            if 'format' in var_config:
+            if "format" in var_config:
                 new_content.append(f"# Format: {var_config['format']}")
 
             # Add example
-            if 'example' in var_config:
+            if "example" in var_config:
                 new_content.append(f"# Example: {var_config['example']}")
 
             # Add empty var line
@@ -89,14 +85,14 @@ def create_env_template(
 
     # Atomic write: temp file + rename
     if new_content or not env_file.exists():
-        temp_file = env_file.with_suffix('.env.tmp')
+        temp_file = env_file.with_suffix(".env.tmp")
         try:
             # Write combined content to temp file
-            with open(temp_file, 'w') as f:
+            with open(temp_file, "w") as f:
                 if existing_lines:
-                    f.write('\n'.join(existing_lines))
+                    f.write("\n".join(existing_lines))
                 if new_content:
-                    f.write('\n'.join(new_content))
+                    f.write("\n".join(new_content))
 
             # Atomic rename
             temp_file.replace(env_file)
@@ -106,15 +102,12 @@ def create_env_template(
             try:
                 if temp_file.exists():
                     temp_file.unlink()
-            except:
+            except Exception:
                 pass
-            raise Exception(f"Failed to update .env file: {e}")
+            raise Exception(f"Failed to update .env file: {e}") from None
 
 
-def validate_env_file(
-    env_file: Path,
-    required_vars: List[str]
-) -> Tuple[bool, List[str]]:
+def validate_env_file(env_file: Path, required_vars: list[str]) -> tuple[bool, list[str]]:
     """
     Validate that .env file contains all required variables with non-empty values.
 
@@ -132,8 +125,8 @@ def validate_env_file(
     env_values = {}
     for line in env_file.read_text().splitlines():
         line = line.strip()
-        if line and not line.startswith('#') and '=' in line:
-            key, value = line.split('=', 1)
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
             key = key.strip()
             value = value.strip().strip('"').strip("'")
             env_values[key] = value
@@ -176,9 +169,9 @@ def open_file_in_default_app(filepath: Path) -> bool:
 
 def guide_env_setup(
     env_file: Path,
-    required_vars: List[Dict[str, str]],
+    required_vars: list[dict[str, str]],
     source_name: str,
-    setup_guide: List[str] = None
+    setup_guide: list[str] = None,
 ) -> bool:
     """
     Guide user through .env setup with optional file opening and validation.
@@ -192,10 +185,10 @@ def guide_env_setup(
     Returns:
         True if validated successfully, False otherwise
     """
-    from inquirer import prompt, Confirm
+    from inquirer import Confirm, prompt
     from inquirer.themes import GreenPassion
 
-    console.print(f"\n[bold cyan]📝 Credentials Setup[/bold cyan]")
+    console.print("\n[bold cyan]📝 Credentials Setup[/bold cyan]")
     console.print(f"File: [dim]{env_file.absolute()}[/dim]\n")
 
     # Show detailed setup guide if provided
@@ -208,8 +201,8 @@ def guide_env_setup(
     # Show required credentials
     console.print("[bold]Required credentials:[/bold]")
     for var_config in required_vars:
-        var_name = var_config.get('name')
-        help_text = var_config.get('help', '')
+        var_name = var_config.get("name")
+        help_text = var_config.get("help", "")
         console.print(f"  • {var_name}")
         if help_text:
             console.print(f"    [dim]{help_text}[/dim]")
@@ -217,15 +210,11 @@ def guide_env_setup(
     # Offer to open file
     console.print()
     questions = [
-        Confirm(
-            'open_file',
-            message="Would you like me to open .env in your editor?",
-            default=True
-        )
+        Confirm("open_file", message="Would you like me to open .env in your editor?", default=True)
     ]
     answers = prompt(questions, theme=GreenPassion())
 
-    if answers and answers['open_file']:
+    if answers and answers["open_file"]:
         if open_file_in_default_app(env_file):
             console.print("[green]✅ Opened .env in your default editor[/green]")
             console.print("\n[bold cyan]Next steps:[/bold cyan]")
@@ -246,19 +235,14 @@ def guide_env_setup(
     input()
 
     # Validate
-    var_names = [v.get('name') for v in required_vars]
+    var_names = [v.get("name") for v in required_vars]
     is_valid, missing = validate_env_file(env_file, var_names)
 
-    return handle_validation_result(
-        is_valid, missing, env_file, source_name
-    )
+    return handle_validation_result(is_valid, missing, env_file, source_name)
 
 
 def handle_validation_result(
-    is_valid: bool,
-    missing_vars: List[str],
-    env_file: Path,
-    source_name: str
+    is_valid: bool, missing_vars: list[str], env_file: Path, source_name: str
 ) -> bool:
     """
     Handle validation results with retry logic and graceful failure.
@@ -272,7 +256,8 @@ def handle_validation_result(
     Returns:
         True if validation passed or user chose to skip
     """
-    from inquirer import prompt, List as InquirerList
+    from inquirer import List as InquirerList
+    from inquirer import prompt
     from inquirer.themes import GreenPassion
 
     if is_valid:
@@ -291,12 +276,12 @@ def handle_validation_result(
     # Offer retry
     questions = [
         InquirerList(
-            'action',
+            "action",
             message="What would you like to do?",
             choices=[
-                'Edit .env again and retry validation',
-                'Skip validation (I\'ll add credentials later)',
-                'Cancel source setup'
+                "Edit .env again and retry validation",
+                "Skip validation (I'll add credentials later)",
+                "Cancel source setup",
             ],
         )
     ]
@@ -305,9 +290,9 @@ def handle_validation_result(
     if not answers:
         return False
 
-    action = answers['action']
+    action = answers["action"]
 
-    if action == 'Edit .env again and retry validation':
+    if action == "Edit .env again and retry validation":
         # Reopen file
         if open_file_in_default_app(env_file):
             console.print("[green]✅ Reopened .env[/green]")
@@ -317,20 +302,18 @@ def handle_validation_result(
 
         # Retry validation
         is_valid_retry, missing_retry = validate_env_file(env_file, missing_vars)
-        return handle_validation_result(
-            is_valid_retry, missing_retry, env_file, source_name
-        )
+        return handle_validation_result(is_valid_retry, missing_retry, env_file, source_name)
 
-    elif action == 'Skip validation (I\'ll add credentials later)':
+    elif action == "Skip validation (I'll add credentials later)":
         console.print("\n[yellow]⚠️  Skipping validation[/yellow]")
         console.print("\n[cyan]Next steps:[/cyan]")
-        console.print(f"  1. Edit .env and add missing credentials")
-        console.print(f"  2. Validate with: [bold]dango config validate[/bold]")
+        console.print("  1. Edit .env and add missing credentials")
+        console.print("  2. Validate with: [bold]dango config validate[/bold]")
         console.print(f"  3. Or try syncing: [bold]dango sync --source {source_name}[/bold]\n")
         return True  # Allow wizard to complete
 
     else:  # Cancel
         console.print("\n[red]Source setup cancelled[/red]")
-        console.print(f"The source config was saved but is incomplete.")
-        console.print(f"To remove it, edit .dango/sources.yml\n")
+        console.print("The source config was saved but is incomplete.")
+        console.print("To remove it, edit .dango/sources.yml\n")
         return False

@@ -1,19 +1,14 @@
-"""
-Network & nginx Management
+"""dango/platform/network.py
 
-Manages shared nginx instance for clean URLs across multiple Dango projects.
-Architecture: Shared nginx on port 80, routing by domain to different backend ports.
-
-Created: MVP Week 1 Day 1 (Oct 27, 2025)
+Manages shared nginx instance for clean URLs across multiple Dango projects. Architecture: Shared nginx on port 80, routing by domain to different backend ports.
 """
 
 import json
+import os
 import socket
 import subprocess
-from pathlib import Path
-from typing import Optional, Dict, List, Tuple
 from datetime import datetime
-import os
+from pathlib import Path
 
 
 class NetworkConfig:
@@ -39,20 +34,15 @@ class NetworkConfig:
         self.sites_dir.mkdir(exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)
 
-    def load_routing(self) -> Dict:
+    def load_routing(self) -> dict:
         """Load routing.json or create default"""
         if not self.routing_file.exists():
-            return {
-                "version": "1.0",
-                "port": 80,
-                "projects": {},
-                "next_available_port": 8800
-            }
+            return {"version": "1.0", "port": 80, "projects": {}, "next_available_port": 8800}
 
-        with open(self.routing_file, "r") as f:
+        with open(self.routing_file) as f:
             return json.load(f)
 
-    def save_routing(self, routing: Dict):
+    def save_routing(self, routing: dict):
         """Save routing.json"""
         with open(self.routing_file, "w") as f:
             json.dump(routing, f, indent=2)
@@ -88,12 +78,8 @@ class NetworkConfig:
             return False
 
     def register_project(
-        self,
-        project_name: str,
-        project_path: Path,
-        backend_port: int,
-        domain: Optional[str] = None
-    ) -> Dict:
+        self, project_name: str, project_path: Path, backend_port: int, domain: str | None = None
+    ) -> dict:
         """
         Register a project in routing.json
 
@@ -115,7 +101,7 @@ class NetworkConfig:
             "backend_port": backend_port,
             "project_path": str(project_path.absolute()),
             "registered_at": datetime.now().isoformat(),
-            "status": "running"
+            "status": "running",
         }
 
         routing["projects"][project_name] = project_info
@@ -137,12 +123,12 @@ class NetworkConfig:
             routing["projects"][project_name]["status"] = status
             self.save_routing(routing)
 
-    def get_project_info(self, project_name: str) -> Optional[Dict]:
+    def get_project_info(self, project_name: str) -> dict | None:
         """Get project information"""
         routing = self.load_routing()
         return routing["projects"].get(project_name)
 
-    def list_projects(self) -> Dict[str, Dict]:
+    def list_projects(self) -> dict[str, dict]:
         """List all registered projects"""
         routing = self.load_routing()
         return routing["projects"]
@@ -202,7 +188,7 @@ http {{
         domain: str,
         backend_port: int,
         metabase_port: int = 3000,
-        dbt_docs_port: int = 8080
+        dbt_docs_port: int = 8080,
     ) -> str:
         """
         Generate nginx site config for a project
@@ -261,12 +247,7 @@ server {{
         with open(self.nginx_conf, "w") as f:
             f.write(config)
 
-    def write_project_config(
-        self,
-        project_name: str,
-        domain: str,
-        backend_port: int
-    ):
+    def write_project_config(self, project_name: str, domain: str, backend_port: int):
         """Write project-specific nginx site config"""
         config = self.generate_project_config(project_name, domain, backend_port)
         site_conf = self.config.sites_dir / f"{project_name}.conf"
@@ -285,7 +266,7 @@ server {{
             return False
 
         try:
-            with open(self.nginx_pid, "r") as f:
+            with open(self.nginx_pid) as f:
                 pid = int(f.read().strip())
 
             # Check if process exists
@@ -294,7 +275,7 @@ server {{
         except (OSError, ValueError):
             return False
 
-    def start(self) -> Tuple[bool, str]:
+    def start(self) -> tuple[bool, str]:
         """
         Start nginx
 
@@ -315,19 +296,19 @@ server {{
 
         # Start nginx
         try:
-            result = subprocess.run(
-                ["nginx", "-c", str(self.nginx_conf)],
-                capture_output=True,
-                text=True,
-                check=True
+            subprocess.run(
+                ["nginx", "-c", str(self.nginx_conf)], capture_output=True, text=True, check=True
             )
             return True, "nginx started successfully"
         except subprocess.CalledProcessError as e:
             return False, f"Failed to start nginx: {e.stderr}"
         except FileNotFoundError:
-            return False, "nginx not installed. Install with: brew install nginx (macOS) or apt-get install nginx (Linux)"
+            return (
+                False,
+                "nginx not installed. Install with: brew install nginx (macOS) or apt-get install nginx (Linux)",
+            )
 
-    def stop(self) -> Tuple[bool, str]:
+    def stop(self) -> tuple[bool, str]:
         """
         Stop nginx
 
@@ -338,7 +319,7 @@ server {{
             return True, "nginx not running"
 
         try:
-            with open(self.nginx_pid, "r") as f:
+            with open(self.nginx_pid) as f:
                 pid = int(f.read().strip())
 
             os.kill(pid, 15)  # SIGTERM
@@ -346,7 +327,7 @@ server {{
         except Exception as e:
             return False, f"Failed to stop nginx: {e}"
 
-    def reload(self) -> Tuple[bool, str]:
+    def reload(self) -> tuple[bool, str]:
         """
         Reload nginx configuration
 
@@ -357,11 +338,11 @@ server {{
             return self.start()
 
         try:
-            result = subprocess.run(
+            subprocess.run(
                 ["nginx", "-s", "reload", "-c", str(self.nginx_conf)],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
             )
             return True, "nginx reloaded"
         except subprocess.CalledProcessError as e:
@@ -389,15 +370,15 @@ class HostsManager:
     def backup_hosts(self):
         """Backup /etc/hosts before first modification"""
         if not self.backup_file.exists():
-            with open(self.HOSTS_FILE, "r") as f:
+            with open(self.HOSTS_FILE) as f:
                 content = f.read()
             with open(self.backup_file, "w") as f:
                 f.write(content)
 
-    def get_dango_domains(self) -> List[str]:
+    def get_dango_domains(self) -> list[str]:
         """Get list of domains currently in /etc/hosts"""
         try:
-            with open(self.HOSTS_FILE, "r") as f:
+            with open(self.HOSTS_FILE) as f:
                 lines = f.readlines()
 
             in_section = False
@@ -419,7 +400,7 @@ class HostsManager:
         except Exception:
             return []
 
-    def add_domain(self, domain: str) -> Tuple[bool, str]:
+    def add_domain(self, domain: str) -> tuple[bool, str]:
         """
         Add domain to /etc/hosts
 
@@ -433,7 +414,7 @@ class HostsManager:
         self.backup_hosts()
 
         try:
-            with open(self.HOSTS_FILE, "r") as f:
+            with open(self.HOSTS_FILE) as f:
                 content = f.read()
 
             # Check if domain already exists
@@ -462,9 +443,7 @@ class HostsManager:
 
             # Use sudo to copy
             result = subprocess.run(
-                ["sudo", "cp", str(temp_file), str(self.HOSTS_FILE)],
-                capture_output=True,
-                text=True
+                ["sudo", "cp", str(temp_file), str(self.HOSTS_FILE)], capture_output=True, text=True
             )
 
             temp_file.unlink()
@@ -477,10 +456,10 @@ class HostsManager:
         except Exception as e:
             return False, f"Failed to add domain: {e}"
 
-    def remove_domain(self, domain: str) -> Tuple[bool, str]:
+    def remove_domain(self, domain: str) -> tuple[bool, str]:
         """Remove domain from /etc/hosts"""
         try:
-            with open(self.HOSTS_FILE, "r") as f:
+            with open(self.HOSTS_FILE) as f:
                 lines = f.readlines()
 
             new_lines = []
@@ -493,9 +472,7 @@ class HostsManager:
                 f.writelines(new_lines)
 
             result = subprocess.run(
-                ["sudo", "cp", str(temp_file), str(self.HOSTS_FILE)],
-                capture_output=True,
-                text=True
+                ["sudo", "cp", str(temp_file), str(self.HOSTS_FILE)], capture_output=True, text=True
             )
 
             temp_file.unlink()

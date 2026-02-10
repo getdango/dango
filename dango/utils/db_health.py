@@ -1,16 +1,13 @@
-"""
-DuckDB Health Monitoring and Disk Space Utilities
+"""dango/utils/db_health.py
 
-Provides utilities for:
-- Disk space checking before syncs
-- DuckDB database health monitoring
-- Database size tracking
+DuckDB Health Monitoring and Disk Space Utilities.
 """
 
 import shutil
-import duckdb
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
+
+import duckdb
 from rich.console import Console
 
 console = Console()
@@ -18,11 +15,13 @@ console = Console()
 
 class DiskSpaceError(Exception):
     """Raised when disk space is insufficient"""
+
     pass
 
 
 class DuckDBHealthError(Exception):
     """Raised when DuckDB health check fails"""
+
     pass
 
 
@@ -53,7 +52,7 @@ def check_disk_space(project_root: Path, min_free_gb: int = 5) -> bool:
         # Warning: Less than 10GB (could become critical during sync)
         if free_gb < 10:
             console.print(f"[yellow]⚠️  Low disk space: {free_gb:.1f}GB free[/yellow]")
-            console.print(f"[yellow]   Consider freeing up space before large syncs[/yellow]")
+            console.print("[yellow]   Consider freeing up space before large syncs[/yellow]")
 
         return True
 
@@ -64,7 +63,7 @@ def check_disk_space(project_root: Path, min_free_gb: int = 5) -> bool:
         return True  # Don't block sync if check fails
 
 
-def check_duckdb_health(duckdb_path: Path) -> Dict[str, Any]:
+def check_duckdb_health(duckdb_path: Path) -> dict[str, Any]:
     """
     Check DuckDB database health and size
 
@@ -86,8 +85,8 @@ def check_duckdb_health(duckdb_path: Path) -> Dict[str, Any]:
     Raises:
         DuckDBHealthError: If database cannot be checked
     """
-    import time
     import sys
+    import time
 
     try:
         # Check if database file exists
@@ -99,7 +98,7 @@ def check_duckdb_health(duckdb_path: Path) -> Dict[str, Any]:
                 "status": "new",
                 "raw_tables": 0,
                 "staging_tables": 0,
-                "marts_tables": 0
+                "marts_tables": 0,
             }
 
         # Get file size
@@ -109,7 +108,7 @@ def check_duckdb_health(duckdb_path: Path) -> Dict[str, Any]:
 
         # Connect to database (read-only to avoid locks)
         # On Windows, retry if file is locked by Explorer or other processes
-        max_retries = 3 if sys.platform == 'win32' else 1
+        max_retries = 3 if sys.platform == "win32" else 1
         last_error = None
 
         for attempt in range(max_retries):
@@ -168,17 +167,17 @@ def check_duckdb_health(duckdb_path: Path) -> Dict[str, Any]:
                 "status": status,
                 "raw_tables": raw_tables,
                 "staging_tables": staging_tables,
-                "marts_tables": marts_tables
+                "marts_tables": marts_tables,
             }
 
         finally:
             conn.close()
 
     except Exception as e:
-        raise DuckDBHealthError(f"Failed to check DuckDB health: {e}")
+        raise DuckDBHealthError(f"Failed to check DuckDB health: {e}") from e
 
 
-def get_disk_usage_summary(project_root: Path) -> Dict[str, Any]:
+def get_disk_usage_summary(project_root: Path) -> dict[str, Any]:
     """
     Get detailed disk usage information
 
@@ -209,18 +208,12 @@ def get_disk_usage_summary(project_root: Path) -> Dict[str, Any]:
             "total_gb": round(total_gb, 2),
             "used_gb": round(used_gb, 2),
             "used_pct": round(used_pct, 1),
-            "status": status
+            "status": status,
         }
 
     except Exception as e:
         console.print(f"[yellow]⚠️  Could not get disk usage: {e}[/yellow]")
-        return {
-            "free_gb": 0,
-            "total_gb": 0,
-            "used_gb": 0,
-            "used_pct": 0,
-            "status": "unknown"
-        }
+        return {"free_gb": 0, "total_gb": 0, "used_gb": 0, "used_pct": 0, "status": "unknown"}
 
 
 def print_health_summary(project_root: Path, duckdb_path: Path):
@@ -241,24 +234,24 @@ def print_health_summary(project_root: Path, duckdb_path: Path):
         console.print("\n[bold]Platform Health:[/bold]")
         console.print(f"  💾 Disk Space: {disk['free_gb']}GB free ({disk['used_pct']}% used)")
 
-        if db_health['status'] != 'new':
+        if db_health["status"] != "new":
             console.print(f"  🗄️  Database: {db_health['size_mb']}MB ({db_health['tables']} tables)")
             console.print(f"     • Raw: {db_health['raw_tables']} tables")
             console.print(f"     • Staging: {db_health['staging_tables']} tables")
             console.print(f"     • Marts: {db_health['marts_tables']} tables")
         else:
-            console.print(f"  🗄️  Database: New (no data yet)")
+            console.print("  🗄️  Database: New (no data yet)")
 
         # Show warnings
-        if disk['status'] == 'warning':
-            console.print(f"[yellow]  ⚠️  Low disk space - consider freeing up space[/yellow]")
-        elif disk['status'] == 'critical':
-            console.print(f"[red]  ❌ Critical disk space - sync may fail[/red]")
+        if disk["status"] == "warning":
+            console.print("[yellow]  ⚠️  Low disk space - consider freeing up space[/yellow]")
+        elif disk["status"] == "critical":
+            console.print("[red]  ❌ Critical disk space - sync may fail[/red]")
 
-        if db_health['status'] == 'large':
-            console.print(f"[yellow]  ⚠️  Large database - consider archiving old data[/yellow]")
-        elif db_health['status'] == 'critical':
-            console.print(f"[red]  ❌ Very large database - performance may be affected[/red]")
+        if db_health["status"] == "large":
+            console.print("[yellow]  ⚠️  Large database - consider archiving old data[/yellow]")
+        elif db_health["status"] == "critical":
+            console.print("[red]  ❌ Very large database - performance may be affected[/red]")
 
         console.print()
 
