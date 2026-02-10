@@ -29,11 +29,10 @@ WARN_THRESHOLD = 300
 FAIL_THRESHOLD = 500
 
 
-def _load_exemptions(path: str) -> set[str]:
-    """Load exempt file paths from YAML. Returns empty set on failure."""
+def _load_exemptions(path: str) -> set[str] | None:
+    """Load exempt file paths from YAML. Returns None if yaml unavailable."""
     if yaml is None:
-        print(f"WARNING: PyYAML not installed, cannot load exemptions from {path}")
-        return set()
+        return None
     if not os.path.isfile(path):
         print(f"WARNING: Exemptions file not found: {path}")
         return set()
@@ -159,6 +158,12 @@ def main() -> int:
     args = parser.parse_args()
 
     exempt_files = _load_exemptions(EXEMPTIONS_PATH)
+
+    if exempt_files is None:
+        # PyYAML unavailable (system Python without venv). Skip locally; CI enforces.
+        print("WARNING: PyYAML not installed, skipping file size check.")
+        print("  Activate the project venv for local enforcement.")
+        return 0
 
     if args.all:
         files = _find_all_python_files()

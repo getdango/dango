@@ -204,7 +204,7 @@ Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 # First time setup
 python3.11 -m venv venv && source venv/bin/activate && pip install -e ".[dev]"
 
-# Subsequent sessions
+# Subsequent sessions — ALWAYS activate before any Python or git operations
 source venv/bin/activate
 
 # Run locally
@@ -220,3 +220,19 @@ ruff check dango/
 ruff format --check dango/
 mypy dango/
 ```
+
+### Pre-commit hooks
+
+Pre-commit hooks run automatically on `git commit`. The local hooks (`language: system`) use whatever `python3` is in your PATH.
+
+**You must activate the venv before committing.** Without it, system Python (3.9 on macOS) lacks required dependencies (PyYAML, ruff, mypy) and can't parse modern type syntax (`X | None`).
+
+```bash
+# Always do this before git commit
+source venv/bin/activate
+
+# If hooks fail, check which Python is active
+which python3  # should point to venv/bin/python3, not /usr/bin/python3
+```
+
+Hooks that run on every commit: trailing-whitespace, end-of-file-fixer, check-yaml, check-added-large-files, ruff, ruff-format, file-size-check, file-header-check, docstring-check, claude-md-staleness. Mypy runs only on manual invocation (`pre-commit run mypy --hook-stage manual`).
