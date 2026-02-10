@@ -9,14 +9,14 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | Task Type | Go To | Read First |
 |-----------|-------|------------|
 | CLI commands | `dango/cli/` | `dango/cli/CLAUDE.md` (Phase 1) |
-| Data ingestion / sync | `dango/ingestion/` | `dango/ingestion/CLAUDE.md` (Phase 1) |
-| OAuth / token flows | `dango/oauth/` | `dango/oauth/CLAUDE.md` (Phase 1) |
+| Data ingestion / sync | `dango/ingestion/` | [`dango/ingestion/CLAUDE.md`](dango/ingestion/CLAUDE.md) |
+| OAuth / token flows | `dango/oauth/` | [`dango/oauth/CLAUDE.md`](dango/oauth/CLAUDE.md) |
 | Web UI / API endpoints | `dango/web/` | `dango/web/CLAUDE.md` (Phase 1) |
-| Config loading / models | `dango/config/` | `dango/config/CLAUDE.md` (Phase 1) |
-| Dashboards / Metabase | `dango/visualization/` | `dango/visualization/CLAUDE.md` (Phase 1) |
-| dbt / transformations | `dango/transformation/` | `dango/transformation/CLAUDE.md` (Phase 1) |
-| Token encryption / keychain | `dango/security/` | `dango/security/CLAUDE.md` (Phase 1) |
-| Shared utilities | `dango/utils/` | `dango/utils/CLAUDE.md` (Phase 1) |
+| Config loading / models | `dango/config/` | [`dango/config/CLAUDE.md`](dango/config/CLAUDE.md) |
+| Dashboards / Metabase | `dango/visualization/` | [`dango/visualization/CLAUDE.md`](dango/visualization/CLAUDE.md) |
+| dbt / transformations | `dango/transformation/` | [`dango/transformation/CLAUDE.md`](dango/transformation/CLAUDE.md) |
+| Token encryption / keychain | `dango/security/` | [`dango/security/CLAUDE.md`](dango/security/CLAUDE.md) |
+| Shared utilities | `dango/utils/` | [`dango/utils/CLAUDE.md`](dango/utils/CLAUDE.md) |
 | Docker / file watcher | `dango/platform/` | `dango/platform/CLAUDE.md` (Phase 3) |
 | Jinja2 templates / Dockerfiles | `dango/templates/` | See `ARCHITECTURE.md` §4 |
 | Auth / users / sessions | `dango/auth/` | Not yet created (Phase 2) |
@@ -78,6 +78,7 @@ dango/                          # Python package source
 │   └── dashboard_manager.py    # Dashboard export/import (1102 lines)
 │
 ├── platform/                   # Level 2 — Docker, network, file watcher
+│   ├── __main__.py             # Platform CLI entry point
 │   ├── docker.py               # Docker Compose lifecycle
 │   ├── network.py              # Network utilities
 │   ├── watcher.py              # File change detection
@@ -92,7 +93,7 @@ dango/                          # Python package source
 │
 ├── transformation/             # Level 1 — dbt model generation & execution
 │   ├── __init__.py             # run_dbt_models(), generate_dbt_docs()
-│   └── generator.py            # DbtModelGenerator (561 lines)
+│   └── generator.py            # DbtModelGenerator (560 lines)
 │
 ├── oauth/                      # Level 1 — OAuth flows
 │   ├── __init__.py             # OAuthManager
@@ -103,7 +104,8 @@ dango/                          # Python package source
 ├── config/                     # Level 0 — Configuration & credentials
 │   ├── models.py               # Pydantic models (DangoConfig, DataSource, etc.)
 │   ├── loader.py               # ConfigLoader — loads project.yml, sources.yml
-│   └── credentials.py          # CredentialManager — manages .dlt/secrets.toml, .env
+│   ├── credentials.py          # CredentialManager — manages .dlt/secrets.toml, .env
+│   └── exceptions.py           # Config-specific exceptions
 │
 ├── utils/                      # Level 0 — Shared utilities
 │   ├── dbt_lock.py             # DbtLock — single-writer DuckDB serialization
@@ -148,7 +150,7 @@ DuckDB allows only one writer process at a time. All write operations are serial
 
 ### Monolithic Files
 
-These files exceed 500 lines and have planned refactoring:
+These files exceed 500 lines. The largest three have planned refactoring:
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
@@ -160,20 +162,22 @@ These files exceed 500 lines and have planned refactoring:
 | `visualization/dashboard_manager.py` | 1102 | — |
 | `ingestion/csv_loader.py` | 761 | — |
 | `oauth/providers.py` | 761 | — |
-| `transformation/generator.py` | 561 | — |
+| `transformation/generator.py` | 560 | — |
 
 ## Module Documentation Index
 
 Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 
+**Existing:**
+- [`dango/config/CLAUDE.md`](dango/config/CLAUDE.md)
+- [`dango/ingestion/CLAUDE.md`](dango/ingestion/CLAUDE.md)
+- [`dango/oauth/CLAUDE.md`](dango/oauth/CLAUDE.md)
+- [`dango/transformation/CLAUDE.md`](dango/transformation/CLAUDE.md)
+- [`dango/visualization/CLAUDE.md`](dango/visualization/CLAUDE.md)
+- [`dango/security/CLAUDE.md`](dango/security/CLAUDE.md)
+- [`dango/utils/CLAUDE.md`](dango/utils/CLAUDE.md)
+
 **Planned Phase 1:**
-- `dango/config/CLAUDE.md`
-- `dango/ingestion/CLAUDE.md`
-- `dango/oauth/CLAUDE.md`
-- `dango/transformation/CLAUDE.md`
-- `dango/visualization/CLAUDE.md`
-- `dango/security/CLAUDE.md`
-- `dango/utils/CLAUDE.md`
 - `dango/cli/CLAUDE.md` (after TASK-005)
 - `dango/web/CLAUDE.md` (after TASK-085)
 
