@@ -3,44 +3,29 @@
 import pytest
 import yaml
 
-from dango.config.models import (
-    CSVSourceConfig,
-    DangoConfig,
-    DataSource,
-    ProjectContext,
-    SourcesConfig,
-    SourceType,
+from tests.factories.config_factories import (
+    make_dango_config,
+    make_project_context,
+    make_sources_config,
 )
 
 
 @pytest.fixture
 def sample_project_context():
     """A minimal valid ProjectContext instance (no I/O)."""
-    return ProjectContext(
-        name="Test Analytics",
-        created_by="test@example.com",
-        purpose="Unit testing the Dango config system",
-    )
+    return make_project_context()
 
 
 @pytest.fixture
 def sample_sources_config():
     """A SourcesConfig with one CSV source (no I/O)."""
-    return SourcesConfig(
-        sources=[
-            DataSource(
-                name="test_csv",
-                type=SourceType.CSV,
-                csv=CSVSourceConfig(directory="data/test_csv"),
-            )
-        ]
-    )
+    return make_sources_config()
 
 
 @pytest.fixture
 def sample_config(sample_project_context, sample_sources_config):
     """A complete DangoConfig combining project context and sources (no I/O)."""
-    return DangoConfig(
+    return make_dango_config(
         project=sample_project_context,
         sources=sample_sources_config,
     )
