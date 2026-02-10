@@ -11,7 +11,7 @@ Loads data into DuckDB from external sources via dlt pipelines and CSV files, wi
 | `__init__.py` | Public exports | `DltPipelineRunner`, `run_sync`, `CSVLoader`, `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata` |
 | `dlt_runner.py` | Generic pipeline runner for all dlt and custom sources | `DltPipelineRunner`, `run_sync`, `SyncTimeoutError` |
 | `csv_loader.py` | Incremental CSV loading with metadata tracking and 4 dedup strategies | `CSVLoader`, `CSVSchemaMismatchError` |
-| `sources/__init__.py` | Sources subpackage exports | Re-exports from `registry` |
+| `sources/__init__.py` | Sources subpackage exports | Re-exports `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata` |
 | `sources/registry.py` | Central registry of 33 supported data sources with metadata | `SOURCE_REGISTRY`, `CATEGORIES`, `AuthType`, `get_source_metadata`, `get_sources_by_category` |
 | `dlt_sources/` | Third-party dlt verified source implementations (27 directories, 105+ files) | DO NOT MODIFY — see "Don't Modify" section |
 
