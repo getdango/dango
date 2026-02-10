@@ -20,7 +20,6 @@ import jinja2
 import duckdb
 
 from dango.config.models import DataSource, SourceType, DeduplicationStrategy
-from dango.ingestion.sources.registry import get_source_metadata
 
 
 class DbtModelGenerator:

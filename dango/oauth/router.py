@@ -163,7 +163,7 @@ def get_oauth_status_message(source_type: str, project_root: Path) -> Optional[s
     if source_type not in OAUTH_PROVIDER_MAP:
         return None
 
-    if check_oauth_credentials_exist(source_type, project_root):
+    if check_oauth_credentials_exist(source_type, source_type, project_root):
         return f"[green]✓ OAuth credentials already configured[/green]"
     else:
         return f"[yellow]⚠️  OAuth credentials not found - setup required[/yellow]"
