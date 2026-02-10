@@ -6,7 +6,7 @@ import yaml
 from dango.config.credentials import CredentialManager
 from dango.config.loader import ConfigLoader
 from dango.config.models import DangoConfig, SourceType
-from tests.factories.config_factories import make_dango_config, make_data_source
+from tests.factories.config_factories import make_dango_config
 
 
 @pytest.mark.integration
