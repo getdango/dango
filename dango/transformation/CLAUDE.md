@@ -24,7 +24,6 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 
 **Imports from:**
 - `dango/config/models.py` — `DataSource`, `SourceType`, `DeduplicationStrategy`
-- `dango/ingestion/sources/registry.py` — `get_source_metadata` (source metadata for model generation)
 - `dango/utils/dbt_status.py` — `update_model_status` (lazy import in `run_dbt_models`)
 
 **Used by:**
