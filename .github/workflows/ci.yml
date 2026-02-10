@@ -77,26 +77,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: pip install pyyaml
 
       - name: File sizes
-        run: python scripts/check_file_sizes.py --all
+        run: python3 scripts/check_file_sizes.py --all
 
       - name: CLAUDE.md structure
         continue-on-error: true
-        run: python scripts/validate_claude_md.py --recursive
+        run: python3 scripts/validate_claude_md.py --recursive
 
       - name: File headers
         continue-on-error: true
-        run: python scripts/validate_headers.py --all
+        run: python3 scripts/validate_headers.py --all
 
       - name: Docstring coverage
         continue-on-error: true
-        run: python scripts/check_docstrings.py --all
+        run: python3 scripts/check_docstrings.py --all
 
       - name: Orphan files
         continue-on-error: true
-        run: python scripts/check_orphan_files.py
+        run: python3 scripts/check_orphan_files.py
 
       - name: Pinned deps
         continue-on-error: true
-        run: python scripts/check_pinned_deps.py
+        run: python3 scripts/check_pinned_deps.py

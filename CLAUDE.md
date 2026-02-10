@@ -18,7 +18,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | Token encryption / keychain | `dango/security/` | [`dango/security/CLAUDE.md`](dango/security/CLAUDE.md) |
 | Shared utilities | `dango/utils/` | [`dango/utils/CLAUDE.md`](dango/utils/CLAUDE.md) |
 | Docker / file watcher | `dango/platform/` | `dango/platform/CLAUDE.md` (Phase 3) |
-| Jinja2 templates / Dockerfiles | `dango/templates/` | See `ARCHITECTURE.md` §4 |
+| Jinja2 templates / Dockerfiles | `dango/templates/` | [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md) |
 | Auth / users / sessions | `dango/auth/` | Not yet created (Phase 2) |
 | Notebooks | `dango/notebooks/` | Not yet created (Phase 6) |
 | Data governance | `dango/governance/` | Not yet created (Phase 7) |
@@ -150,19 +150,27 @@ DuckDB allows only one writer process at a time. All write operations are serial
 
 ### Monolithic Files
 
-These files exceed 500 lines. The largest three have planned refactoring:
+These files exceed 500 lines. Two have planned refactoring; the rest are exempt (stable MVP code).
+Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
 | `cli/main.py` | 3927 | TASK-005 (split into `cli/commands/`) |
 | `web/app.py` | 2900 | TASK-085 (split into `web/routes/`) |
-| `ingestion/dlt_runner.py` | 1696 | Phase 3 (extract orchestration) |
-| `ingestion/sources/registry.py` | 1440 | Metadata-only, no refactor planned |
+| `ingestion/dlt_runner.py` | 1696 | — (exempt, too risky) |
+| `ingestion/sources/registry.py` | 1440 | — (metadata-only) |
+| `cli/source_wizard.py` | 1225 | — |
 | `visualization/metabase.py` | 1207 | — |
 | `visualization/dashboard_manager.py` | 1102 | — |
-| `ingestion/csv_loader.py` | 761 | — |
+| `cli/init.py` | 945 | — |
+| `cli/utils.py` | 780 | — |
 | `oauth/providers.py` | 761 | — |
+| `ingestion/csv_loader.py` | 761 | — |
+| `cli/validate.py` | 677 | — |
 | `transformation/generator.py` | 560 | — |
+| `platform/watcher.py` | 531 | — |
+| `cli/model_wizard.py` | 517 | — |
+| `platform/network.py` | 509 | — |
 
 ## Module Documentation Index
 
@@ -176,6 +184,7 @@ Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 - [`dango/visualization/CLAUDE.md`](dango/visualization/CLAUDE.md)
 - [`dango/security/CLAUDE.md`](dango/security/CLAUDE.md)
 - [`dango/utils/CLAUDE.md`](dango/utils/CLAUDE.md)
+- [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md)
 
 **Planned Phase 1:**
 - `dango/cli/CLAUDE.md` (after TASK-005)
