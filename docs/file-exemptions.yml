@@ -1,0 +1,121 @@
+# Exemption registry for files exceeding the 500-line soft limit (STANDARDS.md §2).
+# Consumed by scripts/check_file_sizes.py for CI and pre-commit checks.
+# Line counts captured at time of audit (2026-02-10) — informational, not enforced by script.
+#
+# Categories:
+#   refactor — planned for refactoring in v1 (linked to a task)
+#   exempt   — stable MVP code, not modified in v1
+
+schema_version: 1
+limit: 500
+
+exemptions:
+  # --- Refactoring planned in v1 ---
+  - file: dango/cli/main.py
+    lines: 3927
+    category: refactor
+    task: TASK-005
+    reason: "Monolithic CLI entry point; will be split into cli/commands/ submodules"
+    review_by: "v1.0"
+
+  - file: dango/web/app.py
+    lines: 2900
+    category: refactor
+    task: TASK-085
+    reason: "Monolithic web server; will be split into web/routes/ submodules"
+    review_by: "v1.0"
+
+  # --- Exempt (stable, not modified in v1) ---
+  - file: dango/ingestion/dlt_runner.py
+    lines: 1696
+    category: exempt
+    reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage."
+    review_by: "v1.1"
+
+  - file: dango/ingestion/sources/registry.py
+    lines: 1440
+    category: exempt
+    reason: "Source metadata registry. Declarative data (no logic), naturally grows with each new source type."
+    review_by: "v1.1"
+
+  - file: dango/cli/source_wizard.py
+    lines: 1225
+    category: exempt
+    reason: "Interactive source configuration wizard. Sequential prompting logic doesn't benefit from splitting."
+    review_by: "v1.1"
+
+  - file: dango/visualization/metabase.py
+    lines: 1207
+    category: exempt
+    reason: "Metabase REST API wrapper. Methods map 1:1 to API endpoints — splitting would scatter related operations."
+    review_by: "v1.1"
+
+  - file: dango/visualization/dashboard_manager.py
+    lines: 1102
+    category: exempt
+    reason: "Dashboard export/import operations. Tightly coupled to metabase.py API surface."
+    review_by: "v1.1"
+
+  - file: dango/cli/init.py
+    lines: 945
+    category: exempt
+    reason: "Project initialization wizard. Sequential setup flow — splitting adds indirection without benefit."
+    review_by: "v1.1"
+
+  - file: dango/cli/utils.py
+    lines: 780
+    category: exempt
+    reason: "CLI utility functions shared across commands. Stable, rarely modified."
+    review_by: "v1.1"
+
+  - file: dango/oauth/providers.py
+    lines: 761
+    category: exempt
+    reason: "OAuth provider definitions (Google, Facebook, Shopify). Each provider is self-contained — file grows linearly with providers."
+    review_by: "v1.1"
+
+  - file: dango/ingestion/csv_loader.py
+    lines: 761
+    category: exempt
+    reason: "CSV loading with deduplication. Single-purpose module, stable."
+    review_by: "v1.1"
+
+  - file: dango/cli/validate.py
+    lines: 677
+    category: exempt
+    reason: "Validation commands (config, sources, connections). Each validator is independent."
+    review_by: "v1.1"
+
+  - file: dango/transformation/generator.py
+    lines: 560
+    category: exempt
+    reason: "DbtModelGenerator — generates dbt models from source configs. Stable, rarely modified."
+    review_by: "v1.1"
+
+  - file: dango/platform/watcher.py
+    lines: 531
+    category: exempt
+    reason: "File change detection for auto-sync. Event-driven logic, stable."
+    review_by: "v1.1"
+
+  - file: dango/cli/model_wizard.py
+    lines: 517
+    category: exempt
+    reason: "Interactive dbt model creation wizard. Sequential prompting, stable."
+    review_by: "v1.1"
+
+  - file: dango/platform/network.py
+    lines: 509
+    category: exempt
+    reason: "Network utilities (port allocation, nginx config generation). Stable."
+    review_by: "v1.1"
+
+# Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
+vendored:
+  - file: dango/ingestion/dlt_sources/mongodb/helpers.py
+    lines: 665
+    reason: "Vendored dlt MongoDB connector"
+
+  - file: dango/ingestion/dlt_sources/hubspot/__init__.py
+    lines: 537
+    reason: "Vendored dlt HubSpot connector"

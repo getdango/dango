@@ -2,38 +2,45 @@
 
 Check Python file sizes against project limits.
 Pre-commit mode: warn >300 lines, fail >500 lines.
-CI mode (--all): fail >500 lines.
+CI mode (--all): fail >500 lines, detect stale exemptions.
+
+Exemptions loaded from docs/file-exemptions.yml (TASK-084).
 """
 
 import argparse
 import os
 import sys
 
-# TODO(TASK-084): Move exemptions to docs/file-exemptions.yml
-EXEMPT_FILES = {
-    # Cataloged in MEMORY.md (known technical debt)
-    "dango/ingestion/dlt_runner.py",
-    "dango/ingestion/sources/registry.py",
-    "dango/visualization/metabase.py",
-    "dango/visualization/dashboard_manager.py",
-    "dango/ingestion/csv_loader.py",
-    "dango/oauth/providers.py",
-    "dango/transformation/generator.py",
-    # Additional MVP files over 500 lines
-    "dango/cli/init.py",
-    "dango/cli/main.py",
-    "dango/cli/model_wizard.py",
-    "dango/cli/source_wizard.py",
-    "dango/cli/utils.py",
-    "dango/cli/validate.py",
-    "dango/platform/network.py",
-    "dango/platform/watcher.py",
-    "dango/web/app.py",
-}
+try:
+    import yaml
+except ImportError:
+    yaml = None  # type: ignore[assignment]
+
+EXEMPTIONS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "docs",
+    "file-exemptions.yml",
+)
 
 SKIP_DIRS = {"venv", ".venv", "__pycache__", ".git", "dlt_sources", "node_modules"}
 WARN_THRESHOLD = 300
 FAIL_THRESHOLD = 500
+
+
+def _load_exemptions(path: str) -> set[str]:
+    """Load exempt file paths from YAML. Returns empty set on failure."""
+    if yaml is None:
+        print(f"WARNING: PyYAML not installed, cannot load exemptions from {path}")
+        return set()
+    if not os.path.isfile(path):
+        print(f"WARNING: Exemptions file not found: {path}")
+        return set()
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    if not data or not isinstance(data.get("exemptions"), list):
+        print(f"WARNING: No exemptions found in {path}")
+        return set()
+    return {entry["file"] for entry in data["exemptions"] if "file" in entry}
 
 
 def _normalize_path(path: str) -> str:
@@ -78,8 +85,30 @@ def _find_all_python_files() -> list[str]:
     return files
 
 
-def check_files(files: list[str], audit_mode: bool = False) -> int:
+def _check_stale_exemptions(exempt_files: set[str]) -> None:
+    """Print notices for exemptions that are stale (file missing or now <=limit)."""
+    stale = []
+    for file_path in sorted(exempt_files):
+        if not os.path.isfile(file_path):
+            stale.append((file_path, "file not found"))
+        else:
+            line_count = _count_lines(file_path)
+            if line_count <= FAIL_THRESHOLD:
+                stale.append((file_path, f"now {line_count} lines (within limit)"))
+    if stale:
+        print(f"\nNOTICE: {len(stale)} stale exemption(s):")
+        for path, reason in stale:
+            print(f"  {path}: {reason}")
+        print("  Consider removing from docs/file-exemptions.yml\n")
+
+
+def check_files(
+    files: list[str], audit_mode: bool = False, exempt_files: set[str] | None = None
+) -> int:
     """Check file sizes. Returns exit code."""
+    if exempt_files is None:
+        exempt_files = set()
+
     warnings = []
     failures = []
 
@@ -90,7 +119,7 @@ def check_files(files: list[str], audit_mode: bool = False) -> int:
             continue
 
         rel_path = _normalize_path(path)
-        if rel_path in EXEMPT_FILES:
+        if rel_path in exempt_files:
             continue
 
         line_count = _count_lines(path)
@@ -113,7 +142,7 @@ def check_files(files: list[str], audit_mode: bool = False) -> int:
 
     if not warnings and not failures:
         checked = [f for f in files if not _should_skip(f) and os.path.isfile(f)]
-        exempt_count = sum(1 for f in checked if _normalize_path(f) in EXEMPT_FILES)
+        exempt_count = sum(1 for f in checked if _normalize_path(f) in exempt_files)
         total = len(checked) - exempt_count
         print(f"All files within size limits ({total} checked, {exempt_count} exempt).")
 
@@ -121,16 +150,21 @@ def check_files(files: list[str], audit_mode: bool = False) -> int:
 
 
 def main() -> int:
+    """Entry point for file size checking (CLI and pre-commit)."""
     parser = argparse.ArgumentParser(description="Check Python file sizes")
     parser.add_argument("files", nargs="*", help="Files to check (pre-commit mode)")
     parser.add_argument("--all", action="store_true", help="Check all Python files (CI mode)")
     args = parser.parse_args()
 
+    exempt_files = _load_exemptions(EXEMPTIONS_PATH)
+
     if args.all:
         files = _find_all_python_files()
-        return check_files(files, audit_mode=True)
+        result = check_files(files, audit_mode=True, exempt_files=exempt_files)
+        _check_stale_exemptions(exempt_files)
+        return result
     elif args.files:
-        return check_files(args.files, audit_mode=False)
+        return check_files(args.files, audit_mode=False, exempt_files=exempt_files)
     else:
         parser.error("Provide file paths or use --all")
         return 1
