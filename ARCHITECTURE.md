@@ -145,7 +145,6 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | `dbt/sources.yml.j2` | dbt source documentation per data source |
 | `dbt/staging_model.sql.j2` | Staging model SQL with dedup strategy support |
 | `dbt/staging_schema.yml.j2` | Schema YAML for staging models |
-| `dbt/schema.yml.j2` | General schema documentation |
 
 **Public API:** Templates consumed by `cli/init.py` and `transformation/generator.py`.
 
