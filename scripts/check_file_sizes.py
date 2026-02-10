@@ -37,7 +37,7 @@ def _load_exemptions(path: str) -> set[str]:
         return set()
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    if not data or not isinstance(data.get("exemptions"), list):
+    if not isinstance(data, dict) or not isinstance(data.get("exemptions"), list):
         print(f"WARNING: No exemptions found in {path}")
         return set()
     return {entry["file"] for entry in data["exemptions"] if "file" in entry}

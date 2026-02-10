@@ -22,9 +22,9 @@ Jinja2 templates and Dockerfiles used by CLI project scaffolding and dbt model g
 |-------|-----------|--------------|
 | Change Docker Compose structure | `docker-compose.yml.j2` | `dango init` in a test project |
 | Change Metabase container setup | `Dockerfile.metabase` | `docker build -f Dockerfile.metabase .` |
-| Change generated dbt model SQL | `dbt/staging_model.sql.j2` | `pytest tests/unit/test_transformation.py` |
-| Change generated dbt schema | `dbt/staging_schema.yml.j2` | `pytest tests/unit/test_transformation.py` |
-| Add a new dbt template | `dbt/` + `transformation/generator.py` | `pytest tests/unit/test_transformation.py` |
+| Change generated dbt model SQL | `dbt/staging_model.sql.j2` | Manual: run `dango sync` and inspect output |
+| Change generated dbt schema | `dbt/staging_schema.yml.j2` | Manual: run `dango sync` and inspect output |
+| Add a new dbt template | `dbt/` + `transformation/generator.py` | Manual: run `dango sync` and inspect output |
 
 ## Dependencies
 
@@ -37,7 +37,7 @@ Jinja2 templates and Dockerfiles used by CLI project scaffolding and dbt model g
 
 ## Testing
 
-- **Unit:** `pytest tests/unit/test_transformation.py` (covers dbt template rendering)
+- **Unit:** No dedicated test file yet (templates are static files; dbt rendering tested via `transformation/` tests when available)
 - **Integration:** `dango init` in a temp directory, verify generated files
 - **Manual:** Inspect generated `docker-compose.yml` and dbt models after `dango init` + `dango sync`
 

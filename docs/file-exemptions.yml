@@ -7,7 +7,7 @@
 #   exempt   — stable MVP code, not modified in v1
 
 schema_version: 1
-limit: 500
+limit: 500  # Informational — scripts/check_file_sizes.py owns the enforced threshold
 
 exemptions:
   # --- Refactoring planned in v1 ---
