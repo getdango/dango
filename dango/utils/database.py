@@ -1,8 +1,10 @@
-"""
-Database utilities for Dango projects
+"""dango/utils/database.py
+
+Database utilities for Dango projects.
 """
 
 from pathlib import Path
+
 import duckdb
 
 

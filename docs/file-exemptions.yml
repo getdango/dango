@@ -104,11 +104,7 @@ exemptions:
     reason: "Interactive dbt model creation wizard. Sequential prompting, stable."
     review_by: "v1.1"
 
-  - file: dango/platform/network.py
-    lines: 509
-    category: exempt
-    reason: "Network utilities (port allocation, nginx config generation). Stable."
-    review_by: "v1.1"
+# Removed: dango/platform/network.py — now 486 lines, within limit (TASK-088)
 
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:

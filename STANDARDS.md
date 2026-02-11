@@ -27,7 +27,7 @@ Standards apply incrementally — not retroactively to the entire codebase.
 - **New files** must follow all standards from creation.
 - **Modified files** — apply standards to the code you touch, not the entire file. If you add a function, that function follows standards. You don't need to rewrite neighboring functions.
 - **Existing files** are exempt until actively modified. TASK-084 creates an exemption registry tracking known violations.
-- **Bulk reformatting PRs** are not allowed. Standards adoption happens organically through normal development.
+- **Bulk reformatting PRs** are not allowed (TASK-088 was the one-time exception for initial mechanical compliance). Standards adoption happens organically through normal development.
 
 **Example:** If you fix a bug in `dango/cli/main.py` (a ~3900-line file that predates these standards), apply standards only to the lines you change. You do not need to restructure the entire file — that happens in TASK-005.
 
@@ -428,73 +428,46 @@ Every Python file should begin with a docstring header that identifies the file 
 ### Required format
 
 ```python
-"""
-dango/{module}/{filename}.py
+"""{path/to/file.py}
 
 {One-line purpose.}
-
-Related files:
-- {related_file} - {why}
-
-Entry points:
-- {function_or_class} - {description}
 """
 ```
 
 **Required elements:** file path line, purpose line.
-**Recommended elements:** related files, entry points (include when the file has non-obvious relationships or multiple public symbols).
+**Optional elements:** related files, entry points (include when the file has non-obvious relationships or multiple public symbols).
 
-### Incremental adoption
+### Enforcement
 
-Currently 0 of ~101 non-`__init__.py` Python files have headers (the validator skips `__init__.py` files). Headers are added when files are created or actively modified — not in a bulk update pass. The `scripts/validate_headers.py --all` audit mode tracks progress.
+All non-`__init__.py` Python files have STD-003-compliant headers (completed by TASK-088).
+New files must include headers — CI enforces via `validate_headers.py` and pre-commit hook.
 
 ### Examples
 
 **1. Module file** — `dango/config/loader.py`:
 
 ```python
-"""
-dango/config/loader.py
+"""dango/config/loader.py
 
-Loads and validates YAML configuration files for dango projects.
-
-Related files:
-- dango/config/models.py - Pydantic models this loader populates
-- dango/config/exceptions.py - Errors raised during loading
-
-Entry points:
-- ConfigLoader - Main class for loading/saving config
-- get_config() - Helper to load config in one call
+Handles loading and validation of YAML configuration files.
 """
 ```
 
 **2. Helpers file** — `dango/utils/database.py`:
 
 ```python
-"""
-dango/utils/database.py
+"""dango/utils/database.py
 
-DuckDB schema management utilities.
-
-Related files:
-- dango/transformation/ - dbt uses schemas created here
-
-Entry points:
-- ensure_dbt_schemas() - Creates raw/staging/intermediate/marts schemas
+Database utilities for Dango projects.
 """
 ```
 
 **3. Test file** — `tests/unit/test_config_loader.py`:
 
 ```python
-"""
-tests/unit/test_config_loader.py
+"""tests/unit/test_config_loader.py
 
-Unit tests for ConfigLoader YAML loading, saving, and project discovery.
-
-Related files:
-- dango/config/loader.py - Module under test
-- tests/conftest.py - Shared fixtures (tmp_project_dir)
+Tests for dango.config.loader — ConfigLoader and module-level functions.
 """
 ```
 

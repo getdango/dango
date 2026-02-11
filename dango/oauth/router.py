@@ -1,16 +1,14 @@
-"""
-OAuth Router
+"""dango/oauth/router.py
 
-Routes OAuth authentication requests to the correct provider based on source type.
-Used by the source wizard for inline OAuth during source configuration.
+Routes OAuth authentication requests to the correct provider based on source type. Used by the source wizard for inline OAuth during source configuration.
 """
 
 from pathlib import Path
-from typing import Optional
+
 from rich.console import Console
 
 from dango.oauth import OAuthManager
-from dango.oauth.providers import GoogleOAuthProvider, FacebookOAuthProvider, ShopifyOAuthProvider
+from dango.oauth.providers import FacebookOAuthProvider, GoogleOAuthProvider, ShopifyOAuthProvider
 
 console = Console()
 
@@ -125,7 +123,9 @@ def check_oauth_credentials_exist(source_type: str, source_name: str, project_ro
                 if google_source in secrets["sources"]:
                     source_creds = secrets["sources"][google_source]
                     # Check for OAuth fields (client_id, client_secret, refresh_token)
-                    if all(k in source_creds for k in ["client_id", "client_secret", "refresh_token"]):
+                    if all(
+                        k in source_creds for k in ["client_id", "client_secret", "refresh_token"]
+                    ):
                         return True
             return False
 
@@ -149,7 +149,7 @@ def check_oauth_credentials_exist(source_type: str, source_name: str, project_ro
         return False
 
 
-def get_oauth_status_message(source_type: str, project_root: Path) -> Optional[str]:
+def get_oauth_status_message(source_type: str, project_root: Path) -> str | None:
     """
     Get a status message about OAuth credentials for a source.
 
@@ -164,6 +164,6 @@ def get_oauth_status_message(source_type: str, project_root: Path) -> Optional[s
         return None
 
     if check_oauth_credentials_exist(source_type, source_type, project_root):
-        return f"[green]✓ OAuth credentials already configured[/green]"
+        return "[green]✓ OAuth credentials already configured[/green]"
     else:
-        return f"[yellow]⚠️  OAuth credentials not found - setup required[/yellow]"
+        return "[yellow]⚠️  OAuth credentials not found - setup required[/yellow]"

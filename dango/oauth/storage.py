@@ -1,20 +1,14 @@
-"""
-OAuth Credential Storage
+"""dango/oauth/storage.py
 
-Stores OAuth credentials in dlt's expected format:
-- Credentials at sources.{source_type}.credentials.* (dlt reads this)
-- Metadata at dango.oauth.{source_type}.* (for tracking expiry, provider info)
-
-This follows dlt best practice - credentials are stored where dlt expects them,
-no injection or translation needed at sync time.
+OAuth Credential Storage.
 """
 
-import re
-import toml
-from pathlib import Path
+from dataclasses import dataclass
 from datetime import datetime
-from dataclasses import dataclass, asdict
-from typing import Optional, List, Dict, Any
+from pathlib import Path
+from typing import Any
+
+import toml
 from rich.console import Console
 
 console = Console()
@@ -36,15 +30,16 @@ class OAuthCredential:
         last_refreshed: Last time token was refreshed
         metadata: Additional provider-specific metadata
     """
+
     source_type: str
     provider: str
     identifier: str
     account_info: str
-    credentials: Dict[str, Any]
+    credentials: dict[str, Any]
     created_at: datetime
-    expires_at: Optional[datetime] = None
-    last_refreshed: Optional[datetime] = None
-    metadata: Optional[Dict[str, Any]] = None
+    expires_at: datetime | None = None
+    last_refreshed: datetime | None = None
+    metadata: dict[str, Any] | None = None
 
     def is_expired(self) -> bool:
         """Check if credential has expired"""
@@ -52,7 +47,7 @@ class OAuthCredential:
             return False
         return datetime.now() >= self.expires_at
 
-    def days_until_expiry(self) -> Optional[int]:
+    def days_until_expiry(self) -> int | None:
         """Get days until expiry, or None if no expiry"""
         if not self.expires_at:
             return None
@@ -91,15 +86,15 @@ class OAuthStorage:
         if not self.secrets_file.exists():
             self.secrets_file.write_text("")
 
-    def _load_secrets(self) -> Dict[str, Any]:
+    def _load_secrets(self) -> dict[str, Any]:
         """Load secrets.toml"""
         if self.secrets_file.exists() and self.secrets_file.stat().st_size > 0:
             return toml.load(self.secrets_file)
         return {}
 
-    def _save_secrets(self, secrets: Dict[str, Any]) -> None:
+    def _save_secrets(self, secrets: dict[str, Any]) -> None:
         """Save secrets.toml"""
-        with open(self.secrets_file, 'w') as f:
+        with open(self.secrets_file, "w") as f:
             toml.dump(secrets, f)
 
     def save(self, oauth_cred: OAuthCredential) -> bool:
@@ -120,14 +115,14 @@ class OAuthStorage:
             secrets = self._load_secrets()
 
             # Ensure paths exist
-            if 'sources' not in secrets:
-                secrets['sources'] = {}
-            if oauth_cred.source_type not in secrets['sources']:
-                secrets['sources'][oauth_cred.source_type] = {}
-            if 'dango' not in secrets:
-                secrets['dango'] = {}
-            if 'oauth' not in secrets['dango']:
-                secrets['dango']['oauth'] = {}
+            if "sources" not in secrets:
+                secrets["sources"] = {}
+            if oauth_cred.source_type not in secrets["sources"]:
+                secrets["sources"][oauth_cred.source_type] = {}
+            if "dango" not in secrets:
+                secrets["dango"] = {}
+            if "oauth" not in secrets["dango"]:
+                secrets["dango"]["oauth"] = {}
 
             # Write credentials in dlt's expected format
             #
@@ -136,28 +131,28 @@ class OAuthStorage:
             # 2. All other sources use flat parameters (dlt.secrets.value for individual params)
             #
             # This generalized approach future-proofs all OAuth sources without per-source hardcoding.
-            source_section = secrets['sources'][oauth_cred.source_type]
+            source_section = secrets["sources"][oauth_cred.source_type]
             creds = oauth_cred.credentials
 
             # Only Google sources use credentials object (GcpOAuthCredentials pattern)
-            CREDENTIALS_OBJECT_SOURCES = {'google_ads', 'google_analytics', 'google_sheets'}
+            CREDENTIALS_OBJECT_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
 
             if oauth_cred.source_type in CREDENTIALS_OBJECT_SOURCES:
                 # Google: nested credentials object (dlt GcpOAuthCredentials)
-                source_section['credentials'] = {
-                    'client_id': creds.get('client_id'),
-                    'client_secret': creds.get('client_secret'),
-                    'refresh_token': creds.get('refresh_token'),
-                    'project_id': creds.get('project_id', 'dango-oauth'),
+                source_section["credentials"] = {
+                    "client_id": creds.get("client_id"),
+                    "client_secret": creds.get("client_secret"),
+                    "refresh_token": creds.get("refresh_token"),
+                    "project_id": creds.get("project_id", "dango-oauth"),
                 }
                 # Google Ads specific sibling fields (per dlt docs)
-                if oauth_cred.source_type == 'google_ads':
-                    if creds.get('impersonated_email'):
-                        source_section['impersonated_email'] = creds['impersonated_email']
-                    if creds.get('dev_token'):
-                        source_section['dev_token'] = creds['dev_token']
-                    if creds.get('customer_id'):
-                        source_section['customer_id'] = creds['customer_id']
+                if oauth_cred.source_type == "google_ads":
+                    if creds.get("impersonated_email"):
+                        source_section["impersonated_email"] = creds["impersonated_email"]
+                    if creds.get("dev_token"):
+                        source_section["dev_token"] = creds["dev_token"]
+                    if creds.get("customer_id"):
+                        source_section["customer_id"] = creds["customer_id"]
             else:
                 # All other sources: flat parameters (dlt.secrets.value pattern)
                 # This covers Facebook, Shopify, Slack, HubSpot, Notion, etc.
@@ -166,14 +161,16 @@ class OAuthStorage:
                         source_section[key] = value
 
             # Write metadata for tracking (not used by dlt)
-            secrets['dango']['oauth'][oauth_cred.source_type] = {
-                'provider': oauth_cred.provider,
-                'identifier': oauth_cred.identifier,
-                'account_info': oauth_cred.account_info,
-                'created_at': oauth_cred.created_at.isoformat(),
-                'expires_at': oauth_cred.expires_at.isoformat() if oauth_cred.expires_at else None,
-                'last_refreshed': oauth_cred.last_refreshed.isoformat() if oauth_cred.last_refreshed else None,
-                'metadata': oauth_cred.metadata,
+            secrets["dango"]["oauth"][oauth_cred.source_type] = {
+                "provider": oauth_cred.provider,
+                "identifier": oauth_cred.identifier,
+                "account_info": oauth_cred.account_info,
+                "created_at": oauth_cred.created_at.isoformat(),
+                "expires_at": oauth_cred.expires_at.isoformat() if oauth_cred.expires_at else None,
+                "last_refreshed": oauth_cred.last_refreshed.isoformat()
+                if oauth_cred.last_refreshed
+                else None,
+                "metadata": oauth_cred.metadata,
             }
 
             self._save_secrets(secrets)
@@ -184,7 +181,7 @@ class OAuthStorage:
             console.print(f"[red]✗ Failed to save OAuth credential: {e}[/red]")
             return False
 
-    def get(self, source_type: str) -> Optional[OAuthCredential]:
+    def get(self, source_type: str) -> OAuthCredential | None:
         """
         Get OAuth credential for a source type
 
@@ -198,47 +195,53 @@ class OAuthStorage:
             secrets = self._load_secrets()
 
             # Get source section
-            source_section = secrets.get('sources', {}).get(source_type, {})
+            source_section = secrets.get("sources", {}).get(source_type, {})
             if not source_section:
                 return None
 
             # Google sources use nested credentials object (GcpOAuthCredentials)
             # All other sources use flat parameters
-            CREDENTIALS_OBJECT_SOURCES = {'google_ads', 'google_analytics', 'google_sheets'}
+            CREDENTIALS_OBJECT_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
 
             if source_type in CREDENTIALS_OBJECT_SOURCES:
                 # Google: look for nested 'credentials' object
-                creds = source_section.get('credentials')
+                creds = source_section.get("credentials")
                 if not creds:
                     return None
             else:
                 # Non-Google: flat parameters are the credentials
                 # Check for common OAuth credential keys
-                if 'access_token' in source_section or 'api_key' in source_section:
+                if "access_token" in source_section or "api_key" in source_section:
                     creds = source_section
                 else:
                     return None
 
             # Get metadata if available
-            meta = secrets.get('dango', {}).get('oauth', {}).get(source_type, {})
+            meta = secrets.get("dango", {}).get("oauth", {}).get(source_type, {})
 
             return OAuthCredential(
                 source_type=source_type,
-                provider=meta.get('provider', 'unknown'),
-                identifier=meta.get('identifier', ''),
-                account_info=meta.get('account_info', ''),
+                provider=meta.get("provider", "unknown"),
+                identifier=meta.get("identifier", ""),
+                account_info=meta.get("account_info", ""),
                 credentials=creds,
-                created_at=datetime.fromisoformat(meta['created_at']) if meta.get('created_at') else datetime.now(),
-                expires_at=datetime.fromisoformat(meta['expires_at']) if meta.get('expires_at') else None,
-                last_refreshed=datetime.fromisoformat(meta['last_refreshed']) if meta.get('last_refreshed') else None,
-                metadata=meta.get('metadata'),
+                created_at=datetime.fromisoformat(meta["created_at"])
+                if meta.get("created_at")
+                else datetime.now(),
+                expires_at=datetime.fromisoformat(meta["expires_at"])
+                if meta.get("expires_at")
+                else None,
+                last_refreshed=datetime.fromisoformat(meta["last_refreshed"])
+                if meta.get("last_refreshed")
+                else None,
+                metadata=meta.get("metadata"),
             )
 
         except Exception as e:
             console.print(f"[red]✗ Failed to load OAuth credential for {source_type}: {e}[/red]")
             return None
 
-    def list(self, provider: Optional[str] = None) -> List[OAuthCredential]:
+    def list(self, provider: str | None = None) -> list[OAuthCredential]:
         """
         List all OAuth credentials, optionally filtered by provider
 
@@ -253,30 +256,30 @@ class OAuthStorage:
             credentials = []
 
             # Check each source type for credentials
-            oauth_meta = secrets.get('dango', {}).get('oauth', {})
+            oauth_meta = secrets.get("dango", {}).get("oauth", {})
 
             # Google sources use nested credentials object (GcpOAuthCredentials)
-            CREDENTIALS_OBJECT_SOURCES = {'google_ads', 'google_analytics', 'google_sheets'}
+            CREDENTIALS_OBJECT_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
 
             for source_type, meta in oauth_meta.items():
                 # Filter by provider if specified
-                if provider and meta.get('provider') != provider:
+                if provider and meta.get("provider") != provider:
                     continue
 
                 # Get source section
-                source_section = secrets.get('sources', {}).get(source_type, {})
+                source_section = secrets.get("sources", {}).get(source_type, {})
                 if not source_section:
                     continue
 
                 # Check credentials based on source type
                 if source_type in CREDENTIALS_OBJECT_SOURCES:
                     # Google: look for nested 'credentials' object
-                    creds = source_section.get('credentials')
+                    creds = source_section.get("credentials")
                     if not creds:
                         continue
                 else:
                     # Non-Google: flat parameters are the credentials
-                    if 'access_token' in source_section or 'api_key' in source_section:
+                    if "access_token" in source_section or "api_key" in source_section:
                         creds = source_section
                     else:
                         continue
@@ -284,14 +287,20 @@ class OAuthStorage:
                 try:
                     cred = OAuthCredential(
                         source_type=source_type,
-                        provider=meta.get('provider', 'unknown'),
-                        identifier=meta.get('identifier', ''),
-                        account_info=meta.get('account_info', ''),
+                        provider=meta.get("provider", "unknown"),
+                        identifier=meta.get("identifier", ""),
+                        account_info=meta.get("account_info", ""),
                         credentials=creds,
-                        created_at=datetime.fromisoformat(meta['created_at']) if meta.get('created_at') else datetime.now(),
-                        expires_at=datetime.fromisoformat(meta['expires_at']) if meta.get('expires_at') else None,
-                        last_refreshed=datetime.fromisoformat(meta['last_refreshed']) if meta.get('last_refreshed') else None,
-                        metadata=meta.get('metadata'),
+                        created_at=datetime.fromisoformat(meta["created_at"])
+                        if meta.get("created_at")
+                        else datetime.now(),
+                        expires_at=datetime.fromisoformat(meta["expires_at"])
+                        if meta.get("expires_at")
+                        else None,
+                        last_refreshed=datetime.fromisoformat(meta["last_refreshed"])
+                        if meta.get("last_refreshed")
+                        else None,
+                        metadata=meta.get("metadata"),
                     )
                     credentials.append(cred)
                 except Exception as e:
@@ -318,29 +327,35 @@ class OAuthStorage:
             secrets = self._load_secrets()
 
             # Google sources use nested credentials object
-            CREDENTIALS_OBJECT_SOURCES = {'google_ads', 'google_analytics', 'google_sheets'}
+            CREDENTIALS_OBJECT_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
 
             # Remove credentials
-            if 'sources' in secrets and source_type in secrets['sources']:
+            if "sources" in secrets and source_type in secrets["sources"]:
                 if source_type in CREDENTIALS_OBJECT_SOURCES:
                     # Google: remove nested credentials object
-                    if 'credentials' in secrets['sources'][source_type]:
-                        del secrets['sources'][source_type]['credentials']
+                    if "credentials" in secrets["sources"][source_type]:
+                        del secrets["sources"][source_type]["credentials"]
                 else:
                     # Non-Google: remove flat credential keys
-                    CREDENTIAL_KEYS = {'access_token', 'api_key', 'api_secret', 'refresh_token', 'shop_url'}
+                    CREDENTIAL_KEYS = {
+                        "access_token",
+                        "api_key",
+                        "api_secret",
+                        "refresh_token",
+                        "shop_url",
+                    }
                     for key in CREDENTIAL_KEYS:
-                        if key in secrets['sources'][source_type]:
-                            del secrets['sources'][source_type][key]
+                        if key in secrets["sources"][source_type]:
+                            del secrets["sources"][source_type][key]
 
                 # Clean up empty source section
-                if not secrets['sources'][source_type]:
-                    del secrets['sources'][source_type]
+                if not secrets["sources"][source_type]:
+                    del secrets["sources"][source_type]
 
             # Remove metadata
-            if 'dango' in secrets and 'oauth' in secrets['dango']:
-                if source_type in secrets['dango']['oauth']:
-                    del secrets['dango']['oauth'][source_type]
+            if "dango" in secrets and "oauth" in secrets["dango"]:
+                if source_type in secrets["dango"]["oauth"]:
+                    del secrets["dango"]["oauth"][source_type]
 
             self._save_secrets(secrets)
             console.print(f"[green]✓ Deleted OAuth credentials for {source_type}[/green]")
@@ -361,14 +376,14 @@ class OAuthStorage:
             True if credentials exist
         """
         secrets = self._load_secrets()
-        source_section = secrets.get('sources', {}).get(source_type, {})
+        source_section = secrets.get("sources", {}).get(source_type, {})
 
         # Google sources use nested credentials object
-        CREDENTIALS_OBJECT_SOURCES = {'google_ads', 'google_analytics', 'google_sheets'}
+        CREDENTIALS_OBJECT_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
 
         if source_type in CREDENTIALS_OBJECT_SOURCES:
-            creds = source_section.get('credentials')
-            return creds is not None and 'client_id' in creds
+            creds = source_section.get("credentials")
+            return creds is not None and "client_id" in creds
         else:
             # Non-Google: check for common OAuth credential keys
-            return 'access_token' in source_section or 'api_key' in source_section
+            return "access_token" in source_section or "api_key" in source_section

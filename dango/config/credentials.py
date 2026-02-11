@@ -1,22 +1,12 @@
-"""
-Credential Management for dlt Sources
+"""dango/config/credentials.py
 
-This module handles loading and saving credentials for dlt sources,
-supporting both .dlt/ directory (dlt-native) and .env file (legacy) formats.
-
-Priority order:
-1. .dlt/secrets.toml (highest priority)
-2. .env file (fallback)
-
-The .dlt/ directory follows dlt's native configuration pattern:
-- secrets.toml: Sensitive credentials (gitignored)
-- config.toml: Non-sensitive parameters (can be committed)
+This module handles loading and saving credentials for dlt sources, supporting both .dlt/ directory (dlt-native) and .env file (legacy) formats.
 """
 
-import os
-import toml
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
+
+import toml
 from rich.console import Console
 
 console = Console()
@@ -130,9 +120,9 @@ truncate_staging_dataset = true
                 for pattern in missing_patterns:
                     f.write(f"{pattern}\n")
 
-            console.print(f"[dim]Updated .gitignore with .dlt/ exclusions[/dim]")
+            console.print("[dim]Updated .gitignore with .dlt/ exclusions[/dim]")
 
-    def load_secrets(self) -> Dict[str, Any]:
+    def load_secrets(self) -> dict[str, Any]:
         """
         Load secrets from .dlt/secrets.toml
 
@@ -143,14 +133,14 @@ truncate_staging_dataset = true
             return {}
 
         try:
-            with open(self.secrets_file, "r") as f:
+            with open(self.secrets_file) as f:
                 secrets = toml.load(f)
             return secrets
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load .dlt/secrets.toml: {e}[/yellow]")
             return {}
 
-    def load_config(self) -> Dict[str, Any]:
+    def load_config(self) -> dict[str, Any]:
         """
         Load configuration from .dlt/config.toml
 
@@ -161,14 +151,14 @@ truncate_staging_dataset = true
             return {}
 
         try:
-            with open(self.config_file, "r") as f:
+            with open(self.config_file) as f:
                 config = toml.load(f)
             return config
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load .dlt/config.toml: {e}[/yellow]")
             return {}
 
-    def save_secrets(self, secrets: Dict[str, Any], merge: bool = True) -> None:
+    def save_secrets(self, secrets: dict[str, Any], merge: bool = True) -> None:
         """
         Save secrets to .dlt/secrets.toml
 
@@ -191,9 +181,9 @@ truncate_staging_dataset = true
         with open(self.secrets_file, "w") as f:
             toml.dump(merged, f)
 
-        console.print(f"[green]✓[/green] Saved credentials to .dlt/secrets.toml")
+        console.print("[green]✓[/green] Saved credentials to .dlt/secrets.toml")
 
-    def save_config(self, config: Dict[str, Any], merge: bool = True) -> None:
+    def save_config(self, config: dict[str, Any], merge: bool = True) -> None:
         """
         Save configuration to .dlt/config.toml
 
@@ -216,9 +206,9 @@ truncate_staging_dataset = true
         with open(self.config_file, "w") as f:
             toml.dump(merged, f)
 
-        console.print(f"[green]✓[/green] Saved config to .dlt/config.toml")
+        console.print("[green]✓[/green] Saved config to .dlt/config.toml")
 
-    def _deep_merge(self, base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
+    def _deep_merge(self, base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
         """
         Deep merge two dictionaries
 
@@ -239,7 +229,7 @@ truncate_staging_dataset = true
 
         return result
 
-    def get_source_credentials(self, source_name: str) -> Optional[Dict[str, Any]]:
+    def get_source_credentials(self, source_name: str) -> dict[str, Any] | None:
         """
         Get credentials for a specific source
 

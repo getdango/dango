@@ -1,4 +1,7 @@
-"""Tests for dango.config.loader — ConfigLoader and module-level functions."""
+"""tests/unit/test_config_loader.py
+
+Tests for dango.config.loader — ConfigLoader and module-level functions.
+"""
 
 import pytest
 import yaml
@@ -20,13 +23,11 @@ from dango.config.models import (
     DangoConfig,
     DataSource,
     DltNativeConfig,
-    PlatformSettings,
     SourcesConfig,
     SourceType,
 )
 from tests.factories.config_factories import (
     make_dango_config,
-    make_data_source,
     make_project_context,
     make_sources_config,
 )
@@ -162,9 +163,7 @@ class TestLoadProjectContext:
         dango_dir = tmp_path / ".dango"
         dango_dir.mkdir()
         # project key exists but missing required fields
-        (dango_dir / "project.yml").write_text(
-            yaml.safe_dump({"project": {"name": "P"}})
-        )
+        (dango_dir / "project.yml").write_text(yaml.safe_dump({"project": {"name": "P"}}))
         loader = ConfigLoader(project_root=tmp_path)
         with pytest.raises(ConfigValidationError):
             loader.load_project_context()

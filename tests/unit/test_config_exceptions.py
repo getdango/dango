@@ -1,4 +1,7 @@
-"""Tests for dango.config.exceptions — exception hierarchy."""
+"""tests/unit/test_config_exceptions.py
+
+Tests for dango.config.exceptions — exception hierarchy.
+"""
 
 import pytest
 

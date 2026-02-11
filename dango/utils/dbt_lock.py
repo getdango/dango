@@ -1,21 +1,20 @@
-"""
-File-based inter-process lock for dbt operations.
+"""dango/utils/dbt_lock.py
 
-Prevents concurrent dbt runs from UI, CLI, and sync operations to avoid
-DuckDB locking conflicts and data corruption.
+Prevents concurrent dbt runs from UI, CLI, and sync operations to avoid DuckDB locking conflicts and data corruption.
 """
 
+import json
 import os
 import sys
-import json
-import psutil
-from pathlib import Path
-from datetime import datetime
-from typing import Optional, Dict, Any
 from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import psutil
 
 # Platform-specific file locking
-if sys.platform == 'win32':
+if sys.platform == "win32":
     import msvcrt
 else:
     import fcntl
@@ -24,7 +23,7 @@ else:
 class DbtLockError(Exception):
     """Raised when unable to acquire dbt lock."""
 
-    def __init__(self, message: str, lock_info: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, lock_info: dict[str, Any] | None = None):
         super().__init__(message)
         self.lock_info = lock_info
 
@@ -47,7 +46,9 @@ class DbtLock:
             lock.release()
     """
 
-    def __init__(self, project_root: Path, source: str = "unknown", operation: str = "dbt operation"):
+    def __init__(
+        self, project_root: Path, source: str = "unknown", operation: str = "dbt operation"
+    ):
         """
         Initialize the lock.
 
@@ -79,15 +80,15 @@ class DbtLock:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return False
 
-    def _read_lock_info(self) -> Optional[Dict[str, Any]]:
+    def _read_lock_info(self) -> dict[str, Any] | None:
         """Read lock information from the lock info file."""
         if not self.lock_info_path.exists():
             return None
 
         try:
-            with open(self.lock_info_path, 'r') as f:
+            with open(self.lock_info_path) as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             return None
 
     def _write_lock_info(self):
@@ -95,6 +96,7 @@ class DbtLock:
         # Get hostname in a cross-platform way
         try:
             import socket
+
             hostname = socket.gethostname()
         except Exception:
             hostname = "unknown"
@@ -104,10 +106,10 @@ class DbtLock:
             "source": self.source,
             "operation": self.operation,
             "started_at": datetime.now().isoformat(),
-            "hostname": hostname
+            "hostname": hostname,
         }
 
-        with open(self.lock_info_path, 'w') as f:
+        with open(self.lock_info_path, "w") as f:
             json.dump(lock_info, f, indent=2)
 
     def _cleanup_stale_lock(self) -> bool:
@@ -156,10 +158,10 @@ class DbtLock:
 
         # Try to acquire the lock
         try:
-            self._lock_file = open(self.lock_file_path, 'w')
+            self._lock_file = open(self.lock_file_path, "w")
 
             # Platform-specific locking
-            if sys.platform == 'win32':
+            if sys.platform == "win32":
                 # Windows: use msvcrt
                 msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_NBLCK, 1)
             else:
@@ -171,7 +173,7 @@ class DbtLock:
             self._acquired = True
             return True
 
-        except (IOError, OSError) as e:
+        except OSError:
             # Lock is held by another process
             if self._lock_file:
                 self._lock_file.close()
@@ -200,7 +202,7 @@ class DbtLock:
                     "Please wait for it to complete before starting a new operation."
                 )
 
-            raise DbtLockError(message, lock_info=lock_info)
+            raise DbtLockError(message, lock_info=lock_info) from None
 
     def release(self):
         """Release the lock."""
@@ -210,11 +212,11 @@ class DbtLock:
         try:
             if self._lock_file:
                 # Platform-specific unlocking
-                if sys.platform == 'win32':
+                if sys.platform == "win32":
                     # Windows: use msvcrt
                     try:
                         msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-                    except (IOError, OSError):
+                    except OSError:
                         pass  # Lock may already be released
                 else:
                     # Unix: use fcntl
@@ -230,7 +232,7 @@ class DbtLock:
                 self.lock_info_path.unlink()
 
             self._acquired = False
-        except (IOError, OSError):
+        except OSError:
             pass
 
     def __enter__(self):

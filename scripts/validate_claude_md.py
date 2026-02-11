@@ -1,14 +1,7 @@
 #!/usr/bin/env python3
-"""
+"""scripts/validate_claude_md.py
+
 Validate CLAUDE.md files against the required template structure.
-
-Checks that module-level CLAUDE.md files contain all 6 required sections:
-Purpose, Files, Common Tasks, Dependencies, Testing, Don't Modify.
-
-Usage:
-    python scripts/validate_claude_md.py dango/config/CLAUDE.md
-    python scripts/validate_claude_md.py dango/config/CLAUDE.md dango/oauth/CLAUDE.md
-    python scripts/validate_claude_md.py --recursive
 """
 
 import argparse
@@ -108,6 +101,7 @@ def find_claude_md_files(root: Path) -> list[Path]:
 
 
 def main() -> int:
+    """Validate CLAUDE.md files against the required template structure."""
     parser = argparse.ArgumentParser(
         description="Validate CLAUDE.md files against the required template structure."
     )

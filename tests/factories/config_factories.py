@@ -1,17 +1,6 @@
-"""Factory functions for config Pydantic models.
+"""tests/factories/config_factories.py
 
-Each function returns a valid model instance with sensible defaults.
-All fields are overridable via keyword arguments.
-
-Usage:
-    # Defaults
-    ctx = make_project_context()
-
-    # Override specific fields
-    ctx = make_project_context(name="My Project", purpose="Analytics")
-
-    # Composed
-    config = make_dango_config()  # auto-builds sub-models
+Each function returns a valid model instance with sensible defaults. All fields are overridable via keyword arguments.
 """
 
 from dango.config.models import (

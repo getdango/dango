@@ -1,16 +1,10 @@
-"""
-dbt Model Creation Wizard
+"""dango/cli/model_wizard.py
 
-Simple wizard for creating intermediate and marts models.
-Staging models are auto-generated, so this wizard only handles
-intermediate and marts layers.
-
-Created: MVP Week 1 Day 5 (Oct 27, 2025)
+Simple wizard for creating intermediate and marts models. Staging models are auto-generated, so this wizard only handles intermediate and marts layers.
 """
 
-from pathlib import Path
-from typing import Optional, List
 from datetime import datetime
+from pathlib import Path
 
 import inquirer
 from rich.console import Console
@@ -39,7 +33,7 @@ class ModelWizard:
         loader = ConfigLoader(project_root)
         self.config = loader.load_config()
 
-    def run(self) -> Optional[Path]:
+    def run(self) -> Path | None:
         """
         Run the model creation wizard
 
@@ -75,7 +69,7 @@ class ModelWizard:
                 layer=model_layer,
                 name=model_name,
                 description=description,
-                materialization=materialization
+                materialization=materialization,
             )
 
             # Check if file creation failed (already exists)
@@ -97,19 +91,19 @@ class ModelWizard:
 
             # Check if platform is running
             import socket
+
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            platform_running = sock.connect_ex(('127.0.0.1', port)) == 0
+            platform_running = sock.connect_ex(("127.0.0.1", port)) == 0
             sock.close()
 
             if model_layer == "marts":
                 metabase_instruction = (
-                    f"4. View in Metabase:\n"
-                    f"   • After running, table appears in 'marts' schema\n"
+                    "4. View in Metabase:\n   • After running, table appears in 'marts' schema\n"
                 )
                 if platform_running:
                     metabase_instruction += f"   • Access at [cyan]{metabase_url}[/cyan]\n\n"
                 else:
-                    metabase_instruction += f"   • Start platform first: [cyan]dango start[/cyan]\n"
+                    metabase_instruction += "   • Start platform first: [cyan]dango start[/cyan]\n"
                     metabase_instruction += f"   • Then access at [cyan]{metabase_url}[/cyan]\n\n"
 
                 next_steps = (
@@ -158,15 +152,17 @@ class ModelWizard:
                     f"[dim]To remove: [cyan]dango model remove {model_name.replace('.sql', '')}[/cyan][/dim]"
                 )
 
-            console.print(Panel(
-                f"[green]✓ Model created successfully![/green]\n\n"
-                f"[bold]File:[/bold] {model_path.relative_to(self.project_root)}\n"
-                f"[bold]Layer:[/bold] {model_layer}\n"
-                f"[bold]Materialization:[/bold] {materialization}\n\n"
-                f"{next_steps}",
-                title="🎉 Success",
-                border_style="green"
-            ))
+            console.print(
+                Panel(
+                    f"[green]✓ Model created successfully![/green]\n\n"
+                    f"[bold]File:[/bold] {model_path.relative_to(self.project_root)}\n"
+                    f"[bold]Layer:[/bold] {model_layer}\n"
+                    f"[bold]Materialization:[/bold] {materialization}\n\n"
+                    f"{next_steps}",
+                    title="🎉 Success",
+                    border_style="green",
+                )
+            )
 
             return model_path
 
@@ -174,7 +170,7 @@ class ModelWizard:
             console.print("\n[yellow]Cancelled[/yellow]")
             return None
 
-    def _ask_layer(self) -> Optional[str]:
+    def _ask_layer(self) -> str | None:
         """Ask which model layer"""
         console.print("\n[bold]Choose a layer:[/bold]")
         console.print("[dim]• Intermediate = Building blocks (used by other models)[/dim]")
@@ -182,19 +178,19 @@ class ModelWizard:
 
         questions = [
             inquirer.List(
-                'layer',
+                "layer",
                 message="Which layer?",
                 choices=[
-                    ('Intermediate - Building blocks used by other models', 'intermediate'),
-                    ('Marts - Final tables for analysts/dashboards', 'marts'),
+                    ("Intermediate - Building blocks used by other models", "intermediate"),
+                    ("Marts - Final tables for analysts/dashboards", "marts"),
                 ],
             )
         ]
 
         answers = inquirer.prompt(questions)
-        return answers.get('layer') if answers else None
+        return answers.get("layer") if answers else None
 
-    def _ask_name(self, layer: str) -> Optional[str]:
+    def _ask_name(self, layer: str) -> str | None:
         """
         Ask for model name and enforce naming conventions
 
@@ -215,9 +211,9 @@ class ModelWizard:
         console.print(f"[cyan]e.g., {example} {hint}[/cyan]")
         questions = [
             inquirer.Text(
-                'name',
+                "name",
                 message="Model name",
-                validate=lambda _, x: len(x) > 0 and x.replace('_', '').isalnum()
+                validate=lambda _, x: len(x) > 0 and x.replace("_", "").isalnum(),
             )
         ]
 
@@ -225,7 +221,7 @@ class ModelWizard:
         if not answers:
             return None
 
-        name = answers['name'].strip().lower()
+        name = answers["name"].strip().lower()
 
         # Remove any existing prefix to avoid double-prefixing
         if layer == "intermediate":
@@ -238,23 +234,17 @@ class ModelWizard:
             console.print(f"[dim]→ Using naming convention: {name}.sql[/dim]\n")
 
         # Ensure .sql extension
-        if not name.endswith('.sql'):
+        if not name.endswith(".sql"):
             name = f"{name}.sql"
 
         return name
 
     def _ask_description(self) -> str:
         """Ask for model description"""
-        questions = [
-            inquirer.Text(
-                'description',
-                message="Description (optional)",
-                default=""
-            )
-        ]
+        questions = [inquirer.Text("description", message="Description (optional)", default="")]
 
         answers = inquirer.prompt(questions)
-        return answers.get('description', '').strip() if answers else ""
+        return answers.get("description", "").strip() if answers else ""
 
     def _ask_materialization(self, layer: str) -> str:
         """
@@ -270,7 +260,7 @@ class ModelWizard:
         # Views in DuckDB don't refresh properly in Metabase
         return "table"
 
-    def _check_global_collision(self, name: str, current_layer: str) -> Optional[str]:
+    def _check_global_collision(self, name: str, current_layer: str) -> str | None:
         """
         Check if model name already exists in ANY layer
 
@@ -282,7 +272,7 @@ class ModelWizard:
             Existing model path (relative to project root) if collision found, None otherwise
         """
         # Check all layer directories
-        layers_to_check = ['staging', 'intermediate', 'marts']
+        layers_to_check = ["staging", "intermediate", "marts"]
 
         for layer in layers_to_check:
             if layer == current_layer:
@@ -300,12 +290,8 @@ class ModelWizard:
         return None
 
     def _create_model_file(
-        self,
-        layer: str,
-        name: str,
-        description: str,
-        materialization: str
-    ) -> Optional[Path]:
+        self, layer: str, name: str, description: str, materialization: str
+    ) -> Path | None:
         """
         Create the dbt model SQL file
 
@@ -333,7 +319,9 @@ class ModelWizard:
             console.print("  • Duplicate names cause compilation errors\n")
             console.print("[yellow]Options:[/yellow]")
             console.print("  • Use a different name")
-            console.print(f"  • Remove existing: [cyan]dango model remove {name.replace('.sql', '')}[/cyan]\n")
+            console.print(
+                f"  • Remove existing: [cyan]dango model remove {name.replace('.sql', '')}[/cyan]\n"
+            )
             return None
 
         # Check if file already exists in same layer
@@ -343,29 +331,24 @@ class ModelWizard:
             console.print(f"[dim]File: {model_path.relative_to(self.project_root)}[/dim]\n")
             console.print("[yellow]Options:[/yellow]")
             console.print("  • Use a different name")
-            console.print(f"  • Remove existing: [cyan]dango model remove {name.replace('.sql', '')}[/cyan]\n")
+            console.print(
+                f"  • Remove existing: [cyan]dango model remove {name.replace('.sql', '')}[/cyan]\n"
+            )
             return None
 
         # Generate SQL content
         sql_content = self._generate_sql_template(
-            layer=layer,
-            name=name,
-            description=description,
-            materialization=materialization
+            layer=layer, name=name, description=description, materialization=materialization
         )
 
         # Write file
-        with open(model_path, 'w') as f:
+        with open(model_path, "w") as f:
             f.write(sql_content)
 
         return model_path
 
     def _generate_sql_template(
-        self,
-        layer: str,
-        name: str,
-        description: str,
-        materialization: str
+        self, layer: str, name: str, description: str, materialization: str
     ) -> str:
         """
         Generate SQL template content with comprehensive documentation
@@ -379,7 +362,7 @@ class ModelWizard:
         Returns:
             SQL file content
         """
-        model_name = name.replace('.sql', '')
+        model_name = name.replace(".sql", "")
         timestamp = datetime.now().strftime("%Y-%m-%d")
 
         # Build header
@@ -481,11 +464,18 @@ class ModelWizard:
         try:
             # Run dbt parse to regenerate manifest
             result = subprocess.run(
-                ["dbt", "parse", "--project-dir", str(self.dbt_dir), "--profiles-dir", str(self.dbt_dir)],
+                [
+                    "dbt",
+                    "parse",
+                    "--project-dir",
+                    str(self.dbt_dir),
+                    "--profiles-dir",
+                    str(self.dbt_dir),
+                ],
                 cwd=str(self.project_root),
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
             )
 
             if result.returncode == 0:
@@ -498,12 +488,12 @@ class ModelWizard:
         except subprocess.TimeoutExpired:
             console.print("[dim]ℹ Model won't appear in Web UI until first run[/dim]")
             return False
-        except Exception as e:
+        except Exception:
             console.print("[dim]ℹ Model won't appear in Web UI until first run[/dim]")
             return False
 
 
-def add_model(project_root: Path) -> Optional[Path]:
+def add_model(project_root: Path) -> Path | None:
     """
     Run the model wizard
 

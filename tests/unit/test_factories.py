@@ -1,11 +1,13 @@
-"""Tests for test factories — verifies factory defaults, overrides, and composition."""
+"""tests/unit/test_factories.py
+
+Tests for test factories — verifies factory defaults, overrides, and composition.
+"""
 
 import pytest
 
 from dango.config.models import (
     CSVSourceConfig,
     DangoConfig,
-    DataSource,
     GoogleSheetsSourceConfig,
     PlatformSettings,
     ProjectContext,
@@ -14,11 +16,8 @@ from dango.config.models import (
     Stakeholder,
 )
 from tests.factories.config_factories import (
-    make_csv_source_config,
     make_dango_config,
     make_data_source,
-    make_google_sheets_source_config,
-    make_platform_settings,
     make_project_context,
     make_sources_config,
     make_stakeholder,

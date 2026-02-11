@@ -1,7 +1,6 @@
-"""
-Module entry point for watcher runner
+"""dango/platform/__main__.py
 
-Allows running: python -m dango.platform.watcher_runner
+Allows running: python -m dango.platform.watcher_runner.
 """
 
 from .watcher_runner import main

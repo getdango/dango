@@ -1,7 +1,10 @@
-"""Integration test fixtures."""
+"""tests/integration/conftest.py
 
-import pytest
+Integration test fixtures.
+"""
+
 import duckdb
+import pytest
 
 
 @pytest.fixture

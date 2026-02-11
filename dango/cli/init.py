@@ -1,19 +1,17 @@
-"""
-Project Initialization
+"""dango/cli/init.py
 
 Handles creation of new Dango projects.
 """
 
-import os
 from pathlib import Path
-from typing import Optional
 
 from rich.console import Console
 from rich.panel import Panel
 
 from dango.config import ConfigLoader, DangoConfig, ProjectContext, SourcesConfig
+
+from .utils import print_error, print_success
 from .wizard import ProjectWizard
-from .utils import print_success, print_error, print_info, confirm
 
 console = Console()
 
@@ -43,8 +41,7 @@ class ProjectInitializer:
         # Check if project already exists
         if self.loader.is_dango_project() and not force:
             print_error(
-                f"Dango project already exists at {self.project_dir}\n"
-                f"Use --force to reinitialize."
+                f"Dango project already exists at {self.project_dir}\nUse --force to reinitialize."
             )
             raise SystemExit(1)
 
@@ -81,7 +78,9 @@ class ProjectInitializer:
             # NON-CRITICAL: Can retry on 'dango start'
             metabase_success = self._setup_metabase()
             if not metabase_success:
-                warnings.append("DuckDB driver download failed (will retry automatically on 'dango start')")
+                warnings.append(
+                    "DuckDB driver download failed (will retry automatically on 'dango start')"
+                )
 
             # Create dbt project files
             self._create_dbt_project(config)
@@ -106,7 +105,7 @@ class ProjectInitializer:
             print_error("\n\n✗ Initialization cancelled by user")
             print_error("  Rolling back...")
             self._rollback_initialization()
-            raise SystemExit(1)
+            raise SystemExit(1) from None
 
         except Exception as e:
             # Unexpected error - rollback
@@ -124,7 +123,7 @@ class ProjectInitializer:
 
     def _create_blank_config(self) -> DangoConfig:
         """Create blank configuration"""
-        project_name = self.project_dir.name.replace('-', ' ').replace('_', ' ').title()
+        project_name = self.project_dir.name.replace("-", " ").replace("_", " ").title()
 
         project = ProjectContext(
             name=project_name,
@@ -162,6 +161,7 @@ class ProjectInitializer:
 
         # Create DuckDB database with schemas
         import duckdb
+
         duckdb_path = self.project_dir / "data" / "warehouse.duckdb"
 
         # Always ensure schemas exist (CREATE IF NOT EXISTS is idempotent)
@@ -171,7 +171,9 @@ class ProjectInitializer:
         conn.execute("CREATE SCHEMA IF NOT EXISTS intermediate")
         conn.execute("CREATE SCHEMA IF NOT EXISTS marts")
         conn.close()
-        console.print("[green]✓[/green] Created DuckDB database with schemas (raw, staging, intermediate, marts)")
+        console.print(
+            "[green]✓[/green] Created DuckDB database with schemas (raw, staging, intermediate, marts)"
+        )
 
         # Create marts README with guidance
         self._create_marts_readme()
@@ -182,9 +184,10 @@ class ProjectInitializer:
 
         # Initialize .dlt/ directory for dlt-native credential storage
         from dango.config.credentials import init_dlt_directory
+
         init_dlt_directory(self.project_dir)
 
-        print_success(f"Created project structure")
+        print_success("Created project structure")
 
     def _create_gitignore(self):
         """Create .gitignore file"""
@@ -233,15 +236,15 @@ secrets/
 
         # If .gitignore exists, merge
         if gitignore_path.exists():
-            with open(gitignore_path, 'r', encoding='utf-8') as f:
+            with open(gitignore_path, encoding="utf-8") as f:
                 existing = f.read()
 
             if "# Dango" not in existing:
-                with open(gitignore_path, 'a', encoding='utf-8') as f:
+                with open(gitignore_path, "a", encoding="utf-8") as f:
                     f.write("\n" + gitignore_content)
                 print_success("Updated .gitignore")
         else:
-            with open(gitignore_path, 'w', encoding='utf-8') as f:
+            with open(gitignore_path, "w", encoding="utf-8") as f:
                 f.write(gitignore_content)
             print_success("Created .gitignore")
 
@@ -261,23 +264,28 @@ secrets/
 
         if config.project.stakeholders:
             for stakeholder in config.project.stakeholders:
-                readme_content += f"- **{stakeholder.name}** - {stakeholder.role} ({stakeholder.contact})\n"
+                readme_content += (
+                    f"- **{stakeholder.name}** - {stakeholder.role} ({stakeholder.contact})\n"
+                )
         else:
             readme_content += "*(No stakeholders defined)*\n"
 
         readme_content += f"""
 ## Data Freshness SLA
 
-{config.project.sla or '*(Not defined)*'}
+{config.project.sla or "*(Not defined)*"}
 
 ## Getting Started
 
-{config.project.getting_started or '''
+{
+            config.project.getting_started
+            or '''
 1. Add data sources: `dango source add`
 2. Sync data: `dango sync`
 3. Start platform: `dango start`
 4. Open dashboards: http://dango.local or http://localhost
-'''}
+'''
+        }
 
 ## Project Structure
 
@@ -335,7 +343,7 @@ When creating dashboards and reports in Metabase, use tables in this priority or
 
 ## Limitations
 
-{config.project.limitations or '*(None documented)*'}
+{config.project.limitations or "*(None documented)*"}
 
 ---
 
@@ -346,7 +354,7 @@ When creating dashboards and reports in Metabase, use tables in this priority or
 
         # Only create if doesn't exist
         if not readme_path.exists():
-            with open(readme_path, 'w', encoding='utf-8') as f:
+            with open(readme_path, "w", encoding="utf-8") as f:
                 f.write(readme_content)
             print_success("Created README.md")
 
@@ -429,7 +437,7 @@ SELECT * FROM marts.fct_orders
         marts_readme_path = self.project_dir / "dbt" / "models" / "marts" / "README.md"
 
         if not marts_readme_path.exists():
-            with open(marts_readme_path, 'w', encoding='utf-8') as f:
+            with open(marts_readme_path, "w", encoding="utf-8") as f:
                 f.write(marts_readme_content)
             console.print("[green]✓[/green] Created marts/README.md with guidance")
 
@@ -438,7 +446,7 @@ SELECT * FROM marts.fct_orders
         init_path = self.project_dir / "custom_sources" / "__init__.py"
 
         if not init_path.exists():
-            with open(init_path, 'w', encoding='utf-8') as f:
+            with open(init_path, "w", encoding="utf-8") as f:
                 f.write("# Custom dlt sources for this project\n")
 
     def _create_custom_sources_readme(self):
@@ -550,7 +558,7 @@ custom_sources/
         custom_sources_readme_path = self.project_dir / "custom_sources" / "README.md"
 
         if not custom_sources_readme_path.exists():
-            with open(custom_sources_readme_path, 'w', encoding='utf-8') as f:
+            with open(custom_sources_readme_path, "w", encoding="utf-8") as f:
                 f.write(custom_sources_readme_content)
             console.print("[green]✓[/green] Created custom_sources/README.md with guidance")
 
@@ -558,17 +566,17 @@ custom_sources/
         """Create docker-compose.yml from template"""
         from jinja2 import Environment, PackageLoader
 
-        env = Environment(loader=PackageLoader('dango', 'templates'))
-        template = env.get_template('docker-compose.yml.j2')
+        env = Environment(loader=PackageLoader("dango", "templates"))
+        template = env.get_template("docker-compose.yml.j2")
 
         content = template.render(
-            project_name=config.project.name.lower().replace(' ', '-'),
+            project_name=config.project.name.lower().replace(" ", "-"),
             metabase_port=config.platform.metabase_port,
-            dbt_docs_port=config.platform.dbt_docs_port
+            dbt_docs_port=config.platform.dbt_docs_port,
         )
 
         docker_compose_path = self.project_dir / "docker-compose.yml"
-        with open(docker_compose_path, 'w', encoding='utf-8') as f:
+        with open(docker_compose_path, "w", encoding="utf-8") as f:
             f.write(content)
 
         print_success("Created docker-compose.yml")
@@ -580,19 +588,19 @@ custom_sources/
         Returns:
             True if successful, False if driver download failed
         """
-        import shutil
         import urllib.request
+
         from jinja2 import Environment, PackageLoader
 
         console.print("Setting up Metabase with DuckDB support...")
 
         # Copy Dockerfile.metabase from templates
-        env = Environment(loader=PackageLoader('dango', 'templates'))
-        dockerfile_template = env.get_template('Dockerfile.metabase')
+        env = Environment(loader=PackageLoader("dango", "templates"))
+        dockerfile_template = env.get_template("Dockerfile.metabase")
         dockerfile_content = dockerfile_template.render()
 
         dockerfile_path = self.project_dir / "Dockerfile.metabase"
-        with open(dockerfile_path, 'w', encoding='utf-8') as f:
+        with open(dockerfile_path, "w", encoding="utf-8") as f:
             f.write(dockerfile_content)
 
         console.print("[green]✓[/green] Created Dockerfile.metabase")
@@ -611,23 +619,28 @@ custom_sources/
 
             # Retry same URL 3 times (network issues are transient)
             import time
+
             for attempt in range(3):
                 try:
                     if attempt > 0:
                         console.print(f"    Retry {attempt}/2...")
                         time.sleep(2)  # Wait before retry
                     urllib.request.urlretrieve(driver_url, duckdb_driver_path)
-                    console.print(f"[green]✓[/green] Downloaded DuckDB driver ({duckdb_driver_path.stat().st_size // 1024 // 1024}MB)")
+                    console.print(
+                        f"[green]✓[/green] Downloaded DuckDB driver ({duckdb_driver_path.stat().st_size // 1024 // 1024}MB)"
+                    )
                     driver_downloaded = True
                     break
-                except Exception as e:
+                except Exception:
                     if attempt == 2:  # Last attempt failed
                         break
                     continue
 
             if not driver_downloaded:
                 print_error("✗ Failed to download DuckDB driver (network issue)")
-                console.print("    [yellow]Don't worry![/yellow] The driver will be downloaded automatically when you run:")
+                console.print(
+                    "    [yellow]Don't worry![/yellow] The driver will be downloaded automatically when you run:"
+                )
                 console.print("    [bold cyan]dango start[/bold cyan]")
                 print_success("Metabase setup complete (driver pending)")
                 return False
@@ -640,7 +653,7 @@ custom_sources/
     def _create_dbt_project(self, config: DangoConfig):
         """Create dbt project configuration files"""
         # Sanitize project name for dbt (lowercase, underscores only)
-        dbt_project_name = config.project.name.lower().replace(' ', '_').replace('-', '_')
+        dbt_project_name = config.project.name.lower().replace(" ", "_").replace("-", "_")
 
         # Create dbt_project.yml
         dbt_project_content = f"""# dbt Project Configuration
@@ -702,7 +715,7 @@ on-run-end:
 """
 
         dbt_project_path = self.project_dir / "dbt" / "dbt_project.yml"
-        with open(dbt_project_path, 'w', encoding='utf-8') as f:
+        with open(dbt_project_path, "w", encoding="utf-8") as f:
             f.write(dbt_project_content)
 
         # Create profiles.yml
@@ -730,7 +743,7 @@ on-run-end:
 """
 
         profiles_path = self.project_dir / "dbt" / "profiles.yml"
-        with open(profiles_path, 'w', encoding='utf-8') as f:
+        with open(profiles_path, "w", encoding="utf-8") as f:
             f.write(profiles_content)
 
         # Create dbt macro for clean schema naming (removes main_ prefix)
@@ -752,7 +765,7 @@ on-run-end:
 {%- endmacro %}
 """
         macro_path = self.project_dir / "dbt" / "macros" / "get_custom_schema.sql"
-        with open(macro_path, 'w', encoding='utf-8') as f:
+        with open(macro_path, "w", encoding="utf-8") as f:
             f.write(macro_content)
 
         print_success("Created dbt project files (dbt_project.yml, profiles.yml, macros)")
@@ -764,9 +777,9 @@ on-run-end:
         Returns:
             True if successful, False if generation failed
         """
+        import shutil
         import subprocess
         import sys
-        import shutil
 
         console.print("Generating dbt documentation...")
 
@@ -783,11 +796,19 @@ on-run-end:
         try:
             # Run dbt docs generate
             result = subprocess.run(
-                [dbt_cmd, "docs", "generate", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)],
+                [
+                    dbt_cmd,
+                    "docs",
+                    "generate",
+                    "--project-dir",
+                    str(dbt_dir),
+                    "--profiles-dir",
+                    str(dbt_dir),
+                ],
                 cwd=dbt_dir,
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=60,
             )
 
             if result.returncode == 0:
@@ -796,7 +817,9 @@ on-run-end:
                 # Check that index.html was created
                 index_path = dbt_dir / "target" / "index.html"
                 if index_path.exists():
-                    console.print("[green]✓[/green] Documentation available at dbt/target/index.html")
+                    console.print(
+                        "[green]✓[/green] Documentation available at dbt/target/index.html"
+                    )
                     return True
                 else:
                     print_error("✗ index.html not found after generation")
@@ -863,6 +886,7 @@ on-run-end:
     def _get_dango_version(self) -> str:
         """Get Dango version"""
         from dango import __version__
+
         return __version__
 
     def _print_success_message(self, warnings=None, failures=None):
@@ -924,11 +948,7 @@ on-run-end:
                 message += "4. dango start          # Start platform\n"
                 message += "5. Open http://localhost:8800"
 
-        console.print(Panel(
-            message,
-            title=title,
-            border_style=border_style
-        ))
+        console.print(Panel(message, title=title, border_style=border_style))
         console.print()
 
 

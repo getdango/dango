@@ -134,3 +134,8 @@ dmypy.json
 dist/
 build/
 *.egg-info/
+
+# Dango secrets & credentials
+.dlt/secrets.toml
+*.pem
+*.key

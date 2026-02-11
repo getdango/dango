@@ -1,13 +1,11 @@
-"""
-Docker Service Management
+"""dango/platform/docker.py
 
 Handles Docker Compose operations for Dango services.
 """
 
 import subprocess
-from pathlib import Path
-from typing import Optional, Dict, List
 from enum import Enum
+from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
@@ -17,6 +15,7 @@ console = Console()
 
 class ServiceStatus(str, Enum):
     """Service status"""
+
     RUNNING = "running"
     STOPPED = "stopped"
     UNHEALTHY = "unhealthy"
@@ -35,10 +34,7 @@ class DockerManager:
         """Check if Docker is available"""
         try:
             result = subprocess.run(
-                ["docker", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["docker", "--version"], capture_output=True, text=True, timeout=5
             )
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -47,12 +43,7 @@ class DockerManager:
     def is_docker_daemon_running(self) -> bool:
         """Check if Docker daemon is running"""
         try:
-            result = subprocess.run(
-                ["docker", "ps"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
+            result = subprocess.run(["docker", "ps"], capture_output=True, text=True, timeout=5)
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return False
@@ -62,34 +53,25 @@ class DockerManager:
         try:
             # Try docker compose (v2)
             result = subprocess.run(
-                ["docker", "compose", "version"],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["docker", "compose", "version"], capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
                 return True
 
             # Fall back to docker-compose (v1)
             result = subprocess.run(
-                ["docker-compose", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["docker-compose", "--version"], capture_output=True, text=True, timeout=5
             )
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return False
 
-    def get_compose_command(self) -> List[str]:
+    def get_compose_command(self) -> list[str]:
         """Get the docker compose command (v2 or v1)"""
         # Try docker compose (v2) first
         try:
             result = subprocess.run(
-                ["docker", "compose", "version"],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["docker", "compose", "version"], capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
                 return ["docker", "compose"]
@@ -123,18 +105,11 @@ class DockerManager:
         console.print("Starting Dango services...")
         console.print()
 
-        cmd = self.get_compose_command() + [
-            "-f", str(self.compose_file),
-            "up", "-d"
-        ]
+        cmd = self.get_compose_command() + ["-f", str(self.compose_file), "up", "-d"]
 
         try:
             result = subprocess.run(
-                cmd,
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
-                timeout=120
+                cmd, cwd=self.project_root, capture_output=True, text=True, timeout=120
             )
 
             if result.returncode == 0:
@@ -143,7 +118,7 @@ class DockerManager:
                 self._print_service_urls()
                 return True
             else:
-                console.print(f"[red]Error:[/red] Failed to start services")
+                console.print("[red]Error:[/red] Failed to start services")
                 console.print(result.stderr)
                 return False
 
@@ -167,25 +142,18 @@ class DockerManager:
 
         console.print("Stopping Dango services...")
 
-        cmd = self.get_compose_command() + [
-            "-f", str(self.compose_file),
-            "down"
-        ]
+        cmd = self.get_compose_command() + ["-f", str(self.compose_file), "down"]
 
         try:
             result = subprocess.run(
-                cmd,
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
-                timeout=60
+                cmd, cwd=self.project_root, capture_output=True, text=True, timeout=60
             )
 
             if result.returncode == 0:
                 console.print("[green]✓[/green] Services stopped")
                 return True
             else:
-                console.print(f"[red]Error:[/red] Failed to stop services")
+                console.print("[red]Error:[/red] Failed to stop services")
                 console.print(result.stderr)
                 return False
 
@@ -215,14 +183,14 @@ class DockerManager:
                 ["docker", "ps", "-q", "--filter", "name=metabase", "--filter", "name=dbt"],
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=10,
             )
 
             if result.returncode != 0:
                 console.print("[yellow]⚠[/yellow]  Could not list Docker containers")
                 return False
 
-            container_ids = result.stdout.strip().split('\n')
+            container_ids = result.stdout.strip().split("\n")
             container_ids = [cid for cid in container_ids if cid]  # Filter empty strings
 
             if not container_ids:
@@ -232,17 +200,14 @@ class DockerManager:
             # Stop the containers
             console.print(f"Found {len(container_ids)} Dango container(s), stopping...")
             result = subprocess.run(
-                ["docker", "stop"] + container_ids,
-                capture_output=True,
-                text=True,
-                timeout=60
+                ["docker", "stop"] + container_ids, capture_output=True, text=True, timeout=60
             )
 
             if result.returncode == 0:
                 console.print("[green]✓[/green] Stopped all Dango containers")
                 return True
             else:
-                console.print(f"[yellow]⚠[/yellow]  Some containers may not have stopped")
+                console.print("[yellow]⚠[/yellow]  Some containers may not have stopped")
                 return False
 
         except subprocess.TimeoutExpired:
@@ -252,7 +217,7 @@ class DockerManager:
             console.print(f"[yellow]⚠[/yellow]  Error stopping containers: {e}")
             return False
 
-    def get_service_status(self) -> Dict[str, ServiceStatus]:
+    def get_service_status(self) -> dict[str, ServiceStatus]:
         """
         Get status of all services.
 
@@ -262,18 +227,11 @@ class DockerManager:
         if not self.compose_file.exists():
             return {}
 
-        cmd = self.get_compose_command() + [
-            "-f", str(self.compose_file),
-            "ps", "--format", "json"
-        ]
+        cmd = self.get_compose_command() + ["-f", str(self.compose_file), "ps", "--format", "json"]
 
         try:
             result = subprocess.run(
-                cmd,
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
-                timeout=10
+                cmd, cwd=self.project_root, capture_output=True, text=True, timeout=10
             )
 
             if result.returncode != 0:
@@ -281,28 +239,29 @@ class DockerManager:
 
             # Parse output
             import json
+
             statuses = {}
 
             # Output might be multiple JSON objects, one per line
-            for line in result.stdout.strip().split('\n'):
+            for line in result.stdout.strip().split("\n"):
                 if not line:
                     continue
 
                 try:
                     service_info = json.loads(line)
-                    name = service_info.get('Service', service_info.get('Name', 'unknown'))
-                    state = service_info.get('State', 'unknown')
-                    health = service_info.get('Health', '')
+                    name = service_info.get("Service", service_info.get("Name", "unknown"))
+                    state = service_info.get("State", "unknown")
+                    health = service_info.get("Health", "")
 
                     # Map state to ServiceStatus
-                    if state == 'running':
-                        if health == 'unhealthy':
+                    if state == "running":
+                        if health == "unhealthy":
                             status = ServiceStatus.UNHEALTHY
-                        elif health == 'starting':
+                        elif health == "starting":
                             status = ServiceStatus.STARTING
                         else:
                             status = ServiceStatus.RUNNING
-                    elif state in ['exited', 'stopped']:
+                    elif state in ["exited", "stopped"]:
                         status = ServiceStatus.STOPPED
                     else:
                         status = ServiceStatus.UNKNOWN
@@ -374,7 +333,11 @@ class DockerManager:
 
         console.print("[bold cyan]Docker services started:[/bold cyan]")
         console.print()
-        console.print(f"  Metabase: [link=http://localhost:{port}/metabase]http://localhost:{port}/metabase[/link]")
-        console.print(f"  dbt Docs: [link=http://localhost:{port}/dbt-docs]http://localhost:{port}/dbt-docs[/link]")
+        console.print(
+            f"  Metabase: [link=http://localhost:{port}/metabase]http://localhost:{port}/metabase[/link]"
+        )
+        console.print(
+            f"  dbt Docs: [link=http://localhost:{port}/dbt-docs]http://localhost:{port}/dbt-docs[/link]"
+        )
         console.print()
         console.print("[dim]Note: Services may take 30-60s to become healthy[/dim]")

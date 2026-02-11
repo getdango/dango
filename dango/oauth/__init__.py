@@ -16,20 +16,18 @@ Features:
 - Token refresh handling (where supported)
 """
 
+import http.server
 import os
 import secrets
-import webbrowser
-from pathlib import Path
-from typing import Optional, Dict, Any, List
-from urllib.parse import urlencode, parse_qs, urlparse
-import http.server
 import socketserver
 import threading
 import time
+import webbrowser
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.prompt import Prompt, Confirm
 
 from dango.config.credentials import CredentialManager
 
@@ -54,15 +52,15 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
 
         # Check for authorization code
-        if 'code' in params:
+        if "code" in params:
             OAuthCallbackHandler.oauth_response = {
-                'code': params['code'][0],
-                'state': params.get('state', [None])[0]
+                "code": params["code"][0],
+                "state": params.get("state", [None])[0],
             }
 
             # Send success page
             self.send_response(200)
-            self.send_header('Content-type', 'text/html; charset=utf-8')
+            self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
 
             success_html = """
@@ -79,18 +77,18 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             </body>
             </html>
             """
-            self.wfile.write(success_html.encode('utf-8'))
+            self.wfile.write(success_html.encode("utf-8"))
 
         # Check for error
-        elif 'error' in params:
+        elif "error" in params:
             OAuthCallbackHandler.oauth_error = {
-                'error': params['error'][0],
-                'error_description': params.get('error_description', ['Unknown error'])[0]
+                "error": params["error"][0],
+                "error_description": params.get("error_description", ["Unknown error"])[0],
             }
 
             # Send error page
             self.send_response(400)
-            self.send_header('Content-type', 'text/html; charset=utf-8')
+            self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
 
             error_html = f"""
@@ -102,18 +100,18 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             </head>
             <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
                 <h1 style="color: red;">&#10007; Authentication Failed</h1>
-                <p><strong>Error:</strong> {params['error'][0]}</p>
-                <p>{params.get('error_description', [''])[0]}</p>
+                <p><strong>Error:</strong> {params["error"][0]}</p>
+                <p>{params.get("error_description", [""])[0]}</p>
                 <p style="color: #666; margin-top: 30px;">Please return to the terminal for instructions.</p>
             </body>
             </html>
             """
-            self.wfile.write(error_html.encode('utf-8'))
+            self.wfile.write(error_html.encode("utf-8"))
 
         else:
             # Unknown request
             self.send_response(400)
-            self.send_header('Content-type', 'text/html')
+            self.send_header("Content-type", "text/html")
             self.end_headers()
             self.wfile.write(b"Invalid OAuth callback")
 
@@ -150,17 +148,16 @@ class OAuthManager:
         # - Local development with custom ports
         # - Cloud deployment with custom domains
         from dotenv import load_dotenv
+
         load_dotenv(self.project_root / ".env")
 
-        self.callback_url = os.getenv(
-            "DANGO_OAUTH_CALLBACK_URL",
-            "http://localhost:8080/callback"
-        )
+        self.callback_url = os.getenv("DANGO_OAUTH_CALLBACK_URL", "http://localhost:8080/callback")
 
         # Extract port from callback URL for local server
         # Format: http://localhost:8080/callback -> port 8080
         # Format: https://domain.com/oauth/callback -> port 443 (not used for local server)
         from urllib.parse import urlparse
+
         parsed = urlparse(self.callback_url)
         self.callback_port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
@@ -168,11 +165,8 @@ class OAuthManager:
         self.cred_manager.init_dlt_directory()
 
     def start_oauth_flow(
-        self,
-        provider_name: str,
-        auth_url: str,
-        timeout_seconds: int = 300
-    ) -> Optional[Dict[str, str]]:
+        self, provider_name: str, auth_url: str, timeout_seconds: int = 300
+    ) -> dict[str, str] | None:
         """
         Start OAuth flow and wait for callback
 
@@ -200,10 +194,14 @@ class OAuthManager:
                 console.print("\n[yellow]Possible solutions:[/yellow]")
                 console.print(f"  1. Stop the process using port {self.callback_port}:")
                 console.print(f"     [dim]lsof -i :{self.callback_port}[/dim]")
-                console.print(f"     [dim]kill <PID>[/dim]")
-                console.print(f"  2. Set a different callback port in .env:")
-                console.print(f"     [dim]DANGO_OAUTH_CALLBACK_URL=http://localhost:8081/callback[/dim]")
-                console.print(f"     [dim](Remember to update this in your OAuth app redirect URIs)[/dim]")
+                console.print("     [dim]kill <PID>[/dim]")
+                console.print("  2. Set a different callback port in .env:")
+                console.print(
+                    "     [dim]DANGO_OAUTH_CALLBACK_URL=http://localhost:8081/callback[/dim]"
+                )
+                console.print(
+                    "     [dim](Remember to update this in your OAuth app redirect URIs)[/dim]"
+                )
                 return None
             else:
                 raise
@@ -216,7 +214,7 @@ class OAuthManager:
         console.print(f"[dim]Callback server listening on port {self.callback_port}[/dim]")
 
         # Open browser for authorization
-        console.print(f"\n[cyan]Opening browser for authorization...[/cyan]")
+        console.print("\n[cyan]Opening browser for authorization...[/cyan]")
         console.print(f"[dim]If browser doesn't open, visit: {auth_url}[/dim]\n")
 
         webbrowser.open(auth_url)
@@ -259,10 +257,7 @@ class OAuthManager:
         return secrets.token_urlsafe(32)
 
     def save_oauth_credentials(
-        self,
-        source_name: str,
-        credentials: Dict[str, Any],
-        config: Optional[Dict[str, Any]] = None
+        self, source_name: str, credentials: dict[str, Any], config: dict[str, Any] | None = None
     ) -> None:
         """
         Save OAuth credentials to .dlt/secrets.toml
@@ -273,25 +268,17 @@ class OAuthManager:
             config: Optional non-sensitive configuration to save to .dlt/config.toml
         """
         # Save credentials to secrets.toml
-        secrets_data = {
-            "sources": {
-                source_name: credentials
-            }
-        }
+        secrets_data = {"sources": {source_name: credentials}}
         self.cred_manager.save_secrets(secrets_data, merge=True)
 
         # Save config if provided
         if config:
-            config_data = {
-                "sources": {
-                    source_name: config
-                }
-            }
+            config_data = {"sources": {source_name: config}}
             self.cred_manager.save_config(config_data, merge=True)
 
-        console.print(f"[green]✓ Credentials saved to .dlt/secrets.toml[/green]")
+        console.print("[green]✓ Credentials saved to .dlt/secrets.toml[/green]")
 
-    def get_credentials(self, source_name: str) -> Optional[Dict[str, Any]]:
+    def get_credentials(self, source_name: str) -> dict[str, Any] | None:
         """
         Get OAuth credentials for a source
 

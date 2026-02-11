@@ -1,16 +1,7 @@
 #!/usr/bin/env python3
-"""
+"""scripts/validate_headers.py
+
 Validate Python file header docstrings.
-
-Checks that Python files begin with a docstring containing:
-1. A file path line (e.g., "dango/config/loader.py")
-2. A purpose line (non-empty text after the path)
-
-Usage:
-    python scripts/validate_headers.py dango/config/loader.py
-    python scripts/validate_headers.py dango/config/loader.py dango/utils/database.py
-    python scripts/validate_headers.py --changed   # git diff against base branch
-    python scripts/validate_headers.py --all        # audit all .py files
 """
 
 import argparse
@@ -20,7 +11,16 @@ import sys
 from pathlib import Path
 
 # Directories to skip in --all mode
-SKIP_DIRS = {"__pycache__", ".git", "venv", ".venv", "node_modules", ".tox", ".eggs"}
+SKIP_DIRS = {
+    "__pycache__",
+    ".git",
+    "venv",
+    ".venv",
+    "node_modules",
+    ".tox",
+    ".eggs",
+    "dlt_sources",
+}
 
 # Files to skip (auto-generated or trivially empty)
 SKIP_FILES = {"__init__.py"}
@@ -121,9 +121,15 @@ def validate_header(file_path: Path) -> list[str]:
     if not stripped:
         return ["File is empty"]
 
+    # Skip shebang line if present
+    if stripped.startswith("#!"):
+        first_newline = stripped.find("\n")
+        if first_newline != -1:
+            stripped = stripped[first_newline + 1 :].lstrip()
+
     # Must start with a docstring
     if not stripped.startswith('"""'):
-        errors.append("File does not start with a docstring (expected triple-quoted \"\"\")")
+        errors.append('File does not start with a docstring (expected triple-quoted """)')
         return errors
 
     # Extract the docstring content
@@ -131,7 +137,7 @@ def validate_header(file_path: Path) -> list[str]:
     docstring_start = stripped.index('"""') + 3
     closing_idx = stripped.find('"""', docstring_start)
     if closing_idx == -1:
-        errors.append("Docstring is not closed (missing closing \"\"\")")
+        errors.append('Docstring is not closed (missing closing """)')
         return errors
 
     docstring_body = stripped[docstring_start:closing_idx].strip()
@@ -148,12 +154,10 @@ def validate_header(file_path: Path) -> list[str]:
     # First non-empty line should be a file path (contains / and ends with .py)
     first_line = lines[0]
     if not re.match(r"^[\w./-]+\.py$", first_line):
-        errors.append(
-            f"First line of docstring should be a file path (got: '{first_line}')"
-        )
+        errors.append(f"First line of docstring should be a file path (got: '{first_line}')")
 
     # Must have a purpose line (non-empty line after the path, not a section header)
-    remaining = [l for l in lines[1:] if l]
+    remaining = [line for line in lines[1:] if line]
     purpose_found = False
     for line in remaining:
         # Skip section headers like "Related files:" or "Entry points:"
@@ -170,9 +174,8 @@ def validate_header(file_path: Path) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Validate Python file header docstrings."
-    )
+    """Validate Python file header docstrings."""
+    parser = argparse.ArgumentParser(description="Validate Python file header docstrings.")
     parser.add_argument(
         "files",
         nargs="*",
@@ -200,12 +203,13 @@ def main() -> int:
 
     if args.all:
         audit_mode = True
-        # Look for dango/ package and tests/ directory
+        # Look for dango/, tests/, and scripts/ directories
         root = Path.cwd()
         files = find_all_python_files(root / "dango")
-        test_dir = root / "tests"
-        if test_dir.exists():
-            files.extend(find_all_python_files(test_dir))
+        for extra_dir in ("tests", "scripts"):
+            extra_path = root / extra_dir
+            if extra_path.exists():
+                files.extend(find_all_python_files(extra_path))
         if not files:
             print("No Python files found.")
             return 0
@@ -237,9 +241,10 @@ def main() -> int:
         print(f"Header compliance: {valid_count}/{total} files ({valid_count * 100 // total}%)")
         if file_errors:
             print(f"\nFiles missing headers ({invalid_count}):")
-            for file_path, errors in file_errors:
+            for file_path, _errors in file_errors:
                 print(f"  {file_path}")
-        return 0  # Audit mode always exits 0
+            return 1
+        return 0
 
     # Normal mode — show errors and fail if any
     for file_path, errors in file_errors:

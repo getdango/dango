@@ -1,26 +1,18 @@
-"""
-Metabase Dashboard Provisioning
+"""dango/visualization/metabase.py
 
-Creates and provisions "Data Pipeline Health" dashboard for monitoring data pipelines.
-Designed for demo projects and instant value demonstration.
-
-Auto-setup functionality (MVP):
-- Auto-create admin user on first start
-- Auto-connect to DuckDB
-- Hide H2 sample database
-- Store credentials in .dango/metabase.yml (gitignored)
+Creates and provisions "Data Pipeline Health" dashboard for monitoring data pipelines. Designed for demo projects and instant value demonstration.
 """
 
-from pathlib import Path
-from typing import Dict, Any, List, Optional
-import json
 import logging
-import requests
-from datetime import datetime
 import secrets
 import string
-import yaml
 import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import requests
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +36,8 @@ DASHBOARD_QUERIES = {
         ) as t(name, type, enabled)
         -- TODO: Replace with actual sources.yml data
         """,
-        "visualization": "table"
+        "visualization": "table",
     },
-
     "sync_history": {
         "name": "Sync History (Last 7 Days)",
         "description": "Source sync activity over the past week",
@@ -62,9 +53,8 @@ DASHBOARD_QUERIES = {
         FROM sync_dates
         ORDER BY sync_date DESC
         """,
-        "visualization": "line"
+        "visualization": "line",
     },
-
     "data_freshness": {
         "name": "Data Freshness by Source",
         "description": "How recent is the data in each source",
@@ -76,9 +66,8 @@ DASHBOARD_QUERIES = {
         FROM (SELECT 1)  -- Placeholder
         -- TODO: Query actual staging tables
         """,
-        "visualization": "table"
+        "visualization": "table",
     },
-
     "row_counts_trend": {
         "name": "Row Counts Over Time",
         "description": "Track data growth across all sources",
@@ -93,9 +82,8 @@ DASHBOARD_QUERIES = {
         FROM dates
         ORDER BY date
         """,
-        "visualization": "area"
+        "visualization": "area",
     },
-
     "dbt_test_results": {
         "name": "dbt Test Results",
         "description": "Data quality tests from dbt",
@@ -106,9 +94,8 @@ DASHBOARD_QUERIES = {
             0 as total_tests
         -- TODO: Parse dbt test results
         """,
-        "visualization": "scalar"
+        "visualization": "scalar",
     },
-
     "pipeline_health_score": {
         "name": "Pipeline Health Score",
         "description": "Overall health of data pipeline (0-100)",
@@ -118,8 +105,8 @@ DASHBOARD_QUERIES = {
             'Excellent' as status,
             'All sources syncing successfully' as message
         """,
-        "visualization": "gauge"
-    }
+        "visualization": "gauge",
+    },
 }
 
 
@@ -139,7 +126,7 @@ class MetabaseProvisioner:
         self,
         metabase_url: str = "http://localhost:3000",
         username: str = "admin@example.com",
-        password: str = "admin123"
+        password: str = "admin123",
     ):
         """
         Initialize Metabase provisioner
@@ -149,7 +136,7 @@ class MetabaseProvisioner:
             username: Admin username
             password: Admin password
         """
-        self.metabase_url = metabase_url.rstrip('/')
+        self.metabase_url = metabase_url.rstrip("/")
         self.username = username
         self.password = password
         self.session_token = None
@@ -164,11 +151,8 @@ class MetabaseProvisioner:
         try:
             response = requests.post(
                 f"{self.metabase_url}/api/session",
-                json={
-                    "username": self.username,
-                    "password": self.password
-                },
-                timeout=10
+                json={"username": self.username, "password": self.password},
+                timeout=10,
             )
 
             if response.status_code == 200:
@@ -181,7 +165,7 @@ class MetabaseProvisioner:
             print(f"Authentication failed: {e}")
             return False
 
-    def get_database_id(self, database_name: str = "DuckDB") -> Optional[int]:
+    def get_database_id(self, database_name: str = "DuckDB") -> int | None:
         """
         Get database ID from Metabase
 
@@ -197,9 +181,7 @@ class MetabaseProvisioner:
         try:
             headers = {"X-Metabase-Session": self.session_token}
             response = requests.get(
-                f"{self.metabase_url}/api/database",
-                headers=headers,
-                timeout=10
+                f"{self.metabase_url}/api/database", headers=headers, timeout=10
             )
 
             if response.status_code == 200:
@@ -214,11 +196,8 @@ class MetabaseProvisioner:
         return None
 
     def create_card(
-        self,
-        query_key: str,
-        database_id: int,
-        collection_id: Optional[int] = None
-    ) -> Optional[int]:
+        self, query_key: str, database_id: int, collection_id: int | None = None
+    ) -> int | None:
         """
         Create a Metabase card (question) from query definition
 
@@ -240,13 +219,11 @@ class MetabaseProvisioner:
             "description": query_def["description"],
             "dataset_query": {
                 "type": "native",
-                "native": {
-                    "query": query_def["sql"]
-                },
-                "database": database_id
+                "native": {"query": query_def["sql"]},
+                "database": database_id,
             },
             "display": query_def["visualization"],
-            "visualization_settings": {}
+            "visualization_settings": {},
         }
 
         if collection_id:
@@ -255,10 +232,7 @@ class MetabaseProvisioner:
         try:
             headers = {"X-Metabase-Session": self.session_token}
             response = requests.post(
-                f"{self.metabase_url}/api/card",
-                headers=headers,
-                json=card_data,
-                timeout=10
+                f"{self.metabase_url}/api/card", headers=headers, json=card_data, timeout=10
             )
 
             if response.status_code == 200:
@@ -272,8 +246,8 @@ class MetabaseProvisioner:
     def create_dashboard(
         self,
         name: str = "Data Pipeline Health",
-        description: str = "Monitor your data pipeline health and sync status"
-    ) -> Optional[int]:
+        description: str = "Monitor your data pipeline health and sync status",
+    ) -> int | None:
         """
         Create empty dashboard
 
@@ -287,10 +261,7 @@ class MetabaseProvisioner:
         if not self.session_token:
             return None
 
-        dashboard_data = {
-            "name": name,
-            "description": description
-        }
+        dashboard_data = {"name": name, "description": description}
 
         try:
             headers = {"X-Metabase-Session": self.session_token}
@@ -298,7 +269,7 @@ class MetabaseProvisioner:
                 f"{self.metabase_url}/api/dashboard",
                 headers=headers,
                 json=dashboard_data,
-                timeout=10
+                timeout=10,
             )
 
             if response.status_code == 200:
@@ -316,7 +287,7 @@ class MetabaseProvisioner:
         row: int = 0,
         col: int = 0,
         size_x: int = 6,
-        size_y: int = 4
+        size_y: int = 4,
     ) -> bool:
         """
         Add card to dashboard with positioning
@@ -335,13 +306,7 @@ class MetabaseProvisioner:
         if not self.session_token:
             return False
 
-        card_data = {
-            "cardId": card_id,
-            "row": row,
-            "col": col,
-            "sizeX": size_x,
-            "sizeY": size_y
-        }
+        card_data = {"cardId": card_id, "row": row, "col": col, "sizeX": size_x, "sizeY": size_y}
 
         try:
             headers = {"X-Metabase-Session": self.session_token}
@@ -349,7 +314,7 @@ class MetabaseProvisioner:
                 f"{self.metabase_url}/api/dashboard/{dashboard_id}/cards",
                 headers=headers,
                 json=card_data,
-                timeout=10
+                timeout=10,
             )
 
             return response.status_code == 200
@@ -358,7 +323,7 @@ class MetabaseProvisioner:
             print(f"Failed to add card to dashboard: {e}")
             return False
 
-    def provision_pipeline_health_dashboard(self) -> Dict[str, Any]:
+    def provision_pipeline_health_dashboard(self) -> dict[str, Any]:
         """
         Provision complete Data Pipeline Health dashboard
 
@@ -370,7 +335,7 @@ class MetabaseProvisioner:
             "dashboard_id": None,
             "dashboard_url": None,
             "cards_created": [],
-            "errors": []
+            "errors": [],
         }
 
         # Authenticate
@@ -397,25 +362,22 @@ class MetabaseProvisioner:
         card_layout = [
             # Row 0: Header cards
             ("pipeline_health_score", 0, 0, 6, 4),  # Top left: Health score
-            ("dbt_test_results", 0, 6, 6, 4),       # Top middle: Test results
-            ("source_overview", 0, 12, 6, 4),       # Top right: Source overview
-
+            ("dbt_test_results", 0, 6, 6, 4),  # Top middle: Test results
+            ("source_overview", 0, 12, 6, 4),  # Top right: Source overview
             # Row 1: Trends
-            ("sync_history", 4, 0, 9, 6),           # Left: Sync history chart
-            ("row_counts_trend", 4, 9, 9, 6),       # Right: Row counts chart
-
+            ("sync_history", 4, 0, 9, 6),  # Left: Sync history chart
+            ("row_counts_trend", 4, 9, 9, 6),  # Right: Row counts chart
             # Row 2: Details
-            ("data_freshness", 10, 0, 18, 4),       # Full width: Freshness table
+            ("data_freshness", 10, 0, 18, 4),  # Full width: Freshness table
         ]
 
         for query_key, row, col, size_x, size_y in card_layout:
             card_id = self.create_card(query_key, database_id)
             if card_id:
                 if self.add_card_to_dashboard(dashboard_id, card_id, row, col, size_x, size_y):
-                    summary["cards_created"].append({
-                        "name": DASHBOARD_QUERIES[query_key]["name"],
-                        "card_id": card_id
-                    })
+                    summary["cards_created"].append(
+                        {"name": DASHBOARD_QUERIES[query_key]["name"], "card_id": card_id}
+                    )
                 else:
                     summary["errors"].append(f"Failed to add card: {query_key}")
             else:
@@ -429,8 +391,8 @@ class MetabaseProvisioner:
 def provision_dashboard(
     metabase_url: str = "http://localhost:3000",
     username: str = "admin@example.com",
-    password: str = "admin123"
-) -> Dict[str, Any]:
+    password: str = "admin123",
+) -> dict[str, Any]:
     """
     Convenience function to provision Data Pipeline Health dashboard
 
@@ -446,7 +408,7 @@ def provision_dashboard(
     return provisioner.provision_pipeline_health_dashboard()
 
 
-def create_pipeline_health_dashboard(project_root: Path) -> Dict[str, Any]:
+def create_pipeline_health_dashboard(project_root: Path) -> dict[str, Any]:
     """
     Create Data Pipeline Health dashboard for a Dango project
 
@@ -464,7 +426,7 @@ def create_pipeline_health_dashboard(project_root: Path) -> Dict[str, Any]:
 def generate_secure_password(length: int = 20) -> str:
     """Generate a secure random password"""
     alphabet = string.ascii_letters + string.digits + string.punctuation
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def wait_for_metabase_ready(metabase_url: str = "http://localhost:3000", timeout: int = 60) -> bool:
@@ -490,11 +452,7 @@ def wait_for_metabase_ready(metabase_url: str = "http://localhost:3000", timeout
     return False
 
 
-def hide_internal_tables(
-    metabase_url: str,
-    headers: Dict[str, str],
-    db_id: int
-) -> Dict[str, Any]:
+def hide_internal_tables(metabase_url: str, headers: dict[str, str], db_id: int) -> dict[str, Any]:
     """
     Hide internal tables from Metabase UI (raw_* schemas, _dlt_* tables).
 
@@ -514,9 +472,7 @@ def hide_internal_tables(
     try:
         # First, trigger a sync to ensure tables are discovered
         requests.post(
-            f"{metabase_url}/api/database/{db_id}/sync_schema",
-            headers=headers,
-            timeout=10
+            f"{metabase_url}/api/database/{db_id}/sync_schema", headers=headers, timeout=10
         )
 
         # Wait briefly for sync to start discovering tables
@@ -524,13 +480,13 @@ def hide_internal_tables(
 
         # Get all tables from this database
         metadata_response = requests.get(
-            f"{metabase_url}/api/database/{db_id}/metadata",
-            headers=headers,
-            timeout=30
+            f"{metabase_url}/api/database/{db_id}/metadata", headers=headers, timeout=30
         )
 
         if metadata_response.status_code != 200:
-            result["errors"].append(f"Could not get database metadata: {metadata_response.status_code}")
+            result["errors"].append(
+                f"Could not get database metadata: {metadata_response.status_code}"
+            )
             return result
 
         metadata = metadata_response.json()
@@ -548,10 +504,10 @@ def hide_internal_tables(
 
             # Hide if: raw_* schema, _dlt_* table, or metadata tables
             should_hide = (
-                schema.startswith("raw_") or
-                table_name.startswith("_dlt_") or
-                table_name in ("spreadsheet", "spreadsheet_info") or
-                schema == "main"  # main schema has dlt internal tables
+                schema.startswith("raw_")
+                or table_name.startswith("_dlt_")
+                or table_name in ("spreadsheet", "spreadsheet_info")
+                or schema == "main"  # main schema has dlt internal tables
             )
 
             if should_hide:
@@ -560,7 +516,7 @@ def hide_internal_tables(
                         f"{metabase_url}/api/table/{table_id}",
                         headers=headers,
                         json={"visibility_type": "technical"},
-                        timeout=10
+                        timeout=10,
                     )
                     if hide_response.status_code == 200:
                         result["hidden_count"] += 1
@@ -576,9 +532,9 @@ def hide_internal_tables(
 def setup_metabase(
     project_root: Path,
     project_name: str,
-    organization: Optional[str] = None,
-    metabase_url: str = "http://localhost:3000"
-) -> Dict[str, Any]:
+    organization: str | None = None,
+    metabase_url: str = "http://localhost:3000",
+) -> dict[str, Any]:
     """
     Auto-setup Metabase on first start
 
@@ -599,11 +555,11 @@ def setup_metabase(
         "duckdb_connected": False,
         "h2_hidden": False,
         "credentials_saved": False,
-        "errors": []
+        "errors": [],
     }
 
-    metabase_url = metabase_url.rstrip('/')
-    duckdb_path = project_root / "data" / "warehouse.duckdb"
+    metabase_url = metabase_url.rstrip("/")
+    project_root / "data" / "warehouse.duckdb"
     credentials_file = project_root / ".dango" / "metabase.yml"
 
     # Check if already setup
@@ -645,7 +601,7 @@ def setup_metabase(
                 login_response = requests.post(
                     f"{metabase_url}/api/session",
                     json={"username": admin_email, "password": admin_password},
-                    timeout=10
+                    timeout=10,
                 )
 
                 if login_response.status_code == 200:
@@ -678,20 +634,13 @@ def setup_metabase(
                     "last_name": "User",
                     "email": admin_email,
                     "password": admin_password,
-                    "site_name": f"{org_name} Analytics"
+                    "site_name": f"{org_name} Analytics",
                 },
                 "database": None,  # We'll add DuckDB separately
-                "prefs": {
-                    "site_name": f"{org_name} Analytics",
-                    "allow_tracking": False
-                }
+                "prefs": {"site_name": f"{org_name} Analytics", "allow_tracking": False},
             }
 
-            response = requests.post(
-                f"{metabase_url}/api/setup",
-                json=setup_data,
-                timeout=30
-            )
+            response = requests.post(f"{metabase_url}/api/setup", json=setup_data, timeout=30)
 
             if response.status_code != 200:
                 # Check if user already exists - fall back to login
@@ -700,7 +649,7 @@ def setup_metabase(
                     login_response = requests.post(
                         f"{metabase_url}/api/session",
                         json={"username": admin_email, "password": admin_password},
-                        timeout=10
+                        timeout=10,
                     )
 
                     if login_response.status_code == 200:
@@ -726,7 +675,7 @@ def setup_metabase(
                 login_response = requests.post(
                     f"{metabase_url}/api/session",
                     json={"username": admin_email, "password": admin_password},
-                    timeout=10
+                    timeout=10,
                 )
 
                 if login_response.status_code != 200:
@@ -743,17 +692,15 @@ def setup_metabase(
         db_name = f"{org_name} Analytics"
 
         try:
-            db_list = requests.get(
-                f"{metabase_url}/api/database",
-                headers=headers,
-                timeout=10
-            )
+            db_list = requests.get(f"{metabase_url}/api/database", headers=headers, timeout=10)
             if db_list.status_code == 200:
                 databases = db_list.json().get("data", [])
                 for db in databases:
                     if db.get("engine") == "duckdb" and db.get("name") == db_name:
                         existing_db_id = db.get("id")
-                        print(f"  ℹ DuckDB connection already exists (ID: {existing_db_id}), will update it")
+                        print(
+                            f"  ℹ DuckDB connection already exists (ID: {existing_db_id}), will update it"
+                        )
                         break
         except Exception:
             pass  # If check fails, proceed with creation
@@ -768,11 +715,11 @@ def setup_metabase(
             "details": {
                 "database_file": docker_duckdb_path,
                 "old_implicit_casting": True,
-                "read_only": False
+                "read_only": False,
                 # Note: DuckDB driver doesn't support schema-filters-type/patterns
                 # Users will see all schemas (raw_*, main, staging)
                 # This is a limitation of the DuckDB Metabase driver
-            }
+            },
         }
 
         if existing_db_id:
@@ -781,15 +728,12 @@ def setup_metabase(
                 f"{metabase_url}/api/database/{existing_db_id}",
                 headers=headers,
                 json=duckdb_config,
-                timeout=10
+                timeout=10,
             )
         else:
             # Create new connection
             db_response = requests.post(
-                f"{metabase_url}/api/database",
-                headers=headers,
-                json=duckdb_config,
-                timeout=10
+                f"{metabase_url}/api/database", headers=headers, json=duckdb_config, timeout=10
             )
 
         if db_response.status_code == 200:
@@ -809,7 +753,7 @@ def setup_metabase(
                         f"{metabase_url}/api/database/{duckdb_id}",
                         headers=headers,
                         json={"is_sample": False, "is_full_sync": True},
-                        timeout=10
+                        timeout=10,
                     )
                 except Exception:
                     pass  # Not critical
@@ -825,12 +769,18 @@ def setup_metabase(
                 #     summary["tables_hidden"] = hide_result["hidden_count"]
             else:
                 # Got 200 but no ID - connection validation failed
-                error_msg = response_data.get("message") or response_data.get("errors") or str(response_data)
+                error_msg = (
+                    response_data.get("message")
+                    or response_data.get("errors")
+                    or str(response_data)
+                )
                 summary["errors"].append(f"Failed to connect DuckDB: {error_msg}")
                 print(f"  ✗ Failed to connect DuckDB: {error_msg}")
         else:
             # DuckDB connection failed - log the error
-            error_detail = db_response.text if db_response.text else f"Status {db_response.status_code}"
+            error_detail = (
+                db_response.text if db_response.text else f"Status {db_response.status_code}"
+            )
             summary["errors"].append(f"Failed to connect DuckDB: {error_detail}")
             print(f"  ✗ Failed to connect DuckDB: {error_detail}")
 
@@ -838,9 +788,7 @@ def setup_metabase(
         try:
             # Get all databases to find H2
             db_list_response = requests.get(
-                f"{metabase_url}/api/database",
-                headers=headers,
-                timeout=10
+                f"{metabase_url}/api/database", headers=headers, timeout=10
             )
 
             if db_list_response.status_code == 200:
@@ -854,9 +802,7 @@ def setup_metabase(
                         try:
                             # Try to delete it entirely
                             delete_response = requests.delete(
-                                f"{metabase_url}/api/database/{db_id}",
-                                headers=headers,
-                                timeout=10
+                                f"{metabase_url}/api/database/{db_id}", headers=headers, timeout=10
                             )
                             if delete_response.status_code == 204:
                                 summary["h2_hidden"] = True
@@ -867,7 +813,7 @@ def setup_metabase(
                                     f"{metabase_url}/api/database/{db_id}",
                                     headers=headers,
                                     json={"is_sample": True},
-                                    timeout=10
+                                    timeout=10,
                                 )
                                 if hide_response.status_code == 200:
                                     summary["h2_hidden"] = True
@@ -881,9 +827,7 @@ def setup_metabase(
         try:
             # Get all collections
             collections_response = requests.get(
-                f"{metabase_url}/api/collection",
-                headers=headers,
-                timeout=10
+                f"{metabase_url}/api/collection", headers=headers, timeout=10
             )
 
             if collections_response.status_code == 200:
@@ -902,7 +846,7 @@ def setup_metabase(
                             f"{metabase_url}/api/collection/{collection_id}",
                             headers=headers,
                             json={"archived": True},
-                            timeout=10
+                            timeout=10,
                         )
                         if archive_response.status_code == 200:
                             print(f"  ✓ Archived example collection: {collection.get('name')}")
@@ -915,19 +859,19 @@ def setup_metabase(
         collections_created = []
         for collection_name, description in [
             ("Shared", "Dashboards shared with the team (exported to git)"),
-            ("Personal", "Personal dashboards and experiments (not exported)")
+            ("Personal", "Personal dashboards and experiments (not exported)"),
         ]:
             try:
                 collection_data = {
                     "name": collection_name,
                     "description": description,
-                    "color": "#509EE3" if collection_name == "Shared" else "#9AA0AF"
+                    "color": "#509EE3" if collection_name == "Shared" else "#9AA0AF",
                 }
                 coll_response = requests.post(
                     f"{metabase_url}/api/collection",
                     headers=headers,
                     json=collection_data,
-                    timeout=10
+                    timeout=10,
                 )
                 if coll_response.status_code == 200:
                     collections_created.append(collection_name)
@@ -942,26 +886,20 @@ def setup_metabase(
         if not summary.get("duckdb_connected"):
             # DuckDB connection failed - don't save credentials
             # This allows setup to retry on next `dango start`
-            print(f"  ✗ Skipping credentials save (DuckDB connection required)")
+            print("  ✗ Skipping credentials save (DuckDB connection required)")
             summary["success"] = False
             return summary
 
         # Save credentials to .dango/metabase.yml (gitignored)
         credentials = {
             "metabase_url": metabase_url,
-            "admin": {
-                "email": admin_email,
-                "password": admin_password
-            },
-            "database": {
-                "id": summary.get("duckdb_id"),
-                "name": f"{org_name} Analytics"
-            },
-            "setup_completed_at": datetime.now().isoformat()
+            "admin": {"email": admin_email, "password": admin_password},
+            "database": {"id": summary.get("duckdb_id"), "name": f"{org_name} Analytics"},
+            "setup_completed_at": datetime.now().isoformat(),
         }
 
         credentials_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(credentials_file, 'w') as f:
+        with open(credentials_file, "w") as f:
             yaml.safe_dump(credentials, f, default_flow_style=False)
 
         summary["credentials_saved"] = True
@@ -978,10 +916,7 @@ def setup_metabase(
     return summary
 
 
-def sync_metabase_schema(
-    project_root: Path,
-    metabase_url: str = "http://localhost:3000"
-) -> bool:
+def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localhost:3000") -> bool:
     """
     Trigger Metabase to re-sync database schema (table/column metadata).
 
@@ -1005,7 +940,7 @@ def sync_metabase_schema(
 
     try:
         # Load credentials
-        with open(credentials_file, 'r') as f:
+        with open(credentials_file) as f:
             credentials = yaml.safe_load(f)
 
         # Get database ID from nested structure
@@ -1025,7 +960,7 @@ def sync_metabase_schema(
         login_response = requests.post(
             f"{metabase_url}/api/session",
             json={"username": email, "password": password},
-            timeout=10
+            timeout=10,
         )
 
         if login_response.status_code != 200:
@@ -1039,7 +974,7 @@ def sync_metabase_schema(
         response = requests.post(
             f"{metabase_url}/api/database/{database_id}/sync_schema",
             headers={"X-Metabase-Session": session_id},
-            timeout=10
+            timeout=10,
         )
 
         if response.status_code != 200:
@@ -1047,17 +982,21 @@ def sync_metabase_schema(
 
         # Wait for sync to complete (poll up to 10 seconds)
         import time
+
         for _ in range(10):
             time.sleep(1)
             db_status = requests.get(
                 f"{metabase_url}/api/database/{database_id}",
                 headers={"X-Metabase-Session": session_id},
-                timeout=5
+                timeout=5,
             )
             if db_status.status_code == 200:
                 # Check if sync is complete (no longer has 'initial_sync_status')
                 db_data = db_status.json()
-                if not db_data.get("initial_sync_status") or db_data.get("initial_sync_status") == "complete":
+                if (
+                    not db_data.get("initial_sync_status")
+                    or db_data.get("initial_sync_status") == "complete"
+                ):
                     break
 
         # Update table descriptions to guide users
@@ -1066,7 +1005,7 @@ def sync_metabase_schema(
             metadata_response = requests.get(
                 f"{metabase_url}/api/database/{database_id}/metadata",
                 headers={"X-Metabase-Session": session_id},
-                timeout=10
+                timeout=10,
             )
 
             if metadata_response.status_code == 200:
@@ -1123,7 +1062,7 @@ def sync_metabase_schema(
                         f"{metabase_url}/api/table/{table_id}",
                         headers={"X-Metabase-Session": session_id},
                         json=update_payload,
-                        timeout=5
+                        timeout=5,
                     )
                     if response.status_code != 200:
                         logger.warning(
@@ -1143,8 +1082,7 @@ def sync_metabase_schema(
 
 
 def refresh_metabase_connection(
-    project_root: Path,
-    metabase_url: str = "http://localhost:3000"
+    project_root: Path, metabase_url: str = "http://localhost:3000"
 ) -> bool:
     """
     Force Metabase to refresh its DuckDB connection to see latest data.
@@ -1171,7 +1109,7 @@ def refresh_metabase_connection(
             ["docker", "ps", "--filter", f"name={container_name}", "--format", "{{.Names}}"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
 
         if container_name not in check_result.stdout:
@@ -1180,10 +1118,7 @@ def refresh_metabase_connection(
 
         # Restart Metabase container to force reconnection
         restart_result = subprocess.run(
-            ["docker", "restart", container_name],
-            capture_output=True,
-            text=True,
-            timeout=30
+            ["docker", "restart", container_name], capture_output=True, text=True, timeout=30
         )
 
         if restart_result.returncode != 0:

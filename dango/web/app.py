@@ -1,29 +1,36 @@
-"""
-Dango Web UI Backend
+"""dango/web/app.py
 
-FastAPI application for monitoring and managing Dango data pipelines.
-Provides REST API endpoints and WebSocket support for real-time updates.
+FastAPI application for monitoring and managing Dango data pipelines. Provides REST API endpoints and WebSocket support for real-time updates.
 """
 
-from pathlib import Path
-from typing import Dict, Any, List, Optional
-from datetime import datetime
 import asyncio
 import json
 import logging
 import os
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import duckdb
+import httpx
+import yaml
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 import dango
-
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, UploadFile, File, Form, Request, Query
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, Response, RedirectResponse
-from pydantic import BaseModel
-import yaml
-import duckdb
-import shutil
-
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +40,7 @@ logger = logging.getLogger(__name__)
 # Pydantic models for API responses
 class TableInfo(BaseModel):
     """Table information for multi-resource sources"""
+
     name: str
     row_count: int
     schema: str
@@ -40,33 +48,37 @@ class TableInfo(BaseModel):
 
 class SourceStatus(BaseModel):
     """Source status information"""
+
     name: str
     type: str
     enabled: bool
-    last_sync: Optional[str] = None
-    row_count: Optional[int] = None
+    last_sync: str | None = None
+    row_count: int | None = None
     status: str = "unknown"  # "synced", "syncing", "failed", "unknown"
-    freshness: Optional[Dict[str, Any]] = None  # Data freshness information
-    tables: Optional[List[TableInfo]] = None  # Per-table breakdown for multi-resource sources
+    freshness: dict[str, Any] | None = None  # Data freshness information
+    tables: list[TableInfo] | None = None  # Per-table breakdown for multi-resource sources
 
 
 class ServiceHealth(BaseModel):
     """Service health check response"""
+
     status: str
     dango_version: str = "0.1.0"
-    services: Dict[str, str]
+    services: dict[str, str]
     uptime: str
 
 
 class SyncRequest(BaseModel):
     """Sync request parameters"""
+
     full_refresh: bool = False
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
+    start_date: str | None = None
+    end_date: str | None = None
 
 
 class SyncResponse(BaseModel):
     """Sync response"""
+
     success: bool
     message: str
     source_name: str
@@ -75,6 +87,7 @@ class SyncResponse(BaseModel):
 
 class LogEntry(BaseModel):
     """Log entry"""
+
     timestamp: str
     level: str
     message: str
@@ -82,14 +95,15 @@ class LogEntry(BaseModel):
 
 class WatcherStatus(BaseModel):
     """File watcher status information"""
+
     running: bool
-    pid: Optional[int] = None
+    pid: int | None = None
     auto_sync_enabled: bool
     auto_dbt_enabled: bool
     debounce_seconds: int
-    watch_patterns: List[str]
-    watch_directories: List[str]
-    log_file: Optional[str] = None
+    watch_patterns: list[str]
+    watch_directories: list[str]
+    log_file: str | None = None
 
 
 # WebSocket connection manager
@@ -97,7 +111,7 @@ class ConnectionManager:
     """Manages WebSocket connections for real-time updates"""
 
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
+        self.active_connections: list[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
         """Accept new WebSocket connection"""
@@ -154,7 +168,7 @@ ws_manager = ConnectionManager()
 
 
 # FastAPI app initialization
-def create_app(project_root: Optional[Path] = None) -> FastAPI:
+def create_app(project_root: Path | None = None) -> FastAPI:
     """
     Create and configure FastAPI application
 
@@ -169,7 +183,7 @@ def create_app(project_root: Optional[Path] = None) -> FastAPI:
         description="API for managing and monitoring Dango data pipelines",
         version="0.1.0",
         docs_url=None,  # Disable default docs, we'll create custom ones with navbar
-        redoc_url=None  # Disable default redoc
+        redoc_url=None,  # Disable default redoc
     )
 
     # Add CORS middleware for development
@@ -203,7 +217,7 @@ def get_project_root() -> Path:
     return app.state.project_root
 
 
-def load_sources_config() -> List[Dict[str, Any]]:
+def load_sources_config() -> list[dict[str, Any]]:
     """Load sources configuration from .dango/sources.yml"""
     sources_file = get_project_root() / ".dango" / "sources.yml"
 
@@ -211,9 +225,9 @@ def load_sources_config() -> List[Dict[str, Any]]:
         return []
 
     try:
-        with open(sources_file, 'r', encoding='utf-8') as f:
+        with open(sources_file, encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
-            return config.get('sources', [])
+            return config.get("sources", [])
     except Exception as e:
         logger.error(f"Error loading sources config: {e}")
         return []
@@ -224,7 +238,7 @@ def get_duckdb_path() -> Path:
     return get_project_root() / "data" / "warehouse.duckdb"
 
 
-def get_dbt_manifest() -> Optional[Dict[str, Any]]:
+def get_dbt_manifest() -> dict[str, Any] | None:
     """Load dbt manifest.json"""
     manifest_path = get_project_root() / "dbt" / "target" / "manifest.json"
 
@@ -232,14 +246,14 @@ def get_dbt_manifest() -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        with open(manifest_path, 'r', encoding='utf-8') as f:
+        with open(manifest_path, encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
         logger.error(f"Error loading dbt manifest: {e}")
         return None
 
 
-def get_dbt_model_row_count(schema: str, model_name: str) -> Optional[int]:
+def get_dbt_model_row_count(schema: str, model_name: str) -> int | None:
     """Get row count for a dbt model from DuckDB"""
     db_path = get_duckdb_path()
 
@@ -258,7 +272,9 @@ def get_dbt_model_row_count(schema: str, model_name: str) -> Optional[int]:
 
         if result and result[0] > 0:
             # Table exists, get row count
-            count_result = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{model_name}"').fetchone()
+            count_result = conn.execute(
+                f'SELECT COUNT(*) FROM "{schema}"."{model_name}"'
+            ).fetchone()
             conn.close()
             return count_result[0] if count_result else 0
 
@@ -270,7 +286,7 @@ def get_dbt_model_row_count(schema: str, model_name: str) -> Optional[int]:
         return None
 
 
-def get_dbt_model_last_run() -> Optional[str]:
+def get_dbt_model_last_run() -> str | None:
     """Get last dbt run timestamp from run_results.json"""
     project_root = get_project_root()
     run_results_path = project_root / "dbt" / "target" / "run_results.json"
@@ -279,7 +295,7 @@ def get_dbt_model_last_run() -> Optional[str]:
         return None
 
     try:
-        with open(run_results_path, 'r', encoding='utf-8') as f:
+        with open(run_results_path, encoding="utf-8") as f:
             run_results = json.load(f)
 
         # Get the generated_at time (when dbt command completed)
@@ -296,7 +312,7 @@ def get_dbt_model_last_run() -> Optional[str]:
         return None
 
 
-def get_dbt_model_statuses() -> Dict[str, Dict[str, Any]]:
+def get_dbt_model_statuses() -> dict[str, dict[str, Any]]:
     """
     Get status and timing for each dbt model from persistent status file
 
@@ -309,7 +325,7 @@ def get_dbt_model_statuses() -> Dict[str, Dict[str, Any]]:
     return get_model_statuses(project_root)
 
 
-def get_dbt_models() -> List[Dict[str, Any]]:
+def get_dbt_models() -> list[dict[str, Any]]:
     """Get list of dbt models from manifest"""
     manifest = get_dbt_manifest()
 
@@ -337,20 +353,22 @@ def get_dbt_models() -> List[Dict[str, Any]]:
             status = model_info.get("status")
             last_run = model_info.get("last_run")
 
-            models.append({
-                "name": model_name,
-                "unique_id": node_id,
-                "path": node.get("path"),
-                "materialization": node.get("config", {}).get("materialized", "view"),
-                "schema": schema,
-                "database": node.get("database"),
-                "depends_on": node.get("depends_on", {}).get("nodes", []),
-                "description": node.get("description", ""),
-                "tags": node.get("tags", []),
-                "row_count": row_count,
-                "last_run": last_run,  # Per-model timing, not global
-                "status": status,  # success/error/skipped/None
-            })
+            models.append(
+                {
+                    "name": model_name,
+                    "unique_id": node_id,
+                    "path": node.get("path"),
+                    "materialization": node.get("config", {}).get("materialized", "view"),
+                    "schema": schema,
+                    "database": node.get("database"),
+                    "depends_on": node.get("depends_on", {}).get("nodes", []),
+                    "description": node.get("description", ""),
+                    "tags": node.get("tags", []),
+                    "row_count": row_count,
+                    "last_run": last_run,  # Per-model timing, not global
+                    "status": status,  # success/error/skipped/None
+                }
+            )
 
     # Sort models by schema first, then by name within each schema for consistent ordering
     models.sort(key=lambda m: (m.get("schema", "").lower(), m.get("name", "").lower()))
@@ -358,7 +376,7 @@ def get_dbt_models() -> List[Dict[str, Any]]:
     return models
 
 
-def get_source_row_count(source_name: str) -> Optional[int]:
+def get_source_row_count(source_name: str) -> int | None:
     """Get row count for a source from DuckDB (with timeout to prevent blocking)"""
     db_path = get_duckdb_path()
 
@@ -371,11 +389,13 @@ def get_source_row_count(source_name: str) -> Optional[int]:
     @contextmanager
     def timeout_context(seconds):
         """Context manager for timeout"""
+
         def timeout_handler(signum, frame):
+            """Raise TimeoutError when SIGALRM fires."""
             raise TimeoutError(f"Query timed out after {seconds} seconds")
 
         # Set the signal handler and alarm (Unix only)
-        if hasattr(signal, 'SIGALRM'):
+        if hasattr(signal, "SIGALRM"):
             old_handler = signal.signal(signal.SIGALRM, timeout_handler)
             signal.alarm(seconds)
             try:
@@ -413,7 +433,9 @@ def get_source_row_count(source_name: str) -> Optional[int]:
 
                 total_rows = 0
                 for (table_name,) in tables:
-                    count_result = conn.execute(f'SELECT COUNT(*) FROM "{multi_schema}"."{table_name}"').fetchone()
+                    count_result = conn.execute(
+                        f'SELECT COUNT(*) FROM "{multi_schema}"."{table_name}"'
+                    ).fetchone()
                     if count_result:
                         total_rows += count_result[0]
 
@@ -428,7 +450,9 @@ def get_source_row_count(source_name: str) -> Optional[int]:
             """).fetchone()
 
             if result and result[0] > 0:
-                count_result = conn.execute(f'SELECT COUNT(*) FROM "raw"."{source_name}"').fetchone()
+                count_result = conn.execute(
+                    f'SELECT COUNT(*) FROM "raw"."{source_name}"'
+                ).fetchone()
                 conn.close()
                 return count_result[0] if count_result else 0
 
@@ -440,22 +464,26 @@ def get_source_row_count(source_name: str) -> Optional[int]:
             """).fetchone()
 
             if result and result[0] > 0:
-                count_result = conn.execute(f'SELECT COUNT(*) FROM "staging"."stg_{source_name}"').fetchone()
+                count_result = conn.execute(
+                    f'SELECT COUNT(*) FROM "staging"."stg_{source_name}"'
+                ).fetchone()
                 conn.close()
                 return count_result[0] if count_result else 0
 
             conn.close()
             return None
 
-    except TimeoutError as e:
-        logger.warning(f"Row count query timed out for {source_name} (database likely busy with sync)")
+    except TimeoutError:
+        logger.warning(
+            f"Row count query timed out for {source_name} (database likely busy with sync)"
+        )
         return None
     except Exception as e:
         logger.error(f"Error getting row count for {source_name}: {e}")
         return None
 
 
-def get_source_tables_info(source_name: str) -> Optional[Dict[str, Any]]:
+def get_source_tables_info(source_name: str) -> dict[str, Any] | None:
     """
     Get detailed table information for a source, including per-table breakdown.
 
@@ -501,21 +529,21 @@ def get_source_tables_info(source_name: str) -> Optional[Dict[str, Any]]:
             tables = []
             total_rows = 0
             for (table_name,) in tables_result:
-                count_result = conn.execute(f'SELECT COUNT(*) FROM "{schema_name}"."{table_name}"').fetchone()
+                count_result = conn.execute(
+                    f'SELECT COUNT(*) FROM "{schema_name}"."{table_name}"'
+                ).fetchone()
                 if count_result:
                     row_count = count_result[0]
                     total_rows += row_count
-                    tables.append({
-                        "name": table_name,
-                        "row_count": row_count,
-                        "schema": schema_name
-                    })
+                    tables.append(
+                        {"name": table_name, "row_count": row_count, "schema": schema_name}
+                    )
 
             conn.close()
             return {
                 "total_rows": total_rows,
                 "tables": tables,
-                "has_multiple_tables": len(tables) > 1
+                "has_multiple_tables": len(tables) > 1,
             }
 
         # Fall back to staging table (for backward compatibility)
@@ -526,17 +554,17 @@ def get_source_tables_info(source_name: str) -> Optional[Dict[str, Any]]:
         """).fetchone()
 
         if result and result[0] > 0:
-            count_result = conn.execute(f'SELECT COUNT(*) FROM "staging"."stg_{source_name}"').fetchone()
+            count_result = conn.execute(
+                f'SELECT COUNT(*) FROM "staging"."stg_{source_name}"'
+            ).fetchone()
             row_count = count_result[0] if count_result else 0
             conn.close()
             return {
                 "total_rows": row_count,
-                "tables": [{
-                    "name": f"stg_{source_name}",
-                    "row_count": row_count,
-                    "schema": "staging"
-                }],
-                "has_multiple_tables": False
+                "tables": [
+                    {"name": f"stg_{source_name}", "row_count": row_count, "schema": "staging"}
+                ],
+                "has_multiple_tables": False,
             }
 
         conn.close()
@@ -547,33 +575,40 @@ def get_source_tables_info(source_name: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def get_last_sync_time(source_name: str) -> Optional[str]:
+def get_last_sync_time(source_name: str) -> str | None:
     """Get last sync time from sync history"""
     history = load_sync_history(source_name, limit=1)
     if history and len(history) > 0:
-        return history[0].get('timestamp')
+        return history[0].get("timestamp")
     return None
 
 
-def get_last_sync_status(source_name: str) -> Optional[str]:
+def get_last_sync_status(source_name: str) -> str | None:
     """Get last sync status from sync history (success/failed)"""
     history = load_sync_history(source_name, limit=1)
     if history and len(history) > 0:
-        return history[0].get('status')  # 'success' or 'failed'
+        return history[0].get("status")  # 'success' or 'failed'
     return None
 
 
-def mask_sensitive_config(config: Dict[str, Any]) -> Dict[str, Any]:
+def mask_sensitive_config(config: dict[str, Any]) -> dict[str, Any]:
     """Mask sensitive fields in configuration"""
     masked_config = config.copy()
 
     # List of sensitive field names to mask
     sensitive_fields = {
-        'password', 'api_key', 'secret', 'token', 'credentials',
-        'access_token', 'refresh_token', 'private_key', 'client_secret'
+        "password",
+        "api_key",
+        "secret",
+        "token",
+        "credentials",
+        "access_token",
+        "refresh_token",
+        "private_key",
+        "client_secret",
     }
 
-    def mask_dict(d: Dict[str, Any]) -> Dict[str, Any]:
+    def mask_dict(d: dict[str, Any]) -> dict[str, Any]:
         """Recursively mask sensitive fields in dict"""
         result = {}
         for key, value in d.items():
@@ -581,13 +616,15 @@ def mask_sensitive_config(config: Dict[str, Any]) -> Dict[str, Any]:
             if any(sensitive in key_lower for sensitive in sensitive_fields):
                 # Mask the value
                 if isinstance(value, str) and len(value) > 4:
-                    result[key] = value[:2] + '*' * (len(value) - 4) + value[-2:]
+                    result[key] = value[:2] + "*" * (len(value) - 4) + value[-2:]
                 else:
-                    result[key] = '****'
+                    result[key] = "****"
             elif isinstance(value, dict):
                 result[key] = mask_dict(value)
             elif isinstance(value, list):
-                result[key] = [mask_dict(item) if isinstance(item, dict) else item for item in value]
+                result[key] = [
+                    mask_dict(item) if isinstance(item, dict) else item for item in value
+                ]
             else:
                 result[key] = value
         return result
@@ -595,19 +632,21 @@ def mask_sensitive_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return mask_dict(masked_config)
 
 
-def load_sync_history(source_name: str, limit: int = 10) -> List[Dict[str, Any]]:
+def load_sync_history(source_name: str, limit: int = 10) -> list[dict[str, Any]]:
     """Load sync history for a source"""
     from dango.utils.sync_history import load_sync_history as load_history
+
     return load_history(get_project_root(), source_name, limit)
 
 
-def save_sync_history_entry(source_name: str, entry: Dict[str, Any]):
+def save_sync_history_entry(source_name: str, entry: dict[str, Any]):
     """Save a sync history entry for a source"""
     from dango.utils.sync_history import save_sync_history_entry as save_entry
+
     save_entry(get_project_root(), source_name, entry)
 
 
-def get_source_freshness(source_name: str) -> Dict[str, Any]:
+def get_source_freshness(source_name: str) -> dict[str, Any]:
     """
     Calculate data freshness for a source
 
@@ -635,7 +674,7 @@ def get_source_freshness(source_name: str) -> Dict[str, Any]:
             "status": "never_synced",
             "hours_since_sync": None,
             "last_sync_time": None,
-            "last_sync_status": None
+            "last_sync_status": None,
         }
 
     last_sync = history[0]
@@ -648,12 +687,12 @@ def get_source_freshness(source_name: str) -> Dict[str, Any]:
             "status": "failed",
             "hours_since_sync": None,
             "last_sync_time": last_sync_time,
-            "last_sync_status": last_sync_status
+            "last_sync_status": last_sync_status,
         }
 
     # Calculate time since last successful sync
     try:
-        timestamp = datetime.fromisoformat(last_sync_time.replace('Z', '+00:00'))
+        timestamp = datetime.fromisoformat(last_sync_time.replace("Z", "+00:00"))
         hours_ago = (datetime.now() - timestamp.replace(tzinfo=None)).total_seconds() / 3600
 
         # All successful syncs show as "synced"
@@ -661,7 +700,7 @@ def get_source_freshness(source_name: str) -> Dict[str, Any]:
             "status": "synced",
             "hours_since_sync": round(hours_ago, 1),
             "last_sync_time": last_sync_time,
-            "last_sync_status": last_sync_status
+            "last_sync_status": last_sync_status,
         }
 
     except Exception as e:
@@ -670,7 +709,7 @@ def get_source_freshness(source_name: str) -> Dict[str, Any]:
             "status": "unknown",
             "hours_since_sync": None,
             "last_sync_time": last_sync_time,
-            "last_sync_status": last_sync_status
+            "last_sync_status": last_sync_status,
         }
 
 
@@ -681,7 +720,7 @@ def get_logs_file() -> Path:
     return logs_dir / "activity.jsonl"
 
 
-def append_log_entry(log_entry: Dict[str, Any]):
+def append_log_entry(log_entry: dict[str, Any]):
     """Append a log entry to the persistent logs file"""
     from dango.utils.activity_log import log_activity
 
@@ -691,13 +730,13 @@ def append_log_entry(log_entry: Dict[str, Any]):
             level=log_entry.get("level", "info"),
             source=log_entry.get("source", "system"),
             message=log_entry.get("message", ""),
-            timestamp=log_entry.get("timestamp")
+            timestamp=log_entry.get("timestamp"),
         )
     except Exception as e:
         logger.error(f"Error appending log entry: {e}")
 
 
-def load_all_logs(limit: int = 1000) -> List[Dict[str, Any]]:
+def load_all_logs(limit: int = 1000) -> list[dict[str, Any]]:
     """Load all logs from the persistent file"""
     logs_file = get_logs_file()
 
@@ -706,7 +745,7 @@ def load_all_logs(limit: int = 1000) -> List[Dict[str, Any]]:
 
     try:
         logs = []
-        with open(logs_file, 'r', encoding='utf-8') as f:
+        with open(logs_file, encoding="utf-8") as f:
             for line in f:
                 if line.strip():
                     try:
@@ -729,7 +768,7 @@ def check_service_via_http(service_name: str) -> str:
     # Map service names to their health check URLs
     health_urls = {
         "metabase": "http://localhost:3000/api/health",
-        "dbt-docs": "http://localhost:8081"
+        "dbt-docs": "http://localhost:8081",
     }
 
     url = health_urls.get(service_name)
@@ -752,14 +791,14 @@ def check_service_via_docker(service_name: str) -> str:
 
     try:
         result = subprocess.run(
-            ['docker', 'ps', '--filter', f'name={service_name}', '--format', '{{.Status}}'],
+            ["docker", "ps", "--filter", f"name={service_name}", "--format", "{{.Status}}"],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         if result.returncode == 0 and result.stdout.strip():
-            if 'Up' in result.stdout:
+            if "Up" in result.stdout:
                 return "running"
             else:
                 return "stopped"
@@ -779,7 +818,7 @@ async def check_service_status_async(service_name: str) -> str:
     """
     import sys
 
-    if sys.platform == 'win32':
+    if sys.platform == "win32":
         # Windows: HTTP checks are much faster
         return await asyncio.to_thread(check_service_via_http, service_name)
     else:
@@ -789,6 +828,7 @@ async def check_service_status_async(service_name: str) -> str:
 
 # API Endpoints
 
+
 @app.get("/api/status", response_model=ServiceHealth)
 async def get_status():
     """
@@ -796,7 +836,7 @@ async def get_status():
 
     Returns health check for Dango API and related services (DuckDB, Metabase, dbt-docs)
     """
-    project_root = get_project_root()
+    get_project_root()
     duckdb_path = get_duckdb_path()
 
     # Check DuckDB
@@ -816,9 +856,9 @@ async def get_status():
             "api": "running",
             "duckdb": duckdb_status,
             "metabase": metabase_status,
-            "dbt_docs": dbt_docs_status
+            "dbt_docs": dbt_docs_status,
         },
-        uptime="N/A"  # TODO: Track actual uptime
+        uptime="N/A",  # TODO: Track actual uptime
     )
 
 
@@ -855,7 +895,7 @@ async def get_watcher_status_api():
             debounce_seconds=platform.debounce_seconds,
             watch_patterns=platform.watch_patterns,
             watch_directories=platform.watch_directories,
-            log_file=str(watcher_status["log_file"]) if watcher_status["log_file"] else None
+            log_file=str(watcher_status["log_file"]) if watcher_status["log_file"] else None,
         )
     except Exception as e:
         logger.error(f"Failed to load watcher config: {e}")
@@ -868,7 +908,7 @@ async def get_watcher_status_api():
             debounce_seconds=600,
             watch_patterns=["*.csv"],
             watch_directories=["data/uploads"],
-            log_file=str(watcher_status["log_file"]) if watcher_status["log_file"] else None
+            log_file=str(watcher_status["log_file"]) if watcher_status["log_file"] else None,
         )
 
 
@@ -887,7 +927,7 @@ async def get_config():
 
         web_port = config.platform.port
         project_name = config.project.name
-        organization = getattr(config.project, 'organization', None)
+        organization = getattr(config.project, "organization", None)
 
         return {
             "web_port": web_port,
@@ -896,7 +936,7 @@ async def get_config():
             "dbt_docs_url": "http://localhost:8081",
             "api_url": f"http://localhost:{web_port}/api",
             "project_name": project_name,
-            "organization": organization
+            "organization": organization,
         }
     except Exception as e:
         logger.error(f"Failed to load config: {e}")
@@ -908,7 +948,7 @@ async def get_config():
             "dbt_docs_url": "http://localhost:8081",
             "api_url": "http://localhost:8800/api",
             "project_name": "Unknown Project",
-            "organization": None
+            "organization": None,
         }
 
 
@@ -926,16 +966,14 @@ async def get_metabase_config():
         if not metabase_yml_path.exists():
             return {"database_id": None, "configured": False}
 
-        with open(metabase_yml_path, 'r', encoding='utf-8') as f:
+        with open(metabase_yml_path, encoding="utf-8") as f:
             import yaml
+
             metabase_config = yaml.safe_load(f)
 
-        database_id = metabase_config.get('database', {}).get('id')
+        database_id = metabase_config.get("database", {}).get("id")
 
-        return {
-            "database_id": database_id,
-            "configured": True
-        }
+        return {"database_id": database_id, "configured": True}
     except Exception as e:
         logger.error(f"Failed to load Metabase config: {e}")
         return {"database_id": None, "configured": False}
@@ -946,22 +984,27 @@ async def get_platform_health_data():
     Helper function to gather platform health data (runs blocking operations in thread pool)
     """
     from dango.utils.db_health import check_duckdb_health, get_disk_usage_summary
-    from dango.config import ConfigLoader
 
     project_root = get_project_root()
     duckdb_path = get_duckdb_path()
 
     # Run all blocking operations concurrently in thread pool
     db_health_task = asyncio.create_task(
-        asyncio.to_thread(lambda: check_duckdb_health(duckdb_path) if duckdb_path.exists() else {
-            "size_gb": 0,
-            "size_mb": 0,
-            "tables": 0,
-            "status": "new",
-            "raw_tables": 0,
-            "staging_tables": 0,
-            "marts_tables": 0
-        })
+        asyncio.to_thread(
+            lambda: (
+                check_duckdb_health(duckdb_path)
+                if duckdb_path.exists()
+                else {
+                    "size_gb": 0,
+                    "size_mb": 0,
+                    "tables": 0,
+                    "status": "new",
+                    "raw_tables": 0,
+                    "staging_tables": 0,
+                    "marts_tables": 0,
+                }
+            )
+        )
     )
 
     disk_task = asyncio.create_task(asyncio.to_thread(get_disk_usage_summary, project_root))
@@ -979,7 +1022,7 @@ async def get_platform_health_data():
             "status": "error",
             "raw_tables": 0,
             "staging_tables": 0,
-            "marts_tables": 0
+            "marts_tables": 0,
         }
 
     disk = await disk_task
@@ -988,23 +1031,29 @@ async def get_platform_health_data():
     # Check for failed syncs
     failed_syncs = []
     for source in sources_config:
-        source_name = source.get('name', 'unknown')
+        source_name = source.get("name", "unknown")
         history = await asyncio.to_thread(load_sync_history, source_name, 5)
 
         if history and len(history) > 0:
             most_recent = history[0]
             if most_recent.get("status") == "failed":
                 try:
-                    timestamp = datetime.fromisoformat(most_recent.get("timestamp", "").replace('Z', '+00:00'))
-                    hours_ago = (datetime.now() - timestamp.replace(tzinfo=None)).total_seconds() / 3600
+                    timestamp = datetime.fromisoformat(
+                        most_recent.get("timestamp", "").replace("Z", "+00:00")
+                    )
+                    hours_ago = (
+                        datetime.now() - timestamp.replace(tzinfo=None)
+                    ).total_seconds() / 3600
 
                     if hours_ago < 24:
-                        failed_syncs.append({
-                            "source": source_name,
-                            "count": 1,
-                            "last_error": most_recent.get("error_message", "Unknown error")
-                        })
-                except:
+                        failed_syncs.append(
+                            {
+                                "source": source_name,
+                                "count": 1,
+                                "last_error": most_recent.get("error_message", "Unknown error"),
+                            }
+                        )
+                except Exception:
                     pass
 
     # Check for failed dbt runs
@@ -1013,8 +1062,10 @@ async def get_platform_health_data():
 
     if run_results_path.exists():
         try:
+
             def read_dbt_results():
-                with open(run_results_path, 'r', encoding='utf-8') as f:
+                """Read and parse the dbt run_results.json file."""
+                with open(run_results_path, encoding="utf-8") as f:
                     return json.load(f)
 
             run_results = await asyncio.to_thread(read_dbt_results)
@@ -1023,11 +1074,13 @@ async def get_platform_health_data():
             failed_models = [r for r in results if r.get("status") == "error"]
 
             if failed_models:
-                failed_dbt.append({
-                    "run_time": run_results.get("metadata", {}).get("generated_at"),
-                    "failed_models": len(failed_models),
-                    "models": [r.get("unique_id", "unknown") for r in failed_models[:5]]
-                })
+                failed_dbt.append(
+                    {
+                        "run_time": run_results.get("metadata", {}).get("generated_at"),
+                        "failed_models": len(failed_models),
+                        "models": [r.get("unique_id", "unknown") for r in failed_models[:5]],
+                    }
+                )
         except Exception as e:
             logger.error(f"Error reading dbt run results: {e}")
 
@@ -1036,7 +1089,7 @@ async def get_platform_health_data():
         "disk": disk,
         "sources_config": sources_config,
         "failed_syncs": failed_syncs,
-        "failed_dbt": failed_dbt
+        "failed_dbt": failed_dbt,
     }
 
 
@@ -1094,7 +1147,7 @@ async def get_platform_health():
         "total_sources": len(sources_config),
         "enabled_sources": len([s for s in sources_config if s.get("enabled", True)]),
         "critical_issues": critical_issues,
-        "warnings": warnings
+        "warnings": warnings,
     }
 
 
@@ -1102,9 +1155,9 @@ async def get_source_status_data(source: dict) -> SourceStatus:
     """
     Get status data for a single source (runs blocking operations in thread pool)
     """
-    source_name = source.get('name', 'unknown')
-    source_type = source.get('type', 'unknown')
-    enabled = source.get('enabled', True)
+    source_name = source.get("name", "unknown")
+    source_type = source.get("type", "unknown")
+    enabled = source.get("enabled", True)
 
     # Run blocking operations in thread pool
     tables_info = await asyncio.to_thread(get_source_tables_info, source_name)
@@ -1115,14 +1168,18 @@ async def get_source_status_data(source: dict) -> SourceStatus:
 
     # Extract row count and tables list
     if tables_info:
-        row_count = tables_info['total_rows']
+        row_count = tables_info["total_rows"]
         # Show tables breakdown if source has multiple tables
-        tables = [TableInfo(**t) for t in tables_info['tables']] if tables_info.get('has_multiple_tables') else None
+        tables = (
+            [TableInfo(**t) for t in tables_info["tables"]]
+            if tables_info.get("has_multiple_tables")
+            else None
+        )
     else:
         row_count = None
         tables = None
 
-    rows_processed = history[0].get('rows_processed', 0) if history else None
+    rows_processed = history[0].get("rows_processed", 0) if history else None
 
     # Determine status (priority: failed > synced > empty > not_synced)
     if last_sync_status == "failed":
@@ -1130,7 +1187,9 @@ async def get_source_status_data(source: dict) -> SourceStatus:
     elif not history:
         # Never synced - no history at all
         status = "not_synced"
-    elif last_sync_status == "success" and (rows_processed == 0 or row_count == 0 or row_count is None):
+    elif last_sync_status == "success" and (
+        rows_processed == 0 or row_count == 0 or row_count is None
+    ):
         # Synced but no data loaded
         status = "empty"
     elif row_count is not None and row_count > 0:
@@ -1148,11 +1207,11 @@ async def get_source_status_data(source: dict) -> SourceStatus:
         row_count=row_count,
         status=status,
         freshness=freshness,
-        tables=tables
+        tables=tables,
     )
 
 
-@app.get("/api/sources", response_model=List[SourceStatus])
+@app.get("/api/sources", response_model=list[SourceStatus])
 async def get_sources():
     """
     List all configured data sources with status
@@ -1189,7 +1248,7 @@ async def get_source_details(source_name: str):
     # Find the source
     source_config = None
     for source in sources_config:
-        if source.get('name') == source_name:
+        if source.get("name") == source_name:
             source_config = source
             break
 
@@ -1211,8 +1270,8 @@ async def get_source_details(source_name: str):
     # Get table breakdown for sources with multiple tables
     tables_info = get_source_tables_info(source_name)
     tables = None
-    if tables_info and tables_info.get('has_multiple_tables'):
-        tables = [TableInfo(**t) for t in tables_info['tables']]
+    if tables_info and tables_info.get("has_multiple_tables"):
+        tables = [TableInfo(**t) for t in tables_info["tables"]]
 
     return {
         "name": source_name,
@@ -1220,15 +1279,13 @@ async def get_source_details(source_name: str):
         "history": history,
         "row_count": row_count,
         "freshness": freshness,
-        "tables": tables
+        "tables": tables,
     }
 
 
 @app.post("/api/sources/{source_name}/sync", response_model=SyncResponse)
 async def trigger_sync(
-    source_name: str,
-    sync_request: SyncRequest,
-    background_tasks: BackgroundTasks
+    source_name: str, sync_request: SyncRequest, background_tasks: BackgroundTasks
 ):
     """
     Trigger sync for a specific source
@@ -1242,7 +1299,7 @@ async def trigger_sync(
     """
     # Verify source exists
     sources_config = load_sources_config()
-    source_exists = any(s.get('name') == source_name for s in sources_config)
+    source_exists = any(s.get("name") == source_name for s in sources_config)
 
     if not source_exists:
         raise HTTPException(status_code=404, detail=f"Source '{source_name}' not found")
@@ -1253,21 +1310,19 @@ async def trigger_sync(
         source_name,
         sync_request.full_refresh,
         sync_request.start_date,
-        sync_request.end_date
+        sync_request.end_date,
     )
 
     # Broadcast sync started event via WebSocket
-    await ws_manager.broadcast({
-        "event": "sync_started",
-        "source": source_name,
-        "timestamp": datetime.now().isoformat()
-    })
+    await ws_manager.broadcast(
+        {"event": "sync_started", "source": source_name, "timestamp": datetime.now().isoformat()}
+    )
 
     return SyncResponse(
         success=True,
         message=f"Sync started for {source_name}",
         source_name=source_name,
-        started_at=datetime.now().isoformat()
+        started_at=datetime.now().isoformat(),
     )
 
 
@@ -1279,6 +1334,7 @@ async def run_dbt_after_delete(source_name: str):
     the current state of the raw data (with rows removed)
     """
     import time
+
     from dango.utils import DbtLock, DbtLockError
 
     start_time = time.time()
@@ -1290,24 +1346,28 @@ async def run_dbt_after_delete(source_name: str):
         lock = DbtLock(
             project_root=project_root,
             source="ui",
-            operation=f"dbt run after {source_name} file deletion"
+            operation=f"dbt run after {source_name} file deletion",
         )
         lock.acquire()
     except DbtLockError as e:
         # Lock is held by another process - broadcast error and return
-        error_msg = str(e).split('\n')[0]
-        await ws_manager.broadcast({
-            "event": "dbt_run_all_failed",
-            "source": f"dbt (triggered by {source_name} delete)",
-            "message": error_msg,
-            "timestamp": datetime.now().isoformat()
-        })
-        append_log_entry({
-            "timestamp": datetime.now().isoformat(),
-            "level": "error",
-            "source": f"dbt (triggered by {source_name} delete)",
-            "message": f"dbt run blocked: {error_msg}"
-        })
+        error_msg = str(e).split("\n")[0]
+        await ws_manager.broadcast(
+            {
+                "event": "dbt_run_all_failed",
+                "source": f"dbt (triggered by {source_name} delete)",
+                "message": error_msg,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+        append_log_entry(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "level": "error",
+                "source": f"dbt (triggered by {source_name} delete)",
+                "message": f"dbt run blocked: {error_msg}",
+            }
+        )
         logger.warning(f"Could not acquire dbt lock for delete operation: {e}")
         return
 
@@ -1315,20 +1375,24 @@ async def run_dbt_after_delete(source_name: str):
         from dango.transformation import run_dbt_models
 
         # Log dbt start
-        append_log_entry({
-            "timestamp": sync_timestamp,
-            "level": "info",
-            "source": f"dbt (triggered by {source_name} delete)",
-            "message": f"Running dbt models for {source_name} after file deletion"
-        })
+        append_log_entry(
+            {
+                "timestamp": sync_timestamp,
+                "level": "info",
+                "source": f"dbt (triggered by {source_name} delete)",
+                "message": f"Running dbt models for {source_name} after file deletion",
+            }
+        )
 
         # Broadcast dbt started
-        await ws_manager.broadcast({
-            "event": "dbt_run_all_started",
-            "source": f"dbt (triggered by {source_name} delete)",
-            "message": f"Updating models after file deletion",
-            "timestamp": sync_timestamp
-        })
+        await ws_manager.broadcast(
+            {
+                "event": "dbt_run_all_started",
+                "source": f"dbt (triggered by {source_name} delete)",
+                "message": "Updating models after file deletion",
+                "timestamp": sync_timestamp,
+            }
+        )
 
         # Run dbt for this source and downstream models
         # Use source:source_name+ to run all models dependent on this source
@@ -1343,20 +1407,24 @@ async def run_dbt_after_delete(source_name: str):
 
         if dbt_success:
             # Log success
-            append_log_entry({
-                "timestamp": datetime.now().isoformat(),
-                "level": "success",
-                "source": f"dbt (triggered by {source_name} delete)",
-                "message": f"dbt models updated successfully"
-            })
+            append_log_entry(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "success",
+                    "source": f"dbt (triggered by {source_name} delete)",
+                    "message": "dbt models updated successfully",
+                }
+            )
 
             # Broadcast completion
-            await ws_manager.broadcast({
-                "event": "dbt_run_all_completed",
-                "source": f"dbt (triggered by {source_name} delete)",
-                "message": f"Models updated after file deletion",
-                "timestamp": datetime.now().isoformat()
-            })
+            await ws_manager.broadcast(
+                {
+                    "event": "dbt_run_all_completed",
+                    "source": f"dbt (triggered by {source_name} delete)",
+                    "message": "Models updated after file deletion",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
 
             # Save sync history with success
             history_entry = {
@@ -1365,25 +1433,29 @@ async def run_dbt_after_delete(source_name: str):
                 "duration_seconds": round(duration, 2),
                 "rows_processed": rows_processed,
                 "full_refresh": False,
-                "error_message": None
+                "error_message": None,
             }
             save_sync_history_entry(source_name, history_entry)
         else:
             # Log failure - dbt_output already contains "dbt run failed:" prefix
-            append_log_entry({
-                "timestamp": datetime.now().isoformat(),
-                "level": "error",
-                "source": f"dbt (triggered by {source_name} delete)",
-                "message": dbt_output  # Don't add extra "dbt run failed:" prefix
-            })
+            append_log_entry(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "error",
+                    "source": f"dbt (triggered by {source_name} delete)",
+                    "message": dbt_output,  # Don't add extra "dbt run failed:" prefix
+                }
+            )
 
             # Broadcast failure
-            await ws_manager.broadcast({
-                "event": "dbt_run_all_failed",
-                "source": f"dbt (triggered by {source_name} delete)",
-                "message": f"dbt run failed",
-                "timestamp": datetime.now().isoformat()
-            })
+            await ws_manager.broadcast(
+                {
+                    "event": "dbt_run_all_failed",
+                    "source": f"dbt (triggered by {source_name} delete)",
+                    "message": "dbt run failed",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
 
             # Save sync history with failure
             history_entry = {
@@ -1392,7 +1464,7 @@ async def run_dbt_after_delete(source_name: str):
                 "duration_seconds": round(duration, 2),
                 "rows_processed": 0,
                 "full_refresh": False,
-                "error_message": dbt_output
+                "error_message": dbt_output,
             }
             save_sync_history_entry(source_name, history_entry)
 
@@ -1400,12 +1472,14 @@ async def run_dbt_after_delete(source_name: str):
         logger.error(f"Error running dbt after delete: {e}")
         duration = time.time() - start_time
 
-        append_log_entry({
-            "timestamp": datetime.now().isoformat(),
-            "level": "error",
-            "source": f"dbt (triggered by {source_name} delete)",
-            "message": f"Error running dbt: {str(e)}"
-        })
+        append_log_entry(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "level": "error",
+                "source": f"dbt (triggered by {source_name} delete)",
+                "message": f"Error running dbt: {str(e)}",
+            }
+        )
 
         # Save sync history with exception
         history_entry = {
@@ -1414,7 +1488,7 @@ async def run_dbt_after_delete(source_name: str):
             "duration_seconds": round(duration, 2),
             "rows_processed": 0,
             "full_refresh": False,
-            "error_message": str(e)
+            "error_message": str(e),
         }
         save_sync_history_entry(source_name, history_entry)
     finally:
@@ -1423,10 +1497,7 @@ async def run_dbt_after_delete(source_name: str):
 
 
 async def run_sync_task(
-    source_name: str,
-    full_refresh: bool,
-    start_date: Optional[str],
-    end_date: Optional[str]
+    source_name: str, full_refresh: bool, start_date: str | None, end_date: str | None
 ):
     """
     Run sync task in background
@@ -1434,6 +1505,7 @@ async def run_sync_task(
     This function imports and runs the dlt sync process, broadcasting updates via WebSocket
     """
     import time
+
     from dango.utils import DbtLock, DbtLockError
 
     start_time = time.time()
@@ -1448,24 +1520,28 @@ async def run_sync_task(
         lock = DbtLock(
             project_root=project_root,
             source="ui",
-            operation=f"sync {source_name} (includes dbt run)"
+            operation=f"sync {source_name} (includes dbt run)",
         )
         lock.acquire()
     except DbtLockError as e:
         # Lock is held by another process - broadcast error and return
-        error_msg = str(e).split('\n')[0]
-        await ws_manager.broadcast({
-            "event": "sync_failed",
-            "source": source_name,
-            "message": error_msg,
-            "timestamp": datetime.now().isoformat()
-        })
-        append_log_entry({
-            "timestamp": datetime.now().isoformat(),
-            "level": "error",
-            "source": source_name,
-            "message": f"Sync blocked: {error_msg}"
-        })
+        error_msg = str(e).split("\n")[0]
+        await ws_manager.broadcast(
+            {
+                "event": "sync_failed",
+                "source": source_name,
+                "message": error_msg,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+        append_log_entry(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "level": "error",
+                "source": source_name,
+                "message": f"Sync blocked: {error_msg}",
+            }
+        )
         logger.warning(f"Could not acquire dbt lock for sync {source_name}: {e}")
         return
 
@@ -1473,20 +1549,24 @@ async def run_sync_task(
         from dango.config.loader import load_config
 
         # Log sync start
-        append_log_entry({
-            "timestamp": sync_timestamp,
-            "level": "info",
-            "source": source_name,
-            "message": f"Starting sync for {source_name}"
-        })
+        append_log_entry(
+            {
+                "timestamp": sync_timestamp,
+                "level": "info",
+                "source": source_name,
+                "message": f"Starting sync for {source_name}",
+            }
+        )
 
         # Broadcast sync started
-        await ws_manager.broadcast({
-            "event": "sync_started",
-            "source": source_name,
-            "message": f"Starting sync for {source_name}",
-            "timestamp": sync_timestamp
-        })
+        await ws_manager.broadcast(
+            {
+                "event": "sync_started",
+                "source": source_name,
+                "message": f"Starting sync for {source_name}",
+                "timestamp": sync_timestamp,
+            }
+        )
 
         # Load config and get source
         config = load_config(get_project_root())
@@ -1497,20 +1577,23 @@ async def run_sync_task(
 
         # Use the same run_sync function as CLI for consistent behavior
         # This ensures: data load → dbt run → docs generation → Metabase sync
-        from dango.ingestion import run_sync
         from datetime import datetime as dt
+
+        from dango.ingestion import run_sync
 
         # Parse dates if provided
         start_date_obj = dt.strptime(start_date, "%Y-%m-%d") if start_date else None
         end_date_obj = dt.strptime(end_date, "%Y-%m-%d") if end_date else None
 
         # Log before running sync
-        append_log_entry({
-            "timestamp": datetime.now().isoformat(),
-            "level": "info",
-            "source": source_name,
-            "message": "Loading data from source"
-        })
+        append_log_entry(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "level": "info",
+                "source": source_name,
+                "message": "Loading data from source",
+            }
+        )
 
         # Run sync with the complete flow (data load → dbt → docs → metabase)
         summary = run_sync(
@@ -1518,7 +1601,7 @@ async def run_sync_task(
             sources=[source_config],
             start_date=start_date_obj,
             end_date=end_date_obj,
-            full_refresh=full_refresh
+            full_refresh=full_refresh,
         )
 
         success = summary["failed_count"] == 0
@@ -1533,12 +1616,15 @@ async def run_sync_task(
             error_message = None
 
         # Log after data load
-        append_log_entry({
-            "timestamp": datetime.now().isoformat(),
-            "level": "success" if success else "error",
-            "source": source_name,
-            "message": f"Data load {'completed' if success else 'failed'}" + (f": {error_message}" if error_message else "")
-        })
+        append_log_entry(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "level": "success" if success else "error",
+                "source": source_name,
+                "message": f"Data load {'completed' if success else 'failed'}"
+                + (f": {error_message}" if error_message else ""),
+            }
+        )
 
         # Broadcast and log dbt run (which happens inside run_sync AFTER data load)
         # ONLY broadcast dbt messages if sync actually succeeded AND we have successful sources
@@ -1548,33 +1634,41 @@ async def run_sync_task(
             dbt_detail = f"Processing staging.{source_name} and downstream models"
 
             # Broadcast dbt started (happens after data load, before dbt actually runs in run_sync)
-            await ws_manager.broadcast({
-                "event": "dbt_run_all_started",
-                "source": f"dbt (triggered by {source_name})",
-                "message": dbt_message,
-                "timestamp": datetime.now().isoformat()
-            })
-            append_log_entry({
-                "timestamp": datetime.now().isoformat(),
-                "level": "info",
-                "source": f"dbt (triggered by {source_name})",
-                "message": dbt_detail
-            })
+            await ws_manager.broadcast(
+                {
+                    "event": "dbt_run_all_started",
+                    "source": f"dbt (triggered by {source_name})",
+                    "message": dbt_message,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
+            append_log_entry(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "info",
+                    "source": f"dbt (triggered by {source_name})",
+                    "message": dbt_detail,
+                }
+            )
 
-            append_log_entry({
-                "timestamp": datetime.now().isoformat(),
-                "level": "success",
-                "source": f"dbt (triggered by {source_name})",
-                "message": f"dbt models completed: staging.{source_name} and downstream"
-            })
+            append_log_entry(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "success",
+                    "source": f"dbt (triggered by {source_name})",
+                    "message": f"dbt models completed: staging.{source_name} and downstream",
+                }
+            )
 
             # Broadcast dbt run completed
-            await ws_manager.broadcast({
-                "event": "dbt_run_all_completed",
-                "source": f"dbt (triggered by {source_name})",
-                "message": f"dbt models completed for {source_name}",
-                "timestamp": datetime.now().isoformat()
-            })
+            await ws_manager.broadcast(
+                {
+                    "event": "dbt_run_all_completed",
+                    "source": f"dbt (triggered by {source_name})",
+                    "message": f"dbt models completed for {source_name}",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
 
         # Get row count after sync (only if successful)
         if success:
@@ -1590,53 +1684,65 @@ async def run_sync_task(
             "duration_seconds": round(duration, 2),
             "rows_processed": rows_processed if success else 0,
             "full_refresh": full_refresh,
-            "error_message": error_message
+            "error_message": error_message,
         }
         save_sync_history_entry(source_name, history_entry)
 
         # Log completion (conditional based on success/failure)
         if success:
-            append_log_entry({
-                "timestamp": datetime.now().isoformat(),
-                "level": "success",
-                "source": source_name,
-                "message": f"Sync completed in {round(duration, 1)}s - {rows_processed:,} rows"
-            })
+            append_log_entry(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "success",
+                    "source": source_name,
+                    "message": f"Sync completed in {round(duration, 1)}s - {rows_processed:,} rows",
+                }
+            )
 
             # Trigger Metabase schema sync to ensure new tables are discoverable
             # This matches CLI behavior (main.py:1265-1275) which calls sync_metabase_schema
             # after run_sync() as a backup in case the internal call was skipped
             from dango.visualization.metabase import sync_metabase_schema
+
             sync_metabase_schema(project_root)
         else:
             # For failures, log with error details
-            append_log_entry({
-                "timestamp": datetime.now().isoformat(),
-                "level": "error",
-                "source": source_name,
-                "message": f"Sync failed after {round(duration, 1)}s" + (f": {error_message}" if error_message else "")
-            })
+            append_log_entry(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "error",
+                    "source": source_name,
+                    "message": f"Sync failed after {round(duration, 1)}s"
+                    + (f": {error_message}" if error_message else ""),
+                }
+            )
 
         # Broadcast completion with detailed error message if failed
-        await ws_manager.broadcast({
-            "event": "sync_completed" if success else "sync_failed",
-            "source": source_name,
-            "message": "Sync completed successfully" if success else (error_message or "Sync failed"),
-            "timestamp": datetime.now().isoformat(),
-            "error": error_message if not success else None
-        })
+        await ws_manager.broadcast(
+            {
+                "event": "sync_completed" if success else "sync_failed",
+                "source": source_name,
+                "message": "Sync completed successfully"
+                if success
+                else (error_message or "Sync failed"),
+                "timestamp": datetime.now().isoformat(),
+                "error": error_message if not success else None,
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error running sync for {source_name}: {e}")
         error_message = str(e)
 
         # Log error
-        append_log_entry({
-            "timestamp": datetime.now().isoformat(),
-            "level": "error",
-            "source": source_name,
-            "message": f"Sync failed: {error_message}"
-        })
+        append_log_entry(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "level": "error",
+                "source": source_name,
+                "message": f"Sync failed: {error_message}",
+            }
+        )
 
         # Calculate duration
         duration = time.time() - start_time
@@ -1648,23 +1754,25 @@ async def run_sync_task(
             "duration_seconds": round(duration, 2),
             "rows_processed": 0,
             "full_refresh": full_refresh,
-            "error_message": error_message
+            "error_message": error_message,
         }
         save_sync_history_entry(source_name, history_entry)
 
         # Broadcast error
-        await ws_manager.broadcast({
-            "event": "sync_failed",
-            "source": source_name,
-            "message": f"Sync failed: {error_message}",
-            "timestamp": datetime.now().isoformat()
-        })
+        await ws_manager.broadcast(
+            {
+                "event": "sync_failed",
+                "source": source_name,
+                "message": f"Sync failed: {error_message}",
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
     finally:
         # Always release the lock
         lock.release()
 
 
-@app.get("/api/sources/{source_name}/logs", response_model=List[LogEntry])
+@app.get("/api/sources/{source_name}/logs", response_model=list[LogEntry])
 async def get_source_logs(source_name: str, limit: int = 100):
     """
     Get sync logs for a specific source
@@ -1683,32 +1791,28 @@ async def get_source_logs(source_name: str, limit: int = 100):
 
     try:
         logs = []
-        with open(log_file, 'r', encoding='utf-8') as f:
+        with open(log_file, encoding="utf-8") as f:
             lines = f.readlines()
 
             # Get last N lines
             for line in lines[-limit:]:
                 # Parse log line (assuming format: timestamp - level - message)
-                parts = line.strip().split(' - ', 2)
+                parts = line.strip().split(" - ", 2)
                 if len(parts) >= 3:
-                    logs.append(LogEntry(
-                        timestamp=parts[0],
-                        level=parts[1],
-                        message=parts[2]
-                    ))
+                    logs.append(LogEntry(timestamp=parts[0], level=parts[1], message=parts[2]))
                 else:
                     # Fallback for unparseable lines
-                    logs.append(LogEntry(
-                        timestamp=datetime.now().isoformat(),
-                        level="INFO",
-                        message=line.strip()
-                    ))
+                    logs.append(
+                        LogEntry(
+                            timestamp=datetime.now().isoformat(), level="INFO", message=line.strip()
+                        )
+                    )
 
         return logs
 
     except Exception as e:
         logger.error(f"Error reading logs for {source_name}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error reading logs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error reading logs: {str(e)}") from e
 
 
 @app.get("/api/logs")
@@ -1727,7 +1831,7 @@ async def get_all_logs(limit: int = 1000):
         return logs
     except Exception as e:
         logger.error(f"Error fetching logs: {e}")
-        raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}") from e
 
 
 @app.get("/api/dbt/models")
@@ -1743,15 +1847,11 @@ async def list_dbt_models():
         return {"models": models}
     except Exception as e:
         logger.error(f"Error fetching dbt models: {e}")
-        raise HTTPException(status_code=500, detail=f"Error fetching dbt models: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching dbt models: {str(e)}") from e
 
 
 @app.post("/api/dbt/models/{model_name}/run")
-async def run_dbt_model(
-    model_name: str,
-    background_tasks: BackgroundTasks,
-    cascade: bool = True
-):
+async def run_dbt_model(model_name: str, background_tasks: BackgroundTasks, cascade: bool = True):
     """
     Run a specific dbt model
 
@@ -1777,34 +1877,33 @@ async def run_dbt_model(
         raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
 
     # Broadcast start
-    await ws_manager.broadcast({
-        "event": "dbt_run_started",
-        "source": f"dbt:{model_name}",
-        "message": f"Running dbt model: {model_name}",
-        "timestamp": datetime.now().isoformat()
-    })
+    await ws_manager.broadcast(
+        {
+            "event": "dbt_run_started",
+            "source": f"dbt:{model_name}",
+            "message": f"Running dbt model: {model_name}",
+            "timestamp": datetime.now().isoformat(),
+        }
+    )
 
     # Run in background
-    background_tasks.add_task(
-        run_dbt_model_task,
-        model_name,
-        cascade
-    )
+    background_tasks.add_task(run_dbt_model_task, model_name, cascade)
 
     return {
         "success": True,
         "message": f"dbt model '{model_name}' run started",
         "model_name": model_name,
-        "started_at": datetime.now().isoformat()
+        "started_at": datetime.now().isoformat(),
     }
 
 
 async def run_dbt_model_task(model_name: str, cascade: bool):
     """Run dbt model in background"""
     import subprocess
-    import time
     import sys
+    import time
     from pathlib import Path as PathLib
+
     from dango.utils import DbtLock, DbtLockError
     from dango.utils.dbt_status import update_model_status
 
@@ -1817,17 +1916,19 @@ async def run_dbt_model_task(model_name: str, cascade: bool):
         lock = DbtLock(
             project_root=project_root,
             source="ui",
-            operation=f"dbt run {model_name}{'+ (cascade)' if cascade else ''}"
+            operation=f"dbt run {model_name}{'+ (cascade)' if cascade else ''}",
         )
         lock.acquire()
     except DbtLockError as e:
         # Lock is held by another process - broadcast error and return
-        await ws_manager.broadcast({
-            "event": "dbt_run_failed",
-            "source": f"dbt:{model_name}",
-            "message": str(e).split('\n')[0],  # First line of error message
-            "timestamp": datetime.now().isoformat()
-        })
+        await ws_manager.broadcast(
+            {
+                "event": "dbt_run_failed",
+                "source": f"dbt:{model_name}",
+                "message": str(e).split("\n")[0],  # First line of error message
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
         logger.warning(f"Could not acquire dbt lock for {model_name}: {e}")
         return
 
@@ -1840,18 +1941,38 @@ async def run_dbt_model_task(model_name: str, cascade: bool):
         # Build the dbt command
         if cascade:
             # Run model and all downstream models
-            cmd = [dbt_cmd, "run", "--select", f"{model_name}+", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)]
+            cmd = [
+                dbt_cmd,
+                "run",
+                "--select",
+                f"{model_name}+",
+                "--project-dir",
+                str(dbt_dir),
+                "--profiles-dir",
+                str(dbt_dir),
+            ]
         else:
             # Run only this model
-            cmd = [dbt_cmd, "run", "--select", model_name, "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)]
+            cmd = [
+                dbt_cmd,
+                "run",
+                "--select",
+                model_name,
+                "--project-dir",
+                str(dbt_dir),
+                "--profiles-dir",
+                str(dbt_dir),
+            ]
 
         # Broadcast progress
-        await ws_manager.broadcast({
-            "event": "dbt_run_progress",
-            "source": f"dbt:{model_name}",
-            "message": f"Executing: {' '.join(cmd)}",
-            "timestamp": datetime.now().isoformat()
-        })
+        await ws_manager.broadcast(
+            {
+                "event": "dbt_run_progress",
+                "source": f"dbt:{model_name}",
+                "message": f"Executing: {' '.join(cmd)}",
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
         # Run dbt
         result = subprocess.run(
@@ -1859,7 +1980,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool):
             cwd=str(dbt_dir),
             capture_output=True,
             text=True,
-            timeout=300  # 5 minute timeout
+            timeout=300,  # 5 minute timeout
         )
 
         duration = time.time() - start_time
@@ -1869,49 +1990,60 @@ async def run_dbt_model_task(model_name: str, cascade: bool):
             update_model_status(project_root)
 
             # Success
-            await ws_manager.broadcast({
-                "event": "dbt_run_completed",
-                "source": f"dbt:{model_name}",
-                "message": f"Model '{model_name}' ran successfully in {duration:.1f}s",
-                "timestamp": datetime.now().isoformat()
-            })
+            await ws_manager.broadcast(
+                {
+                    "event": "dbt_run_completed",
+                    "source": f"dbt:{model_name}",
+                    "message": f"Model '{model_name}' ran successfully in {duration:.1f}s",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
 
             # CRITICAL: Refresh Metabase connection to see new/updated tables
             from dango.visualization.metabase import refresh_metabase_connection
+
             project_root = get_project_root()
 
             if refresh_metabase_connection(project_root):
-                await ws_manager.broadcast({
-                    "event": "dbt_run_progress",
-                    "source": f"dbt:{model_name}",
-                    "message": "Metabase connection refreshed",
-                    "timestamp": datetime.now().isoformat()
-                })
+                await ws_manager.broadcast(
+                    {
+                        "event": "dbt_run_progress",
+                        "source": f"dbt:{model_name}",
+                        "message": "Metabase connection refreshed",
+                        "timestamp": datetime.now().isoformat(),
+                    }
+                )
         else:
             # Failed
             error_msg = result.stderr or result.stdout or "Unknown error"
-            await ws_manager.broadcast({
-                "event": "dbt_run_failed",
-                "source": f"dbt:{model_name}",
-                "message": f"Model '{model_name}' failed: {error_msg[:200]}",
-                "timestamp": datetime.now().isoformat()
-            })
+            await ws_manager.broadcast(
+                {
+                    "event": "dbt_run_failed",
+                    "source": f"dbt:{model_name}",
+                    "message": f"Model '{model_name}' failed: {error_msg[:200]}",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
 
     except subprocess.TimeoutExpired:
-        await ws_manager.broadcast({
-            "event": "dbt_run_failed",
-            "source": f"dbt:{model_name}",
-            "message": f"Model '{model_name}' timed out after 5 minutes",
-            "timestamp": datetime.now().isoformat()
-        })
+        await ws_manager.broadcast(
+            {
+                "event": "dbt_run_failed",
+                "source": f"dbt:{model_name}",
+                "message": f"Model '{model_name}' timed out after 5 minutes",
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
     except Exception as e:
         logger.error(f"Error running dbt model {model_name}: {e}")
-        await ws_manager.broadcast({
-            "event": "dbt_run_failed",
-            "source": f"dbt:{model_name}",
-            "message": f"Model '{model_name}' failed: {str(e)}",
-            "timestamp": datetime.now().isoformat()
-        })
+        await ws_manager.broadcast(
+            {
+                "event": "dbt_run_failed",
+                "source": f"dbt:{model_name}",
+                "message": f"Model '{model_name}' failed: {str(e)}",
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
     finally:
         # Always release the lock
         lock.release()
@@ -1922,7 +2054,7 @@ async def upload_csv_to_source(
     source_name: str,
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
-    trigger_sync: bool = False  # Default to false - let frontend control when to sync
+    trigger_sync: bool = False,  # Default to false - let frontend control when to sync
 ):
     """
     Upload a CSV file to an existing pre-configured CSV source
@@ -1948,13 +2080,13 @@ async def upload_csv_to_source(
         if not sources_file.exists():
             raise HTTPException(status_code=404, detail="No sources configured")
 
-        with open(sources_file, 'r', encoding='utf-8') as f:
+        with open(sources_file, encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
 
         # Find the source
         source_config = None
-        for source in config.get('sources', []):
-            if source.get('name') == source_name:
+        for source in config.get("sources", []):
+            if source.get("name") == source_name:
                 source_config = source
                 break
 
@@ -1962,19 +2094,19 @@ async def upload_csv_to_source(
             raise HTTPException(status_code=404, detail=f"Source '{source_name}' not found")
 
         # Validate source is of type CSV
-        if source_config.get('type') != 'csv':
+        if source_config.get("type") != "csv":
             raise HTTPException(
                 status_code=400,
-                detail=f"Source '{source_name}' is not a CSV source (type: {source_config.get('type')})"
+                detail=f"Source '{source_name}' is not a CSV source (type: {source_config.get('type')})",
             )
 
         # Validate file type
-        if not file.filename.endswith('.csv'):
+        if not file.filename.endswith(".csv"):
             raise HTTPException(status_code=400, detail="Only CSV files are supported")
 
         # Get directory from source config
-        csv_config = source_config.get('csv', {})
-        directory = csv_config.get('directory', 'data')
+        csv_config = source_config.get("csv", {})
+        directory = csv_config.get("directory", "data")
 
         # Resolve directory path (could be relative or absolute)
         data_dir = Path(directory)
@@ -1989,7 +2121,7 @@ async def upload_csv_to_source(
         if file_path.exists():
             raise HTTPException(
                 status_code=409,
-                detail=f"File '{file.filename}' already exists. Delete the existing file first or rename your file."
+                detail=f"File '{file.filename}' already exists. Delete the existing file first or rename your file.",
             )
         async with aiofiles.open(file_path, "wb") as buffer:
             content = await file.read()
@@ -1998,38 +2130,37 @@ async def upload_csv_to_source(
         logger.info(f"Uploaded CSV file for source '{source_name}': {file_path}")
 
         # Broadcast upload event via WebSocket
-        await ws_manager.broadcast({
-            "event": "csv_uploaded",
-            "source": source_name,
-            "message": f"CSV file {file.filename} uploaded to {source_name}",
-            "timestamp": datetime.now().isoformat()
-        })
+        await ws_manager.broadcast(
+            {
+                "event": "csv_uploaded",
+                "source": source_name,
+                "message": f"CSV file {file.filename} uploaded to {source_name}",
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
         # Only trigger sync if explicitly requested (for batch upload optimization)
         if trigger_sync and background_tasks:
             background_tasks.add_task(
-                run_sync_task,
-                source_name,
-                full_refresh=False,
-                start_date=None,
-                end_date=None
+                run_sync_task, source_name, full_refresh=False, start_date=None, end_date=None
             )
             logger.info(f"Triggered immediate sync for source '{source_name}'")
 
         return {
             "success": True,
-            "message": f"CSV uploaded successfully: {file.filename}" + (" - Sync started." if trigger_sync else ""),
+            "message": f"CSV uploaded successfully: {file.filename}"
+            + (" - Sync started." if trigger_sync else ""),
             "source_name": source_name,
             "file_path": str(file_path),
             "file_name": file.filename,
-            "auto_sync": trigger_sync
+            "auto_sync": trigger_sync,
         }
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error uploading CSV: {e}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}") from e
 
 
 @app.get("/api/sources/{source_name}/csv-files")
@@ -2051,13 +2182,13 @@ async def get_csv_files(source_name: str):
         if not sources_file.exists():
             raise HTTPException(status_code=404, detail="No sources configured")
 
-        with open(sources_file, 'r', encoding='utf-8') as f:
+        with open(sources_file, encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
 
         # Find the source
         source_config = None
-        for source in config.get('sources', []):
-            if source.get('name') == source_name:
+        for source in config.get("sources", []):
+            if source.get("name") == source_name:
                 source_config = source
                 break
 
@@ -2065,15 +2196,14 @@ async def get_csv_files(source_name: str):
             raise HTTPException(status_code=404, detail=f"Source '{source_name}' not found")
 
         # Validate source is of type CSV
-        if source_config.get('type') != 'csv':
+        if source_config.get("type") != "csv":
             raise HTTPException(
-                status_code=400,
-                detail=f"Source '{source_name}' is not a CSV source"
+                status_code=400, detail=f"Source '{source_name}' is not a CSV source"
             )
 
-        csv_config = source_config.get('csv', {})
-        directory = csv_config.get('directory', 'data')
-        file_pattern = csv_config.get('file_pattern', '*.csv')
+        csv_config = source_config.get("csv", {})
+        directory = csv_config.get("directory", "data")
+        file_pattern = csv_config.get("file_pattern", "*.csv")
 
         # Resolve directory path
         if not Path(directory).is_absolute():
@@ -2085,15 +2215,16 @@ async def get_csv_files(source_name: str):
         files_on_disk = {}
         if directory.exists():
             import glob
+
             pattern = str(directory / file_pattern)
             for filepath in glob.glob(pattern):
                 filename = os.path.basename(filepath)
                 stat = os.stat(filepath)
                 files_on_disk[filepath] = {
-                    'filename': filename,
-                    'size': stat.st_size,
-                    'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                    'path': filepath
+                    "filename": filename,
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "path": filepath,
                 }
 
         # Get files from metadata table
@@ -2101,6 +2232,7 @@ async def get_csv_files(source_name: str):
         duckdb_path = get_duckdb_path()
         if duckdb_path.exists():
             import duckdb
+
             conn = duckdb.connect(str(duckdb_path))
 
             # Check if metadata table exists
@@ -2113,23 +2245,26 @@ async def get_csv_files(source_name: str):
             if result:
                 # Get loaded files for this source
                 # Include deleted files only if loaded within last 7 days
-                rows = conn.execute("""
+                rows = conn.execute(
+                    """
                     SELECT file_path, rows_loaded, loaded_at, status
                     FROM _dango_file_metadata
                     WHERE source_name = ?
                     AND (status != 'deleted' OR loaded_at > NOW() - INTERVAL 7 DAY)
                     ORDER BY loaded_at DESC
-                """, [source_name]).fetchall()
+                """,
+                    [source_name],
+                ).fetchall()
 
                 for row in rows:
                     filepath, rows_loaded, loaded_at, status = row
                     filename = os.path.basename(filepath)
                     files_loaded[filepath] = {
-                        'filename': filename,
-                        'rows_loaded': rows_loaded,
-                        'loaded_at': loaded_at.isoformat() if loaded_at else None,
-                        'status': status,
-                        'path': filepath
+                        "filename": filename,
+                        "rows_loaded": rows_loaded,
+                        "loaded_at": loaded_at.isoformat() if loaded_at else None,
+                        "status": status,
+                        "path": filepath,
                     }
 
             conn.close()
@@ -2140,58 +2275,60 @@ async def get_csv_files(source_name: str):
         # Files on disk
         for filepath, info in files_on_disk.items():
             file_info = {
-                'filename': info['filename'],
-                'path': filepath,
-                'size': info['size'],
-                'modified': info['modified'],
-                'on_disk': True,
-                'loaded': filepath in files_loaded
+                "filename": info["filename"],
+                "path": filepath,
+                "size": info["size"],
+                "modified": info["modified"],
+                "on_disk": True,
+                "loaded": filepath in files_loaded,
             }
 
             if filepath in files_loaded:
-                file_info['rows_loaded'] = files_loaded[filepath]['rows_loaded']
-                file_info['loaded_at'] = files_loaded[filepath]['loaded_at']
-                file_info['status'] = files_loaded[filepath]['status']
+                file_info["rows_loaded"] = files_loaded[filepath]["rows_loaded"]
+                file_info["loaded_at"] = files_loaded[filepath]["loaded_at"]
+                file_info["status"] = files_loaded[filepath]["status"]
 
             all_files.append(file_info)
 
         # Files in database but not on disk (deleted)
         for filepath, info in files_loaded.items():
             if filepath not in files_on_disk:
-                all_files.append({
-                    'filename': info['filename'],
-                    'path': filepath,
-                    'size': None,
-                    'modified': None,
-                    'on_disk': False,
-                    'loaded': True,
-                    'rows_loaded': info['rows_loaded'],
-                    'loaded_at': info['loaded_at'],
-                    'status': 'file_deleted'
-                })
+                all_files.append(
+                    {
+                        "filename": info["filename"],
+                        "path": filepath,
+                        "size": None,
+                        "modified": None,
+                        "on_disk": False,
+                        "loaded": True,
+                        "rows_loaded": info["rows_loaded"],
+                        "loaded_at": info["loaded_at"],
+                        "status": "file_deleted",
+                    }
+                )
 
         return {
-            'source_name': source_name,
-            'directory': str(directory),
-            'file_pattern': file_pattern,
-            'files': all_files,
-            'total_files': len(all_files),
-            'files_on_disk': len(files_on_disk),
-            'files_loaded': len(files_loaded)
+            "source_name": source_name,
+            "directory": str(directory),
+            "file_pattern": file_pattern,
+            "files": all_files,
+            "total_files": len(all_files),
+            "files_on_disk": len(files_on_disk),
+            "files_loaded": len(files_loaded),
         }
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error getting CSV files: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get CSV files: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get CSV files: {str(e)}") from e
 
 
 @app.delete("/api/sources/{source_name}/csv-files")
 async def delete_csv_file(
     source_name: str,
     file_path: str = Query(..., description="Full path to file to delete"),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks = None,
 ):
     """
     Delete a CSV file from filesystem and trigger sync to update database
@@ -2209,20 +2346,24 @@ async def delete_csv_file(
     import os
     from pathlib import Path
 
-    logger.info(f"🔴 DELETE ENDPOINT CALLED - VERSION 2025-11-04-v2 - source: {source_name}, file: {file_path}")
+    logger.info(
+        f"🔴 DELETE ENDPOINT CALLED - VERSION 2025-11-04-v2 - source: {source_name}, file: {file_path}"
+    )
 
     try:
         project_root = get_project_root()
         sources_config = load_sources_config()
 
         # Find source config
-        source_config = next((s for s in sources_config if s.get('name') == source_name), None)
+        source_config = next((s for s in sources_config if s.get("name") == source_name), None)
         if not source_config:
             raise HTTPException(status_code=404, detail=f"Source '{source_name}' not found")
 
         # Verify source is CSV type
-        if source_config.get('type') != 'csv':
-            raise HTTPException(status_code=400, detail=f"Source '{source_name}' is not a CSV source")
+        if source_config.get("type") != "csv":
+            raise HTTPException(
+                status_code=400, detail=f"Source '{source_name}' is not a CSV source"
+            )
 
         # Verify file exists
         file_to_delete = Path(file_path)
@@ -2230,7 +2371,7 @@ async def delete_csv_file(
             raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
 
         # Verify file is in the source directory (security check)
-        source_directory = source_config.get('csv', {}).get('directory')
+        source_directory = source_config.get("csv", {}).get("directory")
         if not source_directory:
             raise HTTPException(status_code=500, detail="Source directory not configured")
 
@@ -2241,7 +2382,9 @@ async def delete_csv_file(
         try:
             file_to_delete.resolve().relative_to(source_dir)
         except ValueError:
-            raise HTTPException(status_code=403, detail="Cannot delete files outside source directory")
+            raise HTTPException(
+                status_code=403, detail="Cannot delete files outside source directory"
+            ) from None
 
         # Delete data from database FIRST (before deleting file)
         # This ensures data is cleaned up immediately and user sees instant feedback
@@ -2250,6 +2393,7 @@ async def delete_csv_file(
 
         # Connect to DuckDB (reuse connection for both data and metadata cleanup)
         import duckdb
+
         from dango.config import ConfigLoader
 
         loader = ConfigLoader(project_root)
@@ -2259,7 +2403,9 @@ async def delete_csv_file(
         logger.info(f"🔴 DuckDB path (config): {config.platform.duckdb_path}")
         logger.info(f"🔴 DuckDB path (resolved): {duckdb_path_resolved}")
         logger.info(f"🔴 File exists: {duckdb_path_resolved.exists()}")
-        logger.info(f"🔴 File size: {duckdb_path_resolved.stat().st_size if duckdb_path_resolved.exists() else 'N/A'}")
+        logger.info(
+            f"🔴 File size: {duckdb_path_resolved.stat().st_size if duckdb_path_resolved.exists() else 'N/A'}"
+        )
 
         conn = None
         try:
@@ -2279,22 +2425,28 @@ async def delete_csv_file(
             logger.info(f"🔴 Deleting from {target_table} WHERE _dango_filename = '{filename}'")
 
             # Check if table exists first
-            table_exists = conn.execute(f"""
+            table_exists = (
+                conn.execute(f"""
                 SELECT COUNT(*) FROM information_schema.tables
                 WHERE table_schema = 'raw' AND table_name = '{source_name}'
-            """).fetchone()[0] > 0
+            """).fetchone()[0]
+                > 0
+            )
 
             if table_exists:
-                result = conn.execute(f"DELETE FROM {target_table} WHERE _dango_filename = ?", [filename])
+                conn.execute(f"DELETE FROM {target_table} WHERE _dango_filename = ?", [filename])
                 rows_deleted = conn.execute("SELECT changes()").fetchone()[0]
                 logger.info(f"🔴 Deleted {rows_deleted} rows from {target_table}")
             else:
-                logger.warning(f"🔴 Table {target_table} doesn't exist - file was never synced. Skipping data deletion.")
+                logger.warning(
+                    f"🔴 Table {target_table} doesn't exist - file was never synced. Skipping data deletion."
+                )
                 rows_deleted = 0
 
         except Exception as e:
             logger.error(f"🔴 ERROR during DB data deletion: {type(e).__name__}: {str(e)}")
             import traceback
+
             logger.error(f"🔴 Traceback: {traceback.format_exc()}")
             # Continue with metadata cleanup even if data deletion fails
 
@@ -2304,13 +2456,15 @@ async def delete_csv_file(
             if conn is None:
                 logger.error("🔴 Connection is None - cannot clean up metadata")
             else:
-                logger.info(f"🔴 Deleting metadata record for source={source_name}, file_path={file_path}")
+                logger.info(
+                    f"🔴 Deleting metadata record for source={source_name}, file_path={file_path}"
+                )
                 conn.execute(
                     """
                     DELETE FROM _dango_file_metadata
                     WHERE source_name = ? AND file_path = ?
                     """,
-                    [source_name, file_path]
+                    [source_name, file_path],
                 )
                 metadata_deleted = conn.execute("SELECT changes()").fetchone()[0]
                 logger.info(f"🔴 Deleted {metadata_deleted} metadata records")
@@ -2319,6 +2473,7 @@ async def delete_csv_file(
         except Exception as e:
             logger.error(f"🔴 ERROR during metadata cleanup: {type(e).__name__}: {str(e)}")
             import traceback
+
             logger.error(f"🔴 Traceback: {traceback.format_exc()}")
 
         finally:
@@ -2326,8 +2481,8 @@ async def delete_csv_file(
             if conn is not None:
                 try:
                     conn.close()
-                    logger.info(f"🔴 DB connection closed")
-                except:
+                    logger.info("🔴 DB connection closed")
+                except Exception:
                     pass
 
         # Delete file from filesystem
@@ -2335,20 +2490,24 @@ async def delete_csv_file(
         logger.info(f"Deleted file: {file_path}")
 
         # Broadcast deletion event
-        await ws_manager.broadcast({
-            "event": "csv_deleted",
-            "source": source_name,
-            "message": f"Deleted {filename}",
-            "timestamp": datetime.now().isoformat()
-        })
+        await ws_manager.broadcast(
+            {
+                "event": "csv_deleted",
+                "source": source_name,
+                "message": f"Deleted {filename}",
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
         # Log activity
-        append_log_entry({
-            "timestamp": datetime.now().isoformat(),
-            "level": "info",
-            "source": source_name,
-            "message": f"Deleted file: {filename}"
-        })
+        append_log_entry(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "level": "info",
+                "source": source_name,
+                "message": f"Deleted file: {filename}",
+            }
+        )
 
         # Trigger dbt run for downstream models (in background)
         if background_tasks:
@@ -2360,7 +2519,7 @@ async def delete_csv_file(
             "message": f"File deleted: {filename}",
             "file_path": file_path,
             "source_name": source_name,
-            "background_sync": True
+            "background_sync": True,
         }
 
     except HTTPException as he:
@@ -2369,8 +2528,9 @@ async def delete_csv_file(
     except Exception as e:
         logger.error(f"🔴 UNEXPECTED ERROR deleting CSV file: {type(e).__name__}: {str(e)}")
         import traceback
+
         logger.error(f"🔴 Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}") from e
 
 
 @app.websocket("/ws")
@@ -2387,11 +2547,13 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         # Send welcome message
-        await websocket.send_json({
-            "event": "connected",
-            "message": "Connected to Dango real-time updates",
-            "timestamp": datetime.now().isoformat()
-        })
+        await websocket.send_json(
+            {
+                "event": "connected",
+                "message": "Connected to Dango real-time updates",
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
         # Keep connection alive and listen for client messages
         while True:
@@ -2399,11 +2561,9 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_text()
 
             # Echo back for now (can add client commands later)
-            await websocket.send_json({
-                "event": "echo",
-                "data": data,
-                "timestamp": datetime.now().isoformat()
-            })
+            await websocket.send_json(
+                {"event": "echo", "data": data, "timestamp": datetime.now().isoformat()}
+            )
 
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
@@ -2425,7 +2585,7 @@ async def root():
     index_file = Path(__file__).parent / "static" / "index.html"
 
     if index_file.exists():
-        return _inject_version(index_file.read_text(encoding='utf-8'))
+        return _inject_version(index_file.read_text(encoding="utf-8"))
     else:
         # Fallback if static files not found
         return """
@@ -2447,7 +2607,7 @@ async def health_page():
     health_file = Path(__file__).parent / "static" / "health.html"
 
     if health_file.exists():
-        return _inject_version(health_file.read_text(encoding='utf-8'))
+        return _inject_version(health_file.read_text(encoding="utf-8"))
     else:
         return "<html><body><h1>Health page not found</h1></body></html>"
 
@@ -2459,7 +2619,7 @@ async def logs_page():
     logs_file = Path(__file__).parent / "static" / "logs.html"
 
     if logs_file.exists():
-        return _inject_version(logs_file.read_text(encoding='utf-8'))
+        return _inject_version(logs_file.read_text(encoding="utf-8"))
     else:
         return """
         <html>
@@ -2476,12 +2636,7 @@ async def logs_page():
 @app.get("/api")
 async def api_info():
     """API information endpoint"""
-    return {
-        "message": "Dango API",
-        "version": "0.1.0",
-        "docs": "/api/docs",
-        "websocket": "/ws"
-    }
+    return {"message": "Dango API", "version": "0.1.0", "docs": "/api/docs", "websocket": "/ws"}
 
 
 # API docs without custom navbar (just default Swagger UI)
@@ -2489,31 +2644,24 @@ async def api_info():
 async def custom_swagger_ui_html():
     """Swagger UI (default, no custom navbar)"""
     from fastapi.openapi.docs import get_swagger_ui_html
-    return get_swagger_ui_html(
-        openapi_url="/openapi.json",
-        title="Dango API - Documentation"
-    )
+
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="Dango API - Documentation")
 
 
 @app.get("/api/redoc", include_in_schema=False)
 async def custom_redoc_html():
     """ReDoc (default, no custom navbar)"""
     from fastapi.openapi.docs import get_redoc_html
-    return get_redoc_html(
-        openapi_url="/openapi.json",
-        title="Dango API - Documentation"
-    )
+
+    return get_redoc_html(openapi_url="/openapi.json", title="Dango API - Documentation")
 
 
 # ==============================================================================
 # Metabase Reverse Proxy with SSO
 # ==============================================================================
 
-import httpx
-from typing import Dict, Any
-
 # Store Metabase session for SSO
-_metabase_session: Dict[str, Any] = {}
+_metabase_session: dict[str, Any] = {}
 
 
 async def proxy_to_metabase(request: Request, target_path: str, session_id: str = None) -> Response:
@@ -2539,16 +2687,16 @@ async def proxy_to_metabase(request: Request, target_path: str, session_id: str 
     # Prepare headers
     headers = {}
     for key, value in request.headers.items():
-        if key.lower() not in ['host', 'connection', 'content-length']:
+        if key.lower() not in ["host", "connection", "content-length"]:
             headers[key] = value
 
     # Add session cookie if provided
     if session_id:
-        existing_cookies = headers.get('cookie', '')
+        existing_cookies = headers.get("cookie", "")
         if existing_cookies:
-            headers['cookie'] = f"{existing_cookies}; metabase.SESSION={session_id}"
+            headers["cookie"] = f"{existing_cookies}; metabase.SESSION={session_id}"
         else:
-            headers['cookie'] = f"metabase.SESSION={session_id}"
+            headers["cookie"] = f"metabase.SESSION={session_id}"
 
     # Get request body if present
     body = None
@@ -2559,34 +2707,30 @@ async def proxy_to_metabase(request: Request, target_path: str, session_id: str 
     try:
         async with httpx.AsyncClient(follow_redirects=False, timeout=30.0) as client:
             proxy_response = await client.request(
-                method=request.method,
-                url=target_url,
-                headers=headers,
-                content=body
+                method=request.method, url=target_url, headers=headers, content=body
             )
 
             # Build response headers
             response_headers = {}
             for key, value in proxy_response.headers.items():
-                if key.lower() not in ['content-encoding', 'transfer-encoding', 'content-length']:
+                if key.lower() not in ["content-encoding", "transfer-encoding", "content-length"]:
                     response_headers[key] = value
 
             return Response(
                 content=proxy_response.content,
                 status_code=proxy_response.status_code,
-                headers=response_headers
+                headers=response_headers,
             )
 
     except Exception as e:
         logger.error(f"Metabase proxy error for {target_path}: {e}")
-        return Response(
-            content=f"Proxy error: {str(e)}",
-            status_code=502
-        )
+        return Response(content=f"Proxy error: {str(e)}", status_code=502)
+
 
 # ==============================================================================
 # Metabase-specific proxy routes (registered before Dango's /api routes)
 # ==============================================================================
+
 
 @app.api_route("/api/health", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 async def metabase_api_health(request: Request):
@@ -2609,7 +2753,9 @@ async def metabase_api_user(request: Request):
 
 
 @app.api_route("/api/database", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-@app.api_route("/api/database/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+@app.api_route(
+    "/api/database/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+)
 async def metabase_api_database(request: Request, path: str = ""):
     """Proxy Metabase database API"""
     session_id = await get_metabase_session()
@@ -2645,9 +2791,9 @@ async def get_metabase_session() -> str:
     import yaml
 
     # Return cached session if valid
-    if _metabase_session.get('id'):
+    if _metabase_session.get("id"):
         # TODO: Check if session is still valid
-        return _metabase_session['id']
+        return _metabase_session["id"]
 
     # Load credentials
     try:
@@ -2658,11 +2804,11 @@ async def get_metabase_session() -> str:
             logger.error("Metabase config not found")
             return None
 
-        with open(metabase_config_file, 'r', encoding='utf-8') as f:
+        with open(metabase_config_file, encoding="utf-8") as f:
             metabase_config = yaml.safe_load(f)
 
-        admin_email = metabase_config.get('admin', {}).get('email')
-        admin_password = metabase_config.get('admin', {}).get('password')
+        admin_email = metabase_config.get("admin", {}).get("email")
+        admin_password = metabase_config.get("admin", {}).get("password")
 
         if not admin_email or not admin_password:
             logger.error("Metabase credentials not found in config")
@@ -2678,7 +2824,7 @@ async def get_metabase_session() -> str:
             login_response = await client.post(
                 "http://localhost:3000/api/session",
                 json={"username": admin_email, "password": admin_password},
-                timeout=10.0
+                timeout=10.0,
             )
 
             if login_response.status_code == 200:
@@ -2686,8 +2832,8 @@ async def get_metabase_session() -> str:
                 session_id = session_data.get("id")
 
                 # Cache the session
-                _metabase_session['id'] = session_id
-                _metabase_session['email'] = admin_email
+                _metabase_session["id"] = session_id
+                _metabase_session["email"] = admin_email
 
                 logger.info(f"Created Metabase session: {session_id[:8]}...")
                 return session_id
@@ -2700,7 +2846,9 @@ async def get_metabase_session() -> str:
         return None
 
 
-@app.api_route("/metabase/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+@app.api_route(
+    "/metabase/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+)
 @app.api_route("/metabase", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 async def metabase_proxy(request: Request, path: str = ""):
     """
@@ -2729,17 +2877,17 @@ async def metabase_proxy(request: Request, path: str = ""):
     headers = {}
     for key, value in request.headers.items():
         # Skip headers that should not be forwarded
-        if key.lower() not in ['host', 'connection', 'content-length']:
+        if key.lower() not in ["host", "connection", "content-length"]:
             headers[key] = value
 
     # Add session cookie if we have one
     if session_id:
         # Add to Cookie header
-        existing_cookies = headers.get('cookie', '')
+        existing_cookies = headers.get("cookie", "")
         if existing_cookies:
-            headers['cookie'] = f"{existing_cookies}; metabase.SESSION={session_id}"
+            headers["cookie"] = f"{existing_cookies}; metabase.SESSION={session_id}"
         else:
-            headers['cookie'] = f"metabase.SESSION={session_id}"
+            headers["cookie"] = f"metabase.SESSION={session_id}"
 
     # Get request body if present
     body = None
@@ -2750,38 +2898,31 @@ async def metabase_proxy(request: Request, path: str = ""):
     try:
         async with httpx.AsyncClient(follow_redirects=False, timeout=30.0) as client:
             proxy_response = await client.request(
-                method=request.method,
-                url=target_url,
-                headers=headers,
-                content=body
+                method=request.method, url=target_url, headers=headers, content=body
             )
 
             # Build response
             response_headers = {}
             for key, value in proxy_response.headers.items():
                 # Skip headers that cause issues
-                if key.lower() not in ['content-encoding', 'transfer-encoding', 'content-length']:
+                if key.lower() not in ["content-encoding", "transfer-encoding", "content-length"]:
                     response_headers[key] = value
 
             # Return proxy response without modification (no nav bar injection)
             content = proxy_response.content
             return Response(
-                content=content,
-                status_code=proxy_response.status_code,
-                headers=response_headers
+                content=content, status_code=proxy_response.status_code, headers=response_headers
             )
 
     except Exception as e:
         logger.error(f"Proxy error: {e}")
-        return Response(
-            content=f"Proxy error: {str(e)}",
-            status_code=502
-        )
+        return Response(content=f"Proxy error: {str(e)}", status_code=502)
 
 
 # ==============================================================================
 # dbt Docs Reverse Proxy
 # ==============================================================================
+
 
 # Proxy dbt docs assets that are loaded via absolute paths from JavaScript
 @app.get("/manifest.json")
@@ -2807,14 +2948,11 @@ async def dbt_docs_assets(request: Request):
             return Response(
                 content=proxy_response.content,
                 status_code=proxy_response.status_code,
-                headers=dict(proxy_response.headers)
+                headers=dict(proxy_response.headers),
             )
     except Exception as e:
         logger.error(f"dbt docs asset proxy error: {e}")
-        return Response(
-            content=f"Asset not found: {str(e)}",
-            status_code=404
-        )
+        return Response(content=f"Asset not found: {str(e)}", status_code=404)
 
 
 @app.api_route("/dbt-docs/{path:path}", methods=["GET"])
@@ -2842,31 +2980,29 @@ async def dbt_docs_proxy(request: Request, path: str = ""):
             # Proxy the request
             proxy_response = await client.get(
                 target_url,
-                headers={k: v for k, v in request.headers.items()
-                        if k.lower() not in ['host', 'connection']},
+                headers={
+                    k: v
+                    for k, v in request.headers.items()
+                    if k.lower() not in ["host", "connection"]
+                },
             )
 
             # Build response headers
             response_headers = {}
             for key, value in proxy_response.headers.items():
                 # Skip headers that cause issues
-                if key.lower() not in ['content-encoding', 'transfer-encoding', 'content-length']:
+                if key.lower() not in ["content-encoding", "transfer-encoding", "content-length"]:
                     response_headers[key] = value
 
             # Return proxy response without modification (no nav bar injection)
             content = proxy_response.content
             return Response(
-                content=content,
-                status_code=proxy_response.status_code,
-                headers=response_headers
+                content=content, status_code=proxy_response.status_code, headers=response_headers
             )
 
     except Exception as e:
         logger.error(f"dbt docs proxy error: {e}")
-        return Response(
-            content=f"Proxy error: {str(e)}",
-            status_code=502
-        )
+        return Response(content=f"Proxy error: {str(e)}", status_code=502)
 
 
 # Application startup/shutdown events
@@ -2875,7 +3011,9 @@ async def startup_event():
     """Run on application startup"""
     logger.info("=" * 80)
     logger.info("🔴 DANGO WEB API VERSION: 2025-11-04-v3")
-    logger.info("🔴 FEATURES: Non-blocking row counts (2s timeout), immediate modal close on actions")
+    logger.info(
+        "🔴 FEATURES: Non-blocking row counts (2s timeout), immediate modal close on actions"
+    )
     logger.info("=" * 80)
     logger.info("Dango Web API starting up...")
     logger.info(f"Project root: {get_project_root()}")
@@ -2891,10 +3029,4 @@ if __name__ == "__main__":
     import uvicorn
 
     # Run server for local development
-    uvicorn.run(
-        "app:app",
-        host="0.0.0.0",
-        port=8080,
-        reload=True,
-        log_level="info"
-    )
+    uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=True, log_level="info")
