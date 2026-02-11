@@ -11,7 +11,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | CLI commands | `dango/cli/` | `dango/cli/CLAUDE.md` (Phase 1) |
 | Data ingestion / sync | `dango/ingestion/` | [`dango/ingestion/CLAUDE.md`](dango/ingestion/CLAUDE.md) |
 | OAuth / token flows | `dango/oauth/` | [`dango/oauth/CLAUDE.md`](dango/oauth/CLAUDE.md) |
-| Web UI / API endpoints | `dango/web/` | `dango/web/CLAUDE.md` (Phase 1) |
+| Web UI / API endpoints | `dango/web/` | [`dango/web/CLAUDE.md`](dango/web/CLAUDE.md) |
 | Config loading / models | `dango/config/` | [`dango/config/CLAUDE.md`](dango/config/CLAUDE.md) |
 | Dashboards / Metabase | `dango/visualization/` | [`dango/visualization/CLAUDE.md`](dango/visualization/CLAUDE.md) |
 | dbt / transformations | `dango/transformation/` | [`dango/transformation/CLAUDE.md`](dango/transformation/CLAUDE.md) |
@@ -84,7 +84,21 @@ dango/                          # Python package source
 │   └── validate.py             # Validation commands
 │
 ├── web/                        # Level 2 — FastAPI web server
-│   ├── app.py                  # ⚠ 2900 lines — refactored in TASK-085
+│   ├── app.py                  # Slim entry point (~109 lines) — registers routers
+│   ├── models.py               # Pydantic request/response DTOs
+│   ├── helpers.py              # Shared helpers: DuckDB queries, config, logging (798 lines)
+│   ├── routes/                 # Route modules (extracted from app.py by TASK-085)
+│   │   ├── __init__.py         # Package marker
+│   │   ├── health.py           # /api/status, /api/watcher/status, /api/health/platform
+│   │   ├── config.py           # /api/config, /api/metabase-config
+│   │   ├── sources.py          # /api/sources, /api/sources/{name}/details
+│   │   ├── sync.py             # /api/sources/{name}/sync + run_sync_task()
+│   │   ├── logs.py             # /api/logs, /api/sources/{name}/logs
+│   │   ├── dbt.py              # /api/dbt/models, /api/dbt/models/{name}/run + dbt docs proxy
+│   │   ├── upload.py           # CSV upload/list/delete (664 lines)
+│   │   ├── websocket.py        # ConnectionManager, ws_manager, /ws
+│   │   ├── ui.py               # /, /health, /logs, /api, /api/docs, /api/redoc
+│   │   └── metabase_proxy.py   # Metabase reverse proxy + SSO session
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
@@ -169,7 +183,6 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
-| `web/app.py` | 2900 | TASK-085 (split into `web/routes/`) |
 | `ingestion/dlt_runner.py` | 1696 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 1440 | — (metadata-only) |
 | `cli/source_wizard.py` | 1225 | — |
@@ -186,6 +199,8 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `platform/watcher.py` | 531 | — |
 | `cli/commands/source.py` | 521 | — (extracted from main.py by TASK-005) |
 | `cli/model_wizard.py` | 517 | — |
+| `web/helpers.py` | 798 | — (extracted from app.py by TASK-085) |
+| `web/routes/upload.py` | 664 | — (extracted from app.py by TASK-085) |
 
 ## Module Documentation Index
 
@@ -203,7 +218,9 @@ Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 
 **Planned Phase 1:**
 - `dango/cli/CLAUDE.md` (after TASK-005)
-- `dango/web/CLAUDE.md` (after TASK-085)
+
+**Created:**
+- [`dango/web/CLAUDE.md`](dango/web/CLAUDE.md)
 
 **Planned later phases:**
 - `dango/platform/CLAUDE.md` (Phase 3)
