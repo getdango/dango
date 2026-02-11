@@ -1,8 +1,7 @@
 """scripts/check_docstrings.py
 
 Check that public functions and classes have docstrings.
-Pre-commit mode: accepts file paths, exits 1 on violations.
-CI mode (--all): audit all files, exits 0 with report.
+Exits 1 on violations in both pre-commit and CI (--all) modes.
 """
 
 import argparse

@@ -104,7 +104,7 @@ def create_env_template(
                     temp_file.unlink()
             except Exception:
                 pass
-            raise Exception(f"Failed to update .env file: {e}") from None
+            raise Exception(f"Failed to update .env file: {e}") from e
 
 
 def validate_env_file(env_file: Path, required_vars: list[str]) -> tuple[bool, list[str]]:
