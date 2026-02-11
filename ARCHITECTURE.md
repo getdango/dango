@@ -50,7 +50,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
               │                                                            │
               │   config/     utils/      security/    templates/          │
               │                                                            │
-              │   exceptions.py* (Phase 2)    logging.py* (Phase 2)       │
+              │   exceptions.py* (Phase 2)    logging.py                  │
               └───────────────────────────────────────────────────────────┘
                                         │
               ┌─────────────────────────┴──────────────────────────────────┐
@@ -67,12 +67,12 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 | Level | Role | Modules |
 |-------|------|---------|
-| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `templates/`, `exceptions.py`\*, `logging.py`\* |
+| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `templates/`, `logging.py`, `exceptions.py`\* |
 | 1 (core) | Imports Level 0 only | `oauth/`, `ingestion/`, `transformation/`, `auth/`\* |
 | 2 (platform) | Imports Level 0-1 | `platform/`, `web/`, `visualization/` |
 | 3 (ui) | Imports any level | `cli/` |
 
-\* = planned, not yet implemented
+\* = planned, not yet implemented (`exceptions.py`)
 
 **Three rules govern imports:**
 
@@ -268,11 +268,11 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 ### Planned Modules
 
+#### `logging.py`
+Structured logging configuration (structlog + stdlib integration). Provides `configure_logging()`, `get_logger()`, and correlation ID support via contextvars. See module docstring for full API.
+
 #### `exceptions.py` (Phase 2)
 Centralized exception hierarchy for consistent error handling across modules.
-
-#### `logging.py` (Phase 2)
-Structured logging configuration with per-module loggers.
 
 #### `auth/` (Phase 2)
 User authentication and authorization — session management, roles, permissions.

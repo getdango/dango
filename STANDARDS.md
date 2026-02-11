@@ -248,35 +248,41 @@ class ConfigError(DangoError):
 
 ## 6. Logging Patterns
 
-### Current pattern (use until TASK-007)
+Structured logging is provided by `dango/logging.py` (structlog wrapping stdlib). Rich Console stays for user-facing CLI/web output.
 
-The codebase currently uses Rich `Console` for all output — there is no structured logging yet.
-
-**Rules for new code (before TASK-007):**
-- Continue using `from rich.console import Console` for user-facing output
-- Add `# TODO(TASK-007): structured logging` where structured logging would be appropriate
-- Do not introduce `logging` or `structlog` yet — TASK-007 sets up the infrastructure
-
-### Target pattern (TASK-007)
-
-> **⚠️ TARGET PATTERN** — Not yet implemented. Do not use this pattern until TASK-007 lands.
+### Structured logging
 
 ```python
-import structlog
+from dango.logging import get_logger
 
-logger = structlog.get_logger(__name__)
+logger = get_logger(__name__)
 
-# Structured logging (JSON to file)
+# Structured logging (JSON to file, human-readable to stderr)
 logger.info("sync_completed", source="google_sheets", rows=1523, duration_s=4.2)
 logger.error("sync_failed", source="stripe", error=str(e), retry_in=60)
+```
 
-# Rich console stays for user-facing output
+### Rich Console (user-facing output)
+
+```python
 from rich.console import Console
 console = Console()
 console.print("[green]Sync complete![/green]")
 ```
 
-**Log levels:**
+Use Rich Console for interactive CLI output (progress bars, tables, styled text). Use structured logging for operational events that should be recorded to log files.
+
+### Entry point setup
+
+Call `configure_logging()` once at each entry point (CLI, web server) before any logging occurs:
+
+```python
+from dango.logging import configure_logging
+configure_logging()  # uses DANGO_LOG_LEVEL env var or defaults to INFO
+```
+
+### Log levels
+
 - `DEBUG` — internal state, useful for troubleshooting
 - `INFO` — normal operations (sync started, sync completed)
 - `WARNING` — recoverable issues (retry, fallback used)
