@@ -57,7 +57,21 @@ When unsure which module to look at:
 dango/                          # Python package source
 ├── __init__.py
 ├── cli/                        # Level 3 — Click CLI (primary user interface)
-│   ├── main.py                 # ⚠ 3927 lines — refactored in TASK-005
+│   ├── __init__.py             # Shared Console instance
+│   ├── main.py                 # Slim entry point (~86 lines) — registers commands
+│   ├── commands/               # Command modules (extracted from main.py by TASK-005)
+│   │   ├── __init__.py         # Package marker
+│   │   ├── auth.py             # auth group + 10 subcommands (707 lines)
+│   │   ├── config_cmd.py       # config group (validate/show)
+│   │   ├── dashboard.py        # dashboard group (provision)
+│   │   ├── data.py             # db group (status/clean) + validate
+│   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
+│   │   ├── model.py            # model group (add/remove)
+│   │   ├── platform.py         # start/stop/status + port helpers (945 lines)
+│   │   ├── project.py          # init/rename/info
+│   │   ├── source.py           # source group (add/list/remove) + sync (521 lines)
+│   │   ├── transform.py        # run/docs/generate
+│   │   └── web.py              # web dev server
 │   ├── init.py                 # Project initialization wizard
 │   ├── wizard.py               # Interactive setup wizards
 │   ├── source_wizard.py        # Source configuration wizard
@@ -150,12 +164,11 @@ DuckDB allows only one writer process at a time. All write operations are serial
 
 ### Monolithic Files
 
-These files exceed 500 lines. Two have planned refactoring; the rest are exempt (stable MVP code).
+These files exceed 500 lines. One has planned refactoring; the rest are exempt (stable MVP code).
 Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
-| `cli/main.py` | 3927 | TASK-005 (split into `cli/commands/`) |
 | `web/app.py` | 2900 | TASK-085 (split into `web/routes/`) |
 | `ingestion/dlt_runner.py` | 1696 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 1440 | — (metadata-only) |
@@ -163,14 +176,16 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `visualization/metabase.py` | 1207 | — |
 | `visualization/dashboard_manager.py` | 1102 | — |
 | `cli/init.py` | 945 | — |
+| `cli/commands/platform.py` | 945 | — (extracted from main.py by TASK-005) |
 | `cli/utils.py` | 780 | — |
 | `oauth/providers.py` | 761 | — |
 | `ingestion/csv_loader.py` | 761 | — |
+| `cli/commands/auth.py` | 707 | — (extracted from main.py by TASK-005) |
 | `cli/validate.py` | 677 | — |
 | `transformation/generator.py` | 560 | — |
 | `platform/watcher.py` | 531 | — |
+| `cli/commands/source.py` | 521 | — (extracted from main.py by TASK-005) |
 | `cli/model_wizard.py` | 517 | — |
-| `platform/network.py` | 509 | — |
 
 ## Module Documentation Index
 
