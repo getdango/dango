@@ -105,11 +105,11 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled[/yellow]")
-        lock.release()
+        lock.release()  # TODO: lock may be undefined if error occurs before acquisition
         raise click.Abort() from None
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        lock.release()
+        lock.release()  # TODO: lock may be undefined if error occurs before acquisition
         raise click.Abort() from e
     finally:
         # Always release the lock (if it was acquired)

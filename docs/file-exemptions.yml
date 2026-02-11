@@ -18,7 +18,7 @@ exemptions:
     reason: "Monolithic web server; will be split into web/routes/ submodules"
     review_by: "v1.0"
 
-  # --- Post-TASK-005 split results (from cli/main.py 3927 → cli/commands/) ---
+  # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
     lines: 945
     category: exempt

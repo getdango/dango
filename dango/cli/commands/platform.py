@@ -457,7 +457,7 @@ def start(ctx: click.Context) -> None:
             raise click.Abort()
 
         # Docker services started successfully
-        if True:
+        if True:  # TODO: dead code — remove this always-true conditional
             # Metabase auto-setup (first-time only)
             console.print()
             console.print("[cyan]Checking Metabase setup...[/cyan]")
@@ -712,7 +712,7 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
     from pathlib import Path
 
     from dango.config import ConfigLoader
-    from dango.platform import DockerManager
+    from dango.platform import DockerManager  # TODO: duplicate import — also imported at line 725
     from dango.platform.network import NetworkConfig
 
     from ..utils import require_project_context, stop_fastapi_server

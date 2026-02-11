@@ -511,7 +511,7 @@ def sync(
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        lock.release()
+        lock.release()  # TODO: lock may be undefined if error occurs before acquisition
         raise click.Abort() from e
     finally:
         # Always release the lock (if it was acquired)

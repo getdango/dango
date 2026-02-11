@@ -60,6 +60,7 @@ dango/                          # Python package source
 │   ├── __init__.py             # Shared Console instance
 │   ├── main.py                 # Slim entry point (~86 lines) — registers commands
 │   ├── commands/               # Command modules (extracted from main.py by TASK-005)
+│   │   ├── __init__.py         # Package marker
 │   │   ├── auth.py             # auth group + 10 subcommands (707 lines)
 │   │   ├── config_cmd.py       # config group (validate/show)
 │   │   ├── dashboard.py        # dashboard group (provision)
