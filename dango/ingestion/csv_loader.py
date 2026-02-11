@@ -329,7 +329,7 @@ class CSVLoader:
                 conn.execute(f"DROP VIEW IF EXISTS {temp_view}")
             except Exception:
                 pass
-            raise Exception(f"Failed to read CSV schema from {filepath}: {e}") from None
+            raise Exception(f"Failed to read CSV schema from {filepath}: {e}") from e
 
     def _get_table_columns(self, conn: duckdb.DuckDBPyConnection, table_name: str) -> list[str]:
         """

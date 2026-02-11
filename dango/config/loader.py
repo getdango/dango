@@ -113,7 +113,7 @@ class ConfigLoader:
                     temp_path.unlink()
             except Exception:
                 pass
-            raise ConfigError(f"Error writing {file_path}: {e}") from None
+            raise ConfigError(f"Error writing {file_path}: {e}") from e
 
     def load_project_context(self) -> ProjectContext:
         """
