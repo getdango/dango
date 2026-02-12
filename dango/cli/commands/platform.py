@@ -746,12 +746,15 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
 
         # Stop file watcher first
         console.print("[cyan]Stopping file watcher...[/cyan]")
-        from dango.platform.watcher_lifecycle import stop_file_watcher
+        from dango.platform.watcher_lifecycle import get_watcher_status, stop_file_watcher
 
+        watcher_was_running = get_watcher_status(project_root)["running"]
         watcher_stopped = stop_file_watcher(project_root)
 
         if watcher_stopped:
             console.print("[green]✓[/green] File watcher stopped")
+        elif watcher_was_running:
+            console.print("[yellow]⚠[/yellow] Failed to stop file watcher")
         else:
             console.print("[dim]File watcher was not running[/dim]")
 
