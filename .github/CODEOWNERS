@@ -1,0 +1,20 @@
+# Default owner for all files
+* @aaronteoh
+
+# Package modules
+/dango/cli/              @aaronteoh
+/dango/config/           @aaronteoh
+/dango/ingestion/        @aaronteoh
+/dango/oauth/            @aaronteoh
+/dango/platform/         @aaronteoh
+/dango/security/         @aaronteoh
+/dango/templates/        @aaronteoh
+/dango/transformation/   @aaronteoh
+/dango/utils/            @aaronteoh
+/dango/visualization/    @aaronteoh
+/dango/web/              @aaronteoh
+
+# Tests and documentation
+/tests/                  @aaronteoh
+/docs/                   @aaronteoh
+*.md                     @aaronteoh
