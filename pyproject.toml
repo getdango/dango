@@ -162,6 +162,30 @@ module = [
 ]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = [
+    # Exempt monolithic files (see docs/file-exemptions.yml)
+    # Full type checking deferred until refactoring or dedicated typing task
+    "dango.ingestion.dlt_runner",
+    "dango.ingestion.sources.registry",
+    "dango.ingestion.csv_loader",
+    "dango.cli.source_wizard",
+    "dango.cli.init",
+    "dango.cli.model_wizard",
+    "dango.cli.validate",
+    "dango.cli.commands.platform",
+    "dango.cli.commands.auth",
+    "dango.cli.commands.source",
+    "dango.visualization.metabase",
+    "dango.visualization.dashboard_manager",
+    "dango.transformation.generator",
+    "dango.platform.watcher",
+    "dango.oauth.providers",
+    "dango.web.helpers",
+    "dango.web.routes.upload",
+]
+ignore_errors = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
