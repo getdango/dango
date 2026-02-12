@@ -69,7 +69,7 @@ dango/                          # Python package source
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
 │   │   ├── model.py            # model group (add/remove)
-│   │   ├── platform.py         # start/stop/status + port helpers (945 lines)
+│   │   ├── platform.py         # start/stop/status + port helpers (955 lines)
 │   │   ├── project.py          # init/rename/info
 │   │   ├── source.py           # source group (add/list/remove) + sync (521 lines)
 │   │   ├── transform.py        # run/docs/generate
