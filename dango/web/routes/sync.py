@@ -38,7 +38,7 @@ async def trigger_sync(
     Returns:
         Sync response with status
     """
-    validate_source_name(source_name)
+    source_name = validate_source_name(source_name)
     if sync_request.start_date:
         validate_date_string(sync_request.start_date)
     if sync_request.end_date:

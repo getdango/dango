@@ -28,7 +28,7 @@ async def get_source_logs(source_name: str, limit: int = 100):
     Returns:
         List of log entries
     """
-    validate_source_name(source_name)
+    source_name = validate_source_name(source_name)
     limit = validate_limit(limit)
     log_file = get_project_root() / "logs" / f"{source_name}_sync.log"
 

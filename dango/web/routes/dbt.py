@@ -49,7 +49,7 @@ async def run_dbt_model(model_name: str, background_tasks: BackgroundTasks, casc
     Returns:
         Success message
     """
-    validate_identifier(model_name)
+    model_name = validate_identifier(model_name)
     # Check if model exists (use manifest only, avoid DuckDB query which can block)
     manifest = get_dbt_manifest()
     if manifest:

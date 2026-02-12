@@ -55,7 +55,7 @@ async def get_source_details(source_name: str):
     Returns:
         Source configuration (masked) and sync history
     """
-    validate_source_name(source_name)
+    source_name = validate_source_name(source_name)
     sources_config = load_sources_config()
 
     # Find the source
