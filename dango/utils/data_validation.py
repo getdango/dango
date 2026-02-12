@@ -34,12 +34,13 @@ def validate_cursor_field(
             "issues": list
         }
     """
+    issues: list[str] = []
     result: dict[str, Any] = {
         "valid": False,
         "exists": False,
         "data_type": None,
         "sample_values": [],
-        "issues": [],
+        "issues": issues,
     }
 
     try:
@@ -53,18 +54,14 @@ def validate_cursor_field(
         """).fetchone()
 
         if table_exists_row is None:
-            issues_list = result["issues"]
-            assert isinstance(issues_list, list)
-            issues_list.append(f"Failed to check if table {schema}.{source_name} exists")
+            issues.append(f"Failed to check if table {schema}.{source_name} exists")
             conn.close()
             return result
 
         table_exists = table_exists_row[0]
 
         if not table_exists:
-            issues_list = result["issues"]
-            assert isinstance(issues_list, list)
-            issues_list.append(f"Table {schema}.{source_name} does not exist")
+            issues.append(f"Table {schema}.{source_name} does not exist")
             conn.close()
             return result
 
@@ -78,9 +75,7 @@ def validate_cursor_field(
         """).fetchone()
 
         if not column_info:
-            issues_list = result["issues"]
-            assert isinstance(issues_list, list)
-            issues_list.append(f"Cursor field '{cursor_field}' not found in table")
+            issues.append(f"Cursor field '{cursor_field}' not found in table")
             result["exists"] = False
             conn.close()
             return result
@@ -105,9 +100,7 @@ def validate_cursor_field(
         if isinstance(data_type, str) and not any(
             vtype in data_type.upper() for vtype in valid_types
         ):
-            issues_list = result["issues"]
-            assert isinstance(issues_list, list)
-            issues_list.append(
+            issues.append(
                 f"Cursor field has unexpected type '{data_type}'. "
                 f"Expected: {', '.join(valid_types)}"
             )
@@ -120,29 +113,21 @@ def validate_cursor_field(
         """).fetchone()
 
         if null_count_row is None:
-            issues_list = result["issues"]
-            assert isinstance(issues_list, list)
-            issues_list.append("Failed to check for NULL values in cursor field")
+            issues.append("Failed to check for NULL values in cursor field")
         else:
             null_count = null_count_row[0]
             if null_count > 0:
-                issues_list = result["issues"]
-                assert isinstance(issues_list, list)
-                issues_list.append(f"{null_count} NULL values found in cursor field")
+                issues.append(f"{null_count} NULL values found in cursor field")
 
         conn.close()
 
         # Overall validation
-        issues_list = result["issues"]
-        assert isinstance(issues_list, list)
-        result["valid"] = result["exists"] and len(issues_list) == 0
+        result["valid"] = result["exists"] and len(issues) == 0
 
         return result
 
     except Exception as e:
-        issues_list = result["issues"]
-        assert isinstance(issues_list, list)
-        issues_list.append(f"Validation error: {e}")
+        issues.append(f"Validation error: {e}")
         return result
 
 
@@ -171,9 +156,10 @@ def detect_schema_changes(
             "column_types": dict
         }
     """
-    result = {
+    current_columns: list[str] = []
+    result: dict[str, Any] = {
         "changed": False,
-        "current_columns": [],
+        "current_columns": current_columns,
         "added_columns": [],
         "removed_columns": [],
         "column_types": {},
@@ -190,13 +176,11 @@ def detect_schema_changes(
             ORDER BY ordinal_position
         """).fetchall()
 
-        result["current_columns"] = [col[0] for col in columns]
+        current_columns.extend(col[0] for col in columns)
         result["column_types"] = {col[0]: col[1] for col in columns}
 
         # Compare with expected schema if provided
         if expected_schema:
-            current_columns = result["current_columns"]
-            assert isinstance(current_columns, list)
             current_set = set(current_columns)
             expected_set = set(expected_schema)
 

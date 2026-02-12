@@ -175,10 +175,12 @@ class SchemaManager:
         Returns:
             Tuple of (updated_schema, changes_dict)
         """
+        added_columns: list[str] = []
+        removed_columns: list[dict[str, str]] = []
         changes: dict[str, Any] = {
             "is_new": False,
-            "added_columns": [],
-            "removed_columns": [],
+            "added_columns": added_columns,
+            "removed_columns": removed_columns,
             "preserved_columns": 0,
         }
 
@@ -207,15 +209,11 @@ class SchemaManager:
             if col_name in existing_descriptions:
                 # Preserve existing description
                 description = existing_descriptions[col_name]
-                preserved_count = changes["preserved_columns"]
-                if isinstance(preserved_count, int):
-                    changes["preserved_columns"] = preserved_count + 1
+                changes["preserved_columns"] += 1
             else:
                 # New column - add helpful placeholder
                 description = "TODO: Add description\n(Auto-generated - edit in dbt/models/[layer]/schema.yml)"
-                added_cols = changes["added_columns"]
-                if isinstance(added_cols, list):
-                    added_cols.append(col_name)
+                added_columns.append(col_name)
 
             new_columns.append({"name": col_name, "description": description})
 
@@ -223,9 +221,7 @@ class SchemaManager:
         actual_col_names = {col["name"] for col in actual_columns}
         for col_name, description in existing_descriptions.items():
             if col_name not in actual_col_names:
-                removed_cols = changes["removed_columns"]
-                if isinstance(removed_cols, list):
-                    removed_cols.append({"name": col_name, "description": description})
+                removed_columns.append({"name": col_name, "description": description})
 
         # Build model entry
         new_model = {
