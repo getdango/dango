@@ -17,6 +17,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | dbt / transformations | `dango/transformation/` | [`dango/transformation/CLAUDE.md`](dango/transformation/CLAUDE.md) |
 | Token encryption / keychain | `dango/security/` | [`dango/security/CLAUDE.md`](dango/security/CLAUDE.md) |
 | Shared utilities | `dango/utils/` | [`dango/utils/CLAUDE.md`](dango/utils/CLAUDE.md) |
+| Logging / diagnostics | `dango/logging.py` | Module docstring |
 | Docker / file watcher | `dango/platform/` | `dango/platform/CLAUDE.md` (Phase 3) |
 | Jinja2 templates / Dockerfiles | `dango/templates/` | [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md) |
 | Auth / users / sessions | `dango/auth/` | Not yet created (Phase 2) |
@@ -56,6 +57,7 @@ When unsure which module to look at:
 ```
 dango/                          # Python package source
 ├── __init__.py
+├── logging.py                  # Level 0 — Structured logging (structlog + stdlib)
 ├── cli/                        # Level 3 — Click CLI (primary user interface)
 │   ├── __init__.py             # Shared Console instance
 │   ├── main.py                 # Slim entry point (~86 lines) — registers commands
@@ -165,7 +167,7 @@ tests/
 
 | Level | Role | Modules |
 |-------|------|---------|
-| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `templates/` |
+| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `templates/`, `logging.py` |
 | 1 (core) | Imports Level 0 only | `oauth/`, `ingestion/`, `transformation/` |
 | 2 (platform) | Imports Level 0–1 | `platform/`, `web/`, `visualization/` |
 | 3 (ui) | Imports any level | `cli/` |

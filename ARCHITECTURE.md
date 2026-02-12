@@ -50,7 +50,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
               │                                                            │
               │   config/     utils/      security/    templates/          │
               │                                                            │
-              │   exceptions.py* (Phase 2)    logging.py* (Phase 2)       │
+              │   exceptions.py* (Phase 2)    logging.py                  │
               └───────────────────────────────────────────────────────────┘
                                         │
               ┌─────────────────────────┴──────────────────────────────────┐
@@ -67,12 +67,12 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 | Level | Role | Modules |
 |-------|------|---------|
-| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `templates/`, `exceptions.py`\*, `logging.py`\* |
+| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `templates/`, `logging.py`, `exceptions.py`\* |
 | 1 (core) | Imports Level 0 only | `oauth/`, `ingestion/`, `transformation/`, `auth/`\* |
 | 2 (platform) | Imports Level 0-1 | `platform/`, `web/`, `visualization/` |
 | 3 (ui) | Imports any level | `cli/` |
 
-\* = planned, not yet implemented
+\* = planned, not yet implemented (`exceptions.py`)
 
 **Three rules govern imports:**
 
@@ -149,6 +149,15 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 **Public API:** Templates consumed by `cli/init.py` and `transformation/generator.py`.
 
 **Imports from:** None (Level 0).
+
+---
+
+#### `logging.py`
+**Responsibility:** Structured logging infrastructure (structlog wrapping stdlib). JSON to rotating log file, human-readable to stderr. Correlation ID support via contextvars.
+
+**Public API:** `configure_logging()`, `get_logger()`, `bind_contextvars`, `clear_contextvars`, `unbind_contextvars`
+
+**Imports from:** None (Level 0). Uses structlog + stdlib only.
 
 ### Level 1 — Core
 
@@ -270,9 +279,6 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 #### `exceptions.py` (Phase 2)
 Centralized exception hierarchy for consistent error handling across modules.
-
-#### `logging.py` (Phase 2)
-Structured logging configuration with per-module loggers.
 
 #### `auth/` (Phase 2)
 User authentication and authorization — session management, roles, permissions.
