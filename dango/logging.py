@@ -40,9 +40,6 @@ __all__ = [
     "unbind_contextvars",
 ]
 
-# Sentinel to allow idempotent reconfiguration
-_configured: bool = False
-
 # Defaults
 _DEFAULT_LOG_LEVEL = "INFO"
 _DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -91,8 +88,6 @@ def configure_logging(
         json_console: If True, console output uses JSON. Otherwise uses
             structlog's ``ConsoleRenderer`` (human-readable, colored when TTY).
     """
-    global _configured  # noqa: PLW0603
-
     level = _resolve_log_level(log_level)
 
     # Resolve log directory
@@ -101,6 +96,7 @@ def configure_logging(
 
     # --- Build handlers ---
     handlers: dict[str, dict] = {}
+    shared_processors = _build_shared_processors()
 
     # File handler — JSON output
     file_handler_ok = _setup_file_handler(handlers, log_dir, level)
@@ -131,7 +127,7 @@ def configure_logging(
                         structlog.stdlib.ProcessorFormatter.remove_processors_meta,
                         structlog.processors.JSONRenderer(),
                     ],
-                    "foreign_pre_chain": _build_shared_processors(),
+                    "foreign_pre_chain": shared_processors,
                 },
                 "console": {
                     "()": structlog.stdlib.ProcessorFormatter,
@@ -139,7 +135,7 @@ def configure_logging(
                         structlog.stdlib.ProcessorFormatter.remove_processors_meta,
                         structlog.dev.ConsoleRenderer(),
                     ],
-                    "foreign_pre_chain": _build_shared_processors(),
+                    "foreign_pre_chain": shared_processors,
                 },
             },
             "handlers": handlers,
@@ -153,15 +149,13 @@ def configure_logging(
     # --- structlog configuration ---
     structlog.configure(
         processors=[
-            *_build_shared_processors(),
+            *shared_processors,
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=False,
     )
-
-    _configured = True
 
     if not file_handler_ok:
         logger = get_logger("dango.logging")

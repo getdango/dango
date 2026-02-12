@@ -150,6 +150,15 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 **Imports from:** None (Level 0).
 
+---
+
+#### `logging.py`
+**Responsibility:** Structured logging infrastructure (structlog wrapping stdlib). JSON to rotating log file, human-readable to stderr. Correlation ID support via contextvars.
+
+**Public API:** `configure_logging()`, `get_logger()`, `bind_contextvars`, `clear_contextvars`, `unbind_contextvars`
+
+**Imports from:** None (Level 0). Uses structlog + stdlib only.
+
 ### Level 1 — Core
 
 #### `ingestion/`
@@ -267,9 +276,6 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 **Imports from:** `config/` (Level 0), `utils/` (Level 0), `ingestion/` (Level 1), `transformation/` (Level 1), `visualization/` (Level 2). Also imports `cli/utils` (Level 3) — see Known Violations.
 
 ### Planned Modules
-
-#### `logging.py`
-Structured logging configuration (structlog + stdlib integration). Provides `configure_logging()`, `get_logger()`, and correlation ID support via contextvars. See module docstring for full API.
 
 #### `exceptions.py` (Phase 2)
 Centralized exception hierarchy for consistent error handling across modules.

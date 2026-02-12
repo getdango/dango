@@ -25,12 +25,7 @@ from dango.logging import (
 @pytest.fixture(autouse=True)
 def _reset_logging():
     """Reset logging state between tests to ensure isolation."""
-    import dango.logging as dl
-
     yield
-
-    # Reset the configured flag
-    dl._configured = False
 
     # Clear contextvars
     clear_contextvars()
@@ -89,17 +84,12 @@ class TestConfigureLogging:
         configure_logging(log_dir=log_dir, json_console=True)
         configure_logging(log_dir=log_dir, json_console=True, log_level="DEBUG")
 
-        import dango.logging as dl
-
-        assert dl._configured is True
-
         # Should still be functional after reconfiguration
         logger = get_logger("test")
         logger.info("after_reconfig")
 
         log_file = log_dir / "dango.log"
         lines = [line for line in log_file.read_text().strip().split("\n") if line]
-        # There should be at least one entry from after_reconfig
         events = [json.loads(line)["event"] for line in lines]
         assert "after_reconfig" in events
 
