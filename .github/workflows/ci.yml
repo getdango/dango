@@ -25,8 +25,6 @@ jobs:
   type-check:
     name: Type check (mypy)
     runs-on: ubuntu-latest
-    # TODO: Remove continue-on-error after mypy compliance pass
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,7 +33,7 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev]"
       - name: mypy
-        run: mypy dango/ --ignore-missing-imports
+        run: mypy dango/
 
   test:
     name: Test (Python ${{ matrix.python-version }})
