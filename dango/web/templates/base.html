@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Dango{% endblock %}</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍡</text></svg>">
+
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Custom Tailwind Configuration -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'dango': {
+                            50: '#fef2f2',
+                            100: '#fee2e2',
+                            200: '#fecaca',
+                            300: '#fca5a5',
+                            400: '#f87171',
+                            500: '#ef4444',
+                            600: '#dc2626',
+                            700: '#b91c1c',
+                            800: '#991b1b',
+                            900: '#7f1d1d',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/main.css?v=1761590000">
+
+    <!-- Alpine.js via CDN (ADR-007: used for new page interactivity) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2 sm:space-x-3">
+                    <div class="text-2xl sm:text-3xl">🍡</div>
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Dango</h1>
+                        <p {% block subtitle_attrs %}class="text-xs sm:text-sm text-gray-500 hidden sm:block"{% endblock %}>{{ subtitle }}</p>
+                    </div>
+                </div>
+
+                {% block header_right %}{% endblock %}
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Bar -->
+    <nav class="bg-gray-800 shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-12">
+                <div class="flex items-center space-x-1 sm:space-x-4">
+                    <a href="/" class="px-3 py-2 rounded-md text-sm font-medium {% if current_page == 'overview' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                        Overview
+                    </a>
+                    <a href="/health" class="px-3 py-2 rounded-md text-sm font-medium {% if current_page == 'health' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                        Health
+                    </a>
+                    <a href="/dbt-docs" target="_blank" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors hidden sm:block">
+                        Data Catalog
+                    </a>
+                    <a href="/metabase/question/new" id="nav-query-database" target="_blank" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors hidden sm:block">
+                        Query Database
+                    </a>
+                    <a href="/metabase" target="_blank" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
+                        Dashboards
+                    </a>
+                    <a href="/logs" class="px-3 py-2 rounded-md text-sm font-medium {% if current_page == 'logs' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors hidden sm:block">
+                        Activity Logs
+                    </a>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-xs text-gray-400 hidden md:inline">Dango v{{ version }}</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    {% block content %}{% endblock %}
+
+    {% block footer %}
+    <!-- Default Footer -->
+    <footer class="bg-white border-t border-gray-200 mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div class="flex items-center justify-between text-sm text-gray-500">
+                <div>
+                    🍡 Dango v{{ version }}
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="/api/docs" target="_blank" class="hover:text-gray-700">API Docs</a>
+                    <a href="https://github.com/getdango/dango" target="_blank" class="hover:text-gray-700">GitHub</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+    {% endblock %}
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>
