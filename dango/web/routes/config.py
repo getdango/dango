@@ -16,7 +16,7 @@ router = APIRouter(tags=["config"])
 
 
 @router.get("/api/config")
-async def get_config():
+async def get_config() -> dict[str, object]:
     """Get Dango configuration (ports, URLs, etc.).
 
     Returns configuration needed by the frontend to build dynamic URLs
@@ -55,7 +55,7 @@ async def get_config():
 
 
 @router.get("/api/metabase-config")
-async def get_metabase_config():
+async def get_metabase_config() -> dict[str, object]:
     """Get Metabase configuration including database ID.
 
     Returns:

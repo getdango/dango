@@ -152,7 +152,8 @@ class SchemaManager:
 
         try:
             with open(schema_path) as f:
-                return yaml.safe_load(f)
+                result = yaml.safe_load(f)
+                return result if isinstance(result, dict) else None
         except Exception:
             # Corrupted YAML - return None to regenerate
             return None
@@ -174,7 +175,7 @@ class SchemaManager:
         Returns:
             Tuple of (updated_schema, changes_dict)
         """
-        changes = {
+        changes: dict[str, Any] = {
             "is_new": False,
             "added_columns": [],
             "removed_columns": [],
@@ -206,11 +207,15 @@ class SchemaManager:
             if col_name in existing_descriptions:
                 # Preserve existing description
                 description = existing_descriptions[col_name]
-                changes["preserved_columns"] += 1
+                preserved_count = changes["preserved_columns"]
+                if isinstance(preserved_count, int):
+                    changes["preserved_columns"] = preserved_count + 1
             else:
                 # New column - add helpful placeholder
                 description = "TODO: Add description\n(Auto-generated - edit in dbt/models/[layer]/schema.yml)"
-                changes["added_columns"].append(col_name)
+                added_cols = changes["added_columns"]
+                if isinstance(added_cols, list):
+                    added_cols.append(col_name)
 
             new_columns.append({"name": col_name, "description": description})
 
@@ -218,7 +223,9 @@ class SchemaManager:
         actual_col_names = {col["name"] for col in actual_columns}
         for col_name, description in existing_descriptions.items():
             if col_name not in actual_col_names:
-                changes["removed_columns"].append({"name": col_name, "description": description})
+                removed_cols = changes["removed_columns"]
+                if isinstance(removed_cols, list):
+                    removed_cols.append({"name": col_name, "description": description})
 
         # Build model entry
         new_model = {

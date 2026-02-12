@@ -84,7 +84,8 @@ def _load_persistent_status(project_root: Path) -> dict[str, dict[str, Any]]:
 
     try:
         with open(status_path) as f:
-            return json.load(f)
+            result: dict[str, dict[str, Any]] = json.load(f)
+            return result
     except Exception:
         return {}
 

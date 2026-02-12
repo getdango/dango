@@ -4,7 +4,7 @@ Metabase reverse proxy routes with SSO session management.
 """
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import yaml
@@ -21,7 +21,9 @@ router = APIRouter(tags=["metabase-proxy"])
 _metabase_session: dict[str, Any] = {}
 
 
-async def proxy_to_metabase(request: Request, target_path: str, session_id: str = None) -> Response:
+async def proxy_to_metabase(
+    request: Request, target_path: str, session_id: str | None = None
+) -> Response:
     """Proxy a request to Metabase.
 
     Args:
@@ -83,16 +85,18 @@ async def proxy_to_metabase(request: Request, target_path: str, session_id: str 
         return Response(content=f"Proxy error: {str(e)}", status_code=502)
 
 
-async def get_metabase_session() -> str:
+async def get_metabase_session() -> str | None:
     """Get or create Metabase session for auto-login.
 
     Returns:
-        Session ID for Metabase
+        Session ID for Metabase, or None if unable to create session
     """
     # Return cached session if valid
     if _metabase_session.get("id"):
         # TODO: Check if session is still valid
-        return _metabase_session["id"]
+        session_id = _metabase_session["id"]
+        if isinstance(session_id, str):
+            return session_id
 
     # Load credentials
     try:
@@ -130,12 +134,16 @@ async def get_metabase_session() -> str:
                 session_data = login_response.json()
                 session_id = session_data.get("id")
 
-                # Cache the session
-                _metabase_session["id"] = session_id
-                _metabase_session["email"] = admin_email
+                if session_id and isinstance(session_id, str):
+                    # Cache the session
+                    _metabase_session["id"] = session_id
+                    _metabase_session["email"] = admin_email
 
-                logger.info(f"Created Metabase session: {session_id[:8]}...")
-                return session_id
+                    logger.info(f"Created Metabase session: {session_id[:8]}...")
+                    return cast(str, session_id)
+                else:
+                    logger.error("Metabase login response missing valid session ID")
+                    return None
             else:
                 logger.error(f"Metabase login failed: {login_response.status_code}")
                 return None
@@ -151,20 +159,20 @@ async def get_metabase_session() -> str:
 
 
 @router.api_route("/api/health", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-async def metabase_api_health(request: Request):
+async def metabase_api_health(request: Request) -> Response:
     """Proxy Metabase health check API."""
     session_id = await get_metabase_session()
     return await proxy_to_metabase(request, "/api/health", session_id)
 
 
 @router.api_route("/api/session", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-async def metabase_api_session(request: Request):
+async def metabase_api_session(request: Request) -> Response:
     """Proxy Metabase session API."""
     return await proxy_to_metabase(request, "/api/session")
 
 
 @router.api_route("/api/user", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-async def metabase_api_user(request: Request):
+async def metabase_api_user(request: Request) -> Response:
     """Proxy Metabase user API."""
     session_id = await get_metabase_session()
     return await proxy_to_metabase(request, "/api/user", session_id)
@@ -174,7 +182,7 @@ async def metabase_api_user(request: Request):
 @router.api_route(
     "/api/database/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
 )
-async def metabase_api_database(request: Request, path: str = ""):
+async def metabase_api_database(request: Request, path: str = "") -> Response:
     """Proxy Metabase database API."""
     session_id = await get_metabase_session()
     target_path = f"/api/database/{path}" if path else "/api/database"
@@ -182,19 +190,19 @@ async def metabase_api_database(request: Request, path: str = ""):
 
 
 @router.api_route("/app/{path:path}", methods=["GET"])
-async def metabase_app_assets(request: Request, path: str):
+async def metabase_app_assets(request: Request, path: str) -> Response:
     """Proxy Metabase app assets (JS, CSS, images, etc.)."""
     return await proxy_to_metabase(request, f"/app/{path}")
 
 
 @router.api_route("/public/{path:path}", methods=["GET"])
-async def metabase_public_assets(request: Request, path: str):
+async def metabase_public_assets(request: Request, path: str) -> Response:
     """Proxy Metabase public assets."""
     return await proxy_to_metabase(request, f"/public/{path}")
 
 
 @router.get("/styles.css")
-async def metabase_styles(request: Request):
+async def metabase_styles(request: Request) -> Response:
     """Proxy Metabase styles.css."""
     return await proxy_to_metabase(request, "/styles.css")
 
@@ -203,7 +211,7 @@ async def metabase_styles(request: Request):
     "/metabase/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
 )
 @router.api_route("/metabase", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-async def metabase_proxy(request: Request, path: str = ""):
+async def metabase_proxy(request: Request, path: str = "") -> Response:
     """Reverse proxy for Metabase with automatic SSO.
 
     Routes all requests to http://localhost:3000 and automatically

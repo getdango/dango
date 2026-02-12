@@ -13,7 +13,7 @@ class TableInfo(BaseModel):
 
     name: str
     row_count: int
-    schema: str
+    schema: str  # type: ignore[assignment]
 
 
 class SourceStatus(BaseModel):

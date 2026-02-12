@@ -18,7 +18,7 @@ def is_process_running(pid: int) -> bool:
     """
     try:
         # Use psutil for cross-platform compatibility
-        return psutil.pid_exists(pid)
+        return bool(psutil.pid_exists(pid))
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         return False
 

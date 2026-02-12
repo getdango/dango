@@ -24,7 +24,7 @@ router = APIRouter(tags=["dbt"])
 
 
 @router.get("/api/dbt/models")
-async def list_dbt_models():
+async def list_dbt_models() -> dict[str, list]:
     """List all dbt models.
 
     Returns:
@@ -39,7 +39,9 @@ async def list_dbt_models():
 
 
 @router.post("/api/dbt/models/{model_name}/run")
-async def run_dbt_model(model_name: str, background_tasks: BackgroundTasks, cascade: bool = True):
+async def run_dbt_model(
+    model_name: str, background_tasks: BackgroundTasks, cascade: bool = True
+) -> dict[str, str | bool]:
     """Run a specific dbt model.
 
     Args:
@@ -85,7 +87,7 @@ async def run_dbt_model(model_name: str, background_tasks: BackgroundTasks, casc
     }
 
 
-async def run_dbt_model_task(model_name: str, cascade: bool):
+async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
     """Run dbt model in background."""
     from dango.utils import DbtLock, DbtLockError
     from dango.utils.dbt_status import update_model_status
@@ -243,7 +245,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool):
 
 @router.get("/manifest.json")
 @router.get("/catalog.json")
-async def dbt_docs_assets(request: Request):
+async def dbt_docs_assets(request: Request) -> Response:
     """Proxy dbt docs JSON assets.
 
     dbt docs JavaScript loads these files using absolute paths,
@@ -272,7 +274,7 @@ async def dbt_docs_assets(request: Request):
 
 @router.api_route("/dbt-docs/{path:path}", methods=["GET"])
 @router.api_route("/dbt-docs", methods=["GET"])
-async def dbt_docs_proxy(request: Request, path: str = ""):
+async def dbt_docs_proxy(request: Request, path: str = "") -> Response:
     """Reverse proxy for dbt docs with nav bar injection.
 
     Routes all requests to http://localhost:8081 and automatically

@@ -40,8 +40,9 @@ def get_process_using_port(port: int) -> int | None:
     """
     try:
         for conn in psutil.net_connections():
-            if conn.laddr.port == port and conn.status == "LISTEN":
-                return conn.pid
+            laddr = conn.laddr
+            if hasattr(laddr, "port") and laddr.port == port and conn.status == "LISTEN":  # type: ignore[union-attr]
+                return int(conn.pid) if conn.pid is not None else None
     except (psutil.AccessDenied, AttributeError):
         pass
 

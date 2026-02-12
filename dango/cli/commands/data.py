@@ -66,7 +66,8 @@ def db_status(ctx: click.Context) -> None:
         result = []
         for schema, table in tables:
             try:
-                count = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()[0]
+                row = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()
+                count = row[0] if row else 0
                 result.append((schema, table, f"{count:,} rows"))
             except Exception:
                 result.append((schema, table, "Error"))
@@ -78,7 +79,7 @@ def db_status(ctx: click.Context) -> None:
 
         # Build actual raw tables mapping from database
         # This is used to validate that staging tables have corresponding raw tables
-        actual_raw_tables = {}
+        actual_raw_tables: dict[str, set[str]] = {}
         for schema, table, _size in result:
             if schema.startswith("raw_") and not table.startswith("_dlt_"):
                 if schema not in actual_raw_tables:
@@ -191,7 +192,8 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
         result = []
         for schema, table in tables:
             try:
-                count = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()[0]
+                row = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()
+                count = row[0] if row else 0
                 result.append((schema, table, f"{count:,} rows"))
             except Exception:
                 result.append((schema, table, "Error"))
@@ -203,7 +205,7 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
 
         # Build actual raw tables mapping from database
         # This is used to validate that staging tables have corresponding raw tables
-        actual_raw_tables = {}
+        actual_raw_tables: dict[str, set[str]] = {}
         for schema, table, _size in result:
             if schema.startswith("raw_") and not table.startswith("_dlt_"):
                 if schema not in actual_raw_tables:
@@ -272,13 +274,11 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
         # Clean up metadata for orphaned sources (only if metadata table exists)
         if orphaned_sources:
             # Check if metadata table exists (only created for CSV sources)
-            metadata_table_exists = (
-                conn.execute("""
+            _row = conn.execute("""
                     SELECT COUNT(*) FROM information_schema.tables
                     WHERE table_name = '_dango_file_metadata'
-                """).fetchone()[0]
-                > 0
-            )
+                """).fetchone()
+            metadata_table_exists = (_row[0] if _row else 0) > 0
 
             if metadata_table_exists:
                 console.print()
@@ -288,13 +288,14 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
                 for source_name in orphaned_sources:
                     try:
                         # Count entries first
-                        count = conn.execute(
+                        _row = conn.execute(
                             """
                             SELECT COUNT(*) FROM _dango_file_metadata
                             WHERE source_name = ?
                         """,
                             [source_name],
-                        ).fetchone()[0]
+                        ).fetchone()
+                        count = _row[0] if _row else 0
 
                         if count > 0:
                             # Delete entries

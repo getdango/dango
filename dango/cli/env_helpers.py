@@ -54,7 +54,7 @@ def create_env_template(
     # Build new vars section (only if not already present)
     new_content = []
     for var_config in env_vars:
-        var_name = var_config.get("name")
+        var_name = var_config.get("name", "")
 
         if var_name not in existing_vars:
             # Add section header with source information
@@ -171,7 +171,7 @@ def guide_env_setup(
     env_file: Path,
     required_vars: list[dict[str, str]],
     source_name: str,
-    setup_guide: list[str] = None,
+    setup_guide: list[str] | None = None,
 ) -> bool:
     """
     Guide user through .env setup with optional file opening and validation.
@@ -235,7 +235,7 @@ def guide_env_setup(
     input()
 
     # Validate
-    var_names = [v.get("name") for v in required_vars]
+    var_names = [v.get("name", "") for v in required_vars if v.get("name")]
     is_valid, missing = validate_env_file(env_file, var_names)
 
     return handle_validation_result(is_valid, missing, env_file, source_name)

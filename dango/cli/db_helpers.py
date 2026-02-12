@@ -25,8 +25,8 @@ def build_schema_table_mapping(config: DangoConfig) -> tuple[dict[str, set[str]]
           - schema_to_tables: Dict[schema_name, Set[table_names]]
           - source_to_schema: Dict[source_name, schema_name]
     """
-    schema_to_tables = {}  # schema → set of table names
-    source_to_schema = {}  # source_name → schema_name (for staging lookup)
+    schema_to_tables: dict[str, set[str]] = {}  # schema → set of table names
+    source_to_schema: dict[str, str] = {}  # source_name → schema_name (for staging lookup)
 
     for source in config.sources.sources:
         source_name = source.name.lower()
@@ -63,7 +63,7 @@ def is_table_configured(
     table: str,
     schema_to_tables: dict[str, set[str]],
     source_to_schema: dict[str, str],
-    actual_raw_tables: dict[str, set[str]] = None,
+    actual_raw_tables: dict[str, set[str]] | None = None,
 ) -> bool:
     """
     Check if a table is configured in sources.yml

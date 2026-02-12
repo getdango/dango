@@ -134,7 +134,7 @@ truncate_staging_dataset = true
 
         try:
             with open(self.secrets_file) as f:
-                secrets = toml.load(f)
+                secrets: dict[str, Any] = toml.load(f)
             return secrets
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load .dlt/secrets.toml: {e}[/yellow]")
@@ -152,7 +152,7 @@ truncate_staging_dataset = true
 
         try:
             with open(self.config_file) as f:
-                config = toml.load(f)
+                config: dict[str, Any] = toml.load(f)
             return config
         except Exception as e:
             console.print(f"[yellow]Warning: Could not load .dlt/config.toml: {e}[/yellow]")
@@ -246,7 +246,8 @@ truncate_staging_dataset = true
         # Check .dlt/secrets.toml first
         secrets = self.load_secrets()
         if "sources" in secrets and source_name in secrets["sources"]:
-            return secrets["sources"][source_name]
+            result: dict[str, Any] = secrets["sources"][source_name]
+            return result
 
         # Fallback to .env file
         # This is for backward compatibility with existing .env-based setup

@@ -161,7 +161,11 @@ def get_watcher_status(project_root: Path) -> dict:
     pid_file = get_watcher_pid_file_path(project_root)
     log_file = project_root / ".dango" / "watcher.log"
 
-    status = {"running": False, "pid": None, "log_file": log_file}
+    status: dict[str, bool | int | Path | None] = {
+        "running": False,
+        "pid": None,
+        "log_file": log_file,
+    }
 
     if pid_file.exists():
         try:

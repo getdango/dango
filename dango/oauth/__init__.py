@@ -45,7 +45,7 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     oauth_response = None
     oauth_error = None
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         """Handle GET request from OAuth provider"""
         # Parse query parameters
         parsed = urlparse(self.path)
@@ -115,7 +115,7 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"Invalid OAuth callback")
 
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: object) -> None:
         """Suppress server log messages"""
         pass
 

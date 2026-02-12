@@ -44,7 +44,7 @@ class OAuthHelper:
                 env_lines = f.readlines()
 
         # Remove existing key if present
-        new_lines = []
+        new_lines: list[str] = []
         skip_next = False
         for i, line in enumerate(env_lines):
             if skip_next:
@@ -216,7 +216,7 @@ class FacebookOAuthHelper(OAuthHelper):
 
             if long_token:
                 console.print("[green]✓[/green] Long-lived token obtained")
-                return long_token
+                return str(long_token)
             else:
                 console.print("[red]✗ No access_token in response[/red]")
                 return None
@@ -307,14 +307,14 @@ class GoogleOAuthHelper(OAuthHelper):
                 return False
 
             # Validate JSON file
-            creds_path = Path(creds_path).expanduser()
-            if not creds_path.exists():
-                console.print(f"[red]✗ File not found: {creds_path}[/red]")
+            creds_path_obj = Path(creds_path).expanduser()
+            if not creds_path_obj.exists():
+                console.print(f"[red]✗ File not found: {creds_path_obj}[/red]")
                 return False
 
             # Read and validate JSON
             try:
-                with open(creds_path) as f:
+                with open(creds_path_obj) as f:
                     creds_data = json.load(f)
 
                 # Check if it's service account or OAuth client

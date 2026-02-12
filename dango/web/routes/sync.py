@@ -28,7 +28,7 @@ router = APIRouter(tags=["sync"])
 @router.post("/api/sources/{source_name}/sync", response_model=SyncResponse)
 async def trigger_sync(
     source_name: str, sync_request: SyncRequest, background_tasks: BackgroundTasks
-):
+) -> SyncResponse:
     """Trigger sync for a specific source.
 
     Args:
@@ -75,7 +75,7 @@ async def trigger_sync(
 
 async def run_sync_task(
     source_name: str, full_refresh: bool, start_date: str | None, end_date: str | None
-):
+) -> None:
     """Run sync task in background.
 
     This function imports and runs the dlt sync process, broadcasting updates via WebSocket

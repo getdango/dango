@@ -3,12 +3,15 @@
 Manages shared nginx instance for clean URLs across multiple Dango projects. Architecture: Shared nginx on port 80, routing by domain to different backend ports.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import socket
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 
 class NetworkConfig:
@@ -21,7 +24,7 @@ class NetworkConfig:
     - Track nginx state
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.dango_home = Path.home() / ".dango"
         self.routing_file = self.dango_home / "routing.json"
         self.shared_nginx_dir = self.dango_home / "shared-nginx"
@@ -34,15 +37,16 @@ class NetworkConfig:
         self.sites_dir.mkdir(exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)
 
-    def load_routing(self) -> dict:
+    def load_routing(self) -> dict[str, Any]:
         """Load routing.json or create default"""
         if not self.routing_file.exists():
             return {"version": "1.0", "port": 80, "projects": {}, "next_available_port": 8800}
 
         with open(self.routing_file) as f:
-            return json.load(f)
+            result: dict[str, Any] = json.load(f)
+            return result
 
-    def save_routing(self, routing: dict):
+    def save_routing(self, routing: dict[str, Any]) -> None:
         """Save routing.json"""
         with open(self.routing_file, "w") as f:
             json.dump(routing, f, indent=2)
@@ -65,7 +69,7 @@ class NetworkConfig:
         routing["next_available_port"] = port + 1
         self.save_routing(routing)
 
-        return port
+        return int(port)
 
     @staticmethod
     def is_port_free(port: int) -> bool:
@@ -79,7 +83,7 @@ class NetworkConfig:
 
     def register_project(
         self, project_name: str, project_path: Path, backend_port: int, domain: str | None = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Register a project in routing.json
 
@@ -109,29 +113,31 @@ class NetworkConfig:
 
         return project_info
 
-    def unregister_project(self, project_name: str):
+    def unregister_project(self, project_name: str) -> None:
         """Remove project from routing.json"""
         routing = self.load_routing()
         if project_name in routing["projects"]:
             del routing["projects"][project_name]
             self.save_routing(routing)
 
-    def update_project_status(self, project_name: str, status: str):
+    def update_project_status(self, project_name: str, status: str) -> None:
         """Update project status (running/stopped)"""
         routing = self.load_routing()
         if project_name in routing["projects"]:
             routing["projects"][project_name]["status"] = status
             self.save_routing(routing)
 
-    def get_project_info(self, project_name: str) -> dict | None:
+    def get_project_info(self, project_name: str) -> dict[str, Any] | None:
         """Get project information"""
         routing = self.load_routing()
-        return routing["projects"].get(project_name)
+        result: dict[str, Any] | None = routing["projects"].get(project_name)
+        return result
 
-    def list_projects(self) -> dict[str, dict]:
+    def list_projects(self) -> dict[str, dict[str, Any]]:
         """List all registered projects"""
         routing = self.load_routing()
-        return routing["projects"]
+        result: dict[str, dict[str, Any]] = routing["projects"]
+        return result
 
 
 class NginxManager:
@@ -241,20 +247,20 @@ server {{
 """
         return conf.strip()
 
-    def write_base_config(self):
+    def write_base_config(self) -> None:
         """Write base nginx.conf"""
         config = self.generate_base_config()
         with open(self.nginx_conf, "w") as f:
             f.write(config)
 
-    def write_project_config(self, project_name: str, domain: str, backend_port: int):
+    def write_project_config(self, project_name: str, domain: str, backend_port: int) -> None:
         """Write project-specific nginx site config"""
         config = self.generate_project_config(project_name, domain, backend_port)
         site_conf = self.config.sites_dir / f"{project_name}.conf"
         with open(site_conf, "w") as f:
             f.write(config)
 
-    def remove_project_config(self, project_name: str):
+    def remove_project_config(self, project_name: str) -> None:
         """Remove project nginx site config"""
         site_conf = self.config.sites_dir / f"{project_name}.conf"
         if site_conf.exists():
@@ -367,7 +373,7 @@ class HostsManager:
         self.config = config
         self.backup_file = self.config.dango_home / "hosts-backup"
 
-    def backup_hosts(self):
+    def backup_hosts(self) -> None:
         """Backup /etc/hosts before first modification"""
         if not self.backup_file.exists():
             with open(self.HOSTS_FILE) as f:

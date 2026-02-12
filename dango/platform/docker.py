@@ -276,7 +276,7 @@ class DockerManager:
         except (subprocess.TimeoutExpired, Exception):
             return {}
 
-    def print_status(self):
+    def print_status(self) -> None:
         """Print service status table"""
         statuses = self.get_service_status()
 
@@ -318,7 +318,7 @@ class DockerManager:
 
         console.print(table)
 
-    def _print_service_urls(self):
+    def _print_service_urls(self) -> None:
         """Print service URLs (via FastAPI proxy)"""
         # Load config to get the configured port
         from dango.config.loader import ConfigLoader
