@@ -1,28 +1,21 @@
 """dango/config/exceptions.py
 
-Custom exceptions for configuration handling.
+Re-export shim — all exception classes now live in ``dango.exceptions``.
+
+Existing imports like ``from dango.config.exceptions import ConfigError``
+continue to work unchanged.
 """
 
+from dango.exceptions import (  # noqa: F401
+    ConfigError,
+    ConfigNotFoundError,
+    ConfigValidationError,
+    ProjectNotFoundError,
+)
 
-class ConfigError(Exception):
-    """Base exception for configuration errors"""
-
-    pass
-
-
-class ConfigNotFoundError(ConfigError):
-    """Configuration file not found"""
-
-    pass
-
-
-class ConfigValidationError(ConfigError):
-    """Configuration validation failed"""
-
-    pass
-
-
-class ProjectNotFoundError(ConfigError):
-    """Not in a Dango project directory"""
-
-    pass
+__all__ = [
+    "ConfigError",
+    "ConfigNotFoundError",
+    "ConfigValidationError",
+    "ProjectNotFoundError",
+]

@@ -13,8 +13,8 @@ Shared utilities for process management, activity logging, sync history tracking
 | `activity_log.py` | JSONL activity logging to `.dango/logs/activity.jsonl` | `log_activity()`, `get_activity_log_file()` |
 | `sync_history.py` | Per-source sync history (JSON, last 100 entries) | `save_sync_history_entry()`, `load_sync_history()`, `get_sync_history_file()` |
 | `database.py` | DuckDB schema initialization (raw, staging, intermediate, marts) | `ensure_dbt_schemas()` |
-| `db_health.py` | Disk space checks and DuckDB health monitoring | `check_disk_space()`, `check_duckdb_health()`, `get_disk_usage_summary()`, `print_health_summary()`, `DiskSpaceError`, `DuckDBHealthError` |
-| `dbt_lock.py` | Cross-process file lock for dbt operations (fcntl/msvcrt) | `DbtLock`, `DbtLockError`, `dbt_lock()` context manager |
+| `db_health.py` | Disk space checks and DuckDB health monitoring | `check_disk_space()`, `check_duckdb_health()`, `get_disk_usage_summary()`, `print_health_summary()` (imports `DiskSpaceError`, `DuckDBHealthError` from `dango.exceptions`) |
+| `dbt_lock.py` | Cross-process file lock for dbt operations (fcntl/msvcrt) | `DbtLock`, `dbt_lock()` context manager (imports `DbtLockError` from `dango.exceptions`) |
 | `dbt_status.py` | Persistent dbt model status from run_results.json | `update_model_status()`, `get_model_statuses()` |
 | `data_validation.py` | Schema/data integrity checks against DuckDB | `validate_cursor_field()`, `detect_schema_changes()`, `validate_data_completeness()`, `print_validation_report()` |
 

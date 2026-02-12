@@ -13,19 +13,13 @@ from typing import Any
 
 import psutil
 
+from dango.exceptions import DbtLockError
+
 # Platform-specific file locking
 if sys.platform == "win32":
     import msvcrt
 else:
     import fcntl
-
-
-class DbtLockError(Exception):
-    """Raised when unable to acquire dbt lock."""
-
-    def __init__(self, message: str, lock_info: dict[str, Any] | None = None):
-        super().__init__(message)
-        self.lock_info = lock_info
 
 
 class DbtLock:

@@ -8,6 +8,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from dango.validation import validate_source_name
 from dango.web.helpers import (
     get_source_freshness,
     get_source_row_count,
@@ -54,6 +55,7 @@ async def get_source_details(source_name: str):
     Returns:
         Source configuration (masked) and sync history
     """
+    validate_source_name(source_name)
     sources_config = load_sources_config()
 
     # Find the source

@@ -9,6 +9,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
+from dango.validation import validate_date_string, validate_source_name
 from dango.web.helpers import (
     append_log_entry,
     get_project_root,
@@ -37,6 +38,12 @@ async def trigger_sync(
     Returns:
         Sync response with status
     """
+    validate_source_name(source_name)
+    if sync_request.start_date:
+        validate_date_string(sync_request.start_date)
+    if sync_request.end_date:
+        validate_date_string(sync_request.end_date)
+
     # Verify source exists
     sources_config = load_sources_config()
     source_exists = any(s.get("name") == source_name for s in sources_config)

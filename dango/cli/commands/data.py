@@ -354,7 +354,10 @@ def validate(ctx: click.Context) -> None:
         raise  # Re-raise SystemExit
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        import traceback
+        from dango.exceptions import is_debug_mode
 
-        console.print(traceback.format_exc())
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e

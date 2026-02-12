@@ -21,16 +21,11 @@ from dango.config.models import (
     DataSource,
     SourceType,
 )
+from dango.exceptions import SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader
 from dango.ingestion.sources.registry import get_source_metadata
 
 console = Console()
-
-
-class SyncTimeoutError(Exception):
-    """Raised when sync exceeds timeout"""
-
-    pass
 
 
 class DltPipelineRunner:

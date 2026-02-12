@@ -15,6 +15,7 @@ import duckdb
 import yaml
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
 
+from dango.validation import validate_source_name
 from dango.web.helpers import (
     append_log_entry,
     get_duckdb_path,
@@ -51,6 +52,7 @@ async def upload_csv_to_source(
     Returns:
         Success message and file info
     """
+    validate_source_name(source_name)
     try:
         import aiofiles
 
@@ -154,6 +156,7 @@ async def get_csv_files(source_name: str):
     Returns:
         List of files with their status (on_disk, loaded, both)
     """
+    validate_source_name(source_name)
     try:
         project_root = get_project_root()
 
@@ -318,6 +321,7 @@ async def delete_csv_file(
     Returns:
         Success message with deletion details
     """
+    validate_source_name(source_name)
     logger.info(
         f"DELETE ENDPOINT CALLED - VERSION 2025-11-04-v2 - source: {source_name}, file: {file_path}"
     )

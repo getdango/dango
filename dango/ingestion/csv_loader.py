@@ -13,14 +13,9 @@ import duckdb
 from rich.console import Console
 
 from dango.config.models import CSVSourceConfig
+from dango.exceptions import CSVSchemaMismatchError
 
 console = Console()
-
-
-class CSVSchemaMismatchError(Exception):
-    """Raised when CSV file schema doesn't match existing table schema"""
-
-    pass
 
 
 class CSVLoader:

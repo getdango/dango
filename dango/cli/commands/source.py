@@ -365,6 +365,7 @@ def sync(
     console.print("🍡 [bold]Syncing data...[/bold]")
     console.print()
 
+    lock = None
     try:
         # Get project context
         project_root = require_project_context(ctx)
@@ -506,16 +507,14 @@ def sync(
 
         # Exit with error code if any sources failed
         if summary["failed_count"] > 0:
-            lock.release()
             raise click.Abort()
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        lock.release()  # TODO: lock may be undefined if error occurs before acquisition
         raise click.Abort() from e
     finally:
-        # Always release the lock (if it was acquired)
-        try:
-            lock.release()
-        except Exception:
-            pass
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:
+                pass

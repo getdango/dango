@@ -206,9 +206,12 @@ def rename(ctx: click.Context, new_name: str) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        import traceback
+        from dango.exceptions import is_debug_mode
 
-        traceback.print_exc()
+        if is_debug_mode():
+            import traceback
+
+            traceback.print_exc()
         raise click.Abort() from e
 
 
