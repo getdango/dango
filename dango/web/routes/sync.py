@@ -151,13 +151,11 @@ async def run_sync_task(
 
         # Use the same run_sync function as CLI for consistent behavior
         # This ensures: data load -> dbt run -> docs generation -> Metabase sync
-        from datetime import datetime as dt
-
         from dango.ingestion import run_sync
 
-        # Parse dates if provided
-        start_date_obj = dt.strptime(start_date, "%Y-%m-%d") if start_date else None
-        end_date_obj = dt.strptime(end_date, "%Y-%m-%d") if end_date else None
+        # Parse dates if provided (validate_date_string raises InvalidDateFormatError)
+        start_date_obj = validate_date_string(start_date) if start_date else None
+        end_date_obj = validate_date_string(end_date) if end_date else None
 
         # Log before running sync
         append_log_entry(

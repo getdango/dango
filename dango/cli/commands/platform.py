@@ -692,7 +692,7 @@ def start(ctx: click.Context) -> None:
             import traceback
 
             console.print("[dim]Stack trace:[/dim]")
-            traceback.print_exc()
+            console.print(traceback.format_exc())
             console.print()
         raise click.Abort() from None
 

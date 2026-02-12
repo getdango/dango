@@ -14,7 +14,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import Response
 
-from dango.validation import validate_source_name
+from dango.validation import validate_identifier
 from dango.web.helpers import get_dbt_manifest, get_dbt_models, get_project_root
 from dango.web.routes.websocket import ws_manager
 
@@ -49,7 +49,7 @@ async def run_dbt_model(model_name: str, background_tasks: BackgroundTasks, casc
     Returns:
         Success message
     """
-    validate_source_name(model_name)
+    validate_identifier(model_name)
     # Check if model exists (use manifest only, avoid DuckDB query which can block)
     manifest = get_dbt_manifest()
     if manifest:

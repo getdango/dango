@@ -22,6 +22,27 @@ from __future__ import annotations
 import os
 from typing import Any
 
+__all__ = [
+    "DangoError",
+    "ConfigError",
+    "ConfigNotFoundError",
+    "ConfigValidationError",
+    "ProjectNotFoundError",
+    "IngestionError",
+    "SyncTimeoutError",
+    "CSVSchemaMismatchError",
+    "InfrastructureError",
+    "DiskSpaceError",
+    "DuckDBHealthError",
+    "DbtLockError",
+    "ValidationError",
+    "InvalidSourceNameError",
+    "InvalidDateFormatError",
+    "InvalidPortError",
+    "WebAPIError",
+    "is_debug_mode",
+]
+
 # ---------------------------------------------------------------------------
 # Debug mode helper
 # ---------------------------------------------------------------------------
@@ -59,10 +80,14 @@ class DangoError(Exception):
         context: dict[str, Any] | None = None,
         user_message: str | None = None,
     ) -> None:
-        self.error_code: str = error_code or self._default_error_code
-        self.context: dict[str, Any] = context or {}
-        self.user_message: str = user_message or message
+        self.error_code: str = error_code if error_code is not None else self._default_error_code
+        self.context: dict[str, Any] = context if context is not None else {}
+        self.user_message: str = user_message if user_message is not None else message
         super().__init__(message)
+
+    def __repr__(self) -> str:
+        cls = type(self).__name__
+        return f"{cls}({str(self)!r}, error_code={self.error_code!r})"
 
 
 # ---------------------------------------------------------------------------

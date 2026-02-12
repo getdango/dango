@@ -8,6 +8,7 @@ exception handlers.
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -106,11 +107,11 @@ async def dango_error_handler(request: Request, exc: DangoError) -> JSONResponse
 @app.exception_handler(Exception)
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
     """Catch-all for unexpected exceptions (return generic 500)."""
-    # Let FastAPI handle its own HTTPExceptions (404s, 422 validation, etc.)
+    # Delegate HTTPExceptions to FastAPI's built-in handler
     if isinstance(exc, HTTPException):
-        raise exc
+        return await http_exception_handler(request, exc)
 
-    logger.error("unhandled_exception", path=request.url.path, error=str(exc), exc_info=exc)
+    logger.error("unhandled_exception", path=request.url.path, error=str(exc), exc_info=True)
 
     body: dict = {
         "error_code": "DANGO-G001",

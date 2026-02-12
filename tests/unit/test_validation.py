@@ -15,6 +15,7 @@ from dango.exceptions import (
 from dango.validation import (
     sanitize_path_component,
     validate_date_string,
+    validate_identifier,
     validate_limit,
     validate_port_range,
     validate_source_name,
@@ -28,8 +29,8 @@ class TestValidateSourceName:
     def test_valid_lowercase(self):
         assert validate_source_name("my_source") == "my_source"
 
-    def test_valid_uppercase(self):
-        assert validate_source_name("MySource") == "MySource"
+    def test_valid_uppercase_normalized(self):
+        assert validate_source_name("MySource") == "mysource"
 
     def test_valid_with_numbers(self):
         assert validate_source_name("source_123") == "source_123"
@@ -39,6 +40,12 @@ class TestValidateSourceName:
 
     def test_valid_underscores(self):
         assert validate_source_name("my__source") == "my__source"
+
+    def test_numeric_only(self):
+        assert validate_source_name("123") == "123"
+
+    def test_underscore_only(self):
+        assert validate_source_name("_") == "_"
 
     def test_empty_string(self):
         with pytest.raises(InvalidSourceNameError, match="must not be empty"):
@@ -73,6 +80,9 @@ class TestValidateSourceName:
         name = "a" * 128
         assert validate_source_name(name) == name
 
+    def test_validate_identifier_is_alias(self):
+        assert validate_identifier is validate_source_name
+
 
 @pytest.mark.unit
 class TestValidateDateString:
@@ -105,7 +115,7 @@ class TestValidateDateString:
     def test_preserves_original_chain(self):
         with pytest.raises(InvalidDateFormatError) as exc_info:
             validate_date_string("not-a-date")
-        assert exc_info.value.__cause__ is not None  # chained from ValueError
+        assert isinstance(exc_info.value.__cause__, ValueError)
 
 
 @pytest.mark.unit
@@ -173,22 +183,35 @@ class TestSanitizePathComponent:
     """Tests for sanitize_path_component()."""
 
     def test_clean_name(self):
-        assert sanitize_path_component("my_source") == "my_source"
+        assert sanitize_path_component("my_source.csv") == "my_source.csv"
 
-    def test_removes_slashes(self):
-        assert sanitize_path_component("foo/bar") == "foobar"
+    def test_strips_directory_slash(self):
+        assert sanitize_path_component("foo/bar.csv") == "bar.csv"
 
-    def test_removes_backslashes(self):
-        assert sanitize_path_component("foo\\bar") == "foobar"
+    def test_strips_directory_backslash(self):
+        assert sanitize_path_component("foo\\bar.csv") == "bar.csv"
 
-    def test_removes_dot_dot(self):
-        assert sanitize_path_component("../etc") == "etc"
+    def test_strips_dot_dot_traversal(self):
+        assert sanitize_path_component("../etc/passwd") == "passwd"
 
     def test_removes_null_bytes(self):
-        assert sanitize_path_component("foo\x00bar") == "foobar"
+        assert sanitize_path_component("foo\x00bar.csv") == "foobar.csv"
 
-    def test_multiple_traversals(self):
-        assert sanitize_path_component("../../etc/passwd") == "etcpasswd"
+    def test_deep_traversal(self):
+        assert sanitize_path_component("../../etc/passwd") == "passwd"
 
-    def test_empty_string(self):
-        assert sanitize_path_component("") == ""
+    def test_empty_string_returns_unnamed(self):
+        assert sanitize_path_component("") == "unnamed"
+
+    def test_dot_dot_only_returns_unnamed(self):
+        # PurePosixPath("..").name = "..", then ".." → "" after replace
+        assert sanitize_path_component("..") == "unnamed"
+
+    def test_windows_path(self):
+        assert sanitize_path_component("C:\\Users\\data\\file.csv") == "file.csv"
+
+    def test_mixed_separators(self):
+        assert sanitize_path_component("foo/bar\\baz.csv") == "baz.csv"
+
+    def test_null_byte_in_path(self):
+        assert sanitize_path_component("foo\x00/bar.csv") == "bar.csv"

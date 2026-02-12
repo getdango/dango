@@ -61,6 +61,19 @@ class TestDangoErrorBase:
         assert str(exc) == ""
         assert exc.user_message == ""
 
+    def test_catchable_as_exception(self):
+        exc = DangoError("test")
+        assert isinstance(exc, Exception)
+
+    def test_repr(self):
+        exc = DangoError("oops", error_code="DANGO-X001")
+        assert repr(exc) == "DangoError('oops', error_code='DANGO-X001')"
+
+    def test_explicit_empty_user_message(self):
+        exc = DangoError("internal", user_message="")
+        assert exc.user_message == ""
+        assert str(exc) == "internal"
+
 
 @pytest.mark.unit
 class TestExceptionHierarchy:

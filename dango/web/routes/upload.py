@@ -15,7 +15,7 @@ import duckdb
 import yaml
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
 
-from dango.validation import validate_source_name
+from dango.validation import sanitize_path_component, validate_source_name
 from dango.web.helpers import (
     append_log_entry,
     get_duckdb_path,
@@ -99,12 +99,18 @@ async def upload_csv_to_source(
         # Create data directory if it doesn't exist
         data_dir.mkdir(parents=True, exist_ok=True)
 
+        # Sanitize the uploaded filename to prevent directory traversal
+        safe_filename = sanitize_path_component(file.filename or "unnamed")
+
         # Check if file already exists
-        file_path = data_dir / file.filename
+        file_path = data_dir / safe_filename
+        # Defense-in-depth: ensure resolved path stays within data_dir
+        if not file_path.resolve().is_relative_to(data_dir.resolve()):
+            raise HTTPException(status_code=400, detail="Invalid filename.")
         if file_path.exists():
             raise HTTPException(
                 status_code=409,
-                detail=f"File '{file.filename}' already exists. Delete the existing file first or rename your file.",
+                detail=f"File '{safe_filename}' already exists. Delete the existing file first or rename your file.",
             )
         async with aiofiles.open(file_path, "wb") as buffer:
             content = await file.read()
@@ -117,7 +123,7 @@ async def upload_csv_to_source(
             {
                 "event": "csv_uploaded",
                 "source": source_name,
-                "message": f"CSV file {file.filename} uploaded to {source_name}",
+                "message": f"CSV file {safe_filename} uploaded to {source_name}",
                 "timestamp": datetime.now().isoformat(),
             }
         )

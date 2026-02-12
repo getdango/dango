@@ -211,7 +211,7 @@ def rename(ctx: click.Context, new_name: str) -> None:
         if is_debug_mode():
             import traceback
 
-            traceback.print_exc()
+            console.print(traceback.format_exc())
         raise click.Abort() from e
 
 

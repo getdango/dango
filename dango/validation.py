@@ -18,23 +18,25 @@ from dango.exceptions import (
     InvalidSourceNameError,
 )
 
-# Matches the pattern in config/models.py DataSource.validate_name_format:
-# letters, numbers, underscores only.
+# Stricter than config/models.py's isalnum() check: ASCII-only letters,
+# digits, and underscores.  The model validator also lowercases; we do the
+# same here so validated names always match what the config stores.
 _SOURCE_NAME_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 _SOURCE_NAME_MAX_LEN = 128
 
 
 def validate_source_name(name: str) -> str:
-    """Validate a source name.
+    """Validate and normalize a source / identifier name.
 
-    Must be 1-128 characters, containing only letters, digits, and underscores
-    (matching ``DataSource.validate_name_format`` in ``config/models.py``).
+    Must be 1-128 ASCII characters (letters, digits, underscores).
+    Returns the **lowercased** name to match the normalization performed by
+    ``DataSource.validate_name_format`` in ``config/models.py``.
 
     Args:
         name: Source name to validate.
 
     Returns:
-        The validated name (unchanged).
+        The validated, lowercased name.
 
     Raises:
         InvalidSourceNameError: If the name is empty, too long, or contains
@@ -55,7 +57,12 @@ def validate_source_name(name: str) -> str:
             f"Source name '{name}' is invalid. Use only letters, numbers, and underscores.",
             context={"name": name},
         )
-    return name
+    return name.lower()
+
+
+# Alias for use with dbt model names and other identifiers that follow the
+# same [a-zA-Z0-9_] pattern.
+validate_identifier = validate_source_name
 
 
 def validate_date_string(value: str, fmt: str = "%Y-%m-%d") -> datetime:
@@ -123,21 +130,30 @@ def validate_limit(limit: int, max_val: int = 10000) -> int:
 
 
 def sanitize_path_component(name: str) -> str:
-    """Strip dangerous characters from a path component.
+    """Sanitize a user-supplied filename for safe use as a single path component.
 
-    Removes ``/``, ``\\``, ``..``, and null bytes to prevent path-traversal
-    attacks when constructing file paths from user input.
+    Uses a two-step approach: first strips the raw name down to its basename
+    (removing any directory components), then removes null bytes. The result
+    is guaranteed to be a flat filename with no directory traversal.
 
     Args:
-        name: Raw path component.
+        name: Raw filename (e.g. from an HTTP upload).
 
     Returns:
-        Sanitized string safe for use as a single path component.
+        Sanitized filename.  Returns ``"unnamed"`` if the result would be
+        empty after sanitization.
     """
-    # Remove null bytes
+    from pathlib import PurePosixPath
+
+    # Remove null bytes first
     name = name.replace("\x00", "")
-    # Remove path separators
-    name = name.replace("/", "").replace("\\", "")
-    # Remove parent-directory traversal
+    # Extract just the filename (strips all directory components on both
+    # POSIX and Windows-style paths)
+    name = PurePosixPath(name).name
+    # Also strip Windows backslash paths that PurePosixPath doesn't handle
+    if "\\" in name:
+        name = name.rsplit("\\", 1)[-1]
+    # Remove parent-directory traversal fragments
     name = name.replace("..", "")
-    return name
+    # Reject empty results
+    return name if name else "unnamed"
