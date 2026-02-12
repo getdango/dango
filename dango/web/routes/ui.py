@@ -5,68 +5,56 @@ UI page endpoints and API documentation.
 
 from pathlib import Path
 
-from fastapi import APIRouter
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Request
+from fastapi.templating import Jinja2Templates
 
 import dango
 
 router = APIRouter(tags=["ui"])
 
-
-def _inject_version(html_content: str) -> str:
-    """Replace version placeholder with actual dango version."""
-    return html_content.replace("{{DANGO_VERSION}}", dango.__version__)
+templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 
-@router.get("/", response_class=HTMLResponse)
-async def root():
+@router.get("/")
+async def root(request: Request):
     """Serve the dashboard UI."""
-    index_file = Path(__file__).parent.parent / "static" / "index.html"
-
-    if index_file.exists():
-        return _inject_version(index_file.read_text(encoding="utf-8"))
-    else:
-        # Fallback if static files not found
-        return """
-        <html>
-            <head><title>Dango - Setup Required</title></head>
-            <body>
-                <h1>Dango Web UI</h1>
-                <p>Static files not found. Please ensure the installation is complete.</p>
-                <p>API documentation available at: <a href="/api/docs">/api/docs</a></p>
-            </body>
-        </html>
-        """
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "version": dango.__version__,
+            "current_page": "overview",
+            "subtitle": "Data Platform Dashboard",
+        },
+    )
 
 
-@router.get("/health", response_class=HTMLResponse)
-async def health_page():
+@router.get("/health")
+async def health_page(request: Request):
     """Serve the platform health page."""
-    health_file = Path(__file__).parent.parent / "static" / "health.html"
+    return templates.TemplateResponse(
+        "health.html",
+        {
+            "request": request,
+            "version": dango.__version__,
+            "current_page": "health",
+            "subtitle": "Health",
+        },
+    )
 
-    if health_file.exists():
-        return _inject_version(health_file.read_text(encoding="utf-8"))
-    else:
-        return "<html><body><h1>Health page not found</h1></body></html>"
 
-
-@router.get("/logs", response_class=HTMLResponse)
-async def logs_page():
+@router.get("/logs")
+async def logs_page(request: Request):
     """Serve the logs page."""
-    logs_file = Path(__file__).parent.parent / "static" / "logs.html"
-
-    if logs_file.exists():
-        return _inject_version(logs_file.read_text(encoding="utf-8"))
-    else:
-        return """
-        <html>
-            <head><title>Logs - Dango</title></head>
-            <body>
-                <h1>Logs Page Not Found</h1>
-                <p><a href="/">Back to Dashboard</a></p>
-            </body>
-        </html>
-        """
+    return templates.TemplateResponse(
+        "logs.html",
+        {
+            "request": request,
+            "version": dango.__version__,
+            "current_page": "logs",
+            "subtitle": "Activity Logs",
+        },
+    )
 
 
 @router.get("/api")

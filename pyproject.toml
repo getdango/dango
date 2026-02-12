@@ -111,6 +111,8 @@ include-package-data = true
 dango = [
     "templates/**/*",
     "ingestion/dlt_sources/**/*",
+    "web/templates/**/*",
+    "web/static/**/*",
 ]
 
 [tool.black]

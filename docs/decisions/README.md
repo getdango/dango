@@ -12,7 +12,7 @@ This directory contains Architecture Decision Records (ADRs) for the Dango proje
 | [ADR-004](ADR-004-marimo-over-jupyterlite.md) | Marimo over JupyterLite | Accepted |
 | [ADR-005](ADR-005-digitalocean-only-for-v1.md) | DigitalOcean Only for v1 | Accepted |
 | [ADR-006](ADR-006-caddy-for-ssl.md) | Caddy for SSL | Accepted |
-| [ADR-007](ADR-007-frontend-approach.md) | Frontend Approach | Proposed |
+| [ADR-007](ADR-007-frontend-approach.md) | Frontend Approach | Accepted |
 
 ## Creating a New ADR
 
