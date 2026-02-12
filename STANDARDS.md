@@ -177,71 +177,74 @@ from .exceptions import ConfigError, ConfigNotFoundError
 
 ## 5. Error Handling Patterns
 
-### Current pattern (use until TASK-008)
+All Dango exceptions live in `dango/exceptions.py` and inherit from `DangoError`.
+Module files (e.g., `config/exceptions.py`) re-export for backward compatibility.
 
-The `dango/config/exceptions.py` hierarchy is the model for new code:
+### DangoError base class
 
 ```python
-# dango/config/exceptions.py — current pattern
-class ConfigError(Exception):
-    """Base exception for configuration errors"""
-    pass
+from dango.exceptions import DangoError, ConfigError, ConfigNotFoundError
 
-class ConfigNotFoundError(ConfigError):
-    """Configuration file not found"""
-    pass
+# Every exception carries:
+#   error_code  — stable identifier (e.g. "DANGO-C002")
+#   context     — dict for structured logging / API responses
+#   user_message — human-readable (defaults to message)
 
-class ConfigValidationError(ConfigError):
-    """Configuration validation failed"""
-    pass
+# Existing raise sites work unchanged — _default_error_code is a class attribute:
+raise ConfigError("Missing sources.yml")
+# ↑ error_code = "DANGO-C001" (the class default)
 
-class ProjectNotFoundError(ConfigError):
-    """Not in a Dango project directory"""
-    pass
+# Pass explicit error_code / context when useful:
+raise ConfigNotFoundError(
+    "sources.yml not found",
+    context={"path": str(sources_file)},
+)
 ```
 
-**Rules for new code (before TASK-008):**
-- Create a base exception per module (e.g., `IngestionError`, `OAuthError`)
-- Subclass for specific error cases
+### Import convention
+
+Prefer importing from `dango.exceptions` directly:
+
+```python
+from dango.exceptions import ConfigError, ConfigNotFoundError
+```
+
+Old-style imports still work via re-export shims:
+
+```python
+from dango.config.exceptions import ConfigError  # same class object
+```
+
+### Rules
+
 - Never bare `except:` — always catch specific exceptions
 - Always include context in error messages (what failed, what was expected)
 - Catch-and-wrap external library exceptions at module boundaries
+- Use `from e` (not `from None`) unless suppressing the chain is intentional (KeyboardInterrupt handlers, security boundaries, user-facing error translations)
 
-**Example — catch with context** (from `dango/config/loader.py`):
+### Debug mode (`DANGO_DEBUG`)
+
+Set `DANGO_DEBUG=1` to surface full stack traces in CLI error handlers.
 
 ```python
-try:
-    with open(file_path, 'r') as f:
-        data = yaml.safe_load(f)
-        return data or {}
-except yaml.YAMLError as e:
-    raise ConfigError(f"Invalid YAML in {file_path}:\n{e}")
+except Exception as e:
+    console.print(f"[red]Error:[/red] {e}")
+    from dango.exceptions import is_debug_mode  # lazy import inside handler
+
+    if is_debug_mode():
+        import traceback
+
+        console.print(traceback.format_exc())
+    raise click.Abort() from e
 ```
 
-### Target pattern (TASK-008)
-
-> **⚠️ TARGET PATTERN** — Not yet implemented. Do not use this pattern until TASK-008 lands.
+### Input validation (dango/validation.py)
 
 ```python
-class DangoError(Exception):
-    """Base for all dango errors."""
-    def __init__(
-        self,
-        message: str,
-        *,
-        error_code: str,
-        context: dict | None = None,
-        user_message: str | None = None,
-    ):
-        self.error_code = error_code
-        self.context = context or {}
-        self.user_message = user_message or message
-        super().__init__(message)
+from dango.validation import validate_source_name, validate_date_string
 
-# Module exceptions inherit from DangoError
-class ConfigError(DangoError):
-    """Configuration-related errors."""
-    pass
+validate_source_name(name)       # raises InvalidSourceNameError
+validate_date_string("2024-01-15")  # raises InvalidDateFormatError
 ```
 
 ---

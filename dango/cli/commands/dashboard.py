@@ -119,7 +119,10 @@ def dashboard_provision(ctx: click.Context, url: str, username: str, password: s
         raise click.Abort() from None
     except Exception as e:
         console.print(f"\n[red]Error:[/red] {e}")
-        import traceback
+        from dango.exceptions import is_debug_mode
 
-        console.print(traceback.format_exc())
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e

@@ -37,6 +37,12 @@ def init(ctx: click.Context, project_name: str, skip_wizard: bool, force: bool) 
         init_project(project_dir, skip_wizard=skip_wizard, force=force)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e
 
 
@@ -206,9 +212,12 @@ def rename(ctx: click.Context, new_name: str) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        import traceback
+        from dango.exceptions import is_debug_mode
 
-        traceback.print_exc()
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e
 
 
@@ -289,4 +298,10 @@ def info(ctx: click.Context) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e

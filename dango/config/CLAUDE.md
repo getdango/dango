@@ -13,7 +13,7 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 | `loader.py` | Load/save YAML config files | `ConfigLoader` |
 | `helpers.py` | Config convenience functions | `find_project_root`, `get_config`, `load_config`, `save_config`, `check_unreferenced_custom_sources`, `format_unreferenced_sources_warning` |
 | `credentials.py` | Credential loading for dlt sources | `CredentialManager`, `init_dlt_directory` |
-| `exceptions.py` | Config-specific exception hierarchy | `ConfigError`, `ConfigNotFoundError`, `ConfigValidationError`, `ProjectNotFoundError` |
+| `exceptions.py` | Re-export shim — classes live in `dango/exceptions.py` | `ConfigError`, `ConfigNotFoundError`, `ConfigValidationError`, `ProjectNotFoundError` |
 
 ## Common Tasks
 
@@ -52,4 +52,4 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 |------|--------|
 | `models.py` field names | Changing field names breaks existing project.yml/sources.yml files |
 | `models.py` `SourceType` enum values | Enum values are stored in user config files and referenced across modules |
-| `exceptions.py` class hierarchy | Exception classes are caught by name in cli/, web/, and ingestion/ |
+| `exceptions.py` re-export shim | Exception classes are caught by name in cli/, web/, and ingestion/. Adding/removing classes here must mirror `dango/exceptions.py`. |

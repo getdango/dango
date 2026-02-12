@@ -458,92 +458,89 @@ def start(ctx: click.Context) -> None:
             raise click.Abort()
 
         # Docker services started successfully
-        if True:  # TODO: dead code — remove this always-true conditional
-            # Metabase auto-setup (first-time only)
-            console.print()
-            console.print("[cyan]Checking Metabase setup...[/cyan]")
-            from dango.visualization.metabase import setup_metabase
+        # Metabase auto-setup (first-time only)
+        console.print()
+        console.print("[cyan]Checking Metabase setup...[/cyan]")
+        from dango.visualization.metabase import setup_metabase
 
-            metabase_configured = False
-            credentials_file = project_root / ".dango" / "metabase.yml"
-            if not credentials_file.exists():
-                # First time - run auto-setup
-                console.print("[dim]First time setup detected...[/dim]")
-                organization = getattr(config.project, "organization", None)
-                setup_result = setup_metabase(project_root, project_name, organization)
+        metabase_configured = False
+        credentials_file = project_root / ".dango" / "metabase.yml"
+        if not credentials_file.exists():
+            # First time - run auto-setup
+            console.print("[dim]First time setup detected...[/dim]")
+            organization = getattr(config.project, "organization", None)
+            setup_result = setup_metabase(project_root, project_name, organization)
 
-                if setup_result.get("success"):
-                    console.print("[green]✓[/green] Metabase configured automatically")
-                    if setup_result.get("collections_created"):
-                        console.print(
-                            f"[dim]  Collections: {', '.join(setup_result['collections_created'])}[/dim]"
-                        )
-                    metabase_configured = True
-                else:
-                    # Metabase setup failed
-                    console.print("[red]✗[/red] Metabase setup failed")
-                    if setup_result.get("errors"):
-                        for error in setup_result["errors"]:
-                            console.print(f"[red]  • {error}[/red]")
-
-                    # Check if DuckDB connection failed (critical)
-                    if not setup_result.get("duckdb_connected"):
-                        # DuckDB connection is critical - abort and rollback
-                        console.print()
-                        console.print(
-                            "[red]❌ Critical error: Cannot connect Metabase to DuckDB[/red]"
-                        )
-                        console.print()
-                        console.print("[yellow]Rolling back: Stopping Docker services...[/yellow]")
-                        manager.stop_services()
-                        console.print()
-                        console.print("[bold]All services have been stopped.[/bold]")
-                        console.print()
-                        console.print("[bold]Troubleshooting:[/bold]")
-                        console.print("  1. Check if DuckDB file exists: data/warehouse.duckdb")
-                        console.print(
-                            "  2. Verify DuckDB driver: metabase-plugins/duckdb.metabase-driver.jar"
-                        )
-                        console.print(
-                            "  3. Check Metabase logs: '[cyan]docker logs $(docker ps -q -f name=metabase)[/cyan]'"
-                        )
-                        console.print("  4. Try again: '[cyan]dango start[/cyan]'")
-                        console.print()
-                        raise click.Abort()
-                    else:
-                        # DuckDB connected but other setup failed (collections, etc.)
-                        # This is non-critical - can continue
-                        console.print()
-                        console.print(
-                            "[yellow]⚠ Metabase partially configured (DuckDB connected, but setup incomplete)[/yellow]"
-                        )
-                        console.print(
-                            "[dim]  You can manually complete setup at http://localhost:3000[/dim]"
-                        )
-                        metabase_configured = True  # Allow platform to start
-            else:
-                console.print("[green]✓[/green] Metabase already configured")
+            if setup_result.get("success"):
+                console.print("[green]✓[/green] Metabase configured automatically")
+                if setup_result.get("collections_created"):
+                    console.print(
+                        f"[dim]  Collections: {', '.join(setup_result['collections_created'])}[/dim]"
+                    )
                 metabase_configured = True
+            else:
+                # Metabase setup failed
+                console.print("[red]✗[/red] Metabase setup failed")
+                if setup_result.get("errors"):
+                    for error in setup_result["errors"]:
+                        console.print(f"[red]  • {error}[/red]")
 
-            # Import dashboards (if any exist)
-            dashboards_dir = project_root / "dashboards"
-            if dashboards_dir.exists() and list(dashboards_dir.glob("*.yml")):
-                console.print()
-                console.print("[cyan]Importing dashboards...[/cyan]")
-                from dango.visualization.dashboard_manager import import_dashboards
+                # Check if DuckDB connection failed (critical)
+                if not setup_result.get("duckdb_connected"):
+                    # DuckDB connection is critical - abort and rollback
+                    console.print()
+                    console.print("[red]❌ Critical error: Cannot connect Metabase to DuckDB[/red]")
+                    console.print()
+                    console.print("[yellow]Rolling back: Stopping Docker services...[/yellow]")
+                    manager.stop_services()
+                    console.print()
+                    console.print("[bold]All services have been stopped.[/bold]")
+                    console.print()
+                    console.print("[bold]Troubleshooting:[/bold]")
+                    console.print("  1. Check if DuckDB file exists: data/warehouse.duckdb")
+                    console.print(
+                        "  2. Verify DuckDB driver: metabase-plugins/duckdb.metabase-driver.jar"
+                    )
+                    console.print(
+                        "  3. Check Metabase logs: '[cyan]docker logs $(docker ps -q -f name=metabase)[/cyan]'"
+                    )
+                    console.print("  4. Try again: '[cyan]dango start[/cyan]'")
+                    console.print()
+                    raise click.Abort()
+                else:
+                    # DuckDB connected but other setup failed (collections, etc.)
+                    # This is non-critical - can continue
+                    console.print()
+                    console.print(
+                        "[yellow]⚠ Metabase partially configured (DuckDB connected, but setup incomplete)[/yellow]"
+                    )
+                    console.print(
+                        "[dim]  You can manually complete setup at http://localhost:3000[/dim]"
+                    )
+                    metabase_configured = True  # Allow platform to start
+        else:
+            console.print("[green]✓[/green] Metabase already configured")
+            metabase_configured = True
 
-                try:
-                    import_result = import_dashboards(project_root)
-                    if import_result.get("imported"):
-                        console.print(
-                            f"[green]✓[/green] Imported {len(import_result['imported'])} dashboard(s)"
-                        )
-                    elif import_result.get("skipped"):
-                        console.print("[dim]✓ All dashboards already imported[/dim]")
-                except Exception as e:
-                    console.print(f"[yellow]⚠[/yellow]  Dashboard import failed: {e}")
-
+        # Import dashboards (if any exist)
+        dashboards_dir = project_root / "dashboards"
+        if dashboards_dir.exists() and list(dashboards_dir.glob("*.yml")):
             console.print()
+            console.print("[cyan]Importing dashboards...[/cyan]")
+            from dango.visualization.dashboard_manager import import_dashboards
+
+            try:
+                import_result = import_dashboards(project_root)
+                if import_result.get("imported"):
+                    console.print(
+                        f"[green]✓[/green] Imported {len(import_result['imported'])} dashboard(s)"
+                    )
+                elif import_result.get("skipped"):
+                    console.print("[dim]✓ All dashboards already imported[/dim]")
+            except Exception as e:
+                console.print(f"[yellow]⚠[/yellow]  Dashboard import failed: {e}")
+
+        console.print()
 
         # Start FastAPI backend (critical - must succeed)
         console.print("[cyan]Starting Web UI backend...[/cyan]")
@@ -585,6 +582,12 @@ def start(ctx: click.Context) -> None:
             except RuntimeError as e:
                 # File watcher is non-critical - platform still works without it
                 console.print(f"[yellow]⚠[/yellow]  File watcher failed to start: {e}")
+                from dango.exceptions import is_debug_mode
+
+                if is_debug_mode():
+                    import traceback
+
+                    console.print(traceback.format_exc())
                 console.print("[dim]Platform will work, but auto-sync is disabled.[/dim]")
                 console.print("[dim]You can manually run 'dango sync' when files change.[/dim]")
                 console.print()
@@ -689,11 +692,14 @@ def start(ctx: click.Context) -> None:
         console.print()
         console.print("[bold]All services have been stopped.[/bold]")
         console.print()
-        import traceback
+        from dango.exceptions import is_debug_mode
 
-        console.print("[dim]Stack trace:[/dim]")
-        traceback.print_exc()
-        console.print()
+        if is_debug_mode():
+            import traceback
+
+            console.print("[dim]Stack trace:[/dim]")
+            console.print(traceback.format_exc())
+            console.print()
         raise click.Abort() from None
 
 
@@ -715,7 +721,7 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
     from pathlib import Path
 
     from dango.config import ConfigLoader
-    from dango.platform import DockerManager  # TODO: duplicate import — also imported at line 725
+    from dango.platform import DockerManager
     from dango.platform.network import NetworkConfig
 
     from ..helpers.process_manager import stop_fastapi_server
@@ -726,8 +732,6 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
 
     # Handle --all flag (doesn't require project context)
     if stop_all:
-        from dango.platform import DockerManager
-
         # Create a dummy manager just to call the global cleanup method
         manager = DockerManager(Path.cwd())
         manager.stop_all_dango_containers()
@@ -793,6 +797,12 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e
 
 
@@ -952,4 +962,10 @@ def status(ctx: click.Context) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e

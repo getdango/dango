@@ -9,6 +9,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
+from dango.validation import validate_date_string, validate_source_name
 from dango.web.helpers import (
     append_log_entry,
     get_project_root,
@@ -37,6 +38,12 @@ async def trigger_sync(
     Returns:
         Sync response with status
     """
+    source_name = validate_source_name(source_name)
+    if sync_request.start_date:
+        validate_date_string(sync_request.start_date)
+    if sync_request.end_date:
+        validate_date_string(sync_request.end_date)
+
     # Verify source exists
     sources_config = load_sources_config()
     source_exists = any(s.get("name") == source_name for s in sources_config)
@@ -83,6 +90,7 @@ async def run_sync_task(
     project_root = get_project_root()
 
     # Try to acquire lock before running sync (which includes dbt)
+    lock = None
     try:
         lock = DbtLock(
             project_root=project_root,
@@ -144,13 +152,11 @@ async def run_sync_task(
 
         # Use the same run_sync function as CLI for consistent behavior
         # This ensures: data load -> dbt run -> docs generation -> Metabase sync
-        from datetime import datetime as dt
-
         from dango.ingestion import run_sync
 
-        # Parse dates if provided
-        start_date_obj = dt.strptime(start_date, "%Y-%m-%d") if start_date else None
-        end_date_obj = dt.strptime(end_date, "%Y-%m-%d") if end_date else None
+        # Parse dates if provided (validate_date_string raises InvalidDateFormatError)
+        start_date_obj = validate_date_string(start_date) if start_date else None
+        end_date_obj = validate_date_string(end_date) if end_date else None
 
         # Log before running sync
         append_log_entry(
@@ -335,5 +341,8 @@ async def run_sync_task(
             }
         )
     finally:
-        # Always release the lock
-        lock.release()
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:
+                pass

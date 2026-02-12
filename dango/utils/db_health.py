@@ -10,19 +10,9 @@ from typing import Any
 import duckdb
 from rich.console import Console
 
+from dango.exceptions import DiskSpaceError, DuckDBHealthError
+
 console = Console()
-
-
-class DiskSpaceError(Exception):
-    """Raised when disk space is insufficient"""
-
-    pass
-
-
-class DuckDBHealthError(Exception):
-    """Raised when DuckDB health check fails"""
-
-    pass
 
 
 def check_disk_space(project_root: Path, min_free_gb: int = 5) -> bool:

@@ -218,6 +218,12 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e
 
 
@@ -321,6 +327,12 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e
 
 
@@ -365,6 +377,7 @@ def sync(
     console.print("🍡 [bold]Syncing data...[/bold]")
     console.print()
 
+    lock = None
     try:
         # Get project context
         project_root = require_project_context(ctx)
@@ -506,16 +519,20 @@ def sync(
 
         # Exit with error code if any sources failed
         if summary["failed_count"] > 0:
-            lock.release()
             raise click.Abort()
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        lock.release()  # TODO: lock may be undefined if error occurs before acquisition
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e
     finally:
-        # Always release the lock (if it was acquired)
-        try:
-            lock.release()
-        except Exception:
-            pass
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:
+                pass

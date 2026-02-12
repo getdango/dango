@@ -15,6 +15,7 @@ import duckdb
 import yaml
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
 
+from dango.validation import sanitize_path_component, validate_source_name
 from dango.web.helpers import (
     append_log_entry,
     get_duckdb_path,
@@ -51,6 +52,7 @@ async def upload_csv_to_source(
     Returns:
         Success message and file info
     """
+    source_name = validate_source_name(source_name)
     try:
         import aiofiles
 
@@ -82,7 +84,7 @@ async def upload_csv_to_source(
             )
 
         # Validate file type
-        if not file.filename.endswith(".csv"):
+        if not file.filename or not file.filename.endswith(".csv"):
             raise HTTPException(status_code=400, detail="Only CSV files are supported")
 
         # Get directory from source config
@@ -97,12 +99,18 @@ async def upload_csv_to_source(
         # Create data directory if it doesn't exist
         data_dir.mkdir(parents=True, exist_ok=True)
 
+        # Sanitize the uploaded filename to prevent directory traversal
+        safe_filename = sanitize_path_component(file.filename or "unnamed")
+
         # Check if file already exists
-        file_path = data_dir / file.filename
+        file_path = data_dir / safe_filename
+        # Defense-in-depth: ensure resolved path stays within data_dir
+        if not file_path.resolve().is_relative_to(data_dir.resolve()):
+            raise HTTPException(status_code=400, detail="Invalid filename.")
         if file_path.exists():
             raise HTTPException(
                 status_code=409,
-                detail=f"File '{file.filename}' already exists. Delete the existing file first or rename your file.",
+                detail=f"File '{safe_filename}' already exists. Delete the existing file first or rename your file.",
             )
         async with aiofiles.open(file_path, "wb") as buffer:
             content = await file.read()
@@ -115,7 +123,7 @@ async def upload_csv_to_source(
             {
                 "event": "csv_uploaded",
                 "source": source_name,
-                "message": f"CSV file {file.filename} uploaded to {source_name}",
+                "message": f"CSV file {safe_filename} uploaded to {source_name}",
                 "timestamp": datetime.now().isoformat(),
             }
         )
@@ -129,11 +137,10 @@ async def upload_csv_to_source(
 
         return {
             "success": True,
-            "message": f"CSV uploaded successfully: {file.filename}"
+            "message": f"CSV uploaded successfully: {safe_filename}"
             + (" - Sync started." if trigger_sync else ""),
             "source_name": source_name,
-            "file_path": str(file_path),
-            "file_name": file.filename,
+            "file_name": safe_filename,
             "auto_sync": trigger_sync,
         }
 
@@ -141,7 +148,7 @@ async def upload_csv_to_source(
         raise
     except Exception as e:
         logger.error(f"Error uploading CSV: {e}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Upload failed") from e
 
 
 @router.get("/api/sources/{source_name}/csv-files")
@@ -154,6 +161,7 @@ async def get_csv_files(source_name: str):
     Returns:
         List of files with their status (on_disk, loaded, both)
     """
+    source_name = validate_source_name(source_name)
     try:
         project_root = get_project_root()
 
@@ -297,7 +305,7 @@ async def get_csv_files(source_name: str):
         raise
     except Exception as e:
         logger.error(f"Error getting CSV files: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get CSV files: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Failed to get CSV files") from e
 
 
 @router.delete("/api/sources/{source_name}/csv-files")
@@ -318,6 +326,7 @@ async def delete_csv_file(
     Returns:
         Success message with deletion details
     """
+    source_name = validate_source_name(source_name)
     logger.info(
         f"DELETE ENDPOINT CALLED - VERSION 2025-11-04-v2 - source: {source_name}, file: {file_path}"
     )
@@ -391,15 +400,18 @@ async def delete_csv_file(
             logger.info(f"Tables in database: {all_tables}")
 
             # Delete rows for this file from raw table (if table exists)
-            target_table = f"raw.{source_name}"
+            target_table = f'"raw"."{source_name}"'
             logger.info(f"Deleting from {target_table} WHERE _dango_filename = '{filename}'")
 
             # Check if table exists first
             table_exists = (
-                conn.execute(f"""
-                SELECT COUNT(*) FROM information_schema.tables
-                WHERE table_schema = 'raw' AND table_name = '{source_name}'
-            """).fetchone()[0]
+                conn.execute(
+                    """
+                    SELECT COUNT(*) FROM information_schema.tables
+                    WHERE table_schema = 'raw' AND table_name = ?
+                    """,
+                    [source_name],
+                ).fetchone()[0]
                 > 0
             )
 
@@ -494,7 +506,7 @@ async def delete_csv_file(
     except Exception as e:
         logger.error(f"UNEXPECTED ERROR deleting CSV file: {type(e).__name__}: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Failed to delete file") from e
 
 
 async def run_dbt_after_delete(source_name: str):
@@ -510,6 +522,7 @@ async def run_dbt_after_delete(source_name: str):
     project_root = get_project_root()
 
     # Try to acquire lock before running dbt
+    lock = None
     try:
         lock = DbtLock(
             project_root=project_root,
@@ -660,5 +673,8 @@ async def run_dbt_after_delete(source_name: str):
         }
         save_sync_history_entry(source_name, history_entry)
     finally:
-        # Always release the lock
-        lock.release()
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:
+                pass

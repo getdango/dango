@@ -1,21 +1,43 @@
 """dango/web/app.py
 
 FastAPI application entry point. Creates the app, registers middleware,
-mounts static files, and includes all route modules.
+mounts static files, includes all route modules, and installs global
+exception handlers.
 """
 
-import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from dango.exceptions import (
+    ConfigError,
+    ConfigNotFoundError,
+    ConfigValidationError,
+    CSVSchemaMismatchError,
+    DangoError,
+    DbtLockError,
+    DiskSpaceError,
+    DuckDBHealthError,
+    InfrastructureError,
+    IngestionError,
+    ProjectNotFoundError,
+    SyncTimeoutError,
+    ValidationError,
+    WebAPIError,
+    is_debug_mode,
+)
+from dango.logging import get_logger
 from dango.web.helpers import get_project_root
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def create_app(project_root: Path | None = None) -> FastAPI:
@@ -59,6 +81,78 @@ static_dir = Path(__file__).parent / "static"
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+
+# ---------------------------------------------------------------------------
+# Global exception handlers
+# ---------------------------------------------------------------------------
+
+# Map exception types to HTTP status codes
+_STATUS_MAP: dict[type[DangoError], int] = {
+    # Config errors
+    ConfigNotFoundError: 404,
+    ProjectNotFoundError: 404,
+    ConfigValidationError: 422,
+    ConfigError: 500,
+    # Ingestion errors
+    CSVSchemaMismatchError: 422,
+    SyncTimeoutError: 504,
+    IngestionError: 500,
+    # Infrastructure errors
+    DiskSpaceError: 503,
+    DuckDBHealthError: 503,
+    DbtLockError: 409,
+    InfrastructureError: 500,
+    # Validation errors
+    ValidationError: 400,
+    # Web errors
+    WebAPIError: 500,
+    # Explicit fallback (makes default status code visible in code)
+    DangoError: 500,
+}
+
+
+@app.exception_handler(DangoError)
+async def dango_error_handler(request: Request, exc: DangoError) -> JSONResponse:
+    """Return structured JSON for all DangoError subclasses."""
+    # Walk the MRO to find the most specific status code
+    status_code = 500
+    for cls in type(exc).__mro__:
+        if cls in _STATUS_MAP:
+            status_code = _STATUS_MAP[cls]
+            break
+
+    body: dict = {
+        "error_code": exc.error_code,
+        "message": exc.user_message,
+    }
+    if is_debug_mode() and exc.context:
+        body["detail"] = exc.context
+
+    return JSONResponse(status_code=status_code, content=body)
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_handler(request: Request, exc: Exception) -> Response:
+    """Catch-all for unexpected exceptions (return generic 500)."""
+    # Delegate HTTPExceptions to FastAPI's built-in handler
+    if isinstance(exc, HTTPException):
+        return await http_exception_handler(request, exc)
+    # Delegate Pydantic request validation errors to FastAPI's built-in handler
+    if isinstance(exc, RequestValidationError):
+        return await request_validation_exception_handler(request, exc)
+
+    logger.error("unhandled_exception", path=request.url.path, error=str(exc), exc_info=True)
+
+    body: dict = {
+        "error_code": "DANGO-G001",
+        "message": "An internal error occurred.",
+    }
+    if is_debug_mode():
+        body["detail"] = str(exc)
+
+    return JSONResponse(status_code=500, content=body)
+
+
 # ---------------------------------------------------------------------------
 # Register routers — Dango API routes first, then proxy routes (catch-all last)
 # ---------------------------------------------------------------------------
@@ -92,14 +186,13 @@ app.include_router(metabase_proxy_router)
 @app.on_event("startup")
 async def startup_event():
     """Run on application startup."""
-    logger.info("Dango Web API starting up...")
-    logger.info(f"Project root: {get_project_root()}")
+    logger.info("api_starting", project_root=str(get_project_root()))
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Run on application shutdown."""
-    logger.info("Dango Web API shutting down...")
+    logger.info("api_shutting_down")
 
 
 if __name__ == "__main__":

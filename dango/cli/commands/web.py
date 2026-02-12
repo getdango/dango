@@ -60,7 +60,10 @@ def web(ctx: click.Context, host: str, port: int, reload: bool) -> None:
         console.print("\n[yellow]Server stopped[/yellow]")
     except Exception as e:
         console.print(f"\n[red]Error starting server:[/red] {e}")
-        import traceback
+        from dango.exceptions import is_debug_mode
 
-        console.print(traceback.format_exc())
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e

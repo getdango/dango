@@ -110,6 +110,12 @@ def config_validate(ctx: click.Context) -> None:
                     except Exception as e:
                         all_valid = False
                         dbt_errors.append(f"{sources_file.relative_to(project_root)}: {str(e)}")
+                        from dango.exceptions import is_debug_mode
+
+                        if is_debug_mode():
+                            import traceback
+
+                            console.print(traceback.format_exc())
 
                 if dbt_errors:
                     all_valid = False
@@ -131,6 +137,12 @@ def config_validate(ctx: click.Context) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e
 
 
@@ -176,4 +188,10 @@ def config_show(ctx: click.Context) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e

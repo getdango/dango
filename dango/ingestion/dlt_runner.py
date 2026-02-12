@@ -21,16 +21,11 @@ from dango.config.models import (
     DataSource,
     SourceType,
 )
+from dango.exceptions import SyncTimeoutError
 from dango.ingestion.csv_loader import CSVLoader
 from dango.ingestion.sources.registry import get_source_metadata
 
 console = Console()
-
-
-class SyncTimeoutError(Exception):
-    """Raised when sync exceeds timeout"""
-
-    pass
 
 
 class DltPipelineRunner:
@@ -171,8 +166,9 @@ class DltPipelineRunner:
         Returns:
             Dictionary with load statistics and status
         """
+        from dango.exceptions import DiskSpaceError
         from dango.utils.activity_log import log_activity
-        from dango.utils.db_health import DiskSpaceError, check_disk_space, check_duckdb_health
+        from dango.utils.db_health import check_disk_space, check_duckdb_health
         from dango.utils.sync_history import save_sync_history_entry
 
         source_name = source_config.name
