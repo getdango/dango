@@ -85,3 +85,13 @@ class TestGetProcessUsingPort:
         mock_psutil.net_connections.side_effect = psutil.AccessDenied(0)
 
         assert get_process_using_port(8080) is None
+
+    @patch("dango.cli.helpers.port_manager.psutil")
+    def test_attribute_error_returns_none(self, mock_psutil):
+        """Covers conn.laddr being None on some platforms."""
+        mock_psutil.AccessDenied = psutil.AccessDenied
+        conn = MagicMock()
+        conn.laddr = None  # None.port raises AttributeError
+        mock_psutil.net_connections.return_value = [conn]
+
+        assert get_process_using_port(8080) is None

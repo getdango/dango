@@ -3,6 +3,8 @@
 Tests for dango.cli.helpers.process_manager — FastAPI server process management.
 """
 
+import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -201,7 +203,7 @@ class TestStartFastapiServer:
 
         popen_args = mock_popen.call_args
         cmd = popen_args[0][0]
-        # cmd[0] is sys.executable (whatever python is running)
+        assert cmd[0] == sys.executable
         assert cmd[1] == "-m"
         assert cmd[2] == "uvicorn"
         assert cmd[3] == "dango.web.app:app"
@@ -455,7 +457,7 @@ class TestStopFastapiServer:
             mock_config = MagicMock()
             mock_config.platform.port = 8080
             mock_cl.return_value.load_config.return_value = mock_config
-            mock_sub_run.side_effect = TimeoutError("lsof timed out")
+            mock_sub_run.side_effect = subprocess.TimeoutExpired(cmd="lsof", timeout=5)
 
             assert stop_fastapi_server(tmp_path) is False
 
