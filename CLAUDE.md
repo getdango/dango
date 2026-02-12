@@ -8,7 +8,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 
 | Task Type | Go To | Read First |
 |-----------|-------|------------|
-| CLI commands | `dango/cli/` | `dango/cli/CLAUDE.md` (Phase 1) |
+| CLI commands | `dango/cli/` | [`dango/cli/CLAUDE.md`](dango/cli/CLAUDE.md) |
 | Data ingestion / sync | `dango/ingestion/` | [`dango/ingestion/CLAUDE.md`](dango/ingestion/CLAUDE.md) |
 | OAuth / token flows | `dango/oauth/` | [`dango/oauth/CLAUDE.md`](dango/oauth/CLAUDE.md) |
 | Web UI / API endpoints | `dango/web/` | [`dango/web/CLAUDE.md`](dango/web/CLAUDE.md) |
@@ -215,6 +215,8 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 
 **Existing:**
+- [`dango/CLAUDE.md`](dango/CLAUDE.md) (package root)
+- [`dango/cli/CLAUDE.md`](dango/cli/CLAUDE.md)
 - [`dango/config/CLAUDE.md`](dango/config/CLAUDE.md)
 - [`dango/ingestion/CLAUDE.md`](dango/ingestion/CLAUDE.md)
 - [`dango/oauth/CLAUDE.md`](dango/oauth/CLAUDE.md)
@@ -223,11 +225,6 @@ Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 - [`dango/security/CLAUDE.md`](dango/security/CLAUDE.md)
 - [`dango/utils/CLAUDE.md`](dango/utils/CLAUDE.md)
 - [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md)
-
-**Planned Phase 1:**
-- `dango/cli/CLAUDE.md` (after TASK-005)
-
-**Created:**
 - [`dango/web/CLAUDE.md`](dango/web/CLAUDE.md)
 
 **Planned later phases:**
