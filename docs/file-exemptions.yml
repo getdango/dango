@@ -79,11 +79,7 @@ exemptions:
     reason: "Project initialization wizard. Sequential setup flow — splitting adds indirection without benefit."
     review_by: "v1.1"
 
-  - file: dango/cli/utils.py
-    lines: 780
-    category: exempt
-    reason: "CLI utility functions shared across commands. Stable, rarely modified."
-    review_by: "v1.1"
+  # Removed: dango/cli/utils.py — now ~130 lines after TASK-006 (utilities moved to proper modules)
 
   - file: dango/oauth/providers.py
     lines: 761

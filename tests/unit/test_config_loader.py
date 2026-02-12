@@ -11,14 +11,14 @@ from dango.config.exceptions import (
     ConfigNotFoundError,
     ConfigValidationError,
 )
-from dango.config.loader import (
-    ConfigLoader,
+from dango.config.helpers import (
     check_unreferenced_custom_sources,
     format_unreferenced_sources_warning,
     get_config,
     load_config,
     save_config,
 )
+from dango.config.loader import ConfigLoader
 from dango.config.models import (
     DangoConfig,
     DataSource,

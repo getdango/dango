@@ -64,8 +64,8 @@ async def get_watcher_status_api():
     - Configuration (auto-sync, auto-dbt, debounce, patterns, directories)
     - Log file location
     """
-    from dango.cli.utils import get_watcher_status
     from dango.config import ConfigLoader
+    from dango.platform.watcher_lifecycle import get_watcher_status
 
     project_root = get_project_root()
 

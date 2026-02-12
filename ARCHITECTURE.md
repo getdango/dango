@@ -252,7 +252,9 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | `source_wizard.py` | Source configuration wizard |
 | `model_wizard.py` | dbt model creation wizard |
 | `oauth.py` | OAuth setup commands |
-| `utils.py` | CLI utilities (`get_project_root()`, `get_watcher_status()`) |
+| `utils.py` | CLI display helpers (`print_error`, `print_success`, `require_project_context`) |
+| `helpers/port_manager.py` | Port checking utilities |
+| `helpers/process_manager.py` | FastAPI server process management + PID file helpers |
 | `db_helpers.py` | Database inspection helpers |
 | `env_helpers.py` | Environment setup helpers |
 | `schema_manager.py` | Schema management |
@@ -508,11 +510,7 @@ The web module (`web/app.py`) exposes 19 REST endpoints, 1 WebSocket, and a Meta
 
    These exist because `run_sync()` orchestrates the full pipeline (load → transform → visualize). Extraction to a dedicated orchestration module is planned for Phase 3.
 
-2. **`web/app.py:836` imports `dango.cli.utils`** (Level 2 → Level 3):
-   ```python
-   from dango.cli.utils import get_watcher_status
-   ```
-   This function should be moved to `utils/` in TASK-006.
+2. ~~**`web/routes/health.py` imported `dango.cli.utils`** (Level 2 → Level 3)~~ — **Fixed in TASK-006**: `get_watcher_status` moved to `dango.platform.watcher_lifecycle` (Level 2), eliminating the violation.
 
 ### Monolithic Files
 

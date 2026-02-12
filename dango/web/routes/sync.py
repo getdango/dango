@@ -113,7 +113,7 @@ async def run_sync_task(
         return
 
     try:
-        from dango.config.loader import load_config
+        from dango.config.helpers import load_config
 
         # Log sync start
         append_log_entry(

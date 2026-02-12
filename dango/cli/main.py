@@ -45,7 +45,7 @@ def cli(ctx: click.Context) -> None:
     # Try to find project root for commands that need it
     # (init command doesn't need it, but most others do)
     try:
-        from .utils import find_project_root
+        from dango.config.helpers import find_project_root
 
         ctx.obj["project_root"] = find_project_root()
     except Exception:

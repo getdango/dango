@@ -10,7 +10,8 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 |------|---------|----------------------|
 | `__init__.py` | Public exports, `__all__` | Re-exports all public symbols |
 | `models.py` | Pydantic models for config data | `DangoConfig`, `ProjectContext`, `SourcesConfig`, `DataSource`, `SourceType`, `DeduplicationStrategy`, `PlatformSettings`, `Stakeholder`, `CSVSourceConfig`, `GoogleSheetsSourceConfig`, `StripeSourceConfig`, `ShopifySourceConfig` |
-| `loader.py` | Load/save YAML config files | `ConfigLoader`, `get_config`, `load_config`, `save_config` |
+| `loader.py` | Load/save YAML config files | `ConfigLoader` |
+| `helpers.py` | Config convenience functions | `find_project_root`, `get_config`, `load_config`, `save_config`, `check_unreferenced_custom_sources`, `format_unreferenced_sources_warning` |
 | `credentials.py` | Credential loading for dlt sources | `CredentialManager`, `init_dlt_directory` |
 | `exceptions.py` | Config-specific exception hierarchy | `ConfigError`, `ConfigNotFoundError`, `ConfigValidationError`, `ProjectNotFoundError` |
 

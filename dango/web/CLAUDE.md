@@ -58,7 +58,7 @@ helpers.py ──lazy import──> app.py (for app.state.project_root)
 - `dango.transformation/` — `run_dbt_models` (triggered by upload delete)
 - `dango.visualization/` — `sync_metabase_schema`, `refresh_metabase_connection` (after sync/dbt runs)
 - `dango.utils/` — `DbtLock`, `DbtLockError`, `activity_log`, `sync_history`, `db_health`, `dbt_status`
-- `dango.cli/` — `cli.utils.get_watcher_status` (for watcher status endpoint)
+- `dango.platform/` — `platform.watcher_lifecycle.get_watcher_status` (for watcher status endpoint)
 
 **Used by:**
 - `dango/cli/commands/web.py` — imports `from dango.web import app` to run uvicorn

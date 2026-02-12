@@ -79,7 +79,11 @@ dango/                          # Python package source
 │   ├── source_wizard.py        # Source configuration wizard
 │   ├── model_wizard.py         # dbt model creation wizard
 │   ├── oauth.py                # OAuth setup commands
-│   ├── utils.py                # CLI utilities
+│   ├── helpers/                # CLI helper subpackage (TASK-006)
+│   │   ├── __init__.py         # Package marker
+│   │   ├── port_manager.py     # Port checking utilities
+│   │   └── process_manager.py  # FastAPI server process management
+│   ├── utils.py                # CLI display helpers + project context
 │   ├── db_helpers.py           # Database inspection helpers
 │   ├── env_helpers.py          # Environment setup helpers
 │   ├── schema_manager.py       # Schema management
@@ -112,6 +116,7 @@ dango/                          # Python package source
 │   ├── docker.py               # Docker Compose lifecycle
 │   ├── network.py              # Network utilities
 │   ├── watcher.py              # File change detection
+│   ├── watcher_lifecycle.py    # Watcher subprocess lifecycle (start/stop/status)
 │   └── watcher_runner.py       # Watcher subprocess runner
 │
 ├── ingestion/                  # Level 1 — Data loading
@@ -134,10 +139,12 @@ dango/                          # Python package source
 ├── config/                     # Level 0 — Configuration & credentials
 │   ├── models.py               # Pydantic models (DangoConfig, DataSource, etc.)
 │   ├── loader.py               # ConfigLoader — loads project.yml, sources.yml
+│   ├── helpers.py              # Convenience functions (find_project_root, get_config, load_config, save_config)
 │   ├── credentials.py          # CredentialManager — manages .dlt/secrets.toml, .env
 │   └── exceptions.py           # Config-specific exceptions
 │
 ├── utils/                      # Level 0 — Shared utilities
+│   ├── process.py              # Generic process utilities (is_process_running, kill_process)
 │   ├── dbt_lock.py             # DbtLock — single-writer DuckDB serialization
 │   ├── activity_log.py         # Append-only JSON activity log
 │   ├── sync_history.py         # Per-source sync results
@@ -192,7 +199,6 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `visualization/dashboard_manager.py` | 1102 | — |
 | `cli/init.py` | 945 | — |
 | `cli/commands/platform.py` | 945 | — (extracted from main.py by TASK-005) |
-| `cli/utils.py` | 780 | — |
 | `oauth/providers.py` | 761 | — |
 | `ingestion/csv_loader.py` | 761 | — |
 | `cli/commands/auth.py` | 707 | — (extracted from main.py by TASK-005) |

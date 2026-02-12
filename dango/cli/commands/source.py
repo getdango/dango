@@ -6,7 +6,7 @@ Data source management commands (add, list, remove) and sync.
 import click
 
 from dango.cli import console
-from dango.config.loader import (
+from dango.config.helpers import (
     check_unreferenced_custom_sources,
     format_unreferenced_sources_warning,
 )

@@ -138,7 +138,8 @@ def start(ctx: click.Context) -> None:
     from dango.config import ConfigLoader
     from dango.platform import DockerManager
 
-    from ..utils import require_project_context, start_fastapi_server
+    from ..helpers.process_manager import start_fastapi_server
+    from ..utils import require_project_context
 
     console.print("🍡 [bold]Starting Dango Platform...[/bold]")
     console.print()
@@ -219,7 +220,7 @@ def start(ctx: click.Context) -> None:
                         console.print("[dim]Attempting to stop zombie Dango processes...[/dim]")
                         console.print()
 
-                        from ..utils import kill_process
+                        from dango.utils.process import kill_process
 
                         killed_any = False
                         for proc_pid in dango_pids:
@@ -340,7 +341,7 @@ def start(ctx: click.Context) -> None:
             raise click.Abort()
 
         # Pre-flight check: Required Docker ports must be free
-        from ..utils import check_port_in_use
+        from ..helpers.port_manager import check_port_in_use
 
         required_docker_ports = {
             3000: "Metabase",
@@ -567,7 +568,7 @@ def start(ctx: click.Context) -> None:
         if platform_config.auto_sync:
             console.print("[cyan]Starting file watcher...[/cyan]")
             try:
-                from ..utils import start_file_watcher
+                from dango.platform.watcher_lifecycle import start_file_watcher
 
                 watcher_pid = start_file_watcher(project_root)
                 console.print(f"[green]✓[/green] File watcher started (PID {watcher_pid})")
@@ -672,10 +673,12 @@ def start(ctx: click.Context) -> None:
         # Try to clean up what we can
         try:
             # Stop FastAPI if it was started
-            from ..utils import stop_fastapi_server, stop_file_watcher
+            from dango.platform.watcher_lifecycle import stop_file_watcher
+
+            from ..helpers.process_manager import stop_fastapi_server
 
             stop_fastapi_server(project_root, verbose=False)
-            stop_file_watcher(project_root, verbose=False)
+            stop_file_watcher(project_root)
 
             # Stop Docker services
             if "manager" in locals():
@@ -715,7 +718,8 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
     from dango.platform import DockerManager  # TODO: duplicate import — also imported at line 725
     from dango.platform.network import NetworkConfig
 
-    from ..utils import require_project_context, stop_fastapi_server
+    from ..helpers.process_manager import stop_fastapi_server
+    from ..utils import require_project_context
 
     console.print("🍡 [bold]Stopping Dango Platform...[/bold]")
     console.print()
@@ -742,11 +746,16 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
 
         # Stop file watcher first
         console.print("[cyan]Stopping file watcher...[/cyan]")
-        from ..utils import stop_file_watcher
+        from dango.platform.watcher_lifecycle import get_watcher_status, stop_file_watcher
 
-        watcher_stopped = stop_file_watcher(project_root, verbose=True)
+        watcher_was_running = get_watcher_status(project_root)["running"]
+        watcher_stopped = stop_file_watcher(project_root)
 
-        if not watcher_stopped:
+        if watcher_stopped:
+            console.print("[green]✓[/green] File watcher stopped")
+        elif watcher_was_running:
+            console.print("[yellow]⚠[/yellow] Failed to stop file watcher")
+        else:
             console.print("[dim]File watcher was not running[/dim]")
 
         console.print()
@@ -805,7 +814,8 @@ def status(ctx: click.Context) -> None:
     from dango.platform import DockerManager
     from dango.platform.network import NetworkConfig, NginxManager
 
-    from ..utils import get_fastapi_status, require_project_context
+    from ..helpers.process_manager import get_fastapi_status
+    from ..utils import require_project_context
 
     console.print("🍡 [bold]Dango Platform Status[/bold]")
     console.print()
@@ -842,7 +852,7 @@ def status(ctx: click.Context) -> None:
         fastapi_status = get_fastapi_status(project_root)
 
         # Get file watcher status
-        from ..utils import get_watcher_status
+        from dango.platform.watcher_lifecycle import get_watcher_status
 
         watcher_status = get_watcher_status(project_root)
 

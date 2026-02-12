@@ -178,7 +178,7 @@ class ProjectValidator:
 
     def _check_custom_sources(self):
         """Check for unreferenced Python files in custom_sources/"""
-        from dango.config.loader import check_unreferenced_custom_sources
+        from dango.config.helpers import check_unreferenced_custom_sources
 
         try:
             loader = ConfigLoader(self.project_root)
