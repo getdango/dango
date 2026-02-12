@@ -25,7 +25,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/dbt.py` | `/api/dbt/models`, `/api/dbt/models/{name}/run` + dbt docs proxy (`/manifest.json`, `/catalog.json`, `/dbt-docs/*`) | `run_dbt_model_task()` |
 | `routes/upload.py` | CSV upload/list/delete + background `run_dbt_after_delete()` | `run_dbt_after_delete()` |
 | `routes/websocket.py` | `ConnectionManager`, `ws_manager` singleton, `/ws` endpoint | `ConnectionManager`, `ws_manager` |
-| `routes/ui.py` | `/`, `/health`, `/logs`, `/api`, `/api/docs`, `/api/redoc` | `templates` (Jinja2Templates instance) |
+| `routes/ui.py` | `/`, `/health`, `/logs`, `/api`, `/api/docs`, `/api/redoc` | `templates`, `_render_template()` |
 | `routes/metabase_proxy.py` | All Metabase proxy routes + SSO session state | `proxy_to_metabase()`, `get_metabase_session()` |
 | `static/` | CSS and JS assets (`css/main.css`, `js/app.js`, `js/logs.js`) | — |
 
