@@ -50,11 +50,13 @@ def run_oauth_for_source(source_type: str, source_name: str, project_root: Path)
     # Route to correct provider
     try:
         if provider_name == "google":
+            if service is None:
+                console.print("[red]Missing service for Google OAuth provider[/red]")
+                return False
             google_provider = GoogleOAuthProvider(oauth_manager)
             # Pass source_name for instance-specific credentials
             return (
-                google_provider.authenticate(service=service or "", source_name=source_name)
-                is not None
+                google_provider.authenticate(service=service, source_name=source_name) is not None
             )
 
         elif provider_name == "facebook":
