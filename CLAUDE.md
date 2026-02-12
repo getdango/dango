@@ -8,7 +8,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 
 | Task Type | Go To | Read First |
 |-----------|-------|------------|
-| CLI commands | `dango/cli/` | `dango/cli/CLAUDE.md` (Phase 1) |
+| CLI commands | `dango/cli/` | [`dango/cli/CLAUDE.md`](dango/cli/CLAUDE.md) |
 | Data ingestion / sync | `dango/ingestion/` | [`dango/ingestion/CLAUDE.md`](dango/ingestion/CLAUDE.md) |
 | OAuth / token flows | `dango/oauth/` | [`dango/oauth/CLAUDE.md`](dango/oauth/CLAUDE.md) |
 | Web UI / API endpoints | `dango/web/` | [`dango/web/CLAUDE.md`](dango/web/CLAUDE.md) |
@@ -69,7 +69,7 @@ dango/                          # Python package source
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
 │   │   ├── model.py            # model group (add/remove)
-│   │   ├── platform.py         # start/stop/status + port helpers (945 lines)
+│   │   ├── platform.py         # start/stop/status + port helpers (955 lines)
 │   │   ├── project.py          # init/rename/info
 │   │   ├── source.py           # source group (add/list/remove) + sync (521 lines)
 │   │   ├── transform.py        # run/docs/generate
@@ -194,11 +194,11 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 |------|-------|-----------------|
 | `ingestion/dlt_runner.py` | 1696 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 1440 | — (metadata-only) |
-| `cli/source_wizard.py` | 1225 | — |
+| `cli/source_wizard.py` | 1324 | — |
 | `visualization/metabase.py` | 1207 | — |
 | `visualization/dashboard_manager.py` | 1102 | — |
-| `cli/init.py` | 945 | — |
-| `cli/commands/platform.py` | 945 | — (extracted from main.py by TASK-005) |
+| `cli/init.py` | 965 | — |
+| `cli/commands/platform.py` | 955 | — (extracted from main.py by TASK-005) |
 | `oauth/providers.py` | 761 | — |
 | `ingestion/csv_loader.py` | 761 | — |
 | `cli/commands/auth.py` | 707 | — (extracted from main.py by TASK-005) |
@@ -206,7 +206,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `transformation/generator.py` | 560 | — |
 | `platform/watcher.py` | 531 | — |
 | `cli/commands/source.py` | 521 | — (extracted from main.py by TASK-005) |
-| `cli/model_wizard.py` | 517 | — |
+| `cli/model_wizard.py` | 507 | — |
 | `web/helpers.py` | 798 | — (extracted from app.py by TASK-085) |
 | `web/routes/upload.py` | 664 | — (extracted from app.py by TASK-085) |
 
@@ -215,6 +215,8 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 
 **Existing:**
+- [`dango/CLAUDE.md`](dango/CLAUDE.md) (package root)
+- [`dango/cli/CLAUDE.md`](dango/cli/CLAUDE.md)
 - [`dango/config/CLAUDE.md`](dango/config/CLAUDE.md)
 - [`dango/ingestion/CLAUDE.md`](dango/ingestion/CLAUDE.md)
 - [`dango/oauth/CLAUDE.md`](dango/oauth/CLAUDE.md)
@@ -223,11 +225,6 @@ Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 - [`dango/security/CLAUDE.md`](dango/security/CLAUDE.md)
 - [`dango/utils/CLAUDE.md`](dango/utils/CLAUDE.md)
 - [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md)
-
-**Planned Phase 1:**
-- `dango/cli/CLAUDE.md` (after TASK-005)
-
-**Created:**
 - [`dango/web/CLAUDE.md`](dango/web/CLAUDE.md)
 
 **Planned later phases:**
