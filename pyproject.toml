@@ -71,6 +71,10 @@ dev = [
     "ruff>=0.6.0",
     "mypy>=1.11.0",
     "types-PyYAML>=6.0.0",
+    "types-requests>=2.31.0",
+    "types-psutil>=5.9.0",
+    "types-toml>=0.10.0",
+    "types-aiofiles>=23.2.0",
     "pre-commit>=3.6.0",
     "pip-audit>=2.7.0",
 ]
@@ -102,8 +106,11 @@ packages = [
     "dango.utils",
     "dango.visualization",
     "dango.web",
+    "dango.web.routes",
     "dango.oauth",      # OAuth management
     "dango.security",   # Token encryption
+    "dango.cli.commands",
+    "dango.cli.helpers",
 ]
 include-package-data = true
 
@@ -145,6 +152,15 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 exclude = ["dango/ingestion/dlt_sources/"]
+
+[[tool.mypy.overrides]]
+module = [
+    "inquirer",
+    "inquirer.*",
+    "googleapiclient",
+    "googleapiclient.*",
+]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
