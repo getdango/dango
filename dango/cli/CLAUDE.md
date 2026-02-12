@@ -82,7 +82,7 @@ dango (top-level group)
 | Add subcommand to existing group | Add to relevant `commands/*.py` | `dango <group> --help` |
 | Add a new command group | Create in `commands/`, register in `main.py` | `dango <group> --help` |
 | Modify source wizard | `source_wizard.py` | `dango source add` |
-| Add new project init step | `init.py` (`DangoProjectInitializer`) | `dango init` in temp dir |
+| Add new project init step | `init.py` (`ProjectInitializer`) | `dango init` in temp dir |
 | Modify validation logic | `validate.py` | `dango validate` |
 
 ## Dependencies
