@@ -190,7 +190,7 @@ ignore_errors = true
 testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
-    "unit: Unit tests (no I/O, no network, no database)",
+    "unit: Unit tests (no external services or network — tmp_path filesystem operations are allowed)",
     "integration: Integration tests (may use temp dirs, real files, DuckDB)",
 ]
 addopts = "--strict-markers"
