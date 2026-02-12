@@ -71,6 +71,10 @@ dev = [
     "ruff>=0.6.0",
     "mypy>=1.11.0",
     "types-PyYAML>=6.0.0",
+    "types-requests>=2.31.0",
+    "types-psutil>=5.9.0",
+    "types-toml>=0.10.0",
+    "types-aiofiles>=23.2.0",
     "pre-commit>=3.6.0",
     "pip-audit>=2.7.0",
 ]
@@ -102,8 +106,11 @@ packages = [
     "dango.utils",
     "dango.visualization",
     "dango.web",
+    "dango.web.routes",
     "dango.oauth",      # OAuth management
     "dango.security",   # Token encryption
+    "dango.cli.commands",
+    "dango.cli.helpers",
 ]
 include-package-data = true
 
@@ -146,11 +153,44 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 exclude = ["dango/ingestion/dlt_sources/"]
 
+[[tool.mypy.overrides]]
+module = [
+    "inquirer",
+    "inquirer.*",
+    "googleapiclient",
+    "googleapiclient.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    # Exempt monolithic files (see docs/file-exemptions.yml)
+    # Full type checking deferred until refactoring or dedicated typing task
+    "dango.ingestion.dlt_runner",
+    "dango.ingestion.sources.registry",
+    "dango.ingestion.csv_loader",
+    "dango.cli.source_wizard",
+    "dango.cli.init",
+    "dango.cli.model_wizard",
+    "dango.cli.validate",
+    "dango.cli.commands.platform",
+    "dango.cli.commands.auth",
+    "dango.cli.commands.source",
+    "dango.visualization.metabase",
+    "dango.visualization.dashboard_manager",
+    "dango.transformation.generator",
+    "dango.platform.watcher",
+    "dango.oauth.providers",
+    "dango.web.helpers",
+    "dango.web.routes.upload",
+]
+ignore_errors = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
-    "unit: Unit tests (no I/O, no network, no database)",
+    "unit: Unit tests (no external services or network — tmp_path filesystem operations are allowed)",
     "integration: Integration tests (may use temp dirs, real files, DuckDB)",
 ]
 addopts = "--strict-markers"

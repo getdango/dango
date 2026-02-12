@@ -115,7 +115,7 @@ class SecureTokenStorage:
 
             # Decrypt and deserialize
             decrypted = f.decrypt(encrypted_data.encode("utf-8"))
-            token_data = json.loads(decrypted.decode("utf-8"))
+            token_data: dict[str, Any] = json.loads(decrypted.decode("utf-8"))
 
             return token_data
 

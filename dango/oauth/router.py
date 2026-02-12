@@ -50,19 +50,24 @@ def run_oauth_for_source(source_type: str, source_name: str, project_root: Path)
     # Route to correct provider
     try:
         if provider_name == "google":
-            provider = GoogleOAuthProvider(oauth_manager)
+            if service is None:
+                console.print("[red]Missing service for Google OAuth provider[/red]")
+                return False
+            google_provider = GoogleOAuthProvider(oauth_manager)
             # Pass source_name for instance-specific credentials
-            return provider.authenticate(service=service, source_name=source_name)
+            return (
+                google_provider.authenticate(service=service, source_name=source_name) is not None
+            )
 
         elif provider_name == "facebook":
-            provider = FacebookOAuthProvider(oauth_manager)
+            fb_provider = FacebookOAuthProvider(oauth_manager)
             # Pass source_name for instance-specific credentials
-            return provider.authenticate(source_name=source_name)
+            return fb_provider.authenticate(source_name=source_name) is not None
 
         elif provider_name == "shopify":
-            provider = ShopifyOAuthProvider(oauth_manager)
+            shopify_provider = ShopifyOAuthProvider(oauth_manager)
             # Pass source_name for instance-specific credentials
-            return provider.authenticate(source_name=source_name)
+            return shopify_provider.authenticate(source_name=source_name) is not None
 
         else:
             console.print(f"[red]❌ Unknown OAuth provider: {provider_name}[/red]")

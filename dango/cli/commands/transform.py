@@ -3,6 +3,8 @@
 dbt transformation commands (run, docs, generate).
 """
 
+from typing import Any
+
 import click
 
 from dango.cli import console
@@ -273,7 +275,8 @@ def generate(ctx: click.Context, models: bool, generate_all: bool) -> None:
         )
 
         # Display results
-        if summary["generated"]:
+        generated_items: list[dict[str, Any]] = summary.get("generated") or []
+        if generated_items:
             console.print("[green]✅ Generated Models:[/green]\n")
 
             table = Table(show_header=True, header_style="bold cyan")
@@ -282,12 +285,12 @@ def generate(ctx: click.Context, models: bool, generate_all: bool) -> None:
             table.add_column("Dedup Strategy", style="cyan")
             table.add_column("Files", style="dim")
 
-            for item in summary["generated"]:
+            for item in generated_items:
                 source_name = item["source"]
-                models = item.get("models", [])
+                item_models = item.get("models", [])
 
                 # For each model generated for this source
-                for model in models:
+                for model in item_models:
                     files = "model"
                     if item.get("schema"):
                         files += " + schema"

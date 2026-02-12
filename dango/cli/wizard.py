@@ -64,6 +64,8 @@ class ProjectWizard:
             created=datetime.now(),
             created_by=created_by,
             purpose="Data analytics project",
+            sla=None,
+            limitations=None,
             getting_started=self._default_getting_started(),
         )
 
@@ -97,7 +99,7 @@ class ProjectWizard:
                 default_name = name  # Keep their input as new default
                 continue
 
-            return name
+            return str(name)
 
     def _ask_organization(self) -> str | None:
         """Ask for organization name (optional)"""
@@ -106,7 +108,7 @@ class ProjectWizard:
         answers = inquirer.prompt(questions)
         if answers is None:
             raise KeyboardInterrupt()
-        org = answers.get("organization", "").strip()
+        org = str(answers.get("organization", "")).strip()
         return org if org else None
 
     def _get_git_user(self) -> str | None:
@@ -139,7 +141,9 @@ class ProjectWizard:
             )
         ]
         answers = inquirer.prompt(questions)
-        return answers["created_by"]
+        if answers is None:
+            raise KeyboardInterrupt()
+        return str(answers["created_by"])
 
     def _ask_purpose(self) -> str:
         """Ask for project purpose"""
@@ -217,9 +221,11 @@ class ProjectWizard:
 
         questions = [inquirer.Text("sla", message="SLA", default="Daily by 9am")]
         answers = inquirer.prompt(questions)
-        return answers["sla"]
+        if answers is None:
+            raise KeyboardInterrupt()
+        return str(answers["sla"])
 
-    def _ask_limitations(self) -> str:
+    def _ask_limitations(self) -> str | None:
         """Ask for limitations"""
         console.print()
         console.print("[cyan]Known limitations or gotchas[/cyan]")
@@ -237,14 +243,16 @@ class ProjectWizard:
             )
         ]
         answers = inquirer.prompt(questions)
-        limitations = answers["limitations"].strip()
+        if answers is None:
+            raise KeyboardInterrupt()
+        limitations = str(answers["limitations"]).strip()
 
         # Remove the default comment if user didn't change it
         if limitations.startswith("# Known limitations"):
             lines = limitations.split("\n")
             limitations = "\n".join(lines[1:]).strip()
 
-        return limitations or None
+        return limitations if limitations else None
 
     def _default_getting_started(self) -> str:
         """Default getting started guide"""
@@ -255,8 +263,11 @@ class ProjectWizard:
             "4. Open dashboards: http://localhost:8800"
         )
 
-    def _print_summary(self):
+    def _print_summary(self) -> None:
         """Print configuration summary - only show fields with meaningful values"""
+        if self.config is None:
+            return
+
         console.print()
 
         # Build summary with only populated fields

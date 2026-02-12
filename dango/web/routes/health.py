@@ -6,6 +6,7 @@ Health check and platform status endpoints.
 import asyncio
 import logging
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -23,7 +24,7 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/api/status", response_model=ServiceHealth)
-async def get_status():
+async def get_status() -> ServiceHealth:
     """Get service health status.
 
     Returns health check for Dango API and related services (DuckDB, Metabase, dbt-docs)
@@ -55,7 +56,7 @@ async def get_status():
 
 
 @router.get("/api/watcher/status", response_model=WatcherStatus)
-async def get_watcher_status_api():
+async def get_watcher_status_api() -> WatcherStatus:
     """Get file watcher status.
 
     Returns information about the file watcher including:
@@ -104,7 +105,7 @@ async def get_watcher_status_api():
 
 
 @router.get("/api/health/platform")
-async def get_platform_health():
+async def get_platform_health() -> dict[str, Any]:
     """Get comprehensive platform health status.
 
     Returns:

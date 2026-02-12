@@ -13,7 +13,7 @@ class TableInfo(BaseModel):
 
     name: str
     row_count: int
-    schema: str
+    schema: str  # type: ignore[assignment]  # shadows BaseModel.schema() deprecated method
 
 
 class SourceStatus(BaseModel):

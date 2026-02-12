@@ -25,14 +25,11 @@ repos:
     hooks:
       - id: mypy
         name: mypy type checking
-        entry: python3 -m mypy --ignore-missing-imports
+        entry: python3 -m mypy
         language: system
         types: [python]
         pass_filenames: true
         exclude: dango/ingestion/dlt_sources/
-        # TODO: Remove stages: [manual] after mypy compliance pass
-        # Currently 57 pre-existing type errors; CI runs mypy as continue-on-error
-        stages: [manual]
 
       - id: file-size-check
         name: Check file sizes

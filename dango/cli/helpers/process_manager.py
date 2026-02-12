@@ -228,9 +228,9 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
             dango_pids = []
             other_pids = []
 
-            for proc_pid in pids:
+            for proc_pid_str in pids:
                 try:
-                    proc_pid = int(proc_pid.strip())
+                    proc_pid = int(proc_pid_str.strip())
 
                     # Get process command line
                     cmd_result = subprocess.run(
@@ -326,7 +326,7 @@ def get_fastapi_status(project_root: Path) -> dict:
     log_file = project_root / ".dango" / "web.log"
     port = 8080  # Default port
 
-    status = {"running": False, "pid": None, "port": port, "url": None, "log_file": log_file}
+    status: dict = {"running": False, "pid": None, "port": port, "url": None, "log_file": log_file}
 
     if pid and is_process_running(pid):
         status["running"] = True

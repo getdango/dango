@@ -18,7 +18,7 @@ router = APIRouter(tags=["logs"])
 
 
 @router.get("/api/sources/{source_name}/logs", response_model=list[LogEntry])
-async def get_source_logs(source_name: str, limit: int = 100):
+async def get_source_logs(source_name: str, limit: int = 100) -> list[LogEntry]:
     """Get sync logs for a specific source.
 
     Args:
@@ -62,7 +62,7 @@ async def get_source_logs(source_name: str, limit: int = 100):
 
 
 @router.get("/api/logs")
-async def get_all_logs(limit: int = 1000):
+async def get_all_logs(limit: int = 1000) -> list[dict[str, object]]:
     """Get all activity logs.
 
     Args:

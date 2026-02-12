@@ -126,7 +126,7 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool) -> None:
                     SELECT COUNT(*) FROM information_schema.tables
                     WHERE table_schema = '{layer}' AND table_name = '{model_name}'
                 """).fetchone()
-                table_exists = result[0] > 0
+                table_exists = (result[0] > 0) if result else False
                 conn.close()
             except Exception:
                 pass

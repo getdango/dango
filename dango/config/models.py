@@ -8,7 +8,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class DeduplicationStrategy(str, Enum):
@@ -108,10 +108,8 @@ class ProjectContext(BaseModel):
 
     getting_started: str | None = Field(None, description="Quick start guide for new team members")
 
-    class Config:
-        """Pydantic model configuration."""
-
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "Shopee Analytics",
                 "created_by": "Aaron Teoh <aaron@company.com>",
@@ -128,6 +126,7 @@ class ProjectContext(BaseModel):
                 "getting_started": "Run 'dango sync' to refresh data, then open http://dango.local",
             }
         }
+    )
 
 
 class CSVSourceConfig(BaseModel):
@@ -162,8 +161,9 @@ class GoogleSheetsSourceConfig(BaseModel):
     range_names: list[str]  # Sheet/tab names to load (each becomes a table)
     deduplication: DeduplicationStrategy = DeduplicationStrategy.LATEST_ONLY
 
-    @validator("range_names", pre=True)
-    def ensure_list(cls, v):
+    @field_validator("range_names", mode="before")
+    @classmethod
+    def ensure_list(cls, v: Any) -> Any:
         """Convert single string to list for backward compatibility"""
         if isinstance(v, str):
             return [v]
@@ -371,8 +371,9 @@ class DataSource(BaseModel):
     description: str | None = None
     tags: list[str] = Field(default_factory=list)
 
-    @validator("name")
-    def validate_name_format(cls, v):
+    @field_validator("name")
+    @classmethod
+    def validate_name_format(cls, v: str) -> str:
         """Ensure source name uses only letters, numbers, and underscores (no hyphens)."""
         if not v or not v.replace("_", "").isalnum():
             raise ValueError(

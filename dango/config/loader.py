@@ -4,6 +4,7 @@ Handles loading and validation of YAML configuration files.
 """
 
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import ValidationError
@@ -83,7 +84,7 @@ class ConfigLoader:
         except Exception as e:
             raise ConfigError(f"Error reading {file_path}: {e}") from e
 
-    def save_yaml(self, data: dict, file_path: Path):
+    def save_yaml(self, data: dict[str, Any], file_path: Path) -> None:
         """
         Save dict as YAML file atomically.
 
@@ -181,7 +182,7 @@ class ConfigLoader:
 
         return DangoConfig(project=project, sources=sources, platform=platform)
 
-    def save_project_context(self, project: ProjectContext):
+    def save_project_context(self, project: ProjectContext) -> None:
         """Save project context to project.yml"""
         # Check if project.yml exists and has platform settings
         existing_platform = {}
@@ -195,12 +196,12 @@ class ConfigLoader:
         }
         self.save_yaml(data, self.project_file)
 
-    def save_sources_config(self, sources: SourcesConfig):
+    def save_sources_config(self, sources: SourcesConfig) -> None:
         """Save sources config to sources.yml"""
         data = sources.model_dump(mode="json", exclude_none=True)
         self.save_yaml(data, self.sources_file)
 
-    def save_config(self, config: DangoConfig):
+    def save_config(self, config: DangoConfig) -> None:
         """Save complete configuration"""
         # Save project context and platform settings together in project.yml
         data = {

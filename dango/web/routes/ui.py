@@ -37,7 +37,7 @@ def _render_template(template_name: str, context: dict) -> HTMLResponse:
 
 
 @router.get("/")
-async def root(request: Request):
+async def root(request: Request) -> HTMLResponse:
     """Serve the dashboard UI."""
     return _render_template(
         "dashboard.html",
@@ -51,7 +51,7 @@ async def root(request: Request):
 
 
 @router.get("/health")
-async def health_page(request: Request):
+async def health_page(request: Request) -> HTMLResponse:
     """Serve the platform health page."""
     return _render_template(
         "health.html",
@@ -65,7 +65,7 @@ async def health_page(request: Request):
 
 
 @router.get("/logs")
-async def logs_page(request: Request):
+async def logs_page(request: Request) -> HTMLResponse:
     """Serve the logs page."""
     return _render_template(
         "logs.html",
@@ -79,13 +79,13 @@ async def logs_page(request: Request):
 
 
 @router.get("/api")
-async def api_info():
+async def api_info() -> dict[str, str]:
     """API information endpoint."""
     return {"message": "Dango API", "version": "0.1.0", "docs": "/api/docs", "websocket": "/ws"}
 
 
 @router.get("/api/docs", include_in_schema=False)
-async def custom_swagger_ui_html():
+async def custom_swagger_ui_html() -> HTMLResponse:
     """Swagger UI (default, no custom navbar)."""
     from fastapi.openapi.docs import get_swagger_ui_html
 
@@ -93,7 +93,7 @@ async def custom_swagger_ui_html():
 
 
 @router.get("/api/redoc", include_in_schema=False)
-async def custom_redoc_html():
+async def custom_redoc_html() -> HTMLResponse:
     """ReDoc (default, no custom navbar)."""
     from fastapi.openapi.docs import get_redoc_html
 

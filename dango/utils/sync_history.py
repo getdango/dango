@@ -15,7 +15,7 @@ def get_sync_history_file(project_root: Path, source_name: str) -> Path:
     return history_dir / f"{source_name}.json"
 
 
-def save_sync_history_entry(project_root: Path, source_name: str, entry: dict[str, Any]):
+def save_sync_history_entry(project_root: Path, source_name: str, entry: dict[str, Any]) -> None:
     """Save a sync history entry for a source"""
     history_file = get_sync_history_file(project_root, source_name)
 

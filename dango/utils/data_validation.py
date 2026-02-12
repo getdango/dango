@@ -34,20 +34,34 @@ def validate_cursor_field(
             "issues": list
         }
     """
-    result = {"valid": False, "exists": False, "data_type": None, "sample_values": [], "issues": []}
+    issues: list[str] = []
+    result: dict[str, Any] = {
+        "valid": False,
+        "exists": False,
+        "data_type": None,
+        "sample_values": [],
+        "issues": issues,
+    }
 
     try:
         conn = duckdb.connect(str(duckdb_path), read_only=True)
 
         # Check if table exists
-        table_exists = conn.execute(f"""
+        table_exists_row = conn.execute(f"""
             SELECT COUNT(*)
             FROM information_schema.tables
             WHERE table_schema='{schema}' AND table_name='{source_name}'
-        """).fetchone()[0]
+        """).fetchone()
+
+        if table_exists_row is None:
+            issues.append(f"Failed to check if table {schema}.{source_name} exists")
+            conn.close()
+            return result
+
+        table_exists = table_exists_row[0]
 
         if not table_exists:
-            result["issues"].append(f"Table {schema}.{source_name} does not exist")
+            issues.append(f"Table {schema}.{source_name} does not exist")
             conn.close()
             return result
 
@@ -61,7 +75,7 @@ def validate_cursor_field(
         """).fetchone()
 
         if not column_info:
-            result["issues"].append(f"Cursor field '{cursor_field}' not found in table")
+            issues.append(f"Cursor field '{cursor_field}' not found in table")
             result["exists"] = False
             conn.close()
             return result
@@ -82,31 +96,38 @@ def validate_cursor_field(
 
         # Validate data type is appropriate for cursor
         valid_types = ["TIMESTAMP", "DATE", "INTEGER", "BIGINT", "VARCHAR"]
-        if not any(vtype in result["data_type"].upper() for vtype in valid_types):
-            result["issues"].append(
-                f"Cursor field has unexpected type '{result['data_type']}'. "
+        data_type = result["data_type"]
+        if isinstance(data_type, str) and not any(
+            vtype in data_type.upper() for vtype in valid_types
+        ):
+            issues.append(
+                f"Cursor field has unexpected type '{data_type}'. "
                 f"Expected: {', '.join(valid_types)}"
             )
 
         # Check if cursor field has NULL values
-        null_count = conn.execute(f"""
+        null_count_row = conn.execute(f"""
             SELECT COUNT(*)
             FROM "{schema}"."{source_name}"
             WHERE "{cursor_field}" IS NULL
-        """).fetchone()[0]
+        """).fetchone()
 
-        if null_count > 0:
-            result["issues"].append(f"{null_count} NULL values found in cursor field")
+        if null_count_row is None:
+            issues.append("Failed to check for NULL values in cursor field")
+        else:
+            null_count = null_count_row[0]
+            if null_count > 0:
+                issues.append(f"{null_count} NULL values found in cursor field")
 
         conn.close()
 
         # Overall validation
-        result["valid"] = result["exists"] and len(result["issues"]) == 0
+        result["valid"] = result["exists"] and len(issues) == 0
 
         return result
 
     except Exception as e:
-        result["issues"].append(f"Validation error: {e}")
+        issues.append(f"Validation error: {e}")
         return result
 
 
@@ -135,9 +156,10 @@ def detect_schema_changes(
             "column_types": dict
         }
     """
-    result = {
+    current_columns: list[str] = []
+    result: dict[str, Any] = {
         "changed": False,
-        "current_columns": [],
+        "current_columns": current_columns,
         "added_columns": [],
         "removed_columns": [],
         "column_types": {},
@@ -154,19 +176,19 @@ def detect_schema_changes(
             ORDER BY ordinal_position
         """).fetchall()
 
-        result["current_columns"] = [col[0] for col in columns]
+        current_columns.extend(col[0] for col in columns)
         result["column_types"] = {col[0]: col[1] for col in columns}
 
         # Compare with expected schema if provided
         if expected_schema:
-            current_set = set(result["current_columns"])
+            current_set = set(current_columns)
             expected_set = set(expected_schema)
 
-            result["added_columns"] = list(current_set - expected_set)
-            result["removed_columns"] = list(expected_set - current_set)
-            result["changed"] = (
-                len(result["added_columns"]) > 0 or len(result["removed_columns"]) > 0
-            )
+            added_columns = list(current_set - expected_set)
+            removed_columns = list(expected_set - current_set)
+            result["added_columns"] = added_columns
+            result["removed_columns"] = removed_columns
+            result["changed"] = len(added_columns) > 0 or len(removed_columns) > 0
 
         conn.close()
         return result
@@ -202,11 +224,18 @@ def validate_data_completeness(
         conn = duckdb.connect(str(duckdb_path), read_only=True)
 
         # Get row count
-        count = conn.execute(f"""
+        count_row = conn.execute(f"""
             SELECT COUNT(*)
             FROM "{schema}"."{source_name}"
-        """).fetchone()[0]
+        """).fetchone()
 
+        if count_row is None:
+            result["row_count"] = 0
+            result["has_data"] = False
+            conn.close()
+            return result
+
+        count = count_row[0]
         result["row_count"] = count
         result["has_data"] = count > 0
 
@@ -247,7 +276,7 @@ def print_validation_report(
     cursor_validation: dict[str, Any],
     schema_info: dict[str, Any],
     completeness: dict[str, Any],
-):
+) -> None:
     """
     Print a comprehensive validation report
 

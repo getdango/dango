@@ -26,7 +26,7 @@ router = APIRouter(tags=["sources"])
 
 
 @router.get("/api/sources", response_model=list[SourceStatus])
-async def get_sources():
+async def get_sources() -> list[SourceStatus]:
     """List all configured data sources with status.
 
     Returns:
@@ -46,7 +46,7 @@ async def get_sources():
 
 
 @router.get("/api/sources/{source_name}/details")
-async def get_source_details(source_name: str):
+async def get_source_details(source_name: str) -> dict[str, object]:
     """Get detailed information about a specific source.
 
     Args:

@@ -89,7 +89,8 @@ class OAuthStorage:
     def _load_secrets(self) -> dict[str, Any]:
         """Load secrets.toml"""
         if self.secrets_file.exists() and self.secrets_file.stat().st_size > 0:
-            return toml.load(self.secrets_file)
+            result: dict[str, Any] = toml.load(self.secrets_file)
+            return result
         return {}
 
     def _save_secrets(self, secrets: dict[str, Any]) -> None:

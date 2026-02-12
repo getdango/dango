@@ -121,24 +121,27 @@ def check_duckdb_health(duckdb_path: Path) -> dict[str, Any]:
         try:
             # Count tables by schema (including source-specific schemas like raw_stripe_test_1)
             # Exclude dlt internal tables (_dlt_*) as they are metadata, not user data
-            raw_tables = conn.execute("""
+            row = conn.execute("""
                 SELECT count(*)
                 FROM information_schema.tables
                 WHERE (table_schema='raw' OR table_schema LIKE 'raw_%')
                 AND table_name NOT LIKE '_dlt_%'
-            """).fetchone()[0]
+            """).fetchone()
+            raw_tables = row[0] if row else 0
 
-            staging_tables = conn.execute("""
+            row = conn.execute("""
                 SELECT count(*)
                 FROM information_schema.tables
                 WHERE table_schema='staging' OR table_schema LIKE 'staging_%'
-            """).fetchone()[0]
+            """).fetchone()
+            staging_tables = row[0] if row else 0
 
-            marts_tables = conn.execute("""
+            row = conn.execute("""
                 SELECT count(*)
                 FROM information_schema.tables
                 WHERE table_schema='marts' OR table_schema LIKE 'marts_%'
-            """).fetchone()[0]
+            """).fetchone()
+            marts_tables = row[0] if row else 0
 
             total_tables = raw_tables + staging_tables + marts_tables
 
@@ -206,7 +209,7 @@ def get_disk_usage_summary(project_root: Path) -> dict[str, Any]:
         return {"free_gb": 0, "total_gb": 0, "used_gb": 0, "used_pct": 0, "status": "unknown"}
 
 
-def print_health_summary(project_root: Path, duckdb_path: Path):
+def print_health_summary(project_root: Path, duckdb_path: Path) -> None:
     """
     Print a summary of platform health (for CLI display)
 

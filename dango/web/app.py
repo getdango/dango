@@ -184,13 +184,13 @@ app.include_router(metabase_proxy_router)
 
 # Application startup/shutdown events
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     """Run on application startup."""
     logger.info("api_starting", project_root=str(get_project_root()))
 
 
 @app.on_event("shutdown")
-async def shutdown_event():
+async def shutdown_event() -> None:
     """Run on application shutdown."""
     logger.info("api_shutting_down")
 

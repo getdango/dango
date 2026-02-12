@@ -20,7 +20,7 @@ def get_activity_log_file(project_root: Path) -> Path:
 
 def log_activity(
     project_root: Path, level: LogLevel, source: str, message: str, timestamp: str | None = None
-):
+) -> None:
     """
     Write an activity log entry
 

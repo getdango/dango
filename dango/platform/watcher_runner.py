@@ -4,18 +4,21 @@
 Background process that monitors file changes and triggers sync/dbt operations. Started by `dango start` and stopped by `dango stop`.
 """
 
+from __future__ import annotations
+
 import signal
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 
-def setup_signal_handlers(watcher):
+def setup_signal_handlers(watcher: Any) -> None:
     """Set up graceful shutdown on SIGTERM/SIGINT"""
 
-    def signal_handler(signum, frame):
+    def signal_handler(signum: int, frame: Any) -> None:
         """Handle SIGTERM/SIGINT for graceful watcher shutdown."""
         print("[FileWatcher] Received shutdown signal, stopping...")
         watcher.stop()
@@ -25,7 +28,7 @@ def setup_signal_handlers(watcher):
     signal.signal(signal.SIGINT, signal_handler)
 
 
-def run_sync_command(project_root: Path):
+def run_sync_command(project_root: Path) -> bool:
     """Execute dango sync command"""
     print(f"[FileWatcher] Triggering sync at {datetime.now().isoformat()}")
 
@@ -55,7 +58,7 @@ def run_sync_command(project_root: Path):
         return False
 
 
-def run_dbt_command(project_root: Path, changed_files: list = None):
+def run_dbt_command(project_root: Path, changed_files: list[Any] | None = None) -> bool:
     """
     Execute dbt run command with optional selective run based on changed files
 
@@ -141,7 +144,7 @@ def run_dbt_command(project_root: Path, changed_files: list = None):
         lock.release()
 
 
-def run_validate_command(project_root: Path):
+def run_validate_command(project_root: Path) -> bool:
     """Execute dango validate command"""
     print(f"[FileWatcher] Triggering validation at {datetime.now().isoformat()}")
 
@@ -171,7 +174,7 @@ def run_validate_command(project_root: Path):
         return False
 
 
-def main():
+def main() -> None:
     """Main entry point for watcher runner"""
 
     # Get project root from command line argument
@@ -216,7 +219,7 @@ def main():
     # Target 1: CSV files → sync (auto-generates staging + dbt)
     if platform.auto_sync:
 
-        def csv_callback(event_data: dict):
+        def csv_callback(event_data: dict) -> None:
             """CSV file changes → trigger sync"""
             files = event_data["files"]
             print(f"[FileWatcher] CSV changes detected, triggering sync for {len(files)} files")
@@ -239,7 +242,7 @@ def main():
     # Target 2: dbt models (SQL files) → dbt run
     if platform.auto_dbt:
 
-        def dbt_callback(event_data: dict):
+        def dbt_callback(event_data: dict) -> None:
             """dbt model changes → trigger selective dbt run"""
             files = event_data["files"]
             print(
@@ -263,7 +266,7 @@ def main():
             print(f"[FileWatcher] dbt models directory not found: {dbt_models_dir}")
 
     # Target 3: sources.yml → validation + docs regeneration
-    def sources_callback(event_data: dict):
+    def sources_callback(event_data: dict) -> None:
         """sources.yml changes → trigger validation + regenerate docs"""
         print("[FileWatcher] sources.yml changed, triggering validation")
         run_validate_command(project_root)
@@ -292,7 +295,7 @@ def main():
         print(f"[FileWatcher] Watching sources.yml in: {dango_dir}")
 
     # Set up signal handlers
-    def signal_handler(signum, frame):
+    def signal_handler(signum: int, frame: Any) -> None:
         """Handle SIGTERM/SIGINT for graceful multi-watcher shutdown."""
         print("[FileWatcher] Received shutdown signal, stopping...")
         multi_watcher.stop()

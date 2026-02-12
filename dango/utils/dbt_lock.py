@@ -3,13 +3,16 @@
 Prevents concurrent dbt runs from UI, CLI, and sync operations to avoid DuckDB locking conflicts and data corruption.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import sys
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import psutil
 
@@ -63,14 +66,14 @@ class DbtLock:
         self.lock_file_path = self.state_dir / "dbt.lock"
         self.lock_info_path = self.state_dir / "dbt.lock.json"
 
-        self._lock_file = None
+        self._lock_file: IO[str] | None = None
         self._acquired = False
 
     def _is_process_running(self, pid: int) -> bool:
         """Check if a process with the given PID is running."""
         try:
             process = psutil.Process(pid)
-            return process.is_running()
+            return bool(process.is_running())
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return False
 
@@ -81,11 +84,12 @@ class DbtLock:
 
         try:
             with open(self.lock_info_path) as f:
-                return json.load(f)
+                result: dict[str, Any] = json.load(f)
+                return result
         except (OSError, json.JSONDecodeError):
             return None
 
-    def _write_lock_info(self):
+    def _write_lock_info(self) -> None:
         """Write lock information to the lock info file."""
         # Get hostname in a cross-platform way
         try:
@@ -198,7 +202,7 @@ class DbtLock:
 
             raise DbtLockError(message, lock_info=lock_info) from None
 
-    def release(self):
+    def release(self) -> None:
         """Release the lock."""
         if not self._acquired:
             return
@@ -229,23 +233,26 @@ class DbtLock:
         except OSError:
             pass
 
-    def __enter__(self):
+    def __enter__(self) -> DbtLock:
         """Context manager entry."""
         self.acquire()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any
+    ) -> None:
         """Context manager exit."""
         self.release()
-        return False
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Cleanup on deletion."""
         self.release()
 
 
 @contextmanager
-def dbt_lock(project_root: Path, source: str = "unknown", operation: str = "dbt operation"):
+def dbt_lock(
+    project_root: Path, source: str = "unknown", operation: str = "dbt operation"
+) -> Generator[DbtLock, None, None]:
     """
     Context manager for dbt lock.
 
