@@ -194,11 +194,11 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 |------|-------|-----------------|
 | `ingestion/dlt_runner.py` | 1696 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 1440 | — (metadata-only) |
-| `cli/source_wizard.py` | 1225 | — |
+| `cli/source_wizard.py` | 1324 | — |
 | `visualization/metabase.py` | 1207 | — |
 | `visualization/dashboard_manager.py` | 1102 | — |
-| `cli/init.py` | 945 | — |
-| `cli/commands/platform.py` | 945 | — (extracted from main.py by TASK-005) |
+| `cli/init.py` | 965 | — |
+| `cli/commands/platform.py` | 955 | — (extracted from main.py by TASK-005) |
 | `oauth/providers.py` | 761 | — |
 | `ingestion/csv_loader.py` | 761 | — |
 | `cli/commands/auth.py` | 707 | — (extracted from main.py by TASK-005) |
@@ -206,7 +206,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `transformation/generator.py` | 560 | — |
 | `platform/watcher.py` | 531 | — |
 | `cli/commands/source.py` | 521 | — (extracted from main.py by TASK-005) |
-| `cli/model_wizard.py` | 517 | — |
+| `cli/model_wizard.py` | 507 | — |
 | `web/helpers.py` | 798 | — (extracted from app.py by TASK-085) |
 | `web/routes/upload.py` | 664 | — (extracted from app.py by TASK-085) |
 

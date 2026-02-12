@@ -23,10 +23,11 @@ Root Python package for Dango — contains all module subpackages (cli, config, 
 ## Dependencies
 
 **Imports from:**
-- `structlog` — structured logging in `logging.py`
+- `structlog` — structured logging in `logging.py` (also uses stdlib `logging`, `pathlib`)
 
 **Used by:**
-- All submodules import from dango subpackages (config, utils, etc.)
+- `dango/cli/main.py`, `dango/cli/init.py`, `dango/cli/wizard.py` — import `__version__`
+- `dango.logging` — not yet imported by any module (available for future use)
 - `pyproject.toml` defines `getdango` as the installable package
 - Entry point: `dango.cli.main:cli` (configured in `pyproject.toml`)
 

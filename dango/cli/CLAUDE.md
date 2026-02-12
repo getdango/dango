@@ -25,15 +25,15 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
 | `init.py` (965 lines) | Project initialization wizard | `DangoProjectInitializer` |
-| `wizard.py` (296 lines) | Interactive setup wizards | — |
+| `wizard.py` (296 lines) | Interactive setup wizards | `SetupWizard` |
 | `source_wizard.py` (1324 lines) | Source configuration wizard | `add_source()` |
 | `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |
 | **Helpers** | | |
 | `utils.py` (129 lines) | Display helpers + project context | `require_project_context()` |
 | `validate.py` (651 lines) | Project validation logic | `validate_project()` |
 | `db_helpers.py` (129 lines) | Schema/table matching for db commands | `build_schema_table_mapping()`, `is_table_configured()` |
-| `env_helpers.py` (319 lines) | `.env` file management | — |
-| `oauth.py` (428 lines) | OAuth CLI flows | — |
+| `env_helpers.py` (319 lines) | `.env` file management | `create_env_template()`, `validate_env_file()`, `guide_env_setup()` |
+| `oauth.py` (428 lines) | OAuth CLI flows | `authenticate_facebook()`, `authenticate_google()`, `check_token_expiry()` |
 | `schema_manager.py` (335 lines) | dbt `schema.yml` auto-generation | `update_model_schemas()` |
 | `helpers/__init__.py` (6 lines) | Package marker | — |
 | `helpers/port_manager.py` (48 lines) | Port checking | `check_port_in_use()` |
@@ -94,7 +94,7 @@ dango (top-level group)
 - `dango.config/` — `ConfigLoader`, models, helpers (most commands)
 - `dango.ingestion/` — `run_sync`, source registry (source commands)
 - `dango.oauth/` — `OAuthManager`, providers, storage (auth commands)
-- `dango.transformation/` — `DbtModelGenerator`, `run_dbt_models` (transform commands)
+- `dango.transformation/` — `DbtModelGenerator` (transform commands)
 - `dango.visualization/` — `DashboardManager`, metabase functions (dashboard/metabase commands)
 - `dango.platform/` — `DockerManager`, `NetworkConfig`, watcher lifecycle (platform commands)
 - `dango.utils/` — `DbtLock`, process utilities, `dbt_status` (various commands)
