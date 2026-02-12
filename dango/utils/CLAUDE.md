@@ -2,13 +2,14 @@
 
 ## Purpose
 
-Shared utilities for activity logging, sync history tracking, DuckDB schema initialization, database health monitoring, cross-process dbt locking, and persistent dbt model status.
+Shared utilities for process management, activity logging, sync history tracking, DuckDB schema initialization, database health monitoring, cross-process dbt locking, and persistent dbt model status.
 
 ## Files
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
 | `__init__.py` | Public exports from activity_log, sync_history, database, dbt_lock | Re-exports `log_activity`, `get_activity_log_file`, `save_sync_history_entry`, `load_sync_history`, `get_sync_history_file`, `ensure_dbt_schemas`, `DbtLock`, `DbtLockError`, `dbt_lock` |
+| `process.py` | Generic process utilities (shared by platform/ and cli/) | `is_process_running()`, `kill_process()` |
 | `activity_log.py` | JSONL activity logging to `.dango/logs/activity.jsonl` | `log_activity()`, `get_activity_log_file()` |
 | `sync_history.py` | Per-source sync history (JSON, last 100 entries) | `save_sync_history_entry()`, `load_sync_history()`, `get_sync_history_file()` |
 | `database.py` | DuckDB schema initialization (raw, staging, intermediate, marts) | `ensure_dbt_schemas()` |

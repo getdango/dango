@@ -10,7 +10,8 @@ from .exceptions import (
     ConfigValidationError,
     ProjectNotFoundError,
 )
-from .loader import ConfigLoader, get_config
+from .helpers import find_project_root, get_config
+from .loader import ConfigLoader
 from .models import (
     CSVSourceConfig,
     DangoConfig,
@@ -40,6 +41,8 @@ __all__ = [
     "ShopifySourceConfig",
     # Loader
     "ConfigLoader",
+    # Helpers
+    "find_project_root",
     "get_config",
     # Exceptions
     "ConfigError",

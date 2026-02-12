@@ -15,7 +15,7 @@ from dango.cli.env_helpers import (
     create_env_template,
     guide_env_setup,
 )
-from dango.config.loader import load_config, save_config
+from dango.config.helpers import load_config, save_config
 from dango.config.models import DataSource
 from dango.ingestion.sources.registry import (
     SOURCE_REGISTRY,
