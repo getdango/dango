@@ -184,6 +184,12 @@ class DbtLockError(InfrastructureError):
         user_message: str | None = None,
     ) -> None:
         self.lock_info = lock_info
+        # Merge lock_info into context so it appears in API debug responses
+        if lock_info:
+            merged = dict(lock_info)
+            if context:
+                merged.update(context)
+            context = merged
         super().__init__(
             message,
             error_code=error_code,

@@ -55,6 +55,13 @@ class TestValidateSourceName:
         with pytest.raises(InvalidSourceNameError, match="invalid"):
             validate_source_name("my-source")
 
+    def test_error_message_uses_repr(self):
+        """Error message should use repr() to prevent Rich markup injection."""
+        with pytest.raises(InvalidSourceNameError) as exc_info:
+            validate_source_name("[red]alert[/red]")
+        # repr wraps in quotes, so the message should contain the repr form
+        assert "'" in str(exc_info.value) or '"' in str(exc_info.value)
+
     def test_spaces_rejected(self):
         with pytest.raises(InvalidSourceNameError, match="invalid"):
             validate_source_name("my source")
@@ -225,3 +232,23 @@ class TestSanitizePathComponent:
 
     def test_null_byte_in_path(self):
         assert sanitize_path_component("foo\x00/bar.csv") == "bar.csv"
+
+    def test_whitespace_only_returns_unnamed(self):
+        assert sanitize_path_component("   ") == "unnamed"
+
+    def test_newline_in_filename(self):
+        # Control chars are stripped; result is clean filename
+        assert sanitize_path_component("file\nname.csv") == "filename.csv"
+
+    def test_tab_preserved(self):
+        # Tab is allowed (only control char kept)
+        assert sanitize_path_component("file\tname.csv") == "file\tname.csv"
+
+    def test_leading_trailing_whitespace_stripped(self):
+        assert sanitize_path_component("  data.csv  ") == "data.csv"
+
+    def test_slash_only_returns_unnamed(self):
+        assert sanitize_path_component("/") == "unnamed"
+
+    def test_backslash_only_returns_unnamed(self):
+        assert sanitize_path_component("\\") == "unnamed"

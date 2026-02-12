@@ -35,7 +35,7 @@ async def list_dbt_models():
         return {"models": models}
     except Exception as e:
         logger.error(f"Error fetching dbt models: {e}")
-        raise HTTPException(status_code=500, detail=f"Error fetching dbt models: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Error fetching dbt models") from e
 
 
 @router.post("/api/dbt/models/{model_name}/run")
@@ -95,6 +95,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool):
     dbt_dir = project_root / "dbt"
 
     # Try to acquire lock before running dbt
+    lock = None
     try:
         lock = DbtLock(
             project_root=project_root,
@@ -228,8 +229,11 @@ async def run_dbt_model_task(model_name: str, cascade: bool):
             }
         )
     finally:
-        # Always release the lock
-        lock.release()
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:
+                pass
 
 
 # ==============================================================================
@@ -263,7 +267,7 @@ async def dbt_docs_assets(request: Request):
             )
     except Exception as e:
         logger.error(f"dbt docs asset proxy error: {e}")
-        return Response(content=f"Asset not found: {str(e)}", status_code=404)
+        return Response(content="Asset not found", status_code=404)
 
 
 @router.api_route("/dbt-docs/{path:path}", methods=["GET"])
@@ -312,4 +316,4 @@ async def dbt_docs_proxy(request: Request, path: str = ""):
 
     except Exception as e:
         logger.error(f"dbt docs proxy error: {e}")
-        return Response(content=f"Proxy error: {str(e)}", status_code=502)
+        return Response(content="Proxy error", status_code=502)

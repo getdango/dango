@@ -59,12 +59,12 @@ def validate_source_name(name: str) -> str:
     if len(name) > _SOURCE_NAME_MAX_LEN:
         raise InvalidSourceNameError(
             f"Source name must be at most {_SOURCE_NAME_MAX_LEN} characters (got {len(name)}).",
-            context={"name": name, "length": len(name)},
+            context={"name": name[:256], "length": len(name)},
         )
     if not _SOURCE_NAME_RE.match(name):
         raise InvalidSourceNameError(
-            f"Source name '{name}' is invalid. Use only letters, numbers, and underscores.",
-            context={"name": name},
+            f"Source name {name!r} is invalid. Use only letters, numbers, and underscores.",
+            context={"name": name[:256]},
         )
     return name.lower()
 
@@ -124,11 +124,12 @@ def validate_port_range(port: int) -> int:
 def validate_limit(limit: int, max_val: int = 10000) -> int:
     """Clamp *limit* to the range ``[1, max_val]``.
 
-    This is a graceful-degradation validator — it never raises, just clamps.
+    This is a graceful-degradation validator — it clamps rather than raising.
+    Non-integer *limit* values are silently treated as ``1``.
 
     Args:
         limit: Requested limit value.
-        max_val: Upper bound (default 10 000).
+        max_val: Upper bound (default 10 000).  Must be a positive ``int``.
 
     Returns:
         Clamped limit value.
@@ -141,9 +142,9 @@ def validate_limit(limit: int, max_val: int = 10000) -> int:
 def sanitize_path_component(name: str) -> str:
     """Sanitize a user-supplied filename for safe use as a single path component.
 
-    Uses a two-step approach: first strips the raw name down to its basename
-    (removing any directory components), then removes null bytes. The result
-    is guaranteed to be a flat filename with no directory traversal.
+    Strips null bytes and control characters, extracts the basename (removing
+    any directory components), and strips leading/trailing whitespace.  The
+    result is guaranteed to be a flat filename with no directory traversal.
 
     Args:
         name: Raw filename (e.g. from an HTTP upload).
@@ -154,14 +155,16 @@ def sanitize_path_component(name: str) -> str:
     """
     from pathlib import PurePosixPath
 
-    # Remove null bytes first
-    name = name.replace("\x00", "")
+    # Remove null bytes and control characters (U+0000–U+001F, U+007F)
+    name = "".join(ch for ch in name if ch == "\t" or (ch >= " " and ch != "\x7f"))
     # Extract just the filename (strips all directory components on both
     # POSIX and Windows-style paths)
     name = PurePosixPath(name).name
     # Also strip Windows backslash paths that PurePosixPath doesn't handle
     if "\\" in name:
         name = name.rsplit("\\", 1)[-1]
+    # Strip leading/trailing whitespace
+    name = name.strip()
     # Reject special directory names and empty results
     if not name or name in (".", ".."):
         return "unnamed"

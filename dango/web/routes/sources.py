@@ -56,7 +56,7 @@ async def get_source_details(source_name: str):
         Source configuration (masked) and sync history
     """
     source_name = validate_source_name(source_name)
-    sources_config = load_sources_config()
+    sources_config = await asyncio.to_thread(load_sources_config)
 
     # Find the source
     source_config = None

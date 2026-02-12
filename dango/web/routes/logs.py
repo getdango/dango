@@ -58,7 +58,7 @@ async def get_source_logs(source_name: str, limit: int = 100):
 
     except Exception as e:
         logger.error(f"Error reading logs for {source_name}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error reading logs: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Error reading logs") from e
 
 
 @router.get("/api/logs")
@@ -77,4 +77,4 @@ async def get_all_logs(limit: int = 1000):
         return logs
     except Exception as e:
         logger.error(f"Error fetching logs: {e}")
-        raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Error fetching logs") from e

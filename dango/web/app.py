@@ -26,6 +26,7 @@ from dango.exceptions import (
     DbtLockError,
     DiskSpaceError,
     DuckDBHealthError,
+    InfrastructureError,
     IngestionError,
     ProjectNotFoundError,
     SyncTimeoutError,
@@ -100,10 +101,13 @@ _STATUS_MAP: dict[type[DangoError], int] = {
     DiskSpaceError: 503,
     DuckDBHealthError: 503,
     DbtLockError: 409,
+    InfrastructureError: 500,
     # Validation errors
     ValidationError: 400,
     # Web errors
     WebAPIError: 500,
+    # Explicit fallback (makes default status code visible in code)
+    DangoError: 500,
 }
 
 

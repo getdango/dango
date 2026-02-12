@@ -220,20 +220,22 @@ from dango.config.exceptions import ConfigError  # same class object
 - Never bare `except:` — always catch specific exceptions
 - Always include context in error messages (what failed, what was expected)
 - Catch-and-wrap external library exceptions at module boundaries
-- Use `from e` (not `from None`) unless suppressing the chain is intentional (see §B904 in CLAUDE.md)
+- Use `from e` (not `from None`) unless suppressing the chain is intentional (KeyboardInterrupt handlers, security boundaries, user-facing error translations)
 
 ### Debug mode (`DANGO_DEBUG`)
 
 Set `DANGO_DEBUG=1` to surface full stack traces in CLI error handlers.
 
 ```python
-from dango.exceptions import is_debug_mode
-
 except Exception as e:
     console.print(f"[red]Error:[/red] {e}")
+    from dango.exceptions import is_debug_mode  # lazy import inside handler
+
     if is_debug_mode():
         import traceback
+
         console.print(traceback.format_exc())
+    raise click.Abort() from e
 ```
 
 ### Input validation (dango/validation.py)

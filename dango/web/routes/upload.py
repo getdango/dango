@@ -137,11 +137,10 @@ async def upload_csv_to_source(
 
         return {
             "success": True,
-            "message": f"CSV uploaded successfully: {file.filename}"
+            "message": f"CSV uploaded successfully: {safe_filename}"
             + (" - Sync started." if trigger_sync else ""),
             "source_name": source_name,
-            "file_path": str(file_path),
-            "file_name": file.filename,
+            "file_name": safe_filename,
             "auto_sync": trigger_sync,
         }
 
@@ -149,7 +148,7 @@ async def upload_csv_to_source(
         raise
     except Exception as e:
         logger.error(f"Error uploading CSV: {e}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Upload failed") from e
 
 
 @router.get("/api/sources/{source_name}/csv-files")
@@ -306,7 +305,7 @@ async def get_csv_files(source_name: str):
         raise
     except Exception as e:
         logger.error(f"Error getting CSV files: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get CSV files: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Failed to get CSV files") from e
 
 
 @router.delete("/api/sources/{source_name}/csv-files")
@@ -401,7 +400,7 @@ async def delete_csv_file(
             logger.info(f"Tables in database: {all_tables}")
 
             # Delete rows for this file from raw table (if table exists)
-            target_table = f"raw.{source_name}"
+            target_table = f'"raw"."{source_name}"'
             logger.info(f"Deleting from {target_table} WHERE _dango_filename = '{filename}'")
 
             # Check if table exists first
@@ -507,7 +506,7 @@ async def delete_csv_file(
     except Exception as e:
         logger.error(f"UNEXPECTED ERROR deleting CSV file: {type(e).__name__}: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}") from e
+        raise HTTPException(status_code=500, detail="Failed to delete file") from e
 
 
 async def run_dbt_after_delete(source_name: str):
@@ -523,6 +522,7 @@ async def run_dbt_after_delete(source_name: str):
     project_root = get_project_root()
 
     # Try to acquire lock before running dbt
+    lock = None
     try:
         lock = DbtLock(
             project_root=project_root,
@@ -673,5 +673,8 @@ async def run_dbt_after_delete(source_name: str):
         }
         save_sync_history_entry(source_name, history_entry)
     finally:
-        # Always release the lock
-        lock.release()
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:
+                pass

@@ -177,7 +177,20 @@ class TestDbtLockErrorCompat:
     def test_lock_info_with_context(self):
         exc = DbtLockError("locked", lock_info={"pid": 1}, context={"op": "sync"})
         assert exc.lock_info == {"pid": 1}
-        assert exc.context == {"op": "sync"}
+        # lock_info is merged into context; explicit context keys take precedence
+        assert exc.context == {"pid": 1, "op": "sync"}
+
+    def test_lock_info_merged_into_context(self):
+        info = {"pid": 123, "source": "cli", "operation": "sync"}
+        exc = DbtLockError("locked", lock_info=info)
+        # lock_info keys appear in context for API debug responses
+        assert exc.context["pid"] == 123
+        assert exc.context["source"] == "cli"
+
+    def test_lock_info_none_context_empty(self):
+        exc = DbtLockError("locked")
+        assert exc.lock_info is None
+        assert exc.context == {}
 
 
 @pytest.mark.unit
