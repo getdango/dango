@@ -133,6 +133,12 @@ def db_status(ctx: click.Context) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e
 
 
@@ -256,6 +262,12 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
 
             except Exception as e:
                 console.print(f"[red]✗[/red] Failed to drop {schema}.{table}: {e}")
+                from dango.exceptions import is_debug_mode
+
+                if is_debug_mode():
+                    import traceback
+
+                    console.print(traceback.format_exc())
 
         # Clean up metadata for orphaned sources (only if metadata table exists)
         if orphaned_sources:
@@ -302,6 +314,12 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
                         console.print(
                             f"[yellow]⚠[/yellow] Could not clean metadata for '{source_name}': {e}"
                         )
+                        from dango.exceptions import is_debug_mode
+
+                        if is_debug_mode():
+                            import traceback
+
+                            console.print(traceback.format_exc())
 
         conn.close()
 
@@ -312,6 +330,12 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e
 
 

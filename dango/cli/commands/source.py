@@ -218,6 +218,12 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e
 
 
@@ -321,6 +327,12 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e
 
 

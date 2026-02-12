@@ -204,8 +204,18 @@ class TestSanitizePathComponent:
         assert sanitize_path_component("") == "unnamed"
 
     def test_dot_dot_only_returns_unnamed(self):
-        # PurePosixPath("..").name = "..", then ".." → "" after replace
         assert sanitize_path_component("..") == "unnamed"
+
+    def test_single_dot_returns_unnamed(self):
+        assert sanitize_path_component(".") == "unnamed"
+
+    def test_triple_dot_preserved(self):
+        # "..." is a valid filename (not a directory reference)
+        assert sanitize_path_component("...") == "..."
+
+    def test_legitimate_double_dot_in_filename(self):
+        # "file..v2.csv" should be preserved (not mangled)
+        assert sanitize_path_component("file..v2.csv") == "file..v2.csv"
 
     def test_windows_path(self):
         assert sanitize_path_component("C:\\Users\\data\\file.csv") == "file.csv"

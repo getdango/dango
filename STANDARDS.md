@@ -233,7 +233,7 @@ except Exception as e:
     console.print(f"[red]Error:[/red] {e}")
     if is_debug_mode():
         import traceback
-        traceback.print_exc()
+        console.print(traceback.format_exc())
 ```
 
 ### Input validation (dango/validation.py)

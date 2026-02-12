@@ -199,6 +199,12 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool) -> None:
                     console.print(f"[green]✓[/green] Dropped table: {layer}.{model_name}")
                 except Exception as e:
                     console.print(f"[red]✗[/red] Failed to drop table: {e}")
+                    from dango.exceptions import is_debug_mode
+
+                    if is_debug_mode():
+                        import traceback
+
+                        console.print(traceback.format_exc())
             else:
                 console.print(
                     f"[yellow]⚠[/yellow]  Table {layer}.{model_name} still exists in DuckDB"
@@ -212,4 +218,10 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e

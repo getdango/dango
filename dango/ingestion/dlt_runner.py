@@ -166,8 +166,9 @@ class DltPipelineRunner:
         Returns:
             Dictionary with load statistics and status
         """
+        from dango.exceptions import DiskSpaceError
         from dango.utils.activity_log import log_activity
-        from dango.utils.db_health import DiskSpaceError, check_disk_space, check_duckdb_health
+        from dango.utils.db_health import check_disk_space, check_duckdb_health
         from dango.utils.sync_history import save_sync_history_entry
 
         source_name = source_config.name

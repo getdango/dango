@@ -90,6 +90,7 @@ async def run_sync_task(
     project_root = get_project_root()
 
     # Try to acquire lock before running sync (which includes dbt)
+    lock = None
     try:
         lock = DbtLock(
             project_root=project_root,
@@ -340,5 +341,8 @@ async def run_sync_task(
             }
         )
     finally:
-        # Always release the lock
-        lock.release()
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:
+                pass

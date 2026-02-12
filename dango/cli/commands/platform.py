@@ -582,6 +582,12 @@ def start(ctx: click.Context) -> None:
             except RuntimeError as e:
                 # File watcher is non-critical - platform still works without it
                 console.print(f"[yellow]⚠[/yellow]  File watcher failed to start: {e}")
+                from dango.exceptions import is_debug_mode
+
+                if is_debug_mode():
+                    import traceback
+
+                    console.print(traceback.format_exc())
                 console.print("[dim]Platform will work, but auto-sync is disabled.[/dim]")
                 console.print("[dim]You can manually run 'dango sync' when files change.[/dim]")
                 console.print()
@@ -791,6 +797,12 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e
 
 
@@ -950,4 +962,10 @@ def status(ctx: click.Context) -> None:
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
         raise click.Abort() from e

@@ -18,6 +18,15 @@ from dango.exceptions import (
     InvalidSourceNameError,
 )
 
+__all__ = [
+    "validate_source_name",
+    "validate_identifier",
+    "validate_date_string",
+    "validate_port_range",
+    "validate_limit",
+    "sanitize_path_component",
+]
+
 # Stricter than config/models.py's isalnum() check: ASCII-only letters,
 # digits, and underscores.  The model validator also lowercases; we do the
 # same here so validated names always match what the config stores.
@@ -153,7 +162,7 @@ def sanitize_path_component(name: str) -> str:
     # Also strip Windows backslash paths that PurePosixPath doesn't handle
     if "\\" in name:
         name = name.rsplit("\\", 1)[-1]
-    # Remove parent-directory traversal fragments
-    name = name.replace("..", "")
-    # Reject empty results
-    return name if name else "unnamed"
+    # Reject special directory names and empty results
+    if not name or name in (".", ".."):
+        return "unnamed"
+    return name

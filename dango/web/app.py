@@ -8,18 +8,29 @@ exception handlers.
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.exception_handlers import http_exception_handler
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from dango.exceptions import (
+    ConfigError,
     ConfigNotFoundError,
     ConfigValidationError,
+    CSVSchemaMismatchError,
     DangoError,
     DbtLockError,
+    DiskSpaceError,
+    DuckDBHealthError,
+    IngestionError,
     ProjectNotFoundError,
+    SyncTimeoutError,
     ValidationError,
+    WebAPIError,
     is_debug_mode,
 )
 from dango.logging import get_logger
@@ -76,11 +87,23 @@ if static_dir.exists():
 
 # Map exception types to HTTP status codes
 _STATUS_MAP: dict[type[DangoError], int] = {
+    # Config errors
     ConfigNotFoundError: 404,
     ProjectNotFoundError: 404,
     ConfigValidationError: 422,
+    ConfigError: 500,
+    # Ingestion errors
+    CSVSchemaMismatchError: 422,
+    SyncTimeoutError: 504,
+    IngestionError: 500,
+    # Infrastructure errors
+    DiskSpaceError: 503,
+    DuckDBHealthError: 503,
     DbtLockError: 409,
+    # Validation errors
     ValidationError: 400,
+    # Web errors
+    WebAPIError: 500,
 }
 
 
@@ -105,11 +128,14 @@ async def dango_error_handler(request: Request, exc: DangoError) -> JSONResponse
 
 
 @app.exception_handler(Exception)
-async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+async def unhandled_error_handler(request: Request, exc: Exception) -> Response:
     """Catch-all for unexpected exceptions (return generic 500)."""
     # Delegate HTTPExceptions to FastAPI's built-in handler
     if isinstance(exc, HTTPException):
         return await http_exception_handler(request, exc)
+    # Delegate Pydantic request validation errors to FastAPI's built-in handler
+    if isinstance(exc, RequestValidationError):
+        return await request_validation_exception_handler(request, exc)
 
     logger.error("unhandled_exception", path=request.url.path, error=str(exc), exc_info=True)
 

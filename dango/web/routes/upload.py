@@ -84,7 +84,7 @@ async def upload_csv_to_source(
             )
 
         # Validate file type
-        if not file.filename.endswith(".csv"):
+        if not file.filename or not file.filename.endswith(".csv"):
             raise HTTPException(status_code=400, detail="Only CSV files are supported")
 
         # Get directory from source config
@@ -406,10 +406,13 @@ async def delete_csv_file(
 
             # Check if table exists first
             table_exists = (
-                conn.execute(f"""
-                SELECT COUNT(*) FROM information_schema.tables
-                WHERE table_schema = 'raw' AND table_name = '{source_name}'
-            """).fetchone()[0]
+                conn.execute(
+                    """
+                    SELECT COUNT(*) FROM information_schema.tables
+                    WHERE table_schema = 'raw' AND table_name = ?
+                    """,
+                    [source_name],
+                ).fetchone()[0]
                 > 0
             )
 
