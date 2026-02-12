@@ -24,8 +24,8 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/dashboard.py` (125 lines) | `dashboard` group (`provision`) | `dashboard` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
-| `init.py` (965 lines) | Project initialization wizard | `DangoProjectInitializer` |
-| `wizard.py` (296 lines) | Interactive setup wizards | `SetupWizard` |
+| `init.py` (965 lines) | Project initialization wizard | `ProjectInitializer` |
+| `wizard.py` (296 lines) | Interactive setup wizards | `ProjectWizard` |
 | `source_wizard.py` (1324 lines) | Source configuration wizard | `add_source()` |
 | `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |
 | **Helpers** | | |
