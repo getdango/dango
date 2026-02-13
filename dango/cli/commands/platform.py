@@ -153,6 +153,24 @@ def start(ctx: click.Context) -> None:
         project_name = config.project.name
         platform_config = config.platform
 
+        # Auto-migrate databases
+        try:
+            from dango.migrations import apply_all_pending
+
+            migration_results = apply_all_pending(project_root)
+            for migration_db_name, migration_applied in migration_results.items():
+                if migration_applied:
+                    console.print(
+                        f"  Applied {len(migration_applied)} migration(s) to {migration_db_name}"
+                    )
+        except Exception as migration_exc:
+            from dango.exceptions import MigrationError
+
+            if isinstance(migration_exc, MigrationError):
+                console.print(f"[red]Migration error:[/red] {migration_exc}")
+                raise click.Abort() from migration_exc
+            raise
+
         # Ensure all dbt schemas exist (for Metabase visibility)
         from dango.utils.database import ensure_dbt_schemas
 

@@ -109,6 +109,7 @@ packages = [
     "dango.web.routes",
     "dango.oauth",      # OAuth management
     "dango.security",   # Token encryption
+    "dango.migrations",
     "dango.cli.commands",
     "dango.cli.helpers",
 ]

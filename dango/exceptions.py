@@ -35,6 +35,10 @@ __all__ = [
     "DiskSpaceError",
     "DuckDBHealthError",
     "DbtLockError",
+    "MigrationError",
+    "MigrationDiscoveryError",
+    "MigrationApplicationError",
+    "ConfigVersionError",
     "ValidationError",
     "InvalidSourceNameError",
     "InvalidDateFormatError",
@@ -196,6 +200,35 @@ class DbtLockError(InfrastructureError):
             context=context,
             user_message=user_message,
         )
+
+
+# ---------------------------------------------------------------------------
+# Migration exceptions  (DANGO-M***)
+# ---------------------------------------------------------------------------
+
+
+class MigrationError(DangoError):
+    """Base exception for migration errors."""
+
+    _default_error_code = "DANGO-M001"
+
+
+class MigrationDiscoveryError(MigrationError):
+    """Migration files cannot be discovered or are malformed."""
+
+    _default_error_code = "DANGO-M002"
+
+
+class MigrationApplicationError(MigrationError):
+    """A migration failed during application."""
+
+    _default_error_code = "DANGO-M003"
+
+
+class ConfigVersionError(DangoError):
+    """Config file version is incompatible with running Dango."""
+
+    _default_error_code = "DANGO-M004"
 
 
 # ---------------------------------------------------------------------------

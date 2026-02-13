@@ -22,6 +22,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/metabase_cmd.py` (431 lines) | `metabase` group (`save`, `load`, `refresh`) | `metabase` |
 | `commands/model.py` (212 lines) | `model` group (`add`, `remove`) | `model` |
 | `commands/dashboard.py` (125 lines) | `dashboard` group (`provision`) | `dashboard` |
+| `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
 | `init.py` (965 lines) | Project initialization wizard | `ProjectInitializer` |
@@ -64,6 +65,8 @@ dango (top-level group)
 │   ├── add, remove
 ├── dashboard (group)           ← commands/dashboard.py
 │   ├── provision
+├── migrate (group)             ← commands/migrate.py
+│   ├── status, run
 └── metabase (group)            ← commands/metabase_cmd.py
     ├── save, load, refresh
 ```

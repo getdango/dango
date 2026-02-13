@@ -136,6 +136,8 @@ class ConfigLoader:
                 f"Invalid project configuration in {self.project_file}:\n{e}"
             ) from e
 
+    SUPPORTED_SOURCES_VERSIONS = {"1.0"}
+
     def load_sources_config(self) -> SourcesConfig:
         """
         Load sources configuration from sources.yml.
@@ -146,6 +148,7 @@ class ConfigLoader:
         Raises:
             ConfigNotFoundError: If file doesn't exist
             ConfigValidationError: If validation fails
+            ConfigVersionError: If version is unsupported
         """
         # sources.yml is optional - return empty config if not found
         if not self.sources_file.exists():
@@ -154,11 +157,26 @@ class ConfigLoader:
         data = self.load_yaml(self.sources_file)
 
         try:
-            return SourcesConfig(**data)
+            sources = SourcesConfig(**data)
         except ValidationError as e:
             raise ConfigValidationError(
                 f"Invalid sources configuration in {self.sources_file}:\n{e}"
             ) from e
+
+        if sources.version not in self.SUPPORTED_SOURCES_VERSIONS:
+            from dango.exceptions import ConfigVersionError
+
+            raise ConfigVersionError(
+                f"sources.yml version '{sources.version}' is not supported. "
+                f"Supported: {', '.join(sorted(self.SUPPORTED_SOURCES_VERSIONS))}. "
+                f"Upgrade Dango or run 'dango migrate run'.",
+                context={
+                    "file": str(self.sources_file),
+                    "version": sources.version,
+                },
+            )
+
+        return sources
 
     def load_config(self) -> DangoConfig:
         """
