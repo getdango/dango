@@ -939,6 +939,43 @@ def status(ctx: click.Context) -> None:
         console.print(table)
         console.print()
 
+        # OAuth token health (stored metadata only — no API calls for fast output)
+        try:
+            from dango.oauth.storage import OAuthStorage
+
+            oauth_storage = OAuthStorage(project_root)
+            oauth_creds = oauth_storage.list()
+
+            if oauth_creds:
+                oauth_table = Table(
+                    title="OAuth Tokens", show_header=True, header_style="bold cyan"
+                )
+                oauth_table.add_column("Source", style="bold")
+                oauth_table.add_column("Status")
+                oauth_table.add_column("Account", style="dim")
+
+                has_warning = False
+                for cred in oauth_creds:
+                    if cred.is_expired():
+                        token_status = "[red]Expired[/red]"
+                        has_warning = True
+                    elif cred.is_expiring_soon():
+                        days_left = cred.days_until_expiry()
+                        token_status = f"[yellow]Expires in {days_left}d[/yellow]"
+                        has_warning = True
+                    else:
+                        token_status = "[green]Active[/green]"
+                    oauth_table.add_row(cred.source_type, token_status, cred.account_info)
+
+                console.print(oauth_table)
+                if has_warning:
+                    console.print(
+                        "  [yellow]Run 'dango auth check' for live token validation[/yellow]"
+                    )
+                console.print()
+        except Exception:
+            pass  # Don't let token display errors break status output
+
         # Print quick start commands
         any_running = fastapi_status["running"] or bool(docker_statuses)
         if not any_running:

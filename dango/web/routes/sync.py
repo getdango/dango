@@ -150,6 +150,31 @@ async def run_sync_task(
         if not source_config:
             raise ValueError(f"Source '{source_name}' not found in configuration")
 
+        # Pre-sync OAuth token validation
+        from dango.exceptions import OAuthTokenExpiredError, OAuthTokenRevokedError
+        from dango.oauth.validation import validate_before_sync
+
+        try:
+            validate_before_sync(source_config.type.value, project_root)
+        except (OAuthTokenRevokedError, OAuthTokenExpiredError) as oauth_err:
+            await ws_manager.broadcast(
+                {
+                    "event": "sync_failed",
+                    "source": source_name,
+                    "message": oauth_err.user_message,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
+            append_log_entry(
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "error",
+                    "source": source_name,
+                    "message": f"OAuth validation failed: {oauth_err.user_message}",
+                }
+            )
+            return
+
         # Use the same run_sync function as CLI for consistent behavior
         # This ensures: data load -> dbt run -> docs generation -> Metabase sync
         from dango.ingestion import run_sync

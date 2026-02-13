@@ -3,6 +3,10 @@
 Each function returns a valid model instance with sensible defaults. All fields are overridable via keyword arguments.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from dango.config.models import (
     CSVSourceConfig,
     DangoConfig,
@@ -16,7 +20,7 @@ from dango.config.models import (
 )
 
 
-def make_stakeholder(**overrides) -> Stakeholder:
+def make_stakeholder(**overrides: Any) -> Stakeholder:
     """Create a valid Stakeholder instance."""
     defaults = {
         "name": "Test User",
@@ -26,7 +30,7 @@ def make_stakeholder(**overrides) -> Stakeholder:
     return Stakeholder(**{**defaults, **overrides})
 
 
-def make_project_context(**overrides) -> ProjectContext:
+def make_project_context(**overrides: Any) -> ProjectContext:
     """Create a valid ProjectContext instance."""
     defaults = {
         "name": "Test Analytics",
@@ -36,7 +40,7 @@ def make_project_context(**overrides) -> ProjectContext:
     return ProjectContext(**{**defaults, **overrides})
 
 
-def make_csv_source_config(**overrides) -> CSVSourceConfig:
+def make_csv_source_config(**overrides: Any) -> CSVSourceConfig:
     """Create a valid CSVSourceConfig instance."""
     defaults = {
         "directory": "data/test_csv",
@@ -44,7 +48,7 @@ def make_csv_source_config(**overrides) -> CSVSourceConfig:
     return CSVSourceConfig(**{**defaults, **overrides})
 
 
-def make_google_sheets_source_config(**overrides) -> GoogleSheetsSourceConfig:
+def make_google_sheets_source_config(**overrides: Any) -> GoogleSheetsSourceConfig:
     """Create a valid GoogleSheetsSourceConfig instance."""
     defaults = {
         "spreadsheet_url_or_id": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms",
@@ -53,13 +57,13 @@ def make_google_sheets_source_config(**overrides) -> GoogleSheetsSourceConfig:
     return GoogleSheetsSourceConfig(**{**defaults, **overrides})
 
 
-def make_data_source(source_type: SourceType = SourceType.CSV, **overrides) -> DataSource:
+def make_data_source(source_type: SourceType = SourceType.CSV, **overrides: Any) -> DataSource:
     """Create a valid DataSource instance with type-specific config.
 
     Automatically populates the type-specific config field for CSV and
     Google Sheets sources. Other types get no extra config by default.
     """
-    defaults = {
+    defaults: dict[str, Any] = {
         "name": "test_source",
         "type": source_type,
     }
@@ -71,7 +75,7 @@ def make_data_source(source_type: SourceType = SourceType.CSV, **overrides) -> D
     return DataSource(**{**defaults, **overrides})
 
 
-def make_sources_config(sources=None, **overrides) -> SourcesConfig:
+def make_sources_config(sources: list[DataSource] | None = None, **overrides: Any) -> SourcesConfig:
     """Create a valid SourcesConfig instance.
 
     Args:
@@ -86,7 +90,7 @@ def make_sources_config(sources=None, **overrides) -> SourcesConfig:
     return SourcesConfig(**{**defaults, **overrides})
 
 
-def make_platform_settings(**overrides) -> PlatformSettings:
+def make_platform_settings(**overrides: Any) -> PlatformSettings:
     """Create a PlatformSettings instance with Pydantic defaults."""
     return PlatformSettings(**overrides)
 
@@ -95,7 +99,7 @@ def make_dango_config(
     project: ProjectContext | None = None,
     sources: SourcesConfig | None = None,
     platform: PlatformSettings | None = None,
-    **overrides,
+    **overrides: Any,
 ) -> DangoConfig:
     """Create a valid DangoConfig instance.
 

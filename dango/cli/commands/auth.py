@@ -128,7 +128,8 @@ def auth_status(ctx: click.Context) -> None:
             console.print("\n[red]⚠️  Expired OAuth Credentials:[/red]")
             for cred in expired:
                 console.print(f"  • {cred.account_info} ({cred.source_type})")
-                console.print(f"    [dim]Expired: {cred.expires_at.strftime('%Y-%m-%d')}[/dim]")
+                expiry_str = cred.expires_at.strftime("%Y-%m-%d") if cred.expires_at else "Unknown"
+                console.print(f"    [dim]Expired: {expiry_str}[/dim]")
                 console.print(
                     f"    [yellow]Re-authenticate: dango auth refresh {cred.source_type}[/yellow]\n"
                 )
@@ -140,7 +141,7 @@ def auth_status(ctx: click.Context) -> None:
                 days_left = cred.days_until_expiry()
                 console.print(f"  • {cred.account_info} ({cred.source_type})")
                 console.print(
-                    f"    [dim]Expires: {cred.expires_at.strftime('%Y-%m-%d')} ({days_left} days)[/dim]"
+                    f"    [dim]Expires: {cred.expires_at.strftime('%Y-%m-%d') if cred.expires_at else 'Unknown'} ({days_left} days)[/dim]"
                 )
                 console.print(
                     f"    [cyan]Re-authenticate: dango auth refresh {cred.source_type}[/cyan]\n"
@@ -361,6 +362,10 @@ def auth_google_sheets(ctx: click.Context) -> None:
             console.print("[red]Authentication failed[/red]")
             raise click.Abort()
 
+        console.print("\n[dim]Note: If your GCP OAuth consent screen is in 'Testing' mode,")
+        console.print("refresh tokens expire after 7 days. Publish your app for production use.")
+        console.print("See: https://console.cloud.google.com/apis/credentials/consent[/dim]")
+
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode
@@ -399,6 +404,10 @@ def auth_google_analytics(ctx: click.Context) -> None:
             console.print("[red]Authentication failed[/red]")
             raise click.Abort()
 
+        console.print("\n[dim]Note: If your GCP OAuth consent screen is in 'Testing' mode,")
+        console.print("refresh tokens expire after 7 days. Publish your app for production use.")
+        console.print("See: https://console.cloud.google.com/apis/credentials/consent[/dim]")
+
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode
@@ -436,6 +445,10 @@ def auth_google_ads(ctx: click.Context) -> None:
         if not oauth_name:
             console.print("[red]Authentication failed[/red]")
             raise click.Abort()
+
+        console.print("\n[dim]Note: If your GCP OAuth consent screen is in 'Testing' mode,")
+        console.print("refresh tokens expire after 7 days. Publish your app for production use.")
+        console.print("See: https://console.cloud.google.com/apis/credentials/consent[/dim]")
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -549,19 +562,59 @@ def auth_check(ctx: click.Context) -> None:
                 if action:
                     console.print(f"    {action}")
 
+        # Live token validation
+        console.print("\n[bold]3. Live Token Validation[/bold]\n")
+
+        if credentials:
+            from dango.oauth.validation import validate_all_tokens
+
+            validation_results = validate_all_tokens(project_root)
+            has_google = False
+
+            for vr in validation_results:
+                if vr.provider == "google":
+                    has_google = True
+
+                if vr.valid:
+                    if vr.error_code == "network_error":
+                        console.print(f"  [yellow]?[/yellow] {vr.source_type} — {vr.message}")
+                    else:
+                        info = f" ({vr.account_info})" if vr.account_info else ""
+                        console.print(f"  [green]✓[/green] {vr.source_type} — Token valid{info}")
+                else:
+                    console.print(f"  [red]✗[/red] {vr.source_type} — {vr.message}")
+
+            # GCP Testing mode caveat
+            if has_google:
+                console.print(
+                    "\n  [dim]Note: If your GCP OAuth app is in 'Testing' mode, refresh tokens"
+                )
+                console.print("  expire after 7 days. Publish your app for permanent tokens.")
+                console.print(
+                    "  See: https://console.cloud.google.com/apis/credentials/consent[/dim]"
+                )
+        else:
+            console.print("  [dim]No tokens to validate[/dim]")
+
         # Summary and next steps
-        console.print("\n[bold]3. Summary[/bold]\n")
+        console.print("\n[bold]4. Summary[/bold]\n")
 
         if all_configured and credentials:
-            active_creds = [c for c in credentials if not c.is_expired()]
-            if active_creds:
+            # Use live validation results if available
+            if credentials:
+                valid_count = sum(1 for vr in validation_results if vr.valid)
+                invalid_count = sum(1 for vr in validation_results if not vr.valid)
+                if invalid_count == 0:
+                    console.print("  [green]✓ OAuth is fully configured[/green]")
+                    console.print("  [dim]You can add OAuth sources with: dango source add[/dim]")
+                else:
+                    console.print(
+                        f"  [yellow]⚠️  {invalid_count} token(s) need re-authentication[/yellow]"
+                    )
+                    console.print(f"  [dim]{valid_count} valid, {invalid_count} invalid[/dim]")
+            else:
                 console.print("  [green]✓ OAuth is fully configured[/green]")
                 console.print("  [dim]You can add OAuth sources with: dango source add[/dim]")
-            else:
-                console.print(
-                    "  [yellow]⚠️  OAuth credentials configured but tokens expired[/yellow]"
-                )
-                console.print("  [dim]Re-authenticate with: dango auth refresh <name>[/dim]")
         elif all_configured:
             console.print(
                 "  [yellow]⚠️  OAuth credentials configured but not yet authenticated[/yellow]"
