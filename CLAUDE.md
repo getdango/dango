@@ -18,6 +18,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | Token encryption / keychain | `dango/security/` | [`dango/security/CLAUDE.md`](dango/security/CLAUDE.md) |
 | Shared utilities | `dango/utils/` | [`dango/utils/CLAUDE.md`](dango/utils/CLAUDE.md) |
 | Logging / diagnostics | `dango/logging.py` | Module docstring |
+| Database migrations | `dango/migrations/` | [`dango/migrations/CLAUDE.md`](dango/migrations/CLAUDE.md) |
 | Docker / file watcher | `dango/platform/` | `dango/platform/CLAUDE.md` (Phase 3) |
 | Jinja2 templates / Dockerfiles | `dango/templates/` | [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md) |
 | Auth / users / sessions | `dango/auth/` | Not yet created (Phase 2) |
@@ -153,6 +154,10 @@ dango/                          # Python package source
 │   ├── dbt_status.py           # dbt model status tracking
 │   └── data_validation.py      # Data validation utilities
 │
+├── migrations/                 # Level 0 — Database migration framework
+│   ├── __init__.py             # Public API: apply_all_pending(), get_all_status()
+│   └── runner.py               # MigrationRunner, MigrationInfo, MigrationStatus
+│
 ├── security/                   # Level 0 — Token encryption
 │   └── token_storage.py        # SecureTokenStorage (OS keychain + Fernet)
 │
@@ -174,7 +179,7 @@ tests/
 
 | Level | Role | Modules |
 |-------|------|---------|
-| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `templates/`, `logging.py` |
+| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `migrations/`, `templates/`, `logging.py` |
 | 1 (core) | Imports Level 0 only | `oauth/`, `ingestion/`, `transformation/` |
 | 2 (platform) | Imports Level 0–1 | `platform/`, `web/`, `visualization/` |
 | 3 (ui) | Imports any level | `cli/` |
@@ -226,6 +231,7 @@ Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 - [`dango/utils/CLAUDE.md`](dango/utils/CLAUDE.md)
 - [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md)
 - [`dango/web/CLAUDE.md`](dango/web/CLAUDE.md)
+- [`dango/migrations/CLAUDE.md`](dango/migrations/CLAUDE.md)
 
 **Planned later phases:**
 - `dango/platform/CLAUDE.md` (Phase 3)

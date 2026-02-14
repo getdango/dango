@@ -14,6 +14,7 @@ from dango.cli.commands.config_cmd import config
 from dango.cli.commands.dashboard import dashboard
 from dango.cli.commands.data import db, validate
 from dango.cli.commands.metabase_cmd import metabase
+from dango.cli.commands.migrate import migrate
 from dango.cli.commands.model import model
 from dango.cli.commands.platform import start, status, stop
 from dango.cli.commands.project import info, init, rename
@@ -75,6 +76,7 @@ cli.add_command(auth)
 cli.add_command(model)
 cli.add_command(dashboard)
 cli.add_command(metabase)
+cli.add_command(migrate)
 
 
 def main() -> None:
