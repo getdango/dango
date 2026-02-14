@@ -119,6 +119,13 @@ exemptions:
 
 # Removed: dango/platform/network.py — now 486 lines, within limit (TASK-088)
 
+  # --- Test files (verbose by nature — each test class covers one public function) ---
+  - file: tests/unit/test_oauth_validation.py
+    lines: 580
+    category: exempt
+    reason: "35 tests covering all provider validators, routing, and pre-sync gate. Test methods are intentionally verbose for readability — each sets up mocks explicitly."
+    review_by: "v1.1"
+
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:
   - file: dango/ingestion/dlt_sources/mongodb/helpers.py

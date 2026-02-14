@@ -116,6 +116,84 @@ class TestValidateGoogleToken:
         assert result.valid is False
         assert result.error_code == "revoked"
 
+    @patch("dango.oauth.validation.requests")
+    def test_non_json_error_response(self, mock_requests: MagicMock) -> None:
+        """Non-JSON error response (e.g. HTML 502) does not raise JSONDecodeError."""
+        token_resp = MagicMock()
+        token_resp.status_code = 400
+        token_resp.json.side_effect = ValueError("No JSON")
+        mock_requests.post.return_value = token_resp
+        mock_requests.JSONDecodeError = ValueError  # requests uses ValueError base
+
+        cred = make_google_credential()
+        result = validate_google_token(cred)
+
+        assert result.valid is False
+        assert result.error_code == "revoked"
+        assert "unknown" in result.message
+
+    @patch("dango.oauth.validation.requests")
+    def test_non_json_success_response(self, mock_requests: MagicMock) -> None:
+        """Non-JSON success response returns server_error with benefit of the doubt."""
+        token_resp = MagicMock()
+        token_resp.status_code = 200
+        token_resp.json.side_effect = ValueError("No JSON")
+        mock_requests.post.return_value = token_resp
+        mock_requests.JSONDecodeError = ValueError
+
+        cred = make_google_credential()
+        result = validate_google_token(cred)
+
+        assert result.valid is True
+        assert result.error_code == "server_error"
+
+    @patch("dango.oauth.validation.requests")
+    def test_null_access_token(self, mock_requests: MagicMock) -> None:
+        """Token exchange returns null access_token → revoked."""
+        token_resp = MagicMock()
+        token_resp.status_code = 200
+        token_resp.json.return_value = {"access_token": None}
+        mock_requests.post.return_value = token_resp
+
+        cred = make_google_credential()
+        result = validate_google_token(cred)
+
+        assert result.valid is False
+        assert result.error_code == "revoked"
+        assert "no access_token" in result.message
+
+    @patch("dango.oauth.validation.requests")
+    def test_token_endpoint_5xx_returns_server_error(self, mock_requests: MagicMock) -> None:
+        """5xx from token endpoint returns valid=True with server_error."""
+        token_resp = MagicMock()
+        token_resp.status_code = 502
+        mock_requests.post.return_value = token_resp
+
+        cred = make_google_credential()
+        result = validate_google_token(cred)
+
+        assert result.valid is True
+        assert result.error_code == "server_error"
+
+    @patch("dango.oauth.validation.requests")
+    def test_userinfo_5xx_returns_server_error(self, mock_requests: MagicMock) -> None:
+        """5xx from userinfo endpoint returns valid=True with server_error."""
+        token_resp = MagicMock()
+        token_resp.status_code = 200
+        token_resp.json.return_value = {"access_token": "ya29.fresh-token"}
+
+        userinfo_resp = MagicMock()
+        userinfo_resp.status_code = 503
+
+        mock_requests.post.return_value = token_resp
+        mock_requests.get.return_value = userinfo_resp
+
+        cred = make_google_credential()
+        result = validate_google_token(cred)
+
+        assert result.valid is True
+        assert result.error_code == "server_error"
+
 
 @pytest.mark.unit
 class TestValidateFacebookToken:
@@ -181,6 +259,19 @@ class TestValidateFacebookToken:
         assert result.valid is True
         assert result.error_code == "network_error"
 
+    @patch("dango.oauth.validation.requests")
+    def test_5xx_returns_server_error(self, mock_requests: MagicMock) -> None:
+        """5xx from Facebook API returns valid=True with server_error."""
+        resp = MagicMock()
+        resp.status_code = 500
+        mock_requests.get.return_value = resp
+
+        cred = make_facebook_credential()
+        result = validate_facebook_token(cred)
+
+        assert result.valid is True
+        assert result.error_code == "server_error"
+
 
 @pytest.mark.unit
 class TestValidateShopifyToken:
@@ -235,6 +326,19 @@ class TestValidateShopifyToken:
 
         assert result.valid is True
         assert result.error_code == "network_error"
+
+    @patch("dango.oauth.validation.requests")
+    def test_5xx_returns_server_error(self, mock_requests: MagicMock) -> None:
+        """5xx from Shopify API returns valid=True with server_error."""
+        resp = MagicMock()
+        resp.status_code = 503
+        mock_requests.get.return_value = resp
+
+        cred = make_shopify_credential()
+        result = validate_shopify_token(cred)
+
+        assert result.valid is True
+        assert result.error_code == "server_error"
 
 
 @pytest.mark.unit
@@ -390,6 +494,47 @@ class TestValidateBeforeSync:
         mock_storage = MagicMock()
         mock_storage.get.return_value = None
         mock_storage_cls.return_value = mock_storage
+
+        validate_before_sync("google_sheets", tmp_path)  # Should not raise
+
+    @patch("dango.oauth.validation.OAuthStorage")
+    @patch("dango.oauth.validation.validate_token")
+    def test_missing_credentials_raises_with_clear_message(
+        self, mock_validate: MagicMock, mock_storage_cls: MagicMock, tmp_path: Path
+    ) -> None:
+        """Missing credentials raises OAuthTokenRevokedError with helpful message."""
+        mock_storage = MagicMock()
+        mock_storage.get.return_value = make_google_credential()
+        mock_storage_cls.return_value = mock_storage
+
+        mock_validate.return_value = TokenValidationResult(
+            source_type="google_sheets",
+            provider="google",
+            valid=False,
+            message="Missing credentials",
+            error_code="missing_credentials",
+        )
+
+        with pytest.raises(OAuthTokenRevokedError, match="Incomplete OAuth credentials"):
+            validate_before_sync("google_sheets", tmp_path)
+
+    @patch("dango.oauth.validation.OAuthStorage")
+    @patch("dango.oauth.validation.validate_token")
+    def test_server_error_passes_silently(
+        self, mock_validate: MagicMock, mock_storage_cls: MagicMock, tmp_path: Path
+    ) -> None:
+        """Server error does NOT raise — silent pass like network errors."""
+        mock_storage = MagicMock()
+        mock_storage.get.return_value = make_google_credential()
+        mock_storage_cls.return_value = mock_storage
+
+        mock_validate.return_value = TokenValidationResult(
+            source_type="google_sheets",
+            provider="google",
+            valid=True,
+            message="Server error",
+            error_code="server_error",
+        )
 
         validate_before_sync("google_sheets", tmp_path)  # Should not raise
 

@@ -600,21 +600,16 @@ def auth_check(ctx: click.Context) -> None:
         console.print("\n[bold]4. Summary[/bold]\n")
 
         if all_configured and credentials:
-            # Use live validation results if available
-            if credentials:
-                valid_count = sum(1 for vr in validation_results if vr.valid)
-                invalid_count = sum(1 for vr in validation_results if not vr.valid)
-                if invalid_count == 0:
-                    console.print("  [green]✓ OAuth is fully configured[/green]")
-                    console.print("  [dim]You can add OAuth sources with: dango source add[/dim]")
-                else:
-                    console.print(
-                        f"  [yellow]⚠️  {invalid_count} token(s) need re-authentication[/yellow]"
-                    )
-                    console.print(f"  [dim]{valid_count} valid, {invalid_count} invalid[/dim]")
-            else:
+            valid_count = sum(1 for vr in validation_results if vr.valid)
+            invalid_count = sum(1 for vr in validation_results if not vr.valid)
+            if invalid_count == 0:
                 console.print("  [green]✓ OAuth is fully configured[/green]")
                 console.print("  [dim]You can add OAuth sources with: dango source add[/dim]")
+            else:
+                console.print(
+                    f"  [yellow]⚠️  {invalid_count} token(s) need re-authentication[/yellow]"
+                )
+                console.print(f"  [dim]{valid_count} valid, {invalid_count} invalid[/dim]")
         elif all_configured:
             console.print(
                 "  [yellow]⚠️  OAuth credentials configured but not yet authenticated[/yellow]"

@@ -54,7 +54,9 @@ class TokenValidationResult:
     account_info: str = ""
     expires_at: datetime | None = None
     days_until_expiry: int | None = None
-    error_code: str | None = None  # "revoked", "expired", "network_error", "missing_credentials"
+    error_code: str | None = (
+        None  # "revoked", "expired", "network_error", "server_error", "missing_credentials"
+    )
 
 
 def validate_google_token(credential: OAuthCredential) -> TokenValidationResult:
@@ -97,7 +99,20 @@ def validate_google_token(credential: OAuthCredential) -> TokenValidationResult:
         )
 
         if token_response.status_code != 200:
-            error_data: dict[str, Any] = token_response.json()
+            # Server errors (5xx) get benefit of the doubt
+            if token_response.status_code >= 500:
+                return TokenValidationResult(
+                    source_type=credential.source_type,
+                    provider=credential.provider,
+                    valid=True,
+                    message="Google API returned a server error",
+                    account_info=credential.account_info,
+                    error_code="server_error",
+                )
+            try:
+                error_data: dict[str, Any] = token_response.json()
+            except (ValueError, requests.JSONDecodeError):
+                error_data = {}
             error_type = error_data.get("error", "unknown")
             if error_type == "invalid_grant":
                 return TokenValidationResult(
@@ -115,7 +130,27 @@ def validate_google_token(credential: OAuthCredential) -> TokenValidationResult:
                 error_code="revoked",
             )
 
-        access_token = token_response.json().get("access_token")
+        try:
+            token_data: dict[str, Any] = token_response.json()
+        except (ValueError, requests.JSONDecodeError):
+            return TokenValidationResult(
+                source_type=credential.source_type,
+                provider=credential.provider,
+                valid=True,
+                message="Could not parse token response",
+                account_info=credential.account_info,
+                error_code="server_error",
+            )
+        access_token = token_data.get("access_token")
+
+        if not access_token:
+            return TokenValidationResult(
+                source_type=credential.source_type,
+                provider=credential.provider,
+                valid=False,
+                message="Token exchange succeeded but no access_token returned",
+                error_code="revoked",
+            )
 
         # Step 2: Verify access_token with userinfo endpoint
         userinfo_response = requests.get(
@@ -123,6 +158,16 @@ def validate_google_token(credential: OAuthCredential) -> TokenValidationResult:
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=_REQUEST_TIMEOUT,
         )
+
+        if userinfo_response.status_code >= 500:
+            return TokenValidationResult(
+                source_type=credential.source_type,
+                provider=credential.provider,
+                valid=True,
+                message="Google userinfo API returned a server error",
+                account_info=credential.account_info,
+                error_code="server_error",
+            )
 
         if userinfo_response.status_code != 200:
             return TokenValidationResult(
@@ -214,7 +259,18 @@ def validate_facebook_token(credential: OAuthCredential) -> TokenValidationResul
                 days_until_expiry=credential.days_until_expiry(),
             )
 
-        # 401 or error response means revoked/invalid
+        # Server errors (5xx) get benefit of the doubt
+        if response.status_code >= 500:
+            return TokenValidationResult(
+                source_type=credential.source_type,
+                provider=credential.provider,
+                valid=True,
+                message="Facebook API returned a server error",
+                account_info=credential.account_info,
+                error_code="server_error",
+            )
+
+        # 401 or client error means revoked/invalid
         return TokenValidationResult(
             source_type=credential.source_type,
             provider=credential.provider,
@@ -278,7 +334,18 @@ def validate_shopify_token(credential: OAuthCredential) -> TokenValidationResult
                 account_info=f"{shop_name} ({shop_url})" if shop_name else shop_url,
             )
 
-        # 401 or other error
+        # Server errors (5xx) get benefit of the doubt
+        if response.status_code >= 500:
+            return TokenValidationResult(
+                source_type=credential.source_type,
+                provider=credential.provider,
+                valid=True,
+                message="Shopify API returned a server error",
+                account_info=credential.account_info,
+                error_code="server_error",
+            )
+
+        # 401 or client error means revoked/invalid
         return TokenValidationResult(
             source_type=credential.source_type,
             provider=credential.provider,
@@ -377,8 +444,8 @@ def validate_before_sync(source_type: str, project_root: Path) -> None:
 
     result = validate_token(credential)
 
-    # Silent pass on network errors
-    if result.error_code == "network_error":
+    # Silent pass on network errors and server errors
+    if result.error_code in ("network_error", "server_error"):
         return
 
     if not result.valid:
@@ -386,6 +453,16 @@ def validate_before_sync(source_type: str, project_root: Path) -> None:
             raise OAuthTokenExpiredError(
                 result.message,
                 user_message=result.message,
+                context={"source_type": source_type, "provider": result.provider},
+            )
+        if result.error_code == "missing_credentials":
+            msg = (
+                f"Incomplete OAuth credentials for {source_type}. "
+                f"Re-authenticate: dango auth {source_type}"
+            )
+            raise OAuthTokenRevokedError(
+                msg,
+                user_message=msg,
                 context={"source_type": source_type, "provider": result.provider},
             )
         raise OAuthTokenRevokedError(
