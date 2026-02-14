@@ -169,7 +169,7 @@ class ConfigLoader:
             raise ConfigVersionError(
                 f"sources.yml version '{sources.version}' is not supported. "
                 f"Supported: {', '.join(sorted(self.SUPPORTED_SOURCES_VERSIONS))}. "
-                f"Upgrade Dango or run 'dango migrate run'.",
+                f"Upgrade Dango to a version that supports this config format.",
                 context={
                     "file": str(self.sources_file),
                     "version": sources.version,
@@ -242,11 +242,15 @@ class ConfigLoader:
         """
         errors = []
 
+        from dango.exceptions import ConfigVersionError
+
         try:
             self.load_config()
         except ConfigNotFoundError as e:
             errors.append(str(e))
         except ConfigValidationError as e:
+            errors.append(str(e))
+        except ConfigVersionError as e:
             errors.append(str(e))
         except ConfigError as e:
             errors.append(str(e))

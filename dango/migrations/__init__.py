@@ -26,6 +26,7 @@ from .runner import (
 __all__ = [
     "apply_all_pending",
     "get_all_status",
+    "get_migrations_base_dir",
     "AppliedMigration",
     "MigrationInfo",
     "MigrationRunner",
@@ -33,7 +34,7 @@ __all__ = [
 ]
 
 
-def _get_migrations_base_dir() -> Path:
+def get_migrations_base_dir() -> Path:
     """Return the directory containing migration subdirectories."""
     return Path(__file__).parent
 
@@ -50,7 +51,7 @@ def apply_all_pending(project_root: Path) -> dict[str, list[MigrationInfo]]:
     Returns:
         Mapping of database name to list of applied migrations.
     """
-    base_dir = _get_migrations_base_dir()
+    base_dir = get_migrations_base_dir()
     results: dict[str, list[MigrationInfo]] = {}
 
     for subdir in sorted(base_dir.iterdir()):
@@ -85,7 +86,7 @@ def get_all_status(project_root: Path) -> list[MigrationStatus]:
     Returns:
         List of ``MigrationStatus`` objects, one per database.
     """
-    base_dir = _get_migrations_base_dir()
+    base_dir = get_migrations_base_dir()
     statuses: list[MigrationStatus] = []
 
     for subdir in sorted(base_dir.iterdir()):

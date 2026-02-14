@@ -296,7 +296,7 @@ class TestApplyAllPending:
     def _patch_base(self, monkeypatch: pytest.MonkeyPatch, base: Path) -> None:
         import dango.migrations as mig_mod
 
-        monkeypatch.setattr(mig_mod, "_get_migrations_base_dir", lambda: base)
+        monkeypatch.setattr(mig_mod, "get_migrations_base_dir", lambda: base)
 
     def test_no_subdirectories(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         self._patch_base(monkeypatch, tmp_path)
@@ -340,7 +340,7 @@ class TestGetAllStatus:
 
         base = tmp_path / "mig"
         base.mkdir()
-        monkeypatch.setattr(mig_mod, "_get_migrations_base_dir", lambda: base)
+        monkeypatch.setattr(mig_mod, "get_migrations_base_dir", lambda: base)
         auth_dir = base / "auth"
         auth_dir.mkdir()
         _write_migration(auth_dir, 1, "Auth init")
@@ -375,3 +375,17 @@ class TestConfigVersionCheck:
         loader = ConfigLoader(tmp_path)
         with pytest.raises(ConfigVersionError, match="99.0"):
             loader.load_sources_config()
+
+    def test_validate_config_catches_version_error(self, tmp_path: Path) -> None:
+        from dango.config.loader import ConfigLoader
+
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        (dango_dir / "project.yml").write_text(
+            "project:\n  name: test\n  created_by: tester\n  purpose: testing\n"
+        )
+        (dango_dir / "sources.yml").write_text("version: '99.0'\nsources: []\n")
+        loader = ConfigLoader(tmp_path)
+        is_valid, errors = loader.validate_config()
+        assert not is_valid
+        assert any("99.0" in e for e in errors)

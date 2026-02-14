@@ -83,9 +83,9 @@ def migrate_run(ctx: click.Context, db_name: str | None) -> None:
 
     try:
         if db_name:
-            from dango.migrations import _get_migrations_base_dir
+            from dango.migrations import get_migrations_base_dir
 
-            migrations_dir = _get_migrations_base_dir() / db_name
+            migrations_dir = get_migrations_base_dir() / db_name
             if not migrations_dir.is_dir():
                 console.print(f"[red]Error:[/red] No migration directory for '{db_name}'")
                 raise click.Abort()
