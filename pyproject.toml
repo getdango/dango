@@ -175,7 +175,7 @@ module = [
     "dango.cli.model_wizard",
     "dango.cli.validate",
     "dango.cli.commands.platform",
-    "dango.cli.commands.auth",
+    # dango.cli.commands.auth — removed by TASK-009 (mypy errors fixed)
     "dango.cli.commands.source",
     "dango.visualization.metabase",
     "dango.visualization.dashboard_manager",

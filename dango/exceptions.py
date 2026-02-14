@@ -39,6 +39,9 @@ __all__ = [
     "MigrationDiscoveryError",
     "MigrationApplicationError",
     "ConfigVersionError",
+    "OAuthError",
+    "OAuthTokenRevokedError",
+    "OAuthTokenExpiredError",
     "ValidationError",
     "InvalidSourceNameError",
     "InvalidDateFormatError",
@@ -229,6 +232,29 @@ class ConfigVersionError(DangoError):
     """Config file version is incompatible with running Dango."""
 
     _default_error_code = "DANGO-M004"
+
+
+# ---------------------------------------------------------------------------
+# OAuth exceptions  (DANGO-A***)
+# ---------------------------------------------------------------------------
+
+
+class OAuthError(DangoError):
+    """Base exception for OAuth errors."""
+
+    _default_error_code = "DANGO-A001"
+
+
+class OAuthTokenRevokedError(OAuthError):
+    """Token has been revoked or is no longer valid."""
+
+    _default_error_code = "DANGO-A002"
+
+
+class OAuthTokenExpiredError(OAuthError):
+    """Token has expired."""
+
+    _default_error_code = "DANGO-A003"
 
 
 # ---------------------------------------------------------------------------

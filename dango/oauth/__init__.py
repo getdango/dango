@@ -326,3 +326,10 @@ def create_oauth_manager(project_root: Path) -> OAuthManager:
         OAuthManager instance
     """
     return OAuthManager(project_root)
+
+
+# Re-export validation API
+from dango.oauth.validation import TokenValidationResult as TokenValidationResult  # noqa: E402
+from dango.oauth.validation import validate_all_tokens as validate_all_tokens  # noqa: E402
+from dango.oauth.validation import validate_before_sync as validate_before_sync  # noqa: E402
+from dango.oauth.validation import validate_token as validate_token  # noqa: E402

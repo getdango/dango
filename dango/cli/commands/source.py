@@ -478,6 +478,17 @@ def sync(
             console.print("[dim]Run without --dry-run to execute sync[/dim]")
             return
 
+        # Pre-sync OAuth token validation
+        from dango.exceptions import OAuthTokenExpiredError, OAuthTokenRevokedError
+        from dango.oauth.validation import validate_before_sync
+
+        for src in sources_to_sync:
+            try:
+                validate_before_sync(src.type.value, project_root)
+            except (OAuthTokenRevokedError, OAuthTokenExpiredError) as oauth_err:
+                console.print(f"\n[red]{oauth_err.user_message}[/red]")
+                raise click.Abort() from oauth_err
+
         # Run sync
         summary = run_sync(
             project_root=project_root,
