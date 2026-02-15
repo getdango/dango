@@ -236,6 +236,6 @@ Dry-run trace of each question through existing documentation, from a fresh LLM'
 
 | Attempt | Date | LLM Model | Q1 | Q2 | Q3 | Q4 | Q5 | Total | Result | Gaps Found | Fixes Applied |
 |---------|------|-----------|----|----|----|----|----|----|--------|------------|---------------|
-| 1 | | | | | | | | | | | |
+| 1 | 2026-02-15 | Claude Opus 4.6 (claude -p) | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 5/5 | PASS | None | None |
 | 2 | | | | | | | | | | | |
 | 3 | | | | | | | | | | | |
