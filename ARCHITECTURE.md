@@ -50,7 +50,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
               │                                                            │
               │   config/     utils/      security/    templates/          │
               │   migrations/                                              │
-              │   exceptions.py* (Phase 2)    logging.py                  │
+              │   exceptions.py    logging.py                              │
               └───────────────────────────────────────────────────────────┘
                                         │
               ┌─────────────────────────┴──────────────────────────────────┐
@@ -67,12 +67,12 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 | Level | Role | Modules |
 |-------|------|---------|
-| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `migrations/`, `templates/`, `logging.py`, `exceptions.py`\* |
+| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `migrations/`, `templates/`, `logging.py`, `exceptions.py` |
 | 1 (core) | Imports Level 0 only | `oauth/`, `ingestion/`, `transformation/`, `auth/`\* |
 | 2 (platform) | Imports Level 0-1 | `platform/`, `web/`, `visualization/` |
 | 3 (ui) | Imports any level | `cli/` |
 
-\* = planned, not yet implemented (`exceptions.py`)
+\* = planned, not yet implemented
 
 **Three rules govern imports:**
 
@@ -295,10 +295,14 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 **Imports from:** `config/` (Level 0), `utils/` (Level 0), `ingestion/` (Level 1), `transformation/` (Level 1), `visualization/` (Level 2).
 
-### Planned Modules
+#### `exceptions.py`
+**Responsibility:** Centralized exception hierarchy for consistent error handling across modules.
 
-#### `exceptions.py` (Phase 2)
-Centralized exception hierarchy for consistent error handling across modules.
+**Public API:** `DangoError` base class and domain-specific subclasses: `ConfigError`, `IngestionError`, `InfrastructureError`, `MigrationError`, `OAuthError`, `ValidationError`, `WebAPIError`, and their specializations (e.g., `DbtLockError`, `OAuthTokenExpiredError`, `CSVSchemaMismatchError`).
+
+**Imports from:** None (Level 0).
+
+### Planned Modules
 
 #### `auth/` (Phase 2)
 User authentication and authorization — session management, roles, permissions.
@@ -338,7 +342,7 @@ User authentication and authorization — session management, roles, permissions
 ```
 User runs: dango sync [--source xyz]
 
-cli/main.py @cli.command("sync")
+cli/commands/source.py @click.command("sync")
   → utils/dbt_lock.py: dbt_lock() — acquire write lock
   → ingestion/dlt_runner.py: run_sync(project_root, source_names)
       → config/loader.py: ConfigLoader.load_config() — load sources.yml
@@ -357,7 +361,7 @@ cli/main.py @cli.command("sync")
 ```
 User runs: dango init
 
-cli/main.py @cli.command("init")
+cli/commands/project.py @click.command("init")
   → cli/wizard.py — interactive project setup
   → cli/init.py — create directory structure:
       .dango/, data/, data/uploads/, custom_sources/, dbt/models/...
@@ -387,7 +391,7 @@ cli/oauth.py
 ```
 User runs: dango start (first time)
 
-cli/main.py @cli.command("start")
+cli/commands/platform.py @click.command("start")
   → platform/docker.py: DockerManager.up() — start containers
   → visualization/metabase.py — auto-setup:
       → Create admin account (random password)
@@ -415,7 +419,7 @@ platform/watcher.py — detect file change (watchdog)
 ```
 POST /api/sources/{source_name}/sync
 
-web/app.py @app.post("/api/sources/{source_name}/sync")
+web/routes/sync.py @router.post("/api/sources/{source_name}/sync")
   → utils/dbt_lock.py: dbt_lock() — acquire write lock
   → ingestion/dlt_runner.py: run_sync() (in BackgroundTask)
   → WebSocket /ws — broadcast progress updates to connected clients
@@ -486,7 +490,7 @@ Three-tier storage:
 
 ## 10. API Design Principles
 
-The web module (`web/app.py`) exposes 19 REST endpoints, 1 WebSocket, and a Metabase reverse proxy.
+The web module (`web/routes/`) exposes 19 REST endpoints, 1 WebSocket, and a Metabase reverse proxy.
 
 **Current endpoints (all under `/api/`):**
 
