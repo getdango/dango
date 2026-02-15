@@ -1,6 +1,6 @@
 # Exemption registry for files exceeding the 500-line soft limit (STANDARDS.md §2).
 # Consumed by scripts/check_file_sizes.py for CI and pre-commit checks.
-# Line counts refreshed 2026-02-13 (TASK-092) — informational, not enforced by script.
+# Line counts refreshed 2026-02-15 (DOC-024) — informational, not enforced by script.
 #
 # Categories:
 #   refactor — planned for refactoring in v1 (linked to a task)
@@ -25,19 +25,19 @@ exemptions:
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
-    lines: 971
+    lines: 1026
     category: exempt
     reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic."
     review_by: "v1.1"
 
   - file: dango/cli/commands/auth.py
-    lines: 767
+    lines: 815
     category: exempt
     reason: "OAuth authentication commands (10 subcommands). Extracted from cli/main.py by TASK-005. One command per provider — file grows linearly with providers."
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 538
+    lines: 549
     category: exempt
     reason: "Source management commands (add/list/remove) + sync. Extracted from cli/main.py by TASK-005. Sync command alone is ~200 lines of orchestration logic."
     review_by: "v1.1"

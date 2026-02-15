@@ -46,6 +46,8 @@ Provide the following to a fresh LLM session (e.g., a new Claude Code conversati
 
 **Batch mode:** For automated testing via `claude -p`, all 5 questions may be asked in a single prompt. For interactive sessions, ask one at a time to better simulate real developer behavior.
 
+**Environment setup:** When running `claude -p` from within an active Claude Code session, you must first run `unset CLAUDECODE` — otherwise it fails with "Claude Code cannot be launched inside another Claude Code session."
+
 ## Questions and Expected Answers
 
 ### Q1: "Where would you look to add a new CLI command?"
@@ -72,7 +74,7 @@ Provide the following to a fresh LLM session (e.g., a new Claude Code conversati
 
 **Expected navigation path:**
 - Root `CLAUDE.md` routing table → "OAuth / token flows → `dango/oauth/` → `oauth/CLAUDE.md`"
-- `oauth/CLAUDE.md` → Files table → `validation.py` ("Live token validation via API calls")
+- `oauth/CLAUDE.md` → Files table → `validation.py` ("Live token validation and refresh checking via API calls")
 - Supplementary: `ARCHITECTURE.md` §9 Secret Management → "OAuth tokens auto-refreshed by dlt at runtime (VAL-004)"
 
 **Expected key points in answer:**
@@ -81,7 +83,7 @@ Provide the following to a fresh LLM session (e.g., a new Claude Code conversati
 - Optionally note that dlt auto-refreshes Google tokens at runtime (from ARCHITECTURE.md)
 - Optionally mention `providers.py` for provider-specific OAuth implementations
 
-**Known documentation gap:** `oauth/CLAUDE.md` describes `validation.py` as "Live token validation via API calls" but does not use the word "refresh." A fresh LLM should still navigate to `oauth/` correctly via the routing table, but may not pinpoint the exact refresh mechanism. ARCHITECTURE.md §9 compensates with an explicit mention of dlt auto-refresh.
+**Documentation note:** `oauth/CLAUDE.md` describes `validation.py` as "Live token validation and refresh checking via API calls" (updated in DOC-024). ARCHITECTURE.md §9 also documents dlt auto-refresh (VAL-004).
 
 **Scoring:**
 | Score | Criteria |
@@ -178,15 +180,10 @@ Dry-run trace of each question through existing documentation, from a fresh LLM'
 
 **Trace:**
 1. Root `CLAUDE.md` routing table: "OAuth / token flows → `dango/oauth/` → `oauth/CLAUDE.md`"
-2. `oauth/CLAUDE.md` Files table lists `validation.py` as "Live token validation via API calls" with functions including `validate_google_token`, `validate_facebook_token`, `validate_shopify_token`
-3. `oauth/CLAUDE.md` does NOT use the word "refresh" anywhere
-4. `ARCHITECTURE.md` §9 Secret Management: "OAuth tokens auto-refreshed by dlt at runtime (VAL-004). Google tokens refresh automatically; Facebook tokens require manual re-auth every 60 days."
+2. `oauth/CLAUDE.md` Files table lists `validation.py` as "Live token validation and refresh checking via API calls" with functions including `validate_google_token`, `validate_facebook_token`, `validate_shopify_token`
+3. `ARCHITECTURE.md` §9 Secret Management: "OAuth tokens auto-refreshed by dlt at runtime (VAL-004). Google tokens refresh automatically; Facebook tokens require manual re-auth every 60 days."
 
-**Risk:** A fresh LLM will correctly navigate to `oauth/` via the routing table. It will find `validation.py` and `providers.py` as the relevant files. However, it may not connect "live token validation" with "token refresh" since the word "refresh" is absent from `oauth/CLAUDE.md`. ARCHITECTURE.md compensates if the LLM read it.
-
-**Verdict:** Navigable but not self-evident. The routing table gets you to the right module. ARCHITECTURE.md provides the refresh-specific context. A well-prepared LLM (one that read ARCHITECTURE.md as instructed) should score 1.0. One that only skimmed ARCHITECTURE.md might score 0.5. Expected score: 0.5 -- 1.0
-
-**Mitigation (if Q2 scores < 1.0 in real test):** Add "token refresh" to the `validation.py` description in `oauth/CLAUDE.md`. Change "Live token validation via API calls" to "Live token validation and refresh-token exchange via API calls."
+**Verdict:** Strong, unambiguous path. The word "refresh" now appears in `oauth/CLAUDE.md` (DOC-024 fix) and in ARCHITECTURE.md §9. Expected score: 1.0
 
 ### Q3 Simulation: "What files would you modify to add a new data source?"
 
@@ -225,14 +222,12 @@ Dry-run trace of each question through existing documentation, from a fresh LLM'
 | Q# | Expected Score | Confidence |
 |----|---------------|------------|
 | Q1 | 1.0 | High |
-| Q2 | 0.5 -- 1.0 | Medium (depends on ARCHITECTURE.md reading) |
+| Q2 | 1.0 | High (DOC-024 added "refresh" to oauth/CLAUDE.md) |
 | Q3 | 1.0 | High |
 | Q4 | 1.0 | High |
 | Q5 | 1.0 | High |
 
-**Predicted total:** 4.5 -- 5.0/5 (PASS or near-PASS)
-
-**Only risk:** Q2 depends on the LLM connecting "validation" with "refresh" and/or having read ARCHITECTURE.md §9. Mitigation is ready if needed.
+**Predicted total:** 5.0/5 (PASS)
 
 ## Results Log
 

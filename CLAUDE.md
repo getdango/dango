@@ -64,15 +64,15 @@ dango/                          # Python package source
 │   ├── main.py                 # Slim entry point (~86 lines) — registers commands
 │   ├── commands/               # Command modules (extracted from main.py by TASK-005)
 │   │   ├── __init__.py         # Package marker
-│   │   ├── auth.py             # auth group + 10 subcommands (707 lines)
+│   │   ├── auth.py             # auth group + 10 subcommands (815 lines)
 │   │   ├── config_cmd.py       # config group (validate/show)
 │   │   ├── dashboard.py        # dashboard group (provision)
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
 │   │   ├── model.py            # model group (add/remove)
-│   │   ├── platform.py         # start/stop/status + port helpers (955 lines)
+│   │   ├── platform.py         # start/stop/status + port helpers (1026 lines)
 │   │   ├── project.py          # init/rename/info
-│   │   ├── source.py           # source group (add/list/remove) + sync (521 lines)
+│   │   ├── source.py           # source group (add/list/remove) + sync (549 lines)
 │   │   ├── transform.py        # run/docs/generate
 │   │   └── web.py              # web dev server
 │   ├── init.py                 # Project initialization wizard
@@ -102,15 +102,15 @@ dango/                          # Python package source
 │   │   ├── sync.py             # /api/sources/{name}/sync + run_sync_task()
 │   │   ├── logs.py             # /api/logs, /api/sources/{name}/logs
 │   │   ├── dbt.py              # /api/dbt/models, /api/dbt/models/{name}/run + dbt docs proxy
-│   │   ├── upload.py           # CSV upload/list/delete (664 lines)
+│   │   ├── upload.py           # CSV upload/list/delete (680 lines)
 │   │   ├── websocket.py        # ConnectionManager, ws_manager, /ws
 │   │   ├── ui.py               # /, /health, /logs, /api, /api/docs, /api/redoc
 │   │   └── metabase_proxy.py   # Metabase reverse proxy + SSO session
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
-│   ├── metabase.py             # Metabase API (1207 lines)
-│   └── dashboard_manager.py    # Dashboard export/import (1102 lines)
+│   ├── metabase.py             # Metabase API (1142 lines)
+│   └── dashboard_manager.py    # Dashboard export/import (1113 lines)
 │
 ├── platform/                   # Level 2 — Docker, network, file watcher
 │   ├── __main__.py             # Platform CLI entry point
@@ -121,19 +121,19 @@ dango/                          # Python package source
 │   └── watcher_runner.py       # Watcher subprocess runner
 │
 ├── ingestion/                  # Level 1 — Data loading
-│   ├── dlt_runner.py           # ⚠ 1696 lines — orchestrates full sync pipeline
-│   ├── csv_loader.py           # CSV loading with dedup (761 lines)
+│   ├── dlt_runner.py           # ⚠ 1759 lines — orchestrates full sync pipeline
+│   ├── csv_loader.py           # CSV loading with dedup (742 lines)
 │   ├── sources/
-│   │   └── registry.py         # Source metadata (1440 lines, 34 source types)
+│   │   └── registry.py         # Source metadata (1440 lines, 33 source types)
 │   └── dlt_sources/            # ⚠ DO NOT MODIFY — vendored connectors (127 files)
 │
 ├── transformation/             # Level 1 — dbt model generation & execution
 │   ├── __init__.py             # run_dbt_models(), generate_dbt_docs()
-│   └── generator.py            # DbtModelGenerator (560 lines)
+│   └── generator.py            # DbtModelGenerator (577 lines)
 │
 ├── oauth/                      # Level 1 — OAuth flows
 │   ├── __init__.py             # OAuthManager
-│   ├── providers.py            # Google, Facebook, Shopify providers (761 lines)
+│   ├── providers.py            # Google, Facebook, Shopify providers (801 lines)
 │   ├── storage.py              # Credential CRUD in .dlt/secrets.toml
 │   └── router.py               # FastAPI OAuth callback endpoints
 │
@@ -197,23 +197,23 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
-| `ingestion/dlt_runner.py` | 1696 | — (exempt, too risky) |
+| `ingestion/dlt_runner.py` | 1759 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 1440 | — (metadata-only) |
 | `cli/source_wizard.py` | 1324 | — |
-| `visualization/metabase.py` | 1207 | — |
-| `visualization/dashboard_manager.py` | 1102 | — |
+| `visualization/metabase.py` | 1142 | — |
+| `visualization/dashboard_manager.py` | 1113 | — |
+| `cli/commands/platform.py` | 1026 | — (extracted from main.py by TASK-005) |
 | `cli/init.py` | 965 | — |
-| `cli/commands/platform.py` | 955 | — (extracted from main.py by TASK-005) |
-| `oauth/providers.py` | 761 | — |
-| `ingestion/csv_loader.py` | 761 | — |
-| `cli/commands/auth.py` | 707 | — (extracted from main.py by TASK-005) |
-| `cli/validate.py` | 677 | — |
-| `transformation/generator.py` | 560 | — |
-| `platform/watcher.py` | 531 | — |
-| `cli/commands/source.py` | 521 | — (extracted from main.py by TASK-005) |
-| `cli/model_wizard.py` | 507 | — |
+| `cli/commands/auth.py` | 815 | — (extracted from main.py by TASK-005) |
+| `oauth/providers.py` | 801 | — |
 | `web/helpers.py` | 798 | — (extracted from app.py by TASK-085) |
-| `web/routes/upload.py` | 664 | — (extracted from app.py by TASK-085) |
+| `ingestion/csv_loader.py` | 742 | — |
+| `web/routes/upload.py` | 680 | — (extracted from app.py by TASK-085) |
+| `cli/validate.py` | 651 | — |
+| `transformation/generator.py` | 577 | — |
+| `cli/commands/source.py` | 549 | — (extracted from main.py by TASK-005) |
+| `platform/watcher.py` | 506 | — |
+| `cli/model_wizard.py` | 507 | — |
 
 ## Module Documentation Index
 

@@ -4,7 +4,7 @@
 
 Dango is an open-source data platform for small teams that integrates four production-grade tools into a single `pip install` + `dango start` workflow:
 
-- **dlt** (data load tool) for ingestion from 34 source types
+- **dlt** (data load tool) for ingestion from 33 source types
 - **DuckDB** as the embedded analytical warehouse
 - **dbt** for SQL-based data transformation
 - **Metabase** for dashboards and visualization
@@ -25,14 +25,14 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
               │                     Level 3 — UI                           │
               │                                                            │
               │   cli/                                                     │
-              │   (3927 lines)                                             │
+              │   (cli/commands/)                                          │
               └──────────┬─────────────────────────────────────────────────┘
                          │
               ┌──────────┴─────────────────────────────────────────────────┐
               │                  Level 2 — Platform                        │
               │                                                            │
               │   platform/        web/            visualization/          │
-              │   (Docker,         (2900 lines)    (Metabase)              │
+              │   (Docker,         (web/routes/)   (Metabase)              │
               │    watcher)                        auth/* (Phase 2)        │
               └──────────┬────────────────┬────────────────────────────────┘
                          │                │
@@ -49,7 +49,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
               │                  Level 0 — Base                            │
               │                                                            │
               │   config/     utils/      security/    templates/          │
-              │                                                            │
+              │   migrations/                                              │
               │   exceptions.py* (Phase 2)    logging.py                  │
               └───────────────────────────────────────────────────────────┘
                                         │
@@ -67,7 +67,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 | Level | Role | Modules |
 |-------|------|---------|
-| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `templates/`, `logging.py`, `exceptions.py`\* |
+| 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `migrations/`, `templates/`, `logging.py`, `exceptions.py`\* |
 | 1 (core) | Imports Level 0 only | `oauth/`, `ingestion/`, `transformation/`, `auth/`\* |
 | 2 (platform) | Imports Level 0-1 | `platform/`, `web/`, `visualization/` |
 | 3 (ui) | Imports any level | `cli/` |
@@ -90,7 +90,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | File | Description |
 |------|-------------|
 | `__init__.py` | Re-exports all public symbols |
-| `models.py` | Pydantic models: `DangoConfig`, `ProjectContext`, `SourcesConfig`, `DataSource`, `SourceType` (34 types), `DeduplicationStrategy`, `PlatformSettings`, source-specific configs |
+| `models.py` | Pydantic models: `DangoConfig`, `ProjectContext`, `SourcesConfig`, `DataSource`, `SourceType` (33 types), `DeduplicationStrategy`, `PlatformSettings`, source-specific configs |
 | `loader.py` | `ConfigLoader` — finds project root, loads/saves `.dango/project.yml` and `.dango/sources.yml` |
 | `credentials.py` | `CredentialManager` — manages `.dlt/secrets.toml` and `.env` files |
 
@@ -152,6 +152,20 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 ---
 
+#### `migrations/`
+**Responsibility:** Database migration framework for managing schema changes across Dango versions.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | Public API: `apply_all_pending()`, `get_all_status()` |
+| `runner.py` | `MigrationRunner`, `MigrationInfo`, `MigrationStatus` — discovers, tracks, and applies migration scripts |
+
+**Public API:** `apply_all_pending(project_root)`, `get_all_status(project_root)`
+
+**Imports from:** None (Level 0). Uses pathlib, importlib.
+
+---
+
 #### `logging.py`
 **Responsibility:** Structured logging infrastructure (structlog wrapping stdlib). JSON to rotating log file, human-readable to stderr. Correlation ID support via contextvars.
 
@@ -162,14 +176,14 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 ### Level 1 — Core
 
 #### `ingestion/`
-**Responsibility:** Data loading from 34 source types into DuckDB via dlt pipelines and CSV loader.
+**Responsibility:** Data loading from 33 source types into DuckDB via dlt pipelines and CSV loader.
 
 | File | Description |
 |------|-------------|
 | `__init__.py` | Re-exports `DltPipelineRunner`, `run_sync`, `CSVLoader`, `SOURCE_REGISTRY` |
-| `dlt_runner.py` | `DltPipelineRunner` — orchestrates sync: load data, generate staging models, run dbt, refresh Metabase (1696 lines). Contains lazy imports from Level 1-2 modules. |
+| `dlt_runner.py` | `DltPipelineRunner` — orchestrates sync: load data, generate staging models, run dbt, refresh Metabase (1759 lines). Contains lazy imports from Level 1-2 modules. |
 | `csv_loader.py` | `CSVLoader` — incremental CSV loading with 4 dedup strategies, file metadata tracking |
-| `sources/registry.py` | `SOURCE_REGISTRY` — metadata dict for all 34 sources (auth type, params, setup guide, cost warnings) |
+| `sources/registry.py` | `SOURCE_REGISTRY` — metadata dict for all 33 sources (auth type, params, setup guide, cost warnings) |
 | `dlt_sources/` | 29 vendored dlt source integrations (third-party code, rarely modified) |
 
 **Public API:** `DltPipelineRunner`, `run_sync()`, `CSVLoader`, `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata()`
@@ -246,7 +260,8 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 | File | Description |
 |------|-------------|
-| `main.py` | Main CLI entry point (3927 lines). Commands: `init`, `start`, `stop`, `status`, `sync`, `validate`, `rename`, `generate`, `serve`. Groups: `source`, `config`, `model`, `dbt`, `api`, `oauth`. |
+| `main.py` | Slim entry point (~88 lines) — registers command groups from `commands/` subpackage |
+| `commands/` | Command modules extracted from main.py by TASK-005: `platform.py` (start/stop/status), `source.py` (add/list/remove/sync), `auth.py` (OAuth management), `project.py` (init/rename/info), `transform.py` (run/docs/generate), etc. |
 | `init.py` | Project initialization wizard — creates directory structure, config files, Docker setup |
 | `wizard.py` | Interactive setup wizards |
 | `source_wizard.py` | Source configuration wizard |
@@ -271,11 +286,14 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 | File | Description |
 |------|-------------|
-| `app.py` | FastAPI application (2900 lines). 19 REST endpoints, 1 WebSocket, Metabase reverse proxy with SSO, dbt docs proxy. |
+| `app.py` | Slim entry point (~202 lines) — creates FastAPI app, registers routers from `routes/` |
+| `helpers.py` | Shared helpers: DuckDB queries, config loading, service health checks, log management |
+| `models.py` | Pydantic request/response DTOs |
+| `routes/` | Route modules extracted from app.py by TASK-085: `health.py`, `config.py`, `sources.py`, `sync.py`, `logs.py`, `dbt.py`, `upload.py`, `websocket.py`, `ui.py`, `metabase_proxy.py` |
 
 **Public API:** FastAPI `app` instance.
 
-**Imports from:** `config/` (Level 0), `utils/` (Level 0), `ingestion/` (Level 1), `transformation/` (Level 1), `visualization/` (Level 2). Also imports `cli/utils` (Level 3) — see Known Violations.
+**Imports from:** `config/` (Level 0), `utils/` (Level 0), `ingestion/` (Level 1), `transformation/` (Level 1), `visualization/` (Level 2).
 
 ### Planned Modules
 
@@ -492,9 +510,9 @@ The web module (`web/app.py`) exposes 19 REST endpoints, 1 WebSocket, and a Meta
 
 1. **New data source:** Add entry to `ingestion/sources/registry.py` (auth type, params, metadata). Optionally add OAuth provider in `oauth/providers.py` and dlt source in `ingestion/dlt_sources/`. The CLI auto-discovers sources from the registry.
 
-2. **New CLI command:** Add Click command in `cli/main.py`. After TASK-005, commands move to individual files in `cli/commands/`.
+2. **New CLI command:** Create a new command module in `cli/commands/` and register it in `cli/main.py` via `cli.add_command()`.
 
-3. **New API endpoint:** Add FastAPI route in `web/app.py`. After TASK-085, routes move to `web/routes/` subdirectory.
+3. **New API endpoint:** Add a FastAPI route in a new or existing module in `web/routes/` and register it in `web/app.py`.
 
 4. **New dbt dedup strategy:** Add template in `templates/dbt/`, enum value in `config/models.py` `DeduplicationStrategy`, and generation logic in `transformation/generator.py`.
 
@@ -516,9 +534,9 @@ The web module (`web/app.py`) exposes 19 REST endpoints, 1 WebSocket, and a Meta
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
-| `cli/main.py` | 3927 | TASK-005 (split into `cli/commands/`) |
-| `web/app.py` | 2900 | TASK-085 (split into `web/routes/`) |
-| `ingestion/dlt_runner.py` | 1696 | Phase 3 (extract orchestration) |
+| ~~`cli/main.py`~~ | ~~3927~~ | ~~TASK-005~~ — **Done:** split into `cli/commands/`, main.py is now ~88 lines |
+| ~~`web/app.py`~~ | ~~2900~~ | ~~TASK-085~~ — **Done:** split into `web/routes/`, app.py is now ~202 lines |
+| `ingestion/dlt_runner.py` | 1759 | Phase 3 (extract orchestration) |
 
 ### Runtime Architecture
 
