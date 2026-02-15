@@ -11,7 +11,7 @@ Re-run at Phase 8 (DOC-015) before v1 release to verify documentation stays curr
 Provide the following to a fresh LLM session (e.g., a new Claude Code conversation in `dango/`):
 
 1. **Repository CLAUDE.md** (`dango/CLAUDE.md`) — auto-loaded by Claude Code
-2. **All 13 module CLAUDE.md files:**
+2. **All 12 module CLAUDE.md files:**
    - `dango/CLAUDE.md` (package root)
    - `dango/cli/CLAUDE.md`
    - `dango/config/CLAUDE.md`
@@ -44,13 +44,15 @@ Provide the following to a fresh LLM session (e.g., a new Claude Code conversati
 
 **Important:** Do not give hints or follow-up prompts. Each question must be answered from the documentation the LLM already read.
 
+**Batch mode:** For automated testing via `claude -p`, all 5 questions may be asked in a single prompt. For interactive sessions, ask one at a time to better simulate real developer behavior.
+
 ## Questions and Expected Answers
 
 ### Q1: "Where would you look to add a new CLI command?"
 
 **Expected navigation path:**
 - Root `CLAUDE.md` routing table → "CLI commands → `dango/cli/` → `cli/CLAUDE.md`"
-- `cli/CLAUDE.md` → "Common Tasks" section (line 80)
+- `cli/CLAUDE.md` → "Common Tasks" section
 
 **Expected key points in answer:**
 - Create command in `dango/cli/commands/` (new file or add to existing)
@@ -71,15 +73,15 @@ Provide the following to a fresh LLM session (e.g., a new Claude Code conversati
 **Expected navigation path:**
 - Root `CLAUDE.md` routing table → "OAuth / token flows → `dango/oauth/` → `oauth/CLAUDE.md`"
 - `oauth/CLAUDE.md` → Files table → `validation.py` ("Live token validation via API calls")
-- Supplementary: `ARCHITECTURE.md` line 467 → "OAuth tokens auto-refreshed by dlt at runtime (VAL-004)"
+- Supplementary: `ARCHITECTURE.md` §9 Secret Management → "OAuth tokens auto-refreshed by dlt at runtime (VAL-004)"
 
 **Expected key points in answer:**
 - Navigate to `dango/oauth/` module
-- Identify `validation.py` as the file handling token validation (which includes refresh_token exchange)
+- Identify `validation.py` as the file handling token validation
 - Optionally note that dlt auto-refreshes Google tokens at runtime (from ARCHITECTURE.md)
 - Optionally mention `providers.py` for provider-specific OAuth implementations
 
-**Known documentation gap:** `oauth/CLAUDE.md` describes `validation.py` as "Live token validation via API calls" but does not use the word "refresh." The `validate_google_token` function performs a refresh_token exchange. A fresh LLM should still navigate to `oauth/` correctly via the routing table, but may not pinpoint the exact refresh mechanism. ARCHITECTURE.md compensates with explicit mention at line 467.
+**Known documentation gap:** `oauth/CLAUDE.md` describes `validation.py` as "Live token validation via API calls" but does not use the word "refresh." A fresh LLM should still navigate to `oauth/` correctly via the routing table, but may not pinpoint the exact refresh mechanism. ARCHITECTURE.md §9 compensates with an explicit mention of dlt auto-refresh.
 
 **Scoring:**
 | Score | Criteria |
@@ -93,7 +95,7 @@ Provide the following to a fresh LLM session (e.g., a new Claude Code conversati
 ### Q3: "What files would you modify to add a new data source?"
 
 **Expected navigation path:**
-- `ARCHITECTURE.md` §6.7 "Adding a New Source Type" (line 408)
+- `ARCHITECTURE.md` §6.7 "Adding a New Source Type"
 - Also reachable via: root `CLAUDE.md` routing → `ingestion/CLAUDE.md` → Common Tasks
 
 **Expected key points in answer (from ARCHITECTURE.md §6.7):**
@@ -136,7 +138,7 @@ Provide the following to a fresh LLM session (e.g., a new Claude Code conversati
 
 **Expected navigation path:**
 - Root `CLAUDE.md` routing table → `oauth/CLAUDE.md`
-- `oauth/CLAUDE.md` → "Testing" section (line 44)
+- `oauth/CLAUDE.md` → "Testing" section
 
 **Expected key points in answer:**
 - Unit tests: `pytest tests/unit/test_oauth_validation.py`
@@ -167,8 +169,8 @@ Dry-run trace of each question through existing documentation, from a fresh LLM'
 
 **Trace:**
 1. Root `CLAUDE.md` has a "Quick Routing Table" with entry: "CLI commands → `dango/cli/` → `cli/CLAUDE.md`"
-2. `cli/CLAUDE.md` has a "Common Tasks" section with explicit row: "Add a new top-level command → Create in `commands/`, register in `main.py` via `cli.add_command()`"
-3. The Repository Structure section in root `CLAUDE.md` also shows `cli/commands/` with all command modules listed
+2. `cli/CLAUDE.md` → "Common Tasks" section has explicit row: "Add a new top-level command → Create in `commands/`, register in `main.py` via `cli.add_command()`"
+3. Root `CLAUDE.md` → "Repository Structure" also shows `cli/commands/` with all command modules listed
 
 **Verdict:** Strong, unambiguous path. Expected score: 1.0
 
@@ -178,7 +180,7 @@ Dry-run trace of each question through existing documentation, from a fresh LLM'
 1. Root `CLAUDE.md` routing table: "OAuth / token flows → `dango/oauth/` → `oauth/CLAUDE.md`"
 2. `oauth/CLAUDE.md` Files table lists `validation.py` as "Live token validation via API calls" with functions including `validate_google_token`, `validate_facebook_token`, `validate_shopify_token`
 3. `oauth/CLAUDE.md` does NOT use the word "refresh" anywhere
-4. `ARCHITECTURE.md` line 467: "OAuth tokens auto-refreshed by dlt at runtime (VAL-004). Google tokens refresh automatically; Facebook tokens require manual re-auth every 60 days."
+4. `ARCHITECTURE.md` §9 Secret Management: "OAuth tokens auto-refreshed by dlt at runtime (VAL-004). Google tokens refresh automatically; Facebook tokens require manual re-auth every 60 days."
 
 **Risk:** A fresh LLM will correctly navigate to `oauth/` via the routing table. It will find `validation.py` and `providers.py` as the relevant files. However, it may not connect "live token validation" with "token refresh" since the word "refresh" is absent from `oauth/CLAUDE.md`. ARCHITECTURE.md compensates if the LLM read it.
 
@@ -208,7 +210,7 @@ Dry-run trace of each question through existing documentation, from a fresh LLM'
 
 **Trace:**
 1. Root `CLAUDE.md` routing table → `oauth/CLAUDE.md`
-2. `oauth/CLAUDE.md` has a "Testing" section (line 44) with three bullet points:
+2. `oauth/CLAUDE.md` → "Testing" section has three bullet points:
    - Unit: `pytest tests/unit/test_oauth_validation.py` (26 tests)
    - Integration: None yet
    - Manual: `dango auth check`, `dango status`
@@ -236,6 +238,6 @@ Dry-run trace of each question through existing documentation, from a fresh LLM'
 
 | Attempt | Date | LLM Model | Q1 | Q2 | Q3 | Q4 | Q5 | Total | Result | Gaps Found | Fixes Applied |
 |---------|------|-----------|----|----|----|----|----|----|--------|------------|---------------|
-| 1 | 2026-02-15 | Claude Opus 4.6 (claude -p) | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 5/5 | PASS | None | None |
+| 1 | 2026-02-15 | Claude Opus 4.6 (claude -p, batch mode) | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 5/5 | PASS | None | None |
 | 2 | | | | | | | | | | | |
 | 3 | | | | | | | | | | | |
