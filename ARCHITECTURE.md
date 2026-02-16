@@ -173,6 +173,15 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 **Imports from:** None (Level 0). Uses structlog + stdlib only.
 
+---
+
+#### `exceptions.py`
+**Responsibility:** Centralized exception hierarchy for consistent error handling across modules.
+
+**Public API:** `DangoError` base class and domain-specific subclasses: `ConfigError`, `IngestionError`, `InfrastructureError`, `MigrationError`, `OAuthError`, `ValidationError`, `WebAPIError`, and their specializations (e.g., `DbtLockError`, `OAuthTokenExpiredError`, `CSVSchemaMismatchError`).
+
+**Imports from:** None (Level 0).
+
 ### Level 1 — Core
 
 #### `ingestion/`
@@ -294,13 +303,6 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 **Public API:** FastAPI `app` instance.
 
 **Imports from:** `config/` (Level 0), `utils/` (Level 0), `ingestion/` (Level 1), `transformation/` (Level 1), `visualization/` (Level 2).
-
-#### `exceptions.py`
-**Responsibility:** Centralized exception hierarchy for consistent error handling across modules.
-
-**Public API:** `DangoError` base class and domain-specific subclasses: `ConfigError`, `IngestionError`, `InfrastructureError`, `MigrationError`, `OAuthError`, `ValidationError`, `WebAPIError`, and their specializations (e.g., `DbtLockError`, `OAuthTokenExpiredError`, `CSVSchemaMismatchError`).
-
-**Imports from:** None (Level 0).
 
 ### Planned Modules
 
