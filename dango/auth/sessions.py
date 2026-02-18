@@ -134,14 +134,14 @@ def validate_session(
         db.invalidate_session(db_path, session.id)
         return None
 
-    # Sliding window — update last_activity
-    db.update_session_activity(db_path, session.id)
-
-    # Check user is active
+    # Check user is active (before updating activity timestamp —
+    # don't record "last activity" for failed auth attempts)
     user = db.get_user_by_id(db_path, session.user_id)
     if user is None or not user.is_active:
         return None
 
+    # Sliding window — update last_activity
+    db.update_session_activity(db_path, session.id)
     return user
 
 
@@ -268,14 +268,14 @@ def validate_api_key(db_path: Path, key: str) -> User | None:
     if api_key.expires_at is not None and now >= api_key.expires_at:
         return None
 
-    # Update last_used_at
-    db.update_api_key_last_used(db_path, api_key.id)
-
-    # Check user is active
+    # Check user is active (before updating last_used —
+    # don't record usage for failed auth attempts)
     user = db.get_user_by_id(db_path, api_key.user_id)
     if user is None or not user.is_active:
         return None
 
+    # Update last_used_at
+    db.update_api_key_last_used(db_path, api_key.id)
     return user
 
 

@@ -5,6 +5,7 @@ Tests for session lifecycle management in dango/auth/sessions.py.
 
 from __future__ import annotations
 
+import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -111,6 +112,13 @@ class TestCreateSession:
         expected = session.created_at + timedelta(minutes=DEFAULT_PARTIAL_SESSION_TIMEOUT_MINUTES)
         assert abs((session.expires_at - expected).total_seconds()) < 2
         assert session.is_partial is True
+
+    def test_partial_session_custom_timeout(self, tmp_path: Path) -> None:
+        db_path = _make_db(tmp_path)
+        user = _setup_user(db_path)
+        _, session = create_session(db_path, user.id, is_partial=True, partial_timeout_minutes=2)
+        expected = session.created_at + timedelta(minutes=2)
+        assert abs((session.expires_at - expected).total_seconds()) < 2
 
     def test_session_persisted_in_db(self, tmp_path: Path) -> None:
         db_path = _make_db(tmp_path)
@@ -344,9 +352,7 @@ class TestCleanupExpiredSessions:
         user = _setup_user(db_path)
         _, session = create_session(db_path, user.id, is_partial=True, partial_timeout_minutes=0)
         past = datetime.now(timezone.utc) - timedelta(hours=1)
-        from dango.auth.database import _connect
-
-        conn = _connect(db_path)
+        conn = sqlite3.connect(str(db_path))
         conn.execute(
             "UPDATE sessions SET expires_at = ? WHERE id = ?",
             (past.isoformat(), session.id),

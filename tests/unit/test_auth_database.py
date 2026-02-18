@@ -29,6 +29,7 @@ from dango.auth.database import (
     list_user_sessions,
     list_users,
     revoke_api_key,
+    update_api_key_last_used,
     update_session_activity,
     update_user,
 )
@@ -544,3 +545,16 @@ class TestAPIKeyCRUD:
         fetched = get_api_key_by_hash(db, "pfx1")
         assert fetched is not None
         assert fetched.key_prefix == "dango_ak_abc12"
+
+    def test_update_last_used(self, tmp_path: Path) -> None:
+        db = _make_db(tmp_path)
+        user = _make_user()
+        create_user(db, user)
+        key = self._make_api_key(user.id)
+        create_api_key(db, key)
+        assert get_api_key_by_hash(db, key.key_hash) is not None
+        assert get_api_key_by_hash(db, key.key_hash).last_used_at is None  # type: ignore[union-attr]
+        update_api_key_last_used(db, key.id)
+        fetched = get_api_key_by_hash(db, key.key_hash)
+        assert fetched is not None
+        assert fetched.last_used_at is not None
