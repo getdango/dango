@@ -1,9 +1,10 @@
 """dango/auth/__init__.py
 
-Authentication and authorization data layer.
+User authentication and access control for Dango.
 
-Exports Pydantic models for users, sessions, and API keys, plus all
-CRUD functions for the auth SQLite database.
+Exports Pydantic models for users, sessions, and API keys, CRUD
+functions for the auth SQLite database, and pure security utility
+functions (password hashing, token generation, recovery codes).
 """
 
 from __future__ import annotations
@@ -29,6 +30,19 @@ from dango.auth.database import (
     update_user,
 )
 from dango.auth.models import APIKey, Role, Session, User, UserCreate, UserResponse, UserUpdate
+from dango.auth.security import (
+    check_password_strength,
+    generate_api_key,
+    generate_recovery_codes,
+    generate_session_token,
+    generate_temp_password,
+    get_key_prefix,
+    hash_api_key,
+    hash_password,
+    hash_recovery_code,
+    hash_token,
+    verify_password,
+)
 
 __all__ = [
     # Models
@@ -60,4 +74,16 @@ __all__ = [
     "get_api_key_by_hash",
     "list_user_api_keys",
     "revoke_api_key",
+    # Security utilities
+    "check_password_strength",
+    "generate_api_key",
+    "generate_recovery_codes",
+    "generate_session_token",
+    "generate_temp_password",
+    "get_key_prefix",
+    "hash_api_key",
+    "hash_password",
+    "hash_recovery_code",
+    "hash_token",
+    "verify_password",
 ]
