@@ -1011,7 +1011,7 @@ class DltPipelineRunner:
                 f"[yellow]Token expired on:[/yellow] {oauth_cred.expires_at.strftime('%Y-%m-%d')}"
             )
             console.print("\n[cyan]To re-authenticate:[/cyan]")
-            console.print(f"  1. Run: [bold]dango auth {source_type}[/bold]")
+            console.print(f"  1. Run: [bold]dango oauth {source_type}[/bold]")
             console.print("  2. Follow the OAuth flow to get a new token")
             console.print("  3. Run sync again\n")
             raise ValueError(
@@ -1027,7 +1027,7 @@ class DltPipelineRunner:
             console.print(
                 f"[yellow]Expiry date:[/yellow] {oauth_cred.expires_at.strftime('%Y-%m-%d')}"
             )
-            console.print(f"[cyan]Re-authenticate soon:[/cyan] dango auth {source_type}\n")
+            console.print(f"[cyan]Re-authenticate soon:[/cyan] dango oauth {source_type}\n")
             # Return warning info for end-of-sync summary
             return {
                 "source_name": source_name,

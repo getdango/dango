@@ -144,7 +144,7 @@ Provide the following to a fresh LLM session (e.g., a new Claude Code conversati
 
 **Expected key points in answer:**
 - Unit tests: `pytest tests/unit/test_oauth_validation.py`
-- Manual testing: `dango auth check` (live validation), `dango status` (token health)
+- Manual testing: `dango oauth check` (live validation), `dango status` (token health)
 - Integration tests: not yet created (will be `tests/integration/test_oauth.py`)
 - Common Tasks table also references test commands per task type
 
@@ -210,7 +210,7 @@ Dry-run trace of each question through existing documentation, from a fresh LLM'
 2. `oauth/CLAUDE.md` → "Testing" section has three bullet points:
    - Unit: `pytest tests/unit/test_oauth_validation.py` (26 tests)
    - Integration: None yet
-   - Manual: `dango auth check`, `dango status`
+   - Manual: `dango oauth check`, `dango status`
 3. Common Tasks table also lists test commands per task type
 
 **Note:** The test file `tests/unit/test_oauth_validation.py` is referenced in docs but does not exist yet (will be created by TEST-001). This does not affect navigation scoring — the LLM is being tested on whether it can find the right documentation path, not whether the referenced files exist.

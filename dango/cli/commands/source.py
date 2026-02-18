@@ -524,7 +524,7 @@ def sync(
                     f"  • {warning['source_name']}: expires in {warning['days_left']} day(s) ({warning['expires_at']})"
                 )
                 console.print(
-                    f"    [cyan]Re-authenticate:[/cyan] dango auth {warning['source_type']}"
+                    f"    [cyan]Re-authenticate:[/cyan] dango oauth {warning['source_type']}"
                 )
             console.print()
 

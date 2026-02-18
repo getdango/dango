@@ -970,7 +970,7 @@ def status(ctx: click.Context) -> None:
                 console.print(oauth_table)
                 if has_warning:
                     console.print(
-                        "  [yellow]Run 'dango auth check' for live token validation[/yellow]"
+                        "  [yellow]Run 'dango oauth check' for live token validation[/yellow]"
                     )
                 console.print()
         except Exception:

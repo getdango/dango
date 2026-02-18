@@ -64,7 +64,8 @@ dango/                          # Python package source
 │   ├── main.py                 # Slim entry point (~88 lines) — registers commands
 │   ├── commands/               # Command modules (extracted from main.py by TASK-005)
 │   │   ├── __init__.py         # Package marker
-│   │   ├── auth.py             # auth group + 10 subcommands (815 lines)
+│   │   ├── auth.py             # auth group placeholder (Phase 2 user management)
+│   │   ├── oauth.py            # oauth group + 10 subcommands (815 lines)
 │   │   ├── config_cmd.py       # config group (validate/show)
 │   │   ├── dashboard.py        # dashboard group (provision)
 │   │   ├── data.py             # db group (status/clean) + validate
@@ -204,7 +205,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `visualization/dashboard_manager.py` | 1113 | — |
 | `cli/commands/platform.py` | 1026 | — (extracted from main.py by TASK-005) |
 | `cli/init.py` | 965 | — |
-| `cli/commands/auth.py` | 815 | — (extracted from main.py by TASK-005) |
+| `cli/commands/oauth.py` | 815 | — (renamed from auth.py by TASK-093) |
 | `oauth/providers.py` | 801 | — |
 | `web/helpers.py` | 798 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 742 | — |
