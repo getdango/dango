@@ -9,6 +9,14 @@ functions (password hashing, token generation, recovery codes).
 
 from __future__ import annotations
 
+from dango.auth.admin import (
+    ensure_admin,
+    format_credentials_panel,
+    get_auth_config_path,
+    get_auth_db_path,
+    is_auth_enabled,
+    set_auth_enabled,
+)
 from dango.auth.database import (
     cleanup_expired_sessions,
     create_api_key,
@@ -45,6 +53,13 @@ from dango.auth.security import (
 )
 
 __all__ = [
+    # Admin utilities
+    "ensure_admin",
+    "format_credentials_panel",
+    "get_auth_config_path",
+    "get_auth_db_path",
+    "is_auth_enabled",
+    "set_auth_enabled",
     # Models
     "APIKey",
     "Role",

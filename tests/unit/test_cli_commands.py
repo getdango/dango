@@ -97,11 +97,25 @@ class TestCliCommandRegistration:
             assert cmd in result.output, f"OAuth subcommand '{cmd}' missing"
 
     def test_auth_subcommands(self) -> None:
-        """Auth group (placeholder) responds to --help."""
+        """Auth group has all expected subcommands."""
         runner = CliRunner()
         result = runner.invoke(cli, ["auth", "--help"])
         assert result.exit_code == 0
-        assert "authentication" in result.output.lower()
+        for cmd in [
+            "enable",
+            "disable",
+            "add-user",
+            "list-users",
+            "reset-password",
+            "deactivate-user",
+            "reactivate-user",
+            "delete-user",
+            "status",
+            "unlock",
+            "audit",
+            "recover",
+        ]:
+            assert cmd in result.output, f"Auth subcommand '{cmd}' missing"
 
     def test_db_subcommands(self) -> None:
         """DB group has status and clean subcommands."""
