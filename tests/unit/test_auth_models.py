@@ -53,6 +53,9 @@ class TestUser:
         assert user.oauth_id is None
         assert user.failed_login_attempts == 0
         assert user.locked_until is None
+        assert user.metabase_user_id is None
+        assert user.must_change_password is False
+        assert user.last_login is None
         assert isinstance(user.created_at, datetime)
         assert isinstance(user.updated_at, datetime)
 
@@ -80,6 +83,9 @@ class TestUser:
             oauth_id="google-123",
             failed_login_attempts=3,
             locked_until=now,
+            metabase_user_id=42,
+            must_change_password=True,
+            last_login=now,
             created_at=now,
             updated_at=now,
         )
@@ -89,6 +95,9 @@ class TestUser:
         assert user.is_active is False
         assert user.totp_enabled is True
         assert user.failed_login_attempts == 3
+        assert user.metabase_user_id == 42
+        assert user.must_change_password is True
+        assert user.last_login == now
 
 
 @pytest.mark.unit
@@ -171,6 +180,14 @@ class TestUserUpdate:
         assert "locked_until" in dump
         assert dump["locked_until"] is None
 
+    def test_new_schema_fields(self) -> None:
+        now = datetime.now(timezone.utc)
+        uu = UserUpdate(metabase_user_id=7, must_change_password=True, last_login=now)
+        dump = uu.model_dump(exclude_unset=True)
+        assert dump["metabase_user_id"] == 7
+        assert dump["must_change_password"] is True
+        assert dump["last_login"] == now
+
 
 @pytest.mark.unit
 class TestUserResponse:
@@ -190,6 +207,7 @@ class TestUserResponse:
         assert "totp_secret" not in fields
         assert "recovery_codes" not in fields
         assert "oauth_id" not in fields
+        assert "metabase_user_id" not in fields
 
     def test_safe_fields_present(self) -> None:
         fields = set(UserResponse.model_fields.keys())
@@ -199,6 +217,8 @@ class TestUserResponse:
         assert "is_active" in fields
         assert "totp_enabled" in fields
         assert "oauth_provider" in fields
+        assert "must_change_password" in fields
+        assert "last_login" in fields
         assert "created_at" in fields
         assert "updated_at" in fields
 
@@ -218,6 +238,20 @@ class TestSession:
         assert isinstance(session.created_at, datetime)
         assert session.expires_at == expires
         assert isinstance(session.last_activity, datetime)
+        assert session.ip_address is None
+        assert session.user_agent is None
+
+    def test_with_ip_and_user_agent(self) -> None:
+        expires = datetime.now(timezone.utc) + timedelta(hours=1)
+        session = Session(
+            user_id="user-1",
+            token_hash="hash789",
+            expires_at=expires,
+            ip_address="192.168.1.1",
+            user_agent="Mozilla/5.0",
+        )
+        assert session.ip_address == "192.168.1.1"
+        assert session.user_agent == "Mozilla/5.0"
 
     def test_partial_session(self) -> None:
         expires = datetime.now(timezone.utc) + timedelta(minutes=5)
@@ -240,10 +274,20 @@ class TestAPIKey:
         assert key.user_id == "user-1"
         assert key.name == "My Key"
         assert key.key_hash == "keyhash123"
+        assert key.key_prefix == ""
         assert key.is_active is True
         assert isinstance(key.created_at, datetime)
         assert key.last_used_at is None
         assert key.expires_at is None
+
+    def test_with_key_prefix(self) -> None:
+        key = APIKey(
+            user_id="user-1",
+            name="Prefixed Key",
+            key_hash="keyhash789",
+            key_prefix="dango_ak_abc",
+        )
+        assert key.key_prefix == "dango_ak_abc"
 
     def test_with_expiry(self) -> None:
         expires = datetime.now(timezone.utc) + timedelta(days=90)

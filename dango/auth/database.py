@@ -61,6 +61,9 @@ def _row_to_user(row: sqlite3.Row) -> User:
         oauth_id=row["oauth_id"],
         failed_login_attempts=row["failed_login_attempts"],
         locked_until=_datetime_from_str(row["locked_until"]),
+        metabase_user_id=row["metabase_user_id"],
+        must_change_password=_bool_from_int(row["must_change_password"]),
+        last_login=_datetime_from_str(row["last_login"]),
         created_at=_datetime_from_str(row["created_at"]),  # type: ignore[arg-type]
         updated_at=_datetime_from_str(row["updated_at"]),  # type: ignore[arg-type]
     )
@@ -77,6 +80,8 @@ def _row_to_session(row: sqlite3.Row) -> Session:
         created_at=_datetime_from_str(row["created_at"]),  # type: ignore[arg-type]
         expires_at=_datetime_from_str(row["expires_at"]),  # type: ignore[arg-type]
         last_activity=_datetime_from_str(row["last_activity"]),  # type: ignore[arg-type]
+        ip_address=row["ip_address"],
+        user_agent=row["user_agent"],
     )
 
 
@@ -87,6 +92,7 @@ def _row_to_api_key(row: sqlite3.Row) -> APIKey:
         user_id=row["user_id"],
         name=row["name"],
         key_hash=row["key_hash"],
+        key_prefix=row["key_prefix"],
         is_active=_bool_from_int(row["is_active"]),
         created_at=_datetime_from_str(row["created_at"]),  # type: ignore[arg-type]
         last_used_at=_datetime_from_str(row["last_used_at"]),
@@ -116,8 +122,9 @@ def create_user(db_path: Path, user: User) -> User:
                 id, email, password_hash, role, is_active,
                 totp_secret, totp_enabled, recovery_codes,
                 oauth_provider, oauth_id, failed_login_attempts, locked_until,
+                metabase_user_id, must_change_password, last_login,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user.id,
@@ -132,6 +139,9 @@ def create_user(db_path: Path, user: User) -> User:
                 user.oauth_id,
                 user.failed_login_attempts,
                 _dt_to_str(user.locked_until),
+                user.metabase_user_id,
+                int(user.must_change_password),
+                _dt_to_str(user.last_login),
                 user.created_at.isoformat(),
                 user.updated_at.isoformat(),
             ),
@@ -283,8 +293,9 @@ def create_session(db_path: Path, session: Session) -> Session:
             """
             INSERT INTO sessions (
                 id, user_id, token_hash, is_active, is_partial,
-                created_at, expires_at, last_activity
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, expires_at, last_activity,
+                ip_address, user_agent
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session.id,
@@ -295,6 +306,8 @@ def create_session(db_path: Path, session: Session) -> Session:
                 session.created_at.isoformat(),
                 session.expires_at.isoformat(),
                 session.last_activity.isoformat(),
+                session.ip_address,
+                session.user_agent,
             ),
         )
         conn.commit()
@@ -396,15 +409,16 @@ def create_api_key(db_path: Path, api_key: APIKey) -> APIKey:
         conn.execute(
             """
             INSERT INTO api_keys (
-                id, user_id, name, key_hash, is_active,
+                id, user_id, name, key_hash, key_prefix, is_active,
                 created_at, last_used_at, expires_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 api_key.id,
                 api_key.user_id,
                 api_key.name,
                 api_key.key_hash,
+                api_key.key_prefix,
                 int(api_key.is_active),
                 api_key.created_at.isoformat(),
                 _dt_to_str(api_key.last_used_at),
