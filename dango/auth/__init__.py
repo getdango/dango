@@ -3,12 +3,19 @@
 User authentication and access control for Dango.
 
 Exports Pydantic models for users, sessions, and API keys, CRUD
-functions for the auth SQLite database, and pure security utility
-functions (password hashing, token generation, recovery codes).
+functions for the auth SQLite database, pure security utility
+functions (password hashing, token generation, recovery codes),
+and audit logging for security events.
 """
 
 from __future__ import annotations
 
+from dango.auth.audit import (
+    AuditEvent,
+    get_audit_log_path,
+    log_auth_event,
+    query_audit_log,
+)
 from dango.auth.database import (
     cleanup_expired_sessions,
     create_api_key,
@@ -45,6 +52,11 @@ from dango.auth.security import (
 )
 
 __all__ = [
+    # Audit logging
+    "AuditEvent",
+    "get_audit_log_path",
+    "log_auth_event",
+    "query_audit_log",
     # Models
     "APIKey",
     "Role",
