@@ -2,10 +2,11 @@
 
 User authentication and access control for Dango.
 
-Exports Pydantic models for users, sessions, and API keys, CRUD
-functions for the auth SQLite database, pure security utility
-functions (password hashing, token generation, recovery codes),
-role-based permission checking, and audit logging for security events.
+Exports Pydantic models for users, sessions, and API keys, low-level
+database CRUD, higher-level session/API key lifecycle functions (from
+``sessions.py``), pure security utility functions (password hashing,
+token generation, recovery codes), role-based permission checking,
+and audit logging for security events.
 """
 
 from __future__ import annotations
@@ -17,9 +18,6 @@ from dango.auth.audit import (
     query_audit_log,
 )
 from dango.auth.database import (
-    cleanup_expired_sessions,
-    create_api_key,
-    create_session,
     create_user,
     deactivate_user,
     delete_user,
@@ -27,12 +25,10 @@ from dango.auth.database import (
     get_session_by_token,
     get_user_by_email,
     get_user_by_id,
-    invalidate_all_user_sessions,
-    invalidate_session,
     list_user_api_keys,
     list_user_sessions,
     list_users,
-    revoke_api_key,
+    update_api_key_last_used,
     update_session_activity,
     update_user,
 )
@@ -58,6 +54,21 @@ from dango.auth.security import (
     hash_token,
     verify_password,
 )
+from dango.auth.sessions import (
+    DEFAULT_IDLE_TIMEOUT_MINUTES,
+    DEFAULT_PARTIAL_SESSION_TIMEOUT_MINUTES,
+    DEFAULT_SESSION_MAX_DAYS,
+    cleanup_expired_sessions,
+    create_api_key,
+    create_session,
+    invalidate_all_sessions,
+    invalidate_session,
+    list_api_keys,
+    revoke_api_key,
+    validate_api_key,
+    validate_partial_session,
+    validate_session,
+)
 
 __all__ = [
     # Audit logging
@@ -73,7 +84,11 @@ __all__ = [
     "UserCreate",
     "UserResponse",
     "UserUpdate",
-    # User CRUD
+    # Constants
+    "DEFAULT_IDLE_TIMEOUT_MINUTES",
+    "DEFAULT_PARTIAL_SESSION_TIMEOUT_MINUTES",
+    "DEFAULT_SESSION_MAX_DAYS",
+    # User CRUD (database.py)
     "create_user",
     "get_user_by_email",
     "get_user_by_id",
@@ -81,19 +96,26 @@ __all__ = [
     "update_user",
     "deactivate_user",
     "delete_user",
-    # Session CRUD
+    # Session lifecycle (sessions.py)
     "create_session",
+    "validate_session",
+    "validate_partial_session",
+    "invalidate_session",
+    "invalidate_all_sessions",
+    "cleanup_expired_sessions",
+    # Low-level session access (database.py)
     "get_session_by_token",
     "update_session_activity",
-    "invalidate_session",
-    "invalidate_all_user_sessions",
     "list_user_sessions",
-    "cleanup_expired_sessions",
-    # API key CRUD
+    # API key lifecycle (sessions.py)
     "create_api_key",
+    "validate_api_key",
+    "revoke_api_key",
+    "list_api_keys",
+    # Low-level API key access (database.py)
     "get_api_key_by_hash",
     "list_user_api_keys",
-    "revoke_api_key",
+    "update_api_key_last_used",
     # Permissions
     "PERMISSIONS",
     "ROLE_PERMISSIONS",
