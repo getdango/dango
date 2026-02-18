@@ -47,6 +47,13 @@ __all__ = [
     "InvalidDateFormatError",
     "InvalidPortError",
     "WebAPIError",
+    "AuthenticationError",
+    "AuthorizationError",
+    "UserNotFoundError",
+    "UserExistsError",
+    "SessionExpiredError",
+    "AccountLockedError",
+    "AccountDeactivatedError",
     "is_debug_mode",
 ]
 
@@ -295,3 +302,50 @@ class WebAPIError(DangoError):
     """Base exception for web API errors."""
 
     _default_error_code = "DANGO-W001"
+
+
+# ---------------------------------------------------------------------------
+# Auth / Security exceptions  (DANGO-S***)
+# ---------------------------------------------------------------------------
+
+
+class AuthenticationError(DangoError):
+    """Authentication failed (invalid credentials, expired token, etc.)."""
+
+    _default_error_code = "DANGO-S001"
+
+
+class AuthorizationError(DangoError):
+    """Authenticated user lacks required permissions."""
+
+    _default_error_code = "DANGO-S002"
+
+
+class UserNotFoundError(DangoError):
+    """Referenced user does not exist."""
+
+    _default_error_code = "DANGO-S003"
+
+
+class UserExistsError(DangoError):
+    """A user with the given identifier already exists."""
+
+    _default_error_code = "DANGO-S004"
+
+
+class SessionExpiredError(AuthenticationError):
+    """Session has expired or exceeded its idle timeout."""
+
+    _default_error_code = "DANGO-S005"
+
+
+class AccountLockedError(AuthenticationError):
+    """Account is temporarily locked due to too many failed login attempts."""
+
+    _default_error_code = "DANGO-S006"
+
+
+class AccountDeactivatedError(AuthenticationError):
+    """Account has been deactivated by an administrator."""
+
+    _default_error_code = "DANGO-S007"

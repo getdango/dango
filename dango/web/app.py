@@ -18,6 +18,10 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from dango.exceptions import (
+    AccountDeactivatedError,
+    AccountLockedError,
+    AuthenticationError,
+    AuthorizationError,
     ConfigError,
     ConfigNotFoundError,
     ConfigValidationError,
@@ -29,7 +33,10 @@ from dango.exceptions import (
     InfrastructureError,
     IngestionError,
     ProjectNotFoundError,
+    SessionExpiredError,
     SyncTimeoutError,
+    UserExistsError,
+    UserNotFoundError,
     ValidationError,
     WebAPIError,
     is_debug_mode,
@@ -88,6 +95,14 @@ if static_dir.exists():
 
 # Map exception types to HTTP status codes
 _STATUS_MAP: dict[type[DangoError], int] = {
+    # Auth errors (most specific subclasses first for MRO walk)
+    SessionExpiredError: 401,
+    AccountLockedError: 423,
+    AccountDeactivatedError: 403,
+    AuthenticationError: 401,
+    AuthorizationError: 403,
+    UserNotFoundError: 404,
+    UserExistsError: 409,
     # Config errors
     ConfigNotFoundError: 404,
     ProjectNotFoundError: 404,
