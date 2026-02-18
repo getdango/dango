@@ -10,6 +10,7 @@ import re
 import time
 
 import pytest
+from pwdlib.exceptions import UnknownHashError
 
 from dango.auth.security import (
     _COMMON_PASSWORDS,
@@ -64,6 +65,10 @@ class TestPasswordHashing:
         password = "\u00e9\u00e8\u00ea\u00eb\u2603\U0001f600"
         hashed = hash_password(password)
         assert verify_password(password, hashed) is True
+
+    def test_invalid_hash_raises(self) -> None:
+        with pytest.raises(UnknownHashError):
+            verify_password("password", "not-a-bcrypt-hash")
 
 
 @pytest.mark.unit

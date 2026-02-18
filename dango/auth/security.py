@@ -188,21 +188,21 @@ def hash_password(password: str) -> str:
     return _hasher.hash(password)
 
 
-def verify_password(password: str, hash: str) -> bool:
+def verify_password(password: str, password_hash: str) -> bool:
     """Verify a plain-text password against a bcrypt hash.
 
     Args:
         password: Plain-text password to check.
-        hash: Bcrypt hash to verify against.
+        password_hash: Bcrypt hash to verify against.
 
     Returns:
         ``True`` if the password matches, ``False`` otherwise.
 
     Raises:
-        pwdlib.exceptions.UnknownHashError: If *hash* is not a valid
-            bcrypt string (programming error, not user input).
+        pwdlib.exceptions.UnknownHashError: If *password_hash* is not a
+            valid bcrypt string (programming error, not user input).
     """
-    return _hasher.verify(password, hash)
+    return _hasher.verify(password, password_hash)
 
 
 def check_password_strength(password: str) -> list[str]:
