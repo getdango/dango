@@ -96,6 +96,9 @@ class TestCreateUser:
             oauth_id="g-123",
             failed_login_attempts=5,
             locked_until=now,
+            metabase_user_id=42,
+            must_change_password=True,
+            last_login=now,
         )
         create_user(db, user)
         fetched = get_user_by_id(db, user.id)
@@ -109,6 +112,9 @@ class TestCreateUser:
         assert fetched.oauth_id == "g-123"
         assert fetched.failed_login_attempts == 5
         assert fetched.locked_until is not None
+        assert fetched.metabase_user_id == 42
+        assert fetched.must_change_password is True
+        assert fetched.last_login is not None
 
     def test_wal_mode_enabled(self, tmp_path: Path) -> None:
         db = _make_db(tmp_path)
@@ -438,6 +444,22 @@ class TestSessionCRUD:
         assert get_session_by_token(db, "expired") is None
         assert get_session_by_token(db, "valid") is not None
 
+    def test_session_with_metadata(self, tmp_path: Path) -> None:
+        db = _make_db(tmp_path)
+        user = _make_user()
+        create_user(db, user)
+        session = self._make_session(
+            user.id,
+            token_hash="meta1",
+            ip_address="10.0.0.1",
+            user_agent="TestAgent/1.0",
+        )
+        create_session(db, session)
+        fetched = get_session_by_token(db, "meta1")
+        assert fetched is not None
+        assert fetched.ip_address == "10.0.0.1"
+        assert fetched.user_agent == "TestAgent/1.0"
+
 
 @pytest.mark.unit
 class TestAPIKeyCRUD:
@@ -498,3 +520,13 @@ class TestAPIKeyCRUD:
         fetched = get_api_key_by_hash(db, key.key_hash)
         assert fetched is not None
         assert fetched.is_active is False
+
+    def test_api_key_with_prefix(self, tmp_path: Path) -> None:
+        db = _make_db(tmp_path)
+        user = _make_user()
+        create_user(db, user)
+        key = self._make_api_key(user.id, key_hash="pfx1", key_prefix="dango_ak_abc12")
+        create_api_key(db, key)
+        fetched = get_api_key_by_hash(db, "pfx1")
+        assert fetched is not None
+        assert fetched.key_prefix == "dango_ak_abc12"

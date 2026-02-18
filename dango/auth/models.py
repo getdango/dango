@@ -40,6 +40,9 @@ class User(BaseModel):
     oauth_id: str | None = None
     failed_login_attempts: int = 0
     locked_until: datetime | None = None
+    metabase_user_id: int | None = None
+    must_change_password: bool = False
+    last_login: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -89,6 +92,9 @@ class UserUpdate(BaseModel):
     oauth_id: str | None = None
     failed_login_attempts: int | None = None
     locked_until: datetime | None = None
+    metabase_user_id: int | None = None
+    must_change_password: bool | None = None
+    last_login: datetime | None = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -112,6 +118,8 @@ class UserResponse(BaseModel):
     oauth_provider: str | None = None
     failed_login_attempts: int = 0
     locked_until: datetime | None = None
+    must_change_password: bool = False
+    last_login: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -129,6 +137,8 @@ class Session(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     expires_at: datetime
     last_activity: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    ip_address: str | None = None
+    user_agent: str | None = None
 
 
 class APIKey(BaseModel):
@@ -140,6 +150,7 @@ class APIKey(BaseModel):
     user_id: str
     name: str
     key_hash: str
+    key_prefix: str = ""
     is_active: bool = True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_used_at: datetime | None = None
