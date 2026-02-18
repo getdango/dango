@@ -25,7 +25,7 @@ def oauth(ctx: click.Context) -> None:
 
 @oauth.command("list")
 @click.pass_context
-def auth_list(ctx: click.Context) -> None:
+def oauth_list(ctx: click.Context) -> None:
     """
     List all OAuth credentials
 
@@ -94,7 +94,7 @@ def auth_list(ctx: click.Context) -> None:
 
 @oauth.command("status")
 @click.pass_context
-def auth_status(ctx: click.Context) -> None:
+def oauth_status(ctx: click.Context) -> None:
     """
     Show OAuth credential expiry status
 
@@ -161,7 +161,7 @@ def auth_status(ctx: click.Context) -> None:
 @oauth.command("remove")
 @click.argument("source_type")
 @click.pass_context
-def auth_remove(ctx: click.Context, source_type: str) -> None:
+def oauth_remove(ctx: click.Context, source_type: str) -> None:
     """
     Remove OAuth credential
 
@@ -218,7 +218,7 @@ def auth_remove(ctx: click.Context, source_type: str) -> None:
 @oauth.command("refresh")
 @click.argument("oauth_name")
 @click.pass_context
-def auth_refresh(ctx: click.Context, oauth_name: str) -> None:
+def oauth_refresh(ctx: click.Context, oauth_name: str) -> None:
     """
     Re-authenticate OAuth credential
 
@@ -294,7 +294,7 @@ def auth_refresh(ctx: click.Context, oauth_name: str) -> None:
 
 @oauth.command("facebook_ads")
 @click.pass_context
-def auth_facebook_ads(ctx: click.Context) -> None:
+def oauth_facebook_ads(ctx: click.Context) -> None:
     """
     Authenticate with Facebook Ads using OAuth.
 
@@ -337,7 +337,7 @@ def auth_facebook_ads(ctx: click.Context) -> None:
 
 @oauth.command("google_sheets")
 @click.pass_context
-def auth_google_sheets(ctx: click.Context) -> None:
+def oauth_google_sheets(ctx: click.Context) -> None:
     """
     Authenticate with Google Sheets using OAuth.
 
@@ -379,7 +379,7 @@ def auth_google_sheets(ctx: click.Context) -> None:
 
 @oauth.command("google_analytics")
 @click.pass_context
-def auth_google_analytics(ctx: click.Context) -> None:
+def oauth_google_analytics(ctx: click.Context) -> None:
     """
     Authenticate with Google Analytics (GA4) using OAuth.
 
@@ -421,7 +421,7 @@ def auth_google_analytics(ctx: click.Context) -> None:
 
 @oauth.command("google_ads")
 @click.pass_context
-def auth_google_ads(ctx: click.Context) -> None:
+def oauth_google_ads(ctx: click.Context) -> None:
     """
     Authenticate with Google Ads using OAuth.
 
@@ -463,7 +463,7 @@ def auth_google_ads(ctx: click.Context) -> None:
 
 @oauth.command("check")
 @click.pass_context
-def auth_check(ctx: click.Context) -> None:
+def oauth_check(ctx: click.Context) -> None:
     """
     Check OAuth configuration and credential status.
 
@@ -498,12 +498,12 @@ def auth_check(ctx: click.Context) -> None:
             "Google": {
                 "env_vars": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
                 "services": ["Google Ads", "Google Analytics", "Google Sheets"],
-                "auth_cmd": "dango oauth google_<sheets|analytics|ads>",
+                "oauth_cmd": "dango oauth google_<sheets|analytics|ads>",
             },
             "Facebook": {
                 "env_vars": ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"],
                 "services": ["Facebook Ads"],
-                "auth_cmd": "dango oauth facebook_ads",
+                "oauth_cmd": "dango oauth facebook_ads",
             },
         }
 
@@ -635,7 +635,7 @@ def auth_check(ctx: click.Context) -> None:
 @oauth.command("setup")
 @click.argument("provider", type=click.Choice(["google", "facebook"], case_sensitive=False))
 @click.pass_context
-def auth_setup(ctx: click.Context, provider: str) -> None:
+def oauth_setup(ctx: click.Context, provider: str) -> None:
     """
     Interactive OAuth setup wizard.
 
@@ -733,7 +733,7 @@ def auth_setup(ctx: click.Context, provider: str) -> None:
                     console.print("  dango oauth google_analytics")
                     console.print("  dango oauth google_ads")
                 else:
-                    console.print(f"  dango oauth {provider.lower()}")
+                    console.print("  dango oauth facebook_ads")
                 return
 
         # Show setup steps
@@ -797,7 +797,7 @@ def auth_setup(ctx: click.Context, provider: str) -> None:
         if provider.lower() == "google":
             console.print("[cyan]dango oauth <google_ads|google_analytics|google_sheets>[/cyan]")
         else:
-            console.print(f"[cyan]dango oauth {provider.lower()}[/cyan]")
+            console.print("[cyan]dango oauth facebook_ads[/cyan]")
         console.print("  2. Add a source: [cyan]dango source add[/cyan]")
         console.print("")
 

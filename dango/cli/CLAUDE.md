@@ -16,7 +16,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/source.py` (521 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
 | `commands/platform.py` (955 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
 | `commands/auth.py` (~20 lines) | `auth` group placeholder (Phase 2 user management) | `auth` |
-| `commands/oauth.py` (815 lines) | `oauth` group (10 subcommands) | `oauth`, `auth_setup()`, `auth_status()`, `auth_check()`, etc. |
+| `commands/oauth.py` (815 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
 | `commands/transform.py` (326 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
 | `commands/data.py` (360 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
 | `commands/config_cmd.py` (179 lines) | `config` group (`validate`, `show`) | `config` |
