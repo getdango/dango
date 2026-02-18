@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from dango.config.models import RateLimitConfig
 from dango.exceptions import (
     AccountDeactivatedError,
     AccountLockedError,
@@ -43,6 +44,7 @@ from dango.exceptions import (
 )
 from dango.logging import get_logger
 from dango.web.helpers import get_project_root
+from dango.web.middleware import RateLimitMiddleware
 
 logger = get_logger(__name__)
 
@@ -64,7 +66,12 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         redoc_url=None,  # Disable default redoc
     )
 
-    # Add CORS middleware for development
+    # Rate limiting (innermost — executes after CORS in request flow)
+    rate_limit_config = _load_rate_limit_config(project_root)
+    if rate_limit_config is not None:
+        application.add_middleware(RateLimitMiddleware, config=rate_limit_config)
+
+    # CORS (outermost — handles OPTIONS preflight before rate limiting)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],  # In production, restrict to specific origins
@@ -79,6 +86,18 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     application.state.project_root = project_root
 
     return application
+
+
+def _load_rate_limit_config(project_root: Path | None) -> RateLimitConfig | None:
+    """Try to load rate limit config from project.yml. Returns None on failure."""
+    try:
+        from dango.config.helpers import load_config
+
+        root = project_root or Path.cwd()
+        config = load_config(root)
+        return config.auth.rate_limit
+    except Exception:
+        return None
 
 
 app = create_app()

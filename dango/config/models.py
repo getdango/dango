@@ -434,6 +434,36 @@ class PlatformSettings(BaseModel):
     watch_directories: list[str] = Field(default_factory=lambda: ["data/uploads"])
 
 
+class RateLimitGroupConfig(BaseModel):
+    """Rate limit settings for a single route group."""
+
+    requests: int = Field(description="Max requests allowed in the window")
+    window_seconds: int = Field(default=60, description="Sliding window duration in seconds")
+
+
+class RateLimitConfig(BaseModel):
+    """Rate limiting configuration."""
+
+    enabled: bool = Field(default=True, description="Enable rate limiting")
+    login: RateLimitGroupConfig = Field(default_factory=lambda: RateLimitGroupConfig(requests=10))
+    api: RateLimitGroupConfig = Field(default_factory=lambda: RateLimitGroupConfig(requests=200))
+
+
+class AccountLockoutConfig(BaseModel):
+    """Account lockout configuration."""
+
+    max_attempts: int = Field(default=5, description="Failed attempts before lockout")
+    lockout_minutes: int = Field(default=15, description="Lockout duration in minutes")
+
+
+class AuthConfig(BaseModel):
+    """Authentication configuration."""
+
+    enabled: bool = Field(default=False, description="Enable authentication (required for cloud)")
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    lockout: AccountLockoutConfig = Field(default_factory=AccountLockoutConfig)
+
+
 class DangoConfig(BaseModel):
     """Complete Dango project configuration"""
 
@@ -442,3 +472,6 @@ class DangoConfig(BaseModel):
 
     # Platform settings
     platform: PlatformSettings = Field(default_factory=PlatformSettings)
+
+    # Authentication settings
+    auth: AuthConfig = Field(default_factory=AuthConfig)

@@ -32,6 +32,12 @@ from dango.auth.database import (
     update_session_activity,
     update_user,
 )
+from dango.auth.lockout import (
+    check_account_locked,
+    record_failed_login,
+    reset_failed_logins,
+    unlock_account,
+)
 from dango.auth.models import APIKey, Role, Session, User, UserCreate, UserResponse, UserUpdate
 from dango.auth.permissions import (
     PERMISSIONS,
@@ -116,6 +122,11 @@ __all__ = [
     "get_api_key_by_hash",
     "list_user_api_keys",
     "update_api_key_last_used",
+    # Lockout functions
+    "check_account_locked",
+    "record_failed_login",
+    "reset_failed_logins",
+    "unlock_account",
     # Permissions
     "PERMISSIONS",
     "ROLE_PERMISSIONS",
