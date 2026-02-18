@@ -254,7 +254,7 @@ class ProjectValidator:
                         ValidationResult(
                             f"OAuth: {source_name}",
                             "fail",
-                            f"No OAuth credentials found. Run 'dango auth {source_type}'",
+                            f"No OAuth credentials found. Run 'dango oauth {source_type}'",
                         )
                     )
                     continue
@@ -265,7 +265,7 @@ class ProjectValidator:
                         ValidationResult(
                             f"OAuth: {source_name}",
                             "fail",
-                            f"Token expired on {oauth_cred.expires_at.strftime('%Y-%m-%d')}. Run 'dango auth {source_type}'",
+                            f"Token expired on {oauth_cred.expires_at.strftime('%Y-%m-%d')}. Run 'dango oauth {source_type}'",
                         )
                     )
                 elif oauth_cred.is_expiring_soon(days=7):

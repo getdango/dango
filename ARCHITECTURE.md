@@ -270,7 +270,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | File | Description |
 |------|-------------|
 | `main.py` | Slim entry point (~88 lines) — registers command groups from `commands/` subpackage |
-| `commands/` | Command modules extracted from main.py by TASK-005: `platform.py` (start/stop/status), `source.py` (add/list/remove/sync), `auth.py` (OAuth management), `project.py` (init/rename/info), `transform.py` (run/docs/generate), etc. |
+| `commands/` | Command modules extracted from main.py by TASK-005: `platform.py` (start/stop/status), `source.py` (add/list/remove/sync), `oauth.py` (OAuth credential management), `auth.py` (user auth placeholder, Phase 2), `project.py` (init/rename/info), `transform.py` (run/docs/generate), etc. |
 | `init.py` | Project initialization wizard — creates directory structure, config files, Docker setup |
 | `wizard.py` | Interactive setup wizards |
 | `source_wizard.py` | Source configuration wizard |

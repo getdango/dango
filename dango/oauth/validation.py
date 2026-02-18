@@ -3,7 +3,7 @@
 Live token validation for OAuth credentials.
 
 Makes lightweight API calls to verify tokens actually work, rather than
-just checking stored metadata (expiry dates). Used by ``dango auth check``,
+just checking stored metadata (expiry dates). Used by ``dango oauth check``,
 pre-sync validation, and ``dango status``.
 
 Network error policy: if validation fails due to network issues
@@ -119,7 +119,7 @@ def validate_google_token(credential: OAuthCredential) -> TokenValidationResult:
                     source_type=credential.source_type,
                     provider=credential.provider,
                     valid=False,
-                    message=f"Token revoked. Re-authenticate: dango auth {credential.source_type}",
+                    message=f"Token revoked. Re-authenticate: dango oauth {credential.source_type}",
                     error_code="revoked",
                 )
             return TokenValidationResult(
@@ -234,7 +234,7 @@ def validate_facebook_token(credential: OAuthCredential) -> TokenValidationResul
             source_type=credential.source_type,
             provider=credential.provider,
             valid=False,
-            message=f"Token expired. Re-authenticate: dango auth {credential.source_type}",
+            message=f"Token expired. Re-authenticate: dango oauth {credential.source_type}",
             expires_at=credential.expires_at,
             error_code="expired",
         )
@@ -275,7 +275,7 @@ def validate_facebook_token(credential: OAuthCredential) -> TokenValidationResul
             source_type=credential.source_type,
             provider=credential.provider,
             valid=False,
-            message=f"Token revoked. Re-authenticate: dango auth {credential.source_type}",
+            message=f"Token revoked. Re-authenticate: dango oauth {credential.source_type}",
             error_code="revoked",
         )
 
@@ -350,7 +350,7 @@ def validate_shopify_token(credential: OAuthCredential) -> TokenValidationResult
             source_type=credential.source_type,
             provider=credential.provider,
             valid=False,
-            message="Token invalid. Re-authenticate: dango auth shopify",
+            message="Token invalid. Re-authenticate: dango oauth shopify",
             error_code="revoked",
         )
 
@@ -458,7 +458,7 @@ def validate_before_sync(source_type: str, project_root: Path) -> None:
         if result.error_code == "missing_credentials":
             msg = (
                 f"Incomplete OAuth credentials for {source_type}. "
-                f"Re-authenticate: dango auth {source_type}"
+                f"Re-authenticate: dango oauth {source_type}"
             )
             raise OAuthTokenRevokedError(
                 msg,

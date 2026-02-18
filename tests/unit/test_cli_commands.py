@@ -25,6 +25,7 @@ class TestCliCommandRegistration:
             data,  # noqa: F401
             metabase_cmd,  # noqa: F401
             model,  # noqa: F401
+            oauth,  # noqa: F401
             platform,  # noqa: F401
             project,  # noqa: F401
             source,  # noqa: F401
@@ -53,6 +54,7 @@ class TestCliCommandRegistration:
             "init",
             "metabase",
             "model",
+            "oauth",
             "rename",
             "run",
             "source",
@@ -75,10 +77,10 @@ class TestCliCommandRegistration:
         assert "list" in result.output
         assert "remove" in result.output
 
-    def test_auth_subcommands(self) -> None:
-        """Auth group has all expected subcommands."""
+    def test_oauth_subcommands(self) -> None:
+        """OAuth group has all expected subcommands."""
         runner = CliRunner()
-        result = runner.invoke(cli, ["auth", "--help"])
+        result = runner.invoke(cli, ["oauth", "--help"])
         assert result.exit_code == 0
         for cmd in [
             "check",
@@ -92,7 +94,14 @@ class TestCliCommandRegistration:
             "setup",
             "status",
         ]:
-            assert cmd in result.output, f"Auth subcommand '{cmd}' missing"
+            assert cmd in result.output, f"OAuth subcommand '{cmd}' missing"
+
+    def test_auth_subcommands(self) -> None:
+        """Auth group (placeholder) responds to --help."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["auth", "--help"])
+        assert result.exit_code == 0
+        assert "authentication" in result.output.lower()
 
     def test_db_subcommands(self) -> None:
         """DB group has status and clean subcommands."""

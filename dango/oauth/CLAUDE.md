@@ -33,7 +33,7 @@ Manages browser-based OAuth authentication flows, provider-specific token exchan
 - `requests` — HTTP calls in `validation.py` for live token checks
 
 **Used by:**
-- `dango/cli/commands/auth.py` — OAuth management commands (`dango auth check` uses `validate_all_tokens`)
+- `dango/cli/commands/oauth.py` — OAuth management commands (`dango oauth check` uses `validate_all_tokens`)
 - `dango/cli/commands/source.py` — pre-sync validation (`validate_before_sync`)
 - `dango/cli/commands/platform.py` — token health in `dango status`
 - `dango/cli/source_wizard.py` — inline OAuth during `dango add`
@@ -45,7 +45,7 @@ Manages browser-based OAuth authentication flows, provider-specific token exchan
 
 - **Unit:** `pytest tests/unit/test_oauth_validation.py` (26 tests covering all validators, routing, pre-sync gate)
 - **Integration:** None yet (will be `tests/integration/test_oauth.py`)
-- **Manual:** `dango auth check` (live validation), `dango status` (token health)
+- **Manual:** `dango oauth check` (live validation), `dango status` (token health)
 
 ## Don't Modify
 

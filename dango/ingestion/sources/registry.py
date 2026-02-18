@@ -193,7 +193,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         },
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
-            "2. OR manually run: dango auth google_sheets",
+            "2. OR manually run: dango oauth google_sheets",
             "3. Follow the browser OAuth flow to authenticate",
             "4. Get spreadsheet ID from URL: docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit",
             "5. Credentials are permanent (refresh token stored in .dlt/secrets.toml)",
@@ -223,8 +223,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "access_token_env",
                 "type": "secret",
                 "env_var": "FB_ACCESS_TOKEN",
-                "prompt": "Access Token (use 'dango auth facebook_ads' to generate)",
-                "help": "Long-lived User Access Token (60 days). Generate via 'dango auth facebook_ads' or manually at https://developers.facebook.com/tools/accesstoken. Requires 'ads_read' permission.",
+                "prompt": "Access Token (use 'dango oauth facebook_ads' to generate)",
+                "help": "Long-lived User Access Token (60 days). Generate via 'dango oauth facebook_ads' or manually at https://developers.facebook.com/tools/accesstoken. Requires 'ads_read' permission.",
             },
         ],
         "optional_params": [
@@ -237,7 +237,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
-            "2. OR manually run: dango auth facebook_ads",
+            "2. OR manually run: dango oauth facebook_ads",
             "3. Follow the prompts to exchange short-lived token for long-lived token",
             "4. IMPORTANT: Access token expires in 60 days",
             "5. Set a reminder to re-authenticate before expiry",
@@ -325,7 +325,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         },
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
-            "2. OR manually run: dango auth google_analytics",
+            "2. OR manually run: dango oauth google_analytics",
             "3. Follow the browser OAuth flow to authenticate",
             "4. Get GA4 Property ID from Admin > Property Settings",
             "5. Default queries load 4 tables: traffic, pages, landing_pages, geo",
@@ -514,7 +514,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "setup_guide": [
             "1. Custom app setup runs automatically during 'dango source add'",
-            "2. OR manually run: dango auth shopify",
+            "2. OR manually run: dango oauth shopify",
             "3. Create custom app in Shopify Admin > Apps > Develop apps",
             "4. Configure Admin API scopes (read permissions needed)",
             "5. Install app and reveal Admin API access token",
@@ -677,7 +677,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
-            "2. OR manually run: dango auth google_ads",
+            "2. OR manually run: dango oauth google_ads",
             "3. Follow the browser OAuth flow to authenticate",
             "4. Enter Developer Token from Google Ads API Center",
             "5. Enter Customer ID (find in Google Ads account URL, no hyphens)",
