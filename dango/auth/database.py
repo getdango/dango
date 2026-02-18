@@ -62,6 +62,7 @@ def _row_to_user(row: sqlite3.Row) -> User:
         failed_login_attempts=row["failed_login_attempts"],
         locked_until=_datetime_from_str(row["locked_until"]),
         metabase_user_id=row["metabase_user_id"],
+        metabase_password_enc=row["metabase_password_enc"],
         must_change_password=_bool_from_int(row["must_change_password"]),
         last_login=_datetime_from_str(row["last_login"]),
         created_at=_datetime_from_str(row["created_at"]),  # type: ignore[arg-type]
@@ -122,9 +123,10 @@ def create_user(db_path: Path, user: User) -> User:
                 id, email, password_hash, role, is_active,
                 totp_secret, totp_enabled, recovery_codes,
                 oauth_provider, oauth_id, failed_login_attempts, locked_until,
-                metabase_user_id, must_change_password, last_login,
+                metabase_user_id, metabase_password_enc,
+                must_change_password, last_login,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user.id,
@@ -140,6 +142,7 @@ def create_user(db_path: Path, user: User) -> User:
                 user.failed_login_attempts,
                 _dt_to_str(user.locked_until),
                 user.metabase_user_id,
+                user.metabase_password_enc,
                 int(user.must_change_password),
                 _dt_to_str(user.last_login),
                 user.created_at.isoformat(),

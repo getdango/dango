@@ -29,6 +29,16 @@ from dango.auth.database import (
     update_session_activity,
     update_user,
 )
+from dango.auth.metabase_sync import (
+    deactivate_metabase_user,
+    decrypt_metabase_password,
+    delete_metabase_user,
+    ensure_duckdb_readonly,
+    ensure_metabase_groups,
+    sync_all_users_to_metabase,
+    sync_user_role,
+    sync_user_to_metabase,
+)
 from dango.auth.models import APIKey, Role, Session, User, UserCreate, UserResponse, UserUpdate
 from dango.auth.security import (
     check_password_strength,
@@ -74,6 +84,15 @@ __all__ = [
     "get_api_key_by_hash",
     "list_user_api_keys",
     "revoke_api_key",
+    # Metabase sync
+    "deactivate_metabase_user",
+    "decrypt_metabase_password",
+    "delete_metabase_user",
+    "ensure_duckdb_readonly",
+    "ensure_metabase_groups",
+    "sync_all_users_to_metabase",
+    "sync_user_role",
+    "sync_user_to_metabase",
     # Security utilities
     "check_password_strength",
     "generate_api_key",

@@ -41,6 +41,7 @@ class User(BaseModel):
     failed_login_attempts: int = 0
     locked_until: datetime | None = None
     metabase_user_id: int | None = None
+    metabase_password_enc: str | None = None
     must_change_password: bool = False
     last_login: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -93,6 +94,7 @@ class UserUpdate(BaseModel):
     failed_login_attempts: int | None = None
     locked_until: datetime | None = None
     metabase_user_id: int | None = None
+    metabase_password_enc: str | None = None
     must_change_password: bool | None = None
     last_login: datetime | None = None
 
