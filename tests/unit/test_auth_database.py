@@ -268,6 +268,20 @@ class TestUpdateUser:
         # Compare with second precision (isoformat round-trip may lose microseconds)
         assert abs((updated.locked_until - lock_time).total_seconds()) < 1
 
+    def test_update_new_schema_fields(self, tmp_path: Path) -> None:
+        db = _make_db(tmp_path)
+        user = _make_user()
+        create_user(db, user)
+        now = datetime.now(timezone.utc)
+        updated = update_user(
+            db,
+            user.id,
+            UserUpdate(metabase_user_id=7, must_change_password=True, last_login=now),
+        )
+        assert updated.metabase_user_id == 7
+        assert updated.must_change_password is True
+        assert updated.last_login is not None
+
     def test_clear_locked_until_to_none(self, tmp_path: Path) -> None:
         db = _make_db(tmp_path)
         lock_time = datetime.now(timezone.utc) + timedelta(minutes=15)
