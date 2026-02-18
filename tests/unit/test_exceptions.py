@@ -10,6 +10,10 @@ from typing import Any
 import pytest
 
 from dango.exceptions import (
+    AccountDeactivatedError,
+    AccountLockedError,
+    AuthenticationError,
+    AuthorizationError,
     ConfigError,
     ConfigNotFoundError,
     ConfigValidationError,
@@ -28,7 +32,10 @@ from dango.exceptions import (
     MigrationDiscoveryError,
     MigrationError,
     ProjectNotFoundError,
+    SessionExpiredError,
     SyncTimeoutError,
+    UserExistsError,
+    UserNotFoundError,
     ValidationError,
     WebAPIError,
     is_debug_mode,
@@ -110,6 +117,13 @@ class TestExceptionHierarchy:
             InvalidDateFormatError,
             InvalidPortError,
             WebAPIError,
+            AuthenticationError,
+            AuthorizationError,
+            UserNotFoundError,
+            UserExistsError,
+            SessionExpiredError,
+            AccountLockedError,
+            AccountDeactivatedError,
         ],
     )
     def test_all_inherit_from_dango_error(self, exc_class: type[DangoError]) -> None:
@@ -139,6 +153,15 @@ class TestExceptionHierarchy:
         assert issubclass(ConfigVersionError, DangoError)
         # ConfigVersionError is NOT a ConfigError — it's directly under DangoError
         assert not issubclass(ConfigVersionError, ConfigError)
+
+    def test_auth_hierarchy(self) -> None:
+        assert issubclass(SessionExpiredError, AuthenticationError)
+        assert issubclass(AccountLockedError, AuthenticationError)
+        assert issubclass(AccountDeactivatedError, AuthenticationError)
+        # These are independent — not under AuthenticationError
+        assert not issubclass(AuthorizationError, AuthenticationError)
+        assert not issubclass(UserNotFoundError, AuthenticationError)
+        assert not issubclass(UserExistsError, AuthenticationError)
 
     def test_validation_hierarchy(self) -> None:
         assert issubclass(InvalidSourceNameError, ValidationError)
@@ -174,6 +197,13 @@ class TestDefaultErrorCodes:
             (InvalidDateFormatError, "DANGO-V003"),
             (InvalidPortError, "DANGO-V004"),
             (WebAPIError, "DANGO-W001"),
+            (AuthenticationError, "DANGO-S001"),
+            (AuthorizationError, "DANGO-S002"),
+            (UserNotFoundError, "DANGO-S003"),
+            (UserExistsError, "DANGO-S004"),
+            (SessionExpiredError, "DANGO-S005"),
+            (AccountLockedError, "DANGO-S006"),
+            (AccountDeactivatedError, "DANGO-S007"),
         ],
     )
     def test_default_error_code(self, exc_class: type[DangoError], expected_code: str) -> None:

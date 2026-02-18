@@ -107,6 +107,7 @@ packages = [
     "dango.visualization",
     "dango.web",
     "dango.web.routes",
+    "dango.auth",       # Authentication & authorization
     "dango.oauth",      # OAuth management
     "dango.security",   # Token encryption
     "dango.migrations",
