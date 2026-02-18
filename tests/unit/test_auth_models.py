@@ -131,17 +131,17 @@ class TestUserUpdate:
 
     def test_all_fields_optional(self) -> None:
         uu = UserUpdate()
-        dump = uu.model_dump(exclude_none=True)
+        dump = uu.model_dump(exclude_unset=True)
         assert dump == {}
 
     def test_partial_update_email(self) -> None:
         uu = UserUpdate(email="new@example.com")
-        dump = uu.model_dump(exclude_none=True)
+        dump = uu.model_dump(exclude_unset=True)
         assert dump == {"email": "new@example.com"}
 
     def test_partial_update_role(self) -> None:
         uu = UserUpdate(role=Role.EDITOR)
-        dump = uu.model_dump(exclude_none=True)
+        dump = uu.model_dump(exclude_unset=True)
         assert dump == {"role": Role.EDITOR}
 
     def test_email_normalization(self) -> None:
@@ -154,16 +154,22 @@ class TestUserUpdate:
 
     def test_multiple_fields(self) -> None:
         uu = UserUpdate(email="new@test.com", role=Role.ADMIN, is_active=False)
-        dump = uu.model_dump(exclude_none=True)
+        dump = uu.model_dump(exclude_unset=True)
         assert dump["email"] == "new@test.com"
         assert dump["role"] == Role.ADMIN
         assert dump["is_active"] is False
 
-    def test_exclude_none_preserves_set_values(self) -> None:
+    def test_exclude_unset_preserves_falsy_values(self) -> None:
         uu = UserUpdate(failed_login_attempts=0, totp_enabled=False)
-        dump = uu.model_dump(exclude_none=True)
+        dump = uu.model_dump(exclude_unset=True)
         assert dump["failed_login_attempts"] == 0
         assert dump["totp_enabled"] is False
+
+    def test_exclude_unset_preserves_explicit_none(self) -> None:
+        uu = UserUpdate(locked_until=None)
+        dump = uu.model_dump(exclude_unset=True)
+        assert "locked_until" in dump
+        assert dump["locked_until"] is None
 
 
 @pytest.mark.unit

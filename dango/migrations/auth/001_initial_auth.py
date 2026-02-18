@@ -33,8 +33,6 @@ def upgrade(conn: sqlite3.Connection) -> None:
         )
         """
     )
-    conn.execute("CREATE INDEX idx_users_email ON users (email)")
-
     conn.execute(
         """
         CREATE TABLE sessions (
@@ -50,7 +48,6 @@ def upgrade(conn: sqlite3.Connection) -> None:
         )
         """
     )
-    conn.execute("CREATE INDEX idx_sessions_token_hash ON sessions (token_hash)")
     conn.execute("CREATE INDEX idx_sessions_user_id ON sessions (user_id)")
     conn.execute("CREATE INDEX idx_sessions_expires_at ON sessions (expires_at)")
 
@@ -69,5 +66,4 @@ def upgrade(conn: sqlite3.Connection) -> None:
         )
         """
     )
-    conn.execute("CREATE INDEX idx_api_keys_key_hash ON api_keys (key_hash)")
     conn.execute("CREATE INDEX idx_api_keys_user_id ON api_keys (user_id)")

@@ -110,6 +110,28 @@ class TestCreateUser:
         assert fetched.failed_login_attempts == 5
         assert fetched.locked_until is not None
 
+    def test_wal_mode_enabled(self, tmp_path: Path) -> None:
+        db = _make_db(tmp_path)
+        from dango.auth.database import _connect
+
+        conn = _connect(db)
+        mode = conn.execute("PRAGMA journal_mode").fetchone()
+        conn.close()
+        assert mode is not None
+        assert mode[0] == "wal"
+
+    def test_foreign_keys_reject_invalid_reference(self, tmp_path: Path) -> None:
+        db = _make_db(tmp_path)
+        conn = sqlite3.connect(str(db))
+        conn.execute("PRAGMA foreign_keys=ON")
+        sql = (
+            "INSERT INTO sessions (id,user_id,token_hash,is_active,is_partial,"
+            "created_at,expires_at,last_activity) VALUES (?,?,?,1,0,?,?,?)"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(sql, ("s1", "bad", "h", "2026-01-01", "2026-01-02", "2026-01-01"))
+        conn.close()
+
 
 @pytest.mark.unit
 class TestGetUser:
@@ -229,6 +251,25 @@ class TestUpdateUser:
         original_updated = user.updated_at
         updated = update_user(db, user.id, UserUpdate(role=Role.ADMIN))
         assert updated.updated_at >= original_updated
+
+    def test_update_locked_until_datetime(self, tmp_path: Path) -> None:
+        db = _make_db(tmp_path)
+        user = _make_user()
+        create_user(db, user)
+        lock_time = datetime.now(timezone.utc) + timedelta(minutes=15)
+        updated = update_user(db, user.id, UserUpdate(locked_until=lock_time))
+        assert updated.locked_until is not None
+        # Compare with second precision (isoformat round-trip may lose microseconds)
+        assert abs((updated.locked_until - lock_time).total_seconds()) < 1
+
+    def test_clear_locked_until_to_none(self, tmp_path: Path) -> None:
+        db = _make_db(tmp_path)
+        lock_time = datetime.now(timezone.utc) + timedelta(minutes=15)
+        user = _make_user(locked_until=lock_time)
+        create_user(db, user)
+        assert get_user_by_id(db, user.id) is not None
+        updated = update_user(db, user.id, UserUpdate(locked_until=None))
+        assert updated.locked_until is None
 
 
 @pytest.mark.unit
@@ -457,34 +498,3 @@ class TestAPIKeyCRUD:
         fetched = get_api_key_by_hash(db, key.key_hash)
         assert fetched is not None
         assert fetched.is_active is False
-
-
-@pytest.mark.unit
-class TestDatabaseIntegrity:
-    """Tests for database-level constraints and behaviors."""
-
-    def test_wal_mode_enabled(self, tmp_path: Path) -> None:
-        db = _make_db(tmp_path)
-        # WAL mode is set per-connection by _connect(); verify via CRUD helper
-        from dango.auth.database import _connect
-
-        conn = _connect(db)
-        mode = conn.execute("PRAGMA journal_mode").fetchone()
-        conn.close()
-        assert mode is not None
-        assert mode[0] == "wal"
-
-    def test_foreign_keys_enabled(self, tmp_path: Path) -> None:
-        db = _make_db(tmp_path)
-        user = _make_user()
-        create_user(db, user)
-        # Try inserting a session with a non-existent user_id
-        conn = sqlite3.connect(str(db))
-        conn.execute("PRAGMA foreign_keys=ON")
-        with pytest.raises(sqlite3.IntegrityError):
-            conn.execute(
-                "INSERT INTO sessions (id, user_id, token_hash, is_active, is_partial, "
-                "created_at, expires_at, last_activity) "
-                "VALUES ('s1', 'nonexistent', 'hash', 1, 0, '2026-01-01', '2026-01-02', '2026-01-01')"
-            )
-        conn.close()

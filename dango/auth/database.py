@@ -197,7 +197,7 @@ def update_user(db_path: Path, user_id: str, updates: UserUpdate) -> User:
         UserNotFoundError: If the user does not exist.
         UserExistsError: If the email update conflicts with an existing user.
     """
-    changes: dict[str, Any] = updates.model_dump(exclude_none=True)
+    changes: dict[str, Any] = updates.model_dump(exclude_unset=True)
     if not changes:
         user = get_user_by_id(db_path, user_id)
         if user is None:
@@ -207,7 +207,9 @@ def update_user(db_path: Path, user_id: str, updates: UserUpdate) -> User:
     # Convert Python types to SQLite-compatible values
     sql_values: dict[str, Any] = {}
     for key, value in changes.items():
-        if isinstance(value, bool):
+        if value is None:
+            sql_values[key] = None
+        elif isinstance(value, bool):
             sql_values[key] = int(value)
         elif isinstance(value, datetime):
             sql_values[key] = value.isoformat()

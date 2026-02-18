@@ -71,7 +71,9 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     """Partial update model (all fields optional).
 
-    Use ``model_dump(exclude_none=True)`` to get only the fields that were set.
+    Use ``model_dump(exclude_unset=True)`` to get only the fields that were
+    explicitly passed. This allows setting nullable fields to ``None``
+    (e.g. clearing ``locked_until``) while still omitting untouched fields.
     """
 
     model_config = ConfigDict(from_attributes=True)

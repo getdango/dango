@@ -95,7 +95,7 @@ if static_dir.exists():
 
 # Map exception types to HTTP status codes
 _STATUS_MAP: dict[type[DangoError], int] = {
-    # Auth errors (most specific subclasses first for MRO walk)
+    # Auth errors (subclasses must be present so MRO walk finds them)
     SessionExpiredError: 401,
     AccountLockedError: 423,
     AccountDeactivatedError: 403,
