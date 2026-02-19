@@ -372,8 +372,8 @@ class TestMiddlewareCleanup:
     """Tests for periodic stale entry cleanup."""
 
     def test_stale_entries_removed(self) -> None:
-        """Empty deques are removed after cleanup interval."""
-        config = RateLimitConfig(api=RateLimitGroupConfig(requests=5, window_seconds=1))
+        """Inactive IPs with expired timestamps are cleaned up."""
+        config = RateLimitConfig(api=RateLimitGroupConfig(requests=5, window_seconds=60))
         mw = RateLimitMiddleware(_noop_app, config=config)
 
         base_time = 1000.0
@@ -382,28 +382,25 @@ class TestMiddlewareCleanup:
             mock_time.monotonic.return_value = base_time
             mw._last_cleanup = base_time
 
-            # Add an entry
+            # Add entries for two IPs
             mw._check_rate_limit("1.2.3.4", "api")
-            assert "1.2.3.4" in mw._windows.get("api", {})
-
-            # Jump past window so timestamps expire, and past cleanup interval
-            mock_time.monotonic.return_value = base_time + 301.0
-
-            # Next check will prune the old timestamp and cleanup empty entries
             mw._check_rate_limit("5.6.7.8", "api")
+            assert "1.2.3.4" in mw._windows["api"]
+            assert "5.6.7.8" in mw._windows["api"]
+
+            # Jump past window + cleanup interval
+            mock_time.monotonic.return_value = base_time + 361.0
+
+            # Cleanup should prune stale timestamps and remove both IPs
             mw._maybe_cleanup()
+            assert "1.2.3.4" not in mw._windows.get("api", {})
+            assert "5.6.7.8" not in mw._windows.get("api", {})
 
-            # The old IP should have been cleaned up (its deque is now empty
-            # after pruning, but only if we call _check_rate_limit for it
-            # or _maybe_cleanup clears empty deques)
-            # Let's check: first call _check_rate_limit for old IP to prune
-            mw._check_rate_limit("1.2.3.4", "api")
-            # Now the deque has one fresh entry, so it won't be cleaned.
-            # Instead, let's verify cleanup works on truly empty entries.
-
-        # Create a truly empty scenario
-        mw2 = RateLimitMiddleware(_noop_app, config=config)
-        mw2._windows = {"api": {"old_ip": deque()}}
-        mw2._last_cleanup = 0.0
-        mw2._maybe_cleanup()
-        assert "old_ip" not in mw2._windows.get("api", {})
+    def test_empty_deques_removed(self) -> None:
+        """Deques that are already empty are removed during cleanup."""
+        config = RateLimitConfig(api=RateLimitGroupConfig(requests=5, window_seconds=60))
+        mw = RateLimitMiddleware(_noop_app, config=config)
+        mw._windows = {"api": {"old_ip": deque()}}
+        mw._last_cleanup = 0.0
+        mw._maybe_cleanup()
+        assert "old_ip" not in mw._windows.get("api", {})

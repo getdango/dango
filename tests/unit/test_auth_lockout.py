@@ -178,6 +178,35 @@ class TestRecordFailedLogin:
 
         row = _get_user_row(db_path, "test@example.com")
         assert row["failed_login_attempts"] == 1
+        assert row["locked_until"] is None  # stale locked_until must be cleared
+
+    def test_relocks_after_expired_lockout(self, tmp_path: Path) -> None:
+        """Account can be locked again after a previous lockout expires."""
+        db_path = _make_db(tmp_path)
+        create_user(db_path, _make_user())
+
+        # Set an expired lockout
+        past_lockout = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        conn = _connect(db_path)
+        try:
+            conn.execute(
+                "UPDATE users SET failed_login_attempts = 5, locked_until = ? WHERE email = ?",
+                (past_lockout, "test@example.com"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Accumulate fresh failures — should eventually re-lock
+        for i in range(4):
+            is_locked, _ = record_failed_login(db_path, "test@example.com", max_attempts=5)
+            assert is_locked is False
+            row = _get_user_row(db_path, "test@example.com")
+            assert row["failed_login_attempts"] == i + 1
+
+        is_locked, remaining = record_failed_login(db_path, "test@example.com", max_attempts=5)
+        assert is_locked is True
+        assert remaining > 0
 
 
 @pytest.mark.unit

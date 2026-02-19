@@ -51,6 +51,7 @@ def record_failed_login(
         locked_until_str: str | None = row["locked_until"]
 
         # If already locked and not expired, return remaining time
+        lockout_expired = False
         if locked_until_str is not None:
             locked_until = datetime.fromisoformat(locked_until_str)
             if locked_until.tzinfo is None:
@@ -60,6 +61,7 @@ def record_failed_login(
                 return (True, max(remaining, 1))
             # Lockout expired — reset counter so user gets fresh attempts
             current_attempts = 0
+            lockout_expired = True
 
         new_attempts = current_attempts + 1
         is_locked = new_attempts >= max_attempts
@@ -80,10 +82,17 @@ def record_failed_login(
             )
             return (True, remaining)
 
-        conn.execute(
-            "UPDATE users SET failed_login_attempts = ?, updated_at = ? WHERE id = ?",
-            (new_attempts, now.isoformat(), user_id),
-        )
+        # Clear stale locked_until when lockout has expired
+        if lockout_expired:
+            conn.execute(
+                "UPDATE users SET failed_login_attempts = ?, locked_until = NULL, updated_at = ? WHERE id = ?",
+                (new_attempts, now.isoformat(), user_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE users SET failed_login_attempts = ?, updated_at = ? WHERE id = ?",
+                (new_attempts, now.isoformat(), user_id),
+            )
         conn.commit()
         return (False, 0)
     finally:

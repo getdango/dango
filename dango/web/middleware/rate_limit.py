@@ -192,7 +192,7 @@ class RateLimitMiddleware:
         )
 
     def _maybe_cleanup(self) -> None:
-        """Periodically remove IP entries with empty deques."""
+        """Periodically prune expired timestamps and remove empty IP entries."""
         now = time.monotonic()
         if now - self._last_cleanup < _CLEANUP_INTERVAL:
             return
@@ -200,6 +200,13 @@ class RateLimitMiddleware:
         self._last_cleanup = now
         for group in list(self._windows):
             ip_windows = self._windows[group]
-            empty_ips = [ip for ip, dq in ip_windows.items() if not dq]
-            for ip in empty_ips:
+            group_config = self.config.login if group == "login" else self.config.api
+            cutoff = now - group_config.window_seconds
+            stale_ips: list[str] = []
+            for ip, dq in ip_windows.items():
+                while dq and dq[0] <= cutoff:
+                    dq.popleft()
+                if not dq:
+                    stale_ips.append(ip)
+            for ip in stale_ips:
                 del ip_windows[ip]

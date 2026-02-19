@@ -97,6 +97,9 @@ def _load_rate_limit_config(project_root: Path | None) -> RateLimitConfig | None
         config = load_config(root)
         return config.auth.rate_limit
     except Exception:
+        logger.debug(
+            "rate_limit_config_not_loaded", reason="no project config found, using defaults"
+        )
         return None
 
 
