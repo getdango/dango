@@ -48,6 +48,12 @@ _AUTH_TOGGLE_CACHE_TTL: float = 5.0  # seconds
 # Public routes — never require authentication
 # ---------------------------------------------------------------------------
 
+# NOTE: /api/status, /api/watcher/status, /api/health/platform are
+# intentionally NOT public — they expose detailed system information.
+# Only /api/health (basic load-balancer probe) is unauthenticated.
+# Similarly, /dbt-docs/ and its JSON assets (/manifest.json,
+# /catalog.json) require auth — dbt model metadata is project data.
+
 # fmt: off
 _PUBLIC_EXACT: frozenset[str] = frozenset({
     "/api/auth/login",
@@ -67,7 +73,6 @@ _PUBLIC_EXACT: frozenset[str] = frozenset({
 _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/auth/oauth/",
     "/static/",
-    "/dbt-docs/",
 )
 
 # Methods that do NOT require CSRF protection

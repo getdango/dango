@@ -85,9 +85,6 @@ def _make_user(email: str = "test@example.com", role: Role = Role.EDITOR) -> Use
 _PROJECT_ROOT = Path("/tmp/dango-test-project")
 _M = "dango.web.middleware.auth"
 
-# Reusable mock for an existing auth.db
-_EXISTING_DB = MagicMock(exists=MagicMock(return_value=True))
-
 
 def _db_exists() -> MagicMock:
     """Return a fresh mock Path whose .exists() returns True."""
@@ -151,7 +148,7 @@ class TestPublicRoutes:
     def test_prefix_public_routes(self, _m: Any) -> None:
         """Prefix-matched public routes pass through."""
         mw = AuthMiddleware(_noop_app, project_root=_PROJECT_ROOT)
-        for path in ["/api/auth/oauth/google", "/static/css/main.css", "/dbt-docs/x"]:
+        for path in ["/api/auth/oauth/google", "/static/css/main.css"]:
             result = asyncio.run(_collect_response(mw, _make_scope(path=path)))
             assert result["status"] == 200, f"{path} was blocked"
 
@@ -268,6 +265,18 @@ class TestCsrfProtection:
         assert result["status"] == 403
         body = json.loads(result["body"])
         assert body["error_code"] == "DANGO-S002"
+
+    @patch(f"{_M}.is_auth_enabled", return_value=True)
+    @patch(f"{_M}.get_auth_db_path")
+    @patch(f"{_M}.sessions.validate_session")
+    def test_delete_without_csrf_403(self, mock_val: Any, mock_db: Any, _m: Any) -> None:
+        """Cookie auth + DELETE without CSRF header: 403."""
+        mock_val.return_value = _make_user()
+        mock_db.return_value = _db_exists()
+        mw = AuthMiddleware(_noop_app, project_root=_PROJECT_ROOT)
+        scope = _make_scope(path="/api/sources/x", method="DELETE", cookie="v")
+        result = asyncio.run(_collect_response(mw, scope))
+        assert result["status"] == 403
 
     @patch(f"{_M}.is_auth_enabled", return_value=True)
     @patch(f"{_M}.get_auth_db_path")
