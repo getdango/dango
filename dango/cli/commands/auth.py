@@ -70,7 +70,8 @@ def auth_enable(ctx: click.Context) -> None:
             print_info("Authentication is already enabled.")
             return
 
-        set_auth_enabled(project_root, enabled=True)
+        # Create admin before enabling so a failure doesn't leave auth
+        # enabled with no admin user.
         db_path = get_auth_db_path(project_root)
         if db_path.exists():
             email = click.prompt("Admin email", default="admin@localhost")
@@ -82,6 +83,7 @@ def auth_enable(ctx: click.Context) -> None:
                 console.print()
             else:
                 print_info("Admin account already exists.")
+        set_auth_enabled(project_root, enabled=True)
         print_success("Authentication enabled.")
     except click.Abort:
         raise
@@ -159,6 +161,8 @@ def auth_list_users(ctx: click.Context) -> None:
     from dango.auth.database import list_users
 
     try:
+        from datetime import datetime, timezone
+
         _, db_path = _get_db_path(ctx)
         users = list_users(db_path)
         if not users:
@@ -166,6 +170,7 @@ def auth_list_users(ctx: click.Context) -> None:
             console.print("[dim]Use 'dango auth add-user <email>' to create one.[/dim]")
             return
 
+        now = datetime.now(timezone.utc)
         table = Table(title=f"Users ({len(users)})", show_header=True)
         table.add_column("Email", style="cyan")
         table.add_column("Role", style="blue")
@@ -175,7 +180,7 @@ def auth_list_users(ctx: click.Context) -> None:
         for user in users:
             if not user.is_active:
                 status = "[red]Inactive[/red]"
-            elif user.locked_until is not None:
+            elif user.locked_until is not None and user.locked_until > now:
                 status = "[yellow]Locked[/yellow]"
             else:
                 status = "[green]Active[/green]"
@@ -347,6 +352,8 @@ def auth_status(ctx: click.Context) -> None:
     from dango.cli.utils import require_project_context
 
     try:
+        from datetime import datetime, timezone
+
         project_root = require_project_context(ctx)
         enabled = is_auth_enabled(project_root)
         lines: list[str] = []
@@ -360,12 +367,13 @@ def auth_status(ctx: click.Context) -> None:
             from dango.auth.database import list_users
             from dango.auth.models import Role
 
+            now = datetime.now(timezone.utc)
             users = list_users(db_path)
             active = [u for u in users if u.is_active]
             admins = [u for u in active if u.role == Role.ADMIN]
             editors = [u for u in active if u.role == Role.EDITOR]
             viewers = [u for u in active if u.role == Role.VIEWER]
-            locked = [u for u in users if u.locked_until is not None]
+            locked = [u for u in users if u.locked_until is not None and u.locked_until > now]
             inactive = [u for u in users if not u.is_active]
             lines.append(f"[bold]Users:[/bold] {len(active)} active")
             lines.append(

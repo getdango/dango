@@ -216,6 +216,37 @@ class TestAuthResetPassword:
         assert result.exit_code == 0
         assert "user@test.com" in result.output
 
+    def test_reset_changes_hash_and_invalidates_sessions(self, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        db_path = project_root / ".dango" / "auth.db"
+        user = _add_user(project_root, email="user@test.com")
+        old_hash = user.password_hash
+
+        # Create a session for the user
+        from datetime import datetime, timedelta, timezone
+
+        from dango.auth.database import create_session, get_user_by_email, list_user_sessions
+        from dango.auth.models import Session
+
+        session = Session(
+            user_id=user.id,
+            token_hash="fakehash123",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        create_session(db_path, session)
+        assert len(list_user_sessions(db_path, user.id)) == 1
+
+        runner = CliRunner()
+        with patch("dango.cli.utils.find_project_root", return_value=project_root):
+            result = runner.invoke(cli, ["auth", "reset-password", "user@test.com"])
+        assert result.exit_code == 0
+
+        updated = get_user_by_email(db_path, "user@test.com")
+        assert updated is not None
+        assert updated.password_hash != old_hash
+        assert updated.must_change_password is True
+        assert len(list_user_sessions(db_path, user.id, active_only=True)) == 0
+
     def test_reset_nonexistent_user(self, tmp_path: Path) -> None:
         project_root = _setup_project(tmp_path)
         runner = CliRunner()
@@ -235,6 +266,16 @@ class TestAuthDeactivateUser:
         runner = CliRunner()
         with patch("dango.cli.utils.find_project_root", return_value=project_root):
             result = runner.invoke(cli, ["auth", "deactivate-user", "user@test.com"])
+        assert result.exit_code == 0
+        assert "deactivated" in result.output.lower()
+
+    def test_deactivate_admin_when_another_exists(self, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        _add_user(project_root, email="admin1@test.com", role=Role.ADMIN)
+        _add_user(project_root, email="admin2@test.com", role=Role.ADMIN)
+        runner = CliRunner()
+        with patch("dango.cli.utils.find_project_root", return_value=project_root):
+            result = runner.invoke(cli, ["auth", "deactivate-user", "admin1@test.com"])
         assert result.exit_code == 0
         assert "deactivated" in result.output.lower()
 
@@ -328,6 +369,18 @@ class TestAuthDeleteUser:
 @pytest.mark.unit
 class TestAuthStatus:
     """Tests for 'dango auth status'."""
+
+    def test_status_no_db(self, tmp_path: Path) -> None:
+        """Status works when auth.db doesn't exist yet."""
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        (dango_dir / "project.yml").write_text("project:\n  name: test\n")
+        # No auth.db created
+        runner = CliRunner()
+        with patch("dango.cli.utils.find_project_root", return_value=tmp_path):
+            result = runner.invoke(cli, ["auth", "status"])
+        assert result.exit_code == 0
+        assert "not initialized" in result.output.lower()
 
     def test_status_disabled(self, tmp_path: Path) -> None:
         project_root = _setup_project(tmp_path)
