@@ -398,9 +398,12 @@ class TestMiddlewareCleanup:
 
     def test_empty_deques_removed(self) -> None:
         """Deques that are already empty are removed during cleanup."""
+        import time as _time
+
         config = RateLimitConfig(api=RateLimitGroupConfig(requests=5, window_seconds=60))
         mw = RateLimitMiddleware(_noop_app, config=config)
         mw._windows = {"api": {"old_ip": deque()}}
-        mw._last_cleanup = 0.0
+        # Ensure cleanup interval has elapsed (monotonic clock may be small on CI)
+        mw._last_cleanup = _time.monotonic() - 301.0
         mw._maybe_cleanup()
         assert "old_ip" not in mw._windows.get("api", {})
