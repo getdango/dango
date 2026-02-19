@@ -46,6 +46,16 @@ from dango.auth.lockout import (
     reset_failed_logins,
     unlock_account,
 )
+from dango.auth.metabase_sync import (
+    deactivate_metabase_user,
+    decrypt_metabase_password,
+    delete_metabase_user,
+    ensure_duckdb_readonly,
+    ensure_metabase_groups,
+    sync_all_users_to_metabase,
+    sync_user_role,
+    sync_user_to_metabase,
+)
 from dango.auth.models import APIKey, Role, Session, User, UserCreate, UserResponse, UserUpdate
 from dango.auth.permissions import (
     PERMISSIONS,
@@ -142,6 +152,15 @@ __all__ = [
     "record_failed_login",
     "reset_failed_logins",
     "unlock_account",
+    # Metabase sync
+    "deactivate_metabase_user",
+    "decrypt_metabase_password",
+    "delete_metabase_user",
+    "ensure_duckdb_readonly",
+    "ensure_metabase_groups",
+    "sync_all_users_to_metabase",
+    "sync_user_role",
+    "sync_user_to_metabase",
     # Permissions
     "PERMISSIONS",
     "ROLE_PERMISSIONS",
