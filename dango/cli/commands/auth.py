@@ -293,7 +293,7 @@ def auth_delete_user(ctx: click.Context, email: str) -> None:
     from dango.cli.utils import confirm, print_error, print_success, print_warning
 
     try:
-        _, db_path = _get_db_path(ctx)
+        project_root, db_path = _get_db_path(ctx)
         user = get_user_by_email(db_path, email)
         if user is None:
             print_error(f"User '{email}' not found.")
@@ -308,11 +308,11 @@ def auth_delete_user(ctx: click.Context, email: str) -> None:
         if not confirm(f"Permanently delete user '{user.email}'? This cannot be undone."):
             return
         try:
-            from dango.auth.metabase_sync import cleanup_metabase_user  # type: ignore[import-not-found]  # noqa: I001,E501
+            from dango.auth.metabase_sync import _load_metabase_credentials, delete_metabase_user
 
-            cleanup_metabase_user(db_path, user)
-        except ImportError:
-            pass  # TASK-018 not yet available
+            creds = _load_metabase_credentials(project_root)
+            if creds and creds.get("metabase_url"):
+                delete_metabase_user(db_path, user.id, project_root, creds["metabase_url"])
         except Exception:
             print_warning("Metabase cleanup failed (user will still be deleted).")
         delete_user(db_path, user.id)
