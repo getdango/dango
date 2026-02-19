@@ -1,6 +1,7 @@
 """tests/unit/test_auth_api_keys.py
 
-Tests for API key lifecycle management in dango/auth/sessions.py.
+Tests for API key lifecycle management (dango/auth/sessions.py)
+and low-level API key CRUD operations (dango/auth/database.py).
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from typing import Any
 import pytest
 
 from dango.auth import database as db
-from dango.auth.models import Role, User
+from dango.auth.models import APIKey, Role, User
 from dango.auth.security import hash_api_key
 from dango.auth.sessions import (
     create_api_key,
@@ -196,3 +197,82 @@ class TestListAPIKeys:
         db_path = _make_db(tmp_path)
         user = _setup_user(db_path)
         assert list_api_keys(db_path, user.id) == []
+
+
+@pytest.mark.unit
+class TestAPIKeyCRUD:
+    """Tests for low-level API key CRUD in database.py."""
+
+    def _make_api_key(self, user_id: str, **kw: Any) -> APIKey:
+        defaults: dict[str, Any] = {
+            "user_id": user_id,
+            "name": "Test Key",
+            "key_hash": "keyhash123",
+        }
+        defaults.update(kw)
+        return APIKey(**defaults)
+
+    def test_create_and_get(self, tmp_path: Path) -> None:
+        db_path = _make_db(tmp_path)
+        user = _setup_user(db_path)
+        key = self._make_api_key(user.id)
+        created = db.create_api_key(db_path, key)
+        assert created.id == key.id
+
+        fetched = db.get_api_key_by_hash(db_path, key.key_hash)
+        assert fetched is not None
+        assert fetched.name == "Test Key"
+        assert fetched.user_id == user.id
+        assert fetched.is_active is True
+
+    def test_get_nonexistent_returns_none(self, tmp_path: Path) -> None:
+        db_path = _make_db(tmp_path)
+        assert db.get_api_key_by_hash(db_path, "nonexistent") is None
+
+    def test_list_user_api_keys(self, tmp_path: Path) -> None:
+        db_path = _make_db(tmp_path)
+        user = _setup_user(db_path)
+        k1 = self._make_api_key(user.id, key_hash="kh1", name="Key 1")
+        k2 = self._make_api_key(user.id, key_hash="kh2", name="Key 2")
+        db.create_api_key(db_path, k1)
+        db.create_api_key(db_path, k2)
+        db.revoke_api_key(db_path, k1.id)
+
+        active = db.list_user_api_keys(db_path, user.id, active_only=True)
+        assert len(active) == 1
+        assert active[0].name == "Key 2"
+
+        all_keys = db.list_user_api_keys(db_path, user.id, active_only=False)
+        assert len(all_keys) == 2
+
+    def test_revoke_api_key(self, tmp_path: Path) -> None:
+        db_path = _make_db(tmp_path)
+        user = _setup_user(db_path)
+        key = self._make_api_key(user.id)
+        db.create_api_key(db_path, key)
+        db.revoke_api_key(db_path, key.id)
+
+        fetched = db.get_api_key_by_hash(db_path, key.key_hash)
+        assert fetched is not None
+        assert fetched.is_active is False
+
+    def test_api_key_with_prefix(self, tmp_path: Path) -> None:
+        db_path = _make_db(tmp_path)
+        user = _setup_user(db_path)
+        key = self._make_api_key(user.id, key_hash="pfx1", key_prefix="dango_ak_abc12")
+        db.create_api_key(db_path, key)
+        fetched = db.get_api_key_by_hash(db_path, "pfx1")
+        assert fetched is not None
+        assert fetched.key_prefix == "dango_ak_abc12"
+
+    def test_update_last_used(self, tmp_path: Path) -> None:
+        db_path = _make_db(tmp_path)
+        user = _setup_user(db_path)
+        key = self._make_api_key(user.id)
+        db.create_api_key(db_path, key)
+        assert db.get_api_key_by_hash(db_path, key.key_hash) is not None
+        assert db.get_api_key_by_hash(db_path, key.key_hash).last_used_at is None  # type: ignore[union-attr]
+        db.update_api_key_last_used(db_path, key.id)
+        fetched = db.get_api_key_by_hash(db_path, key.key_hash)
+        assert fetched is not None
+        assert fetched.last_used_at is not None
