@@ -210,6 +210,31 @@ class TestSyncUserRole:
         mock_req.put.return_value = _resp(200, {})
         assert sync_user_role(db, user.id, root, MB_URL) is True
 
+    @patch("dango.auth.metabase_sync.requests")
+    def test_demotion_removes_group(self, mock_req: MagicMock, tmp_path: Path) -> None:
+        """Editor→Viewer demotion removes editors group via membership lookup."""
+        from dango.auth.metabase_sync import sync_user_role
+
+        db = _make_db(tmp_path)
+        root = _mb_yml(tmp_path)
+        # User is Viewer but still in editors group (5) in Metabase
+        user = _user_in_db(db, email="demoted@example.com", role=Role.VIEWER, metabase_user_id=10)
+
+        mock_req.post.return_value = _resp(200, {"id": "s"})
+        mock_req.get.side_effect = [
+            _resp(200, _GROUPS_WITH_EDITORS),  # ensure_groups: list groups
+            _resp(200, {"groups": {}}),  # ensure_groups: permissions graph
+            _resp(200, {"id": 10, "group_ids": [1, 5]}),  # _sync: user detail
+            # _sync: lookup group 5 members to find membership_id
+            _resp(200, {"members": [{"user_id": 10, "membership_id": 77}]}),
+        ]
+        mock_req.put.return_value = _resp(200, {})
+        mock_req.delete.return_value = _resp(204)
+        assert sync_user_role(db, user.id, root, MB_URL) is True
+        # Verify DELETE was called for membership 77
+        delete_calls = list(mock_req.delete.call_args_list)
+        assert any("/api/permissions/membership/77" in str(c) for c in delete_calls)
+
     @patch("dango.auth.metabase_sync.SecureTokenStorage")
     @patch("dango.auth.metabase_sync.requests")
     def test_creates_user_if_missing(
@@ -253,7 +278,7 @@ class TestDeactivateAndDelete:
         root = _mb_yml(tmp_path)
         user = _user_in_db(db, metabase_user_id=20)
         mock_req.post.return_value = _resp(200, {"id": "s"})
-        mock_req.put.return_value = _resp(200, {"id": 20})
+        mock_req.delete.return_value = _resp(204)
         assert deactivate_metabase_user(db, user.id, root, MB_URL) is True
 
     def test_deactivate_no_mb_id(self, tmp_path: Path) -> None:
@@ -271,7 +296,7 @@ class TestDeactivateAndDelete:
         root = _mb_yml(tmp_path)
         user = _user_in_db(db, metabase_user_id=30, metabase_password_enc="enc")
         mock_req.post.return_value = _resp(200, {"id": "s"})
-        mock_req.put.return_value = _resp(200, {"id": 30})
+        mock_req.delete.return_value = _resp(204)
         assert delete_metabase_user(db, user.id, root, MB_URL) is True
         u = get_user_by_id(db, user.id)
         assert u is not None and u.metabase_user_id is None and u.metabase_password_enc is None
@@ -412,7 +437,7 @@ class TestErrorHandling:
         _mb_yml(tmp_path)
         user = _user_in_db(db, metabase_user_id=10)
         mock_req.post.return_value = _resp(200, {"id": "s"})
-        mock_req.put.return_value = _resp(500)
+        mock_req.delete.return_value = _resp(500)
         assert deactivate_metabase_user(db, user.id, tmp_path, MB_URL) is False
 
     @patch("dango.auth.metabase_sync.requests")

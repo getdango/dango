@@ -189,7 +189,7 @@ def ensure_metabase_groups(
     groups = graph.get("groups", {})
     db_key = str(db_id)
     groups.setdefault(str(_ALL_USERS_GROUP_ID), {})[db_key] = {
-        "view-data": "blocked",
+        "view-data": "unrestricted",
         "create-queries": "no",
     }
     groups.setdefault(str(editors_id), {})[db_key] = {
@@ -227,18 +227,16 @@ def _sync_user_groups(
     if not isinstance(user_resp, dict):
         return False
 
-    current: dict[int, int] = {}  # group_id → membership_id
+    current_gids: set[int] = set()
     for entry in user_resp.get("group_ids", []):
         if isinstance(entry, dict):
-            gid, mid = entry.get("id", 0), entry.get("membership_id")
-            if mid is not None:
-                current[gid] = mid
+            current_gids.add(entry.get("id", 0))
         elif isinstance(entry, int):
-            current[entry] = 0
+            current_gids.add(entry)
 
     target_set = set(target_groups)
     skip = {group_ids["all_users"]}
-    for gid in target_set - set(current):
+    for gid in target_set - current_gids:
         if gid not in skip:
             _mb_post(
                 metabase_url,
@@ -246,13 +244,18 @@ def _sync_user_groups(
                 "/api/permissions/membership",
                 {"group_id": gid, "user_id": mb_user_id},
             )
-    for gid in set(current) - target_set:
-        if gid not in skip and current[gid]:
-            _mb_delete(
-                metabase_url,
-                session,
-                f"/api/permissions/membership/{current[gid]}",
-            )
+    for gid in current_gids - target_set:
+        if gid in skip:
+            continue
+        grp = _mb_get(metabase_url, session, f"/api/permissions/group/{gid}")
+        if not isinstance(grp, dict):
+            continue
+        for member in grp.get("members", []):
+            if member.get("user_id") == mb_user_id:
+                mid = member.get("membership_id")
+                if mid is not None:
+                    _mb_delete(metabase_url, session, f"/api/permissions/membership/{mid}")
+                break
     return True
 
 
@@ -360,7 +363,7 @@ def sync_user_role(db_path: Path, user_id: str, project_root: Path, metabase_url
 def deactivate_metabase_user(
     db_path: Path, user_id: str, project_root: Path, metabase_url: str
 ) -> bool:
-    """Deactivate a user's Metabase account (soft-delete)."""
+    """Deactivate a user's Metabase account (soft-delete via DELETE)."""
     try:
         user = get_user_by_id(db_path, user_id)
         if user is None or user.metabase_user_id is None:
@@ -368,13 +371,7 @@ def deactivate_metabase_user(
         session = _get_admin_session(metabase_url, project_root)
         if session is None:
             return False
-        result = _mb_put(
-            metabase_url,
-            session,
-            f"/api/user/{user.metabase_user_id}",
-            {"is_active": False},
-        )
-        if result is not None:
+        if _mb_delete(metabase_url, session, f"/api/user/{user.metabase_user_id}"):
             logger.info("Deactivated Metabase user %s", user.metabase_user_id)
             return True
         return False
@@ -417,7 +414,8 @@ def ensure_duckdb_readonly(project_root: Path, metabase_url: str) -> bool:
         if not isinstance(details, dict):
             details = {}
         details["read_only"] = True
-        result = _mb_put(metabase_url, session, f"/api/database/{db_id}", {"details": details})
+        db_resp["details"] = details
+        result = _mb_put(metabase_url, session, f"/api/database/{db_id}", db_resp)
         if result is not None:
             logger.info("Set DuckDB database %s to read-only", db_id)
             return True
@@ -452,7 +450,7 @@ def sync_all_users_to_metabase(
         ensure_duckdb_readonly(project_root, metabase_url)
 
         dango_users = list_users(db_path, active_only=True)
-        mb_resp = _mb_get(metabase_url, session, "/api/user")
+        mb_resp = _mb_get(metabase_url, session, "/api/user?limit=2000")
         mb_by_email: dict[str, dict[str, Any]] = {}
         if isinstance(mb_resp, list):
             mb_by_email = {u.get("email", ""): u for u in mb_resp}
