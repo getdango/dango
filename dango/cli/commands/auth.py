@@ -1,14 +1,11 @@
 """dango/cli/commands/auth.py
 
-User authentication and access management commands.
-
-Provides CLI subcommands for enabling/disabling auth, managing users
-(add, list, deactivate, reactivate, delete, reset-password, unlock),
-querying the audit log, and emergency admin recovery.
+CLI subcommands for auth toggle, user management, audit log, and recovery.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -19,12 +16,7 @@ from dango.cli import console
 @click.group()
 @click.pass_context
 def auth(ctx: click.Context) -> None:
-    """Manage user authentication and access.
-
-    Enable or disable authentication, create and manage users, reset
-    passwords, and query the audit log.  For OAuth credential management
-    (Google, Facebook, Shopify), use ``dango oauth``.
-    """
+    """Manage user authentication and access."""
 
 
 def _get_db_path(ctx: click.Context) -> tuple[Path, Path]:
@@ -78,9 +70,7 @@ def auth_enable(ctx: click.Context) -> None:
             result = ensure_admin(db_path, email=email)
             if result is not None:
                 user, password = result
-                console.print()
                 console.print(format_credentials_panel(user.email, password))
-                console.print()
             else:
                 print_info("Admin account already exists.")
         set_auth_enabled(project_root, enabled=True)
@@ -137,9 +127,7 @@ def auth_add_user(ctx: click.Context, email: str, role: str) -> None:
             must_change_password=True,
         )
         create_user(db_path, user)
-        console.print()
         console.print(format_credentials_panel(user.email, password, title="User created"))
-        console.print()
     except click.Abort:
         raise
     except UserExistsError:
@@ -161,8 +149,6 @@ def auth_list_users(ctx: click.Context) -> None:
     from dango.auth.database import list_users
 
     try:
-        from datetime import datetime, timezone
-
         _, db_path = _get_db_path(ctx)
         users = list_users(db_path)
         if not users:
@@ -192,9 +178,7 @@ def auth_list_users(ctx: click.Context) -> None:
                 last_login,
                 user.created_at.strftime("%Y-%m-%d"),
             )
-        console.print()
         console.print(table)
-        console.print()
     except click.Abort:
         raise
     except Exception as exc:
@@ -227,9 +211,7 @@ def auth_reset_password(ctx: click.Context, email: str) -> None:
             UserUpdate(password_hash=hash_password(password), must_change_password=True),
         )
         invalidate_all_user_sessions(db_path, user.id)
-        console.print()
         console.print(format_credentials_panel(user.email, password, title="Password reset"))
-        console.print()
     except click.Abort:
         raise
     except Exception as exc:
@@ -352,8 +334,6 @@ def auth_status(ctx: click.Context) -> None:
     from dango.cli.utils import require_project_context
 
     try:
-        from datetime import datetime, timezone
-
         project_root = require_project_context(ctx)
         enabled = is_auth_enabled(project_root)
         lines: list[str] = []
@@ -386,9 +366,7 @@ def auth_status(ctx: click.Context) -> None:
         else:
             lines.append("[dim]Auth database not initialized.[/dim]")
             lines.append("[dim]Run 'dango start' or 'dango migrate run' first.[/dim]")
-        console.print()
         console.print(Panel("\n".join(lines), title="Auth Status", border_style="blue"))
-        console.print()
     except click.Abort:
         raise
     except Exception as exc:
@@ -439,17 +417,45 @@ def auth_audit(
     limit: int,
 ) -> None:
     """Query the authentication audit log."""
-    from dango.cli.utils import print_info
+    from rich.table import Table
+
+    from dango.auth.audit import AuditEvent, query_audit_log
+    from dango.cli.utils import require_project_context
 
     try:
-        _get_db_path(ctx)  # Validate project + db exists
-        try:
-            from dango.auth.audit import query_audit_log  # type: ignore[import-not-found]
-
-            query_audit_log(since=since, event_type=event_type, limit=limit)
-        except ImportError:
-            print_info("Audit logging is not yet available (TASK-089).")
-            print_info("This command will work once the audit module is implemented.")
+        project_root = require_project_context(ctx)
+        log_dir = project_root / ".dango" / "logs"
+        audit_event: AuditEvent | None = None
+        if event_type is not None:
+            try:
+                audit_event = AuditEvent(event_type)
+            except ValueError:
+                valid = ", ".join(e.value for e in AuditEvent)
+                _handle_error(ValueError(f"Unknown event type '{event_type}'. Valid: {valid}"))
+                raise click.Abort() from None
+        entries = query_audit_log(
+            since=since,
+            event_type=audit_event,
+            limit=limit,
+            log_dir=log_dir,
+        )
+        if not entries:
+            console.print("[dim]No audit events found.[/dim]")
+            return
+        table = Table(title=f"Audit Log ({len(entries)} events)", show_header=True)
+        table.add_column("Timestamp", style="dim")
+        table.add_column("Event", style="cyan")
+        table.add_column("Email", style="blue")
+        table.add_column("Details")
+        for entry in entries:
+            d = entry.get("details") or {}
+            table.add_row(
+                entry.get("timestamp", "")[:19],
+                entry.get("event", ""),
+                entry.get("email", "—"),
+                ", ".join(f"{k}={v}" for k, v in d.items()) or "—",
+            )
+        console.print(table)
     except click.Abort:
         raise
     except Exception as exc:
@@ -486,9 +492,7 @@ def auth_recover(ctx: click.Context) -> None:
             print_error(f"A user with email '{email.strip().lower()}' already exists.")
             raise click.Abort() from None
         print_warning("Recovery admin created. Delete this account after regaining access.")
-        console.print()
         console.print(format_credentials_panel(user.email, password, title="Recovery admin"))
-        console.print()
     except click.Abort:
         raise
     except Exception as exc:

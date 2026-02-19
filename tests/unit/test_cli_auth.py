@@ -462,10 +462,30 @@ class TestAuthRecover:
 class TestAuthAudit:
     """Tests for 'dango auth audit'."""
 
-    def test_audit_graceful_when_module_missing(self, tmp_path: Path) -> None:
+    def test_audit_empty_log(self, tmp_path: Path) -> None:
         project_root = _setup_project(tmp_path)
         runner = CliRunner()
         with patch("dango.cli.utils.find_project_root", return_value=project_root):
             result = runner.invoke(cli, ["auth", "audit"])
         assert result.exit_code == 0
-        assert "not yet available" in result.output.lower()
+        assert "no audit events" in result.output.lower()
+
+    def test_audit_shows_events(self, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        from dango.auth.audit import AuditEvent, log_auth_event
+
+        log_dir = project_root / ".dango" / "logs"
+        log_auth_event(AuditEvent.USER_CREATED, email="test@test.com", log_dir=log_dir)
+        runner = CliRunner()
+        with patch("dango.cli.utils.find_project_root", return_value=project_root):
+            result = runner.invoke(cli, ["auth", "audit"])
+        assert result.exit_code == 0
+        assert "test@test.com" in result.output
+        assert "user_created" in result.output
+
+    def test_audit_invalid_event_type(self, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        runner = CliRunner()
+        with patch("dango.cli.utils.find_project_root", return_value=project_root):
+            result = runner.invoke(cli, ["auth", "audit", "--type", "bogus"])
+        assert result.exit_code != 0

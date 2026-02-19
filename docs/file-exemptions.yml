@@ -121,9 +121,9 @@ exemptions:
 
   # --- Test files (verbose by nature — each test class covers one public function) ---
   - file: tests/unit/test_auth_database.py
-    lines: 546
+    lines: 560
     category: exempt
-    reason: "At limit from TASK-010; TASK-099 adds 6-field round-trip tests. TEST-002 will split into multiple files."
+    reason: "At limit from TASK-010; TASK-014 adds update_api_key_last_used test. TEST-002 will split into multiple files."
     review_by: "v1.0"
 
   - file: tests/unit/test_oauth_validation.py
