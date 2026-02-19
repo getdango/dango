@@ -261,8 +261,9 @@ def _sync_user_groups(
 
 def _apply_role(url: str, session: str, uid: int, role: Role, gids: dict[str, int]) -> None:
     """Sync group membership and superuser flag for a Metabase user."""
-    _sync_user_groups(url, session, uid, _get_role_groups(role, gids), gids)
+    # Revoke superuser first on demotion (is_superuser bypasses all permission checks)
     _mb_put(url, session, f"/api/user/{uid}", {"is_superuser": role == Role.ADMIN})
+    _sync_user_groups(url, session, uid, _get_role_groups(role, gids), gids)
 
 
 def sync_user_to_metabase(

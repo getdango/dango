@@ -61,7 +61,6 @@ def _resp(status: int = 200, data: Any = None) -> MagicMock:
     return r
 
 
-# ---- Groups list used across tests ----
 _GROUPS = [{"id": 1, "name": "All Users"}, {"id": 2, "name": "Administrators"}]
 _GROUPS_WITH_EDITORS = [*_GROUPS, {"id": 5, "name": "Dango Editors"}]
 
@@ -222,18 +221,39 @@ class TestSyncUserRole:
 
         mock_req.post.return_value = _resp(200, {"id": "s"})
         mock_req.get.side_effect = [
-            _resp(200, _GROUPS_WITH_EDITORS),  # ensure_groups: list groups
-            _resp(200, {"groups": {}}),  # ensure_groups: permissions graph
-            _resp(200, {"id": 10, "group_ids": [1, 5]}),  # _sync: user detail
-            # _sync: lookup group 5 members to find membership_id
+            _resp(200, _GROUPS_WITH_EDITORS),
+            _resp(200, {"groups": {}}),
+            _resp(200, {"id": 10, "group_ids": [1, 5]}),
             _resp(200, {"members": [{"user_id": 10, "membership_id": 77}]}),
         ]
         mock_req.put.return_value = _resp(200, {})
         mock_req.delete.return_value = _resp(204)
         assert sync_user_role(db, user.id, root, MB_URL) is True
-        # Verify DELETE was called for membership 77
-        delete_calls = list(mock_req.delete.call_args_list)
-        assert any("/api/permissions/membership/77" in str(c) for c in delete_calls)
+        assert any(
+            "/api/permissions/membership/77" in str(c) for c in mock_req.delete.call_args_list
+        )
+
+    @patch("dango.auth.metabase_sync.requests")
+    def test_admin_demotion_clears_superuser(self, mock_req: MagicMock, tmp_path: Path) -> None:
+        """Admin→Viewer demotion sets is_superuser=false and removes admin group."""
+        from dango.auth.metabase_sync import sync_user_role
+
+        db = _make_db(tmp_path)
+        root = _mb_yml(tmp_path)
+        user = _user_in_db(db, email="ex-admin@example.com", role=Role.VIEWER, metabase_user_id=10)
+
+        mock_req.post.return_value = _resp(200, {"id": "s"})
+        mock_req.get.side_effect = [
+            _resp(200, _GROUPS_WITH_EDITORS),
+            _resp(200, {"groups": {}}),
+            _resp(200, {"id": 10, "group_ids": [1, 2]}),
+            _resp(200, {"members": [{"user_id": 10, "membership_id": 88}]}),
+        ]
+        mock_req.put.return_value = _resp(200, {})
+        mock_req.delete.return_value = _resp(204)
+        assert sync_user_role(db, user.id, root, MB_URL) is True
+        assert any("is_superuser" in str(c) for c in mock_req.put.call_args_list)
+        assert any("/membership/88" in str(c) for c in mock_req.delete.call_args_list)
 
     @patch("dango.auth.metabase_sync.SecureTokenStorage")
     @patch("dango.auth.metabase_sync.requests")
