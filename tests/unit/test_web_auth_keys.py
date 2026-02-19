@@ -168,6 +168,70 @@ class TestSessionManagement:
         resp = client.delete(f"/api/auth/sessions/{session2.id}", headers=_auth_headers())
         assert resp.status_code == 404
 
+    def test_revoke_current_session_rejected(self, tmp_path: Path) -> None:
+        """Cannot revoke the current session (must use logout)."""
+        db_path = _make_db(tmp_path)
+        user = _make_user(db_path)
+        app = _make_app(db_path)
+
+        current_token, current_session = create_session(db_path, user.id)
+
+        @app.middleware("http")
+        async def set_user(request: Any, call_next: Any) -> Any:
+            request.state.user = user
+            request.state.auth_method = "session"
+            return await call_next(request)
+
+        client = _make_client(app)
+        client.cookies.set(COOKIE_NAME, current_token)
+
+        resp = client.delete(f"/api/auth/sessions/{current_session.id}", headers=_auth_headers())
+        assert resp.status_code == 400
+        assert "logout" in resp.json()["message"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Unauthenticated access tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestUnauthenticatedAccess:
+    """Protected endpoints return 401 when no user is set."""
+
+    def _make_unauth_client(self, tmp_path: Path) -> TestClient:
+        """Create a client with no user in request state."""
+        db_path = _make_db(tmp_path)
+        app = _make_app(db_path)
+
+        @app.middleware("http")
+        async def set_user(request: Any, call_next: Any) -> Any:
+            request.state.user = None
+            request.state.auth_method = None
+            return await call_next(request)
+
+        return _make_client(app)
+
+    def test_sessions_requires_auth(self, tmp_path: Path) -> None:
+        """GET /api/auth/sessions returns 401 without auth."""
+        client = self._make_unauth_client(tmp_path)
+        assert client.get("/api/auth/sessions").status_code == 401
+
+    def test_api_keys_requires_auth(self, tmp_path: Path) -> None:
+        """GET /api/auth/api-keys returns 401 without auth."""
+        client = self._make_unauth_client(tmp_path)
+        assert client.get("/api/auth/api-keys").status_code == 401
+
+    def test_change_password_requires_auth(self, tmp_path: Path) -> None:
+        """POST /api/auth/change-password returns 401 without auth."""
+        client = self._make_unauth_client(tmp_path)
+        resp = client.post(
+            "/api/auth/change-password",
+            json={"current_password": "x", "new_password": "y"},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 401
+
 
 # ---------------------------------------------------------------------------
 # API key management tests

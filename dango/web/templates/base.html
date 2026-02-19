@@ -98,7 +98,7 @@
                              class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50">
                             <a href="/setup" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Change Password</a>
                             <hr class="my-1">
-                            <button @click="fetch('/api/auth/logout', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}}).then(() => window.location.href = '/login')" class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100">Logout</button>
+                            <button @click="fetch('/api/auth/logout', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}}).then(() => window.location.href = '/login').catch(() => window.location.href = '/login')" class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100">Logout</button>
                         </div>
                     </div>
                     {% else %}

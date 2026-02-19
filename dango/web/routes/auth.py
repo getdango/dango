@@ -15,6 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import ValidationError
 
 import dango
 from dango.auth.admin import get_auth_db_path
@@ -41,6 +42,7 @@ from dango.auth.sessions import (
     invalidate_session,
     revoke_api_key,
 )
+from dango.logging import get_logger
 from dango.web.middleware.auth import COOKIE_NAME, is_secure_request
 from dango.web.models import (
     ApiKeyCreateResponse,
@@ -53,6 +55,10 @@ from dango.web.models import (
 from dango.web.routes.ui import _render_template
 
 router = APIRouter(tags=["auth"])
+logger = get_logger(__name__)
+
+# Pre-computed dummy hash: equalizes bcrypt timing for unknown/inactive emails.
+_DUMMY_PASSWORD_HASH = hash_password("timing_equalization_dummy")
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +110,7 @@ def _get_auth_config(request: Request) -> Any:
         config = load_config(project_root)
         return config.auth
     except Exception:
+        logger.debug("auth_config_not_loaded", reason="no project config, using defaults")
         return None
 
 
@@ -124,8 +131,11 @@ def _get_current_token_hash(request: Request) -> str | None:
 async def login(request: Request) -> JSONResponse:
     """Authenticate a user with email and password."""
     db_path = _get_db_path(request)
-    body = await request.json()
-    login_data = LoginRequest(**body)
+    try:
+        body = await request.json()
+        login_data = LoginRequest(**body)
+    except (ValueError, ValidationError):
+        return JSONResponse(status_code=400, content={"message": "Invalid request body"})
     ip = _get_client_ip(request)
 
     # Load lockout config
@@ -152,18 +162,14 @@ async def login(request: Request) -> JSONResponse:
     # Look up user
     user = get_user_by_email(db_path, login_data.email)
     if user is None:
-        # Timing attack prevention: still record failure for unknown emails
-        record_failed_login(
-            db_path, login_data.email, max_attempts=max_attempts, lockout_minutes=lockout_minutes
-        )
+        # Equalize timing: run bcrypt even for unknown emails
+        verify_password("dummy", _DUMMY_PASSWORD_HASH)
         log_auth_event(AuditEvent.LOGIN_FAILURE, email=login_data.email, ip=ip)
         return JSONResponse(status_code=400, content={"message": "Invalid email or password"})
 
-    # Check active
+    # Check active — use same path as unknown email to prevent enumeration
     if not user.is_active:
-        record_failed_login(
-            db_path, login_data.email, max_attempts=max_attempts, lockout_minutes=lockout_minutes
-        )
+        verify_password("dummy", _DUMMY_PASSWORD_HASH)
         log_auth_event(AuditEvent.LOGIN_FAILURE, user_id=user.id, email=login_data.email, ip=ip)
         return JSONResponse(status_code=400, content={"message": "Invalid email or password"})
 
@@ -254,8 +260,11 @@ async def change_password(request: Request) -> JSONResponse:
         return JSONResponse(status_code=401, content={"message": "Not authenticated"})
 
     db_path = _get_db_path(request)
-    body = await request.json()
-    data = ChangePasswordRequest(**body)
+    try:
+        body = await request.json()
+        data = ChangePasswordRequest(**body)
+    except (ValueError, ValidationError):
+        return JSONResponse(status_code=400, content={"message": "Invalid request body"})
 
     # Verify current password
     if user.password_hash is None or not verify_password(data.current_password, user.password_hash):
@@ -376,8 +385,11 @@ async def create_key(request: Request) -> JSONResponse:
         return JSONResponse(status_code=401, content={"message": "Not authenticated"})
 
     db_path = _get_db_path(request)
-    body = await request.json()
-    data = CreateApiKeyRequest(**body)
+    try:
+        body = await request.json()
+        data = CreateApiKeyRequest(**body)
+    except (ValueError, ValidationError):
+        return JSONResponse(status_code=400, content={"message": "Invalid request body"})
 
     raw_key, api_key = create_api_key(db_path, user.id, data.name, expires_at=data.expires_at)
 

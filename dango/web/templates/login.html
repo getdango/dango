@@ -95,11 +95,13 @@ function loginForm() {
         startCountdown() {
             if (this._timer) clearInterval(this._timer);
             this._timer = setInterval(() => {
-                this.lockoutRemaining--;
-                if (this.lockoutRemaining <= 0) {
+                if (this.lockoutRemaining <= 1) {
                     clearInterval(this._timer);
                     this._timer = null;
+                    this.lockoutRemaining = 0;
                     this.locked = false;
+                } else {
+                    this.lockoutRemaining--;
                 }
             }, 1000);
         }

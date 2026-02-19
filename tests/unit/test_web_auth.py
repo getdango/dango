@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from dango.auth import database as db
 from dango.auth.models import Role, User
-from dango.auth.security import hash_password, hash_token
+from dango.auth.security import hash_password, hash_token, verify_password
 from dango.auth.sessions import create_session
 from dango.migrations.runner import MigrationRunner
 from dango.web.middleware.auth import COOKIE_NAME
@@ -193,6 +193,17 @@ class TestLogin:
         assert resp.status_code == 200
         assert resp.json()["must_change_password"] is True
 
+    def test_login_malformed_body(self, tmp_path: Path) -> None:
+        """Malformed or missing fields returns 400, not 500."""
+        db_path = _make_db(tmp_path)
+        client = _make_client(_make_app(db_path))
+
+        resp = client.post("/api/auth/login", content=b"not json")
+        assert resp.status_code == 400
+
+        resp = client.post("/api/auth/login", json={"email": "test@example.com"})
+        assert resp.status_code == 400
+
 
 # ---------------------------------------------------------------------------
 # Logout tests
@@ -323,6 +334,35 @@ class TestChangePassword:
         )
         assert resp.status_code == 400
         assert "weak" in resp.json()["message"].lower()
+
+    def test_change_password_same_password_rejected(self, tmp_path: Path) -> None:
+        """Cannot reuse the current password."""
+        client, _db_path, _user = _setup_auth_client(tmp_path)
+
+        resp = client.post(
+            "/api/auth/change-password",
+            json={"current_password": "securepassword123", "new_password": "securepassword123"},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 400
+        assert "different" in resp.json()["message"].lower()
+
+    def test_change_password_updates_hash(self, tmp_path: Path) -> None:
+        """Password change persists the new hash and invalidates old sessions."""
+        client, db_path, user = _setup_auth_client(tmp_path)
+
+        resp = client.post(
+            "/api/auth/change-password",
+            json={"current_password": "securepassword123", "new_password": "newpassword456"},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 200
+
+        updated = db.get_user_by_id(db_path, user.id)
+        assert updated is not None
+        assert updated.password_hash is not None
+        assert verify_password("newpassword456", updated.password_hash)
+        assert not verify_password("securepassword123", updated.password_hash)
 
     def test_change_password_clears_must_change(self, tmp_path: Path) -> None:
         """Password change clears must_change_password flag."""
