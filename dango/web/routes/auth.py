@@ -42,6 +42,7 @@ from dango.auth.sessions import (
     invalidate_session,
     revoke_api_key,
 )
+from dango.config.models import AuthConfig
 from dango.logging import get_logger
 from dango.web.middleware.auth import COOKIE_NAME, is_secure_request
 from dango.web.models import (
@@ -101,7 +102,7 @@ def _set_session_cookie(response: JSONResponse, token: str, request: Request) ->
     )
 
 
-def _get_auth_config(request: Request) -> Any:
+def _get_auth_config(request: Request) -> AuthConfig | None:
     """Load AuthConfig from project config. Returns None on failure."""
     try:
         from dango.config.helpers import load_config
