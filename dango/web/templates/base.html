@@ -38,8 +38,11 @@
 
     <!-- Alpine.js via CDN (ADR-007: used for new page interactivity) -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+
+    <style>[x-cloak] { display: none !important; }</style>
 </head>
 <body class="bg-gray-50">
+    {% block header %}
     <!-- Header -->
     <header class="bg-white shadow-sm border-b border-gray-200">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
@@ -56,7 +59,9 @@
             </div>
         </div>
     </header>
+    {% endblock %}
 
+    {% block nav %}
     <!-- Navigation Bar -->
     <nav class="bg-gray-800 shadow-lg sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -82,11 +87,28 @@
                     </a>
                 </div>
                 <div class="flex items-center space-x-2">
+                    {% if request.state.user %}
+                    <div x-data="{ open: false }" class="relative">
+                        <button @click="open = !open" class="flex items-center text-sm text-gray-300 hover:text-white">
+                            <span class="hidden sm:inline">{{ request.state.user.email }}</span>
+                            <span class="sm:hidden">Account</span>
+                            <span class="ml-2 px-1.5 py-0.5 rounded text-xs bg-gray-700">{{ request.state.user.role.value }}</span>
+                        </button>
+                        <div x-show="open" @click.away="open = false" x-cloak
+                             class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50">
+                            <a href="/setup" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Change Password</a>
+                            <hr class="my-1">
+                            <button @click="fetch('/api/auth/logout', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}}).then(() => window.location.href = '/login')" class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100">Logout</button>
+                        </div>
+                    </div>
+                    {% else %}
                     <span class="text-xs text-gray-400 hidden md:inline">Dango v{{ version }}</span>
+                    {% endif %}
                 </div>
             </div>
         </div>
     </nav>
+    {% endblock %}
 
     {% block content %}{% endblock %}
 

@@ -3,6 +3,7 @@
 Pydantic request/response DTOs for the web API.
 """
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -74,3 +75,57 @@ class WatcherStatus(BaseModel):
     watch_patterns: list[str]
     watch_directories: list[str]
     log_file: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Auth DTOs (used by web/routes/auth.py)
+# ---------------------------------------------------------------------------
+
+
+class LoginRequest(BaseModel):
+    """Login credentials."""
+
+    email: str
+    password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    """Password change payload."""
+
+    current_password: str
+    new_password: str
+
+
+class CreateApiKeyRequest(BaseModel):
+    """API key creation payload."""
+
+    name: str
+    expires_at: datetime | None = None
+
+
+class SessionResponse(BaseModel):
+    """Sanitised session for API responses."""
+
+    id: str
+    created_at: datetime
+    last_activity: datetime
+    ip_address: str | None
+    user_agent: str | None
+    is_current: bool
+
+
+class ApiKeyResponse(BaseModel):
+    """API key metadata (excludes the full key)."""
+
+    id: str
+    name: str
+    key_prefix: str
+    created_at: datetime
+    last_used_at: datetime | None
+    expires_at: datetime | None
+
+
+class ApiKeyCreateResponse(ApiKeyResponse):
+    """API key creation response — includes the full key shown once."""
+
+    key: str

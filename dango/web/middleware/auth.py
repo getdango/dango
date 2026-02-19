@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -91,9 +92,10 @@ _LOCALHOST_HOSTS: frozenset[str] = frozenset(
 class AuthMiddleware:
     """ASGI middleware that authenticates requests via session cookies or API keys."""
 
-    def __init__(self, app: Any, project_root: Path) -> None:
+    def __init__(self, app: Any, project_root: Path, idle_timeout_minutes: int = 60) -> None:
         self.app = app
         self.project_root = project_root
+        self._idle_timeout_minutes = idle_timeout_minutes
         # Auth toggle cache
         self._auth_enabled_cache: bool | None = None
         self._cache_time: float = 0.0
@@ -147,7 +149,9 @@ class AuthMiddleware:
         auth_method: str | None = None
 
         if cookie_token is not None:
-            user = sessions.validate_session(db_path, cookie_token)
+            user = sessions.validate_session(
+                db_path, cookie_token, idle_timeout_minutes=self._idle_timeout_minutes
+            )
             if user is not None:
                 auth_method = "session"
 
@@ -300,7 +304,7 @@ def _make_403_json(message: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def is_secure_request(scope: Scope) -> bool:
+def is_secure_request(scope: Mapping[str, Any]) -> bool:
     """Detect if request should use Secure cookies.
 
     Returns ``True`` if the connection is HTTPS or if the host is not
