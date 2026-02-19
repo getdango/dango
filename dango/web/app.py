@@ -223,7 +223,27 @@ app.include_router(metabase_proxy_router)
 @app.on_event("startup")
 async def startup_event() -> None:
     """Run on application startup."""
-    logger.info("api_starting", project_root=str(get_project_root()))
+    project_root = get_project_root()
+    logger.info("api_starting", project_root=str(project_root))
+
+    # First-run admin creation (non-interactive)
+    try:
+        import os
+
+        from dango.auth.admin import ensure_admin, format_credentials_panel, get_auth_db_path
+        from dango.cli.utils import console
+
+        db_path = get_auth_db_path(project_root)
+        if db_path.exists():
+            email = os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
+            result = ensure_admin(db_path, email=email)
+            if result is not None:
+                user, password = result
+                console.print()
+                console.print(format_credentials_panel(user.email, password))
+                console.print()
+    except Exception:
+        logger.warning("first_run_admin_check_failed", exc_info=True)
 
 
 @app.on_event("shutdown")

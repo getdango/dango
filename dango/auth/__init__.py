@@ -11,6 +11,14 @@ and audit logging for security events.
 
 from __future__ import annotations
 
+from dango.auth.admin import (
+    ensure_admin,
+    format_credentials_panel,
+    get_auth_config_path,
+    get_auth_db_path,
+    is_auth_enabled,
+    set_auth_enabled,
+)
 from dango.auth.audit import (
     AuditEvent,
     get_audit_log_path,
@@ -77,6 +85,13 @@ from dango.auth.sessions import (
 )
 
 __all__ = [
+    # Admin utilities
+    "ensure_admin",
+    "format_credentials_panel",
+    "get_auth_config_path",
+    "get_auth_db_path",
+    "is_auth_enabled",
+    "set_auth_enabled",
     # Audit logging
     "AuditEvent",
     "get_audit_log_path",

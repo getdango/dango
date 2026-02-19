@@ -15,7 +15,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/project.py` (292 lines) | `init`, `rename`, `info` | `init()`, `rename()`, `info()` |
 | `commands/source.py` (521 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
 | `commands/platform.py` (955 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
-| `commands/auth.py` (~20 lines) | `auth` group placeholder (Phase 2 user management) | `auth` |
+| `commands/auth.py` (500 lines) | `auth` group (12 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_status()`, etc. |
 | `commands/oauth.py` (815 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
 | `commands/transform.py` (326 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
 | `commands/data.py` (360 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
@@ -59,7 +59,10 @@ dango (top-level group)
 │   ├── validate, show
 ├── db (group)                  ← commands/data.py
 │   ├── status, clean
-├── auth (group)                ← commands/auth.py (Phase 2 placeholder)
+├── auth (group)                ← commands/auth.py
+│   ├── enable, disable, add-user, list-users, reset-password,
+│   │   deactivate-user, reactivate-user, delete-user, status,
+│   │   unlock, audit, recover
 ├── oauth (group)               ← commands/oauth.py
 │   ├── status, setup, check, list, remove, refresh,
 │   │   facebook_ads, google_sheets, google_analytics, google_ads
