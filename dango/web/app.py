@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from dango.config.models import RateLimitConfig
+from dango.config.models import AuthConfig, RateLimitConfig
 from dango.exceptions import (
     AccountDeactivatedError,
     AccountLockedError,
@@ -75,7 +75,11 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     # Request flow: CORS → RateLimit → Auth → Route handlers
 
     # Auth middleware (innermost — executes after rate limit in request flow)
-    application.add_middleware(AuthMiddleware, project_root=project_root)
+    auth_config = _load_auth_config(project_root)
+    idle_timeout = auth_config.idle_timeout_minutes if auth_config else 60
+    application.add_middleware(
+        AuthMiddleware, project_root=project_root, idle_timeout_minutes=idle_timeout
+    )
 
     # Rate limiting (middle)
     rate_limit_config = _load_rate_limit_config(project_root)
@@ -92,6 +96,19 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     )
 
     return application
+
+
+def _load_auth_config(project_root: Path | None) -> AuthConfig | None:
+    """Try to load auth config from project.yml. Returns None on failure."""
+    try:
+        from dango.config.helpers import load_config
+
+        root = project_root or Path.cwd()
+        config = load_config(root)
+        return config.auth
+    except Exception:
+        logger.debug("auth_config_not_loaded", reason="no project config found, using defaults")
+        return None
 
 
 def _load_rate_limit_config(project_root: Path | None) -> RateLimitConfig | None:
@@ -199,6 +216,7 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> Response:
 # ---------------------------------------------------------------------------
 # Register routers — Dango API routes first, then proxy routes (catch-all last)
 # ---------------------------------------------------------------------------
+from dango.web.routes.auth import router as auth_router  # noqa: E402
 from dango.web.routes.config import router as config_router  # noqa: E402
 from dango.web.routes.dbt import router as dbt_router  # noqa: E402
 from dango.web.routes.health import router as health_router  # noqa: E402
@@ -211,6 +229,7 @@ from dango.web.routes.upload import router as upload_router  # noqa: E402
 from dango.web.routes.websocket import router as websocket_router  # noqa: E402
 
 # Dango API routers (order matters — more specific routes first)
+app.include_router(auth_router)
 app.include_router(health_router)
 app.include_router(config_router)
 app.include_router(sources_router)
