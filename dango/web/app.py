@@ -44,7 +44,7 @@ from dango.exceptions import (
 )
 from dango.logging import get_logger
 from dango.web.helpers import get_project_root
-from dango.web.middleware import RateLimitMiddleware
+from dango.web.middleware import AuthMiddleware, RateLimitMiddleware
 
 logger = get_logger(__name__)
 
@@ -66,12 +66,23 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         redoc_url=None,  # Disable default redoc
     )
 
-    # Rate limiting (innermost — executes after CORS in request flow)
+    # Resolve project_root first (needed by middleware)
+    if project_root is None:
+        project_root = Path.cwd()
+    application.state.project_root = project_root
+
+    # Middleware stack (LIFO: last added = outermost in request flow)
+    # Request flow: CORS → RateLimit → Auth → Route handlers
+
+    # Auth middleware (innermost — executes after rate limit in request flow)
+    application.add_middleware(AuthMiddleware, project_root=project_root)
+
+    # Rate limiting (middle)
     rate_limit_config = _load_rate_limit_config(project_root)
     if rate_limit_config is not None:
         application.add_middleware(RateLimitMiddleware, config=rate_limit_config)
 
-    # CORS (outermost — handles OPTIONS preflight before rate limiting)
+    # CORS (outermost — handles OPTIONS preflight first)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],  # In production, restrict to specific origins
@@ -79,11 +90,6 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    # Store project root in app state
-    if project_root is None:
-        project_root = Path.cwd()
-    application.state.project_root = project_root
 
     return application
 
