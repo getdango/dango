@@ -473,3 +473,17 @@ def revoke_api_key(db_path: Path, key_id: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def update_api_key_last_used(db_path: Path, key_id: str) -> None:
+    """Update an API key's last_used_at timestamp to now."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _connect(db_path)
+    try:
+        conn.execute(
+            "UPDATE api_keys SET last_used_at = ? WHERE id = ?",
+            (now, key_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()

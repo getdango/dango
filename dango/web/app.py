@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from dango.config.models import RateLimitConfig
 from dango.exceptions import (
     AccountDeactivatedError,
     AccountLockedError,
@@ -43,6 +44,7 @@ from dango.exceptions import (
 )
 from dango.logging import get_logger
 from dango.web.helpers import get_project_root
+from dango.web.middleware import RateLimitMiddleware
 
 logger = get_logger(__name__)
 
@@ -64,7 +66,12 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         redoc_url=None,  # Disable default redoc
     )
 
-    # Add CORS middleware for development
+    # Rate limiting (innermost — executes after CORS in request flow)
+    rate_limit_config = _load_rate_limit_config(project_root)
+    if rate_limit_config is not None:
+        application.add_middleware(RateLimitMiddleware, config=rate_limit_config)
+
+    # CORS (outermost — handles OPTIONS preflight before rate limiting)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],  # In production, restrict to specific origins
@@ -79,6 +86,21 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     application.state.project_root = project_root
 
     return application
+
+
+def _load_rate_limit_config(project_root: Path | None) -> RateLimitConfig | None:
+    """Try to load rate limit config from project.yml. Returns None on failure."""
+    try:
+        from dango.config.helpers import load_config
+
+        root = project_root or Path.cwd()
+        config = load_config(root)
+        return config.auth.rate_limit
+    except Exception:
+        logger.debug(
+            "rate_limit_config_not_loaded", reason="no project config found, using defaults"
+        )
+        return None
 
 
 app = create_app()
@@ -201,7 +223,27 @@ app.include_router(metabase_proxy_router)
 @app.on_event("startup")
 async def startup_event() -> None:
     """Run on application startup."""
-    logger.info("api_starting", project_root=str(get_project_root()))
+    project_root = get_project_root()
+    logger.info("api_starting", project_root=str(project_root))
+
+    # First-run admin creation (non-interactive)
+    try:
+        import os
+
+        from dango.auth.admin import ensure_admin, format_credentials_panel, get_auth_db_path
+        from dango.cli.utils import console
+
+        db_path = get_auth_db_path(project_root)
+        if db_path.exists():
+            email = os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
+            result = ensure_admin(db_path, email=email)
+            if result is not None:
+                user, password = result
+                console.print()
+                console.print(format_credentials_panel(user.email, password))
+                console.print()
+    except Exception:
+        logger.warning("first_run_admin_check_failed", exc_info=True)
 
 
 @app.on_event("shutdown")
