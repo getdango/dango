@@ -101,10 +101,15 @@
                     </button>
                 </form>
 
-                <div class="mt-3 text-center">
+                <div class="mt-3 text-center space-y-1">
                     <button @click="useRecovery = !useRecovery; totpError = ''"
                             class="text-sm text-dango-600 hover:text-dango-700">
                         <span x-text="useRecovery ? 'Use authenticator app instead' : 'Use a recovery code instead'"></span>
+                    </button>
+                    <br>
+                    <button @click="step = 'credentials'; totpCode = ''; recoveryCode = ''; totpError = ''"
+                            class="text-sm text-gray-500 hover:text-gray-700">
+                        Back to login
                     </button>
                 </div>
             </div>
