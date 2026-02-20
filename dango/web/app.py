@@ -267,6 +267,19 @@ async def startup_event() -> None:
                 console.print()
                 console.print(format_credentials_panel(user.email, password))
                 console.print()
+
+                # Sync newly created admin to Metabase (if Metabase is running)
+                try:
+                    from dango.auth.metabase_bridge import (
+                        ensure_metabase_synced,
+                        get_metabase_url,
+                    )
+
+                    mb_url = await get_metabase_url(project_root)
+                    if mb_url is not None:
+                        await ensure_metabase_synced(db_path, user.id, project_root, mb_url)
+                except Exception:
+                    logger.debug("metabase_sync_on_admin_create_skipped", exc_info=True)
     except Exception:
         logger.warning("first_run_admin_check_failed", exc_info=True)
 

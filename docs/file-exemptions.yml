@@ -119,6 +119,13 @@ exemptions:
 
 # Removed: dango/platform/network.py — now 486 lines, within limit (TASK-088)
 
+  # --- Auth web routes (Metabase bridging hooks added by TASK-019) ---
+  - file: dango/web/routes/auth.py
+    lines: 532
+    category: refactor
+    reason: "Login/logout endpoints + API key CRUD + page routes. Grew past 500 with TASK-019 Metabase bridging hooks. Split into auth_api.py + auth_pages.py planned for TASK-095."
+    review_by: "TASK-095"
+
   # --- Test files (verbose by nature — each test class covers one public function) ---
   - file: tests/unit/test_oauth_validation.py
     lines: 580

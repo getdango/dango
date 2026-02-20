@@ -210,6 +210,27 @@ async def login(request: Request) -> JSONResponse:
         }
     )
     _set_session_cookie(response, raw_token, request)
+
+    # Bridge Metabase session — re-read user for fresh metabase fields
+    try:
+        from dango.auth.metabase_bridge import bridge_metabase_login
+
+        project_root: Path = request.app.state.project_root
+        fresh_user = get_user_by_email(db_path, user.email)
+        if fresh_user is not None:
+            mb_session = await bridge_metabase_login(fresh_user, project_root)
+            if mb_session is not None:
+                response.set_cookie(
+                    key="metabase.SESSION",
+                    value=mb_session,
+                    path="/",
+                    httponly=True,
+                    samesite="lax",
+                    secure=is_secure_request(request.scope),
+                )
+    except Exception:
+        logger.debug("metabase_bridge_on_login_failed", exc_info=True)
+
     return response
 
 
@@ -229,6 +250,17 @@ async def logout(request: Request) -> JSONResponse:
         session = get_session_by_token(db_path, token_hash)
         if session:
             invalidate_session(db_path, session.id)
+
+    # Invalidate Metabase session (server-side)
+    mb_session_id = request.cookies.get("metabase.SESSION")
+    if mb_session_id:
+        try:
+            from dango.auth.metabase_bridge import bridge_metabase_logout
+
+            project_root: Path = request.app.state.project_root
+            await bridge_metabase_logout(mb_session_id, project_root)
+        except Exception:
+            logger.debug("metabase_bridge_on_logout_failed", exc_info=True)
 
     log_auth_event(
         AuditEvent.LOGOUT,
