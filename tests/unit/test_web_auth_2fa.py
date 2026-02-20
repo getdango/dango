@@ -6,6 +6,7 @@ Tests for 2FA endpoints in dango/web/routes/auth_2fa.py and the
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -113,6 +114,13 @@ class TestTwoFASetup:
         resp = tc.post("/api/auth/2fa/setup", json={"password": "wrong"}, headers=_hdrs())
         assert resp.status_code == 400
         assert "Invalid password" in resp.json()["message"]
+
+    def test_already_enabled_rejects(self, tmp_path: Path) -> None:
+        tc, db_path, user = _authed(tmp_path)
+        _enable_2fa(db_path, user.id)
+        resp = tc.post("/api/auth/2fa/setup", json={"password": _TEST_PASSWORD}, headers=_hdrs())
+        assert resp.status_code == 400
+        assert "already enabled" in resp.json()["message"]
 
     def test_unauthenticated(self, tmp_path: Path) -> None:
         db_path = _make_db(tmp_path)
@@ -229,6 +237,26 @@ class TestTwoFAVerify:
             "/api/auth/2fa/verify",
             json={"code": "123456"},
             cookies={COOKIE_NAME: "bogus"},
+            headers=_hdrs(),
+        )
+        assert resp.status_code == 401
+
+    def test_expired_partial_session(self, tmp_path: Path) -> None:
+        """A partial session past its 5-min window should be rejected."""
+        import sqlite3
+
+        tc, db_path, user, secret, cookie = self._partial_login(tmp_path)
+        # Expire the partial session by backdating expires_at
+        past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        conn = sqlite3.connect(db_path)
+        conn.execute("UPDATE sessions SET expires_at = ? WHERE is_partial = 1", (past,))
+        conn.commit()
+        conn.close()
+        code = pyotp.TOTP(secret).now()
+        resp = tc.post(
+            "/api/auth/2fa/verify",
+            json={"code": code, "is_recovery": False},
+            cookies={COOKIE_NAME: cookie},
             headers=_hdrs(),
         )
         assert resp.status_code == 401

@@ -19,9 +19,9 @@ from pydantic import ValidationError
 
 from dango.auth.admin import get_auth_db_path
 from dango.auth.audit import AuditEvent, log_auth_event
-from dango.auth.database import get_user_by_id, update_user
+from dango.auth.database import get_session_by_token, get_user_by_id, update_user
 from dango.auth.models import User, UserResponse, UserUpdate
-from dango.auth.security import verify_password
+from dango.auth.security import generate_recovery_codes, hash_token, verify_password
 from dango.auth.sessions import create_session, invalidate_session, validate_partial_session
 from dango.auth.totp import (
     consume_recovery_code,
@@ -124,10 +124,16 @@ async def setup_2fa(request: Request) -> JSONResponse:
     if user.password_hash is None or not verify_password(data.password, user.password_hash):
         return JSONResponse(status_code=400, content={"message": "Invalid password"})
 
+    # Reject if 2FA is already active — user must disable first
+    current_user = get_user_by_id(db_path, user.id)
+    if current_user is not None and current_user.totp_enabled:
+        return JSONResponse(
+            status_code=400,
+            content={"message": "2FA is already enabled. Disable it first to re-setup."},
+        )
+
     # Generate secret and recovery codes
     secret = generate_totp_secret()
-    from dango.auth.security import generate_recovery_codes
-
     codes = generate_recovery_codes()
 
     # Store (totp_enabled stays False until verify-setup)
@@ -219,14 +225,13 @@ async def verify_2fa(request: Request) -> JSONResponse:
         verified = verify_totp_code(current_user.totp_secret, data.code)
 
     if not verified:
+        # TODO: Add failed-attempt tracking on partial sessions to prevent
+        # brute-force TOTP guessing within the 5-minute window. Requires
+        # a migration to add failed_2fa_attempts column to sessions table.
         return JSONResponse(status_code=400, content={"message": "Invalid verification code"})
 
     # Invalidate the partial session
-    from dango.auth.security import hash_token
-
     token_hash = hash_token(cookie_token)
-    from dango.auth.database import get_session_by_token
-
     partial_session = get_session_by_token(db_path, token_hash)
     if partial_session:
         invalidate_session(db_path, partial_session.id)
