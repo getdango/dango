@@ -129,3 +129,27 @@ class ApiKeyCreateResponse(ApiKeyResponse):
     """API key creation response — includes the full key shown once."""
 
     key: str
+
+
+# ---------------------------------------------------------------------------
+# Admin user management DTOs (used by web/routes/users.py)
+# ---------------------------------------------------------------------------
+
+
+class CreateUserRequest(BaseModel):
+    """Admin user creation payload."""
+
+    email: str
+    role: str = "viewer"
+
+
+class ChangeRoleRequest(BaseModel):
+    """Admin role change payload."""
+
+    role: str
+
+
+class DeleteUserConfirmation(BaseModel):
+    """Delete user confirmation payload."""
+
+    confirm_email: str
