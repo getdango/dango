@@ -47,6 +47,12 @@ from dango.auth.lockout import (
     reset_failed_logins,
     unlock_account,
 )
+from dango.auth.metabase_bridge import (
+    bridge_metabase_login,
+    bridge_metabase_logout,
+    ensure_metabase_synced,
+    get_metabase_url,
+)
 from dango.auth.metabase_sync import (
     deactivate_metabase_user,
     decrypt_metabase_password,
@@ -162,6 +168,11 @@ __all__ = [
     "record_failed_login",
     "reset_failed_logins",
     "unlock_account",
+    # Metabase bridge (async session bridging)
+    "bridge_metabase_login",
+    "bridge_metabase_logout",
+    "ensure_metabase_synced",
+    "get_metabase_url",
     # Metabase sync
     "deactivate_metabase_user",
     "decrypt_metabase_password",
