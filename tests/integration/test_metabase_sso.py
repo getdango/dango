@@ -39,11 +39,9 @@ _GROUPS = [
     {"id": 2, "name": "Administrators"},
     {"id": 10, "name": "Dango Editors"},
 ]
-_PERM_GRAPH: dict[str, Any] = {"groups": {}, "revision": 1}
 
 
 def _make_db(tmp_path: Path) -> Path:
-    """Create ``.dango/auth.db`` with migrations applied."""
     dango_dir = tmp_path / ".dango"
     dango_dir.mkdir(exist_ok=True)
     db_path = dango_dir / "auth.db"
@@ -53,7 +51,6 @@ def _make_db(tmp_path: Path) -> Path:
 
 
 def _make_user(db_path: Path, email: str = "test@example.com", **kw: Any) -> User:
-    """Create and persist a user."""
     defaults: dict[str, Any] = {
         "email": email,
         "password_hash": hash_password("securepassword123"),
@@ -66,7 +63,6 @@ def _make_user(db_path: Path, email: str = "test@example.com", **kw: Any) -> Use
 
 
 def _mb_yml(tmp_path: Path) -> Path:
-    """Write ``.dango/metabase.yml``."""
     d = tmp_path / ".dango"
     d.mkdir(exist_ok=True)
     (d / "metabase.yml").write_text(
@@ -82,7 +78,6 @@ def _mb_yml(tmp_path: Path) -> Path:
 
 
 def _resp(status: int = 200, data: Any = None) -> MagicMock:
-    """Build a mock HTTP response (works for both requests and httpx)."""
     r = MagicMock()
     r.status_code = status
     r.json.return_value = data if data is not None else {}
@@ -90,8 +85,6 @@ def _resp(status: int = 200, data: Any = None) -> MagicMock:
 
 
 def _setup_mb_api(mock_req: MagicMock, mb_user_id: int = 42) -> None:
-    """Configure URL-based routing on a mocked ``requests`` module."""
-
     def _post(url: str, **_kw: Any) -> MagicMock:
         if url.endswith("/api/session"):
             return _resp(200, {"id": "admin-session-token"})
@@ -109,7 +102,7 @@ def _setup_mb_api(mock_req: MagicMock, mb_user_id: int = 42) -> None:
         if url.endswith("/api/permissions/group"):
             return _resp(200, _GROUPS)
         if url.endswith("/api/permissions/graph"):
-            return _resp(200, dict(_PERM_GRAPH))
+            return _resp(200, {"groups": {}, "revision": 1})
         if "/api/user?" in url:
             return _resp(200, [])
         if "/api/user/" in url:
@@ -130,11 +123,19 @@ def _make_app(db_path: Path) -> FastAPI:
 
     app = FastAPI()
     app.state.project_root = db_path.parent.parent
-    _status = {AuthenticationError: 401, AuthorizationError: 403, UserExistsError: 409}
+    _status: dict[type, int] = {
+        AuthenticationError: 401,
+        AuthorizationError: 403,
+        UserExistsError: 409,
+    }
 
     @app.exception_handler(DangoError)
     async def _handler(request: Request, exc: DangoError) -> JSONResponse:
-        code = next((s for c, s in _status.items() if isinstance(exc, c)), 500)
+        code = 500
+        for cls in type(exc).__mro__:
+            if cls in _status:
+                code = _status[cls]
+                break
         return JSONResponse(status_code=code, content={"message": exc.user_message})
 
     app.include_router(auth_router)
@@ -151,7 +152,6 @@ def _mock_httpx_client(
     delete_resp: MagicMock | None = None,
     post_effect: Exception | None = None,
 ) -> AsyncMock:
-    """Create a mock ``httpx.AsyncClient`` context manager."""
     c = AsyncMock()
     c.__aenter__ = AsyncMock(return_value=c)
     c.__aexit__ = AsyncMock(return_value=False)
@@ -168,7 +168,6 @@ def _admin_client(
     tmp_path: Path,
     target_kw: dict[str, Any] | None = None,
 ) -> tuple[TestClient, Path, User, User]:
-    """Set up admin client + target user with Metabase credentials."""
     db_path = _make_db(tmp_path)
     _mb_yml(tmp_path)
     admin = _make_user(db_path, email="admin@example.com", role=Role.ADMIN)
@@ -308,6 +307,8 @@ class TestAdminActionsSync:
                 headers=_auth_headers(),
             )
         assert resp.status_code == 200
+        mb_deletes = [c for c in mock_req.delete.call_args_list if "/api/user/" in str(c)]
+        assert len(mb_deletes) >= 1
         assert get_user_by_id(db_path, target.id) is None
 
 
@@ -420,7 +421,7 @@ def _setup_reconcile_api(
     mock_req: MagicMock,
     user_list: list[dict[str, Any]],
     create_user_status: int = 200,
-) -> list[int]:
+) -> None:
     """Configure mock routing for ``sync_all_users_to_metabase``."""
     next_id = [100]
 
@@ -430,7 +431,7 @@ def _setup_reconcile_api(
         if url.endswith("/api/permissions/group"):
             return _resp(200, _GROUPS)
         if url.endswith("/api/permissions/graph"):
-            return _resp(200, dict(_PERM_GRAPH))
+            return _resp(200, {"groups": {}, "revision": 1})
         if "/api/user?" in url:
             return _resp(200, user_list)
         if "/api/user/" in url:
@@ -458,7 +459,6 @@ def _setup_reconcile_api(
     mock_req.get.side_effect = _get
     mock_req.put.side_effect = lambda url, **kw: _resp(200, {"revision": 2})
     mock_req.delete.side_effect = lambda url, **kw: _resp(200)
-    return next_id
 
 
 @pytest.mark.integration
