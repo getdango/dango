@@ -164,7 +164,7 @@ class TestAdminCreateUser:
         assert "user2@example.com" in emails
 
     def test_create_user_success(self, tmp_path: Path) -> None:
-        """Creates user and returns temp_password."""
+        """Creates user with invite link by default."""
         client, db_path, _admin = _setup_admin_client(tmp_path)
 
         resp = client.post(
@@ -176,8 +176,8 @@ class TestAdminCreateUser:
         data = resp.json()
         assert data["user"]["email"] == "new@example.com"
         assert data["user"]["role"] == "editor"
-        assert "temp_password" in data
-        assert len(data["temp_password"]) > 0
+        assert "invite_url" in data
+        assert data["invite_url"].startswith("/invite/")
 
     def test_create_user_duplicate(self, tmp_path: Path) -> None:
         """Duplicate email returns 409."""

@@ -60,6 +60,7 @@ _PUBLIC_EXACT: frozenset[str] = frozenset({
     "/api/auth/login",
     "/api/auth/2fa/verify",
     "/api/auth/oauth/callback",
+    "/api/auth/accept-invite",
     "/login",
     "/setup",
     "/api/health",
@@ -74,6 +75,7 @@ _PUBLIC_EXACT: frozenset[str] = frozenset({
 
 _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/auth/oauth/",
+    "/invite/",
     "/static/",
 )
 

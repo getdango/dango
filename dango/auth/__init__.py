@@ -33,6 +33,7 @@ from dango.auth.database import (
     get_session_by_token,
     get_user_by_email,
     get_user_by_id,
+    get_user_by_invite_token_hash,
     get_user_by_oauth,
     list_user_api_keys,
     list_user_sessions,
@@ -83,6 +84,7 @@ from dango.auth.permissions import (
 from dango.auth.security import (
     check_password_strength,
     generate_api_key,
+    generate_invite_token,
     generate_recovery_codes,
     generate_session_token,
     generate_temp_password,
@@ -150,6 +152,7 @@ __all__ = [
     "create_user",
     "get_user_by_email",
     "get_user_by_id",
+    "get_user_by_invite_token_hash",
     "get_user_by_oauth",
     "list_users",
     "update_user",
@@ -222,6 +225,7 @@ __all__ = [
     # Security utilities
     "check_password_strength",
     "generate_api_key",
+    "generate_invite_token",
     "generate_recovery_codes",
     "generate_session_token",
     "generate_temp_password",

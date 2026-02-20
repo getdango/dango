@@ -30,7 +30,7 @@ from dango.auth.database import (
 )
 from dango.auth.models import Role, User, UserResponse, UserUpdate
 from dango.auth.permissions import require_permission
-from dango.auth.security import generate_temp_password, hash_password
+from dango.auth.security import generate_invite_token, generate_temp_password, hash_password
 from dango.exceptions import UserExistsError
 from dango.logging import get_logger
 from dango.web.models import ChangeRoleRequest, CreateUserRequest, DeleteUserConfirmation
@@ -129,7 +129,7 @@ async def admin_create_user(
     request: Request,
     user: User = Depends(require_permission("users.manage")),
 ) -> JSONResponse:
-    """Create a new user with a temporary password."""
+    """Create a new user via invite link or with a temporary password."""
     db_path = _get_db_path(request)
     try:
         body: dict[str, Any] = await request.json()
@@ -145,12 +145,47 @@ async def admin_create_user(
             content={"message": f"Invalid role '{data.role}'. Must be admin, editor, or viewer."},
         )
 
-    password = generate_temp_password()
+    if data.generate_password:
+        # Fallback: temp password flow
+        password = generate_temp_password()
+        new_user = User(
+            email=data.email,
+            password_hash=hash_password(password),
+            role=role,
+            must_change_password=True,
+        )
+        try:
+            create_user(db_path, new_user)
+        except UserExistsError:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "message": f"A user with email '{data.email.strip().lower()}' already exists"
+                },
+            )
+        log_auth_event(
+            AuditEvent.USER_CREATED,
+            user_id=new_user.id,
+            email=new_user.email,
+            ip=_get_client_ip(request),
+            details={"role": role.value, "created_by": user.email, "method": "temp_password"},
+        )
+        resp = UserResponse.model_validate(new_user)
+        return JSONResponse(
+            status_code=201,
+            content={"user": resp.model_dump(mode="json"), "temp_password": password},
+        )
+
+    # Default: invite link flow
+    from datetime import datetime, timedelta, timezone
+
+    raw_token, token_hash = generate_invite_token()
     new_user = User(
         email=data.email,
-        password_hash=hash_password(password),
+        password_hash=None,
         role=role,
-        must_change_password=True,
+        invite_token_hash=token_hash,
+        invite_expires_at=datetime.now(timezone.utc) + timedelta(hours=72),
     )
     try:
         create_user(db_path, new_user)
@@ -159,19 +194,61 @@ async def admin_create_user(
             status_code=409,
             content={"message": f"A user with email '{data.email.strip().lower()}' already exists"},
         )
-
     log_auth_event(
         AuditEvent.USER_CREATED,
         user_id=new_user.id,
         email=new_user.email,
         ip=_get_client_ip(request),
-        details={"role": role.value, "created_by": user.email},
+        details={"role": role.value, "created_by": user.email, "method": "invite"},
     )
     resp = UserResponse.model_validate(new_user)
     return JSONResponse(
         status_code=201,
-        content={"user": resp.model_dump(mode="json"), "temp_password": password},
+        content={"user": resp.model_dump(mode="json"), "invite_url": f"/invite/{raw_token}"},
     )
+
+
+@router.post("/api/admin/users/{user_id}/reinvite")
+async def admin_reinvite_user(
+    user_id: str,
+    request: Request,
+    user: User = Depends(require_permission("users.manage")),
+) -> JSONResponse:
+    """Generate a new invite link for a user who hasn't logged in yet."""
+    from datetime import datetime, timedelta, timezone
+
+    db_path = _get_db_path(request)
+    target = get_user_by_id(db_path, user_id)
+    if target is None:
+        return JSONResponse(status_code=404, content={"message": "User not found"})
+
+    if not target.is_active:
+        return JSONResponse(status_code=400, content={"message": "User is deactivated"})
+
+    # Only allow reinvite for users who haven't set a password yet
+    if target.password_hash is not None and target.invite_token_hash is None:
+        return JSONResponse(
+            status_code=400,
+            content={"message": "User has already set a password. Use 'Reset Password' instead."},
+        )
+
+    raw_token, token_hash = generate_invite_token()
+    update_user(
+        db_path,
+        user_id,
+        UserUpdate(
+            invite_token_hash=token_hash,
+            invite_expires_at=datetime.now(timezone.utc) + timedelta(hours=72),
+        ),
+    )
+    log_auth_event(
+        AuditEvent.INVITE_RESENT,
+        user_id=user_id,
+        email=target.email,
+        ip=_get_client_ip(request),
+        details={"resent_by": user.email},
+    )
+    return JSONResponse(content={"invite_url": f"/invite/{raw_token}"})
 
 
 @router.put("/api/admin/users/{user_id}/role")

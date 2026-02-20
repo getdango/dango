@@ -108,26 +108,56 @@ def auth_disable(ctx: click.Context) -> None:
 @auth.command("add-user")
 @click.argument("email")
 @click.option("--role", type=click.Choice(["admin", "editor", "viewer"]), default="viewer")
+@click.option(
+    "--password",
+    "use_password",
+    is_flag=True,
+    help="Generate a temporary password instead of an invite link.",
+)
+@click.option("--base-url", default="http://localhost:8800", help="Base URL for invite links.")
 @click.pass_context
-def auth_add_user(ctx: click.Context, email: str, role: str) -> None:
-    """Create a new user with a temporary password."""
-    from dango.auth.admin import format_credentials_panel
+def auth_add_user(
+    ctx: click.Context, email: str, role: str, use_password: bool, base_url: str
+) -> None:
+    """Create a new user with an invite link (or --password for a temp password)."""
     from dango.auth.database import create_user
     from dango.auth.models import Role, User
-    from dango.auth.security import generate_temp_password, hash_password
     from dango.exceptions import UserExistsError
 
     try:
         _, db_path = _get_db_path(ctx)
-        password = generate_temp_password()
-        user = User(
-            email=email,
-            password_hash=hash_password(password),
-            role=Role(role),
-            must_change_password=True,
-        )
-        create_user(db_path, user)
-        console.print(format_credentials_panel(user.email, password, title="User created"))
+
+        if use_password:
+            from dango.auth.admin import format_credentials_panel
+            from dango.auth.security import generate_temp_password, hash_password
+
+            password = generate_temp_password()
+            user = User(
+                email=email,
+                password_hash=hash_password(password),
+                role=Role(role),
+                must_change_password=True,
+            )
+            create_user(db_path, user)
+            console.print(format_credentials_panel(user.email, password, title="User created"))
+        else:
+            from datetime import timedelta
+
+            from dango.auth.security import generate_invite_token
+
+            raw_token, token_hash = generate_invite_token()
+            user = User(
+                email=email,
+                password_hash=None,
+                role=Role(role),
+                invite_token_hash=token_hash,
+                invite_expires_at=datetime.now(timezone.utc) + timedelta(hours=72),
+            )
+            create_user(db_path, user)
+            invite_url = f"{base_url.rstrip('/')}/invite/{raw_token}"
+            console.print(f"\n[green]User created:[/green] {user.email}")
+            console.print(f"[bold]Invite link:[/bold] {invite_url}")
+            console.print("[dim]Link expires in 72 hours. Share it securely.[/dim]\n")
     except click.Abort:
         raise
     except UserExistsError:
@@ -168,6 +198,14 @@ def auth_list_users(ctx: click.Context) -> None:
                 status = "[red]Inactive[/red]"
             elif user.locked_until is not None and user.locked_until > now:
                 status = "[yellow]Locked[/yellow]"
+            elif user.invite_expires_at is not None and user.invite_expires_at > now:
+                status = "[magenta]Invited[/magenta]"
+            elif (
+                user.invite_expires_at is not None
+                and user.invite_expires_at <= now
+                and user.last_login is None
+            ):
+                status = "[yellow]Invite Expired[/yellow]"
             else:
                 status = "[green]Active[/green]"
             last_login = user.last_login.strftime("%Y-%m-%d %H:%M") if user.last_login else "Never"

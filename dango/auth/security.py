@@ -297,6 +297,23 @@ def get_key_prefix(key: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Invite tokens (SHA-256, same pattern as API keys)
+# ---------------------------------------------------------------------------
+
+
+def generate_invite_token() -> tuple[str, str]:
+    """Generate an invite token and its SHA-256 hash.
+
+    Returns:
+        Tuple of ``(raw_token, token_hash)``.  The raw token is embedded
+        in the invite URL; only the hash is stored in the database.
+    """
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    return raw_token, token_hash
+
+
+# ---------------------------------------------------------------------------
 # Temporary passwords
 # ---------------------------------------------------------------------------
 

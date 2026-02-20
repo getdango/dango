@@ -65,6 +65,10 @@
                                                     class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Change Role</button>
                                             <button @click="resetPassword(u); open = false"
                                                     class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Reset Password</button>
+                                            <template x-if="canReinvite(u)">
+                                                <button @click="reinviteUser(u); open = false"
+                                                        class="block w-full text-left px-4 py-2 text-sm text-indigo-600 hover:bg-gray-100">Resend Invite</button>
+                                            </template>
                                             <template x-if="u.is_active">
                                                 <button @click="confirmAction('deactivate', u); open = false"
                                                         class="block w-full text-left px-4 py-2 text-sm text-yellow-600 hover:bg-gray-100">Deactivate</button>
@@ -130,21 +134,21 @@
             </div>
         </div>
 
-        <!-- Temp Password Modal -->
-        <div x-show="showTempPassword" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+        <!-- Invite Link / Temp Password Modal -->
+        <div x-show="showCredentialModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
             <div class="flex items-center justify-center min-h-screen px-4">
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showTempPassword = false"></div>
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showCredentialModal = false"></div>
                 <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative z-10">
-                    <h3 class="text-lg font-medium text-gray-900 mb-2">Temporary Password</h3>
-                    <p class="text-sm text-gray-500 mb-4">Share this password securely. The user must change it on first login.</p>
+                    <h3 class="text-lg font-medium text-gray-900 mb-2" x-text="credentialTitle"></h3>
+                    <p class="text-sm text-gray-500 mb-4" x-text="credentialMessage"></p>
                     <div class="flex items-center space-x-2 mb-4">
-                        <input type="text" :value="tempPassword" readonly
+                        <input type="text" :value="credentialValue" readonly
                                class="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 font-mono text-sm">
-                        <button @click="navigator.clipboard.writeText(tempPassword)"
+                        <button @click="navigator.clipboard.writeText(credentialValue)"
                                 class="px-3 py-2 text-sm bg-gray-100 rounded-md hover:bg-gray-200">Copy</button>
                     </div>
                     <div class="flex justify-end">
-                        <button @click="showTempPassword = false"
+                        <button @click="showCredentialModal = false"
                                 class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700">Done</button>
                     </div>
                 </div>
@@ -226,7 +230,7 @@ function adminUsers() {
     return {
         users: [], error: '', success: '',
         showAddModal: false, newEmail: '', newRole: 'viewer', addLoading: false,
-        showTempPassword: false, tempPassword: '',
+        showCredentialModal: false, credentialTitle: '', credentialMessage: '', credentialValue: '',
         showRoleModal: false, selectedRole: '',
         showConfirmModal: false, confirmTitle: '', confirmMessage: '', pendingAction: null,
         showDeleteModal: false, deleteConfirmEmail: '',
@@ -241,7 +245,14 @@ function adminUsers() {
             if (!u.is_active) return { text: 'Inactive', cls: 'text-red-600' };
             if (u.locked_until && new Date(u.locked_until) > new Date())
                 return { text: 'Locked', cls: 'text-yellow-600' };
+            if (u.has_pending_invite)
+                return { text: 'Invited', cls: 'text-indigo-600' };
+            if (u.invite_expires_at && !u.has_pending_invite && !u.last_login)
+                return { text: 'Invite Expired', cls: 'text-orange-600' };
             return { text: 'Active', cls: 'text-green-600' };
+        },
+        canReinvite(u) {
+            return u.is_active && !u.last_login && (u.has_pending_invite || (u.invite_expires_at && !u.has_pending_invite));
         },
 
         async loadUsers() {
@@ -263,8 +274,16 @@ function adminUsers() {
                 if (!res.ok) { this.error = data.message; this.addLoading = false; return; }
                 this.showAddModal = false;
                 this.newEmail = ''; this.newRole = 'viewer';
-                this.tempPassword = data.temp_password;
-                this.showTempPassword = true;
+                if (data.invite_url) {
+                    this.credentialTitle = 'Invite Link';
+                    this.credentialMessage = 'Share this link with the user. It expires in 72 hours.';
+                    this.credentialValue = window.location.origin + data.invite_url;
+                } else {
+                    this.credentialTitle = 'Temporary Password';
+                    this.credentialMessage = 'Share this password securely. The user must change it on first login.';
+                    this.credentialValue = data.temp_password;
+                }
+                this.showCredentialModal = true;
                 await this.loadUsers();
             } catch (e) { this.error = 'Failed to create user'; }
             this.addLoading = false;
@@ -300,9 +319,28 @@ function adminUsers() {
                 });
                 const data = await res.json();
                 if (!res.ok) { this.error = data.message; this.actionLoading = false; return; }
-                this.tempPassword = data.temp_password;
-                this.showTempPassword = true;
+                this.credentialTitle = 'Temporary Password';
+                this.credentialMessage = 'Share this password securely. The user must change it on first login.';
+                this.credentialValue = data.temp_password;
+                this.showCredentialModal = true;
             } catch (e) { this.error = 'Failed to reset password'; }
+            this.actionLoading = false;
+        },
+
+        async reinviteUser(u) {
+            this.actionLoading = true; this.error = '';
+            try {
+                const res = await fetch(`/api/admin/users/${u.id}/reinvite`, {
+                    method: 'POST', headers
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message; this.actionLoading = false; return; }
+                this.credentialTitle = 'Invite Link';
+                this.credentialMessage = 'Share this link with the user. It expires in 72 hours.';
+                this.credentialValue = window.location.origin + data.invite_url;
+                this.showCredentialModal = true;
+                await this.loadUsers();
+            } catch (e) { this.error = 'Failed to resend invite'; }
             this.actionLoading = false;
         },
 
