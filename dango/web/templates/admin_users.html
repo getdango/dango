@@ -252,7 +252,7 @@ function adminUsers() {
             return { text: 'Active', cls: 'text-green-600' };
         },
         canReinvite(u) {
-            return u.is_active && !u.last_login && (u.has_pending_invite || (u.invite_expires_at && !u.has_pending_invite));
+            return u.is_active && !u.last_login && !!u.invite_expires_at;
         },
 
         async loadUsers() {

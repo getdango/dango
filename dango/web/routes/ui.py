@@ -159,10 +159,11 @@ async def invite_page(token: str, request: Request) -> HTMLResponse:
         token_hash = hash_token(token)
         user = get_user_by_invite_token_hash(db_path, token_hash)
 
+        invalid_msg = "This invite link is invalid or has expired."
         if user is None:
-            error = "This invite link is invalid or has expired."
+            error = invalid_msg
         elif user.invite_expires_at is None or user.invite_expires_at <= datetime.now(timezone.utc):
-            error = "This invite link has expired. Contact your administrator for a new invite."
+            error = invalid_msg
         else:
             email = user.email
     except Exception:
