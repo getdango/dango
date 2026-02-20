@@ -23,6 +23,7 @@ from dango.auth.database import (
     get_session_by_token,
     get_user_by_email,
     get_user_by_id,
+    get_user_by_oauth,
     invalidate_all_user_sessions,
     invalidate_session,
     list_user_sessions,
@@ -471,3 +472,33 @@ class TestSessionCRUD:
         assert fetched is not None
         assert fetched.ip_address == "10.0.0.1"
         assert fetched.user_agent == "TestAgent/1.0"
+
+
+@pytest.mark.unit
+class TestGetUserByOAuth:
+    """Tests for get_user_by_oauth()."""
+
+    def test_found(self, tmp_path: Path) -> None:
+        db = _make_db(tmp_path)
+        user = _make_user(oauth_provider="google", oauth_id="g-123")
+        create_user(db, user)
+        found = get_user_by_oauth(db, "google", "g-123")
+        assert found is not None
+        assert found.id == user.id
+
+    def test_not_found_wrong_provider(self, tmp_path: Path) -> None:
+        db = _make_db(tmp_path)
+        user = _make_user(oauth_provider="google", oauth_id="g-123")
+        create_user(db, user)
+        assert get_user_by_oauth(db, "github", "g-123") is None
+
+    def test_not_found_wrong_id(self, tmp_path: Path) -> None:
+        db = _make_db(tmp_path)
+        user = _make_user(oauth_provider="google", oauth_id="g-123")
+        create_user(db, user)
+        assert get_user_by_oauth(db, "google", "g-999") is None
+
+    def test_not_found_no_oauth_user(self, tmp_path: Path) -> None:
+        db = _make_db(tmp_path)
+        create_user(db, _make_user())
+        assert get_user_by_oauth(db, "google", "g-123") is None
