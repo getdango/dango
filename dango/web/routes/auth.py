@@ -757,6 +757,54 @@ async def _resolve_oauth_user(
     auth_config = _get_auth_config(request)
     session_max_days = auth_config.session_max_days if auth_config else 30
 
+    # 2FA required — create partial session (mirrors password login)
+    if user.totp_enabled:
+        raw_token, _session = create_session(
+            db_path,
+            user.id,
+            ip_address=ip,
+            user_agent=_get_user_agent(request),
+            is_partial=True,
+        )
+        response = RedirectResponse(url="/login?requires_2fa=true", status_code=302)
+        response.set_cookie(
+            key=COOKIE_NAME,
+            value=raw_token,
+            path="/",
+            httponly=True,
+            samesite="lax",
+            secure=is_secure_request(request.scope),
+        )
+        return response
+
+    # Check if admin requires 2FA but user hasn't set it up
+    if auth_config is not None and auth_config.require_2fa and not user.totp_enabled:
+        raw_token, _session = create_session(
+            db_path,
+            user.id,
+            ip_address=ip,
+            user_agent=_get_user_agent(request),
+            session_max_days=session_max_days,
+        )
+        update_user(db_path, user.id, UserUpdate(last_login=datetime.now(timezone.utc)))
+        log_auth_event(
+            AuditEvent.LOGIN_SUCCESS,
+            user_id=user.id,
+            email=user.email,
+            ip=ip,
+            details={"provider": user_info.provider},
+        )
+        response = RedirectResponse(url="/setup?requires_2fa_setup=true", status_code=302)
+        response.set_cookie(
+            key=COOKIE_NAME,
+            value=raw_token,
+            path="/",
+            httponly=True,
+            samesite="lax",
+            secure=is_secure_request(request.scope),
+        )
+        return response
+
     raw_token, _session = create_session(
         db_path,
         user.id,
@@ -773,8 +821,6 @@ async def _resolve_oauth_user(
         details={"provider": user_info.provider},
     )
 
-    # Redirect to setup if must_change_password, otherwise home
-    # TASK-019 will add Metabase session bridging at this point
     target = "/setup" if user.must_change_password else "/"
     response = RedirectResponse(url=target, status_code=302)
     response.set_cookie(
@@ -785,4 +831,23 @@ async def _resolve_oauth_user(
         samesite="lax",
         secure=is_secure_request(request.scope),
     )
+
+    # Bridge Metabase session (mirrors password login)
+    try:
+        from dango.auth.metabase_bridge import bridge_metabase_login
+
+        project_root: Path = request.app.state.project_root
+        mb_session = await bridge_metabase_login(user, project_root)
+        if mb_session is not None:
+            response.set_cookie(
+                key="metabase.SESSION",
+                value=mb_session,
+                path="/",
+                httponly=True,
+                samesite="lax",
+                secure=is_secure_request(request.scope),
+            )
+    except Exception:
+        logger.debug("metabase_bridge_on_oauth_login_failed", exc_info=True)
+
     return response
