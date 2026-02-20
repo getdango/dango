@@ -34,7 +34,6 @@ from dango.auth.oauth_login import (
     OAuthLoginError,
     OAuthUserInfo,
     generate_oauth_state,
-    get_configured_providers,
     get_provider,
 )
 from dango.auth.security import (

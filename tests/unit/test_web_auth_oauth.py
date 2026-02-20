@@ -22,6 +22,7 @@ from dango.config.models import OAuthProviderConfig
 from dango.migrations.runner import MigrationRunner
 from dango.web.middleware.auth import COOKIE_NAME
 from dango.web.routes.auth import router
+from dango.web.routes.ui import router as ui_router
 
 # ---------------------------------------------------------------------------
 # Test infrastructure
@@ -66,6 +67,7 @@ def _make_app(db_path: Path) -> FastAPI:
     app = FastAPI()
     app.state.project_root = db_path.parent.parent
     app.include_router(router)
+    app.include_router(ui_router)
     return app
 
 

@@ -103,6 +103,19 @@ async def custom_redoc_html() -> HTMLResponse:
 @router.get("/login")
 async def login_page(request: Request) -> HTMLResponse:
     """Render the login page."""
+    oauth_providers: list[dict[str, str]] = []
+    try:
+        from dango.auth.oauth_login import get_configured_providers
+        from dango.web.routes.auth import _get_oauth_config
+
+        oauth_configs = _get_oauth_config(request)
+        providers = get_configured_providers(oauth_configs)
+        oauth_providers = [
+            {"name": p.name, "display_name": p.display_name, "icon_svg": p.icon_svg}
+            for p in providers
+        ]
+    except Exception:
+        pass
     return _render_template(
         "login.html",
         {
@@ -110,6 +123,7 @@ async def login_page(request: Request) -> HTMLResponse:
             "version": dango.__version__,
             "current_page": "login",
             "subtitle": "Login",
+            "oauth_providers": oauth_providers,
         },
     )
 
