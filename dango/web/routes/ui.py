@@ -98,3 +98,45 @@ async def custom_redoc_html() -> HTMLResponse:
     from fastapi.openapi.docs import get_redoc_html
 
     return get_redoc_html(openapi_url="/openapi.json", title="Dango API - Documentation")
+
+
+@router.get("/login")
+async def login_page(request: Request) -> HTMLResponse:
+    """Render the login page."""
+    oauth_providers: list[dict[str, str]] = []
+    try:
+        from dango.auth.oauth_login import get_configured_providers
+        from dango.web.routes.auth import _get_oauth_config
+
+        oauth_configs = _get_oauth_config(request)
+        providers = get_configured_providers(oauth_configs)
+        oauth_providers = [
+            {"name": p.name, "display_name": p.display_name, "icon_svg": p.icon_svg}
+            for p in providers
+        ]
+    except Exception:
+        pass
+    return _render_template(
+        "login.html",
+        {
+            "request": request,
+            "version": dango.__version__,
+            "current_page": "login",
+            "subtitle": "Login",
+            "oauth_providers": oauth_providers,
+        },
+    )
+
+
+@router.get("/setup")
+async def setup_page(request: Request) -> HTMLResponse:
+    """Render the change-password page (first-login setup)."""
+    return _render_template(
+        "change_password.html",
+        {
+            "request": request,
+            "version": dango.__version__,
+            "current_page": "setup",
+            "subtitle": "Change Password",
+        },
+    )

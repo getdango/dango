@@ -469,6 +469,7 @@ class AuthConfig(BaseModel):
     enabled: bool = Field(default=False, description="Enable authentication (required for cloud)")
     idle_timeout_minutes: int = Field(default=60, description="Session idle timeout in minutes")
     session_max_days: int = Field(default=30, description="Maximum session lifetime in days")
+    require_2fa: bool = Field(default=False, description="Require all users to set up 2FA")
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     lockout: AccountLockoutConfig = Field(default_factory=AccountLockoutConfig)
     oauth_providers: dict[str, OAuthProviderConfig] = Field(

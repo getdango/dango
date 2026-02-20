@@ -192,26 +192,31 @@ class ConfigLoader:
         project = self.load_project_context()
         sources = self.load_sources_config()
 
-        # Load platform settings from project.yml
+        # Load platform and auth settings from project.yml
         data = self.load_yaml(self.project_file)
-        from dango.config.models import PlatformSettings
+        from dango.config.models import AuthConfig, PlatformSettings
 
         platform = PlatformSettings(**data.get("platform", {}))
+        auth = AuthConfig(**data.get("auth", {}))
 
-        return DangoConfig(project=project, sources=sources, platform=platform)
+        return DangoConfig(project=project, sources=sources, platform=platform, auth=auth)
 
     def save_project_context(self, project: ProjectContext) -> None:
         """Save project context to project.yml"""
-        # Check if project.yml exists and has platform settings
+        # Check if project.yml exists and has platform/auth settings
         existing_platform = {}
+        existing_auth = {}
         if self.project_file.exists():
             existing_data = self.load_yaml(self.project_file)
             existing_platform = existing_data.get("platform", {})
+            existing_auth = existing_data.get("auth", {})
 
-        data = {
+        data: dict[str, Any] = {
             "project": project.model_dump(mode="json", exclude_none=True),
-            "platform": existing_platform,  # Preserve existing platform settings
+            "platform": existing_platform,
         }
+        if existing_auth:
+            data["auth"] = existing_auth
         self.save_yaml(data, self.project_file)
 
     def save_sources_config(self, sources: SourcesConfig) -> None:
@@ -221,13 +226,18 @@ class ConfigLoader:
 
     def save_config(self, config: DangoConfig) -> None:
         """Save complete configuration"""
-        # Save project context and platform settings together in project.yml
-        data = {
+        from dango.config.models import AuthConfig
+
+        # Save project context, platform, and auth settings together in project.yml
+        data: dict[str, Any] = {
             "project": config.project.model_dump(mode="json", exclude_none=True),
-            "platform": config.platform.model_dump(
-                mode="json", exclude_none=False
-            ),  # Include all fields
+            "platform": config.platform.model_dump(mode="json", exclude_none=False),
         }
+        # Only write auth section if non-default to keep project.yml clean
+        auth_data = config.auth.model_dump(mode="json", exclude_none=False)
+        default_auth = AuthConfig().model_dump(mode="json", exclude_none=False)
+        if auth_data != default_auth:
+            data["auth"] = auth_data
         self.save_yaml(data, self.project_file)
 
         # Save sources separately
