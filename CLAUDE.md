@@ -21,7 +21,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | Database migrations | `dango/migrations/` | [`dango/migrations/CLAUDE.md`](dango/migrations/CLAUDE.md) |
 | Docker / file watcher | `dango/platform/` | `dango/platform/CLAUDE.md` (Phase 3) |
 | Jinja2 templates / Dockerfiles | `dango/templates/` | [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md) |
-| Auth / users / sessions | `dango/auth/` | Not yet created (Phase 2) |
+| Auth / users / sessions | `dango/auth/` | [`dango/auth/CLAUDE.md`](dango/auth/CLAUDE.md) |
 | Notebooks | `dango/notebooks/` | Not yet created (Phase 6) |
 | Data governance | `dango/governance/` | Not yet created (Phase 7) |
 
@@ -233,10 +233,10 @@ Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 - [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md)
 - [`dango/web/CLAUDE.md`](dango/web/CLAUDE.md)
 - [`dango/migrations/CLAUDE.md`](dango/migrations/CLAUDE.md)
+- [`dango/auth/CLAUDE.md`](dango/auth/CLAUDE.md)
 
 **Planned later phases:**
 - `dango/platform/CLAUDE.md` (Phase 3)
-- `dango/auth/CLAUDE.md` (Phase 2)
 - `dango/notebooks/CLAUDE.md` (Phase 6)
 - `dango/governance/CLAUDE.md` (Phase 7)
 
