@@ -162,3 +162,40 @@ class DeleteUserConfirmation(BaseModel):
     """Delete user confirmation payload."""
 
     confirm_email: str
+
+
+# ---------------------------------------------------------------------------
+# 2FA DTOs (used by web/routes/auth_2fa.py)
+# ---------------------------------------------------------------------------
+
+
+class TwoFASetupRequest(BaseModel):
+    """Request to begin 2FA setup (verifies current password)."""
+
+    password: str
+
+
+class TwoFAVerifySetupRequest(BaseModel):
+    """Verify a TOTP code to complete 2FA setup."""
+
+    code: str
+
+
+class TwoFAVerifyRequest(BaseModel):
+    """Verify a TOTP or recovery code during login."""
+
+    code: str
+    is_recovery: bool = False
+
+
+class TwoFADisableRequest(BaseModel):
+    """Request to disable 2FA (verifies current password)."""
+
+    password: str
+
+
+class TwoFARegenerateRequest(BaseModel):
+    """Request to regenerate recovery codes (verifies password + TOTP)."""
+
+    password: str
+    code: str

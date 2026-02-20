@@ -108,6 +108,18 @@ from dango.auth.sessions import (
     validate_partial_session,
     validate_session,
 )
+from dango.auth.totp import (
+    consume_recovery_code,
+    disable_totp,
+    enable_totp,
+    generate_totp_secret,
+    get_provisioning_uri,
+    hash_and_store_codes,
+    regenerate_recovery_codes,
+    setup_totp,
+    verify_recovery_code,
+    verify_totp_code,
+)
 
 __all__ = [
     # Admin utilities
@@ -196,6 +208,17 @@ __all__ = [
     "generate_oauth_state",
     "get_configured_providers",
     "get_provider",
+    # TOTP 2FA
+    "consume_recovery_code",
+    "disable_totp",
+    "enable_totp",
+    "generate_totp_secret",
+    "get_provisioning_uri",
+    "hash_and_store_codes",
+    "regenerate_recovery_codes",
+    "setup_totp",
+    "verify_recovery_code",
+    "verify_totp_code",
     # Security utilities
     "check_password_strength",
     "generate_api_key",

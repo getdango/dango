@@ -217,6 +217,7 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> Response:
 # Register routers — Dango API routes first, then proxy routes (catch-all last)
 # ---------------------------------------------------------------------------
 from dango.web.routes.auth import router as auth_router  # noqa: E402
+from dango.web.routes.auth_2fa import router as auth_2fa_router  # noqa: E402
 from dango.web.routes.config import router as config_router  # noqa: E402
 from dango.web.routes.dbt import router as dbt_router  # noqa: E402
 from dango.web.routes.health import router as health_router  # noqa: E402
@@ -232,6 +233,7 @@ from dango.web.routes.websocket import router as websocket_router  # noqa: E402
 # Dango API routers (order matters — more specific routes first)
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(auth_2fa_router)
 app.include_router(health_router)
 app.include_router(config_router)
 app.include_router(sources_router)

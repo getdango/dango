@@ -15,10 +15,9 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import ValidationError
 
-import dango
 from dango.auth.admin import get_auth_db_path
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.database import (
@@ -62,7 +61,6 @@ from dango.web.models import (
     LoginRequest,
     SessionResponse,
 )
-from dango.web.routes.ui import _render_template
 
 router = APIRouter(tags=["auth"])
 logger = get_logger(__name__)
@@ -221,6 +219,25 @@ async def login(request: Request) -> JSONResponse:
 
     # Success
     reset_failed_logins(db_path, login_data.email)
+
+    # 2FA required — create partial session
+    if user.totp_enabled:
+        raw_token, _session = create_session(
+            db_path,
+            user.id,
+            ip_address=ip,
+            user_agent=_get_user_agent(request),
+            is_partial=True,
+        )
+        response = JSONResponse(content={"requires_2fa": True})
+        _set_session_cookie(response, raw_token, request)
+        return response
+
+    # Check if admin requires 2FA but user hasn't set it up
+    requires_2fa_setup = False
+    if auth_config is not None and auth_config.require_2fa and not user.totp_enabled:
+        requires_2fa_setup = True
+
     raw_token, _session = create_session(
         db_path,
         user.id,
@@ -236,6 +253,7 @@ async def login(request: Request) -> JSONResponse:
         content={
             "user": user_response.model_dump(mode="json"),
             "must_change_password": user.must_change_password,
+            "requires_2fa_setup": requires_2fa_setup,
         }
     )
     _set_session_cookie(response, raw_token, request)
@@ -710,42 +728,3 @@ async def _resolve_oauth_user(
         secure=is_secure_request(request.scope),
     )
     return response
-
-
-# ---------------------------------------------------------------------------
-# Page routes
-# ---------------------------------------------------------------------------
-
-
-@router.get("/login")
-async def login_page(request: Request) -> HTMLResponse:
-    """Render the login page."""
-    oauth_configs = _get_oauth_config(request)
-    providers = get_configured_providers(oauth_configs)
-    oauth_providers = [
-        {"name": p.name, "display_name": p.display_name, "icon_svg": p.icon_svg} for p in providers
-    ]
-    return _render_template(
-        "login.html",
-        {
-            "request": request,
-            "version": dango.__version__,
-            "current_page": "login",
-            "subtitle": "Login",
-            "oauth_providers": oauth_providers,
-        },
-    )
-
-
-@router.get("/setup")
-async def setup_page(request: Request) -> HTMLResponse:
-    """Render the change-password page (first-login setup)."""
-    return _render_template(
-        "change_password.html",
-        {
-            "request": request,
-            "version": dango.__version__,
-            "current_page": "setup",
-            "subtitle": "Change Password",
-        },
-    )

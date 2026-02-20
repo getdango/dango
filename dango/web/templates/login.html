@@ -12,11 +12,12 @@
         <div class="text-center mb-8">
             <div class="text-5xl mb-3">🍡</div>
             <h1 class="text-2xl font-bold text-gray-900">Dango</h1>
-            <p class="text-sm text-gray-500 mt-1">Sign in to your account</p>
+            <p class="text-sm text-gray-500 mt-1" x-text="step === 'totp' ? 'Two-factor authentication' : 'Sign in to your account'"></p>
         </div>
 
         <div class="bg-white rounded-lg shadow-md p-8">
-            <form @submit.prevent="submit()">
+            <!-- Step 1: Credentials -->
+            <form x-show="step === 'credentials'" @submit.prevent="submit()">
                 <div class="mb-4">
                     <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
                     <input type="email" id="email" x-model="email" required autocomplete="email"
@@ -47,7 +48,7 @@
             </form>
 
             {% if oauth_providers %}
-            <div class="mt-6">
+            <div x-show="step === 'credentials'" class="mt-6">
                 <div class="relative">
                     <div class="absolute inset-0 flex items-center">
                         <div class="w-full border-t border-gray-300"></div>
@@ -68,6 +69,45 @@
                 </div>
             </div>
             {% endif %}
+
+            <!-- Step 2: TOTP verification -->
+            <div x-show="step === 'totp'" x-cloak>
+                <form @submit.prevent="submitTotp()">
+                    <div x-show="!useRecovery" class="mb-4">
+                        <label for="totpCode" class="block text-sm font-medium text-gray-700 mb-1">Authentication code</label>
+                        <input type="text" id="totpCode" x-model="totpCode" inputmode="numeric"
+                               autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}"
+                               placeholder="000000"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 focus:border-transparent text-center text-lg tracking-widest">
+                        <p class="text-xs text-gray-500 mt-1">Enter the 6-digit code from your authenticator app</p>
+                    </div>
+
+                    <div x-show="useRecovery" class="mb-4">
+                        <label for="recoveryCode" class="block text-sm font-medium text-gray-700 mb-1">Recovery code</label>
+                        <input type="text" id="recoveryCode" x-model="recoveryCode"
+                               placeholder="XXXX-XXXX" autocomplete="off"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 focus:border-transparent text-center text-lg tracking-widest">
+                        <p class="text-xs text-gray-500 mt-1">Enter one of your recovery codes</p>
+                    </div>
+
+                    <div x-show="totpError" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                        <p class="text-sm text-red-700" x-text="totpError"></p>
+                    </div>
+
+                    <button type="submit" :disabled="loading"
+                            class="w-full py-2 px-4 bg-dango-600 text-white rounded-md hover:bg-dango-700 focus:outline-none focus:ring-2 focus:ring-dango-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                        <span x-show="!loading">Verify</span>
+                        <span x-show="loading" x-cloak>Verifying...</span>
+                    </button>
+                </form>
+
+                <div class="mt-3 text-center">
+                    <button @click="useRecovery = !useRecovery; totpError = ''"
+                            class="text-sm text-dango-600 hover:text-dango-700">
+                        <span x-text="useRecovery ? 'Use authenticator app instead' : 'Use a recovery code instead'"></span>
+                    </button>
+                </div>
+            </div>
         </div>
 
         <p class="text-center text-xs text-gray-400 mt-6">Dango v{{ version }}</p>
@@ -82,6 +122,8 @@ function loginForm() {
         email: '', password: '',
         error: new URLSearchParams(window.location.search).get('error') || '',
         loading: false, locked: false, lockoutRemaining: 0, _timer: null,
+        step: 'credentials',
+        totpCode: '', recoveryCode: '', useRecovery: false, totpError: '',
         async submit() {
             this.loading = true;
             this.error = '';
@@ -94,8 +136,15 @@ function loginForm() {
                 });
                 const data = await res.json();
                 if (res.ok) {
+                    if (data.requires_2fa) {
+                        this.step = 'totp';
+                        this.loading = false;
+                        return;
+                    }
                     if (data.must_change_password) {
                         window.location.href = '/setup';
+                    } else if (data.requires_2fa_setup) {
+                        window.location.href = '/';
                     } else {
                         window.location.href = '/';
                     }
@@ -110,6 +159,31 @@ function loginForm() {
                 }
             } catch (e) {
                 this.error = 'Unable to connect to server';
+            }
+            this.loading = false;
+        },
+        async submitTotp() {
+            this.loading = true;
+            this.totpError = '';
+            const code = this.useRecovery ? this.recoveryCode : this.totpCode;
+            try {
+                const res = await fetch('/api/auth/2fa/verify', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+                    body: JSON.stringify({code: code, is_recovery: this.useRecovery})
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    if (data.must_change_password) {
+                        window.location.href = '/setup';
+                    } else {
+                        window.location.href = '/';
+                    }
+                    return;
+                }
+                this.totpError = data.message || 'Invalid verification code';
+            } catch (e) {
+                this.totpError = 'Unable to connect to server';
             }
             this.loading = false;
         },

@@ -58,6 +58,7 @@ _AUTH_TOGGLE_CACHE_TTL: float = 5.0  # seconds
 # fmt: off
 _PUBLIC_EXACT: frozenset[str] = frozenset({
     "/api/auth/login",
+    "/api/auth/2fa/verify",
     "/api/auth/oauth/callback",
     "/login",
     "/setup",

@@ -56,6 +56,7 @@ dependencies = [
     "keyring>=24.0.0",    # Secure credential storage in OS keychain
     "cryptography>=41.0.0",  # Token encryption
     "pwdlib[bcrypt]>=0.3.0,<1.0",  # Password hashing (bcrypt)
+    "pyotp>=2.9,<3.0",   # TOTP two-factor authentication
     "toml>=0.10.2",       # TOML file parsing for .dlt/secrets.toml
 
     # Google API dependencies (for bundled Google Sheets source)

@@ -192,13 +192,14 @@ class ConfigLoader:
         project = self.load_project_context()
         sources = self.load_sources_config()
 
-        # Load platform settings from project.yml
+        # Load platform and auth settings from project.yml
         data = self.load_yaml(self.project_file)
-        from dango.config.models import PlatformSettings
+        from dango.config.models import AuthConfig, PlatformSettings
 
         platform = PlatformSettings(**data.get("platform", {}))
+        auth = AuthConfig(**data.get("auth", {}))
 
-        return DangoConfig(project=project, sources=sources, platform=platform)
+        return DangoConfig(project=project, sources=sources, platform=platform, auth=auth)
 
     def save_project_context(self, project: ProjectContext) -> None:
         """Save project context to project.yml"""
