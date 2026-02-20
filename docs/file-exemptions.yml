@@ -25,15 +25,27 @@ exemptions:
 
   # --- Phase 2 auth additions ---
   - file: dango/web/routes/auth.py
-    lines: 721
+    lines: 788
     category: exempt
-    reason: "TASK-095 added OAuth social login endpoints (+120 lines over TASK-016 base). TASK-096 will move page routes to routes/ui.py, reducing by ~26 lines."
+    reason: "TASK-095 OAuth, TASK-096 2FA, TASK-100 accept-invite endpoint. Auth logic is tightly coupled."
     review_by: "v1.1"
 
   - file: dango/auth/database.py
-    lines: 504
+    lines: 529
     category: exempt
-    reason: "TASK-095 added get_user_by_oauth() (+14 lines). Marginally over limit."
+    reason: "TASK-100 added invite token lookup (+25 lines over TASK-095 base)."
+    review_by: "v1.1"
+
+  - file: dango/web/routes/users.py
+    lines: 525
+    category: exempt
+    reason: "TASK-100 added invite-based user creation and reinvite endpoint (+77 lines over base)."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/auth.py
+    lines: 538
+    category: exempt
+    reason: "TASK-100 added invite link flow to add-user and invite status to list-users (+38 lines)."
     review_by: "v1.1"
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
@@ -131,13 +143,6 @@ exemptions:
     review_by: "v1.1"
 
 # Removed: dango/platform/network.py — now 486 lines, within limit (TASK-088)
-
-  # --- Auth web routes (Metabase bridging hooks added by TASK-019) ---
-  - file: dango/web/routes/auth.py
-    lines: 530
-    category: refactor
-    reason: "Login/logout endpoints + API key CRUD + page routes. Grew past 500 with TASK-019 Metabase bridging hooks. Split into auth_api.py + auth_pages.py planned for TASK-095."
-    review_by: "TASK-095"
 
   # --- Test files (verbose by nature — each test class covers one public function) ---
   - file: tests/unit/test_oauth_validation.py

@@ -23,6 +23,7 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.database import (
     get_session_by_token,
     get_user_by_email,
+    get_user_by_invite_token_hash,
     get_user_by_oauth,
     list_user_api_keys,
     list_user_sessions,
@@ -53,6 +54,7 @@ from dango.config.models import AuthConfig, OAuthProviderConfig
 from dango.logging import get_logger
 from dango.web.middleware.auth import COOKIE_NAME, is_secure_request
 from dango.web.models import (
+    AcceptInviteRequest,
     ApiKeyCreateResponse,
     ApiKeyResponse,
     ChangePasswordRequest,
@@ -541,6 +543,63 @@ async def revoke_key(key_id: str, request: Request) -> JSONResponse:
     )
 
     return JSONResponse(content={"success": True})
+
+
+# ---------------------------------------------------------------------------
+# Invite acceptance
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/auth/accept-invite")
+async def accept_invite(request: Request) -> JSONResponse:
+    """Accept an invite link and set a password."""
+    db_path = _get_db_path(request)
+    try:
+        body = await request.json()
+        data = AcceptInviteRequest(**body)
+    except (ValueError, ValidationError):
+        return JSONResponse(status_code=400, content={"message": "Invalid request body"})
+
+    # Hash the token and look up the user
+    token_hash = hash_token(data.token)
+    user = get_user_by_invite_token_hash(db_path, token_hash)
+
+    invalid_msg = "This invite link is invalid or has expired"
+    if user is None:
+        return JSONResponse(status_code=400, content={"message": invalid_msg})
+
+    # Check expiry
+    if user.invite_expires_at is None or user.invite_expires_at <= datetime.now(timezone.utc):
+        return JSONResponse(status_code=400, content={"message": invalid_msg})
+
+    # Validate password strength
+    issues = check_password_strength(data.password)
+    if issues:
+        return JSONResponse(
+            status_code=400,
+            content={"message": "Password is too weak", "issues": issues},
+        )
+
+    # Set password and clear invite fields
+    update_user(
+        db_path,
+        user.id,
+        UserUpdate(
+            password_hash=hash_password(data.password),
+            invite_token_hash=None,
+            invite_expires_at=None,
+            must_change_password=False,
+        ),
+    )
+
+    log_auth_event(
+        AuditEvent.INVITE_ACCEPTED,
+        user_id=user.id,
+        email=user.email,
+        ip=_get_client_ip(request),
+    )
+
+    return JSONResponse(content={"message": "Password set successfully"})
 
 
 # ---------------------------------------------------------------------------

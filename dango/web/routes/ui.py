@@ -3,6 +3,7 @@
 UI page endpoints and API documentation.
 """
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -138,5 +139,45 @@ async def setup_page(request: Request) -> HTMLResponse:
             "version": dango.__version__,
             "current_page": "setup",
             "subtitle": "Change Password",
+        },
+    )
+
+
+@router.get("/invite/{token}")
+async def invite_page(token: str, request: Request) -> HTMLResponse:
+    """Render the invite acceptance page."""
+    from dango.auth.admin import get_auth_db_path
+    from dango.auth.database import get_user_by_invite_token_hash
+    from dango.auth.security import hash_token
+
+    error: str | None = None
+    email: str | None = None
+
+    try:
+        project_root: Path = request.app.state.project_root
+        db_path = get_auth_db_path(project_root)
+        token_hash = hash_token(token)
+        user = get_user_by_invite_token_hash(db_path, token_hash)
+
+        invalid_msg = "This invite link is invalid or has expired."
+        if user is None:
+            error = invalid_msg
+        elif user.invite_expires_at is None or user.invite_expires_at <= datetime.now(timezone.utc):
+            error = invalid_msg
+        else:
+            email = user.email
+    except Exception:
+        error = "Unable to process invite. Please try again later."
+
+    return _render_template(
+        "invite.html",
+        {
+            "request": request,
+            "version": dango.__version__,
+            "current_page": "invite",
+            "subtitle": "Accept Invite",
+            "token": token,
+            "email": email,
+            "invite_error": error,
         },
     )

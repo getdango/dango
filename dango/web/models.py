@@ -141,6 +141,7 @@ class CreateUserRequest(BaseModel):
 
     email: str
     role: str = "viewer"
+    generate_password: bool = False
 
     @field_validator("email", mode="before")
     @classmethod
@@ -150,6 +151,13 @@ class CreateUserRequest(BaseModel):
         if not v or "@" not in v:
             raise ValueError("Invalid email address")
         return v
+
+
+class AcceptInviteRequest(BaseModel):
+    """Invite acceptance payload."""
+
+    token: str
+    password: str
 
 
 class ChangeRoleRequest(BaseModel):

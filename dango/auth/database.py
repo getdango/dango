@@ -65,6 +65,8 @@ def _row_to_user(row: sqlite3.Row) -> User:
         metabase_password_enc=row["metabase_password_enc"],
         must_change_password=_bool_from_int(row["must_change_password"]),
         last_login=_datetime_from_str(row["last_login"]),
+        invite_token_hash=row["invite_token_hash"],
+        invite_expires_at=_datetime_from_str(row["invite_expires_at"]),
         created_at=_datetime_from_str(row["created_at"]),  # type: ignore[arg-type]
         updated_at=_datetime_from_str(row["updated_at"]),  # type: ignore[arg-type]
     )
@@ -125,8 +127,9 @@ def create_user(db_path: Path, user: User) -> User:
                 oauth_provider, oauth_id, failed_login_attempts, locked_until,
                 metabase_user_id, metabase_password_enc,
                 must_change_password, last_login,
+                invite_token_hash, invite_expires_at,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user.id,
@@ -145,6 +148,8 @@ def create_user(db_path: Path, user: User) -> User:
                 user.metabase_password_enc,
                 int(user.must_change_password),
                 _dt_to_str(user.last_login),
+                user.invite_token_hash,
+                _dt_to_str(user.invite_expires_at),
                 user.created_at.isoformat(),
                 user.updated_at.isoformat(),
             ),
@@ -195,6 +200,26 @@ def get_user_by_oauth(db_path: Path, provider: str, oauth_id: str) -> User | Non
         row = conn.execute(
             "SELECT * FROM users WHERE oauth_provider = ? AND oauth_id = ?",
             (provider, oauth_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_user(row)
+    finally:
+        conn.close()
+
+
+def get_user_by_invite_token_hash(db_path: Path, token_hash: str) -> User | None:
+    """Look up an active user by invite token hash.
+
+    Does **not** check expiry — the caller should compare
+    ``invite_expires_at`` against the current time to produce
+    targeted error messages (invalid vs expired).
+    """
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM users WHERE invite_token_hash = ? AND is_active = 1",
+            (token_hash,),
         ).fetchone()
         if row is None:
             return None

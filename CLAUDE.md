@@ -64,7 +64,7 @@ dango/                          # Python package source
 │   ├── main.py                 # Slim entry point (~88 lines) — registers commands
 │   ├── commands/               # Command modules (extracted from main.py by TASK-005)
 │   │   ├── __init__.py         # Package marker
-│   │   ├── auth.py             # auth group placeholder (Phase 2 user management)
+│   │   ├── auth.py             # auth group (12 subcommands, 538 lines)
 │   │   ├── oauth.py            # oauth group + 10 subcommands (815 lines)
 │   │   ├── config_cmd.py       # config group (validate/show)
 │   │   ├── dashboard.py        # dashboard group (provision)

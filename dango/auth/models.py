@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 class Role(str, Enum):
@@ -44,6 +44,8 @@ class User(BaseModel):
     metabase_password_enc: str | None = None
     must_change_password: bool = False
     last_login: datetime | None = None
+    invite_token_hash: str | None = None
+    invite_expires_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -97,6 +99,8 @@ class UserUpdate(BaseModel):
     metabase_password_enc: str | None = None
     must_change_password: bool | None = None
     last_login: datetime | None = None
+    invite_token_hash: str | None = None
+    invite_expires_at: datetime | None = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -122,8 +126,17 @@ class UserResponse(BaseModel):
     locked_until: datetime | None = None
     must_change_password: bool = False
     last_login: datetime | None = None
+    invite_expires_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def has_pending_invite(self) -> bool:
+        """True if the user has a non-expired invite."""
+        if self.invite_expires_at is None:
+            return False
+        return self.invite_expires_at > datetime.now(timezone.utc)
 
 
 class Session(BaseModel):
