@@ -17,6 +17,8 @@ import yaml
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
+from dango.web.middleware.auth import is_secure_request
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["metabase-proxy"])
@@ -132,14 +134,21 @@ async def proxy_to_metabase(
                 if response.status_code != 401:
                     # Attach the new session cookie to the response
                     final = _build_response(response)
-                    final.set_cookie(key=_MB_SESSION_COOKIE, value=new_session, path="/")
+                    final.set_cookie(
+                        key=_MB_SESSION_COOKIE,
+                        value=new_session,
+                        path="/",
+                        httponly=True,
+                        samesite="lax",
+                        secure=is_secure_request(request.scope),
+                    )
                     return final
 
         return _build_response(response)
 
-    except Exception as e:
-        logger.error("Metabase proxy error for %s: %s", target_path, e)
-        return Response(content=f"Proxy error: {e}", status_code=502)
+    except Exception:
+        logger.error("Metabase proxy error for %s", target_path, exc_info=True)
+        return Response(content="Failed to connect to Metabase", status_code=502)
 
 
 async def _do_proxy(
@@ -152,9 +161,19 @@ async def _do_proxy(
     """Execute the actual HTTP request to Metabase."""
     proxy_headers = dict(headers)
     if session_id:
+        # Strip any existing metabase.SESSION from forwarded cookies to avoid duplicates
         existing_cookies = proxy_headers.get("cookie", "")
         if existing_cookies:
-            proxy_headers["cookie"] = f"{existing_cookies}; {_MB_SESSION_COOKIE}={session_id}"
+            parts = [
+                c.strip()
+                for c in existing_cookies.split(";")
+                if not c.strip().startswith(f"{_MB_SESSION_COOKIE}=")
+            ]
+            filtered = "; ".join(parts)
+            if filtered:
+                proxy_headers["cookie"] = f"{filtered}; {_MB_SESSION_COOKIE}={session_id}"
+            else:
+                proxy_headers["cookie"] = f"{_MB_SESSION_COOKIE}={session_id}"
         else:
             proxy_headers["cookie"] = f"{_MB_SESSION_COOKIE}={session_id}"
 

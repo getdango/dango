@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -21,10 +22,15 @@ from dango.auth.sessions import create_session
 from dango.migrations.runner import MigrationRunner
 from dango.web.middleware.auth import COOKIE_NAME
 from dango.web.routes.auth import router as auth_router
+from dango.web.routes.metabase_proxy import router as proxy_router
 
 # Lazy imports in auth.py mean we patch at the origin module.
 _BRIDGE_LOGIN = "dango.auth.metabase_bridge.bridge_metabase_login"
 _BRIDGE_LOGOUT = "dango.auth.metabase_bridge.bridge_metabase_logout"
+# Proxy internals — patched directly on the module since they are not lazy-imported.
+_DO_PROXY = "dango.web.routes.metabase_proxy._do_proxy"
+_REBRIDGE = "dango.web.routes.metabase_proxy._rebridge_if_needed"
+_GET_MB_URL = "dango.web.routes.metabase_proxy._get_metabase_url"
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +135,7 @@ class TestLoginMetabaseBridge:
 
         assert resp.status_code == 200
         assert COOKIE_NAME in resp.cookies
+        assert "metabase.SESSION" not in resp.cookies
 
 
 # ---------------------------------------------------------------------------
@@ -196,3 +203,94 @@ class TestLogoutMetabaseBridge:
             )
 
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Proxy re-bridge on 401
+# ---------------------------------------------------------------------------
+
+
+def _httpx_response(status: int = 200, body: bytes = b"ok") -> httpx.Response:
+    """Build a minimal httpx.Response for proxy mock returns."""
+    return httpx.Response(status_code=status, content=body)
+
+
+def _make_proxy_app(tmp_path: Path) -> FastAPI:
+    """Create a FastAPI app with proxy routes and a fake authenticated user."""
+    app = FastAPI()
+    app.state.project_root = tmp_path
+
+    user = MagicMock()
+    user.email = "proxy@example.com"
+
+    @app.middleware("http")
+    async def set_user(request: Any, call_next: Any) -> Any:
+        request.state.user = user
+        request.state.auth_method = "session"
+        return await call_next(request)
+
+    app.include_router(proxy_router)
+    return app
+
+
+@pytest.mark.unit
+class TestProxyRebridge:
+    """Tests for the re-bridge-on-401 pattern in the Metabase proxy."""
+
+    def test_401_rebridge_retry_succeeds(self, tmp_path: Path) -> None:
+        """On 401, proxy re-bridges and retries; new cookie is set."""
+        app = _make_proxy_app(tmp_path)
+        client = TestClient(app, raise_server_exceptions=False)
+        client.cookies.set("metabase.SESSION", "old-sess")
+
+        first_resp = _httpx_response(401)
+        retry_resp = _httpx_response(200, b"dashboard data")
+
+        with (
+            patch(_DO_PROXY, new_callable=AsyncMock, side_effect=[first_resp, retry_resp]),
+            patch(_REBRIDGE, new_callable=AsyncMock, return_value="new-sess-id"),
+            patch(_GET_MB_URL, return_value="http://mb:3000"),
+        ):
+            resp = client.get("/metabase/api/card")
+
+        assert resp.status_code == 200
+        assert resp.text == "dashboard data"
+        assert "metabase.SESSION" in resp.cookies
+        assert resp.cookies["metabase.SESSION"] == "new-sess-id"
+
+    def test_401_rebridge_fails_returns_401(self, tmp_path: Path) -> None:
+        """On 401, if re-bridge fails, the original 401 is returned."""
+        app = _make_proxy_app(tmp_path)
+        client = TestClient(app, raise_server_exceptions=False)
+        client.cookies.set("metabase.SESSION", "old-sess")
+
+        first_resp = _httpx_response(401, b"Unauthorized")
+
+        with (
+            patch(_DO_PROXY, new_callable=AsyncMock, return_value=first_resp),
+            patch(_REBRIDGE, new_callable=AsyncMock, return_value=None),
+            patch(_GET_MB_URL, return_value="http://mb:3000"),
+        ):
+            resp = client.get("/metabase/api/card")
+
+        assert resp.status_code == 401
+        assert "metabase.SESSION" not in resp.cookies
+
+    def test_200_no_rebridge(self, tmp_path: Path) -> None:
+        """On 200, no re-bridge is attempted."""
+        app = _make_proxy_app(tmp_path)
+        client = TestClient(app, raise_server_exceptions=False)
+        client.cookies.set("metabase.SESSION", "valid-sess")
+
+        ok_resp = _httpx_response(200, b"ok")
+
+        with (
+            patch(_DO_PROXY, new_callable=AsyncMock, return_value=ok_resp) as mock_proxy,
+            patch(_REBRIDGE, new_callable=AsyncMock) as mock_rebridge,
+            patch(_GET_MB_URL, return_value="http://mb:3000"),
+        ):
+            resp = client.get("/metabase/api/card")
+
+        assert resp.status_code == 200
+        mock_proxy.assert_called_once()
+        mock_rebridge.assert_not_called()

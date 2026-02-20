@@ -121,7 +121,7 @@ exemptions:
 
   # --- Auth web routes (Metabase bridging hooks added by TASK-019) ---
   - file: dango/web/routes/auth.py
-    lines: 532
+    lines: 530
     category: refactor
     reason: "Login/logout endpoints + API key CRUD + page routes. Grew past 500 with TASK-019 Metabase bridging hooks. Split into auth_api.py + auth_pages.py planned for TASK-095."
     review_by: "TASK-095"

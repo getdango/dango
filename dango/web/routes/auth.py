@@ -211,23 +211,21 @@ async def login(request: Request) -> JSONResponse:
     )
     _set_session_cookie(response, raw_token, request)
 
-    # Bridge Metabase session — re-read user for fresh metabase fields
+    # Bridge Metabase session (uses user's encrypted Metabase password)
     try:
         from dango.auth.metabase_bridge import bridge_metabase_login
 
         project_root: Path = request.app.state.project_root
-        fresh_user = get_user_by_email(db_path, user.email)
-        if fresh_user is not None:
-            mb_session = await bridge_metabase_login(fresh_user, project_root)
-            if mb_session is not None:
-                response.set_cookie(
-                    key="metabase.SESSION",
-                    value=mb_session,
-                    path="/",
-                    httponly=True,
-                    samesite="lax",
-                    secure=is_secure_request(request.scope),
-                )
+        mb_session = await bridge_metabase_login(user, project_root)
+        if mb_session is not None:
+            response.set_cookie(
+                key="metabase.SESSION",
+                value=mb_session,
+                path="/",
+                httponly=True,
+                samesite="lax",
+                secure=is_secure_request(request.scope),
+            )
     except Exception:
         logger.debug("metabase_bridge_on_login_failed", exc_info=True)
 
