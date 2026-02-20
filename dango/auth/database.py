@@ -188,6 +188,21 @@ def get_user_by_id(db_path: Path, user_id: str) -> User | None:
         conn.close()
 
 
+def get_user_by_oauth(db_path: Path, provider: str, oauth_id: str) -> User | None:
+    """Look up a user by OAuth provider and provider-assigned ID."""
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM users WHERE oauth_provider = ? AND oauth_id = ?",
+            (provider, oauth_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_user(row)
+    finally:
+        conn.close()
+
+
 def list_users(db_path: Path, *, active_only: bool = False) -> list[User]:
     """Return all users, optionally filtering to active users only."""
     conn = _connect(db_path)

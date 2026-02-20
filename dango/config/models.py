@@ -456,6 +456,13 @@ class AccountLockoutConfig(BaseModel):
     lockout_minutes: int = Field(default=15, description="Lockout duration in minutes")
 
 
+class OAuthProviderConfig(BaseModel):
+    """Credentials for a single OAuth login provider."""
+
+    client_id: str = Field(description="OAuth client ID")
+    client_secret: str = Field(description="OAuth client secret")
+
+
 class AuthConfig(BaseModel):
     """Authentication configuration."""
 
@@ -464,6 +471,10 @@ class AuthConfig(BaseModel):
     session_max_days: int = Field(default=30, description="Maximum session lifetime in days")
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     lockout: AccountLockoutConfig = Field(default_factory=AccountLockoutConfig)
+    oauth_providers: dict[str, OAuthProviderConfig] = Field(
+        default_factory=dict,
+        description="OAuth login providers keyed by name (google, github)",
+    )
 
 
 class DangoConfig(BaseModel):

@@ -23,6 +23,19 @@ exemptions:
     reason: "CSV upload/list/delete endpoints. Extracted from web/app.py by TASK-085. DELETE endpoint alone has ~300 lines of DuckDB cleanup logic."
     review_by: "v1.1"
 
+  # --- Phase 2 auth additions ---
+  - file: dango/web/routes/auth.py
+    lines: 713
+    category: exempt
+    reason: "TASK-095 added OAuth social login endpoints (+120 lines over TASK-016 base). TASK-096 will move page routes to routes/ui.py, reducing by ~26 lines."
+    review_by: "v1.1"
+
+  - file: dango/auth/database.py
+    lines: 504
+    category: exempt
+    reason: "TASK-095 added get_user_by_oauth() (+14 lines). Marginally over limit."
+    review_by: "v1.1"
+
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
     lines: 1026
@@ -124,6 +137,12 @@ exemptions:
     lines: 580
     category: exempt
     reason: "35 tests covering all provider validators, routing, and pre-sync gate. Test methods are intentionally verbose for readability — each sets up mocks explicitly."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_auth_database.py
+    lines: 504
+    category: exempt
+    reason: "TASK-095 added get_user_by_oauth tests (+4 tests). Marginally over limit."
     review_by: "v1.1"
 
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)

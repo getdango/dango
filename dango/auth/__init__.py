@@ -33,6 +33,7 @@ from dango.auth.database import (
     get_session_by_token,
     get_user_by_email,
     get_user_by_id,
+    get_user_by_oauth,
     list_user_api_keys,
     list_user_sessions,
     list_users,
@@ -57,6 +58,14 @@ from dango.auth.metabase_sync import (
     sync_user_to_metabase,
 )
 from dango.auth.models import APIKey, Role, Session, User, UserCreate, UserResponse, UserUpdate
+from dango.auth.oauth_login import (
+    OAuthLoginError,
+    OAuthLoginProvider,
+    OAuthUserInfo,
+    generate_oauth_state,
+    get_configured_providers,
+    get_provider,
+)
 from dango.auth.permissions import (
     PERMISSIONS,
     ROLE_PERMISSIONS,
@@ -123,6 +132,7 @@ __all__ = [
     "create_user",
     "get_user_by_email",
     "get_user_by_id",
+    "get_user_by_oauth",
     "list_users",
     "update_user",
     "deactivate_user",
@@ -168,6 +178,13 @@ __all__ = [
     "get_permissions",
     "has_permission",
     "require_permission",
+    # OAuth login
+    "OAuthLoginError",
+    "OAuthLoginProvider",
+    "OAuthUserInfo",
+    "generate_oauth_state",
+    "get_configured_providers",
+    "get_provider",
     # Security utilities
     "check_password_strength",
     "generate_api_key",
