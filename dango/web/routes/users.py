@@ -451,11 +451,11 @@ async def admin_unlock_user(
 
     update_user(db_path, user_id, UserUpdate(failed_login_attempts=0, locked_until=None))
     log_auth_event(
-        AuditEvent.ACCOUNT_LOCKED,
+        AuditEvent.ACCOUNT_UNLOCKED,
         user_id=user_id,
         email=target.email,
         ip=_get_client_ip(request),
-        details={"action": "unlock", "unlocked_by": user.email},
+        details={"unlocked_by": user.email},
     )
     return JSONResponse(content={"success": True})
 

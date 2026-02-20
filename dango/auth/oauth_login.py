@@ -48,7 +48,14 @@ class OAuthLoginError(Exception):
 
 
 class OAuthLoginProvider(ABC):
-    """Base class for OAuth social login providers."""
+    """Base class for OAuth social login providers.
+
+    **Security contract:** ``exchange_code()`` implementations must only return
+    verified email addresses.  When a provider cannot confirm email ownership
+    (e.g. GitHub's ``emails`` API returns ``verified: false``), the method
+    must raise ``OAuthLoginError``.  Returning unverified emails allows
+    account takeover via the auto-link path (user lookup by email).
+    """
 
     name: str
     display_name: str

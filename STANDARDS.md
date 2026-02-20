@@ -16,6 +16,7 @@
 8. [Documentation Requirements](#8-documentation-requirements)
 9. [Type Hints Policy](#9-type-hints-policy)
 10. [File Header Standard](#10-file-header-standard)
+11. [Authentication & Web Patterns](#11-authentication--web-patterns)
 
 ---
 
@@ -494,3 +495,83 @@ python scripts/validate_headers.py --changed
 # Audit all files (reports compliance, does not fail CI)
 python scripts/validate_headers.py --all
 ```
+
+---
+
+## 11. Authentication & Web Patterns
+
+Conventions established during Phase 2 (Authentication). These apply to `dango/auth/`, `dango/web/middleware/`, and auth-related web routes.
+
+### Permission-gated endpoints
+
+Use `require_permission()` as a FastAPI `Depends()` parameter. It returns the authenticated `User` object on success, or raises `AuthorizationError` (403).
+
+```python
+from dango.auth.permissions import require_permission
+
+@router.get("/api/admin/users")
+async def list_users(
+    request: Request,
+    user: User = Depends(require_permission("users.view")),
+) -> JSONResponse:
+    ...
+```
+
+### Cookie security flags
+
+All auth cookies (`dango_session`, `metabase.SESSION`) must set:
+- `httponly=True` — prevents JavaScript access
+- `samesite="lax"` — CSRF protection for cross-site requests
+- `secure=is_secure_request(request.scope)` — HTTPS-only when behind TLS
+
+Use the `is_secure_request()` helper from `dango.web.middleware.auth` to detect TLS (checks `X-Forwarded-Proto` header and ASGI scope).
+
+### Pydantic partial updates
+
+Use `exclude_unset=True` (not `exclude_none`) when applying partial updates with Pydantic models. `exclude_none` breaks intentional `None` assignments on nullable fields.
+
+```python
+update_data = update_model.model_dump(exclude_unset=True)
+```
+
+### Structlog reserved keywords
+
+Never use `event` or `timestamp` as keyword arguments in structlog calls — they conflict with structlog internals and cause silent data loss.
+
+```python
+# BAD
+logger.info("something", event="login", timestamp="2026-01-01")
+
+# GOOD
+logger.info("something", audit_event="login", occurred_at="2026-01-01")
+```
+
+### Format-off for inline data
+
+Use `# fmt: off` / `# fmt: on` around large inline data structures (frozensets, permission maps, enum blocks) to prevent ruff format from exploding line counts.
+
+```python
+# fmt: off
+ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
+    Role.ADMIN:  frozenset({"*"}),
+    Role.EDITOR: frozenset({"source.view", "source.sync", ...}),
+    Role.VIEWER: frozenset({"source.view", "dbt.view", ...}),
+}
+# fmt: on
+```
+
+### Validate-then-write ordering
+
+In validation functions, perform all read-only checks before any writes. This prevents partial state corruption if a late check fails.
+
+### `Callable[..., Any]` for FastAPI `Depends()` factories
+
+FastAPI wraps dependency callables in coroutines. Typed function signatures (e.g., `Callable[[str], User]`) break when FastAPI adds its async wrapper. Use `Callable[..., Any]` for `Depends()` factory parameters.
+
+### Login endpoint returns 400 (not 401)
+
+Login endpoints (`POST /api/auth/login`) return **400** for bad credentials, not 401. The 401 status is reserved for "you need to authenticate" (missing/expired session), not "your credentials are wrong". This prevents browsers from showing native auth dialogs.
+
+### Test file naming
+
+Integration test files use the `_integration` suffix (e.g., `test_auth_middleware_integration.py`). Test directories lack `__init__.py`, so basenames must be globally unique across `tests/unit/` and `tests/integration/`.

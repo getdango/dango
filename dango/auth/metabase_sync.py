@@ -1,8 +1,6 @@
 """dango/auth/metabase_sync.py
 
-Synchronize Dango users to Metabase and manage role-based group
-membership.  All public functions catch Metabase API failures and return
-``None``/``False`` — Metabase being down never blocks Dango operations.
+Synchronize Dango users to Metabase and manage role-based group membership.
 """
 
 from __future__ import annotations

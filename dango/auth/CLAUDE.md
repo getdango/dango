@@ -15,7 +15,7 @@ User authentication and access control for Dango. Handles password-based login w
 | `sessions.py` | 289 | High-level session + API key lifecycle | `create_session()`, `validate_session()`, `validate_partial_session()`, `create_api_key()`, `validate_api_key()` |
 | `permissions.py` | 195 | 29 permissions, 3 role mappings | `PERMISSIONS`, `ROLE_PERMISSIONS`, `has_permission()`, `require_permission()` |
 | `lockout.py` | 181 | Brute-force protection (5 attempts / 15-min) | `record_failed_login()`, `check_account_locked()`, `unlock_account()` |
-| `audit.py` | 186 | 21 event types to `.dango/logs/audit.jsonl` | `AuditEvent`, `log_auth_event()`, `query_audit_log()` |
+| `audit.py` | 188 | 22 event types to `.dango/logs/audit.jsonl` | `AuditEvent`, `log_auth_event()`, `query_audit_log()` |
 | `admin.py` | 124 | Bootstrap + path helpers | `ensure_admin()`, `is_auth_enabled()`, `get_auth_db_path()` |
 | `totp.py` | 220 | TOTP 2FA: setup/verify/enable/disable, recovery codes | `generate_totp_secret()`, `verify_totp_code()`, `setup_totp()`, `enable_totp()`, `consume_recovery_code()` |
 | `oauth_login.py` | 307 | OAuth provider ABC + Google/GitHub implementations | `OAuthLoginProvider`, `GoogleOAuthProvider`, `GitHubOAuthProvider`, `get_provider()` |
@@ -34,6 +34,13 @@ User authentication and access control for Dango. Handles password-based login w
 - **Full session:** 60-min idle timeout, 30-day absolute expiry. Cookie: `dango_session`, HttpOnly, SameSite=Lax.
 - **Partial session:** 5-min timeout. Created when password is verified but 2FA is pending.
 - **API key:** No expiry. `dango_ak_` prefix, SHA-256 hashed in DB. Bearer token auth.
+
+### Key Conventions
+
+- **Login returns 400** for bad credentials (not 401). The 401 status is reserved for "you need to authenticate" (missing/expired session). This prevents browsers from showing native auth dialogs.
+- **Timing oracle prevention:** `verify_password("dummy", DUMMY_HASH)` called on all login failure paths to equalize bcrypt timing.
+- **Lockout is identity-blind:** unknown and inactive emails get identical 400 responses (no user enumeration).
+- **Metabase bridge:** `_bridge_metabase_session()` in `web/routes/auth.py` consolidates Metabase SSO cookie bridging. Called from 4 login paths (password, OAuth×2, 2FA verify).
 
 ### Password Login Flow
 
@@ -222,8 +229,8 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 
 **Used by:**
 - `web/middleware/auth.py` (325 lines) — session/API key validation on every request
-- `web/routes/auth.py` (788 lines) — login, password change, OAuth, invite accept
-- `web/routes/auth_2fa.py` (324 lines) — TOTP setup/verify/disable
+- `web/routes/auth.py` (~854 lines) — login, password change, OAuth, invite accept. Defines `_bridge_metabase_session()` helper (shared with auth_2fa.py).
+- `web/routes/auth_2fa.py` (~328 lines) — TOTP setup/verify/disable. Imports `_bridge_metabase_session` from auth.py.
 - `web/routes/users.py` (525 lines) — user CRUD, invite creation, reinvite
 - `web/routes/ui.py` (183 lines) — login/account/invite page rendering
 - `web/routes/metabase_proxy.py` (268 lines) — SSO re-bridging on 401
