@@ -12,9 +12,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import ValidationError
 
 import dango
@@ -23,12 +24,20 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.database import (
     get_session_by_token,
     get_user_by_email,
+    get_user_by_oauth,
     list_user_api_keys,
     list_user_sessions,
     update_user,
 )
 from dango.auth.lockout import check_account_locked, record_failed_login, reset_failed_logins
 from dango.auth.models import User, UserResponse, UserUpdate
+from dango.auth.oauth_login import (
+    OAuthLoginError,
+    OAuthUserInfo,
+    generate_oauth_state,
+    get_configured_providers,
+    get_provider,
+)
 from dango.auth.security import (
     check_password_strength,
     hash_password,
@@ -42,7 +51,7 @@ from dango.auth.sessions import (
     invalidate_session,
     revoke_api_key,
 )
-from dango.config.models import AuthConfig
+from dango.config.models import AuthConfig, OAuthProviderConfig
 from dango.logging import get_logger
 from dango.web.middleware.auth import COOKIE_NAME, is_secure_request
 from dango.web.models import (
@@ -121,6 +130,26 @@ def _get_current_token_hash(request: Request) -> str | None:
     if cookie_token is None:
         return None
     return hash_token(cookie_token)
+
+
+def _get_oauth_config(request: Request) -> dict[str, OAuthProviderConfig]:
+    """Load OAuth provider configs from project config."""
+    auth_config = _get_auth_config(request)
+    if auth_config is None:
+        return {}
+    return auth_config.oauth_providers
+
+
+def _build_redirect_uri(request: Request, provider_name: str) -> str:
+    """Build the OAuth callback URL for a provider."""
+    scheme = request.url.scheme
+    host = request.headers.get("host", "localhost:8800")
+    return f"{scheme}://{host}/api/auth/oauth/{provider_name}/callback"
+
+
+def _login_error_redirect(message: str) -> RedirectResponse:
+    """Redirect to login page with an error message in query params."""
+    return RedirectResponse(url=f"/login?error={quote(message)}", status_code=302)
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +527,192 @@ async def revoke_key(key_id: str, request: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# OAuth social login
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/auth/oauth/{provider_name}/login")
+async def oauth_login(provider_name: str, request: Request) -> RedirectResponse:
+    """Redirect the user to the OAuth provider's authorization page."""
+    oauth_configs = _get_oauth_config(request)
+    provider_config = oauth_configs.get(provider_name)
+    if provider_config is None:
+        return _login_error_redirect(f"OAuth provider '{provider_name}' is not configured")
+
+    try:
+        provider = get_provider(provider_name, provider_config)
+    except OAuthLoginError:
+        return _login_error_redirect(f"OAuth provider '{provider_name}' is not configured")
+
+    state = generate_oauth_state()
+    redirect_uri = _build_redirect_uri(request, provider_name)
+    auth_url = provider.get_authorization_url(redirect_uri, state)
+
+    response = RedirectResponse(url=auth_url, status_code=302)
+    response.set_cookie(
+        key="dango_oauth_state",
+        value=state,
+        path="/api/auth/oauth/",
+        httponly=True,
+        samesite="lax",
+        max_age=600,
+        secure=is_secure_request(request.scope),
+    )
+    return response
+
+
+@router.get("/api/auth/oauth/{provider_name}/callback")
+async def oauth_callback(provider_name: str, request: Request) -> RedirectResponse:
+    """Handle the OAuth callback from the provider."""
+    # Check for provider-side error
+    error_param = request.query_params.get("error")
+    if error_param:
+        return _login_error_redirect("Login was cancelled or denied by the provider")
+
+    # Validate required params
+    code = request.query_params.get("code")
+    state = request.query_params.get("state")
+    if not code or not state:
+        return _login_error_redirect("Invalid OAuth callback (missing code or state)")
+
+    # CSRF: validate state matches cookie
+    cookie_state = request.cookies.get("dango_oauth_state")
+    if not cookie_state or cookie_state != state:
+        return _login_error_redirect("OAuth state mismatch (possible CSRF)")
+
+    # Exchange code for user info
+    oauth_configs = _get_oauth_config(request)
+    provider_config = oauth_configs.get(provider_name)
+    if provider_config is None:
+        return _login_error_redirect(f"OAuth provider '{provider_name}' is not configured")
+
+    try:
+        provider = get_provider(provider_name, provider_config)
+        redirect_uri = _build_redirect_uri(request, provider_name)
+        user_info = await provider.exchange_code(code, redirect_uri)
+    except OAuthLoginError as exc:
+        logger.warning("oauth_exchange_failed", provider=provider_name, error=str(exc))
+        return _login_error_redirect("Failed to complete OAuth login")
+
+    # Resolve user and create session
+    response = await _resolve_oauth_user(request, user_info)
+    response.delete_cookie("dango_oauth_state", path="/api/auth/oauth/")
+    return response
+
+
+async def _resolve_oauth_user(
+    request: Request,
+    user_info: OAuthUserInfo,
+) -> RedirectResponse:
+    """Resolve an OAuth user to a local account and create a session.
+
+    Resolution order:
+    1. Exact match by ``oauth_provider`` + ``oauth_id`` → login.
+    2. Match by email with no existing OAuth link → auto-link and login.
+    3. Match by email linked to a *different* provider → reject.
+    4. No match → reject (admin must pre-create the user).
+    """
+
+    db_path = _get_db_path(request)
+    ip = _get_client_ip(request)
+
+    # 1. Look up by OAuth identity
+    user = get_user_by_oauth(db_path, user_info.provider, user_info.provider_id)
+
+    need_auto_link = False
+    if user is None:
+        # 2. Look up by email
+        user = get_user_by_email(db_path, user_info.email)
+        if user is not None:
+            if user.oauth_provider is not None and user.oauth_provider != user_info.provider:
+                # 3. Already linked to a different provider
+                log_auth_event(
+                    AuditEvent.LOGIN_FAILURE,
+                    user_id=user.id,
+                    email=user_info.email,
+                    ip=ip,
+                    details={"provider": user_info.provider, "reason": "different_provider_linked"},
+                )
+                return _login_error_redirect(
+                    "This email is already linked to a different login provider"
+                )
+            need_auto_link = True
+
+    if user is None:
+        # 4. No account found
+        log_auth_event(
+            AuditEvent.LOGIN_FAILURE,
+            email=user_info.email,
+            ip=ip,
+            details={"provider": user_info.provider, "reason": "no_account"},
+        )
+        return _login_error_redirect("No account found for this email. Contact your administrator.")
+
+    # Check active before any writes
+    if not user.is_active:
+        log_auth_event(
+            AuditEvent.LOGIN_FAILURE,
+            user_id=user.id,
+            email=user_info.email,
+            ip=ip,
+            details={"provider": user_info.provider, "reason": "inactive"},
+        )
+        return _login_error_redirect("Your account has been deactivated")
+
+    # Auto-link after all validation passes
+    if need_auto_link:
+        update_user(
+            db_path,
+            user.id,
+            UserUpdate(
+                oauth_provider=user_info.provider,
+                oauth_id=user_info.provider_id,
+            ),
+        )
+        logger.info(
+            "oauth_account_linked",
+            user_id=user.id,
+            email=user.email,
+            provider=user_info.provider,
+        )
+
+    # Success — create session
+    reset_failed_logins(db_path, user.email)
+    auth_config = _get_auth_config(request)
+    session_max_days = auth_config.session_max_days if auth_config else 30
+
+    raw_token, _session = create_session(
+        db_path,
+        user.id,
+        ip_address=ip,
+        user_agent=_get_user_agent(request),
+        session_max_days=session_max_days,
+    )
+    update_user(db_path, user.id, UserUpdate(last_login=datetime.now(timezone.utc)))
+    log_auth_event(
+        AuditEvent.LOGIN_SUCCESS,
+        user_id=user.id,
+        email=user.email,
+        ip=ip,
+        details={"provider": user_info.provider},
+    )
+
+    # Redirect to setup if must_change_password, otherwise home
+    # TASK-019 will add Metabase session bridging at this point
+    target = "/setup" if user.must_change_password else "/"
+    response = RedirectResponse(url=target, status_code=302)
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=raw_token,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=is_secure_request(request.scope),
+    )
+    return response
+
+
+# ---------------------------------------------------------------------------
 # Page routes
 # ---------------------------------------------------------------------------
 
@@ -505,6 +720,11 @@ async def revoke_key(key_id: str, request: Request) -> JSONResponse:
 @router.get("/login")
 async def login_page(request: Request) -> HTMLResponse:
     """Render the login page."""
+    oauth_configs = _get_oauth_config(request)
+    providers = get_configured_providers(oauth_configs)
+    oauth_providers = [
+        {"name": p.name, "display_name": p.display_name, "icon_svg": p.icon_svg} for p in providers
+    ]
     return _render_template(
         "login.html",
         {
@@ -512,6 +732,7 @@ async def login_page(request: Request) -> HTMLResponse:
             "version": dango.__version__,
             "current_page": "login",
             "subtitle": "Login",
+            "oauth_providers": oauth_providers,
         },
     )
 

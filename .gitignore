@@ -139,3 +139,6 @@ build/
 .dlt/secrets.toml
 *.pem
 *.key
+
+# Dango runtime data
+.dango/
