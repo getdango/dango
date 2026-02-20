@@ -803,6 +803,25 @@ async def _resolve_oauth_user(
             samesite="lax",
             secure=is_secure_request(request.scope),
         )
+
+        # Bridge Metabase session (full session, just needs 2FA setup)
+        try:
+            from dango.auth.metabase_bridge import bridge_metabase_login
+
+            project_root: Path = request.app.state.project_root
+            mb_session = await bridge_metabase_login(user, project_root)
+            if mb_session is not None:
+                response.set_cookie(
+                    key="metabase.SESSION",
+                    value=mb_session,
+                    path="/",
+                    httponly=True,
+                    samesite="lax",
+                    secure=is_secure_request(request.scope),
+                )
+        except Exception:
+            logger.debug("metabase_bridge_on_oauth_login_failed", exc_info=True)
+
         return response
 
     raw_token, _session = create_session(
@@ -836,7 +855,7 @@ async def _resolve_oauth_user(
     try:
         from dango.auth.metabase_bridge import bridge_metabase_login
 
-        project_root: Path = request.app.state.project_root
+        project_root = request.app.state.project_root
         mb_session = await bridge_metabase_login(user, project_root)
         if mb_session is not None:
             response.set_cookie(

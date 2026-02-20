@@ -20,7 +20,7 @@ from dango.auth.models import UserUpdate
 from dango.auth.oauth_login import OAuthUserInfo
 from dango.auth.security import generate_invite_token
 from dango.auth.totp import enable_totp, setup_totp
-from dango.config.models import OAuthProviderConfig
+from dango.config.models import AuthConfig, OAuthProviderConfig
 from dango.web.middleware.auth import COOKIE_NAME, AuthMiddleware
 from tests.integration.conftest import auth_headers, login_user, make_test_user
 
@@ -68,6 +68,7 @@ def _clear_middleware_cache(app: Any) -> None:
             current._cache_time = 0.0
             return
         current = getattr(current, "app", None)
+    raise AssertionError("AuthMiddleware not found in middleware stack")
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +314,54 @@ class TestAuthAPI:
         assert "requires_2fa=true" in resp.headers["location"]
         assert COOKIE_NAME in resp.cookies
 
+        # Partial session must NOT access protected endpoints
+        partial_cookie = resp.cookies.get(COOKIE_NAME)
+        me_resp = auth_client.get(
+            "/api/auth/me",
+            headers=auth_headers(cookie=partial_cookie),
+        )
+        assert me_resp.status_code in (401, 302)
+
+    def test_oauth_callback_require_2fa_setup_redirect(
+        self, auth_client: TestClient, auth_db_path: Path
+    ) -> None:
+        """OAuth callback when require_2fa=True but user has no TOTP → redirect to /setup."""
+        make_test_user(
+            auth_db_path,
+            email="setup2fa@example.com",
+            oauth_provider="google",
+            oauth_id="g-setup",
+        )
+
+        user_info = OAuthUserInfo(
+            provider="google", provider_id="g-setup", email="setup2fa@example.com", name="Setup"
+        )
+        mock_prov = _mock_provider(user_info)
+        require_2fa_config = AuthConfig(enabled=True, require_2fa=True)
+
+        with (
+            patch("dango.web.routes.auth._get_oauth_config", return_value=_GOOGLE_CONFIG),
+            patch("dango.web.routes.auth.get_provider", return_value=mock_prov),
+            patch("dango.web.routes.auth._get_auth_config", return_value=require_2fa_config),
+            patch(
+                "dango.auth.metabase_bridge.bridge_metabase_login",
+                new_callable=AsyncMock,
+                return_value="mb-setup-token",
+            ) as mock_bridge,
+        ):
+            resp = auth_client.get(
+                "/api/auth/oauth/google/callback?code=auth-code&state=state-setup",
+                headers={"Cookie": "dango_oauth_state=state-setup"},
+                follow_redirects=False,
+            )
+
+        assert resp.status_code == 302
+        assert "requires_2fa_setup=true" in resp.headers["location"]
+        assert COOKIE_NAME in resp.cookies
+        # Full session (not partial) — so Metabase bridge should be called
+        assert resp.cookies.get("metabase.SESSION") == "mb-setup-token"
+        mock_bridge.assert_called_once()
+
     def test_invite_accept_then_login(self, auth_client: TestClient, auth_db_path: Path) -> None:
         """Create invited user → accept invite → login → authenticated."""
         raw_token, token_hash = generate_invite_token()
@@ -358,3 +407,68 @@ class TestAuthAPI:
         )
         assert resp.status_code == 400
         assert "invalid or has expired" in resp.json()["message"].lower()
+
+    def test_oauth_callback_bridges_metabase_session(
+        self, auth_client: TestClient, auth_db_path: Path
+    ) -> None:
+        """OAuth callback sets metabase.SESSION cookie when bridge succeeds."""
+        make_test_user(
+            auth_db_path,
+            email="mb-oauth@example.com",
+            oauth_provider="google",
+            oauth_id="g-mb",
+        )
+
+        user_info = OAuthUserInfo(
+            provider="google", provider_id="g-mb", email="mb-oauth@example.com", name="Test"
+        )
+        mock_prov = _mock_provider(user_info)
+
+        with (
+            patch("dango.web.routes.auth._get_oauth_config", return_value=_GOOGLE_CONFIG),
+            patch("dango.web.routes.auth.get_provider", return_value=mock_prov),
+            patch(
+                "dango.auth.metabase_bridge.bridge_metabase_login",
+                new_callable=AsyncMock,
+                return_value="mb-session-token",
+            ) as mock_bridge,
+        ):
+            resp = auth_client.get(
+                "/api/auth/oauth/google/callback?code=auth-code&state=state-mb",
+                headers={"Cookie": "dango_oauth_state=state-mb"},
+                follow_redirects=False,
+            )
+
+        assert resp.status_code == 302
+        assert COOKIE_NAME in resp.cookies
+        assert resp.cookies.get("metabase.SESSION") == "mb-session-token"
+        mock_bridge.assert_called_once()
+
+    def test_2fa_verify_bridges_metabase_session(
+        self, auth_client: TestClient, auth_db_path: Path
+    ) -> None:
+        """2FA verify sets metabase.SESSION cookie when bridge succeeds."""
+        _user, secret = _setup_2fa_user(auth_db_path)
+
+        # Step 1: Login → partial session
+        resp = login_user(auth_client, "2fa@example.com")
+        assert resp.json()["requires_2fa"] is True
+        partial_cookie = resp.cookies.get(COOKIE_NAME)
+
+        # Step 2: Verify TOTP with Metabase bridge mocked
+        totp = pyotp.TOTP(secret)
+        code = totp.now()
+        with patch(
+            "dango.auth.metabase_bridge.bridge_metabase_login",
+            new_callable=AsyncMock,
+            return_value="mb-2fa-token",
+        ) as mock_bridge:
+            verify_resp = auth_client.post(
+                "/api/auth/2fa/verify",
+                json={"code": code},
+                headers=auth_headers(cookie=partial_cookie),
+            )
+
+        assert verify_resp.status_code == 200
+        assert verify_resp.cookies.get("metabase.SESSION") == "mb-2fa-token"
+        mock_bridge.assert_called_once()

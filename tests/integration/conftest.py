@@ -18,6 +18,7 @@ from dango.auth import database as auth_db
 from dango.auth.models import Role, User
 from dango.auth.security import hash_password
 from dango.exceptions import (
+    AccountDeactivatedError,
     AccountLockedError,
     AuthenticationError,
     AuthorizationError,
@@ -56,10 +57,11 @@ def test_duckdb(tmp_path: Path) -> Path:
 # Auth integration fixtures
 # ---------------------------------------------------------------------------
 
-# DangoError → HTTP status mapping (mirrors app.py)
+# DangoError → HTTP status mapping (auth-subset of app.py's _STATUS_MAP)
 _STATUS_MAP: dict[type[DangoError], int] = {
     SessionExpiredError: 401,
     AccountLockedError: 423,
+    AccountDeactivatedError: 403,
     AuthenticationError: 401,
     AuthorizationError: 403,
     UserNotFoundError: 404,

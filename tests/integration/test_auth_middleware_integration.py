@@ -154,8 +154,8 @@ class TestPublicRoutes:
 
         # GET /invite/sometoken — public (TASK-100 prefix route)
         resp = auth_client.get("/invite/sometoken")
-        # ui router returns 200 (invite page) or similar, not 401
-        assert resp.status_code != 401
+        # ui router returns 200 (invite page), 302 (redirect), or 404 (token not found)
+        assert resp.status_code in (200, 302, 404)
 
 
 @pytest.mark.integration
