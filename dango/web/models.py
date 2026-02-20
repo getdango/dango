@@ -6,7 +6,7 @@ Pydantic request/response DTOs for the web API.
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class TableInfo(BaseModel):
@@ -141,6 +141,15 @@ class CreateUserRequest(BaseModel):
 
     email: str
     role: str = "viewer"
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        """Normalize and minimally validate the email address."""
+        v = v.strip().lower()
+        if not v or "@" not in v:
+            raise ValueError("Invalid email address")
+        return v
 
 
 class ChangeRoleRequest(BaseModel):

@@ -211,7 +211,7 @@
 function accountPage() {
     const headers = {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'};
     return {
-        user: {{ user_json | safe }},
+        user: {{ user_json | tojson }},
         currentPassword: '', newPassword: '', confirmPassword: '',
         pwError: '', pwSuccess: false, pwLoading: false,
         sessions: [], sessionError: '', sessionLoading: false,

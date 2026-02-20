@@ -263,6 +263,12 @@ async def admin_deactivate_user(
     if target is None:
         return JSONResponse(status_code=404, content={"message": "User not found"})
 
+    if user_id == user.id:
+        return JSONResponse(
+            status_code=409,
+            content={"message": "Cannot deactivate your own account"},
+        )
+
     if target.role == Role.ADMIN and _count_active_admins(db_path) <= 1:
         return JSONResponse(
             status_code=409,
@@ -367,6 +373,13 @@ async def admin_unlock_user(
         return JSONResponse(status_code=404, content={"message": "User not found"})
 
     update_user(db_path, user_id, UserUpdate(failed_login_attempts=0, locked_until=None))
+    log_auth_event(
+        AuditEvent.ACCOUNT_LOCKED,
+        user_id=user_id,
+        email=target.email,
+        ip=_get_client_ip(request),
+        details={"action": "unlock", "unlocked_by": user.email},
+    )
     return JSONResponse(content={"success": True})
 
 
@@ -383,6 +396,13 @@ async def admin_revoke_sessions(
         return JSONResponse(status_code=404, content={"message": "User not found"})
 
     revoked_count = invalidate_all_user_sessions(db_path, user_id)
+    log_auth_event(
+        AuditEvent.SESSION_EXPIRED,
+        user_id=user_id,
+        email=target.email,
+        ip=_get_client_ip(request),
+        details={"action": "admin_revoke_all", "revoked_by": user.email, "count": revoked_count},
+    )
     return JSONResponse(content={"success": True, "revoked_count": revoked_count})
 
 
@@ -415,7 +435,7 @@ async def account_page(request: Request) -> HTMLResponse:
     if current_user is None:
         return HTMLResponse(status_code=302, headers={"Location": "/login"})
 
-    user_json = UserResponse.model_validate(current_user).model_dump_json()
+    user_json = UserResponse.model_validate(current_user).model_dump(mode="json")
     return _render_template(
         "account.html",
         {

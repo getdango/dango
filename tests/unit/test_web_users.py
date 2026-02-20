@@ -300,8 +300,8 @@ class TestAdminDeactivateUser:
         assert updated is not None
         assert updated.is_active is False
 
-    def test_deactivate_last_admin(self, tmp_path: Path) -> None:
-        """Cannot deactivate the only admin."""
+    def test_deactivate_self(self, tmp_path: Path) -> None:
+        """Cannot deactivate own account."""
         client, _db_path, admin = _setup_admin_client(tmp_path)
 
         resp = client.post(
@@ -309,6 +309,7 @@ class TestAdminDeactivateUser:
             headers=_auth_headers(),
         )
         assert resp.status_code == 409
+        assert "own account" in resp.json()["message"].lower()
 
 
 @pytest.mark.unit
