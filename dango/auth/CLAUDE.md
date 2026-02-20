@@ -19,7 +19,7 @@ User authentication and access control for Dango. Handles password-based login w
 | `admin.py` | 124 | Bootstrap + path helpers | `ensure_admin()`, `is_auth_enabled()`, `get_auth_db_path()` |
 | `totp.py` | 220 | TOTP 2FA: setup/verify/enable/disable, recovery codes | `generate_totp_secret()`, `verify_totp_code()`, `setup_totp()`, `enable_totp()`, `consume_recovery_code()` |
 | `oauth_login.py` | 307 | OAuth provider ABC + Google/GitHub implementations | `OAuthLoginProvider`, `GoogleOAuthProvider`, `GitHubOAuthProvider`, `get_provider()` |
-| `metabase_sync.py` | 498 | Sync users/roles to Metabase (encrypted passwords) | `sync_user_to_metabase()`, `sync_all_users_to_metabase()`, `sync_user_role()`, `encrypt_metabase_password()` |
+| `metabase_sync.py` | 498 | Sync users/roles to Metabase (encrypted passwords) | `sync_user_to_metabase()`, `sync_all_users_to_metabase()`, `sync_user_role()`, `decrypt_metabase_password()` |
 | `metabase_bridge.py` | 152 | Async SSO session bridging on login/logout | `bridge_metabase_login()`, `bridge_metabase_logout()`, `ensure_metabase_synced()` |
 
 ## Architecture
@@ -42,11 +42,11 @@ POST /api/auth/login
   │
   ├─ lockout.check_account_locked() ──── locked? → 423
   │
-  ├─ database.get_user_by_email() ────── not found? → verify_password(dummy) → 401
+  ├─ database.get_user_by_email() ────── not found? → verify_password(dummy) → 400
   │
-  ├─ security.verify_password() ──────── wrong? → lockout.record_failed_login() → 401
+  ├─ security.verify_password() ──────── wrong? → lockout.record_failed_login() → 400
   │
-  ├─ user.is_active? ────────────────── inactive? → 401
+  ├─ user.is_active? ────────────────── inactive? → 400
   │
   ├─ user.totp_enabled?
   │   ├─ YES → sessions.create_session(is_partial=True) → 200 {requires_2fa}
@@ -95,8 +95,8 @@ GET /api/auth/oauth/{provider}/callback
   ├─ database.get_user_by_oauth(provider, oauth_id)
   │   ├─ Found → use existing user
   │   └─ Not found → get_user_by_email()
-  │       ├─ Found + email_verified → auto-link OAuth to existing user
-  │       └─ Not found → 401 (admin must pre-create user)
+  │       ├─ Found + no conflicting OAuth link → auto-link to existing user
+  │       └─ Not found → redirect with error (admin must pre-create user)
   │
   ├─ sessions.create_session()
   ├─ metabase_bridge.bridge_metabase_login()
@@ -119,7 +119,7 @@ Every request → web/middleware/auth.py
   │   └─ Other → sessions.validate_session() (session token in header)
   │
   ├─ CSRF check (non-GET with cookie auth):
-  │   └─ Require X-Requested-With header (SameSite=Lax + custom header)
+  │   └─ Require X-Requested-With or X-CSRF-Protection header
   │
   └─ Route handler → require_permission("source.sync") enforces RBAC
 ```
@@ -170,7 +170,7 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 
 **Proxy re-bridge** (`web/routes/metabase_proxy.py`): When proxy gets 401 from Metabase, re-bridges automatically using stored credentials.
 
-**Role sync** (`sync_user_to_metabase`): Admin → Metabase superuser. Editor → "Editors" group. Viewer → "All Users" only (default read access). Groups created by `ensure_metabase_groups()`.
+**Role sync** (`sync_user_to_metabase`): Admin → Metabase superuser. Editor → "Dango Editors" group. Viewer → "All Users" only (default read access). Groups created by `ensure_metabase_groups()`.
 
 **Troubleshooting:**
 - Missing `metabase_user_id` on User → run `sync_user_to_metabase()` for that user
@@ -274,4 +274,4 @@ pytest tests/unit/test_auth*.py tests/unit/test_metabase*.py \
 | `database.py` SQLite schema | Column changes need a migration (not yet automated for auth.db) |
 | `audit.py` `AuditEvent` enum values | Audit log queries and filtering depend on exact strings |
 | `oauth_login.py` `_PROVIDERS` keys | Must match `OAuthProviderConfig` provider names in config |
-| `metabase_sync.py` group names (`Editors`) | Changing orphans existing Metabase group memberships |
+| `metabase_sync.py` group names (`Dango Editors`) | Changing orphans existing Metabase group memberships |
