@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+
+{% block title %}Account Settings - Dango{% endblock %}
+
+{% block content %}
+<main class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div x-data="accountPage()" x-init="init()">
+        <h2 class="text-xl font-bold text-gray-900 mb-6">Account Settings</h2>
+
+        <!-- Profile Section -->
+        <div class="bg-white shadow rounded-lg p-6 mb-6">
+            <h3 class="text-lg font-medium text-gray-900 mb-4">Profile</h3>
+            <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-sm text-gray-500">Email</span>
+                    <span class="text-sm font-medium text-gray-900" x-text="user.email"></span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-sm text-gray-500">Role</span>
+                    <span class="px-2 py-0.5 text-xs font-semibold rounded-full"
+                          :class="user.role === 'admin' ? 'bg-red-100 text-red-800' : user.role === 'editor' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'"
+                          x-text="user.role"></span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-sm text-gray-500">Member since</span>
+                    <span class="text-sm text-gray-900" x-text="new Date(user.created_at).toLocaleDateString()"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Change Password Section -->
+        <div class="bg-white shadow rounded-lg p-6 mb-6">
+            <h3 class="text-lg font-medium text-gray-900 mb-4">Change Password</h3>
+            <form @submit.prevent="changePassword()" class="max-w-sm">
+                <div class="mb-3">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
+                    <input type="password" x-model="currentPassword" required autocomplete="current-password"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 text-sm">
+                </div>
+                <div class="mb-3">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                    <input type="password" x-model="newPassword" required autocomplete="new-password"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 text-sm">
+                    <p class="text-xs text-gray-400 mt-1">At least 8 characters</p>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
+                    <input type="password" x-model="confirmPassword" required autocomplete="new-password"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 text-sm">
+                </div>
+                <div x-show="pwError" x-cloak class="mb-3 p-2 bg-red-50 border border-red-200 rounded-md">
+                    <p class="text-sm text-red-700" x-text="pwError"></p>
+                </div>
+                <div x-show="pwSuccess" x-cloak class="mb-3 p-2 bg-green-50 border border-green-200 rounded-md">
+                    <p class="text-sm text-green-700">Password changed. Redirecting to login...</p>
+                </div>
+                <button type="submit" :disabled="pwLoading"
+                        class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700 disabled:opacity-50 transition-colors">
+                    <span x-show="!pwLoading">Change Password</span>
+                    <span x-show="pwLoading" x-cloak>Updating...</span>
+                </button>
+            </form>
+        </div>
+
+        <!-- Active Sessions Section -->
+        <div class="bg-white shadow rounded-lg p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-medium text-gray-900">Active Sessions</h3>
+                <button @click="revokeAllOtherSessions()" :disabled="sessionLoading"
+                        class="text-sm text-red-600 hover:text-red-800 disabled:opacity-50">Revoke All Others</button>
+            </div>
+            <div x-show="sessionError" x-cloak class="mb-3 p-2 bg-red-50 border border-red-200 rounded-md">
+                <p class="text-sm text-red-700" x-text="sessionError"></p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead><tr>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">IP</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">User Agent</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Last Active</th>
+                        <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Action</th>
+                    </tr></thead>
+                    <tbody class="divide-y divide-gray-200">
+                        <template x-for="s in sessions" :key="s.id">
+                            <tr>
+                                <td class="px-3 py-2 text-gray-900" x-text="s.ip_address || 'Unknown'"></td>
+                                <td class="px-3 py-2 text-gray-500 truncate max-w-xs hidden sm:table-cell"
+                                    x-text="s.user_agent ? s.user_agent.substring(0, 60) : 'Unknown'"></td>
+                                <td class="px-3 py-2 text-gray-500">
+                                    <span x-text="new Date(s.last_activity).toLocaleString()"></span>
+                                    <template x-if="s.is_current">
+                                        <span class="ml-1 px-1.5 py-0.5 text-xs bg-green-100 text-green-800 rounded">Current</span>
+                                    </template>
+                                </td>
+                                <td class="px-3 py-2 text-right">
+                                    <template x-if="!s.is_current">
+                                        <button @click="revokeSession(s.id)" class="text-red-600 hover:text-red-800 text-xs">Revoke</button>
+                                    </template>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-if="sessions.length === 0">
+                            <tr><td colspan="4" class="px-3 py-4 text-center text-gray-500">No active sessions.</td></tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- API Keys Section -->
+        <div class="bg-white shadow rounded-lg p-6 mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-medium text-gray-900">API Keys</h3>
+                <button @click="showKeyModal = true"
+                        class="px-3 py-1.5 text-sm bg-gray-100 rounded-md hover:bg-gray-200">Create Key</button>
+            </div>
+            <div x-show="keyError" x-cloak class="mb-3 p-2 bg-red-50 border border-red-200 rounded-md">
+                <p class="text-sm text-red-700" x-text="keyError"></p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead><tr>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Prefix</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Created</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Last Used</th>
+                        <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Action</th>
+                    </tr></thead>
+                    <tbody class="divide-y divide-gray-200">
+                        <template x-for="k in apiKeys" :key="k.id">
+                            <tr>
+                                <td class="px-3 py-2 text-gray-900" x-text="k.name"></td>
+                                <td class="px-3 py-2 text-gray-500 font-mono text-xs" x-text="k.key_prefix + '...'"></td>
+                                <td class="px-3 py-2 text-gray-500 hidden sm:table-cell"
+                                    x-text="new Date(k.created_at).toLocaleDateString()"></td>
+                                <td class="px-3 py-2 text-gray-500 hidden sm:table-cell"
+                                    x-text="k.last_used_at ? new Date(k.last_used_at).toLocaleDateString() : 'Never'"></td>
+                                <td class="px-3 py-2 text-right">
+                                    <button @click="revokeKey(k.id)" class="text-red-600 hover:text-red-800 text-xs">Revoke</button>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-if="apiKeys.length === 0">
+                            <tr><td colspan="5" class="px-3 py-4 text-center text-gray-500">No API keys.</td></tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Two-Factor Authentication Section -->
+        <div class="bg-white shadow rounded-lg p-6">
+            <h3 class="text-lg font-medium text-gray-900 mb-4">Two-Factor Authentication</h3>
+            <div class="flex items-center space-x-3">
+                <span class="px-2 py-0.5 text-xs font-semibold rounded-full"
+                      :class="user.totp_enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
+                      x-text="user.totp_enabled ? 'Enabled' : 'Disabled'"></span>
+                <span class="text-sm text-gray-500">2FA setup is not yet available.</span>
+            </div>
+        </div>
+
+        <!-- Create API Key Modal -->
+        <div x-show="showKeyModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showKeyModal = false"></div>
+                <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative z-10">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">Create API Key</h3>
+                    <form @submit.prevent="createKey()">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Key Name</label>
+                            <input type="text" x-model="newKeyName" required placeholder="e.g. CLI access"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 text-sm">
+                        </div>
+                        <div class="flex justify-end space-x-3">
+                            <button type="button" @click="showKeyModal = false"
+                                    class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                            <button type="submit" :disabled="keyLoading"
+                                    class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700 disabled:opacity-50">Create</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Show New API Key Modal -->
+        <div x-show="showNewKey" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showNewKey = false"></div>
+                <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative z-10">
+                    <h3 class="text-lg font-medium text-gray-900 mb-2">API Key Created</h3>
+                    <p class="text-sm text-gray-500 mb-4">Copy this key now. It will not be shown again.</p>
+                    <div class="flex items-center space-x-2 mb-4">
+                        <input type="text" :value="newKeyValue" readonly
+                               class="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 font-mono text-xs">
+                        <button @click="navigator.clipboard.writeText(newKeyValue)"
+                                class="px-3 py-2 text-sm bg-gray-100 rounded-md hover:bg-gray-200">Copy</button>
+                    </div>
+                    <div class="flex justify-end">
+                        <button @click="showNewKey = false"
+                                class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700">Done</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function accountPage() {
+    const headers = {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'};
+    return {
+        user: {{ user_json | tojson }},
+        currentPassword: '', newPassword: '', confirmPassword: '',
+        pwError: '', pwSuccess: false, pwLoading: false,
+        sessions: [], sessionError: '', sessionLoading: false,
+        apiKeys: [], keyError: '', keyLoading: false,
+        showKeyModal: false, newKeyName: '',
+        showNewKey: false, newKeyValue: '',
+
+        async init() {
+            await Promise.all([this.loadSessions(), this.loadKeys()]);
+        },
+
+        async changePassword() {
+            this.pwError = ''; this.pwSuccess = false;
+            if (this.newPassword !== this.confirmPassword) {
+                this.pwError = 'Passwords do not match'; return;
+            }
+            this.pwLoading = true;
+            try {
+                const res = await fetch('/api/auth/change-password', {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ current_password: this.currentPassword, new_password: this.newPassword })
+                });
+                if (res.ok) {
+                    this.pwSuccess = true;
+                    setTimeout(() => { window.location.href = '/login'; }, 2000);
+                    return;
+                }
+                const data = await res.json();
+                this.pwError = data.issues ? data.issues.join('. ') : (data.message || 'Failed');
+            } catch (e) { this.pwError = 'Unable to connect'; }
+            this.pwLoading = false;
+        },
+
+        async loadSessions() {
+            try {
+                const res = await fetch('/api/auth/sessions', { headers });
+                if (res.ok) this.sessions = await res.json();
+            } catch (e) { this.sessionError = 'Failed to load sessions'; }
+        },
+        async revokeSession(id) {
+            this.sessionError = '';
+            try {
+                const res = await fetch(`/api/auth/sessions/${id}`, { method: 'DELETE', headers });
+                if (!res.ok) { const d = await res.json(); this.sessionError = d.message; return; }
+                await this.loadSessions();
+            } catch (e) { this.sessionError = 'Failed to revoke session'; }
+        },
+        async revokeAllOtherSessions() {
+            this.sessionLoading = true; this.sessionError = '';
+            try {
+                const others = this.sessions.filter(s => !s.is_current);
+                for (const s of others) {
+                    await fetch(`/api/auth/sessions/${s.id}`, { method: 'DELETE', headers });
+                }
+                await this.loadSessions();
+            } catch (e) { this.sessionError = 'Failed to revoke sessions'; }
+            this.sessionLoading = false;
+        },
+
+        async loadKeys() {
+            try {
+                const res = await fetch('/api/auth/api-keys', { headers });
+                if (res.ok) this.apiKeys = await res.json();
+            } catch (e) { this.keyError = 'Failed to load API keys'; }
+        },
+        async createKey() {
+            this.keyLoading = true; this.keyError = '';
+            try {
+                const res = await fetch('/api/auth/api-keys', {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ name: this.newKeyName })
+                });
+                const data = await res.json();
+                if (!res.ok) { this.keyError = data.message; this.keyLoading = false; return; }
+                this.showKeyModal = false;
+                this.newKeyName = '';
+                this.newKeyValue = data.key;
+                this.showNewKey = true;
+                await this.loadKeys();
+            } catch (e) { this.keyError = 'Failed to create key'; }
+            this.keyLoading = false;
+        },
+        async revokeKey(id) {
+            this.keyError = '';
+            try {
+                const res = await fetch(`/api/auth/api-keys/${id}`, { method: 'DELETE', headers });
+                if (!res.ok) { const d = await res.json(); this.keyError = d.message; return; }
+                await this.loadKeys();
+            } catch (e) { this.keyError = 'Failed to revoke key'; }
+        }
+    }
+}
+</script>
+{% endblock %}

@@ -226,10 +226,12 @@ from dango.web.routes.sources import router as sources_router  # noqa: E402
 from dango.web.routes.sync import router as sync_router  # noqa: E402
 from dango.web.routes.ui import router as ui_router  # noqa: E402
 from dango.web.routes.upload import router as upload_router  # noqa: E402
+from dango.web.routes.users import router as users_router  # noqa: E402
 from dango.web.routes.websocket import router as websocket_router  # noqa: E402
 
 # Dango API routers (order matters — more specific routes first)
 app.include_router(auth_router)
+app.include_router(users_router)
 app.include_router(health_router)
 app.include_router(config_router)
 app.include_router(sources_router)

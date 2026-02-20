@@ -6,7 +6,7 @@ Pydantic request/response DTOs for the web API.
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class TableInfo(BaseModel):
@@ -129,3 +129,36 @@ class ApiKeyCreateResponse(ApiKeyResponse):
     """API key creation response — includes the full key shown once."""
 
     key: str
+
+
+# ---------------------------------------------------------------------------
+# Admin user management DTOs (used by web/routes/users.py)
+# ---------------------------------------------------------------------------
+
+
+class CreateUserRequest(BaseModel):
+    """Admin user creation payload."""
+
+    email: str
+    role: str = "viewer"
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        """Normalize and minimally validate the email address."""
+        v = v.strip().lower()
+        if not v or "@" not in v:
+            raise ValueError("Invalid email address")
+        return v
+
+
+class ChangeRoleRequest(BaseModel):
+    """Admin role change payload."""
+
+    role: str
+
+
+class DeleteUserConfirmation(BaseModel):
+    """Delete user confirmation payload."""
+
+    confirm_email: str
