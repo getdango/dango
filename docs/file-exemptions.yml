@@ -25,7 +25,7 @@ exemptions:
 
   # --- Phase 2 auth additions ---
   - file: dango/web/routes/auth.py
-    lines: 713
+    lines: 721
     category: exempt
     reason: "TASK-095 added OAuth social login endpoints (+120 lines over TASK-016 base). TASK-096 will move page routes to routes/ui.py, reducing by ~26 lines."
     review_by: "v1.1"

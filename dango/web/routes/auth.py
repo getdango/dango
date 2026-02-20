@@ -589,6 +589,7 @@ async def _resolve_oauth_user(
     # 1. Look up by OAuth identity
     user = get_user_by_oauth(db_path, user_info.provider, user_info.provider_id)
 
+    need_auto_link = False
     if user is None:
         # 2. Look up by email
         user = get_user_by_email(db_path, user_info.email)
@@ -605,15 +606,7 @@ async def _resolve_oauth_user(
                 return _login_error_redirect(
                     "This email is already linked to a different login provider"
                 )
-            # Auto-link: set oauth_provider and oauth_id
-            update_user(
-                db_path,
-                user.id,
-                UserUpdate(
-                    oauth_provider=user_info.provider,
-                    oauth_id=user_info.provider_id,
-                ),
-            )
+            need_auto_link = True
 
     if user is None:
         # 4. No account found
@@ -625,7 +618,7 @@ async def _resolve_oauth_user(
         )
         return _login_error_redirect("No account found for this email. Contact your administrator.")
 
-    # Check active
+    # Check active before any writes
     if not user.is_active:
         log_auth_event(
             AuditEvent.LOGIN_FAILURE,
@@ -635,6 +628,23 @@ async def _resolve_oauth_user(
             details={"provider": user_info.provider, "reason": "inactive"},
         )
         return _login_error_redirect("Your account has been deactivated")
+
+    # Auto-link after all validation passes
+    if need_auto_link:
+        update_user(
+            db_path,
+            user.id,
+            UserUpdate(
+                oauth_provider=user_info.provider,
+                oauth_id=user_info.provider_id,
+            ),
+        )
+        logger.info(
+            "oauth_account_linked",
+            user_id=user.id,
+            email=user.email,
+            provider=user_info.provider,
+        )
 
     # Success — create session
     reset_failed_logins(db_path, user.email)
@@ -685,7 +695,6 @@ async def login_page(request: Request) -> HTMLResponse:
     oauth_providers = [
         {"name": p.name, "display_name": p.display_name, "icon_svg": p.icon_svg} for p in providers
     ]
-    login_error = request.query_params.get("error", "")
     return _render_template(
         "login.html",
         {
@@ -694,7 +703,6 @@ async def login_page(request: Request) -> HTMLResponse:
             "current_page": "login",
             "subtitle": "Login",
             "oauth_providers": oauth_providers,
-            "login_error": login_error,
         },
     )
 

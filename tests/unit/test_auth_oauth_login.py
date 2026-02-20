@@ -9,6 +9,7 @@ import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from dango.auth.oauth_login import (
@@ -217,6 +218,19 @@ class TestGoogleOAuthProvider:
         ):
             asyncio.run(provider.exchange_code("code", "https://app.example.com/callback"))
 
+    def test_exchange_code_network_error(self) -> None:
+        """Network errors are wrapped in OAuthLoginError."""
+        provider = GoogleOAuthProvider(_make_config())
+        mock_client = AsyncMock()
+        mock_client.post.side_effect = httpx.ConnectError("Connection refused")
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        with (
+            patch("dango.auth.oauth_login.httpx.AsyncClient", return_value=mock_client),
+            pytest.raises(OAuthLoginError, match="Failed to connect to Google"),
+        ):
+            asyncio.run(provider.exchange_code("code", "https://app.example.com/callback"))
+
 
 @pytest.mark.unit
 class TestGitHubOAuthProvider:
@@ -335,3 +349,16 @@ class TestGitHubOAuthProvider:
             pytest.raises(OAuthLoginError, match="Failed to exchange GitHub"),
         ):
             asyncio.run(provider.exchange_code("bad", "https://app.example.com/callback"))
+
+    def test_exchange_code_network_error(self) -> None:
+        """Network errors are wrapped in OAuthLoginError."""
+        provider = GitHubOAuthProvider(_make_config())
+        mock_client = AsyncMock()
+        mock_client.post.side_effect = httpx.TimeoutException("read timed out")
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        with (
+            patch("dango.auth.oauth_login.httpx.AsyncClient", return_value=mock_client),
+            pytest.raises(OAuthLoginError, match="Failed to connect to GitHub"),
+        ):
+            asyncio.run(provider.exchange_code("code", "https://app.example.com/callback"))

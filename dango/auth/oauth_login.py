@@ -109,45 +109,50 @@ class GoogleOAuthProvider(OAuthLoginProvider):
 
     async def exchange_code(self, code: str, redirect_uri: str) -> OAuthUserInfo:
         """Exchange Google authorization code for user info."""
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-            # Exchange code for access token
-            token_resp = await client.post(
-                self._TOKEN_URL,
-                data={
-                    "client_id": self._client_id,
-                    "client_secret": self._client_secret,
-                    "code": code,
-                    "grant_type": "authorization_code",
-                    "redirect_uri": redirect_uri,
-                },
-            )
-            if token_resp.status_code != 200:
-                raise OAuthLoginError("Failed to exchange Google authorization code")
+        try:
+            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+                # Exchange code for access token
+                token_resp = await client.post(
+                    self._TOKEN_URL,
+                    data={
+                        "client_id": self._client_id,
+                        "client_secret": self._client_secret,
+                        "code": code,
+                        "grant_type": "authorization_code",
+                        "redirect_uri": redirect_uri,
+                    },
+                )
+                if token_resp.status_code != 200:
+                    raise OAuthLoginError("Failed to exchange Google authorization code")
 
-            token_data: dict[str, Any] = token_resp.json()
-            access_token = token_data.get("access_token")
-            if not access_token:
-                raise OAuthLoginError("No access token in Google response")
+                token_data: dict[str, Any] = token_resp.json()
+                access_token = token_data.get("access_token")
+                if not access_token:
+                    raise OAuthLoginError("No access token in Google response")
 
-            # Fetch user info
-            user_resp = await client.get(
-                self._USERINFO_URL,
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            if user_resp.status_code != 200:
-                raise OAuthLoginError("Failed to fetch Google user info")
+                # Fetch user info
+                user_resp = await client.get(
+                    self._USERINFO_URL,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if user_resp.status_code != 200:
+                    raise OAuthLoginError("Failed to fetch Google user info")
 
-            user_data: dict[str, Any] = user_resp.json()
-            email = user_data.get("email")
-            if not email:
-                raise OAuthLoginError("No email in Google user info")
+                user_data: dict[str, Any] = user_resp.json()
+                email = user_data.get("email")
+                if not email:
+                    raise OAuthLoginError("No email in Google user info")
 
-            return OAuthUserInfo(
-                provider="google",
-                provider_id=str(user_data.get("id", "")),
-                email=email,
-                name=user_data.get("name"),
-            )
+                return OAuthUserInfo(
+                    provider="google",
+                    provider_id=str(user_data.get("id", "")),
+                    email=email,
+                    name=user_data.get("name"),
+                )
+        except OAuthLoginError:
+            raise
+        except httpx.HTTPError as exc:
+            raise OAuthLoginError("Failed to connect to Google") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -187,52 +192,57 @@ class GitHubOAuthProvider(OAuthLoginProvider):
 
     async def exchange_code(self, code: str, redirect_uri: str) -> OAuthUserInfo:
         """Exchange GitHub authorization code for user info."""
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
-            # Exchange code for access token
-            token_resp = await client.post(
-                self._TOKEN_URL,
-                data={
-                    "client_id": self._client_id,
-                    "client_secret": self._client_secret,
-                    "code": code,
-                    "redirect_uri": redirect_uri,
-                },
-                headers={"Accept": "application/json"},
-            )
-            if token_resp.status_code != 200:
-                raise OAuthLoginError("Failed to exchange GitHub authorization code")
-
-            token_data: dict[str, Any] = token_resp.json()
-            access_token = token_data.get("access_token")
-            if not access_token:
-                raise OAuthLoginError("No access token in GitHub response")
-
-            auth_headers = {"Authorization": f"Bearer {access_token}"}
-
-            # Fetch user profile
-            user_resp = await client.get(self._USER_URL, headers=auth_headers)
-            if user_resp.status_code != 200:
-                raise OAuthLoginError("Failed to fetch GitHub user info")
-
-            user_data: dict[str, Any] = user_resp.json()
-            email = user_data.get("email")
-
-            # Fallback: fetch primary verified email from /user/emails
-            if not email:
-                email = await self._fetch_primary_email(client, auth_headers)
-
-            if not email:
-                raise OAuthLoginError(
-                    "No verified email found on your GitHub account. "
-                    "Please add a verified email to GitHub and try again."
+        try:
+            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+                # Exchange code for access token
+                token_resp = await client.post(
+                    self._TOKEN_URL,
+                    data={
+                        "client_id": self._client_id,
+                        "client_secret": self._client_secret,
+                        "code": code,
+                        "redirect_uri": redirect_uri,
+                    },
+                    headers={"Accept": "application/json"},
                 )
+                if token_resp.status_code != 200:
+                    raise OAuthLoginError("Failed to exchange GitHub authorization code")
 
-            return OAuthUserInfo(
-                provider="github",
-                provider_id=str(user_data.get("id", "")),
-                email=email,
-                name=user_data.get("name") or user_data.get("login"),
-            )
+                token_data: dict[str, Any] = token_resp.json()
+                access_token = token_data.get("access_token")
+                if not access_token:
+                    raise OAuthLoginError("No access token in GitHub response")
+
+                auth_headers = {"Authorization": f"Bearer {access_token}"}
+
+                # Fetch user profile
+                user_resp = await client.get(self._USER_URL, headers=auth_headers)
+                if user_resp.status_code != 200:
+                    raise OAuthLoginError("Failed to fetch GitHub user info")
+
+                user_data: dict[str, Any] = user_resp.json()
+                email = user_data.get("email")
+
+                # Fallback: fetch primary verified email from /user/emails
+                if not email:
+                    email = await self._fetch_primary_email(client, auth_headers)
+
+                if not email:
+                    raise OAuthLoginError(
+                        "No verified email found on your GitHub account. "
+                        "Please add a verified email to GitHub and try again."
+                    )
+
+                return OAuthUserInfo(
+                    provider="github",
+                    provider_id=str(user_data.get("id", "")),
+                    email=email,
+                    name=user_data.get("name") or user_data.get("login"),
+                )
+        except OAuthLoginError:
+            raise
+        except httpx.HTTPError as exc:
+            raise OAuthLoginError("Failed to connect to GitHub") from exc
 
     async def _fetch_primary_email(
         self,
@@ -282,7 +292,7 @@ def get_configured_providers(
 ) -> list[OAuthLoginProvider]:
     """Return instantiated providers for all configured entries.
 
-    Silently skips unknown provider names (logged at debug level).
+    Silently skips unknown provider names.
     """
     providers: list[OAuthLoginProvider] = []
     for name, config in provider_configs.items():
