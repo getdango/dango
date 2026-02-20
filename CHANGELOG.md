@@ -54,7 +54,7 @@ This is the v0.1.0 MVP release marking Dango as ready for early adopters. All OA
   - Google Sheets OAuth with browser-based flow
   - Google Analytics (GA4) OAuth with browser-based flow
   - Facebook Ads OAuth with long-lived token support (60-day expiry)
-  - `dango auth <provider>` commands for all OAuth sources
+  - `dango oauth <provider>` commands for all OAuth sources
   - Inline OAuth prompts during `dango source add` wizard
 
 - **OAuth Token Management**

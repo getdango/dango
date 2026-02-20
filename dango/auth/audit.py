@@ -42,6 +42,7 @@ class AuditEvent(str, Enum):
     PERMISSION_DENIED  = "permission_denied"
     RATE_LIMIT_HIT     = "rate_limit_hit"
     ACCOUNT_LOCKED     = "account_locked"
+    ACCOUNT_UNLOCKED   = "account_unlocked"
     TWO_FA_ENABLED     = "two_fa_enabled"
     TWO_FA_DISABLED    = "two_fa_disabled"
     API_KEY_CREATED    = "api_key_created"

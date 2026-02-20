@@ -25,9 +25,9 @@ exemptions:
 
   # --- Phase 2 auth additions ---
   - file: dango/web/routes/auth.py
-    lines: 788
+    lines: 854
     category: exempt
-    reason: "TASK-095 OAuth, TASK-096 2FA, TASK-100 accept-invite endpoint. Auth logic is tightly coupled."
+    reason: "Login/logout, OAuth flows, invite accept, API key CRUD. DOC-025 evaluated split (auth_api.py + auth_oauth.py) — rejected: breaks all test patches, scatters security-critical code. Bridge helper extracted to reduce duplication."
     review_by: "v1.1"
 
   - file: dango/auth/database.py

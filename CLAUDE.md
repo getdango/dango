@@ -91,12 +91,33 @@ dango/                          # Python package source
 │   ├── schema_manager.py       # Schema management
 │   └── validate.py             # Validation commands
 │
+├── auth/                       # Level 1 — User authentication & access control
+│   ├── __init__.py             # Re-exports 96 public symbols
+│   ├── models.py               # Role, User, Session, APIKey Pydantic models
+│   ├── database.py             # SQLite CRUD (WAL mode, 529 lines)
+│   ├── security.py             # Bcrypt hashing, token generation (375 lines)
+│   ├── sessions.py             # Session + API key lifecycle (289 lines)
+│   ├── permissions.py          # 29 permissions, 3 role mappings
+│   ├── lockout.py              # Brute-force protection (5 attempts / 15-min)
+│   ├── audit.py                # 22 event types → .dango/logs/audit.jsonl
+│   ├── admin.py                # Bootstrap admin, config path helpers
+│   ├── totp.py                 # TOTP 2FA + recovery codes
+│   ├── oauth_login.py          # OAuth provider ABC + Google/GitHub
+│   ├── metabase_sync.py        # Sync users/roles to Metabase (498 lines)
+│   └── metabase_bridge.py      # Async SSO session bridging
+│
 ├── web/                        # Level 2 — FastAPI web server
-│   ├── app.py                  # Slim entry point (~109 lines) — registers routers
-│   ├── models.py               # Pydantic request/response DTOs
+│   ├── app.py                  # Entry point (~301 lines) — routers, middleware, admin bootstrap
+│   ├── models.py               # Pydantic request/response DTOs (incl. auth DTOs)
 │   ├── helpers.py              # Shared helpers: DuckDB queries, config, logging (798 lines)
-│   ├── routes/                 # Route modules (extracted from app.py by TASK-085)
+│   ├── middleware/             # Request middleware
+│   │   ├── auth.py             # Session/API key auth + CSRF check (~325 lines)
+│   │   └── rate_limit.py       # Rate limiting (~212 lines)
+│   ├── routes/                 # Route modules
 │   │   ├── __init__.py         # Package marker
+│   │   ├── auth.py             # Login/logout, OAuth, invite, API keys (~854 lines)
+│   │   ├── auth_2fa.py         # TOTP 2FA endpoints (~328 lines)
+│   │   ├── users.py            # Admin user CRUD (525 lines)
 │   │   ├── health.py           # /api/status, /api/watcher/status, /api/health/platform
 │   │   ├── config.py           # /api/config, /api/metabase-config
 │   │   ├── sources.py          # /api/sources, /api/sources/{name}/details
@@ -105,8 +126,14 @@ dango/                          # Python package source
 │   │   ├── dbt.py              # /api/dbt/models, /api/dbt/models/{name}/run + dbt docs proxy
 │   │   ├── upload.py           # CSV upload/list/delete (680 lines)
 │   │   ├── websocket.py        # ConnectionManager, ws_manager, /ws
-│   │   ├── ui.py               # /, /health, /logs, /api, /api/docs, /api/redoc
+│   │   ├── ui.py               # /, /health, /logs, /login, /account, /admin/users
 │   │   └── metabase_proxy.py   # Metabase reverse proxy + SSO session
+│   ├── templates/              # Auth page templates
+│   │   ├── login.html          # Alpine.js two-step login (credentials → totp)
+│   │   ├── change_password.html # First-login password change
+│   │   ├── admin_users.html    # Admin user management
+│   │   ├── account.html        # User account settings
+│   │   └── invite.html         # Invite acceptance page
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
@@ -181,7 +208,7 @@ tests/
 | Level | Role | Modules |
 |-------|------|---------|
 | 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `migrations/`, `templates/`, `logging.py` |
-| 1 (core) | Imports Level 0 only | `oauth/`, `ingestion/`, `transformation/` |
+| 1 (core) | Imports Level 0 only | `auth/`, `oauth/`, `ingestion/`, `transformation/` |
 | 2 (platform) | Imports Level 0–1 | `platform/`, `web/`, `visualization/` |
 | 3 (ui) | Imports any level | `cli/` |
 
@@ -205,6 +232,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `visualization/dashboard_manager.py` | 1113 | — |
 | `cli/commands/platform.py` | 1026 | — (extracted from main.py by TASK-005) |
 | `cli/init.py` | 965 | — |
+| `web/routes/auth.py` | ~854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 815 | — (renamed from auth.py by TASK-093) |
 | `oauth/providers.py` | 801 | — |
 | `web/helpers.py` | 798 | — (extracted from app.py by TASK-085) |

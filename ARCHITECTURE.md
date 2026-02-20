@@ -32,8 +32,8 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
               │                  Level 2 — Platform                        │
               │                                                            │
               │   platform/        web/            visualization/          │
-              │   (Docker,         (web/routes/)   (Metabase)              │
-              │    watcher)                        auth/* (Phase 2)        │
+              │   (Docker,         (web/routes/    (Metabase)              │
+              │    watcher)         web/middleware/)                       │
               └──────────┬────────────────┬────────────────────────────────┘
                          │                │
               ┌──────────┴────────────────┴────────────────────────────────┐
@@ -42,7 +42,9 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
               │   ingestion/       transformation/      oauth/             │
               │   (dlt, CSV)       (dbt)                (Google,           │
               │                                          Facebook,         │
-              │                                          Shopify)          │
+              │                    auth/                  Shopify)          │
+              │                    (users, sessions,                       │
+              │                     RBAC, 2FA, audit)                      │
               └──────────┬────────────────┬────────────────────────────────┘
                          │                │
               ┌──────────┴────────────────┴────────────────────────────────┐
@@ -68,11 +70,9 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | Level | Role | Modules |
 |-------|------|---------|
 | 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `migrations/`, `templates/`, `logging.py`, `exceptions.py` |
-| 1 (core) | Imports Level 0 only | `oauth/`, `ingestion/`, `transformation/`, `auth/`\* |
+| 1 (core) | Imports Level 0 only | `oauth/`, `ingestion/`, `transformation/`, `auth/` |
 | 2 (platform) | Imports Level 0-1 | `platform/`, `web/`, `visualization/` |
 | 3 (ui) | Imports any level | `cli/` |
-
-\* = planned, not yet implemented
 
 **Three rules govern imports:**
 
@@ -229,6 +229,31 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 **Imports from:** `config/credentials` (Level 0).
 
+---
+
+#### `auth/`
+**Responsibility:** User authentication and access control — password login with optional TOTP 2FA, OAuth social login (Google + GitHub), cookie/API key sessions, RBAC (3 roles, 29 permissions), invite-based onboarding, Metabase SSO bridging, brute-force lockout, and audit logging.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | Re-exports 96 public symbols |
+| `models.py` | Pydantic models: `Role`, `User`, `UserCreate`, `UserUpdate`, `UserResponse`, `Session`, `APIKey` |
+| `database.py` | SQLite CRUD (WAL mode, FK enforcement) — user, session, API key operations |
+| `security.py` | Pure crypto: bcrypt hashing (pwdlib), token generation, password strength checks |
+| `sessions.py` | High-level session + API key lifecycle with timeout validation |
+| `permissions.py` | 29 permissions across 9 domains, 3 role mappings, `require_permission()` FastAPI Depends |
+| `lockout.py` | Brute-force protection: 5 attempts / 15-min lockout window |
+| `audit.py` | 22 event types to `.dango/logs/audit.jsonl` (append-only JSONL) |
+| `admin.py` | Bootstrap admin user, auth config path helpers |
+| `totp.py` | TOTP 2FA: setup/verify/enable/disable, 8 recovery codes |
+| `oauth_login.py` | OAuth provider ABC + Google/GitHub implementations |
+| `metabase_sync.py` | Sync users/roles to Metabase (Fernet-encrypted passwords) |
+| `metabase_bridge.py` | Async SSO session bridging on login/logout |
+
+**Public API:** `create_session()`, `validate_session()`, `require_permission()`, `has_permission()`, `hash_password()`, `verify_password()`, `AuditEvent`, `log_auth_event()`, `bridge_metabase_login()`, `bridge_metabase_logout()`, `sync_user_to_metabase()`, `Role`, `User`, `Session`, `APIKey`
+
+**Imports from:** `config/` (Level 0), `security/` (Level 0), `logging` (Level 0), `exceptions` (Level 0).
+
 ### Level 2 — Platform
 
 #### `platform/`
@@ -291,23 +316,23 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 ---
 
 #### `web/`
-**Responsibility:** FastAPI web server — REST API, WebSocket, Metabase reverse proxy, static UI.
+**Responsibility:** FastAPI web server — REST API, WebSocket, Metabase reverse proxy, auth middleware, static UI.
 
 | File | Description |
 |------|-------------|
-| `app.py` | Slim entry point (~202 lines) — creates FastAPI app, registers routers from `routes/` |
+| `app.py` | Entry point (~301 lines) — creates FastAPI app, registers routers + middleware, admin bootstrap |
 | `helpers.py` | Shared helpers: DuckDB queries, config loading, service health checks, log management |
-| `models.py` | Pydantic request/response DTOs |
-| `routes/` | Route modules extracted from app.py by TASK-085: `health.py`, `config.py`, `sources.py`, `sync.py`, `logs.py`, `dbt.py`, `upload.py`, `websocket.py`, `ui.py`, `metabase_proxy.py` |
+| `models.py` | Pydantic request/response DTOs (incl. auth DTOs: `LoginRequest`, `AcceptInviteRequest`, etc.) |
+| `middleware/auth.py` | Session/API key auth + CSRF check on every request (~325 lines) |
+| `middleware/rate_limit.py` | Rate limiting: login 10/min, API 200/min, localhost exempt (~212 lines) |
+| `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~854 lines) |
+| `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery (~328 lines) |
+| `routes/users.py` | Admin user CRUD: create, edit, deactivate, delete, unlock, invite (525 lines) |
+| `routes/` (data) | `health.py`, `config.py`, `sources.py`, `sync.py`, `logs.py`, `dbt.py`, `upload.py`, `websocket.py`, `ui.py`, `metabase_proxy.py` |
 
 **Public API:** FastAPI `app` instance.
 
-**Imports from:** `config/` (Level 0), `utils/` (Level 0), `ingestion/` (Level 1), `transformation/` (Level 1), `visualization/` (Level 2).
-
-### Planned Modules
-
-#### `auth/` (Phase 2)
-User authentication and authorization — session management, roles, permissions.
+**Imports from:** `config/` (Level 0), `utils/` (Level 0), `auth/` (Level 1), `ingestion/` (Level 1), `transformation/` (Level 1), `visualization/` (Level 2).
 
 ## 5. Data Flow
 
@@ -442,6 +467,48 @@ Extension workflow (developer adds a new data source):
    CLI auto-discovers new sources from the registry.
 ```
 
+### 6.8 Password Login Flow
+
+```
+POST /api/auth/login
+
+web/routes/auth.py @router.post("/api/auth/login")
+  → auth/lockout.py: check_account_locked() — 423 if locked
+  → auth/database.py: get_user_by_email() — 400 if not found (with timing equalization)
+  → auth/security.py: verify_password() — 400 if wrong + record_failed_login()
+  → Check is_active — 400 if inactive
+  → If totp_enabled:
+      → auth/sessions.py: create_session(is_partial=True) — 200 {requires_2fa}
+      → User calls POST /api/auth/2fa/verify with TOTP code
+      → auth/sessions.py: create_session() — upgrade to full session
+  → Else:
+      → auth/sessions.py: create_session() — full session
+  → auth/lockout.py: reset_failed_logins()
+  → web/routes/auth.py: _bridge_metabase_session() — set metabase.SESSION cookie
+  → 200 + Set-Cookie: dango_session
+```
+
+### 6.9 Metabase SSO Bridge
+
+```
+On login (password, OAuth, or 2FA verify):
+
+web/routes/auth.py: _bridge_metabase_session()
+  → auth/metabase_bridge.py: bridge_metabase_login(user, project_root)
+      → auth/metabase_sync.py: decrypt_metabase_password() — Fernet via SecureTokenStorage
+      → POST {metabase_url}/api/session — authenticate as the Dango user
+      → Return Metabase session ID
+  → Set-Cookie: metabase.SESSION (HttpOnly, SameSite=Lax, Secure)
+
+On logout:
+  → auth/metabase_bridge.py: bridge_metabase_logout(metabase_token, project_root)
+      → DELETE {metabase_url}/api/session — destroy Metabase session
+  → Delete metabase.SESSION cookie
+
+On Metabase proxy 401 (stale session):
+  → web/routes/metabase_proxy.py: re-bridge automatically using stored credentials
+```
+
 ## 7. Database Schemas
 
 ### DuckDB Warehouse (`data/{project}.duckdb`)
@@ -455,8 +522,16 @@ Extension workflow (developer adds a new data source):
 
 Internal tables per raw schema: `_dlt_loads`, `_dlt_pipeline_state`. CSV sources also have `_dango_file_metadata` for tracking processed files.
 
-### auth.db (Phase 2)
-SQLite database for user sessions, roles, and permissions. Managed by the `auth/` module.
+### auth.db (`.dango/auth.db`)
+SQLite database (WAL mode, FK enforcement) for user authentication state. Managed by the `auth/` module, schema applied via `migrations/auth/`.
+
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `users` | User accounts | `id`, `email`, `password_hash`, `role` (admin/editor/viewer), `is_active`, `totp_secret`, `totp_enabled`, `failed_login_attempts`, `locked_until`, `invite_token_hash`, `metabase_user_id`, `metabase_password_enc` |
+| `sessions` | Active login sessions | `id`, `user_id` (FK), `token_hash`, `ip_address`, `user_agent`, `is_partial`, `created_at`, `last_activity`, `expires_at` |
+| `api_keys` | API key authentication | `id`, `user_id` (FK), `name`, `key_hash`, `key_prefix`, `is_active`, `last_used_at` |
+| `recovery_codes` | TOTP 2FA backup codes | `id`, `user_id` (FK), `code_hash`, `is_used` |
+| `_migration_history` | Schema version tracking | `name`, `applied_at` |
 
 ### Metabase Internal
 H2 database managed by the Metabase Docker container. Not directly modified by Dango — interaction is via Metabase REST API only.
@@ -500,17 +575,21 @@ The web module (`web/routes/`) exposes 19 REST endpoints, 1 WebSocket, and a Met
 |----------|-----------|
 | Status & Config | `GET /api/status`, `GET /api/health/platform`, `GET /api/watcher/status`, `GET /api/config`, `GET /api/metabase-config` |
 | Sources | `GET /api/sources`, `GET /api/sources/{name}/details`, `POST /api/sources/{name}/sync`, `GET /api/sources/{name}/logs`, `GET /api/sources/{name}/csv-files`, `POST /api/sources/{name}/upload-csv`, `DELETE /api/sources/{name}/csv-files` |
+| Auth | `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/change-password`, `POST /api/auth/accept-invite`, `GET /api/auth/sessions`, `DELETE /api/auth/sessions/{id}`, `GET /api/auth/api-keys`, `POST /api/auth/api-keys`, `DELETE /api/auth/api-keys/{id}`, `GET /api/auth/me` |
+| 2FA | `POST /api/auth/2fa/setup`, `POST /api/auth/2fa/verify-setup`, `POST /api/auth/2fa/verify`, `POST /api/auth/2fa/disable`, `POST /api/auth/2fa/regenerate-codes` |
+| OAuth | `GET /api/auth/oauth/{provider}/authorize`, `GET /api/auth/oauth/{provider}/callback` |
+| Admin | `GET /api/admin/users`, `POST /api/admin/users`, `GET /api/admin/users/{id}`, `PUT /api/admin/users/{id}`, `PUT /api/admin/users/{id}/role`, `POST /api/admin/users/{id}/reset-password`, `POST /api/admin/users/{id}/deactivate`, `POST /api/admin/users/{id}/reactivate`, `DELETE /api/admin/users/{id}`, `POST /api/admin/users/{id}/unlock`, `POST /api/admin/users/{id}/reinvite` |
 | dbt | `GET /api/dbt/models`, `POST /api/dbt/models/{name}/run` |
 | Logs | `GET /api/logs` |
 | Docs | `GET /api/docs` (Swagger), `GET /api/redoc` |
 | Real-time | `WS /ws` (sync progress, errors) |
 | Proxy | `/metabase/*` (reverse proxy with SSO session injection) |
 
-**Target v1 conventions:**
+**Conventions:**
 - `/api/{resource}` — plural nouns, standard HTTP methods
-- JSON error format: `error_code`, `message`, `detail` (after TASK-008)
-- `/api/v1/` versioning prefix (Phase 2)
-- Session auth via `auth/` module (Phase 2)
+- JSON error format: `error_code`, `message`, `detail`
+- Login returns 400 for bad credentials (not 401 — avoids browser native auth dialog)
+- Session auth via cookie (`dango_session`) or API key (`Authorization: Bearer dango_ak_...`)
 
 ## 11. Extension Points
 

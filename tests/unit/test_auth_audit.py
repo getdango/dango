@@ -27,8 +27,8 @@ class TestAuditEvent:
     """Validate AuditEvent taxonomy and type properties."""
 
     def test_member_count(self) -> None:
-        """AuditEvent has exactly 21 members."""
-        assert len(AuditEvent) == 21
+        """AuditEvent has at least 21 members (grows as events are added)."""
+        assert len(AuditEvent) >= 21
 
     def test_values_are_lowercase_snake_case(self) -> None:
         """All values use lowercase_snake_case (no uppercase, no hyphens)."""

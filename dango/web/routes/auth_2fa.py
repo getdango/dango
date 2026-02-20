@@ -43,6 +43,7 @@ from dango.web.models import (
     TwoFAVerifyRequest,
     TwoFAVerifySetupRequest,
 )
+from dango.web.routes.auth import _bridge_metabase_session
 
 router = APIRouter(tags=["auth-2fa"])
 logger = get_logger(__name__)
@@ -265,24 +266,7 @@ async def verify_2fa(request: Request) -> JSONResponse:
     )
     _set_session_cookie(response, raw_token, request)
 
-    # Bridge Metabase session (password login skips bridge for partial sessions,
-    # so we must bridge here when upgrading to a full session)
-    try:
-        from dango.auth.metabase_bridge import bridge_metabase_login
-
-        project_root: Path = request.app.state.project_root
-        mb_session = await bridge_metabase_login(current_user, project_root)
-        if mb_session is not None:
-            response.set_cookie(
-                key="metabase.SESSION",
-                value=mb_session,
-                path="/",
-                httponly=True,
-                samesite="lax",
-                secure=is_secure_request(request.scope),
-            )
-    except Exception:
-        logger.debug("metabase_bridge_on_2fa_verify_failed", exc_info=True)
+    await _bridge_metabase_session(current_user, request, response, log_context="2fa_verify")
 
     return response
 

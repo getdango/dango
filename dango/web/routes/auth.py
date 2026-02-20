@@ -110,6 +110,37 @@ def _set_session_cookie(response: JSONResponse, token: str, request: Request) ->
     )
 
 
+async def _bridge_metabase_session(
+    user: User,
+    request: Request,
+    response: JSONResponse | RedirectResponse,
+    *,
+    log_context: str = "login",
+) -> None:
+    """Bridge the Metabase session cookie onto *response*.
+
+    Lazy-imports ``bridge_metabase_login`` so the module loads even when
+    ``httpx`` is not installed.  Failures are silently logged — Metabase
+    being down must never block a Dango login.
+    """
+    try:
+        from dango.auth.metabase_bridge import bridge_metabase_login
+
+        project_root: Path = request.app.state.project_root
+        mb_session = await bridge_metabase_login(user, project_root)
+        if mb_session is not None:
+            response.set_cookie(
+                key="metabase.SESSION",
+                value=mb_session,
+                path="/",
+                httponly=True,
+                samesite="lax",
+                secure=is_secure_request(request.scope),
+            )
+    except Exception:
+        logger.debug("metabase_bridge_%s_failed", log_context, exc_info=True)
+
+
 def _get_auth_config(request: Request) -> AuthConfig | None:
     """Load AuthConfig from project config. Returns None on failure."""
     try:
@@ -258,24 +289,7 @@ async def login(request: Request) -> JSONResponse:
         }
     )
     _set_session_cookie(response, raw_token, request)
-
-    # Bridge Metabase session (uses user's encrypted Metabase password)
-    try:
-        from dango.auth.metabase_bridge import bridge_metabase_login
-
-        project_root: Path = request.app.state.project_root
-        mb_session = await bridge_metabase_login(user, project_root)
-        if mb_session is not None:
-            response.set_cookie(
-                key="metabase.SESSION",
-                value=mb_session,
-                path="/",
-                httponly=True,
-                samesite="lax",
-                secure=is_secure_request(request.scope),
-            )
-    except Exception:
-        logger.debug("metabase_bridge_on_login_failed", exc_info=True)
+    await _bridge_metabase_session(user, request, response)
 
     return response
 
@@ -804,23 +818,7 @@ async def _resolve_oauth_user(
             secure=is_secure_request(request.scope),
         )
 
-        # Bridge Metabase session (full session, just needs 2FA setup)
-        try:
-            from dango.auth.metabase_bridge import bridge_metabase_login
-
-            project_root: Path = request.app.state.project_root
-            mb_session = await bridge_metabase_login(user, project_root)
-            if mb_session is not None:
-                response.set_cookie(
-                    key="metabase.SESSION",
-                    value=mb_session,
-                    path="/",
-                    httponly=True,
-                    samesite="lax",
-                    secure=is_secure_request(request.scope),
-                )
-        except Exception:
-            logger.debug("metabase_bridge_on_oauth_login_failed", exc_info=True)
+        await _bridge_metabase_session(user, request, response, log_context="oauth_login")
 
         return response
 
@@ -851,22 +849,6 @@ async def _resolve_oauth_user(
         secure=is_secure_request(request.scope),
     )
 
-    # Bridge Metabase session (mirrors password login)
-    try:
-        from dango.auth.metabase_bridge import bridge_metabase_login
-
-        project_root = request.app.state.project_root
-        mb_session = await bridge_metabase_login(user, project_root)
-        if mb_session is not None:
-            response.set_cookie(
-                key="metabase.SESSION",
-                value=mb_session,
-                path="/",
-                httponly=True,
-                samesite="lax",
-                secure=is_secure_request(request.scope),
-            )
-    except Exception:
-        logger.debug("metabase_bridge_on_oauth_login_failed", exc_info=True)
+    await _bridge_metabase_session(user, request, response, log_context="oauth_login")
 
     return response
