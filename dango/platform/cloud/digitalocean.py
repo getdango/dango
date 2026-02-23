@@ -174,7 +174,11 @@ class DigitalOceanClient:
 
                 if response.status_code == 429:
                     retry_after = response.headers.get("Retry-After")
-                    wait = float(retry_after) if retry_after else delay
+                    try:
+                        wait = float(retry_after) if retry_after else delay
+                    except (ValueError, TypeError):
+                        # Retry-After may be an HTTP-date string; fall back to backoff
+                        wait = delay
                 else:
                     wait = delay
 

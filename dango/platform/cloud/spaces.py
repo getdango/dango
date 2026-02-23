@@ -138,6 +138,7 @@ class SpacesClient:
                 ContentType=content_type,
             )
         except Exception as exc:
+            _reraise_if_not_client_error(exc)
             raise self._wrap_client_error(exc, "upload", key) from exc
 
     def download(self, key: str) -> bytes:
@@ -157,10 +158,14 @@ class SpacesClient:
             response: dict[str, Any] = client.get_object(Bucket=self.bucket, Key=key)
             return response["Body"].read()  # type: ignore[no-any-return]
         except Exception as exc:
+            _reraise_if_not_client_error(exc)
             raise self._wrap_client_error(exc, "download", key) from exc
 
     def list_objects(self, prefix: str = "") -> list[dict[str, Any]]:
         """List objects in the bucket with an optional key prefix.
+
+        Paginates through all pages (``list_objects_v2`` returns at most 1000
+        objects per call; subsequent pages are fetched via ``NextContinuationToken``).
 
         Args:
             prefix: Only objects whose key starts with this string are returned.
@@ -169,20 +174,33 @@ class SpacesClient:
             List of dicts with keys ``Key``, ``Size``, and ``LastModified``.
         """
         client = self._get_client()
-        try:
-            response: dict[str, Any] = client.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
-        except Exception as exc:
-            raise self._wrap_client_error(exc, "list", prefix) from exc
-
         results: list[dict[str, Any]] = []
-        for obj in response.get("Contents", []):
-            results.append(
-                {
-                    "Key": obj["Key"],
-                    "Size": obj["Size"],
-                    "LastModified": obj["LastModified"],
-                }
-            )
+        continuation_token: str | None = None
+
+        while True:
+            params: dict[str, Any] = {"Bucket": self.bucket, "Prefix": prefix}
+            if continuation_token:
+                params["ContinuationToken"] = continuation_token
+
+            try:
+                response: dict[str, Any] = client.list_objects_v2(**params)
+            except Exception as exc:
+                _reraise_if_not_client_error(exc)
+                raise self._wrap_client_error(exc, "list", prefix) from exc
+
+            for obj in response.get("Contents", []):
+                results.append(
+                    {
+                        "Key": obj["Key"],
+                        "Size": obj["Size"],
+                        "LastModified": obj["LastModified"],
+                    }
+                )
+
+            if not response.get("IsTruncated"):
+                break
+            continuation_token = response.get("NextContinuationToken")
+
         return results
 
     def delete(self, key: str) -> None:
@@ -197,6 +215,7 @@ class SpacesClient:
         try:
             client.delete_object(Bucket=self.bucket, Key=key)
         except Exception as exc:
+            _reraise_if_not_client_error(exc)
             raise self._wrap_client_error(exc, "delete", key) from exc
 
     def exists(self, key: str) -> bool:
@@ -216,8 +235,10 @@ class SpacesClient:
             client.head_object(Bucket=self.bucket, Key=key)
             return True
         except Exception as exc:
-            # boto3 raises ClientError with code "404" for missing objects.
-            # We check the response metadata to distinguish 404 from other errors.
+            # boto3 raises ClientError with code "404" for missing objects
+            # (head_object uses the HTTP status code as the error code).
+            # Re-raise non-ClientError exceptions immediately.
+            _reraise_if_not_client_error(exc)
             error_code = _get_boto_error_code(exc)
             if error_code in ("404", "NoSuchKey"):
                 return False
@@ -227,6 +248,19 @@ class SpacesClient:
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+
+def _reraise_if_not_client_error(exc: Exception) -> None:
+    """Re-raise *exc* if it is not a boto3 ``ClientError``.
+
+    boto3 ``ClientError`` instances carry a ``response`` attribute with an
+    ``"Error"`` dict.  Any exception without this structure is a programming
+    error (``TypeError``, ``AttributeError``, etc.) and should propagate
+    unchanged rather than being silently wrapped in ``CloudError``.
+    """
+    response = getattr(exc, "response", None)
+    if not isinstance(response, dict) or "Error" not in response:
+        raise exc
 
 
 def _get_boto_error_code(exc: Exception) -> str:

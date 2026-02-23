@@ -24,24 +24,27 @@ from dango.exceptions import CloudAuthError, CloudError
 # ---------------------------------------------------------------------------
 
 
-def _make_boto3_mock() -> tuple[MagicMock, MagicMock]:
-    """Return (boto3_module_mock, s3_client_mock) with a usable ClientError."""
+class _FakeClientError(Exception):
+    """Mimics boto3 ClientError structure (has .response dict with 'Error' key).
 
-    # We need a real-ish ClientError so _get_boto_error_code works.
-    class _FakeClientError(Exception):
-        def __init__(self, error_response: dict[str, Any], operation_name: str) -> None:
-            self.response = error_response
-            self.operation_name = operation_name
-            super().__init__(str(error_response))
+    Module-level so tests can reference it directly without going through
+    _make_boto3_mock(). Mirrors the boto3 ClientError interface used by
+    _reraise_if_not_client_error() and _get_boto_error_code() in spaces.py.
+    """
 
+    def __init__(self, error_response: dict[str, Any], operation_name: str) -> None:
+        self.response = error_response
+        self.operation_name = operation_name
+        super().__init__(str(error_response))
+
+
+def _make_boto3_mock() -> tuple[MagicMock, MagicMock, type]:
+    """Return (boto3_module_mock, s3_client_mock, FakeClientError)."""
     s3_client = MagicMock()
     boto3_mock = MagicMock()
     boto3_mock.client.return_value = s3_client
-    # Attach the fake ClientError so spaces.py can catch it by attribute
     boto3_mock.exceptions = MagicMock()
     boto3_mock.exceptions.ClientError = _FakeClientError
-
-    # Store ClientError on the s3 client too (boto3 attaches it to the client)
     s3_client.exceptions = MagicMock()
     s3_client.exceptions.ClientError = _FakeClientError
 
@@ -205,12 +208,22 @@ class TestUpload:
             ContentType="application/zip",
         )
 
-    def test_upload_error_raises_cloud_error(self):
-        """CloudError raised when put_object raises."""
+    def test_upload_client_error_raises_cloud_error(self):
+        """CloudError raised when put_object raises a boto3 ClientError."""
         client, s3 = self._client_with_mock_s3()
-        s3.put_object.side_effect = Exception("upload failed")
+        s3.put_object.side_effect = _FakeClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}, "PutObject"
+        )
 
-        with pytest.raises(CloudError, match="upload failed"):
+        with pytest.raises(CloudError):
+            client.upload("key", b"data")
+
+    def test_upload_programming_error_reraises(self):
+        """Non-ClientError exceptions (programming bugs) are re-raised unchanged."""
+        client, s3 = self._client_with_mock_s3()
+        s3.put_object.side_effect = TypeError("wrong argument type")
+
+        with pytest.raises(TypeError, match="wrong argument type"):
             client.upload("key", b"data")
 
 
@@ -243,9 +256,12 @@ class TestDownload:
         assert result == b"hello world"
 
     def test_download_missing_key_raises_cloud_error(self):
-        """CloudError raised when key does not exist."""
+        """CloudError raised when get_object raises a boto3 ClientError."""
         client, s3 = self._client_with_mock_s3()
-        s3.get_object.side_effect = Exception("NoSuchKey")
+        s3.get_object.side_effect = _FakeClientError(
+            {"Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}},
+            "GetObject",
+        )
 
         with pytest.raises(CloudError):
             client.download("nonexistent/key")
@@ -296,6 +312,33 @@ class TestListObjects:
 
         assert result == []
 
+    def test_list_pagination(self):
+        """list_objects() follows NextContinuationToken to collect all pages."""
+        from datetime import datetime, timezone
+
+        client, s3 = self._client_with_mock_s3()
+        ts = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+        page1 = {
+            "Contents": [{"Key": "backup/a.duckdb", "Size": 100, "LastModified": ts}],
+            "IsTruncated": True,
+            "NextContinuationToken": "token-page-2",
+        }
+        page2 = {
+            "Contents": [{"Key": "backup/b.duckdb", "Size": 200, "LastModified": ts}],
+            "IsTruncated": False,
+        }
+        s3.list_objects_v2.side_effect = [page1, page2]
+
+        result = client.list_objects(prefix="backup/")
+
+        assert len(result) == 2
+        assert result[0]["Key"] == "backup/a.duckdb"
+        assert result[1]["Key"] == "backup/b.duckdb"
+        # Second call must include the continuation token
+        second_call_kwargs = s3.list_objects_v2.call_args_list[1][1]
+        assert second_call_kwargs["ContinuationToken"] == "token-page-2"
+
 
 # ---------------------------------------------------------------------------
 # 6. Delete
@@ -320,13 +363,27 @@ class TestDelete:
         client.delete("backup/old.duckdb")
         s3.delete_object.assert_called_once_with(Bucket="b", Key="backup/old.duckdb")
 
-    def test_delete_raises_cloud_error_on_failure(self):
-        """CloudError raised when delete_object raises an unexpected error."""
+    def test_delete_client_error_raises_cloud_error(self):
+        """CloudError raised when delete_object raises a boto3 ClientError."""
         client, s3 = self._client_with_mock_s3()
-        s3.delete_object.side_effect = Exception("permission denied")
+        s3.delete_object.side_effect = _FakeClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}, "DeleteObject"
+        )
 
         with pytest.raises(CloudError):
             client.delete("backup/key")
+
+    def test_delete_idempotent_calls_delete_object_directly(self):
+        """delete() is idempotent because it calls delete_object directly without
+        a prior head_object existence check.  S3-compatible APIs return 204 for
+        delete_object regardless of whether the key exists."""
+        client, s3 = self._client_with_mock_s3()
+        s3.delete_object.return_value = {}
+
+        client.delete("nonexistent/key")  # should not raise
+
+        s3.delete_object.assert_called_once_with(Bucket="b", Key="nonexistent/key")
+        s3.head_object.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

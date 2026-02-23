@@ -150,6 +150,25 @@ class TestRetryBackoff:
         assert result is success
         mock_sleep.assert_called_once_with(1.0)  # initial delay
 
+    def test_429_with_invalid_retry_after_falls_back_to_backoff(self):
+        """Non-numeric Retry-After header (e.g. HTTP-date) falls back to backoff delay."""
+        client = self._make_client(max_retries=1)
+        rate_limited = _mock_response(429, headers={"Retry-After": "Fri, 31 Dec 1999 23:59:59 GMT"})
+        rate_limited.is_success = False
+        success = _mock_response(200, {"droplets": []})
+
+        mock_http = _make_client_mock(rate_limited)
+        mock_http.request.side_effect = [rate_limited, success]
+
+        with (
+            patch("dango.platform.cloud.digitalocean.httpx.Client", return_value=mock_http),
+            patch("dango.platform.cloud.digitalocean.time.sleep") as mock_sleep,
+        ):
+            result = client._request_with_retry("GET", "/droplets")
+
+        assert result is success
+        mock_sleep.assert_called_once_with(1.0)  # falls back to initial backoff delay
+
     def test_500_retry_then_success(self):
         """500 server error retries and succeeds on next attempt."""
         client = self._make_client(max_retries=2)
