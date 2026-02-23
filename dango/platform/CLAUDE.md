@@ -26,8 +26,10 @@ platform/
 │   ├── watcher_lifecycle.py  # start/stop/status for watcher subprocess
 │   └── watcher_runner.py    # Background watcher process entry point
 │
-├── cloud/               # Cloud-only components (populated by TASK-022+)
-│   └── __init__.py      # Empty package marker
+├── cloud/               # Cloud-only components (TASK-022+)
+│   ├── __init__.py      # Exports DigitalOceanClient, SpacesClient
+│   ├── digitalocean.py  # DO REST API v2 client (Droplets, SSH Keys, Firewalls)
+│   └── spaces.py        # DO Spaces client (S3-compatible via boto3)
 │
 │   # Backwards-compatible shims (re-export from local/)
 ├── network.py           # → platform.local.network
@@ -46,6 +48,8 @@ platform/
 | `local/watcher.py` | File change detection | `DebouncedFileHandler`, `FileWatcher`, `MultiTargetWatcher`, `SyncTrigger` |
 | `local/watcher_lifecycle.py` | Watcher subprocess lifecycle | `start_file_watcher`, `stop_file_watcher`, `get_watcher_status`, `get_watcher_pid_file_path` |
 | `local/watcher_runner.py` | Background watcher process | `main` |
+| `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |
+| `cloud/spaces.py` | DigitalOcean Spaces (S3-compatible) client | `SpacesClient` |
 
 ## Import Patterns
 
@@ -61,6 +65,9 @@ from dango.platform.local.network import NetworkConfig
 
 # Cloud config (in config module)
 from dango.config import CloudConfig
+
+# Cloud clients (TASK-022+)
+from dango.platform.cloud import DigitalOceanClient, SpacesClient
 ```
 
 ### Also valid (backwards-compatible shims):
@@ -85,7 +92,9 @@ from dango.platform.watcher_lifecycle import get_watcher_status
 |-------|-----------|--------------|
 | Add a startup step for both local + cloud | `common/startup.py` | `pytest tests/unit/test_platform_startup.py` |
 | Add a local-only startup step | `local/` and `cli/commands/platform.py` | `dango start` manually |
-| Add cloud infrastructure | `cloud/` (see TASK-022+) | — |
+| Add cloud infrastructure | `cloud/` | `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py` |
+| Provision a Droplet | `cloud/digitalocean.py` → `DigitalOceanClient` | `pytest tests/unit/test_digitalocean_client.py` |
+| Backup to Spaces | `cloud/spaces.py` → `SpacesClient` | `pytest tests/unit/test_spaces_client.py` |
 | Modify watcher logic | `local/watcher.py` | `pytest tests/unit/test_watcher_lifecycle.py` |
 | Change Docker service startup | `docker.py` | `dango start` manually |
 | Load/save cloud.yml | `from dango.config import ConfigLoader` → `load_cloud_config()` / `save_cloud_config()` | `pytest tests/unit/test_cloud_config_loader.py` |
@@ -101,10 +110,13 @@ from dango.platform.watcher_lifecycle import get_watcher_status
 
 **Imports from:**
 - `dango.config` — ConfigLoader, CloudConfig (load cloud.yml)
+- `dango.exceptions` — CloudError, CloudAPIError, CloudAuthError (cloud/)
 - `dango.migrations` — apply_all_pending (startup.py)
 - `dango.utils.database` — ensure_dbt_schemas (startup.py)
 - `dango.utils.process` — is_process_running, kill_process (watcher_lifecycle.py)
 - `dango.visualization` — setup_metabase, import_dashboards (startup.py)
+- `httpx` — HTTP transport for DigitalOcean API (cloud/digitalocean.py)
+- `boto3` (optional, `[cloud]` extra) — Spaces S3 client (cloud/spaces.py)
 - `watchdog` — Observer, FileSystemEventHandler (watcher.py)
 
 **Used by:**

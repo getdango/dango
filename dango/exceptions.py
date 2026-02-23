@@ -54,6 +54,9 @@ __all__ = [
     "SessionExpiredError",
     "AccountLockedError",
     "AccountDeactivatedError",
+    "CloudError",
+    "CloudAPIError",
+    "CloudAuthError",
     "is_debug_mode",
 ]
 
@@ -349,3 +352,59 @@ class AccountDeactivatedError(AuthenticationError):
     """Account has been deactivated by an administrator."""
 
     _default_error_code = "DANGO-S007"
+
+
+# ---------------------------------------------------------------------------
+# Cloud exceptions  (DANGO-D***)
+# ---------------------------------------------------------------------------
+
+
+class CloudError(DangoError):
+    """Base exception for cloud provisioning and management errors."""
+
+    _default_error_code = "DANGO-D001"
+
+
+class CloudAPIError(CloudError):
+    """DigitalOcean API returned an error response.
+
+    Stores ``status_code`` and ``response_body`` in ``context`` for
+    structured logging. Follows the ``DbtLockError`` pattern.
+    """
+
+    _default_error_code = "DANGO-D002"
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        status_code: int | None = None,
+        response_body: str | None = None,
+        error_code: str | None = None,
+        context: dict[str, Any] | None = None,
+        user_message: str | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.response_body = response_body
+        extra: dict[str, Any] = {}
+        if status_code is not None:
+            extra["status_code"] = status_code
+        if response_body is not None:
+            extra["response_body"] = response_body
+        if extra:
+            merged = dict(extra)
+            if context:
+                merged.update(context)
+            context = merged
+        super().__init__(
+            message,
+            error_code=error_code,
+            context=context,
+            user_message=user_message,
+        )
+
+
+class CloudAuthError(CloudError):
+    """Cloud API authentication failed (invalid or missing token)."""
+
+    _default_error_code = "DANGO-D003"

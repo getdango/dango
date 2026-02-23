@@ -485,6 +485,14 @@ class SpacesConfig(BaseModel):
     region: str | None = Field(
         default=None, description="Spaces region (defaults to droplet region)"
     )
+    access_key_env: str = Field(
+        default="SPACES_ACCESS_KEY",
+        description="Environment variable name for Spaces access key",
+    )
+    secret_key_env: str = Field(
+        default="SPACES_SECRET_KEY",
+        description="Environment variable name for Spaces secret key",
+    )
 
 
 class DbtOverrides(BaseModel):
