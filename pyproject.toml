@@ -82,6 +82,7 @@ dev = [
 ]
 cloud = [
     "boto3>=1.34.0",
+    "paramiko>=3.0.0",
 ]
 
 # Note: dlt distributes sources via `dlt init <source>`, not pip extras.
@@ -174,6 +175,8 @@ module = [
     "boto3.*",
     "botocore",
     "botocore.*",
+    "paramiko",
+    "paramiko.*",
 ]
 ignore_missing_imports = true
 
@@ -207,6 +210,8 @@ module = [
     "tests.unit.test_platform_imports",
     "tests.unit.test_digitalocean_client",
     "tests.unit.test_spaces_client",
+    "tests.unit.test_ssh_manager",
+    "tests.unit.test_ssh_sftp",
 ]
 ignore_errors = true
 
