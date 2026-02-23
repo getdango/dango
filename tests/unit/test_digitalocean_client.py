@@ -521,6 +521,65 @@ class TestFirewallOperations:
         with self._patch(resp):
             self.client.delete_firewall("fw-123")  # should not raise
 
+    def test_get_firewall(self):
+        """get_firewall returns the firewall dict for the given ID."""
+        firewall = {"id": "fw-abc", "name": "dango-fw-42"}
+        resp = _mock_response(200, {"firewall": firewall})
+
+        with self._patch(resp):
+            result = self.client.get_firewall("fw-abc")
+
+        assert result == firewall
+
+    def test_update_firewall(self):
+        """update_firewall sends PUT with all fields and returns the firewall dict."""
+        firewall = {"id": "fw-abc", "name": "dango-fw-42"}
+        resp = _mock_response(200, {"firewall": firewall})
+        mock_http = _make_client_mock(resp)
+
+        inbound = [{"protocol": "tcp", "ports": "22", "sources": {"addresses": ["0.0.0.0/0"]}}]
+        outbound = [
+            {"protocol": "tcp", "ports": "all", "destinations": {"addresses": ["0.0.0.0/0"]}}
+        ]
+
+        with patch("dango.platform.cloud.digitalocean.httpx.Client", return_value=mock_http):
+            result = self.client.update_firewall(
+                firewall_id="fw-abc",
+                name="dango-fw-42",
+                inbound_rules=inbound,
+                outbound_rules=outbound,
+                droplet_ids=[42],
+            )
+
+        assert result == firewall
+        # Verify PUT method was used
+        method = mock_http.request.call_args[0][0]
+        assert method == "PUT"
+        payload = mock_http.request.call_args[1].get("json") or {}
+        assert payload["name"] == "dango-fw-42"
+        assert payload["inbound_rules"] == inbound
+        assert payload["outbound_rules"] == outbound
+        assert payload["droplet_ids"] == [42]
+
+    def test_update_firewall_with_empty_droplet_ids(self):
+        """update_firewall passes empty droplet_ids list (not omitted)."""
+        firewall = {"id": "fw-abc"}
+        resp = _mock_response(200, {"firewall": firewall})
+        mock_http = _make_client_mock(resp)
+
+        with patch("dango.platform.cloud.digitalocean.httpx.Client", return_value=mock_http):
+            self.client.update_firewall(
+                firewall_id="fw-abc",
+                name="dango-fw-42",
+                inbound_rules=[],
+                outbound_rules=[],
+                droplet_ids=[],  # empty list — should be included, not omitted
+            )
+
+        payload = mock_http.request.call_args[1].get("json") or {}
+        assert "droplet_ids" in payload
+        assert payload["droplet_ids"] == []
+
 
 # ---------------------------------------------------------------------------
 # 6. Error handling

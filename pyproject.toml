@@ -212,6 +212,9 @@ module = [
     "tests.unit.test_spaces_client",
     "tests.unit.test_ssh_manager",
     "tests.unit.test_ssh_sftp",
+    "tests.unit.test_provisioning",
+    "tests.unit.test_firewall",
+    "tests.unit.test_remote_cli",
 ]
 ignore_errors = true
 
