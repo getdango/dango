@@ -111,3 +111,15 @@ def make_dango_config(
         "platform": platform or make_platform_settings(),
     }
     return DangoConfig(**{**defaults, **overrides})
+
+
+def make_cloud_config(**overrides: Any) -> Any:
+    """Create a CloudConfig for testing with sensible defaults."""
+    from dango.config.models import CloudConfig
+
+    defaults: dict[str, Any] = {
+        "region": "nyc1",
+        "size": "s-2vcpu-4gb",
+    }
+    defaults.update(overrides)
+    return CloudConfig(**defaults)

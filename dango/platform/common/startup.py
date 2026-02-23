@@ -1,0 +1,226 @@
+"""dango/platform/common/startup.py
+
+Shared startup helpers for platform lifecycle.
+
+Contains logic extracted from cli/commands/platform.py for reuse by both
+`dango start` (local) and `dango serve` (cloud, TASK-026). All functions
+raise exceptions on failure; callers handle display and user interaction.
+"""
+
+from __future__ import annotations
+
+import socket
+from pathlib import Path
+from typing import Any
+
+
+def run_pending_migrations(project_root: Path) -> dict[str, Any]:
+    """
+    Run all pending database migrations.
+
+    Args:
+        project_root: Project root directory
+
+    Returns:
+        Dict mapping db name to list of MigrationInfo objects for applied migrations.
+        Empty dict if no migrations applied.
+
+    Raises:
+        MigrationError: If a migration fails
+    """
+    from dango.migrations import apply_all_pending
+
+    return apply_all_pending(project_root)
+
+
+def ensure_dbt_schemas(project_root: Path) -> None:
+    """
+    Create DuckDB schemas required for Metabase visibility.
+
+    Args:
+        project_root: Project root directory
+    """
+    from dango.utils.database import ensure_dbt_schemas as _ensure_dbt_schemas
+
+    duckdb_path = project_root / "data" / "warehouse.duckdb"
+    _ensure_dbt_schemas(duckdb_path)
+
+
+def ensure_duckdb_driver(project_root: Path) -> None:
+    """
+    Ensure Metabase DuckDB driver is downloaded.
+
+    Downloads the driver if not present. Retries 3 times on network failure.
+    No-op if driver already exists.
+
+    Args:
+        project_root: Project root directory
+
+    Raises:
+        RuntimeError: If download fails after all retries
+    """
+    import time
+    import urllib.request
+
+    driver_path = project_root / "metabase-plugins" / "duckdb.metabase-driver.jar"
+    if driver_path.exists():
+        return
+
+    driver_url = (
+        "https://github.com/motherduckdb/metabase_duckdb_driver/releases/"
+        "download/1.4.1.0/duckdb.metabase-driver.jar"
+    )
+    driver_path.parent.mkdir(exist_ok=True)
+
+    for attempt in range(3):
+        try:
+            if attempt > 0:
+                time.sleep(2)
+            urllib.request.urlretrieve(driver_url, driver_path)
+            return
+        except Exception:
+            if attempt == 2:
+                # Clean up partial download on final failure
+                try:
+                    if driver_path.exists():
+                        driver_path.unlink()
+                except Exception:
+                    pass
+
+    raise RuntimeError(
+        "Failed to download DuckDB driver after 3 attempts. "
+        "Check your internet connection and try again, or download manually from: "
+        "https://github.com/motherduckdb/metabase_duckdb_driver/releases"
+    )
+
+
+def start_docker_services(project_root: Path) -> None:
+    """
+    Pre-check Docker environment and start Docker services.
+
+    Stops any existing Dango services, verifies Docker daemon is running,
+    checks required port availability, then starts Metabase and dbt-docs.
+
+    Args:
+        project_root: Project root directory
+
+    Raises:
+        RuntimeError: If Docker daemon is not running, required ports are
+            still occupied after cleanup, or services fail to start
+    """
+    from dango.platform import DockerManager
+
+    manager = DockerManager(project_root)
+
+    # Stop any existing services to free ports and clean up zombie containers
+    manager.stop_services()
+
+    # Pre-flight: Docker daemon must be running
+    if not manager.is_docker_daemon_running():
+        raise RuntimeError("Docker daemon is not running. Start Docker Desktop and try again.")
+
+    # Pre-flight: Required Docker ports must be free
+    required_docker_ports = {
+        3000: "Metabase",
+        8081: "dbt-docs",
+    }
+
+    ports_in_use = []
+    for docker_port, service_name in required_docker_ports.items():
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        port_available = sock.connect_ex(("127.0.0.1", docker_port)) != 0
+        sock.close()
+        if not port_available:
+            ports_in_use.append((docker_port, service_name))
+
+    if ports_in_use:
+        # Attempt to stop Dango containers from other projects
+        manager.stop_all_dango_containers()
+
+        # Recheck after cleanup
+        ports_still_in_use = []
+        for docker_port, service_name in required_docker_ports.items():
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            port_available = sock.connect_ex(("127.0.0.1", docker_port)) != 0
+            sock.close()
+            if not port_available:
+                ports_still_in_use.append((docker_port, service_name))
+
+        if ports_still_in_use:
+            port_list = ", ".join(f"{p} ({s})" for p, s in ports_still_in_use)
+            raise RuntimeError(
+                f"Required ports are still in use after cleanup: {port_list}. "
+                "Run: lsof -ti:<port> | xargs kill -9"
+            )
+
+    # Start Docker services (Metabase, dbt-docs)
+    docker_success = manager.start_services()
+    if not docker_success:
+        manager.stop_services()  # Clean up partial containers
+        raise RuntimeError("Docker services failed to start. Check Docker logs: docker ps -a")
+
+
+def setup_metabase_if_needed(
+    project_root: Path,
+    project_name: str,
+    organization: str | None,
+) -> dict[str, Any]:
+    """
+    Configure Metabase on first run.
+
+    No-op if credentials file already exists. On first run, performs
+    auto-setup and configures DuckDB connection.
+
+    Args:
+        project_root: Project root directory
+        project_name: Project name for Metabase collections
+        organization: Organization name (optional)
+
+    Returns:
+        Dict with keys:
+            - already_configured (bool): True if credentials file existed
+            - success (bool): Whether setup succeeded
+            - collections_created (list): Collection names created
+            - errors (list): Non-critical errors encountered
+            - duckdb_connected (bool): Whether DuckDB connection succeeded
+
+    Raises:
+        RuntimeError: If DuckDB connection fails (critical — services must stop)
+    """
+    from dango.visualization.metabase import setup_metabase
+
+    credentials_file = project_root / ".dango" / "metabase.yml"
+    if credentials_file.exists():
+        return {"already_configured": True, "success": True}
+
+    setup_result = setup_metabase(project_root, project_name, organization)
+
+    # DuckDB connection failure is critical — caller must roll back Docker
+    if not setup_result.get("success") and not setup_result.get("duckdb_connected"):
+        raise RuntimeError(
+            "Cannot connect Metabase to DuckDB. "
+            "Ensure data/warehouse.duckdb exists and "
+            "metabase-plugins/duckdb.metabase-driver.jar is present."
+        )
+
+    return {"already_configured": False, **setup_result}
+
+
+def import_dashboards(project_root: Path) -> dict[str, Any] | None:
+    """
+    Import YAML dashboards if any exist in the dashboards/ directory.
+
+    Args:
+        project_root: Project root directory
+
+    Returns:
+        Import result dict (with 'imported' and 'skipped' keys), or None if
+        no dashboards directory or no .yml files found.
+    """
+    dashboards_dir = project_root / "dashboards"
+    if not dashboards_dir.exists() or not list(dashboards_dir.glob("*.yml")):
+        return None
+
+    from dango.visualization.dashboard_manager import import_dashboards as _import_dashboards
+
+    return _import_dashboards(project_root)

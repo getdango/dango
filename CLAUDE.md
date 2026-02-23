@@ -19,7 +19,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | Shared utilities | `dango/utils/` | [`dango/utils/CLAUDE.md`](dango/utils/CLAUDE.md) |
 | Logging / diagnostics | `dango/logging.py` | Module docstring |
 | Database migrations | `dango/migrations/` | [`dango/migrations/CLAUDE.md`](dango/migrations/CLAUDE.md) |
-| Docker / file watcher | `dango/platform/` | `dango/platform/CLAUDE.md` (Phase 3) |
+| Docker / file watcher | `dango/platform/` | [`dango/platform/CLAUDE.md`](dango/platform/CLAUDE.md) |
 | Jinja2 templates / Dockerfiles | `dango/templates/` | [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md) |
 | Auth / users / sessions | `dango/auth/` | [`dango/auth/CLAUDE.md`](dango/auth/CLAUDE.md) |
 | Notebooks | `dango/notebooks/` | Not yet created (Phase 6) |
@@ -142,11 +142,22 @@ dango/                          # Python package source
 │
 ├── platform/                   # Level 2 — Docker, network, file watcher
 │   ├── __main__.py             # Platform CLI entry point
-│   ├── docker.py               # Docker Compose lifecycle
-│   ├── network.py              # Network utilities
-│   ├── watcher.py              # File change detection
-│   ├── watcher_lifecycle.py    # Watcher subprocess lifecycle (start/stop/status)
-│   └── watcher_runner.py       # Watcher subprocess runner
+│   ├── docker.py               # Docker Compose lifecycle (shared local + cloud)
+│   ├── CLAUDE.md               # Module navigation doc
+│   ├── common/                 # Shared startup helpers (local + cloud)
+│   │   └── startup.py          # run_pending_migrations, start_docker_services, etc.
+│   ├── local/                  # Local-only components
+│   │   ├── network.py          # NetworkConfig, NginxManager, HostsManager
+│   │   ├── watcher.py          # File change detection (506 lines)
+│   │   ├── watcher_lifecycle.py # Watcher subprocess lifecycle
+│   │   └── watcher_runner.py   # Background watcher process
+│   ├── cloud/                  # Cloud components (TASK-022+)
+│   │   └── __init__.py         # Empty package marker
+│   │   # Backwards-compatible shims (re-export from local/):
+│   ├── network.py              # → local/network.py
+│   ├── watcher.py              # → local/watcher.py
+│   ├── watcher_lifecycle.py    # → local/watcher_lifecycle.py
+│   └── watcher_runner.py       # → local/watcher_runner.py
 │
 ├── ingestion/                  # Level 1 — Data loading
 │   ├── dlt_runner.py           # ⚠ 1759 lines — orchestrates full sync pipeline
@@ -242,7 +253,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `transformation/generator.py` | 577 | — |
 | `cli/commands/source.py` | 549 | — (extracted from main.py by TASK-005) |
 | `cli/model_wizard.py` | 507 | — |
-| `platform/watcher.py` | 506 | — |
+| `platform/local/watcher.py` | 506 | — |
 
 ## Module Documentation Index
 
@@ -263,8 +274,9 @@ Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 - [`dango/migrations/CLAUDE.md`](dango/migrations/CLAUDE.md)
 - [`dango/auth/CLAUDE.md`](dango/auth/CLAUDE.md)
 
+- [`dango/platform/CLAUDE.md`](dango/platform/CLAUDE.md)
+
 **Planned later phases:**
-- `dango/platform/CLAUDE.md` (Phase 3)
 - `dango/notebooks/CLAUDE.md` (Phase 6)
 - `dango/governance/CLAUDE.md` (Phase 7)
 

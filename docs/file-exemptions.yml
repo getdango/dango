@@ -130,10 +130,10 @@ exemptions:
     reason: "DbtModelGenerator — generates dbt models from source configs. Stable, rarely modified."
     review_by: "v1.1"
 
-  - file: dango/platform/watcher.py
+  - file: dango/platform/local/watcher.py
     lines: 506
     category: exempt
-    reason: "File change detection for auto-sync. Event-driven logic, stable."
+    reason: "File change detection for auto-sync. Event-driven logic, stable. Moved to platform/local/ by TASK-090."
     review_by: "v1.1"
 
   - file: dango/cli/model_wizard.py
@@ -155,6 +155,12 @@ exemptions:
     lines: 504
     category: exempt
     reason: "TASK-095 added get_user_by_oauth tests (+4 tests). Marginally over limit."
+    review_by: "v1.1"
+
+  - file: dango/config/models.py
+    lines: 530
+    category: exempt
+    reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
     review_by: "v1.1"
 
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
