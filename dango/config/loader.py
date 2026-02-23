@@ -10,7 +10,7 @@ import yaml
 from pydantic import ValidationError
 
 from .exceptions import ConfigError, ConfigNotFoundError, ConfigValidationError
-from .models import DangoConfig, ProjectContext, SourcesConfig
+from .models import CloudConfig, DangoConfig, ProjectContext, SourcesConfig
 
 
 class ConfigLoader:
@@ -19,6 +19,7 @@ class ConfigLoader:
     DANGO_DIR = ".dango"
     PROJECT_FILE = "project.yml"
     SOURCES_FILE = "sources.yml"
+    CLOUD_FILE = "cloud.yml"
 
     def __init__(self, project_root: Path | None = None):
         """
@@ -31,6 +32,7 @@ class ConfigLoader:
         self.dango_dir = self.project_root / self.DANGO_DIR
         self.project_file = self.dango_dir / self.PROJECT_FILE
         self.sources_file = self.dango_dir / self.SOURCES_FILE
+        self.cloud_file = self.dango_dir / self.CLOUD_FILE
 
     def is_dango_project(self) -> bool:
         """Check if current directory is a Dango project"""
@@ -266,3 +268,41 @@ class ConfigLoader:
             errors.append(str(e))
 
         return (len(errors) == 0, errors)
+
+    def load_cloud_config(self) -> CloudConfig | None:
+        """
+        Load cloud deployment config from .dango/cloud.yml.
+
+        Returns:
+            CloudConfig if the file exists and is valid, None if not deployed.
+
+        Raises:
+            ConfigValidationError: If the file exists but fails validation
+        """
+        if not self.cloud_file.exists():
+            return None
+
+        try:
+            with open(self.cloud_file) as f:
+                import yaml
+
+                data: dict = yaml.safe_load(f) or {}
+        except Exception as e:
+            raise ConfigError(f"Error reading {self.cloud_file}: {e}") from e
+
+        try:
+            return CloudConfig(**data)
+        except Exception as e:
+            raise ConfigValidationError(
+                f"Invalid cloud configuration in {self.cloud_file}:\n{e}"
+            ) from e
+
+    def save_cloud_config(self, cloud_config: CloudConfig) -> None:
+        """
+        Save cloud deployment config to .dango/cloud.yml.
+
+        Args:
+            cloud_config: CloudConfig model to persist
+        """
+        data = cloud_config.model_dump(mode="json", exclude_none=True)
+        self.save_yaml(data, self.cloud_file)

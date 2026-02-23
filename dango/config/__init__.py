@@ -13,15 +13,18 @@ from .exceptions import (
 from .helpers import find_project_root, get_config
 from .loader import ConfigLoader
 from .models import (
+    CloudConfig,
     CSVSourceConfig,
     DangoConfig,
     DataSource,
+    DbtOverrides,
     DeduplicationStrategy,
     GoogleSheetsSourceConfig,
     ProjectContext,
     ShopifySourceConfig,
     SourcesConfig,
     SourceType,
+    SpacesConfig,
     Stakeholder,
     StripeSourceConfig,
 )
@@ -39,6 +42,10 @@ __all__ = [
     "GoogleSheetsSourceConfig",
     "StripeSourceConfig",
     "ShopifySourceConfig",
+    # Cloud config models
+    "CloudConfig",
+    "SpacesConfig",
+    "DbtOverrides",
     # Loader
     "ConfigLoader",
     # Helpers

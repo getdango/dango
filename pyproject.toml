@@ -105,6 +105,9 @@ packages = [
     "dango.ingestion.dlt_sources",
     "dango.transformation",
     "dango.platform",
+    "dango.platform.local",
+    "dango.platform.common",
+    "dango.platform.cloud",
     "dango.templates",
     "dango.utils",
     "dango.visualization",
@@ -184,10 +187,17 @@ module = [
     "dango.visualization.metabase",
     "dango.visualization.dashboard_manager",
     "dango.transformation.generator",
-    "dango.platform.watcher",
+    "dango.platform.local.watcher",
+    "dango.platform.local.watcher_runner",
     "dango.oauth.providers",
     "dango.web.helpers",
     "dango.web.routes.upload",
+    # Test files: test method type annotations not required (untyped defs)
+    "tests.unit.test_watcher_lifecycle",
+    "tests.unit.test_cloud_config",
+    "tests.unit.test_cloud_config_loader",
+    "tests.unit.test_platform_startup",
+    "tests.unit.test_platform_imports",
 ]
 ignore_errors = true
 

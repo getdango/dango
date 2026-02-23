@@ -478,6 +478,45 @@ class AuthConfig(BaseModel):
     )
 
 
+class SpacesConfig(BaseModel):
+    """DigitalOcean Spaces backup configuration."""
+
+    bucket: str = Field(description="Spaces bucket name")
+    region: str | None = Field(
+        default=None, description="Spaces region (defaults to droplet region)"
+    )
+
+
+class DbtOverrides(BaseModel):
+    """Cloud-specific dbt configuration overrides."""
+
+    threads: int | None = Field(
+        default=None, description="Override dbt threads (default: number of vCPUs)"
+    )
+    memory_limit: str | None = Field(
+        default=None, description="Override DuckDB memory limit (default: 25% of RAM)"
+    )
+
+
+class CloudConfig(BaseModel):
+    """Cloud deployment configuration stored in .dango/cloud.yml."""
+
+    droplet_id: int | None = Field(
+        default=None, description="DigitalOcean droplet ID (set after provisioning)"
+    )
+    droplet_ip: str | None = Field(
+        default=None, description="Droplet public IP address (set after provisioning)"
+    )
+    region: str = Field(default="nyc1", description="DigitalOcean region")
+    size: str = Field(default="s-2vcpu-4gb", description="Droplet size slug")
+    domain: str | None = Field(default=None, description="Custom domain name")
+    spaces: SpacesConfig | None = Field(default=None, description="Spaces backup configuration")
+    ssh_key_path: str = Field(default=".dango/cloud_key", description="Path to SSH private key")
+    dbt_overrides: DbtOverrides | None = Field(
+        default=None, description="Cloud dbt configuration overrides"
+    )
+
+
 class DangoConfig(BaseModel):
     """Complete Dango project configuration"""
 

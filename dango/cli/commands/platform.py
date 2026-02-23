@@ -136,7 +136,14 @@ def start(ctx: click.Context) -> None:
     Change port in .dango/project.yml under platform.port
     """
     from dango.config import ConfigLoader
-    from dango.platform import DockerManager
+    from dango.platform.common.startup import (
+        ensure_dbt_schemas,
+        ensure_duckdb_driver,
+        import_dashboards,
+        run_pending_migrations,
+        setup_metabase_if_needed,
+        start_docker_services,
+    )
 
     from ..helpers.process_manager import start_fastapi_server
     from ..utils import require_project_context
@@ -155,9 +162,7 @@ def start(ctx: click.Context) -> None:
 
         # Auto-migrate databases
         try:
-            from dango.migrations import apply_all_pending
-
-            migration_results = apply_all_pending(project_root)
+            migration_results = run_pending_migrations(project_root)
             for migration_db_name, migration_applied in migration_results.items():
                 if migration_applied:
                     console.print(
@@ -172,10 +177,7 @@ def start(ctx: click.Context) -> None:
             raise
 
         # Ensure all dbt schemas exist (for Metabase visibility)
-        from dango.utils.database import ensure_dbt_schemas
-
-        duckdb_path = project_root / "data" / "warehouse.duckdb"
-        ensure_dbt_schemas(duckdb_path)
+        ensure_dbt_schemas(project_root)
 
         # Get port from config
         port = platform_config.port
@@ -333,163 +335,84 @@ def start(ctx: click.Context) -> None:
         # Check for duplicate port configuration
         _check_duplicate_ports(platform_config)
 
-        # Initialize Docker manager FIRST so we can stop services before port check
-        manager = DockerManager(project_root)
-
-        # Clean up any zombie containers from previous failed runs
-        # This must happen BEFORE port checks to allow ports to be freed
-        console.print("[dim]Stopping any existing Dango services...[/dim]")
-        manager.stop_services()
-        console.print()
-
-        # Check Docker service ports (Metabase and dbt-docs) AFTER stopping services
+        # Check Docker service ports (Metabase and dbt-docs)
         _check_docker_ports(platform_config)
 
-        # Pre-flight check: Docker daemon must be running
-        if not manager.is_docker_daemon_running():
-            console.print("[red]❌ Error: Docker daemon is not running[/red]")
-            console.print()
-            console.print("Dango requires Docker to run Metabase and other services.")
-            console.print()
-            console.print("[bold]Please start Docker Desktop first:[/bold]")
-            console.print("  1. Open Docker Desktop application")
-            console.print("  2. Wait for it to fully start (whale icon in menu bar)")
-            console.print("  3. Run '[cyan]dango start[/cyan]' again")
-            console.print()
-            raise click.Abort()
-
-        # Pre-flight check: Required Docker ports must be free
-        from ..helpers.port_manager import check_port_in_use
-
-        required_docker_ports = {
-            3000: "Metabase",
-            8081: "dbt-docs",
-        }
-
-        ports_in_use = []
-        for docker_port, service_name in required_docker_ports.items():
-            if check_port_in_use(docker_port):
-                ports_in_use.append((docker_port, service_name))
-
-        if ports_in_use:
-            console.print("[yellow]⚠ Required ports are occupied by existing containers[/yellow]")
-            console.print()
-            for docker_port, service_name in ports_in_use:
-                console.print(f"  Port {docker_port} ({service_name}) is in use")
-            console.print()
-
-            # Try to automatically stop ALL Dango containers (from any project)
-            console.print("[dim]Attempting to stop Dango containers from other projects...[/dim]")
-            manager.stop_all_dango_containers()
-            console.print()
-
-            # Recheck ports
-            ports_still_in_use = []
-            for docker_port, service_name in required_docker_ports.items():
-                if check_port_in_use(docker_port):
-                    ports_still_in_use.append((docker_port, service_name))
-
-            if ports_still_in_use:
-                # Ports still occupied after cleanup - abort
-                console.print("[red]❌ Error: Ports still in use after cleanup[/red]")
-                console.print()
-                for docker_port, service_name in ports_still_in_use:
-                    console.print(f"  Port {docker_port} ({service_name}) is still occupied")
-                console.print()
-                console.print("[bold]Manual cleanup required:[/bold]")
-                for docker_port, _service_name in ports_still_in_use:
-                    console.print(f"  lsof -ti:{docker_port} | xargs kill -9")
-                console.print()
-                raise click.Abort()
-            else:
-                console.print("[green]✓[/green] Ports cleared, continuing with startup...")
-                console.print()
-
-        # Pre-flight check: Ensure DuckDB driver is downloaded
+        # Ensure DuckDB driver is present (download if missing)
         driver_path = project_root / "metabase-plugins" / "duckdb.metabase-driver.jar"
         if not driver_path.exists():
             console.print("[yellow]⚠ DuckDB driver not found, downloading now...[/yellow]")
             console.print()
-
-            # Try to download the driver
-            import time
-            import urllib.request
-
-            driver_url = "https://github.com/motherduckdb/metabase_duckdb_driver/releases/download/1.4.1.0/duckdb.metabase-driver.jar"
-
-            driver_path.parent.mkdir(exist_ok=True)
-            driver_downloaded = False
-
-            # Retry same URL 3 times (network issues are transient)
-            for attempt in range(3):
-                try:
-                    if attempt > 0:
-                        console.print(f"[dim]Retry {attempt}/2...[/dim]")
-                        time.sleep(2)  # Wait before retry
-                    urllib.request.urlretrieve(driver_url, driver_path)
-                    console.print(
-                        f"[green]✓[/green] Downloaded DuckDB driver ({driver_path.stat().st_size // 1024 // 1024}MB)"
-                    )
-                    console.print()
-                    driver_downloaded = True
-                    break
-                except Exception:
-                    if attempt == 2:  # Last attempt failed
-                        break
-                    continue
-
-            if not driver_downloaded:
-                console.print("[red]❌ Failed to download DuckDB driver[/red]")
+        try:
+            ensure_duckdb_driver(project_root)
+            if not driver_path.exists():
+                # Was missing but now downloaded
+                pass
+            else:
+                driver_size_mb = driver_path.stat().st_size // 1024 // 1024
+                console.print(f"[green]✓[/green] DuckDB driver ready ({driver_size_mb}MB)")
                 console.print()
-                console.print("[bold]This is required for Metabase to connect to DuckDB.[/bold]")
-                console.print()
-                console.print("[bold]To fix:[/bold]")
-                console.print("  1. Check your internet connection")
-                console.print("  2. Try running '[cyan]dango start[/cyan]' again")
-                console.print("  3. Or manually download from:")
-                console.print(
-                    "     https://github.com/motherduckdb/metabase_duckdb_driver/releases"
-                )
-                console.print(f"     Save as: {driver_path}")
-                console.print()
-                raise click.Abort()
+        except RuntimeError as e:
+            console.print("[red]❌ Failed to download DuckDB driver[/red]")
+            console.print()
+            console.print("[bold]This is required for Metabase to connect to DuckDB.[/bold]")
+            console.print()
+            console.print("[bold]To fix:[/bold]")
+            console.print("  1. Check your internet connection")
+            console.print("  2. Try running '[cyan]dango start[/cyan]' again")
+            console.print("  3. Or manually download from:")
+            console.print("     https://github.com/motherduckdb/metabase_duckdb_driver/releases")
+            console.print(f"     Save as: {driver_path}")
+            console.print()
+            raise click.Abort() from e
 
-        # Start Docker services (Metabase, dbt-docs)
+        # Start Docker services (Metabase, dbt-docs) — includes daemon check + port check
         console.print("[cyan]Starting Docker services...[/cyan]")
-        docker_success = manager.start_services()
-
-        if not docker_success:
-            console.print("[red]❌ Docker services failed to start[/red]")
+        try:
+            start_docker_services(project_root)
+            console.print("[green]✓[/green] Docker services started")
+        except RuntimeError as e:
+            err_msg = str(e)
+            if "Docker daemon is not running" in err_msg:
+                console.print("[red]❌ Error: Docker daemon is not running[/red]")
+                console.print()
+                console.print("Dango requires Docker to run Metabase and other services.")
+                console.print()
+                console.print("[bold]Please start Docker Desktop first:[/bold]")
+                console.print("  1. Open Docker Desktop application")
+                console.print("  2. Wait for it to fully start (whale icon in menu bar)")
+                console.print("  3. Run '[cyan]dango start[/cyan]' again")
+            elif "ports are still in use" in err_msg:
+                console.print("[red]❌ Error: Required ports are still in use[/red]")
+                console.print()
+                console.print("[bold]Manual cleanup required:[/bold]")
+                console.print("  lsof -ti:3000 | xargs kill -9")
+                console.print("  lsof -ti:8081 | xargs kill -9")
+            else:
+                console.print("[red]❌ Docker services failed to start[/red]")
+                console.print()
+                console.print("Dango requires Docker services (Metabase + dbt-docs) to function.")
+                console.print()
+                console.print("[bold]Troubleshooting:[/bold]")
+                console.print("  1. Check Docker logs: '[cyan]docker ps -a[/cyan]'")
+                console.print("  2. Try again: '[cyan]dango start[/cyan]'")
             console.print()
+            raise click.Abort() from e
 
-            # Clean up any partially-created containers
-            console.print("[yellow]Cleaning up partial containers...[/yellow]")
-            manager.stop_services()
-            console.print()
-
-            console.print("Dango requires Docker services (Metabase + dbt-docs) to function.")
-            console.print()
-            console.print("[bold]Troubleshooting:[/bold]")
-            console.print("  1. Check Docker logs: '[cyan]docker ps -a[/cyan]'")
-            console.print("  2. Try again: '[cyan]dango start[/cyan]'")
-            console.print()
-            raise click.Abort()
-
-        # Docker services started successfully
         # Metabase auto-setup (first-time only)
         console.print()
         console.print("[cyan]Checking Metabase setup...[/cyan]")
-        from dango.visualization.metabase import setup_metabase
-
         metabase_configured = False
+        organization = getattr(config.project, "organization", None)
         credentials_file = project_root / ".dango" / "metabase.yml"
         if not credentials_file.exists():
-            # First time - run auto-setup
             console.print("[dim]First time setup detected...[/dim]")
-            organization = getattr(config.project, "organization", None)
-            setup_result = setup_metabase(project_root, project_name, organization)
-
-            if setup_result.get("success"):
+        try:
+            setup_result = setup_metabase_if_needed(project_root, project_name, organization)
+            if setup_result.get("already_configured"):
+                console.print("[green]✓[/green] Metabase already configured")
+                metabase_configured = True
+            elif setup_result.get("success"):
                 console.print("[green]✓[/green] Metabase configured automatically")
                 if setup_result.get("collections_created"):
                     console.print(
@@ -497,66 +420,55 @@ def start(ctx: click.Context) -> None:
                     )
                 metabase_configured = True
             else:
-                # Metabase setup failed
+                # Partial success (DuckDB connected, non-critical errors)
                 console.print("[red]✗[/red] Metabase setup failed")
                 if setup_result.get("errors"):
                     for error in setup_result["errors"]:
                         console.print(f"[red]  • {error}[/red]")
+                console.print()
+                console.print(
+                    "[yellow]⚠ Metabase partially configured (DuckDB connected, but setup incomplete)[/yellow]"
+                )
+                console.print(
+                    "[dim]  You can manually complete setup at http://localhost:3000[/dim]"
+                )
+                metabase_configured = True  # Allow platform to start
+        except RuntimeError as e:
+            # DuckDB connection failed — critical, must roll back
+            console.print()
+            console.print("[red]❌ Critical error: Cannot connect Metabase to DuckDB[/red]")
+            console.print()
+            console.print("[yellow]Rolling back: Stopping Docker services...[/yellow]")
+            from dango.platform import DockerManager
 
-                # Check if DuckDB connection failed (critical)
-                if not setup_result.get("duckdb_connected"):
-                    # DuckDB connection is critical - abort and rollback
-                    console.print()
-                    console.print("[red]❌ Critical error: Cannot connect Metabase to DuckDB[/red]")
-                    console.print()
-                    console.print("[yellow]Rolling back: Stopping Docker services...[/yellow]")
-                    manager.stop_services()
-                    console.print()
-                    console.print("[bold]All services have been stopped.[/bold]")
-                    console.print()
-                    console.print("[bold]Troubleshooting:[/bold]")
-                    console.print("  1. Check if DuckDB file exists: data/warehouse.duckdb")
-                    console.print(
-                        "  2. Verify DuckDB driver: metabase-plugins/duckdb.metabase-driver.jar"
-                    )
-                    console.print(
-                        "  3. Check Metabase logs: '[cyan]docker logs $(docker ps -q -f name=metabase)[/cyan]'"
-                    )
-                    console.print("  4. Try again: '[cyan]dango start[/cyan]'")
-                    console.print()
-                    raise click.Abort()
-                else:
-                    # DuckDB connected but other setup failed (collections, etc.)
-                    # This is non-critical - can continue
-                    console.print()
-                    console.print(
-                        "[yellow]⚠ Metabase partially configured (DuckDB connected, but setup incomplete)[/yellow]"
-                    )
-                    console.print(
-                        "[dim]  You can manually complete setup at http://localhost:3000[/dim]"
-                    )
-                    metabase_configured = True  # Allow platform to start
-        else:
-            console.print("[green]✓[/green] Metabase already configured")
-            metabase_configured = True
+            DockerManager(project_root).stop_services()
+            console.print()
+            console.print("[bold]All services have been stopped.[/bold]")
+            console.print()
+            console.print("[bold]Troubleshooting:[/bold]")
+            console.print("  1. Check if DuckDB file exists: data/warehouse.duckdb")
+            console.print("  2. Verify DuckDB driver: metabase-plugins/duckdb.metabase-driver.jar")
+            console.print(
+                "  3. Check Metabase logs: '[cyan]docker logs $(docker ps -q -f name=metabase)[/cyan]'"
+            )
+            console.print("  4. Try again: '[cyan]dango start[/cyan]'")
+            console.print()
+            raise click.Abort() from e
 
         # Import dashboards (if any exist)
-        dashboards_dir = project_root / "dashboards"
-        if dashboards_dir.exists() and list(dashboards_dir.glob("*.yml")):
-            console.print()
-            console.print("[cyan]Importing dashboards...[/cyan]")
-            from dango.visualization.dashboard_manager import import_dashboards
-
-            try:
-                import_result = import_dashboards(project_root)
+        try:
+            import_result = import_dashboards(project_root)
+            if import_result is not None:
+                console.print()
+                console.print("[cyan]Importing dashboards...[/cyan]")
                 if import_result.get("imported"):
                     console.print(
                         f"[green]✓[/green] Imported {len(import_result['imported'])} dashboard(s)"
                     )
                 elif import_result.get("skipped"):
                     console.print("[dim]✓ All dashboards already imported[/dim]")
-            except Exception as e:
-                console.print(f"[yellow]⚠[/yellow]  Dashboard import failed: {e}")
+        except Exception as e:
+            console.print(f"[yellow]⚠[/yellow]  Dashboard import failed: {e}")
 
         console.print()
 
@@ -569,10 +481,12 @@ def start(ctx: click.Context) -> None:
             console.print()
         except RuntimeError as e:
             # FastAPI failed - roll back Docker services
+            from dango.platform import DockerManager
+
             console.print(f"[red]❌ Web UI failed to start:[/red] {e}")
             console.print()
             console.print("[yellow]Rolling back: Stopping Docker services...[/yellow]")
-            manager.stop_services()
+            DockerManager(project_root).stop_services()
             console.print()
             console.print("[bold]All services have been stopped.[/bold]")
             console.print("Fix the issue above and run '[cyan]dango start[/cyan]' again.")
@@ -702,8 +616,9 @@ def start(ctx: click.Context) -> None:
             stop_file_watcher(project_root)
 
             # Stop Docker services
-            if "manager" in locals():
-                manager.stop_services()
+            from dango.platform import DockerManager
+
+            DockerManager(project_root).stop_services()
         except Exception:
             pass  # Best effort cleanup
 
