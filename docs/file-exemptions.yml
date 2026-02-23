@@ -157,6 +157,12 @@ exemptions:
     reason: "TASK-095 added get_user_by_oauth tests (+4 tests). Marginally over limit."
     review_by: "v1.1"
 
+  - file: tests/unit/test_digitalocean_client.py
+    lines: 562
+    category: exempt
+    reason: "TASK-022: 33 tests covering DigitalOceanClient init, retry/backoff logic (9 cases), Droplet/SSH Key/Firewall CRUD, and error handling. Retry tests require per-test mock setup for call sequencing — each is self-contained for readability."
+    review_by: "v1.1"
+
   - file: dango/config/models.py
     lines: 530
     category: exempt

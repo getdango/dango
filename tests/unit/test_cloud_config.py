@@ -91,6 +91,32 @@ class TestSpacesConfig:
         assert config.bucket == "my-bucket"
         assert config.region == "nyc3"
 
+    def test_access_key_env_default(self):
+        """SpacesConfig.access_key_env defaults to 'SPACES_ACCESS_KEY'."""
+        config = SpacesConfig(bucket="my-bucket")
+        assert config.access_key_env == "SPACES_ACCESS_KEY"
+
+    def test_secret_key_env_default(self):
+        """SpacesConfig.secret_key_env defaults to 'SPACES_SECRET_KEY'."""
+        config = SpacesConfig(bucket="my-bucket")
+        assert config.secret_key_env == "SPACES_SECRET_KEY"
+
+    def test_custom_env_var_names(self):
+        """SpacesConfig accepts custom env var names for credentials."""
+        config = SpacesConfig(
+            bucket="my-bucket",
+            access_key_env="MY_SPACES_KEY",
+            secret_key_env="MY_SPACES_SECRET",
+        )
+        assert config.access_key_env == "MY_SPACES_KEY"
+        assert config.secret_key_env == "MY_SPACES_SECRET"
+
+    def test_existing_cloud_yml_without_env_fields_still_loads(self):
+        """SpacesConfig with only bucket/region (old format) loads with defaults."""
+        config = SpacesConfig(bucket="legacy-bucket", region="sfo3")
+        assert config.access_key_env == "SPACES_ACCESS_KEY"
+        assert config.secret_key_env == "SPACES_SECRET_KEY"
+
 
 @pytest.mark.unit
 class TestDbtOverrides:
