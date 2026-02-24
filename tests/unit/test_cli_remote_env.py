@@ -11,11 +11,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from dango.cli.commands.remote_env import (
-    _parse_env_file,
-    _serialize_env_file,
-    env,
-)
+from dango.cli.commands.remote_env import env
+from dango.utils.env_file import parse_env_file, serialize_env_file
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -31,51 +28,51 @@ class TestParseEnvFile:
 
     def test_simple_key_value(self):
         content = "FOO=bar\nBAZ=qux\n"
-        result = _parse_env_file(content)
+        result = parse_env_file(content)
         assert result == {"FOO": "bar", "BAZ": "qux"}
 
     def test_double_quoted_value(self):
         content = 'KEY="hello world"\n'
-        result = _parse_env_file(content)
+        result = parse_env_file(content)
         assert result == {"KEY": "hello world"}
 
     def test_single_quoted_value(self):
         content = "KEY='hello world'\n"
-        result = _parse_env_file(content)
+        result = parse_env_file(content)
         assert result == {"KEY": "hello world"}
 
     def test_skips_comments(self):
         content = "# This is a comment\nFOO=bar\n# Another comment\n"
-        result = _parse_env_file(content)
+        result = parse_env_file(content)
         assert result == {"FOO": "bar"}
 
     def test_skips_blank_lines(self):
         content = "FOO=bar\n\n\nBAZ=qux\n"
-        result = _parse_env_file(content)
+        result = parse_env_file(content)
         assert result == {"FOO": "bar", "BAZ": "qux"}
 
     def test_skips_lines_without_equals(self):
         content = "FOO=bar\ninvalid-line\nBAZ=qux\n"
-        result = _parse_env_file(content)
+        result = parse_env_file(content)
         assert result == {"FOO": "bar", "BAZ": "qux"}
 
     def test_empty_value(self):
         content = "KEY=\n"
-        result = _parse_env_file(content)
+        result = parse_env_file(content)
         assert result == {"KEY": ""}
 
     def test_value_with_equals(self):
         content = "KEY=value=with=equals\n"
-        result = _parse_env_file(content)
+        result = parse_env_file(content)
         assert result == {"KEY": "value=with=equals"}
 
     def test_empty_content(self):
-        result = _parse_env_file("")
+        result = parse_env_file("")
         assert result == {}
 
     def test_strips_whitespace(self):
         content = "  FOO  =  bar  \n"
-        result = _parse_env_file(content)
+        result = parse_env_file(content)
         assert result == {"FOO": "bar"}
 
 
@@ -85,23 +82,23 @@ class TestSerializeEnvFile:
 
     def test_simple_values(self):
         env_vars = {"FOO": "bar", "BAZ": "qux"}
-        result = _serialize_env_file(env_vars)
+        result = serialize_env_file(env_vars)
         assert "FOO=bar" in result
         assert "BAZ=qux" in result
 
     def test_value_with_spaces_is_quoted(self):
         env_vars = {"KEY": "hello world"}
-        result = _serialize_env_file(env_vars)
+        result = serialize_env_file(env_vars)
         assert 'KEY="hello world"' in result
 
     def test_empty_dict(self):
-        result = _serialize_env_file({})
+        result = serialize_env_file({})
         assert result == ""
 
     def test_roundtrip(self):
         original = {"FOO": "bar", "BAZ": "qux", "COMPLEX": "has spaces"}
-        serialized = _serialize_env_file(original)
-        parsed = _parse_env_file(serialized)
+        serialized = serialize_env_file(original)
+        parsed = parse_env_file(serialized)
         assert parsed == original
 
 

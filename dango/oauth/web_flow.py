@@ -20,7 +20,7 @@ import requests
 
 from dango.logging import get_logger
 
-_logger = get_logger("dango.oauth.web_flow")
+logger = get_logger(__name__)
 
 
 class OAuthFlowError(Exception):
@@ -133,7 +133,7 @@ def exchange_google_code(
         ) from exc
 
     if resp.status_code != 200:
-        _logger.warning(
+        logger.warning(
             "google_token_exchange_failed",
             status=resp.status_code,
             body=resp.text[:500],
@@ -257,7 +257,7 @@ def exchange_facebook_code(
         ) from exc
 
     if resp.status_code != 200:
-        _logger.warning(
+        logger.warning(
             "facebook_token_exchange_failed",
             status=resp.status_code,
             body=resp.text[:500],
@@ -294,7 +294,7 @@ def exchange_facebook_code(
         ) from exc
 
     if resp2.status_code != 200:
-        _logger.warning(
+        logger.warning(
             "facebook_long_lived_exchange_failed",
             status=resp2.status_code,
             body=resp2.text[:500],

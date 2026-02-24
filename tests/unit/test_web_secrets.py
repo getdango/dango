@@ -243,18 +243,35 @@ class TestDisconnectOAuth:
 
 
 # ---------------------------------------------------------------------------
+# Page route tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSecretsPage:
+    """Tests for GET /settings/secrets page route."""
+
+    def test_page_returns_html(self, setup):
+        client, _tmp = setup
+        resp = client.get("/settings/secrets", headers=HEADERS)
+        assert resp.status_code == 200
+        content_type = resp.headers.get("content-type", "")
+        assert "text/html" in content_type
+
+
+# ---------------------------------------------------------------------------
 # .env file helpers (unit)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestEnvFileHelpers:
-    """Tests for _read_env_file and _write_env_file."""
+    """Tests for read_env_file and _write_env_file."""
 
     def test_read_nonexistent_returns_empty(self, tmp_path):
-        from dango.web.routes.secrets import _read_env_file
+        from dango.web.routes.secrets import read_env_file
 
-        assert _read_env_file(tmp_path) == {}
+        assert read_env_file(tmp_path) == {}
 
     def test_write_creates_file(self, tmp_path):
         from dango.web.routes.secrets import _write_env_file
@@ -266,11 +283,11 @@ class TestEnvFileHelpers:
         assert mode == 0o600
 
     def test_roundtrip(self, tmp_path):
-        from dango.web.routes.secrets import _read_env_file, _write_env_file
+        from dango.web.routes.secrets import _write_env_file, read_env_file
 
         original = {"FOO": "bar", "BAZ": "qux"}
         _write_env_file(tmp_path, original)
-        result = _read_env_file(tmp_path)
+        result = read_env_file(tmp_path)
         assert result == original
 
     def test_file_permissions_600(self, tmp_path):

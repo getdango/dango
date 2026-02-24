@@ -21,6 +21,7 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.logging import get_logger
+from dango.utils.env_file import parse_env_file, serialize_env_file
 
 router = APIRouter(tags=["secrets"])
 logger = get_logger(__name__)
@@ -38,60 +39,18 @@ def _get_client_ip(request: Request) -> str | None:
     return None
 
 
-def _env_path(request: Request) -> Path:
-    """Return the path to the project ``.env`` file."""
-    project_root: Path = request.app.state.project_root
-    return project_root / ".env"
-
-
-def _parse_env_file(content: str) -> dict[str, str]:
-    """Parse ``.env`` content into a dict.
-
-    Handles ``KEY=VALUE``, ``KEY="VALUE"``, ``KEY='VALUE'``.
-    Skips blank lines and ``#`` comments.
-    """
-    env_vars: dict[str, str] = {}
-    for line in content.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if "=" not in stripped:
-            continue
-        key, _, value = stripped.partition("=")
-        key = key.strip()
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-            value = value[1:-1]
-        if key:
-            env_vars[key] = value
-    return env_vars
-
-
-def _serialize_env_file(env_vars: dict[str, str]) -> str:
-    """Serialize a dict back to ``.env`` format."""
-    lines: list[str] = []
-    for key, value in env_vars.items():
-        needs_quoting = any(c in value for c in (" ", '"', "'", "#", "$", "\n", "\t"))
-        if needs_quoting:
-            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-            lines.append(f'{key}="{escaped}"')
-        else:
-            lines.append(f"{key}={value}")
-    return "\n".join(lines) + "\n" if lines else ""
-
-
-def _read_env_file(project_root: Path) -> dict[str, str]:
+def read_env_file(project_root: Path) -> dict[str, str]:
     """Read and parse the project ``.env`` file."""
     env_file = project_root / ".env"
     if not env_file.exists():
         return {}
-    return _parse_env_file(env_file.read_text(encoding="utf-8"))
+    return parse_env_file(env_file.read_text(encoding="utf-8"))
 
 
 def _write_env_file(project_root: Path, env_vars: dict[str, str]) -> None:
     """Write env vars to the project ``.env`` file with mode 0o600."""
     env_file = project_root / ".env"
-    content = _serialize_env_file(env_vars)
+    content = serialize_env_file(env_vars)
     # Create with restrictive permissions to avoid TOCTOU window
     fd = os.open(str(env_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
@@ -115,7 +74,7 @@ async def list_secrets(
     project_root: Path = request.app.state.project_root
 
     # Env vars
-    env_vars = _read_env_file(project_root)
+    env_vars = read_env_file(project_root)
     env_items: list[dict[str, str]] = [
         {"key": k, "masked_value": "***", "source": "env"} for k in env_vars
     ]
@@ -167,7 +126,7 @@ async def set_secret(
         return JSONResponse(status_code=400, content={"message": "Value must be a string."})
 
     project_root: Path = request.app.state.project_root
-    env_vars = _read_env_file(project_root)
+    env_vars = read_env_file(project_root)
     action = "updated" if key in env_vars else "created"
     env_vars[key] = value
     _write_env_file(project_root, env_vars)
@@ -199,7 +158,7 @@ async def delete_secret(
 ) -> JSONResponse:
     """Delete an environment variable."""
     project_root: Path = request.app.state.project_root
-    env_vars = _read_env_file(project_root)
+    env_vars = read_env_file(project_root)
 
     if key not in env_vars:
         return JSONResponse(status_code=404, content={"message": f"Key '{key}' not found."})

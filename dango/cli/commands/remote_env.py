@@ -18,6 +18,10 @@ from typing import Any
 import click
 
 from dango.cli import console
+from dango.logging import get_logger
+from dango.utils.env_file import parse_env_file, serialize_env_file
+
+logger = get_logger(__name__)
 
 # Remote .env path on the server (set by TASK-026 server setup)
 _REMOTE_ENV_PATH = "/srv/dango/project/.env"
@@ -43,64 +47,23 @@ def env(ctx: click.Context) -> None:
 
 
 # ---------------------------------------------------------------------------
-# .env parsing helpers
+# Remote .env helpers
 # ---------------------------------------------------------------------------
-
-
-def _parse_env_file(content: str) -> dict[str, str]:
-    """Parse .env file content into a dict, preserving order.
-
-    Handles ``KEY=VALUE``, ``KEY="VALUE"``, ``KEY='VALUE'``.
-    Skips blank lines and ``#`` comments.
-    """
-    env_vars: dict[str, str] = {}
-    for line in content.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if "=" not in stripped:
-            continue
-        key, _, value = stripped.partition("=")
-        key = key.strip()
-        value = value.strip()
-        # Strip surrounding quotes
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-            value = value[1:-1]
-        if key:
-            env_vars[key] = value
-    return env_vars
-
-
-def _serialize_env_file(env_vars: dict[str, str]) -> str:
-    """Serialize a dict back to .env format.
-
-    Values containing spaces, quotes, or special characters are
-    double-quoted.  Simple values are written bare.
-    """
-    lines: list[str] = []
-    for key, value in env_vars.items():
-        # Quote values that contain spaces, quotes, #, or shell-special chars
-        needs_quoting = any(c in value for c in (" ", '"', "'", "#", "$", "\n", "\t"))
-        if needs_quoting:
-            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-            lines.append(f'{key}="{escaped}"')
-        else:
-            lines.append(f"{key}={value}")
-    return "\n".join(lines) + "\n" if lines else ""
 
 
 def _read_remote_env(ssh: Any) -> dict[str, str]:
     """Read and parse the remote .env file. Returns empty dict if missing."""
     try:
         content = ssh.read_remote_file(_REMOTE_ENV_PATH)
-        return _parse_env_file(content)
+        return parse_env_file(content)
     except Exception:
+        logger.debug("remote_env_read_failed", path=_REMOTE_ENV_PATH, exc_info=True)
         return {}
 
 
 def _write_remote_env(ssh: Any, env_vars: dict[str, str]) -> None:
     """Write env vars to the remote .env file with mode 0o600."""
-    content = _serialize_env_file(env_vars)
+    content = serialize_env_file(env_vars)
     ssh.write_remote_file(_REMOTE_ENV_PATH, content, mode=0o600)
 
 

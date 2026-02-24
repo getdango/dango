@@ -65,9 +65,9 @@ def _get_client_credentials(project_root: Path, provider: str) -> tuple[str, str
     Returns:
         Tuple of ``(client_id, client_secret)`` or ``None`` if not configured.
     """
-    from dango.web.routes.secrets import _read_env_file
+    from dango.web.routes.secrets import read_env_file
 
-    env_vars = _read_env_file(project_root)
+    env_vars = read_env_file(project_root)
 
     if provider == "google":
         client_id = env_vars.get("GOOGLE_CLIENT_ID", "")
