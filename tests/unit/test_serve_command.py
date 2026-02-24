@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -20,6 +21,7 @@ from dango.cli.commands.serve import serve
 _UTILS = "dango.cli.utils"
 _CONFIG = "dango.config"
 _STARTUP = "dango.platform.common.startup"
+_SERVE = "dango.cli.commands.serve"
 
 
 def _make_config_mock(port: int = 8800) -> MagicMock:
@@ -41,6 +43,7 @@ def _make_config_mock(port: int = 8800) -> MagicMock:
 @pytest.mark.unit
 class TestServeHappyPath:
     @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
     @patch(f"{_STARTUP}.import_dashboards")
     @patch(f"{_STARTUP}.setup_metabase_if_needed")
     @patch(f"{_STARTUP}.start_docker_services")
@@ -59,6 +62,7 @@ class TestServeHappyPath:
         mock_docker,
         mock_metabase,
         mock_dashboards,
+        mock_check_port,
         mock_uvicorn_run,
         tmp_path,
     ):
@@ -76,11 +80,13 @@ class TestServeHappyPath:
         mock_docker.assert_called_once_with(tmp_path)
         mock_metabase.assert_called_once_with(tmp_path, "test-project", None)
         mock_dashboards.assert_called_once_with(tmp_path)
+        mock_check_port.assert_called_once_with(8800)
         mock_uvicorn_run.assert_called_once_with(
             "dango.web.app:app", host="0.0.0.0", port=8800, log_level="info"
         )
 
     @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
     @patch(f"{_STARTUP}.import_dashboards")
     @patch(f"{_STARTUP}.setup_metabase_if_needed")
     @patch(f"{_STARTUP}.start_docker_services")
@@ -99,6 +105,7 @@ class TestServeHappyPath:
         mock_docker,
         mock_metabase,
         mock_dashboards,
+        mock_check_port,
         mock_uvicorn_run,
         tmp_path,
     ):
@@ -110,11 +117,13 @@ class TestServeHappyPath:
         result = runner.invoke(serve, ["--port", "9000"], obj={})
 
         assert result.exit_code == 0, result.output
+        mock_check_port.assert_called_once_with(9000)
         mock_uvicorn_run.assert_called_once_with(
             "dango.web.app:app", host="0.0.0.0", port=9000, log_level="info"
         )
 
     @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
     @patch(f"{_STARTUP}.import_dashboards")
     @patch(f"{_STARTUP}.setup_metabase_if_needed")
     @patch(f"{_STARTUP}.start_docker_services")
@@ -133,6 +142,7 @@ class TestServeHappyPath:
         mock_docker,
         mock_metabase,
         mock_dashboards,
+        mock_check_port,
         mock_uvicorn_run,
         tmp_path,
     ):
@@ -156,6 +166,27 @@ class TestServeHappyPath:
 
 @pytest.mark.unit
 class TestServeFailures:
+    @patch(f"{_UTILS}.require_project_context", side_effect=click.Abort())
+    def test_project_context_abort_exits(self, mock_ctx):
+        """require_project_context abort causes SystemExit(1) (L4)."""
+        runner = CliRunner()
+        result = runner.invoke(serve, [], obj={})
+
+        assert result.exit_code == 1
+
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_config_load_failure_exits(self, mock_ctx, mock_loader_cls, tmp_path):
+        """Config load failure causes clean exit (M6)."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.side_effect = RuntimeError("bad config")
+
+        runner = CliRunner()
+        result = runner.invoke(serve, [], obj={})
+
+        assert result.exit_code == 1
+        assert "Failed to load project config" in result.output
+
     @patch(f"{_STARTUP}.run_pending_migrations", side_effect=RuntimeError("migration err"))
     @patch(f"{_CONFIG}.ConfigLoader")
     @patch(f"{_UTILS}.require_project_context")
@@ -169,6 +200,41 @@ class TestServeFailures:
 
         assert result.exit_code == 1
         assert "Migration failed" in result.output
+
+    @patch(f"{_STARTUP}.ensure_dbt_schemas", side_effect=RuntimeError("schema err"))
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_schema_failure_exits(
+        self, mock_ctx, mock_loader_cls, mock_migrate, mock_schemas, tmp_path
+    ):
+        """Schema setup failure causes SystemExit(1) (L4)."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock()
+
+        runner = CliRunner()
+        result = runner.invoke(serve, [], obj={})
+
+        assert result.exit_code == 1
+        assert "Schema setup failed" in result.output
+
+    @patch(f"{_STARTUP}.ensure_duckdb_driver", side_effect=RuntimeError("driver err"))
+    @patch(f"{_STARTUP}.ensure_dbt_schemas")
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_duckdb_driver_failure_exits(
+        self, mock_ctx, mock_loader_cls, mock_migrate, mock_schemas, mock_driver, tmp_path
+    ):
+        """DuckDB driver failure causes SystemExit(1) (L4)."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock()
+
+        runner = CliRunner()
+        result = runner.invoke(serve, [], obj={})
+
+        assert result.exit_code == 1
+        assert "DuckDB driver download failed" in result.output
 
     @patch(f"{_STARTUP}.start_docker_services", side_effect=RuntimeError("docker err"))
     @patch(f"{_STARTUP}.ensure_duckdb_driver")
@@ -190,7 +256,7 @@ class TestServeFailures:
         mock_ctx.return_value = tmp_path
         mock_loader_cls.return_value = _make_config_mock()
 
-        with patch("dango.cli.commands.serve._stop_docker_quiet") as mock_stop:
+        with patch(f"{_SERVE}._stop_docker_quiet") as mock_stop:
             runner = CliRunner()
             result = runner.invoke(serve, [], obj={})
 
@@ -220,7 +286,7 @@ class TestServeFailures:
         mock_ctx.return_value = tmp_path
         mock_loader_cls.return_value = _make_config_mock()
 
-        with patch("dango.cli.commands.serve._stop_docker_quiet") as mock_stop:
+        with patch(f"{_SERVE}._stop_docker_quiet") as mock_stop:
             runner = CliRunner()
             result = runner.invoke(serve, [], obj={})
 
@@ -229,6 +295,7 @@ class TestServeFailures:
             mock_stop.assert_called_once()
 
     @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
     @patch(f"{_STARTUP}.import_dashboards", side_effect=RuntimeError("dashboard err"))
     @patch(f"{_STARTUP}.setup_metabase_if_needed")
     @patch(f"{_STARTUP}.start_docker_services")
@@ -247,6 +314,7 @@ class TestServeFailures:
         mock_docker,
         mock_metabase,
         mock_dashboards,
+        mock_check_port,
         mock_uvicorn_run,
         tmp_path,
     ):
@@ -259,3 +327,69 @@ class TestServeFailures:
 
         assert result.exit_code == 0, result.output
         mock_uvicorn_run.assert_called_once()
+
+    @patch(f"{_SERVE}._check_port", side_effect=SystemExit(1))
+    @patch(f"{_STARTUP}.import_dashboards")
+    @patch(f"{_STARTUP}.setup_metabase_if_needed")
+    @patch(f"{_STARTUP}.start_docker_services")
+    @patch(f"{_STARTUP}.ensure_duckdb_driver")
+    @patch(f"{_STARTUP}.ensure_dbt_schemas")
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_port_in_use_exits(
+        self,
+        mock_ctx,
+        mock_loader_cls,
+        mock_migrate,
+        mock_schemas,
+        mock_driver,
+        mock_docker,
+        mock_metabase,
+        mock_dashboards,
+        mock_check_port,
+        tmp_path,
+    ):
+        """Port in use causes clean exit (H4)."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock()
+
+        runner = CliRunner()
+        result = runner.invoke(serve, [], obj={})
+
+        assert result.exit_code == 1
+
+    @patch("uvicorn.run", side_effect=RuntimeError("bind failed"))
+    @patch(f"{_SERVE}._check_port")
+    @patch(f"{_STARTUP}.import_dashboards")
+    @patch(f"{_STARTUP}.setup_metabase_if_needed")
+    @patch(f"{_STARTUP}.start_docker_services")
+    @patch(f"{_STARTUP}.ensure_duckdb_driver")
+    @patch(f"{_STARTUP}.ensure_dbt_schemas")
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_uvicorn_failure_stops_docker(
+        self,
+        mock_ctx,
+        mock_loader_cls,
+        mock_migrate,
+        mock_schemas,
+        mock_driver,
+        mock_docker,
+        mock_metabase,
+        mock_dashboards,
+        mock_check_port,
+        mock_uvicorn_run,
+        tmp_path,
+    ):
+        """uvicorn failure triggers Docker cleanup (H3)."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock()
+
+        with patch(f"{_SERVE}._stop_docker_quiet") as mock_stop:
+            runner = CliRunner()
+            result = runner.invoke(serve, [], obj={})
+
+            assert result.exit_code != 0
+            mock_stop.assert_called_once()

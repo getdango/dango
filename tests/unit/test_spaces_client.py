@@ -2,8 +2,8 @@
 
 Unit tests for SpacesClient (dango/platform/cloud/spaces.py).
 
-boto3 is injected via sys.modules patching so these tests run without
-installing the [cloud] extra.  botocore.exceptions.ClientError is used
+boto3 is injected via sys.modules patching for test isolation (boto3 is a
+core dependency but lazy-imported at runtime).  botocore.exceptions.ClientError is used
 for the real exception class (botocore is a boto3 dependency, but it is also
 used directly to construct ClientError in tests).
 """

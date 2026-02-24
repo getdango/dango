@@ -2,31 +2,10 @@
 
 SSH-based server setup orchestration for Dango cloud deployments.
 
-Runs idempotent setup steps on a freshly provisioned Ubuntu 22.04 droplet
-via an already-connected ``SSHManager``.  Each step checks whether the
-target state already exists before acting, making the entire sequence safe
-to re-run.
-
-Steps
------
-1. Install system packages (apt)
-2. Create ``dango`` user
-3. Install Docker (get.docker.com)
-4. Add ``dango`` to ``docker`` group
-5. Install Caddy (official apt repo)
-6. Create directory structure under ``/srv/dango/``
-7. Create Python venv and install ``getdango``
-8. Disable SSH password authentication
-9. Copy SSH authorized_keys to ``dango`` user
-10. Configure Docker daemon logging
-11. Configure journald limits
-12. Configure logrotate for activity log
-13. Create ``dango-web`` systemd unit (enabled, NOT started)
-14. Write minimal HTTP Caddyfile
-15. Configure fail2ban for SSH
-16. Enable unattended-upgrades
-
-Config file templates are in ``_server_templates.py``.
+Runs 16 idempotent setup steps on a freshly provisioned Ubuntu 22.04
+droplet via an already-connected ``SSHManager``.  Each step checks whether
+the target state already exists before acting, making the entire sequence
+safe to re-run.  Config file templates are in ``_server_templates.py``.
 
 All steps raise ``CloudProvisioningError`` on failure.  The ``on_progress``
 callback, if provided, is called with ``(step_name, status)`` where status
@@ -101,15 +80,24 @@ def _write_remote_config(
     *,
     step: str,
     mode: int = 0o644,
-) -> None:
+) -> bool:
     """Write a config file to *path* on the remote host.
 
-    Creates parent directories automatically.
+    Creates parent directories automatically.  If the file already exists
+    with identical content, the write is skipped.
+
+    Returns:
+        ``True`` if the file was written, ``False`` if skipped (unchanged).
     """
+    # Check if the file already has the expected content.
+    check = ssh.exec_command(f"cat {path} 2>/dev/null")
+    if check.success and check.stdout == content:
+        return False
     parent = "/".join(path.split("/")[:-1])
     if parent:
         _run_checked(ssh, f"mkdir -p {parent}", step=step)
     ssh.write_remote_file(path, content, mode=mode)
+    return True
 
 
 def _notify(
@@ -120,6 +108,21 @@ def _notify(
     """Call the progress callback if provided."""
     if callback is not None:
         callback(step, status)
+
+
+def _mark(
+    result: SetupResult,
+    on_progress: Callable[[str, str], None] | None,
+    step: str,
+    changed: bool,
+) -> None:
+    """Record step as completed or skipped based on *changed*."""
+    if changed:
+        result.steps_completed.append(step)
+        _notify(on_progress, step, "done")
+    else:
+        result.steps_skipped.append(step)
+        _notify(on_progress, step, "skipped")
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +222,7 @@ def _setup_caddy(
         ssh,
         "apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https"
         " && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key'"
-        " | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg"
+        " | gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg"
         " && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt'"
         " | tee /etc/apt/sources.list.d/caddy-stable.list"
         " && apt-get update -qq"
@@ -241,7 +244,7 @@ def _setup_directories(
     _notify(on_progress, step, "running")
     _run_checked(
         ssh,
-        "mkdir -p /srv/dango/project/.dango"
+        "mkdir -p /srv/dango/project/.dango/logs"
         " /srv/dango/project/data"
         " /srv/dango/project/.dlt"
         " /srv/dango/project/dbt"
@@ -261,6 +264,11 @@ def _setup_venv(
     """Step 7: Create Python venv and install getdango."""
     step = "python_venv"
     _notify(on_progress, step, "running")
+    check = ssh.exec_command("test -x /srv/dango/venv/bin/dango")
+    if check.success:
+        result.steps_skipped.append(step)
+        _notify(on_progress, step, "skipped")
+        return
     _run_checked(
         ssh,
         "python3 -m venv /srv/dango/venv"
@@ -287,6 +295,9 @@ def _setup_ssh_hardening(
         " /etc/ssh/sshd_config"
         " && sed -i 's/^#\\?ChallengeResponseAuthentication.*"
         "/ChallengeResponseAuthentication no/'"
+        " /etc/ssh/sshd_config"
+        " && sed -i 's/^#\\?KbdInteractiveAuthentication.*"
+        "/KbdInteractiveAuthentication no/'"
         " /etc/ssh/sshd_config"
         " && systemctl reload sshd",
         step=step,
@@ -324,10 +335,10 @@ def _setup_docker_daemon(
     """Step 10: Configure Docker daemon log rotation."""
     step = "docker_daemon"
     _notify(on_progress, step, "running")
-    _write_remote_config(ssh, "/etc/docker/daemon.json", DOCKER_DAEMON_JSON, step=step)
-    _run_checked(ssh, "systemctl restart docker", step=step, timeout=60)
-    result.steps_completed.append(step)
-    _notify(on_progress, step, "done")
+    changed = _write_remote_config(ssh, "/etc/docker/daemon.json", DOCKER_DAEMON_JSON, step=step)
+    if changed:
+        _run_checked(ssh, "systemctl restart docker", step=step, timeout=60)
+    _mark(result, on_progress, step, changed)
 
 
 def _setup_journald(
@@ -338,10 +349,12 @@ def _setup_journald(
     """Step 11: Configure journald storage limits."""
     step = "journald"
     _notify(on_progress, step, "running")
-    _write_remote_config(ssh, "/etc/systemd/journald.conf.d/dango.conf", JOURNALD_CONF, step=step)
-    _run_checked(ssh, "systemctl restart systemd-journald", step=step)
-    result.steps_completed.append(step)
-    _notify(on_progress, step, "done")
+    changed = _write_remote_config(
+        ssh, "/etc/systemd/journald.conf.d/dango.conf", JOURNALD_CONF, step=step
+    )
+    if changed:
+        _run_checked(ssh, "systemctl restart systemd-journald", step=step)
+    _mark(result, on_progress, step, changed)
 
 
 def _setup_logrotate(
@@ -352,9 +365,8 @@ def _setup_logrotate(
     """Step 12: Configure logrotate for activity log."""
     step = "logrotate"
     _notify(on_progress, step, "running")
-    _write_remote_config(ssh, "/etc/logrotate.d/dango", LOGROTATE_CONF, step=step)
-    result.steps_completed.append(step)
-    _notify(on_progress, step, "done")
+    changed = _write_remote_config(ssh, "/etc/logrotate.d/dango", LOGROTATE_CONF, step=step)
+    _mark(result, on_progress, step, changed)
 
 
 def _setup_systemd_unit(
@@ -365,10 +377,12 @@ def _setup_systemd_unit(
     """Step 13: Create and enable dango-web systemd service (NOT started)."""
     step = "systemd_unit"
     _notify(on_progress, step, "running")
-    _write_remote_config(ssh, "/etc/systemd/system/dango-web.service", SYSTEMD_UNIT, step=step)
+    changed = _write_remote_config(
+        ssh, "/etc/systemd/system/dango-web.service", SYSTEMD_UNIT, step=step
+    )
+    # Always daemon-reload + enable (idempotent)
     _run_checked(ssh, "systemctl daemon-reload && systemctl enable dango-web", step=step)
-    result.steps_completed.append(step)
-    _notify(on_progress, step, "done")
+    _mark(result, on_progress, step, changed)
 
 
 def _setup_caddyfile(
@@ -379,10 +393,10 @@ def _setup_caddyfile(
     """Step 14: Write minimal HTTP Caddyfile."""
     step = "caddyfile"
     _notify(on_progress, step, "running")
-    _write_remote_config(ssh, "/etc/caddy/Caddyfile", CADDYFILE, step=step)
-    _run_checked(ssh, "systemctl reload caddy", step=step)
-    result.steps_completed.append(step)
-    _notify(on_progress, step, "done")
+    changed = _write_remote_config(ssh, "/etc/caddy/Caddyfile", CADDYFILE, step=step)
+    if changed:
+        _run_checked(ssh, "systemctl reload-or-restart caddy", step=step)
+    _mark(result, on_progress, step, changed)
 
 
 def _setup_fail2ban(
@@ -393,10 +407,10 @@ def _setup_fail2ban(
     """Step 15: Configure fail2ban SSH jail."""
     step = "fail2ban"
     _notify(on_progress, step, "running")
-    _write_remote_config(ssh, "/etc/fail2ban/jail.local", FAIL2BAN_JAIL, step=step)
-    _run_checked(ssh, "systemctl restart fail2ban", step=step)
-    result.steps_completed.append(step)
-    _notify(on_progress, step, "done")
+    changed = _write_remote_config(ssh, "/etc/fail2ban/jail.local", FAIL2BAN_JAIL, step=step)
+    if changed:
+        _run_checked(ssh, "systemctl restart fail2ban", step=step)
+    _mark(result, on_progress, step, changed)
 
 
 def _setup_unattended_upgrades(
@@ -407,48 +421,45 @@ def _setup_unattended_upgrades(
     """Step 16: Enable unattended security upgrades."""
     step = "unattended_upgrades"
     _notify(on_progress, step, "running")
-    _write_remote_config(
-        ssh, "/etc/apt/apt.conf.d/50unattended-upgrades", UNATTENDED_UPGRADES_CONF, step=step
+    changed = _write_remote_config(
+        ssh, "/etc/apt/apt.conf.d/51unattended-upgrades-dango", UNATTENDED_UPGRADES_CONF, step=step
     )
+    # Always enable+start (idempotent)
     _run_checked(
         ssh,
         "systemctl enable unattended-upgrades && systemctl start unattended-upgrades",
         step=step,
     )
-    result.steps_completed.append(step)
-    _notify(on_progress, step, "done")
+    _mark(result, on_progress, step, changed)
 
 
 # ---------------------------------------------------------------------------
 # Public orchestrator
 # ---------------------------------------------------------------------------
 
-# Ordered list of (step_function, step_name) for the setup sequence.
+# Ordered list of step functions for the setup sequence.
 _SETUP_STEPS: list[
-    tuple[
-        Callable[
-            [SSHManager, SetupResult, Callable[[str, str], None] | None],
-            None,
-        ],
-        str,
+    Callable[
+        [SSHManager, SetupResult, Callable[[str, str], None] | None],
+        None,
     ]
 ] = [
-    (_setup_apt_packages, "apt_packages"),
-    (_setup_dango_user, "create_user"),
-    (_setup_docker, "install_docker"),
-    (_setup_docker_group, "docker_group"),
-    (_setup_caddy, "install_caddy"),
-    (_setup_directories, "directories"),
-    (_setup_venv, "python_venv"),
-    (_setup_ssh_hardening, "ssh_hardening"),
-    (_setup_ssh_key_copy, "ssh_key_copy"),
-    (_setup_docker_daemon, "docker_daemon"),
-    (_setup_journald, "journald"),
-    (_setup_logrotate, "logrotate"),
-    (_setup_systemd_unit, "systemd_unit"),
-    (_setup_caddyfile, "caddyfile"),
-    (_setup_fail2ban, "fail2ban"),
-    (_setup_unattended_upgrades, "unattended_upgrades"),
+    _setup_apt_packages,
+    _setup_dango_user,
+    _setup_docker,
+    _setup_docker_group,
+    _setup_caddy,
+    _setup_directories,
+    _setup_venv,
+    _setup_ssh_hardening,
+    _setup_ssh_key_copy,
+    _setup_docker_daemon,
+    _setup_journald,
+    _setup_logrotate,
+    _setup_systemd_unit,
+    _setup_caddyfile,
+    _setup_fail2ban,
+    _setup_unattended_upgrades,
 ]
 
 
@@ -478,7 +489,7 @@ def setup_server(
     """
     result = SetupResult()
 
-    for step_fn, _step_name in _SETUP_STEPS:
+    for step_fn in _SETUP_STEPS:
         step_fn(ssh, result, on_progress)
 
     return result

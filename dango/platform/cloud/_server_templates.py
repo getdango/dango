@@ -65,6 +65,7 @@ FAIL2BAN_JAIL = """\
 enabled = true
 port = ssh
 filter = sshd
+backend = systemd
 maxretry = 5
 bantime = 3600
 """

@@ -19,6 +19,26 @@ from dango.exceptions import CloudProvisioningError
 # Helpers
 # ---------------------------------------------------------------------------
 
+# All 16 step names, in the order they must execute.
+_ALL_STEP_NAMES = [
+    "apt_packages",
+    "create_user",
+    "install_docker",
+    "docker_group",
+    "install_caddy",
+    "directories",
+    "python_venv",
+    "ssh_hardening",
+    "ssh_key_copy",
+    "docker_daemon",
+    "journald",
+    "logrotate",
+    "systemd_unit",
+    "caddyfile",
+    "fail2ban",
+    "unattended_upgrades",
+]
+
 
 def _make_ssh_mock(
     *,
@@ -27,7 +47,7 @@ def _make_ssh_mock(
     """Return a mock SSHManager with configurable exec_command results.
 
     Args:
-        exec_results: Map of command substring → (stdout, stderr, exit_code).
+        exec_results: Map of command substring -> (stdout, stderr, exit_code).
             If a command matches multiple substrings, the first match wins.
             Commands not matched default to success ("", "", 0).
     """
@@ -72,30 +92,41 @@ class TestSetupResult:
 @pytest.mark.unit
 class TestSetupServer:
     def test_all_steps_complete(self):
-        """setup_server() runs all steps when nothing is pre-installed."""
+        """setup_server() runs all 16 steps when nothing is pre-installed."""
         from dango.platform.cloud.server_setup import setup_server
 
-        # Docker and Caddy not installed, user doesn't exist
+        # Docker/Caddy not installed, user doesn't exist, venv doesn't exist
         ssh = _make_ssh_mock(
             exec_results={
                 "id -u dango": ("", "no such user", 1),
                 "docker --version": ("", "", 1),
                 "caddy version": ("", "", 1),
+                "test -x /srv/dango/venv/bin/dango": ("", "", 1),
+                # cat for config files returns not-found (triggers write)
+                "cat /etc/docker/daemon.json": ("", "No such file", 1),
+                "cat /etc/systemd/journald.conf.d/dango.conf": ("", "", 1),
+                "cat /etc/logrotate.d/dango": ("", "", 1),
+                "cat /etc/systemd/system/dango-web.service": ("", "", 1),
+                "cat /etc/caddy/Caddyfile": ("", "", 1),
+                "cat /etc/fail2ban/jail.local": ("", "", 1),
+                "cat /etc/apt/apt.conf.d/51unattended-upgrades-dango": ("", "", 1),
             }
         )
 
         result = setup_server(ssh)
 
-        assert "apt_packages" in result.steps_completed
-        assert "create_user" in result.steps_completed
-        assert "install_docker" in result.steps_completed
-        assert "install_caddy" in result.steps_completed
-        assert "systemd_unit" in result.steps_completed
-        assert "caddyfile" in result.steps_completed
+        # L1: Verify ALL 16 steps are accounted for
+        total = len(result.steps_completed) + len(result.steps_skipped)
+        assert total == 16, (
+            f"Expected 16 steps, got {total}: "
+            f"completed={result.steps_completed}, skipped={result.steps_skipped}"
+        )
         assert len(result.steps_skipped) == 0
+        for name in _ALL_STEP_NAMES:
+            assert name in result.steps_completed, f"Step '{name}' missing from completed"
 
     def test_idempotent_skips(self):
-        """Docker, Caddy, and user are skipped when already present."""
+        """Docker, Caddy, user, and venv are skipped when already present."""
         from dango.platform.cloud.server_setup import setup_server
 
         ssh = _make_ssh_mock(
@@ -103,6 +134,15 @@ class TestSetupServer:
                 "id -u dango": ("1001", "", 0),
                 "docker --version": ("Docker version 24.0", "", 0),
                 "caddy version": ("v2.7.5", "", 0),
+                "test -x /srv/dango/venv/bin/dango": ("", "", 0),
+                # Config files return "not found" so they still get written
+                "cat /etc/docker/daemon.json": ("", "", 1),
+                "cat /etc/systemd/journald.conf.d/dango.conf": ("", "", 1),
+                "cat /etc/logrotate.d/dango": ("", "", 1),
+                "cat /etc/systemd/system/dango-web.service": ("", "", 1),
+                "cat /etc/caddy/Caddyfile": ("", "", 1),
+                "cat /etc/fail2ban/jail.local": ("", "", 1),
+                "cat /etc/apt/apt.conf.d/51unattended-upgrades-dango": ("", "", 1),
             }
         )
 
@@ -111,9 +151,40 @@ class TestSetupServer:
         assert "create_user" in result.steps_skipped
         assert "install_docker" in result.steps_skipped
         assert "install_caddy" in result.steps_skipped
+        assert "python_venv" in result.steps_skipped
         # Steps that always run should still be completed
         assert "apt_packages" in result.steps_completed
         assert "directories" in result.steps_completed
+        # L1: total must still be 16
+        total = len(result.steps_completed) + len(result.steps_skipped)
+        assert total == 16
+
+    def test_step_ordering(self):
+        """Steps execute in the correct order (L3)."""
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh = _make_ssh_mock(
+            exec_results={
+                "id -u dango": ("", "", 1),
+                "docker --version": ("", "", 1),
+                "caddy version": ("", "", 1),
+                "test -x /srv/dango/venv/bin/dango": ("", "", 1),
+                "cat /etc/docker/daemon.json": ("", "", 1),
+                "cat /etc/systemd/journald.conf.d/dango.conf": ("", "", 1),
+                "cat /etc/logrotate.d/dango": ("", "", 1),
+                "cat /etc/systemd/system/dango-web.service": ("", "", 1),
+                "cat /etc/caddy/Caddyfile": ("", "", 1),
+                "cat /etc/fail2ban/jail.local": ("", "", 1),
+                "cat /etc/apt/apt.conf.d/51unattended-upgrades-dango": ("", "", 1),
+            }
+        )
+        progress_calls: list[tuple[str, str]] = []
+
+        setup_server(ssh, on_progress=lambda s, st: progress_calls.append((s, st)))
+
+        # Extract step names in order (take "running" events to get execution order)
+        order = [s for s, st in progress_calls if st == "running"]
+        assert order == _ALL_STEP_NAMES
 
     def test_progress_callback(self):
         """on_progress is called with (step, status) for each step."""
@@ -124,6 +195,13 @@ class TestSetupServer:
                 "id -u dango": ("1001", "", 0),
                 "docker --version": ("Docker version 24.0", "", 0),
                 "caddy version": ("v2.7.5", "", 0),
+                "cat /etc/docker/daemon.json": ("", "", 1),
+                "cat /etc/systemd/journald.conf.d/dango.conf": ("", "", 1),
+                "cat /etc/logrotate.d/dango": ("", "", 1),
+                "cat /etc/systemd/system/dango-web.service": ("", "", 1),
+                "cat /etc/caddy/Caddyfile": ("", "", 1),
+                "cat /etc/fail2ban/jail.local": ("", "", 1),
+                "cat /etc/apt/apt.conf.d/51unattended-upgrades-dango": ("", "", 1),
             }
         )
         progress_calls: list[tuple[str, str]] = []
@@ -219,8 +297,18 @@ class TestSetupSteps:
 
         assert "install_caddy" in result.steps_skipped
 
+    def test_venv_skipped_when_installed(self):
+        """Venv step skipped when /srv/dango/venv/bin/dango exists."""
+        from dango.platform.cloud.server_setup import SetupResult, _setup_venv
+
+        ssh = _make_ssh_mock(exec_results={"test -x /srv/dango/venv/bin/dango": ("", "", 0)})
+        result = SetupResult()
+        _setup_venv(ssh, result, None)
+
+        assert "python_venv" in result.steps_skipped
+
     def test_directories_creates_structure(self):
-        """Directory step creates /srv/dango structure."""
+        """Directory step creates /srv/dango structure including logs dir."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_directories
 
         ssh = _make_ssh_mock()
@@ -228,25 +316,27 @@ class TestSetupSteps:
         _setup_directories(ssh, result, None)
 
         cmd = ssh.exec_command.call_args_list[0][0][0]
-        assert "/srv/dango/project/.dango" in cmd
+        assert "/srv/dango/project/.dango/logs" in cmd
         assert "/srv/dango/project/data" in cmd
         assert "chown -R dango:dango" in cmd
         assert "directories" in result.steps_completed
 
     def test_venv_installs_getdango(self):
-        """Venv step creates venv and installs getdango."""
+        """Venv step creates venv and installs getdango when not present."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_venv
 
-        ssh = _make_ssh_mock()
+        ssh = _make_ssh_mock(exec_results={"test -x /srv/dango/venv/bin/dango": ("", "", 1)})
         result = SetupResult()
         _setup_venv(ssh, result, None)
 
-        cmd = ssh.exec_command.call_args_list[0][0][0]
-        assert "python3 -m venv" in cmd
-        assert "pip install getdango" in cmd
+        # Find the command that has python3 -m venv (skip the test -x check)
+        cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
+        venv_cmds = [c for c in cmds if "python3 -m venv" in c]
+        assert len(venv_cmds) == 1
+        assert "pip install getdango" in venv_cmds[0]
 
     def test_ssh_hardening_disables_password(self):
-        """SSH hardening step disables password auth."""
+        """SSH hardening step disables password auth and KbdInteractive."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_ssh_hardening
 
         ssh = _make_ssh_mock()
@@ -255,27 +345,34 @@ class TestSetupSteps:
 
         cmd = ssh.exec_command.call_args_list[0][0][0]
         assert "PasswordAuthentication no" in cmd
+        assert "KbdInteractiveAuthentication no" in cmd
         assert "systemctl reload sshd" in cmd
 
-    def test_systemd_unit_content(self):
-        """Systemd unit file contains correct paths and settings."""
+    def test_systemd_unit_writes_correct_content(self):
+        """Systemd unit writes template content to remote file (L2)."""
         from dango.platform.cloud._server_templates import SYSTEMD_UNIT
         from dango.platform.cloud.server_setup import SetupResult, _setup_systemd_unit
 
-        ssh = _make_ssh_mock()
+        ssh = _make_ssh_mock(
+            exec_results={
+                "cat /etc/systemd/system/dango-web.service": ("", "", 1),
+            }
+        )
         result = SetupResult()
         _setup_systemd_unit(ssh, result, None)
 
-        assert "WorkingDirectory=/srv/dango/project" in SYSTEMD_UNIT
-        assert "DLT_DATA_DIR=/srv/dango/project/.dlt" in SYSTEMD_UNIT
-        assert "/srv/dango/venv/bin/dango serve" in SYSTEMD_UNIT
-        assert "User=dango" in SYSTEMD_UNIT
+        # L2: Verify write_remote_file was called with the actual template
+        ssh.write_remote_file.assert_called_once()
+        written_path, written_content = ssh.write_remote_file.call_args[0]
+        assert written_path == "/etc/systemd/system/dango-web.service"
+        assert written_content == SYSTEMD_UNIT
+        assert "WorkingDirectory=/srv/dango/project" in written_content
+        assert "/srv/dango/venv/bin/dango serve" in written_content
 
         # Verify daemon-reload + enable (not start)
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
         enable_cmd = [c for c in cmds if "systemctl" in c and "enable" in c]
         assert len(enable_cmd) > 0
-        # Should NOT start the service
         start_cmds = [c for c in cmds if "systemctl start dango-web" in c]
         assert len(start_cmds) == 0
 
@@ -294,11 +391,29 @@ class TestSetupSteps:
         assert "10m" in DOCKER_DAEMON_JSON
 
     def test_fail2ban_config(self):
-        """Fail2ban config has sshd jail."""
+        """Fail2ban config has sshd jail with systemd backend."""
         from dango.platform.cloud._server_templates import FAIL2BAN_JAIL
 
         assert "sshd" in FAIL2BAN_JAIL
         assert "maxretry = 5" in FAIL2BAN_JAIL
+        assert "backend = systemd" in FAIL2BAN_JAIL
+
+    def test_config_steps_skip_when_unchanged(self):
+        """Config-writing steps skip when file content matches (M3)."""
+        from dango.platform.cloud._server_templates import DOCKER_DAEMON_JSON
+        from dango.platform.cloud.server_setup import SetupResult, _setup_docker_daemon
+
+        # Return the exact config content from cat -> skips write
+        ssh = _make_ssh_mock(
+            exec_results={
+                "cat /etc/docker/daemon.json": (DOCKER_DAEMON_JSON, "", 0),
+            }
+        )
+        result = SetupResult()
+        _setup_docker_daemon(ssh, result, None)
+
+        assert "docker_daemon" in result.steps_skipped
+        ssh.write_remote_file.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -324,21 +439,28 @@ class TestHelpers:
         with pytest.raises(CloudProvisioningError, match="test_step"):
             _run_checked(ssh, "bad command", step="test_step")
 
-    def test_write_remote_config(self):
+    def test_write_remote_config_creates_and_writes(self):
         """_write_remote_config creates parent dir and writes file."""
         from dango.platform.cloud.server_setup import _write_remote_config
 
-        ssh = _make_ssh_mock()
-        _write_remote_config(
-            ssh,
-            "/etc/caddy/Caddyfile",
-            "content",
-            step="test",
-            mode=0o644,
+        ssh = _make_ssh_mock(exec_results={"cat /etc/caddy/Caddyfile": ("", "", 1)})
+        changed = _write_remote_config(
+            ssh, "/etc/caddy/Caddyfile", "content", step="test", mode=0o644
         )
 
-        # Should have called mkdir -p for parent
+        assert changed is True
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
         assert any("/etc/caddy" in cmd for cmd in cmds)
-        # Should have called write_remote_file
         ssh.write_remote_file.assert_called_once_with("/etc/caddy/Caddyfile", "content", mode=0o644)
+
+    def test_write_remote_config_skips_when_unchanged(self):
+        """_write_remote_config returns False when content matches."""
+        from dango.platform.cloud.server_setup import _write_remote_config
+
+        ssh = _make_ssh_mock(exec_results={"cat /etc/caddy/Caddyfile": ("content", "", 0)})
+        changed = _write_remote_config(
+            ssh, "/etc/caddy/Caddyfile", "content", step="test", mode=0o644
+        )
+
+        assert changed is False
+        ssh.write_remote_file.assert_not_called()

@@ -3,8 +3,8 @@
 Unit tests for SSHManager SFTP operations, wait_for_ssh, known hosts
 policy, and error wrapping (dango/platform/cloud/ssh.py).
 
-paramiko is injected via sys.modules patching — these tests run without
-installing the [cloud] extra.
+paramiko is injected via sys.modules patching for test isolation (paramiko
+is a core dependency but lazy-imported at runtime).
 """
 
 from __future__ import annotations

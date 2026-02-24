@@ -12,6 +12,7 @@ Reuses all startup helpers from ``dango.platform.common.startup``.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import click
 
@@ -52,9 +53,14 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
     except (click.Abort, SystemExit):
         raise SystemExit(1) from None
 
-    # Load config
-    config_loader = ConfigLoader(project_root)
-    config = config_loader.load_config()
+    # Load config (M6: catch config errors cleanly)
+    try:
+        config_loader = ConfigLoader(project_root)
+        config = config_loader.load_config()
+    except Exception as exc:
+        print(f"Failed to load project config: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
     project_name = config.project.name
     organization = getattr(config.project, "organization", None)
     effective_port = port if port is not None else config.platform.port
@@ -102,18 +108,38 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
     except Exception:
         pass
 
-    # 7. Start uvicorn in foreground
+    # H4: Check port availability before starting uvicorn
+    _check_port(effective_port)
+
+    # H3: Wrap uvicorn in try/finally for Docker cleanup
     import uvicorn
 
     print(f"Starting Dango on {host}:{effective_port}")
-    uvicorn.run("dango.web.app:app", host=host, port=effective_port, log_level="info")
+    try:
+        uvicorn.run("dango.web.app:app", host=host, port=effective_port, log_level="info")
+    finally:
+        _stop_docker_quiet(project_root)
 
 
-def _stop_docker_quiet(project_root: object) -> None:
+def _check_port(port: int) -> None:
+    """Exit with a clean error if *port* is already in use."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("0.0.0.0", port))
+        except OSError:
+            print(f"Port {port} is already in use", file=sys.stderr)
+            raise SystemExit(1) from None
+
+
+# M5: typed as Path, not object
+def _stop_docker_quiet(project_root: Path) -> None:
     """Best-effort Docker service cleanup."""
     try:
         from dango.platform import DockerManager
 
-        DockerManager(project_root).stop_services()  # type: ignore[arg-type]
+        DockerManager(project_root).stop_services()
     except Exception:
         pass
