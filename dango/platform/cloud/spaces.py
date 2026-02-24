@@ -218,6 +218,22 @@ class SpacesClient:
             _reraise_if_not_client_error(exc)
             raise self._wrap_client_error(exc, "delete", key) from exc
 
+    def delete_bucket(self) -> None:
+        """Delete the Spaces bucket.
+
+        The bucket must be empty first — call ``delete()`` on every object
+        before calling this method.
+
+        Raises:
+            CloudError: If the bucket cannot be deleted (not empty, permissions, etc.).
+        """
+        client = self._get_client()
+        try:
+            client.delete_bucket(Bucket=self.bucket)
+        except Exception as exc:
+            _reraise_if_not_client_error(exc)
+            raise self._wrap_client_error(exc, "delete_bucket", self.bucket) from exc
+
     def exists(self, key: str) -> bool:
         """Check whether an object key exists in the bucket.
 

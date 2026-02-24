@@ -13,6 +13,7 @@ from dango.cli.commands.auth import auth
 from dango.cli.commands.config_cmd import config
 from dango.cli.commands.dashboard import dashboard
 from dango.cli.commands.data import db, validate
+from dango.cli.commands.deploy import deploy
 from dango.cli.commands.metabase_cmd import metabase
 from dango.cli.commands.migrate import migrate
 from dango.cli.commands.model import model
@@ -83,6 +84,7 @@ cli.add_command(dashboard)
 cli.add_command(metabase)
 cli.add_command(migrate)
 cli.add_command(remote)
+cli.add_command(deploy)
 
 
 def main() -> None:

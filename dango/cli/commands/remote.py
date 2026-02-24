@@ -5,6 +5,10 @@ Remote server management commands for Dango cloud deployments.
 Command hierarchy::
 
     dango remote (group)
+    ├── status     — Show server status and resource usage
+    ├── logs       — View service logs (with optional streaming)
+    ├── ssh        — Open interactive SSH session
+    ├── query      — Run read-only SQL against remote DuckDB
     ├── firewall (subgroup)
     │   ├── list       — Show current firewall rules
     │   ├── allow-ip   — Restrict ports 80/443 to a specific IP
@@ -13,9 +17,11 @@ Command hierarchy::
         ├── set        — Configure HTTPS with Let's Encrypt
         └── remove     — Revert to IP-only HTTP
 
-All commands require an active cloud deployment (``droplet_id``
-set in ``.dango/cloud.yml``).  Firewall commands additionally
-require ``firewall_id``.
+All commands require an active cloud deployment (``droplet_id`` set in
+``.dango/cloud.yml``).  Firewall commands additionally require ``firewall_id``.
+
+Management commands (status, logs, ssh, query) are defined in
+``remote_mgmt.py`` and registered on the ``remote`` group via import.
 """
 
 from __future__ import annotations
@@ -38,11 +44,15 @@ def remote(ctx: click.Context) -> None:
     """Manage the remote Dango cloud server.
 
     Commands:
-      dango remote firewall list        Show current firewall rules
-      dango remote firewall allow-ip    Restrict web to a specific IP
-      dango remote firewall allow-all   Revert web access to public
-      dango remote domain set DOMAIN    Configure HTTPS with Let's Encrypt
-      dango remote domain remove        Revert to IP-only HTTP
+      dango remote status                Show server status
+      dango remote logs                  View service logs
+      dango remote ssh                   Open interactive SSH session
+      dango remote query "SQL"           Run read-only SQL query
+      dango remote firewall list         Show current firewall rules
+      dango remote firewall allow-ip     Restrict web to a specific IP
+      dango remote firewall allow-all    Revert web access to public
+      dango remote domain set DOMAIN     Configure HTTPS with Let's Encrypt
+      dango remote domain remove         Revert to IP-only HTTP
     """
     ctx.ensure_object(dict)
 
@@ -66,7 +76,7 @@ def firewall(ctx: click.Context) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Internal helpers (firewall-specific)
 # ---------------------------------------------------------------------------
 
 
@@ -376,3 +386,10 @@ def domain_remove(ctx: click.Context) -> None:
         console.print("Caddyfile reverted to HTTP-only (port 80).")
     else:
         console.print("Caddyfile was already HTTP-only.")
+
+
+# ---------------------------------------------------------------------------
+# Register management commands from remote_mgmt.py
+# ---------------------------------------------------------------------------
+
+import dango.cli.commands.remote_mgmt as _remote_mgmt  # noqa: E402, F401
