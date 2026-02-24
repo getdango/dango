@@ -515,6 +515,9 @@ class CloudConfig(BaseModel):
     droplet_ip: str | None = Field(
         default=None, description="Droplet public IP address (set after provisioning)"
     )
+    firewall_id: str | None = Field(
+        default=None, description="DigitalOcean firewall ID (set after provisioning)"
+    )
     region: str = Field(default="nyc1", description="DigitalOcean region")
     size: str = Field(default="s-2vcpu-4gb", description="Droplet size slug")
     domain: str | None = Field(default=None, description="Custom domain name")

@@ -19,6 +19,7 @@ from dango.cli.commands.model import model
 from dango.cli.commands.oauth import oauth
 from dango.cli.commands.platform import start, status, stop
 from dango.cli.commands.project import info, init, rename
+from dango.cli.commands.remote import remote
 from dango.cli.commands.source import source, sync
 from dango.cli.commands.transform import docs, generate, run
 from dango.cli.commands.web import web
@@ -79,6 +80,7 @@ cli.add_command(model)
 cli.add_command(dashboard)
 cli.add_command(metabase)
 cli.add_command(migrate)
+cli.add_command(remote)
 
 
 def main() -> None:

@@ -110,7 +110,6 @@ class DigitalOceanClient:
         if response.status_code == 401:
             raise CloudAuthError(
                 "DigitalOcean API authentication failed. Check your token.",
-                context={"status_code": response.status_code},
             )
         raise CloudAPIError(
             f"DigitalOcean API error: HTTP {response.status_code}",
@@ -402,6 +401,56 @@ class DigitalOceanClient:
         """
         payload = {"droplet_ids": droplet_ids}
         self._request_with_retry("POST", f"/firewalls/{firewall_id}/droplets", json=payload)
+
+    def get_firewall(self, firewall_id: str) -> dict[str, Any]:
+        """Retrieve a single Firewall by ID.
+
+        Args:
+            firewall_id: UUID of the Firewall to retrieve.
+
+        Returns:
+            The ``firewall`` object from the DO API response.
+        """
+        response = self._request_with_retry("GET", f"/firewalls/{firewall_id}")
+        data: dict[str, Any] = response.json()
+        return cast(dict[str, Any], data["firewall"])
+
+    def update_firewall(
+        self,
+        firewall_id: str,
+        name: str,
+        inbound_rules: list[dict[str, Any]],
+        outbound_rules: list[dict[str, Any]],
+        droplet_ids: list[int] | None = None,
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Replace a Firewall's configuration (full replacement, not partial update).
+
+        Args:
+            firewall_id: UUID of the Firewall to update.
+            name: Firewall name.
+            inbound_rules: New inbound rule list (replaces existing).
+            outbound_rules: New outbound rule list (replaces existing).
+            droplet_ids: Droplet IDs to associate. Pass empty list to remove all;
+                pass ``None`` to leave associations unchanged (omits field).
+            tags: Tag names to associate (optional).
+
+        Returns:
+            The updated ``firewall`` object from the DO API response.
+        """
+        payload: dict[str, Any] = {
+            "name": name,
+            "inbound_rules": inbound_rules,
+            "outbound_rules": outbound_rules,
+        }
+        if droplet_ids is not None:
+            payload["droplet_ids"] = droplet_ids
+        if tags is not None:
+            payload["tags"] = tags
+
+        response = self._request_with_retry("PUT", f"/firewalls/{firewall_id}", json=payload)
+        data: dict[str, Any] = response.json()
+        return cast(dict[str, Any], data["firewall"])
 
     def delete_firewall(self, firewall_id: str) -> None:
         """Delete a Firewall by ID.

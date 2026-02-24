@@ -158,9 +158,21 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_digitalocean_client.py
-    lines: 562
+    lines: 620
     category: exempt
-    reason: "TASK-022: 33 tests covering DigitalOceanClient init, retry/backoff logic (9 cases), Droplet/SSH Key/Firewall CRUD, and error handling. Retry tests require per-test mock setup for call sequencing — each is self-contained for readability."
+    reason: "TASK-022+023+025: 36 tests covering DigitalOceanClient init, retry/backoff logic (9 cases), Droplet/SSH Key/Firewall CRUD (incl. get_firewall, update_firewall), and error handling. Retry tests require per-test mock setup for call sequencing — each is self-contained for readability."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_provisioning.py
+    lines: 539
+    category: exempt
+    reason: "TASK-023: 8 test classes covering size tiers, region info, nearest-region suggestion, wait_for_droplet_ready, wait_for_ssh, extract_public_ipv4, provision_droplet (6 scenarios incl. cleanup), and save_provisioning_metadata. Each scenario requires isolated mock setup."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_firewall.py
+    lines: 554
+    category: exempt
+    reason: "TASK-025: 9 test classes covering validate_ip_or_cidr, create_default_firewall, restrict_web_to_ips, allow_all_web, add_allowed_ip (incl. other-rules preservation), format_firewall_rules, delete_firewall, get_firewall_rules, and save_firewall_metadata. Each requires isolated mock setup; deepcopy fixture helpers add necessary boilerplate."
     review_by: "v1.1"
 
   - file: dango/config/models.py

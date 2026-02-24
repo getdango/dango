@@ -27,8 +27,10 @@ platform/
 │   └── watcher_runner.py    # Background watcher process entry point
 │
 ├── cloud/               # Cloud-only components (TASK-022+)
-│   ├── __init__.py      # Exports CommandResult, DigitalOceanClient, SpacesClient, SSHManager
+│   ├── __init__.py      # Exports CommandResult, DigitalOceanClient, SpacesClient, SSHManager, provisioning, firewall symbols
 │   ├── digitalocean.py  # DO REST API v2 client (Droplets, SSH Keys, Firewalls)
+│   ├── provisioning.py  # Size tiers, regions, provision_droplet() orchestration (TASK-023)
+│   ├── firewall.py      # Firewall lifecycle, IP allowlisting (TASK-025)
 │   ├── spaces.py        # DO Spaces client (S3-compatible via boto3)
 │   └── ssh.py           # SSH key management, TOFU known-hosts, exec/SFTP (TASK-024)
 │
@@ -50,6 +52,8 @@ platform/
 | `local/watcher_lifecycle.py` | Watcher subprocess lifecycle | `start_file_watcher`, `stop_file_watcher`, `get_watcher_status`, `get_watcher_pid_file_path` |
 | `local/watcher_runner.py` | Background watcher process | `main` |
 | `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |
+| `cloud/provisioning.py` | Droplet size tiers, regions, provisioning orchestration | `DropletSizeTier`, `RegionInfo`, `SIZE_TIERS`, `DEFAULT_TIER`, `provision_droplet`, `wait_for_droplet_ready`, `wait_for_ssh`, `suggest_nearest_region`, `save_provisioning_metadata` |
+| `cloud/firewall.py` | Firewall lifecycle and IP allowlisting | `create_default_firewall`, `add_allowed_ip`, `restrict_web_to_ips`, `allow_all_web`, `validate_ip_or_cidr`, `save_firewall_metadata` |
 | `cloud/spaces.py` | DigitalOcean Spaces (S3-compatible) client | `SpacesClient` |
 | `cloud/ssh.py` | SSH key management, TOFU known-hosts, command exec, SFTP | `SSHManager`, `CommandResult` |
 
@@ -74,6 +78,12 @@ from dango.platform.cloud import DigitalOceanClient, SpacesClient
 # SSH management (TASK-024)
 from dango.platform.cloud import SSHManager, CommandResult
 from dango.platform.cloud.ssh import SSHManager, CommandResult  # also valid
+
+# Provisioning (TASK-023)
+from dango.platform.cloud import provision_droplet, suggest_nearest_region, SIZE_TIERS
+
+# Firewall management (TASK-025)
+from dango.platform.cloud import create_default_firewall, add_allowed_ip, restrict_web_to_ips
 ```
 
 ### Also valid (backwards-compatible shims):
@@ -103,7 +113,8 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 | Add a startup step for both local + cloud | `common/startup.py` | `pytest tests/unit/test_platform_startup.py` |
 | Add a local-only startup step | `local/` and `cli/commands/platform.py` | `dango start` manually |
 | Add cloud infrastructure | `cloud/` | `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py` |
-| Provision a Droplet | `cloud/digitalocean.py` → `DigitalOceanClient` | `pytest tests/unit/test_digitalocean_client.py` |
+| Provision a Droplet | `cloud/provisioning.py` → `provision_droplet()` | `pytest tests/unit/test_provisioning.py` |
+| Manage firewall rules | `cloud/firewall.py` → `add_allowed_ip()` / `restrict_web_to_ips()` | `pytest tests/unit/test_firewall.py` |
 | Backup to Spaces | `cloud/spaces.py` → `SpacesClient` | `pytest tests/unit/test_spaces_client.py` |
 | Manage SSH keys / remote exec | `cloud/ssh.py` → `SSHManager` | `pytest tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py` |
 | Modify watcher logic | `local/watcher.py` | `pytest tests/unit/test_watcher_lifecycle.py` |

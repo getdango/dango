@@ -19,15 +19,27 @@ class TestCloudConfig:
         assert config.ssh_key_path == ".dango/cloud_key"
         assert config.droplet_id is None
         assert config.droplet_ip is None
+        assert config.firewall_id is None
         assert config.domain is None
         assert config.spaces is None
         assert config.dbt_overrides is None
+
+    def test_firewall_id_default_none(self):
+        """firewall_id defaults to None."""
+        config = CloudConfig()
+        assert config.firewall_id is None
+
+    def test_firewall_id_set(self):
+        """firewall_id can be set as a string UUID."""
+        config = CloudConfig(firewall_id="a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+        assert config.firewall_id == "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
     def test_all_fields(self):
         """CloudConfig accepts all optional fields."""
         config = CloudConfig(
             droplet_id=12345,
             droplet_ip="1.2.3.4",
+            firewall_id="fw-uuid-001",
             region="sfo3",
             size="s-4vcpu-8gb",
             domain="example.com",
@@ -37,6 +49,7 @@ class TestCloudConfig:
         )
         assert config.droplet_id == 12345
         assert config.droplet_ip == "1.2.3.4"
+        assert config.firewall_id == "fw-uuid-001"
         assert config.region == "sfo3"
         assert config.size == "s-4vcpu-8gb"
         assert config.domain == "example.com"
@@ -50,6 +63,7 @@ class TestCloudConfig:
         data = config.model_dump(mode="json", exclude_none=True)
         assert "droplet_id" not in data
         assert "droplet_ip" not in data
+        assert "firewall_id" not in data
         assert "domain" not in data
         assert "spaces" not in data
         assert "dbt_overrides" not in data
