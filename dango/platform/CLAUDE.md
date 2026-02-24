@@ -73,7 +73,7 @@ from dango.platform.cloud import DigitalOceanClient, SpacesClient
 
 # SSH management (TASK-024)
 from dango.platform.cloud import SSHManager, CommandResult
-from dango.platform.cloud.ssh import SSHManager  # also valid
+from dango.platform.cloud.ssh import SSHManager, CommandResult  # also valid
 ```
 
 ### Also valid (backwards-compatible shims):

@@ -100,7 +100,7 @@ class _TOFUHostKeyPolicy:
                         f"Host key verification failed for {hostname!r}: the key has "
                         f"changed since the last connection.  If this is expected "
                         f"(e.g. the server was reprovisioned), remove the old entry "
-                        f"from {self._path} or pass reconnect=True."
+                        f"from {self._path} and reconnect."
                     )
                 # Key matches — nothing to do.
                 return
@@ -109,30 +109,6 @@ class _TOFUHostKeyPolicy:
 
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._host_keys.save(str(self._path))
-
-    def check(self, hostname: str, key: Any) -> bool:
-        """Return True if key matches the stored key for hostname.
-
-        If the host is unknown, return False (TOFU will handle it via
-        ``missing_host_key``).  If the host is known but the key has changed,
-        raise ``CloudSSHError``.
-        """
-        pm = _ensure_paramiko()  # noqa: F841
-        key_type: str = key.get_name()
-        if hostname not in self._host_keys:
-            return False
-        stored = self._host_keys.get(hostname, {})
-        if key_type not in stored:
-            return False
-        stored_key = stored[key_type]
-        if stored_key != key:
-            raise CloudSSHError(
-                f"Host key verification failed for {hostname!r}: the key has "
-                f"changed since the last connection.  If this is expected "
-                f"(e.g. the server was reprovisioned), remove the old entry "
-                f"from {self._path} or pass reconnect=True."
-            )
-        return True
 
 
 # ---------------------------------------------------------------------------
@@ -207,9 +183,10 @@ class SSHManager:
     def generate_key_pair(self) -> str:
         """Generate an Ed25519 key pair and write it to disk.
 
-        Private key is written to ``key_path`` (PEM, no passphrase, chmod
-        600).  Public key is written to ``key_path + ".pub"`` in OpenSSH
-        format.  Parent directories are created automatically.
+        Private key is written to ``key_path`` (PEM, no passphrase, mode
+        0o600 set atomically to avoid a permissions race).  Public key is
+        written to ``key_path + ".pub"`` in OpenSSH format.  Parent
+        directories are created automatically.
 
         Returns:
             The public key string (OpenSSH format, one line).
@@ -230,7 +207,7 @@ class SSHManager:
         except ImportError as exc:
             raise CloudSSHError(
                 "cryptography package is required for key generation. "
-                "Install with: pip install getdango[cloud]"
+                "It is a core dependency — reinstall with: pip install getdango"
             ) from exc
 
         try:
@@ -246,8 +223,15 @@ class SSHManager:
             )
 
             self.key_path.parent.mkdir(parents=True, exist_ok=True)
-            self.key_path.write_bytes(private_pem)
-            os.chmod(self.key_path, 0o600)
+
+            # Write with atomically correct permissions — avoids the TOCTOU
+            # race between write_bytes() (0o644) and a subsequent chmod(0o600).
+            fd = os.open(str(self.key_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                os.fchmod(fd, 0o600)  # override umask
+                os.write(fd, private_pem)
+            finally:
+                os.close(fd)
 
             pub_path = Path(str(self.key_path) + ".pub")
             pub_path.write_bytes(public_openssh)
@@ -278,6 +262,66 @@ class SSHManager:
         return self.key_path.exists() and pub_path.exists()
 
     # ------------------------------------------------------------------
+    # Internal connection helpers
+    # ------------------------------------------------------------------
+
+    def _require_connected(self) -> None:
+        """Raise CloudSSHError if there is no active SSH connection."""
+        if self._client is None:
+            raise CloudSSHError("No active SSH connection.  Call connect() first.")
+
+    def _load_key(self, pm: Any) -> Any:
+        """Load the Ed25519 private key from disk.
+
+        Args:
+            pm: The paramiko module (from ``_ensure_paramiko``).
+
+        Returns:
+            A paramiko ``Ed25519Key`` ready for use in ``_connect_raw``.
+
+        Raises:
+            CloudSSHError: If the key file is missing or cannot be parsed.
+        """
+        try:
+            return pm.Ed25519Key.from_private_key_file(str(self.key_path))
+        except FileNotFoundError as exc:
+            raise CloudSSHError(
+                f"SSH private key not found at {self.key_path}.  Run generate_key_pair() first."
+            ) from exc
+        except pm.SSHException as exc:
+            raise CloudSSHError(f"Failed to load SSH private key: {exc}") from exc
+
+    def _connect_raw(self, pm: Any, host: str, username: str, port: int, key: Any) -> Any:
+        """Open a TCP/SSH connection and return the paramiko SSHClient.
+
+        Raises raw paramiko / OS exceptions — callers are responsible for
+        wrapping them into ``CloudSSHError``.  A changed host key raises
+        ``CloudSSHError`` directly from ``_TOFUHostKeyPolicy``.
+
+        Args:
+            pm: The paramiko module.
+            host: Hostname or IP address.
+            username: SSH username.
+            port: SSH port.
+            key: Pre-loaded paramiko ``Ed25519Key``.
+
+        Returns:
+            A connected paramiko ``SSHClient``.
+        """
+        client = pm.SSHClient()
+        client.set_missing_host_key_policy(_TOFUHostKeyPolicy(self.known_hosts_path))
+        client.connect(
+            hostname=host,
+            port=port,
+            username=username,
+            pkey=key,
+            timeout=self.connect_timeout,
+            look_for_keys=False,
+            allow_agent=False,
+        )
+        return client
+
+    # ------------------------------------------------------------------
     # Connection management
     # ------------------------------------------------------------------
 
@@ -301,28 +345,9 @@ class SSHManager:
             CloudError: If paramiko is not installed.
         """
         pm = _ensure_paramiko()
+        key = self._load_key(pm)  # raises CloudSSHError on missing / bad key
         try:
-            key = pm.Ed25519Key.from_private_key_file(str(self.key_path))
-        except FileNotFoundError as exc:
-            raise CloudSSHError(
-                f"SSH private key not found at {self.key_path}.  Run generate_key_pair() first."
-            ) from exc
-        except pm.SSHException as exc:
-            raise CloudSSHError(f"Failed to load SSH private key: {exc}") from exc
-
-        client = pm.SSHClient()
-        client.set_missing_host_key_policy(_TOFUHostKeyPolicy(self.known_hosts_path))
-
-        try:
-            client.connect(
-                hostname=host,
-                port=port,
-                username=username,
-                pkey=key,
-                timeout=self.connect_timeout,
-                look_for_keys=False,
-                allow_agent=False,
-            )
+            client = self._connect_raw(pm, host, username, port, key)
         except pm.AuthenticationException as exc:
             raise CloudSSHError("SSH authentication failed: key rejected by host") from exc
         except TimeoutError as exc:
@@ -331,6 +356,7 @@ class SSHManager:
             raise CloudSSHError(f"SSH connection failed: {exc}") from exc
         except pm.SSHException as exc:
             raise CloudSSHError(f"SSH error: {exc}") from exc
+        # CloudSSHError from _TOFUHostKeyPolicy (changed host key) propagates unchanged.
 
         self._client = client
         return self
@@ -377,6 +403,11 @@ class SSHManager:
         Uses an exponential back-off strategy: initial interval of *interval*
         seconds, multiplied by 1.5 on each retry, capped at 15 seconds.
 
+        Permanent failures (missing key, bad key format, authentication
+        rejection, changed host key) raise immediately without retrying.
+        Only transient network errors (connection refused, timeout, SSH
+        handshake not yet ready) are retried.
+
         Args:
             host: Hostname or IP address to connect to.
             username: SSH username.  Default: ``"root"``.
@@ -385,10 +416,14 @@ class SSHManager:
             interval: Initial sleep interval in seconds.  Default: 5.
 
         Raises:
-            CloudSSHError: If SSH is not available before *timeout* expires.
+            CloudSSHError: If SSH is not available before *timeout* expires,
+                or immediately on a permanent configuration error.
             CloudError: If paramiko is not installed.
         """
         pm = _ensure_paramiko()
+        # Load the key once and fail immediately on permanent config errors.
+        key = self._load_key(pm)
+
         deadline = time.monotonic() + timeout
         sleep_interval = interval
         last_exc: Exception = CloudSSHError(
@@ -397,11 +432,16 @@ class SSHManager:
 
         while time.monotonic() < deadline:
             try:
-                self.connect(host=host, username=username, port=port)
+                client = self._connect_raw(pm, host, username, port, key)
+                self._client = client
                 return
-            except (TimeoutError, pm.SSHException, OSError) as exc:
-                last_exc = exc
-            except CloudSSHError as exc:
+            except pm.AuthenticationException as exc:
+                # Permanent — do not retry.
+                raise CloudSSHError("SSH authentication failed: key rejected by host") from exc
+            except CloudSSHError:
+                # From _TOFUHostKeyPolicy (changed host key) — permanent.
+                raise
+            except (TimeoutError, OSError, pm.SSHException) as exc:
                 last_exc = exc
 
             time.sleep(min(sleep_interval, 15.0))
@@ -434,9 +474,10 @@ class SSHManager:
             ``CommandResult`` with stdout, stderr, and exit_code.
 
         Raises:
-            CloudSSHError: If the command fails and *check* is ``True``, or
-                if an SSH error occurs during execution.
+            CloudSSHError: If not connected, if the command fails and *check*
+                is ``True``, or if an SSH error occurs during execution.
         """
+        self._require_connected()
         pm = _ensure_paramiko()
         effective_timeout = timeout if timeout is not None else self.command_timeout
 
@@ -477,6 +518,7 @@ class SSHManager:
         local_path: Path | str,
         remote_path: str,
         callback: Callable[[int, int], None] | None = None,
+        timeout: int | None = None,
     ) -> None:
         """Upload a local file to the remote host via SFTP.
 
@@ -484,14 +526,19 @@ class SSHManager:
             local_path: Path to the local file to upload.
             remote_path: Destination path on the remote host.
             callback: Optional progress callback ``(bytes_transferred, total_bytes)``.
+            timeout: Optional per-operation channel timeout in seconds.  If
+                ``None``, no timeout is enforced on the transfer.
 
         Raises:
-            CloudSSHError: If the SFTP transfer fails.
+            CloudSSHError: If not connected or the SFTP transfer fails.
         """
+        self._require_connected()
         pm = _ensure_paramiko()
         try:
             sftp = self._client.open_sftp()
             try:
+                if timeout is not None:
+                    sftp.get_channel().settimeout(timeout)
                 sftp.put(str(local_path), remote_path, callback=callback)
             finally:
                 sftp.close()
@@ -505,6 +552,7 @@ class SSHManager:
         remote_path: str,
         local_path: Path | str,
         callback: Callable[[int, int], None] | None = None,
+        timeout: int | None = None,
     ) -> None:
         """Download a file from the remote host via SFTP.
 
@@ -512,14 +560,19 @@ class SSHManager:
             remote_path: Path to the file on the remote host.
             local_path: Destination path on the local filesystem.
             callback: Optional progress callback ``(bytes_transferred, total_bytes)``.
+            timeout: Optional per-operation channel timeout in seconds.  If
+                ``None``, no timeout is enforced on the transfer.
 
         Raises:
-            CloudSSHError: If the SFTP transfer fails.
+            CloudSSHError: If not connected or the SFTP transfer fails.
         """
+        self._require_connected()
         pm = _ensure_paramiko()
         try:
             sftp = self._client.open_sftp()
             try:
+                if timeout is not None:
+                    sftp.get_channel().settimeout(timeout)
                 sftp.get(remote_path, str(local_path), callback=callback)
             finally:
                 sftp.close()
@@ -533,6 +586,7 @@ class SSHManager:
         remote_path: str,
         content: str | bytes,
         mode: int = 0o644,
+        timeout: int | None = None,
     ) -> None:
         """Write *content* to *remote_path* on the remote host via SFTP.
 
@@ -540,15 +594,20 @@ class SSHManager:
             remote_path: Destination path on the remote host.
             content: String (encoded as UTF-8) or bytes to write.
             mode: File permission mode.  Default: ``0o644``.
+            timeout: Optional per-operation channel timeout in seconds.  If
+                ``None``, no timeout is enforced on the write.
 
         Raises:
-            CloudSSHError: If the write fails.
+            CloudSSHError: If not connected or the write fails.
         """
+        self._require_connected()
         pm = _ensure_paramiko()
         data: bytes = content.encode("utf-8") if isinstance(content, str) else content
         try:
             sftp = self._client.open_sftp()
             try:
+                if timeout is not None:
+                    sftp.get_channel().settimeout(timeout)
                 with sftp.open(remote_path, "wb") as remote_file:
                     remote_file.write(data)
                 sftp.chmod(remote_path, mode)
@@ -559,22 +618,27 @@ class SSHManager:
         except pm.SSHException as exc:
             raise CloudSSHError(f"SSH error writing remote file: {exc}") from exc
 
-    def read_remote_file(self, remote_path: str) -> str:
+    def read_remote_file(self, remote_path: str, timeout: int | None = None) -> str:
         """Read and return the contents of *remote_path* on the remote host.
 
         Args:
             remote_path: Path to the file on the remote host.
+            timeout: Optional per-operation channel timeout in seconds.  If
+                ``None``, no timeout is enforced on the read.
 
         Returns:
             File contents decoded as UTF-8.
 
         Raises:
-            CloudSSHError: If the file cannot be read.
+            CloudSSHError: If not connected or the file cannot be read.
         """
+        self._require_connected()
         pm = _ensure_paramiko()
         try:
             sftp = self._client.open_sftp()
             try:
+                if timeout is not None:
+                    sftp.get_channel().settimeout(timeout)
                 with sftp.open(remote_path, "r") as remote_file:
                     return str(remote_file.read().decode("utf-8"))
             finally:
@@ -597,6 +661,5 @@ class SSHManager:
         Raises:
             CloudSSHError: If there is no active connection.
         """
-        if self._client is None:
-            raise CloudSSHError("No active SSH connection.  Call connect() first.")
+        self._require_connected()
         return self._client.get_transport()

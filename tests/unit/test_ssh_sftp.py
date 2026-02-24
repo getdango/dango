@@ -138,6 +138,34 @@ class TestSFTPUpload:
         with pytest.raises(CloudSSHError, match="SFTP transfer failed"):
             manager.upload_file(local, "/remote/f.bin")
 
+    def test_upload_raises_when_not_connected(self, tmp_path: Path):
+        """upload_file() raises CloudSSHError when not connected."""
+        _reset_cache()
+        from dango.platform.cloud.ssh import SSHManager
+
+        manager = SSHManager()
+
+        with pytest.raises(CloudSSHError, match="No active SSH connection"):
+            manager.upload_file(tmp_path / "file.bin", "/remote/file.bin")
+
+    def test_upload_applies_timeout(self, tmp_path: Path):
+        """upload_file() sets the SFTP channel timeout when provided."""
+        _reset_cache()
+        pm = _make_paramiko_mock()
+        manager, ssh_client_mock = _make_connected_manager(pm, tmp_path)
+
+        sftp_mock = MagicMock()
+        channel_mock = MagicMock()
+        sftp_mock.get_channel.return_value = channel_mock
+        ssh_client_mock.open_sftp.return_value = sftp_mock
+
+        local = tmp_path / "file.bin"
+        local.write_bytes(b"data")
+
+        manager.upload_file(local, "/remote/file.bin", timeout=30)
+
+        channel_mock.settimeout.assert_called_once_with(30)
+
 
 # ---------------------------------------------------------------------------
 # 2. SFTP download
@@ -188,6 +216,16 @@ class TestSFTPDownload:
 
         with pytest.raises(CloudSSHError, match="SFTP transfer failed"):
             manager.download_file("/remote/missing.bin", tmp_path / "out.bin")
+
+    def test_download_raises_when_not_connected(self, tmp_path: Path):
+        """download_file() raises CloudSSHError when not connected."""
+        _reset_cache()
+        from dango.platform.cloud.ssh import SSHManager
+
+        manager = SSHManager()
+
+        with pytest.raises(CloudSSHError, match="No active SSH connection"):
+            manager.download_file("/remote/file.bin", tmp_path / "out.bin")
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +283,16 @@ class TestWriteRemoteFile:
 
         sftp_mock.chmod.assert_called_once_with("/etc/secret", 0o600)
 
+    def test_write_raises_when_not_connected(self):
+        """write_remote_file() raises CloudSSHError when not connected."""
+        _reset_cache()
+        from dango.platform.cloud.ssh import SSHManager
+
+        manager = SSHManager()
+
+        with pytest.raises(CloudSSHError, match="No active SSH connection"):
+            manager.write_remote_file("/remote/config.conf", "content")
+
 
 # ---------------------------------------------------------------------------
 # 4. read_remote_file
@@ -282,6 +330,16 @@ class TestReadRemoteFile:
 
         with pytest.raises(CloudSSHError, match="SFTP transfer failed"):
             manager.read_remote_file("/nonexistent/file")
+
+    def test_read_raises_when_not_connected(self):
+        """read_remote_file() raises CloudSSHError when not connected."""
+        _reset_cache()
+        from dango.platform.cloud.ssh import SSHManager
+
+        manager = SSHManager()
+
+        with pytest.raises(CloudSSHError, match="No active SSH connection"):
+            manager.read_remote_file("/remote/config.conf")
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +464,50 @@ class TestWaitForSSH:
         # All intervals capped at 15s.
         for s in sleep_calls:
             assert s <= 15.0
+
+    def test_auth_failure_raises_immediately(self, tmp_path: Path):
+        """wait_for_ssh() raises immediately on auth failure without retrying."""
+        _reset_cache()
+        pm = _make_paramiko_mock()
+
+        key_path = tmp_path / "id_ed25519"
+        key_path.write_text("private")
+
+        ssh_client_mock = MagicMock()
+        pm.SSHClient.return_value = ssh_client_mock
+        pm.Ed25519Key.from_private_key_file.return_value = MagicMock()
+        ssh_client_mock.connect.side_effect = pm.AuthenticationException("auth rejected")
+
+        from dango.platform.cloud.ssh import SSHManager
+
+        manager = SSHManager(key_path=key_path, known_hosts_path=tmp_path / "hosts")
+
+        with _inject_paramiko(pm):
+            with patch("time.sleep") as sleep_mock:
+                with pytest.raises(CloudSSHError, match="authentication failed"):
+                    manager.wait_for_ssh("10.0.0.1", timeout=120)
+
+        # Should fail fast — no sleep between retries.
+        sleep_mock.assert_not_called()
+
+    def test_key_not_found_raises_immediately(self, tmp_path: Path):
+        """wait_for_ssh() raises immediately when the private key is missing."""
+        _reset_cache()
+        pm = _make_paramiko_mock()
+
+        # Key file does NOT exist — _load_key() called before retry loop.
+        pm.Ed25519Key.from_private_key_file.side_effect = FileNotFoundError("no key")
+
+        from dango.platform.cloud.ssh import SSHManager
+
+        manager = SSHManager(key_path=tmp_path / "missing_key", known_hosts_path=tmp_path / "hosts")
+
+        with _inject_paramiko(pm):
+            with patch("time.sleep") as sleep_mock:
+                with pytest.raises(CloudSSHError, match="not found"):
+                    manager.wait_for_ssh("10.0.0.1", timeout=120)
+
+        sleep_mock.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

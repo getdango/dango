@@ -577,3 +577,13 @@ class TestExecCommand:
 
         with pytest.raises(CloudSSHError, match="SSH error"):
             manager.exec_command("uptime")
+
+    def test_exec_command_raises_when_not_connected(self):
+        """exec_command() raises CloudSSHError when not connected."""
+        self._reset_cache()
+        from dango.platform.cloud.ssh import SSHManager
+
+        manager = SSHManager()
+
+        with pytest.raises(CloudSSHError, match="No active SSH connection"):
+            manager.exec_command("uptime")
