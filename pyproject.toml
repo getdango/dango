@@ -214,6 +214,7 @@ module = [
     "tests.unit.test_provisioning",
     "tests.unit.test_firewall",
     "tests.unit.test_remote_cli",
+    "tests.unit.test_server_setup",
 ]
 ignore_errors = true
 
