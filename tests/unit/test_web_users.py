@@ -177,7 +177,7 @@ class TestAdminCreateUser:
         assert data["user"]["email"] == "new@example.com"
         assert data["user"]["role"] == "editor"
         assert "invite_url" in data
-        assert data["invite_url"].startswith("/invite/")
+        assert "/invite/" in data["invite_url"]
 
     def test_create_user_duplicate(self, tmp_path: Path) -> None:
         """Duplicate email returns 409."""

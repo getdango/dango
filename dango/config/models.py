@@ -447,6 +447,10 @@ class RateLimitConfig(BaseModel):
     enabled: bool = Field(default=True, description="Enable rate limiting")
     login: RateLimitGroupConfig = Field(default_factory=lambda: RateLimitGroupConfig(requests=10))
     api: RateLimitGroupConfig = Field(default_factory=lambda: RateLimitGroupConfig(requests=200))
+    trusted_proxies: list[str] = Field(
+        default_factory=list,
+        description="IPs of trusted reverse proxies for X-Forwarded-For extraction",
+    )
 
 
 class AccountLockoutConfig(BaseModel):

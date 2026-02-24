@@ -383,6 +383,65 @@ class TestSetupSteps:
         assert ":80" in CADDYFILE
         assert "reverse_proxy localhost:8800" in CADDYFILE
 
+    def test_setup_server_with_domain_writes_https_caddyfile(self):
+        """setup_server(domain=...) writes an HTTPS Caddyfile."""
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh = _make_ssh_mock(
+            exec_results={
+                "id -u dango": ("1001", "", 0),
+                "docker --version": ("Docker 24", "", 0),
+                "caddy version": ("v2.7", "", 0),
+                "test -x /srv/dango/venv/bin/dango": ("", "", 0),
+                "cat /etc/docker/daemon.json": ("", "", 1),
+                "cat /etc/systemd/journald.conf.d/dango.conf": ("", "", 1),
+                "cat /etc/logrotate.d/dango": ("", "", 1),
+                "cat /etc/systemd/system/dango-web.service": ("", "", 1),
+                "cat /etc/caddy/Caddyfile": ("", "", 1),
+                "cat /etc/fail2ban/jail.local": ("", "", 1),
+                "cat /etc/apt/apt.conf.d/51unattended-upgrades-dango": ("", "", 1),
+            }
+        )
+
+        setup_server(ssh, domain="app.example.com")
+
+        # Find the Caddyfile write
+        written_calls = ssh.write_remote_file.call_args_list
+        caddy_writes = [c for c in written_calls if c[0][0] == "/etc/caddy/Caddyfile"]
+        assert len(caddy_writes) == 1
+        content = caddy_writes[0][0][1]
+        assert "app.example.com" in content
+        assert "Strict-Transport-Security" in content
+
+    def test_setup_server_no_domain_writes_http_caddyfile(self):
+        """setup_server() without domain writes an HTTP-only Caddyfile."""
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh = _make_ssh_mock(
+            exec_results={
+                "id -u dango": ("1001", "", 0),
+                "docker --version": ("Docker 24", "", 0),
+                "caddy version": ("v2.7", "", 0),
+                "test -x /srv/dango/venv/bin/dango": ("", "", 0),
+                "cat /etc/docker/daemon.json": ("", "", 1),
+                "cat /etc/systemd/journald.conf.d/dango.conf": ("", "", 1),
+                "cat /etc/logrotate.d/dango": ("", "", 1),
+                "cat /etc/systemd/system/dango-web.service": ("", "", 1),
+                "cat /etc/caddy/Caddyfile": ("", "", 1),
+                "cat /etc/fail2ban/jail.local": ("", "", 1),
+                "cat /etc/apt/apt.conf.d/51unattended-upgrades-dango": ("", "", 1),
+            }
+        )
+
+        setup_server(ssh)
+
+        written_calls = ssh.write_remote_file.call_args_list
+        caddy_writes = [c for c in written_calls if c[0][0] == "/etc/caddy/Caddyfile"]
+        assert len(caddy_writes) == 1
+        content = caddy_writes[0][0][1]
+        assert ":80" in content
+        assert "Strict-Transport-Security" not in content
+
     def test_docker_daemon_config(self):
         """Docker daemon config has log rotation."""
         from dango.platform.cloud._server_templates import DOCKER_DAEMON_JSON

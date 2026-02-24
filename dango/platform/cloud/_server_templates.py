@@ -2,11 +2,50 @@
 
 Config file templates for server setup (server_setup.py).
 
-These are plain string constants written to the remote host during setup.
+String constants and builder functions for remote host configuration.
 Extracted from server_setup.py to keep that module under 500 lines.
 """
 
 from __future__ import annotations
+
+# ---------------------------------------------------------------------------
+# Security headers shared by HTTP and HTTPS Caddyfile configurations
+# ---------------------------------------------------------------------------
+
+_COMMON_HEADERS = """\
+\theader {
+\t\tX-Content-Type-Options nosniff
+\t\tX-Frame-Options SAMEORIGIN
+\t\tReferrer-Policy strict-origin-when-cross-origin
+\t\tPermissions-Policy "interest-cohort=()"
+\t}"""
+
+_HSTS_HEADER = '\t\tStrict-Transport-Security "max-age=63072000; includeSubDomains"'
+
+
+def build_caddyfile(domain: str | None = None) -> str:
+    """Build a Caddyfile for Caddy reverse proxy.
+
+    Args:
+        domain: FQDN for HTTPS (e.g. ``"app.example.com"``).
+            When ``None``, generates an HTTP-only config on port 80.
+
+    Returns:
+        Complete Caddyfile content as a string.
+    """
+    if domain:
+        # HTTPS mode — Caddy auto-obtains Let's Encrypt certs
+        headers = _COMMON_HEADERS.replace(
+            "\n\t}",
+            f"\n{_HSTS_HEADER}\n\t}}",
+        )
+        return f"{domain} {{\n\treverse_proxy localhost:8800\n{headers}\n}}\n"
+    # HTTP-only mode (IP access, no HSTS)
+    return f":80 {{\n\treverse_proxy localhost:8800\n{_COMMON_HEADERS}\n}}\n"
+
+
+# Backward-compatible alias — existing code imports ``CADDYFILE`` directly.
+CADDYFILE = build_caddyfile()
 
 SYSTEMD_UNIT = """\
 [Unit]
@@ -28,11 +67,6 @@ RestartSec=5
 WantedBy=multi-user.target
 """
 
-CADDYFILE = """\
-:80 {
-\treverse_proxy localhost:8800
-}
-"""
 
 DOCKER_DAEMON_JSON = """\
 {

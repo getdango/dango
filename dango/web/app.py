@@ -81,15 +81,16 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         AuthMiddleware, project_root=project_root, idle_timeout_minutes=idle_timeout
     )
 
-    # Rate limiting (middle)
+    # Rate limiting (middle) — auto-inject trusted_proxies for cloud
     rate_limit_config = _load_rate_limit_config(project_root)
     if rate_limit_config is not None:
         application.add_middleware(RateLimitMiddleware, config=rate_limit_config)
 
     # CORS (outermost — handles OPTIONS preflight first)
+    cors_origins = _get_cors_origins(project_root)
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # In production, restrict to specific origins
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -112,18 +113,46 @@ def _load_auth_config(project_root: Path | None) -> AuthConfig | None:
 
 
 def _load_rate_limit_config(project_root: Path | None) -> RateLimitConfig | None:
-    """Try to load rate limit config from project.yml. Returns None on failure."""
+    """Try to load rate limit config from project.yml. Returns None on failure.
+
+    On cloud deployments, auto-injects ``["127.0.0.1"]`` into
+    ``trusted_proxies`` when the user hasn't configured any — Caddy
+    connects to uvicorn via localhost.
+    """
     try:
         from dango.config.helpers import load_config
+        from dango.config.loader import ConfigLoader
 
         root = project_root or Path.cwd()
         config = load_config(root)
-        return config.auth.rate_limit
+        rl = config.auth.rate_limit
+
+        if not rl.trusted_proxies:
+            loader = ConfigLoader(root)
+            cloud_cfg = loader.load_cloud_config()
+            if cloud_cfg is not None and cloud_cfg.droplet_id is not None:
+                rl = rl.model_copy(update={"trusted_proxies": ["127.0.0.1"]})
+
+        return rl
     except Exception:
         logger.debug(
             "rate_limit_config_not_loaded", reason="no project config found, using defaults"
         )
         return None
+
+
+def _get_cors_origins(project_root: Path | None) -> list[str]:
+    """Determine CORS allowed origins based on deployment mode."""
+    try:
+        from dango.config.helpers import get_cloud_origin
+
+        root = project_root or Path.cwd()
+        origin = get_cloud_origin(root)
+        if origin is not None:
+            return [origin]
+    except Exception:
+        pass
+    return ["*"]
 
 
 app = create_app()
