@@ -1,6 +1,7 @@
 """dango/platform/cloud/_server_templates.py
 
-Config file templates for server setup (server_setup.py).
+Config file templates for server setup (server_setup.py) and scheduled
+backup (scheduled_backup.py).
 
 String constants and builder functions for remote host configuration.
 Extracted from server_setup.py to keep that module under 500 lines.
@@ -114,4 +115,39 @@ Unattended-Upgrade::Allowed-Origins {
 Unattended-Upgrade::AutoFixInterruptedDpkg "true";
 Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
 Unattended-Upgrade::Remove-Unused-Dependencies "true";
+"""
+
+# ---------------------------------------------------------------------------
+# Scheduled backup (TASK-103)
+# ---------------------------------------------------------------------------
+
+SYSTEMD_BACKUP_SERVICE = """\
+[Unit]
+Description=Dango Scheduled Backup
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/srv/dango/project
+EnvironmentFile=-/srv/dango/project/.env
+ExecStart=/srv/dango/venv/bin/python -m dango.platform.cloud.scheduled_backup
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+SYSTEMD_BACKUP_TIMER = """\
+[Unit]
+Description=Dango Daily Backup Timer
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
 """

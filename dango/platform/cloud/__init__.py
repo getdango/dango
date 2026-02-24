@@ -6,6 +6,15 @@ Populated by TASK-022+ (cloud provisioning, Caddy, remote sync).
 """
 
 from ._server_templates import build_caddyfile
+from .backup import (
+    BackupManifest,
+    BackupResult,
+    RestoreResult,
+    create_backup,
+    list_local_backups,
+    rollback,
+    rotate_local_backups,
+)
 from .digitalocean import DigitalOceanClient
 from .domain import check_dns, remove_domain, set_domain
 from .firewall import (
@@ -94,4 +103,12 @@ __all__ = [
     "check_dns",
     "set_domain",
     "remove_domain",
+    # Backup & rollback
+    "BackupManifest",
+    "BackupResult",
+    "RestoreResult",
+    "create_backup",
+    "list_local_backups",
+    "rollback",
+    "rotate_local_backups",
 ]

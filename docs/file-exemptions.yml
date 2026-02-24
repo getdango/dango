@@ -67,6 +67,12 @@ exemptions:
     reason: "Source management commands (add/list/remove) + sync. Extracted from cli/main.py by TASK-005. Sync command alone is ~200 lines of orchestration logic."
     review_by: "v1.1"
 
+  - file: dango/cli/commands/remote.py
+    lines: 521
+    category: exempt
+    reason: "Remote server management: rollback + firewall subgroup + domain subgroup + registration of management and backup subgroups. Each subgroup is a thin CLI layer delegating to platform/cloud modules."
+    review_by: "v1.1"
+
   # --- Exempt (stable, not modified in v1) ---
   - file: dango/ingestion/dlt_runner.py
     lines: 1759
