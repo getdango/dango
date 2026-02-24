@@ -63,6 +63,10 @@ dependencies = [
     "google-api-python-client>=2.100.0",  # Google Sheets API
     "google-auth-oauthlib>=1.0.0",        # OAuth for Google services
     "google-auth>=2.22.0",                # Google authentication
+
+    # Cloud deployment
+    "boto3>=1.34.0",      # DigitalOcean Spaces (S3-compatible)
+    "paramiko>=3.0.0",    # SSH key management and remote execution
 ]
 
 [project.optional-dependencies]
@@ -80,11 +84,6 @@ dev = [
     "pre-commit>=3.6.0",
     "pip-audit>=2.7.0",
 ]
-cloud = [
-    "boto3>=1.34.0",
-    "paramiko>=3.0.0",
-]
-
 # Note: dlt distributes sources via `dlt init <source>`, not pip extras.
 # dlt's pip extras are for DESTINATIONS (duckdb, bigquery, etc.) and infrastructure.
 # Source code is bundled in dango/ingestion/dlt_sources/ with all necessary dependencies.

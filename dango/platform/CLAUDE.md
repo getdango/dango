@@ -132,14 +132,14 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 
 **Imports from:**
 - `dango.config` — ConfigLoader, CloudConfig (load cloud.yml)
-- `dango.exceptions` — CloudError, CloudAPIError, CloudAuthError (cloud/)
+- `dango.exceptions` — CloudError, CloudAPIError, CloudAuthError, CloudProvisioningError (cloud/)
 - `dango.migrations` — apply_all_pending (startup.py)
 - `dango.utils.database` — ensure_dbt_schemas (startup.py)
 - `dango.utils.process` — is_process_running, kill_process (watcher_lifecycle.py)
 - `dango.visualization` — setup_metabase, import_dashboards (startup.py)
 - `httpx` — HTTP transport for DigitalOcean API (cloud/digitalocean.py)
-- `boto3` (optional, `[cloud]` extra) — Spaces S3 client (cloud/spaces.py)
-- `paramiko` (optional, `[cloud]` extra) — SSH transport (cloud/ssh.py)
+- `boto3` — Spaces S3 client (cloud/spaces.py)
+- `paramiko` — SSH transport (cloud/ssh.py)
 - `cryptography` — Ed25519 key generation (cloud/ssh.py; core dependency)
 - `watchdog` — Observer, FileSystemEventHandler (watcher.py)
 

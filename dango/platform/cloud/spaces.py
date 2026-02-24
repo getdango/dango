@@ -2,9 +2,9 @@
 
 DigitalOcean Spaces client for Dango cloud backups.
 
-DO Spaces is S3-compatible; this client uses ``boto3`` (optional dependency,
-``pip install getdango[cloud]``) to interact with it.  boto3 is lazy-imported
-so the core package can be installed without the cloud extras.
+DO Spaces is S3-compatible; this client uses ``boto3`` (core dependency,
+``pip install getdango``) to interact with it.  boto3 is lazy-imported
+to keep CLI startup fast.
 
 Authentication
 --------------
@@ -22,7 +22,7 @@ from typing import IO, Any
 from dango.exceptions import CloudAuthError, CloudError
 
 # boto3 / botocore are imported lazily inside _get_client().
-# This keeps the core package importable without the [cloud] extra.
+# Lazy-imported to keep CLI startup fast.
 
 
 class SpacesClient:
@@ -92,7 +92,7 @@ class SpacesClient:
             import boto3  # type: ignore[import]
         except ImportError:
             raise CloudError(
-                "boto3 is required for Spaces operations. Install with: pip install getdango[cloud]"
+                "boto3 is required for Spaces operations. Reinstall with: pip install getdango"
             ) from None
 
         endpoint = f"https://{self.region}.digitaloceanspaces.com"
