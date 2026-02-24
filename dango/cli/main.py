@@ -20,6 +20,7 @@ from dango.cli.commands.oauth import oauth
 from dango.cli.commands.platform import start, status, stop
 from dango.cli.commands.project import info, init, rename
 from dango.cli.commands.remote import remote
+from dango.cli.commands.serve import serve
 from dango.cli.commands.source import source, sync
 from dango.cli.commands.transform import docs, generate, run
 from dango.cli.commands.web import web
@@ -69,6 +70,7 @@ cli.add_command(docs)
 cli.add_command(generate)
 cli.add_command(validate)
 cli.add_command(web)
+cli.add_command(serve)
 
 # --- Register command groups ---
 cli.add_command(source)

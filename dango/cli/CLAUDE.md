@@ -25,6 +25,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/dashboard.py` (125 lines) | `dashboard` group (`provision`) | `dashboard` |
 | `commands/remote.py` (~220 lines) | `remote` group → `firewall` subgroup (`list`, `allow-ip`, `allow-all`) | `remote`, `firewall` |
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
+| `commands/serve.py` (~110 lines) | `serve` production foreground server | `serve()` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
 | `init.py` (965 lines) | Project initialization wizard | `ProjectInitializer` |
@@ -50,6 +51,7 @@ Click-based command-line interface for all Dango operations — project init, so
 dango (top-level group)
 ├── init, rename, info          ← commands/project.py
 ├── start, stop, status         ← commands/platform.py
+├── serve                       ← commands/serve.py
 ├── sync                        ← commands/source.py
 ├── run, docs, generate         ← commands/transform.py
 ├── validate                    ← commands/data.py

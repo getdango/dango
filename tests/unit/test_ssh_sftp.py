@@ -650,7 +650,7 @@ class TestErrorWrapping:
         import dango.platform.cloud.ssh as ssh_mod
 
         with patch.dict(sys.modules, {"paramiko": None}):  # type: ignore[dict-item]
-            with pytest.raises(CloudError, match="pip install getdango\\[cloud\\]"):
+            with pytest.raises(CloudError, match="pip install getdango"):
                 ssh_mod._ensure_paramiko()
 
     def test_paramiko_not_installed_reset_on_next_call(self):

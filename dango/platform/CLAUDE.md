@@ -32,7 +32,9 @@ platform/
 │   ├── provisioning.py  # Size tiers, regions, provision_droplet() orchestration (TASK-023)
 │   ├── firewall.py      # Firewall lifecycle, IP allowlisting (TASK-025)
 │   ├── spaces.py        # DO Spaces client (S3-compatible via boto3)
-│   └── ssh.py           # SSH key management, TOFU known-hosts, exec/SFTP (TASK-024)
+│   ├── ssh.py           # SSH key management, TOFU known-hosts, exec/SFTP (TASK-024)
+│   ├── server_setup.py  # SSH-based server setup orchestration (TASK-026)
+│   └── _server_templates.py  # Config file templates for server_setup.py
 │
 │   # Backwards-compatible shims (re-export from local/)
 ├── network.py           # → platform.local.network
@@ -56,6 +58,8 @@ platform/
 | `cloud/firewall.py` | Firewall lifecycle and IP allowlisting | `create_default_firewall`, `add_allowed_ip`, `restrict_web_to_ips`, `allow_all_web`, `validate_ip_or_cidr`, `save_firewall_metadata` |
 | `cloud/spaces.py` | DigitalOcean Spaces (S3-compatible) client | `SpacesClient` |
 | `cloud/ssh.py` | SSH key management, TOFU known-hosts, command exec, SFTP | `SSHManager`, `CommandResult` |
+| `cloud/server_setup.py` | SSH-based server setup orchestration (16 idempotent steps) | `setup_server`, `SetupResult` |
+| `cloud/_server_templates.py` | Config file templates (systemd, Caddy, fail2ban, etc.) | `SYSTEMD_UNIT`, `CADDYFILE`, etc. |
 
 ## Import Patterns
 
@@ -117,6 +121,7 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 | Manage firewall rules | `cloud/firewall.py` → `add_allowed_ip()` / `restrict_web_to_ips()` | `pytest tests/unit/test_firewall.py` |
 | Backup to Spaces | `cloud/spaces.py` → `SpacesClient` | `pytest tests/unit/test_spaces_client.py` |
 | Manage SSH keys / remote exec | `cloud/ssh.py` → `SSHManager` | `pytest tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py` |
+| Setup server after provisioning | `cloud/server_setup.py` → `setup_server()` | `pytest tests/unit/test_server_setup.py` |
 | Modify watcher logic | `local/watcher.py` | `pytest tests/unit/test_watcher_lifecycle.py` |
 | Change Docker service startup | `docker.py` | `dango start` manually |
 | Load/save cloud.yml | `from dango.config import ConfigLoader` → `load_cloud_config()` / `save_cloud_config()` | `pytest tests/unit/test_cloud_config_loader.py` |
@@ -145,4 +150,5 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 
 **Used by:**
 - `dango.cli.commands.platform` — start/stop/status commands
+- `dango.cli.commands.serve` — production foreground server
 - `dango.web.routes.health` — get_watcher_status
