@@ -68,9 +68,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/remote.py
-    lines: 521
+    lines: 650
     category: exempt
-    reason: "Remote server management: rollback + firewall subgroup + domain subgroup + registration of management and backup subgroups. Each subgroup is a thin CLI layer delegating to platform/cloud modules."
+    reason: "Remote server management: push + rollback + firewall subgroup + domain subgroup + registration of management and backup subgroups. Each subgroup is a thin CLI layer delegating to platform/cloud modules."
     review_by: "v1.1"
 
   # --- Exempt (stable, not modified in v1) ---

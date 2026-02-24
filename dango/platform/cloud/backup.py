@@ -258,12 +258,21 @@ def create_backup(
     ssh: SSHManager,
     *,
     backup_type: str = "pre-deploy",
+    restart_services: bool = True,
     on_progress: Callable[[str, str], None] | None = None,
 ) -> BackupResult:
     """Create a backup of all project data on the remote server.
 
     Stops services, checkpoints databases, creates a tar.gz archive,
-    then restarts services.  Returns BackupResult with archive path and manifest.
+    then (optionally) restarts services.
+
+    Args:
+        ssh: Connected SSHManager (as root).
+        backup_type: Label for the backup manifest (e.g. ``"pre-deploy"``).
+        restart_services: If False, services remain stopped after backup.
+            Caller is responsible for restarting them.  Useful when the
+            caller needs services to stay down (e.g. ``push_deploy``).
+        on_progress: Optional ``(step, status)`` callback.
     """
     start_time = time.monotonic()
     warnings: list[str] = []
@@ -295,9 +304,10 @@ def create_backup(
         archive_path, manifest = _create_archive(ssh, timestamp, metabase_vol, backup_type)
         _notify(on_progress, "create_archive", "done")
     finally:
-        _notify(on_progress, "start_services", "running")
-        _start_services(ssh)
-        _notify(on_progress, "start_services", "done")
+        if restart_services:
+            _notify(on_progress, "start_services", "running")
+            _start_services(ssh)
+            _notify(on_progress, "start_services", "done")
 
     _notify(on_progress, "rotate_backups", "running")
     rotate_local_backups(ssh)

@@ -36,6 +36,8 @@ platform/
 │   ├── server_setup.py  # SSH-based server setup orchestration (TASK-026)
 │   ├── domain.py        # DNS check, set_domain(), remove_domain() (TASK-027)
 │   ├── backup.py        # SSH-based backup + rollback (TASK-035)
+│   ├── file_sync.py     # Project file sync: SFTP + rsync (TASK-028)
+│   ├── deployer.py      # Push deployment workflow + deploy lock (TASK-030)
 │   ├── scheduled_backup.py  # Server-side scheduled backup (TASK-103)
 │   └── _server_templates.py  # Config file templates (incl. build_caddyfile(), backup timer)
 │
@@ -64,6 +66,8 @@ platform/
 | `cloud/server_setup.py` | SSH-based server setup orchestration (16 idempotent steps) | `setup_server`, `SetupResult` |
 | `cloud/domain.py` | DNS check, domain set/remove for HTTPS via Caddy | `check_dns`, `set_domain`, `remove_domain` |
 | `cloud/backup.py` | SSH-based backup and rollback | `create_backup`, `rollback`, `list_local_backups`, `rotate_local_backups`, `BackupManifest`, `BackupResult`, `RestoreResult` |
+| `cloud/file_sync.py` | Project file sync (SFTP + rsync) with change detection | `sync_project_files`, `SyncResult` |
+| `cloud/deployer.py` | Push deployment workflow with deploy lock | `push_deploy`, `DeployLock`, `DeployResult` |
 | `cloud/scheduled_backup.py` | Server-side scheduled backup to Spaces | `run_scheduled_backup`, `list_spaces_backups`, `restore_from_spaces`, `enable_scheduled_backup`, `disable_scheduled_backup` |
 | `cloud/_server_templates.py` | Config file templates (systemd, Caddy, fail2ban, backup timer, etc.) | `build_caddyfile`, `SYSTEMD_UNIT`, `CADDYFILE`, `SYSTEMD_BACKUP_SERVICE`, `SYSTEMD_BACKUP_TIMER`, etc. |
 
@@ -101,6 +105,14 @@ from dango.platform.cloud import check_dns, set_domain, remove_domain, build_cad
 # Backup & rollback (TASK-035)
 from dango.platform.cloud import create_backup, rollback, list_local_backups
 from dango.platform.cloud.backup import BackupManifest, BackupResult, RestoreResult
+
+# File sync (TASK-028)
+from dango.platform.cloud import SyncResult, sync_project_files
+from dango.platform.cloud.file_sync import SyncResult, sync_project_files  # also valid
+
+# Push deploy (TASK-030)
+from dango.platform.cloud import DeployLock, DeployResult, push_deploy
+from dango.platform.cloud.deployer import DeployLock, DeployResult, push_deploy  # also valid
 
 # Scheduled backup (TASK-103, runs on server)
 from dango.platform.cloud.scheduled_backup import run_scheduled_backup, list_spaces_backups
@@ -141,6 +153,8 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 | Configure domain / HTTPS | `cloud/domain.py` → `set_domain()` / `remove_domain()` | `pytest tests/unit/test_domain.py` |
 | Create pre-deploy backup | `cloud/backup.py` → `create_backup()` | `pytest tests/unit/test_backup.py` |
 | Rollback from backup | `cloud/backup.py` → `rollback()` | `pytest tests/unit/test_backup.py` |
+| Sync files to remote | `cloud/file_sync.py` → `sync_project_files()` | `pytest tests/unit/test_file_sync.py` |
+| Push deploy to remote | `cloud/deployer.py` → `push_deploy()` | `pytest tests/unit/test_deployer.py` |
 | Scheduled backup (server-side) | `cloud/scheduled_backup.py` → `run_scheduled_backup()` | `pytest tests/unit/test_scheduled_backup.py` |
 | CLI backup commands | `cli/commands/remote_backup.py` | `pytest tests/unit/test_remote_backup_cli.py` |
 | Modify watcher logic | `local/watcher.py` | `pytest tests/unit/test_watcher_lifecycle.py` |

@@ -15,8 +15,10 @@ from .backup import (
     rollback,
     rotate_local_backups,
 )
+from .deployer import DeployLock, DeployResult, push_deploy
 from .digitalocean import DigitalOceanClient
 from .domain import check_dns, remove_domain, set_domain
+from .file_sync import SyncResult, sync_project_files
 from .firewall import (
     add_allowed_ip,
     allow_all_web,
@@ -111,4 +113,11 @@ __all__ = [
     "list_local_backups",
     "rollback",
     "rotate_local_backups",
+    # File sync (TASK-028)
+    "SyncResult",
+    "sync_project_files",
+    # Deploy (TASK-030)
+    "DeployLock",
+    "DeployResult",
+    "push_deploy",
 ]

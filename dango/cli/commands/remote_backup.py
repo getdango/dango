@@ -132,7 +132,7 @@ def backup_group(ctx: click.Context) -> None:
         console.print(f"[red]Error:[/red] {exc}")
         raise SystemExit(1) from exc
     finally:
-        ssh.close()
+        ssh.disconnect()
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +202,7 @@ def backup_list(ctx: click.Context) -> None:
 
         console.print(table)
     finally:
-        ssh.close()
+        ssh.disconnect()
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +269,7 @@ def backup_enable(ctx: click.Context) -> None:
         console.print("  Timer: dango-backup.timer")
         console.print("  Service: dango-backup.service")
     finally:
-        ssh.close()
+        ssh.disconnect()
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +294,7 @@ def backup_disable(ctx: click.Context) -> None:
         )
         console.print("[green]Scheduled backups disabled.[/green]")
     finally:
-        ssh.close()
+        ssh.disconnect()
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +411,7 @@ def backup_restore(ctx: click.Context, source: str, yes: bool) -> None:
         console.print(f"[red]Error:[/red] {exc}")
         raise SystemExit(1) from exc
     finally:
-        ssh.close()
+        ssh.disconnect()
 
 
 #: Path to venv Python on the remote server.
