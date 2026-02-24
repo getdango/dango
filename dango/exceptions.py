@@ -57,6 +57,7 @@ __all__ = [
     "CloudError",
     "CloudAPIError",
     "CloudAuthError",
+    "CloudSSHError",
     "is_debug_mode",
 ]
 
@@ -408,3 +409,9 @@ class CloudAuthError(CloudError):
     """Cloud API authentication failed (invalid or missing token)."""
 
     _default_error_code = "DANGO-D003"
+
+
+class CloudSSHError(CloudError):
+    """SSH connection or command execution failed."""
+
+    _default_error_code = "DANGO-D004"

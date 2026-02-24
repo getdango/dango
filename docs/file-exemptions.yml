@@ -169,6 +169,24 @@ exemptions:
     reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
     review_by: "v1.1"
 
+  - file: dango/platform/cloud/ssh.py
+    lines: 665
+    category: exempt
+    reason: "TASK-024: SSH key management, TOFU known-hosts, connect/exec/SFTP operations. Single-purpose module — splitting would scatter tightly coupled SSH lifecycle. Review fixes added _require_connected(), _load_key(), _connect_raw() helpers and SFTP timeout support."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_ssh_manager.py
+    lines: 589
+    category: exempt
+    reason: "TASK-024: 38 tests covering CommandResult, SSHManager init, key generation, connection, and exec_command (including not-connected guard). Test files are verbose by design — each test sets up its own mocks explicitly."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_ssh_sftp.py
+    lines: 711
+    category: exempt
+    reason: "TASK-024: 33 tests covering SFTP upload/download (with timeout and not-connected guards), write/read remote file, wait_for_ssh (including permanent-error fast-fail), known-hosts TOFU policy, and error wrapping. Test files are verbose by design."
+    review_by: "v1.1"
+
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:
   - file: dango/ingestion/dlt_sources/mongodb/helpers.py

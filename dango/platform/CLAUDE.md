@@ -27,9 +27,10 @@ platform/
 │   └── watcher_runner.py    # Background watcher process entry point
 │
 ├── cloud/               # Cloud-only components (TASK-022+)
-│   ├── __init__.py      # Exports DigitalOceanClient, SpacesClient
+│   ├── __init__.py      # Exports CommandResult, DigitalOceanClient, SpacesClient, SSHManager
 │   ├── digitalocean.py  # DO REST API v2 client (Droplets, SSH Keys, Firewalls)
-│   └── spaces.py        # DO Spaces client (S3-compatible via boto3)
+│   ├── spaces.py        # DO Spaces client (S3-compatible via boto3)
+│   └── ssh.py           # SSH key management, TOFU known-hosts, exec/SFTP (TASK-024)
 │
 │   # Backwards-compatible shims (re-export from local/)
 ├── network.py           # → platform.local.network
@@ -50,6 +51,7 @@ platform/
 | `local/watcher_runner.py` | Background watcher process | `main` |
 | `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |
 | `cloud/spaces.py` | DigitalOcean Spaces (S3-compatible) client | `SpacesClient` |
+| `cloud/ssh.py` | SSH key management, TOFU known-hosts, command exec, SFTP | `SSHManager`, `CommandResult` |
 
 ## Import Patterns
 
@@ -68,6 +70,10 @@ from dango.config import CloudConfig
 
 # Cloud clients (TASK-022+)
 from dango.platform.cloud import DigitalOceanClient, SpacesClient
+
+# SSH management (TASK-024)
+from dango.platform.cloud import SSHManager, CommandResult
+from dango.platform.cloud.ssh import SSHManager, CommandResult  # also valid
 ```
 
 ### Also valid (backwards-compatible shims):
@@ -84,6 +90,10 @@ from dango.platform.watcher_lifecycle import get_watcher_status
 
 # WRONG — patches the shim's re-export, not the real function
 @patch("dango.platform.watcher_lifecycle.is_process_running")
+
+# SSH tests: inject paramiko via sys.modules (paramiko is optional)
+with patch.dict(sys.modules, {"paramiko": pm_mock}):
+    ...  # see tests/unit/test_ssh_manager.py for the full pattern
 ```
 
 ## Common Tasks
@@ -95,6 +105,7 @@ from dango.platform.watcher_lifecycle import get_watcher_status
 | Add cloud infrastructure | `cloud/` | `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py` |
 | Provision a Droplet | `cloud/digitalocean.py` → `DigitalOceanClient` | `pytest tests/unit/test_digitalocean_client.py` |
 | Backup to Spaces | `cloud/spaces.py` → `SpacesClient` | `pytest tests/unit/test_spaces_client.py` |
+| Manage SSH keys / remote exec | `cloud/ssh.py` → `SSHManager` | `pytest tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py` |
 | Modify watcher logic | `local/watcher.py` | `pytest tests/unit/test_watcher_lifecycle.py` |
 | Change Docker service startup | `docker.py` | `dango start` manually |
 | Load/save cloud.yml | `from dango.config import ConfigLoader` → `load_cloud_config()` / `save_cloud_config()` | `pytest tests/unit/test_cloud_config_loader.py` |
@@ -117,6 +128,8 @@ from dango.platform.watcher_lifecycle import get_watcher_status
 - `dango.visualization` — setup_metabase, import_dashboards (startup.py)
 - `httpx` — HTTP transport for DigitalOcean API (cloud/digitalocean.py)
 - `boto3` (optional, `[cloud]` extra) — Spaces S3 client (cloud/spaces.py)
+- `paramiko` (optional, `[cloud]` extra) — SSH transport (cloud/ssh.py)
+- `cryptography` — Ed25519 key generation (cloud/ssh.py; core dependency)
 - `watchdog` — Observer, FileSystemEventHandler (watcher.py)
 
 **Used by:**
