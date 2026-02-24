@@ -277,7 +277,7 @@ function adminUsers() {
                 if (data.invite_url) {
                     this.credentialTitle = 'Invite Link';
                     this.credentialMessage = 'Share this link with the user. It expires in 72 hours.';
-                    this.credentialValue = window.location.origin + data.invite_url;
+                    this.credentialValue = data.invite_url;
                 } else {
                     this.credentialTitle = 'Temporary Password';
                     this.credentialMessage = 'Share this password securely. The user must change it on first login.';

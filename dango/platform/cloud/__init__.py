@@ -5,7 +5,9 @@ Cloud deployment platform components.
 Populated by TASK-022+ (cloud provisioning, Caddy, remote sync).
 """
 
+from ._server_templates import build_caddyfile
 from .digitalocean import DigitalOceanClient
+from .domain import check_dns, remove_domain, set_domain
 from .firewall import (
     add_allowed_ip,
     allow_all_web,
@@ -74,4 +76,9 @@ __all__ = [
     # Server setup
     "setup_server",
     "SetupResult",
+    # Domain management (TASK-027)
+    "build_caddyfile",
+    "check_dns",
+    "set_domain",
+    "remove_domain",
 ]

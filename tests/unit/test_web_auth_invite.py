@@ -279,7 +279,7 @@ class TestCreateUserInvite:
         assert resp.status_code == 201
         data = resp.json()
         assert "invite_url" in data
-        assert data["invite_url"].startswith("/invite/")
+        assert "/invite/" in data["invite_url"]
         assert "temp_password" not in data
 
         user = db.get_user_by_email(db_path, "new@example.com")
@@ -332,7 +332,7 @@ class TestReinvite:
 
         resp = client.post(f"/api/admin/users/{user.id}/reinvite", headers=_H)
         assert resp.status_code == 200
-        assert resp.json()["invite_url"].startswith("/invite/")
+        assert "/invite/" in resp.json()["invite_url"]
 
         updated = db.get_user_by_id(db_path, user.id)
         assert updated is not None

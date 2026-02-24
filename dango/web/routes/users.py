@@ -202,9 +202,10 @@ async def admin_create_user(
         details={"role": role.value, "created_by": user.email, "method": "invite"},
     )
     resp = UserResponse.model_validate(new_user)
+    base = str(request.base_url).rstrip("/")
     return JSONResponse(
         status_code=201,
-        content={"user": resp.model_dump(mode="json"), "invite_url": f"/invite/{raw_token}"},
+        content={"user": resp.model_dump(mode="json"), "invite_url": f"{base}/invite/{raw_token}"},
     )
 
 
@@ -248,7 +249,8 @@ async def admin_reinvite_user(
         ip=_get_client_ip(request),
         details={"resent_by": user.email},
     )
-    return JSONResponse(content={"invite_url": f"/invite/{raw_token}"})
+    base = str(request.base_url).rstrip("/")
+    return JSONResponse(content={"invite_url": f"{base}/invite/{raw_token}"})
 
 
 @router.put("/api/admin/users/{user_id}/role")

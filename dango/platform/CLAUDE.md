@@ -34,7 +34,8 @@ platform/
 │   ├── spaces.py        # DO Spaces client (S3-compatible via boto3)
 │   ├── ssh.py           # SSH key management, TOFU known-hosts, exec/SFTP (TASK-024)
 │   ├── server_setup.py  # SSH-based server setup orchestration (TASK-026)
-│   └── _server_templates.py  # Config file templates for server_setup.py
+│   ├── domain.py        # DNS check, set_domain(), remove_domain() (TASK-027)
+│   └── _server_templates.py  # Config file templates (incl. build_caddyfile())
 │
 │   # Backwards-compatible shims (re-export from local/)
 ├── network.py           # → platform.local.network
@@ -59,7 +60,8 @@ platform/
 | `cloud/spaces.py` | DigitalOcean Spaces (S3-compatible) client | `SpacesClient` |
 | `cloud/ssh.py` | SSH key management, TOFU known-hosts, command exec, SFTP | `SSHManager`, `CommandResult` |
 | `cloud/server_setup.py` | SSH-based server setup orchestration (16 idempotent steps) | `setup_server`, `SetupResult` |
-| `cloud/_server_templates.py` | Config file templates (systemd, Caddy, fail2ban, etc.) | `SYSTEMD_UNIT`, `CADDYFILE`, etc. |
+| `cloud/domain.py` | DNS check, domain set/remove for HTTPS via Caddy | `check_dns`, `set_domain`, `remove_domain` |
+| `cloud/_server_templates.py` | Config file templates (systemd, Caddy, fail2ban, etc.) | `build_caddyfile`, `CADDYFILE`, `SYSTEMD_UNIT`, etc. |
 
 ## Import Patterns
 
@@ -88,6 +90,9 @@ from dango.platform.cloud import provision_droplet, suggest_nearest_region, SIZE
 
 # Firewall management (TASK-025)
 from dango.platform.cloud import create_default_firewall, add_allowed_ip, restrict_web_to_ips
+
+# Domain management (TASK-027)
+from dango.platform.cloud import check_dns, set_domain, remove_domain, build_caddyfile
 ```
 
 ### Also valid (backwards-compatible shims):
@@ -122,6 +127,7 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 | Backup to Spaces | `cloud/spaces.py` → `SpacesClient` | `pytest tests/unit/test_spaces_client.py` |
 | Manage SSH keys / remote exec | `cloud/ssh.py` → `SSHManager` | `pytest tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py` |
 | Setup server after provisioning | `cloud/server_setup.py` → `setup_server()` | `pytest tests/unit/test_server_setup.py` |
+| Configure domain / HTTPS | `cloud/domain.py` → `set_domain()` / `remove_domain()` | `pytest tests/unit/test_domain.py` |
 | Modify watcher logic | `local/watcher.py` | `pytest tests/unit/test_watcher_lifecycle.py` |
 | Change Docker service startup | `docker.py` | `dango start` manually |
 | Load/save cloud.yml | `from dango.config import ConfigLoader` → `load_cloud_config()` / `save_cloud_config()` | `pytest tests/unit/test_cloud_config_loader.py` |

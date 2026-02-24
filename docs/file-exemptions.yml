@@ -199,6 +199,12 @@ exemptions:
     reason: "TASK-024: 33 tests covering SFTP upload/download (with timeout and not-connected guards), write/read remote file, wait_for_ssh (including permanent-error fast-fail), known-hosts TOFU policy, and error wrapping. Test files are verbose by design."
     review_by: "v1.1"
 
+  - file: tests/unit/test_server_setup.py
+    lines: 525
+    category: exempt
+    reason: "TASK-026+027: Added domain parameter tests for setup_server(). Each test requires isolated mock setup with full exec_results map."
+    review_by: "v1.1"
+
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:
   - file: dango/ingestion/dlt_sources/mongodb/helpers.py

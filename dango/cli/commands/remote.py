@@ -5,13 +5,17 @@ Remote server management commands for Dango cloud deployments.
 Command hierarchy::
 
     dango remote (group)
-    └── firewall (subgroup)
-        ├── list       — Show current firewall rules
-        ├── allow-ip   — Restrict ports 80/443 to a specific IP
-        └── allow-all  — Revert ports 80/443 to public access
+    ├── firewall (subgroup)
+    │   ├── list       — Show current firewall rules
+    │   ├── allow-ip   — Restrict ports 80/443 to a specific IP
+    │   └── allow-all  — Revert ports 80/443 to public access
+    └── domain (subgroup)
+        ├── set        — Configure HTTPS with Let's Encrypt
+        └── remove     — Revert to IP-only HTTP
 
-All commands require an active cloud deployment (``droplet_id`` and
-``firewall_id`` set in ``.dango/cloud.yml``).
+All commands require an active cloud deployment (``droplet_id``
+set in ``.dango/cloud.yml``).  Firewall commands additionally
+require ``firewall_id``.
 """
 
 from __future__ import annotations
@@ -37,6 +41,8 @@ def remote(ctx: click.Context) -> None:
       dango remote firewall list        Show current firewall rules
       dango remote firewall allow-ip    Restrict web to a specific IP
       dango remote firewall allow-all   Revert web access to public
+      dango remote domain set DOMAIN    Configure HTTPS with Let's Encrypt
+      dango remote domain remove        Revert to IP-only HTTP
     """
     ctx.ensure_object(dict)
 
@@ -64,14 +70,16 @@ def firewall(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _load_cloud_config_or_fail(ctx: click.Context) -> tuple[Any, str]:
-    """Load CloudConfig and return (config, firewall_id), or exit with an error.
+def _require_cloud_deployment(ctx: click.Context) -> tuple[Any, Path]:
+    """Load CloudConfig and return (config, project_root), or exit with an error.
+
+    Only requires ``droplet_id`` — does NOT check for ``firewall_id``.
 
     Returns:
-        Tuple of (CloudConfig, firewall_id string).
+        Tuple of (CloudConfig, project_root Path).
 
     Raises:
-        SystemExit: If no deployment or no firewall is configured.
+        SystemExit: If no cloud deployment is configured.
     """
     from dango.cli.utils import require_project_context
     from dango.config.loader import ConfigLoader
@@ -86,6 +94,22 @@ def _load_cloud_config_or_fail(ctx: click.Context) -> tuple[Any, str]:
             "Run [bold]dango deploy[/bold] to provision a server first."
         )
         raise SystemExit(1)
+
+    return cloud_cfg, project_root
+
+
+def _load_cloud_config_or_fail(ctx: click.Context) -> tuple[Any, str]:
+    """Load CloudConfig and return (config, firewall_id), or exit with an error.
+
+    Requires both ``droplet_id`` and ``firewall_id``.
+
+    Returns:
+        Tuple of (CloudConfig, firewall_id string).
+
+    Raises:
+        SystemExit: If no deployment or no firewall is configured.
+    """
+    cloud_cfg, _project_root = _require_cloud_deployment(ctx)
 
     if cloud_cfg.firewall_id is None:
         console.print(
@@ -230,3 +254,121 @@ def firewall_allow_all(ctx: click.Context) -> None:
 
     console.print("[green]Firewall updated.[/green] Ports 80/443 are now open to all traffic.")
     console.print(f"  Firewall: {fw.get('name', firewall_id)}")
+
+
+# ---------------------------------------------------------------------------
+# domain subgroup
+# ---------------------------------------------------------------------------
+
+
+@remote.group("domain")
+@click.pass_context
+def domain(ctx: click.Context) -> None:
+    """Manage the custom domain and HTTPS for this deployment.
+
+    Commands:
+      set DOMAIN   Configure HTTPS with automatic Let's Encrypt certificates
+      remove       Revert to IP-only HTTP access
+    """
+    ctx.ensure_object(dict)
+
+
+def _connect_ssh(cloud_cfg: Any, project_root: Path) -> Any:
+    """Create and connect an SSHManager for the deployment."""
+    from dango.platform.cloud.ssh import SSHManager
+
+    key_path = project_root / cloud_cfg.ssh_key_path
+    ssh = SSHManager(key_path=key_path)
+    ssh.connect(cloud_cfg.droplet_ip, username="root")
+    return ssh
+
+
+# ---------------------------------------------------------------------------
+# domain set
+# ---------------------------------------------------------------------------
+
+
+@domain.command("set")
+@click.argument("domain_name")
+@click.pass_context
+def domain_set(ctx: click.Context, domain_name: str) -> None:
+    """Configure HTTPS for DOMAIN_NAME with automatic Let's Encrypt.
+
+    Caddy acquires and renews TLS certificates automatically.  DNS must
+    point DOMAIN_NAME to the droplet IP for certificate issuance to
+    succeed.  If DNS hasn't propagated yet, a warning is shown but the
+    configuration is still applied (Caddy retries automatically).
+
+    Example:
+      dango remote domain set app.example.com
+    """
+    from dango.platform.cloud.domain import set_domain
+
+    cloud_cfg, project_root = _require_cloud_deployment(ctx)
+
+    if cloud_cfg.droplet_ip is None:
+        console.print("[red]Error:[/red] No droplet IP found in cloud.yml.")
+        raise SystemExit(1)
+
+    ssh = _connect_ssh(cloud_cfg, project_root)
+    try:
+        result = set_domain(ssh, project_root, domain_name)
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(1) from exc
+    finally:
+        ssh.close()
+
+    if result["dns_ok"]:
+        console.print(f"[green]DNS OK:[/green] {result['dns_message']}")
+    else:
+        console.print(f"[yellow]DNS warning:[/yellow] {result['dns_message']}")
+
+    if result["caddyfile_updated"]:
+        console.print(
+            f"[green]HTTPS configured.[/green] "
+            f"Caddy will serve [bold]{domain_name}[/bold] with automatic TLS."
+        )
+    else:
+        console.print(f"Caddyfile already configured for [bold]{domain_name}[/bold].")
+
+
+# ---------------------------------------------------------------------------
+# domain remove
+# ---------------------------------------------------------------------------
+
+
+@domain.command("remove")
+@click.pass_context
+def domain_remove(ctx: click.Context) -> None:
+    """Revert to IP-only HTTP access.
+
+    Removes the domain configuration and rewrites the Caddyfile for
+    plain HTTP on port 80.  The domain is cleared from cloud.yml.
+
+    Example:
+      dango remote domain remove
+    """
+    from dango.platform.cloud.domain import remove_domain
+
+    cloud_cfg, project_root = _require_cloud_deployment(ctx)
+
+    ssh = _connect_ssh(cloud_cfg, project_root)
+    try:
+        result = remove_domain(ssh, project_root)
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(1) from exc
+    finally:
+        ssh.close()
+
+    prev = result.get("previous_domain")
+    if prev:
+        console.print(f"[green]Domain removed.[/green] Was: [bold]{prev}[/bold]")
+    else:
+        console.print("[yellow]No domain was configured.[/yellow]")
+
+    if result["caddyfile_updated"]:
+        console.print("Caddyfile reverted to HTTP-only (port 80).")
+    else:
+        console.print("Caddyfile was already HTTP-only.")
