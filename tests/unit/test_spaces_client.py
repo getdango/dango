@@ -2,8 +2,8 @@
 
 Unit tests for SpacesClient (dango/platform/cloud/spaces.py).
 
-boto3 is injected via sys.modules patching so these tests run without
-installing the [cloud] extra.  botocore.exceptions.ClientError is used
+boto3 is injected via sys.modules patching for test isolation (boto3 is a
+core dependency but lazy-imported at runtime).  botocore.exceptions.ClientError is used
 for the real exception class (botocore is a boto3 dependency, but it is also
 used directly to construct ClientError in tests).
 """
@@ -149,7 +149,7 @@ class TestBoto3Missing:
         with patch.dict(sys.modules, {"boto3": None}):  # type: ignore[dict-item]
             # Force _s3_client to None so _get_client() runs
             client._s3_client = None
-            with pytest.raises(CloudError, match="pip install getdango\\[cloud\\]"):
+            with pytest.raises(CloudError, match="pip install getdango"):
                 client._get_client()
 
     def test_get_client_cached_after_first_call(self):

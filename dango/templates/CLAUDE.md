@@ -41,6 +41,10 @@ Jinja2 templates and Dockerfiles used by CLI project scaffolding and dbt model g
 - **Integration:** `dango init` in a temp directory, verify generated files
 - **Manual:** Inspect generated `docker-compose.yml` and dbt models after `dango init` + `dango sync`
 
+## Notes
+
+- **Cloud server config templates** (systemd unit, Caddyfile, fail2ban, etc.) are NOT in this directory. They are embedded as string constants in `platform/cloud/_server_templates.py` because they are not Jinja2 templates — they are plain config files written verbatim to the remote host.
+
 ## Don't Modify
 
 | File | Reason |

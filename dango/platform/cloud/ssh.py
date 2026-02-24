@@ -6,8 +6,8 @@ Provides Ed25519 key generation, SSH connections via paramiko, command
 execution, SFTP file transfer, and Trust-On-First-Use (TOFU) known hosts
 management.
 
-paramiko is an optional dependency (``pip install getdango[cloud]``) and is
-lazy-imported so the core package can be installed without the cloud extras.
+paramiko is a core dependency (``pip install getdango``) and is lazy-imported
+to keep CLI startup fast.
 
 Authentication
 --------------
@@ -59,7 +59,7 @@ def _ensure_paramiko() -> Any:
         return _paramiko
     except ImportError:
         raise CloudError(
-            "paramiko is required for SSH operations. Install with: pip install getdango[cloud]"
+            "paramiko is required for SSH operations. Reinstall with: pip install getdango"
         ) from None
 
 

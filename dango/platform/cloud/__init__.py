@@ -35,6 +35,7 @@ from .provisioning import (
     wait_for_droplet_ready,
     wait_for_ssh,
 )
+from .server_setup import SetupResult, setup_server
 from .spaces import SpacesClient
 from .ssh import CommandResult, SSHManager
 
@@ -70,4 +71,7 @@ __all__ = [
     "allow_all_web",
     "format_firewall_rules",
     "save_firewall_metadata",
+    # Server setup
+    "setup_server",
+    "SetupResult",
 ]

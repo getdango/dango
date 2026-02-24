@@ -58,6 +58,7 @@ __all__ = [
     "CloudAPIError",
     "CloudAuthError",
     "CloudSSHError",
+    "CloudProvisioningError",
     "is_debug_mode",
 ]
 
@@ -409,3 +410,9 @@ class CloudSSHError(CloudError):
     """SSH connection or command execution failed."""
 
     _default_error_code = "DANGO-D004"
+
+
+class CloudProvisioningError(CloudError):
+    """Server setup or provisioning step failed."""
+
+    _default_error_code = "DANGO-D005"
