@@ -353,6 +353,10 @@ def domain_remove(ctx: click.Context) -> None:
 
     cloud_cfg, project_root = _require_cloud_deployment(ctx)
 
+    if cloud_cfg.droplet_ip is None:
+        console.print("[red]Error:[/red] No droplet IP found in cloud.yml.")
+        raise SystemExit(1)
+
     ssh = _connect_ssh(cloud_cfg, project_root)
     try:
         result = remove_domain(ssh, project_root)

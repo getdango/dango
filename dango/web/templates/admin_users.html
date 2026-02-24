@@ -337,7 +337,7 @@ function adminUsers() {
                 if (!res.ok) { this.error = data.message; this.actionLoading = false; return; }
                 this.credentialTitle = 'Invite Link';
                 this.credentialMessage = 'Share this link with the user. It expires in 72 hours.';
-                this.credentialValue = window.location.origin + data.invite_url;
+                this.credentialValue = data.invite_url;
                 this.showCredentialModal = true;
                 await this.loadUsers();
             } catch (e) { this.error = 'Failed to resend invite'; }

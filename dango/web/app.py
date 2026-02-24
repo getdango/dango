@@ -120,14 +120,18 @@ def _load_rate_limit_config(project_root: Path | None) -> RateLimitConfig | None
     connects to uvicorn via localhost.
     """
     try:
-        from dango.config.helpers import is_cloud_mode, load_config
+        from dango.config.helpers import load_config
+        from dango.config.loader import ConfigLoader
 
         root = project_root or Path.cwd()
         config = load_config(root)
         rl = config.auth.rate_limit
 
-        if not rl.trusted_proxies and is_cloud_mode(root):
-            rl = rl.model_copy(update={"trusted_proxies": ["127.0.0.1"]})
+        if not rl.trusted_proxies:
+            loader = ConfigLoader(root)
+            cloud_cfg = loader.load_cloud_config()
+            if cloud_cfg is not None and cloud_cfg.droplet_id is not None:
+                rl = rl.model_copy(update={"trusted_proxies": ["127.0.0.1"]})
 
         return rl
     except Exception:
