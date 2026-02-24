@@ -5,18 +5,30 @@ Remote server management commands for Dango cloud deployments.
 Command hierarchy::
 
     dango remote (group)
+    ├── status              — Show server status and resource usage
+    ├── logs                — View service logs (with optional streaming)
+    ├── ssh                 — Open interactive SSH session
+    ├── query               — Run read-only SQL against remote DuckDB
+    ├── rollback            — Restore from a backup
     ├── env (subgroup)
-    │   ├── set K=V    — Set an environment variable
-    │   ├── get K      — Display a variable (masked)
-    │   ├── list       — List all variables (masked)
-    │   └── delete K   — Remove a variable
-    └── firewall (subgroup)
-        ├── list       — Show current firewall rules
-        ├── allow-ip   — Restrict ports 80/443 to a specific IP
-        └── allow-all  — Revert ports 80/443 to public access
+    │   ├── set K=V         — Set an environment variable
+    │   ├── get K           — Display a variable (masked)
+    │   ├── list            — List all variables (masked)
+    │   └── delete K        — Remove a variable
+    ├── firewall (subgroup)
+    │   ├── list            — Show current firewall rules
+    │   ├── allow-ip        — Restrict ports 80/443 to a specific IP
+    │   └── allow-all       — Revert ports 80/443 to public access
+    ├── domain (subgroup)
+    │   ├── set             — Configure HTTPS with Let's Encrypt
+    │   └── remove          — Revert to IP-only HTTP
+    └── backup (subgroup)   — See remote_backup.py
 
-All commands require an active cloud deployment (``droplet_id`` and
-``firewall_id`` set in ``.dango/cloud.yml``).
+All commands require an active cloud deployment (``droplet_id`` set in
+``.dango/cloud.yml``).  Firewall commands additionally require ``firewall_id``.
+
+Management commands (status, logs, ssh, query) are defined in
+``remote_mgmt.py`` and registered on the ``remote`` group via import.
 """
 
 from __future__ import annotations
@@ -39,9 +51,20 @@ def remote(ctx: click.Context) -> None:
     """Manage the remote Dango cloud server.
 
     Commands:
-      dango remote firewall list        Show current firewall rules
-      dango remote firewall allow-ip    Restrict web to a specific IP
-      dango remote firewall allow-all   Revert web access to public
+      dango remote status                  Show server status
+      dango remote logs                    View service logs
+      dango remote ssh                     Open interactive SSH session
+      dango remote query "SQL"             Run read-only SQL query
+      dango remote rollback                Restore from a backup
+      dango remote firewall list           Show current firewall rules
+      dango remote firewall allow-ip       Restrict web to a specific IP
+      dango remote firewall allow-all      Revert web access to public
+      dango remote domain set DOMAIN       Configure HTTPS with Let's Encrypt
+      dango remote domain remove           Revert to IP-only HTTP
+      dango remote backup                  On-demand backup
+      dango remote backup list             List backups
+      dango remote backup enable           Enable scheduled backups
+      dango remote backup disable          Disable scheduled backups
     """
     ctx.ensure_object(dict)
 
@@ -65,18 +88,20 @@ def firewall(ctx: click.Context) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Internal helpers (firewall-specific)
 # ---------------------------------------------------------------------------
 
 
-def _load_cloud_config_or_fail(ctx: click.Context) -> tuple[Any, str]:
-    """Load CloudConfig and return (config, firewall_id), or exit with an error.
+def _require_cloud_deployment(ctx: click.Context) -> tuple[Any, Path]:
+    """Load CloudConfig and return (config, project_root), or exit with an error.
+
+    Only requires ``droplet_id`` — does NOT check for ``firewall_id``.
 
     Returns:
-        Tuple of (CloudConfig, firewall_id string).
+        Tuple of (CloudConfig, project_root Path).
 
     Raises:
-        SystemExit: If no deployment or no firewall is configured.
+        SystemExit: If no cloud deployment is configured.
     """
     from dango.cli.utils import require_project_context
     from dango.config.loader import ConfigLoader
@@ -92,6 +117,22 @@ def _load_cloud_config_or_fail(ctx: click.Context) -> tuple[Any, str]:
         )
         raise SystemExit(1)
 
+    return cloud_cfg, project_root
+
+
+def _load_cloud_config_or_fail(ctx: click.Context) -> tuple[Any, str]:
+    """Load CloudConfig and return (config, firewall_id), or exit with an error.
+
+    Requires both ``droplet_id`` and ``firewall_id``.
+
+    Returns:
+        Tuple of (CloudConfig, firewall_id string).
+
+    Raises:
+        SystemExit: If no deployment or no firewall is configured.
+    """
+    cloud_cfg, _project_root = _require_cloud_deployment(ctx)
+
     if cloud_cfg.firewall_id is None:
         console.print(
             "[red]Error:[/red] No firewall configured for this deployment. "
@@ -103,8 +144,19 @@ def _load_cloud_config_or_fail(ctx: click.Context) -> tuple[Any, str]:
     return cloud_cfg, cloud_cfg.firewall_id
 
 
+def _load_cloud_config_with_ssh_or_fail(ctx: click.Context) -> tuple[Any, Any]:
+    """Load CloudConfig and return a connected SSHManager.  Caller must close SSH."""
+    from dango.cli.utils import load_cloud_config_with_ssh
+
+    return load_cloud_config_with_ssh(ctx)
+
+
 def _ssh_connect_or_fail(ctx: click.Context) -> tuple[Any, Any, Path]:
     """Load cloud config, connect SSH as ``dango`` user, return context.
+
+    Unlike ``_load_cloud_config_with_ssh_or_fail`` (which connects as root
+    for system operations), this connects as the ``dango`` service user
+    for project-level file operations (e.g. ``.env`` management).
 
     Returns:
         Tuple of (CloudConfig, connected SSHManager, project_root Path).
@@ -121,22 +173,17 @@ def _ssh_connect_or_fail(ctx: click.Context) -> tuple[Any, Any, Path]:
     loader = ConfigLoader(project_root)
     cloud_cfg = loader.load_cloud_config()
 
-    if cloud_cfg is None or cloud_cfg.droplet_id is None:
+    if cloud_cfg is None or cloud_cfg.droplet_id is None or cloud_cfg.droplet_ip is None:
         console.print(
             "[red]Error:[/red] No cloud deployment found. "
             "Run [bold]dango deploy[/bold] to provision a server first."
         )
         raise SystemExit(1)
 
-    server_ip = cloud_cfg.droplet_ip
-    if server_ip is None:
-        console.print("[red]Error:[/red] No server IP in cloud config.")
-        raise SystemExit(1)
-
-    key_path = Path(cloud_cfg.ssh_key_path) if cloud_cfg.ssh_key_path else None
+    key_path = project_root / cloud_cfg.ssh_key_path
     ssh = SSHManager(key_path=key_path)
     try:
-        ssh.connect(server_ip, username="dango")
+        ssh.connect(cloud_cfg.droplet_ip, username="dango")
     except Exception as exc:
         console.print(f"[red]Error:[/red] SSH connection failed: {exc}")
         raise SystemExit(1) from exc
@@ -149,6 +196,82 @@ def _make_client() -> Any:
     from dango.platform.cloud.digitalocean import DigitalOceanClient
 
     return DigitalOceanClient()
+
+
+# ---------------------------------------------------------------------------
+# rollback
+# ---------------------------------------------------------------------------
+
+
+@remote.command("rollback")
+@click.option(
+    "--backup",
+    default=None,
+    help="Path to a specific backup archive. Defaults to the most recent.",
+)
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
+@click.pass_context
+def remote_rollback(ctx: click.Context, backup: str | None, yes: bool) -> None:
+    """Restore the remote server from a backup.
+
+    Stops services, extracts the backup archive over the project directory,
+    restores Metabase data, then restarts services and verifies health.
+
+    By default, uses the most recent backup.  Use ``--backup`` to specify
+    a particular archive path on the server.
+
+    Examples:
+      dango remote rollback
+      dango remote rollback --backup /srv/dango/backups/deploy/backup-20260224-143000.tar.gz
+    """
+    from rich.status import Status
+
+    from dango.platform.cloud.backup import rollback
+
+    if not yes:
+        if not click.confirm(
+            "This will restore the server from a backup. "
+            "Current data will be overwritten. Continue?"
+        ):
+            console.print("[yellow]Rollback cancelled.[/yellow]")
+            return
+
+    cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
+
+    try:
+        with Status("[bold blue]Restoring from backup...", console=console) as status:
+
+            def _on_progress(step: str, step_status: str) -> None:
+                if step_status == "running":
+                    labels = {
+                        "find_backup": "Finding backup...",
+                        "stop_services": "Stopping services...",
+                        "read_manifest": "Reading manifest...",
+                        "extract_archive": "Extracting archive...",
+                        "restore_files": "Restoring files...",
+                        "restore_metabase": "Restoring Metabase data...",
+                        "fix_ownership": "Fixing file ownership...",
+                        "start_services": "Starting services...",
+                        "verify_health": "Verifying health...",
+                    }
+                    status.update(f"[bold blue]{labels.get(step, step)}")
+
+            result = rollback(ssh, backup_path=backup, on_progress=_on_progress)
+
+        console.print("\n[green]Rollback complete.[/green]")
+        console.print(f"  Restored from: [bold]{result.restored_from}[/bold]")
+        console.print(f"  Duration: {result.duration_seconds}s")
+        if result.health_check_passed:
+            console.print("  Health check: [green]passed[/green]")
+        else:
+            console.print("  Health check: [yellow]did not pass (services may need time)[/yellow]")
+        for warning in result.warnings:
+            console.print(f"  [yellow]Warning:[/yellow] {warning}")
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] Rollback failed: {exc}")
+        raise SystemExit(1) from exc
+    finally:
+        ssh.close()
 
 
 # ---------------------------------------------------------------------------
@@ -278,10 +401,134 @@ def firewall_allow_all(ctx: click.Context) -> None:
     console.print(f"  Firewall: {fw.get('name', firewall_id)}")
 
 
+# domain subgroup
+# ---------------------------------------------------------------------------
+
+
+@remote.group("domain")
+@click.pass_context
+def domain(ctx: click.Context) -> None:
+    """Manage the custom domain and HTTPS for this deployment.
+
+    Commands:
+      set DOMAIN   Configure HTTPS with automatic Let's Encrypt certificates
+      remove       Revert to IP-only HTTP access
+    """
+    ctx.ensure_object(dict)
+
+
+def _connect_ssh(cloud_cfg: Any, project_root: Path) -> Any:
+    """Create and connect an SSHManager for the deployment."""
+    from dango.platform.cloud.ssh import SSHManager
+
+    key_path = project_root / cloud_cfg.ssh_key_path
+    ssh = SSHManager(key_path=key_path)
+    ssh.connect(cloud_cfg.droplet_ip, username="root")
+    return ssh
+
+
+# ---------------------------------------------------------------------------
+# domain set
+# ---------------------------------------------------------------------------
+
+
+@domain.command("set")
+@click.argument("domain_name")
+@click.pass_context
+def domain_set(ctx: click.Context, domain_name: str) -> None:
+    """Configure HTTPS for DOMAIN_NAME with automatic Let's Encrypt.
+
+    Caddy acquires and renews TLS certificates automatically.  DNS must
+    point DOMAIN_NAME to the droplet IP for certificate issuance to
+    succeed.  If DNS hasn't propagated yet, a warning is shown but the
+    configuration is still applied (Caddy retries automatically).
+
+    Example:
+      dango remote domain set app.example.com
+    """
+    from dango.platform.cloud.domain import set_domain
+
+    cloud_cfg, project_root = _require_cloud_deployment(ctx)
+
+    if cloud_cfg.droplet_ip is None:
+        console.print("[red]Error:[/red] No droplet IP found in cloud.yml.")
+        raise SystemExit(1)
+
+    ssh = _connect_ssh(cloud_cfg, project_root)
+    try:
+        result = set_domain(ssh, project_root, domain_name)
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(1) from exc
+    finally:
+        ssh.close()
+
+    if result["dns_ok"]:
+        console.print(f"[green]DNS OK:[/green] {result['dns_message']}")
+    else:
+        console.print(f"[yellow]DNS warning:[/yellow] {result['dns_message']}")
+
+    if result["caddyfile_updated"]:
+        console.print(
+            f"[green]HTTPS configured.[/green] "
+            f"Caddy will serve [bold]{domain_name}[/bold] with automatic TLS."
+        )
+    else:
+        console.print(f"Caddyfile already configured for [bold]{domain_name}[/bold].")
+
+
+# ---------------------------------------------------------------------------
+# domain remove
+# ---------------------------------------------------------------------------
+
+
+@domain.command("remove")
+@click.pass_context
+def domain_remove(ctx: click.Context) -> None:
+    """Revert to IP-only HTTP access.
+
+    Removes the domain configuration and rewrites the Caddyfile for
+    plain HTTP on port 80.  The domain is cleared from cloud.yml.
+
+    Example:
+      dango remote domain remove
+    """
+    from dango.platform.cloud.domain import remove_domain
+
+    cloud_cfg, project_root = _require_cloud_deployment(ctx)
+
+    if cloud_cfg.droplet_ip is None:
+        console.print("[red]Error:[/red] No droplet IP found in cloud.yml.")
+        raise SystemExit(1)
+
+    ssh = _connect_ssh(cloud_cfg, project_root)
+    try:
+        result = remove_domain(ssh, project_root)
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(1) from exc
+    finally:
+        ssh.close()
+
+    prev = result.get("previous_domain")
+    if prev:
+        console.print(f"[green]Domain removed.[/green] Was: [bold]{prev}[/bold]")
+    else:
+        console.print("[yellow]No domain was configured.[/yellow]")
+
+    if result["caddyfile_updated"]:
+        console.print("Caddyfile reverted to HTTP-only (port 80).")
+    else:
+        console.print("Caddyfile was already HTTP-only.")
+
+
 # ---------------------------------------------------------------------------
 # Register subgroups from separate modules
 # ---------------------------------------------------------------------------
 
+import dango.cli.commands.remote_mgmt as _remote_mgmt  # noqa: E402, F401
+from dango.cli.commands.remote_backup import backup_group  # noqa: E402
 from dango.cli.commands.remote_env import env  # noqa: E402
 
+remote.add_command(backup_group)
 remote.add_command(env)

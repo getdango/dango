@@ -5,7 +5,8 @@ Health check and platform status endpoints.
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
@@ -21,6 +22,8 @@ from dango.web.models import ServiceHealth, WatcherStatus
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["health"])
+
+_BACKUP_STALENESS_HOURS = 36
 
 
 @router.get("/api/status", response_model=ServiceHealth)
@@ -109,7 +112,8 @@ async def get_platform_health() -> dict[str, Any]:
     """Get comprehensive platform health status.
 
     Returns:
-        Platform health including DB size, disk space, recent failures, and overall status
+        Platform health including DB size, disk space, recent failures, and overall status.
+        On cloud deployments, also includes CPU/RAM/disk resource metrics and backup health.
     """
     # Gather health data asynchronously
     data = await get_platform_health_data()
@@ -121,8 +125,8 @@ async def get_platform_health() -> dict[str, Any]:
     failed_dbt = data["failed_dbt"]
 
     # Determine overall status
-    critical_issues = []
-    warnings = []
+    critical_issues: list[str] = []
+    warnings: list[str] = []
 
     if disk["status"] == "critical":
         critical_issues.append("Critical disk space")
@@ -140,15 +144,8 @@ async def get_platform_health() -> dict[str, Any]:
     if failed_dbt:
         warnings.append("dbt run failures")
 
-    if critical_issues:
-        overall_status = "critical"
-    elif warnings:
-        overall_status = "warning"
-    else:
-        overall_status = "healthy"
-
-    return {
-        "status": overall_status,
+    result: dict[str, Any] = {
+        "status": "healthy",  # set below
         "timestamp": datetime.now().isoformat(),
         "database": db_health,
         "disk": disk,
@@ -158,4 +155,105 @@ async def get_platform_health() -> dict[str, Any]:
         "enabled_sources": len([s for s in sources_config if s.get("enabled", True)]),
         "critical_issues": critical_issues,
         "warnings": warnings,
+    }
+
+    # Cloud-specific: add resource metrics and backup health
+    cloud_data = await _get_cloud_health_data()
+    if cloud_data:
+        result["resources"] = cloud_data["resources"]
+        result["backup_health"] = cloud_data["backup_health"]
+        if cloud_data["backup_health"]["status"] == "stale":
+            warnings.append(f"Backup is stale (>{_BACKUP_STALENESS_HOURS}h)")
+        elif cloud_data["backup_health"]["status"] == "none":
+            warnings.append("No backups configured")
+
+    if critical_issues:
+        result["status"] = "critical"
+    elif warnings:
+        result["status"] = "warning"
+    else:
+        result["status"] = "healthy"
+
+    return result
+
+
+async def _get_cloud_health_data() -> dict[str, Any] | None:
+    """Collect cloud-specific health data if running on a cloud server.
+
+    Returns None if not a cloud deployment.
+    """
+    project_root = get_project_root()
+    cloud_yml = Path(project_root) / ".dango" / "cloud.yml"
+
+    if not cloud_yml.exists():
+        return None
+
+    # Check if it has a droplet_id (actual deployment vs empty config)
+    try:
+        from dango.config.loader import ConfigLoader
+
+        loader = ConfigLoader(project_root)
+        cloud_cfg = loader.load_cloud_config()
+        if cloud_cfg is None or cloud_cfg.droplet_id is None:
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+
+    # Collect local resource usage in a thread to avoid blocking the event loop
+    from dango.platform.cloud.server_status import get_local_resource_usage
+
+    resources = await asyncio.to_thread(get_local_resource_usage)
+
+    # Check backup health
+    backup_health = await asyncio.to_thread(_check_backup_health)
+
+    return {
+        "resources": resources,
+        "backup_health": backup_health,
+    }
+
+
+def _check_backup_health() -> dict[str, Any]:
+    """Check backup staleness by scanning the backup directory.
+
+    Returns a dict with ``status`` ("healthy", "stale", "none") and
+    ``last_backup`` timestamp string (or None).
+    """
+    import os
+
+    backup_dir = Path("/srv/dango/backups")
+    if not backup_dir.exists():
+        return {"status": "none", "last_backup": None}
+
+    # Find the most recent file across all backup subdirs
+    latest_mtime: float = 0
+    latest_name: str | None = None
+
+    try:
+        for dirpath, _dirnames, filenames in os.walk(backup_dir):
+            for fname in filenames:
+                fpath = Path(dirpath) / fname
+                try:
+                    mtime = fpath.stat().st_mtime
+                    if mtime > latest_mtime:
+                        latest_mtime = mtime
+                        latest_name = fname
+                except OSError:
+                    continue
+    except OSError:
+        return {"status": "none", "last_backup": None}
+
+    if latest_mtime == 0 or latest_name is None:
+        return {"status": "none", "last_backup": None}
+
+    last_backup_dt = datetime.fromtimestamp(latest_mtime, tz=timezone.utc)
+    age_hours = (datetime.now(tz=timezone.utc) - last_backup_dt).total_seconds() / 3600
+
+    status = "healthy" if age_hours <= _BACKUP_STALENESS_HOURS else "stale"
+
+    return {
+        "status": status,
+        "last_backup": last_backup_dt.isoformat(),
+        "age_hours": round(age_hours, 1),
+        "file": latest_name,
     }

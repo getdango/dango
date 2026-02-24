@@ -187,13 +187,16 @@ def setup_metabase_if_needed(
     Raises:
         RuntimeError: If DuckDB connection fails (critical — services must stop)
     """
+    from dango.config.helpers import is_cloud_mode
     from dango.visualization.metabase import setup_metabase
 
     credentials_file = project_root / ".dango" / "metabase.yml"
     if credentials_file.exists():
         return {"already_configured": True, "success": True}
 
-    setup_result = setup_metabase(project_root, project_name, organization)
+    setup_result = setup_metabase(
+        project_root, project_name, organization, cloud_mode=is_cloud_mode(project_root)
+    )
 
     # DuckDB connection failure is critical — caller must roll back Docker
     if not setup_result.get("success") and not setup_result.get("duckdb_connected"):

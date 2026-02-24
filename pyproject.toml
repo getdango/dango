@@ -220,6 +220,16 @@ module = [
     "tests.unit.test_cli_remote_env",
     "tests.unit.test_web_secrets",
     "tests.unit.test_web_oauth_connect",
+    "tests.unit.test_caddyfile",
+    "tests.unit.test_domain",
+    "tests.unit.test_rate_limit_proxy",
+    "tests.unit.test_domain_cli",
+    "tests.unit.test_server_status",
+    "tests.unit.test_remote_management_cli",
+    "tests.unit.test_deploy_destroy",
+    "tests.unit.test_backup",
+    "tests.unit.test_scheduled_backup",
+    "tests.unit.test_remote_backup_cli",
 ]
 ignore_errors = true
 

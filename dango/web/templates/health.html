@@ -31,8 +31,28 @@
                 <div id="db-tables" class="text-sm text-gray-500 mt-1">-</div>
             </div>
 
-            <!-- Disk Space - Hidden for MVP -->
-            <div class="bg-white rounded-lg shadow p-6 hidden">
+            <!-- CPU Usage - Cloud only, hidden by default -->
+            <div id="cpu-card" class="bg-white rounded-lg shadow p-6 hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-medium text-gray-600">🖥️ CPU</h3>
+                    <span id="cpu-status-badge" class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">-</span>
+                </div>
+                <div id="cpu-usage" class="text-2xl font-bold text-gray-900">-</div>
+                <div class="text-sm text-gray-500 mt-1">Usage</div>
+            </div>
+
+            <!-- Memory Usage - Cloud only, hidden by default -->
+            <div id="ram-card" class="bg-white rounded-lg shadow p-6 hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-medium text-gray-600">🧠 Memory</h3>
+                    <span id="ram-status-badge" class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">-</span>
+                </div>
+                <div id="ram-usage" class="text-2xl font-bold text-gray-900">-</div>
+                <div id="ram-detail" class="text-sm text-gray-500 mt-1">-</div>
+            </div>
+
+            <!-- Disk Space - shown when cloud resources present -->
+            <div id="disk-card" class="bg-white rounded-lg shadow p-6 hidden">
                 <div class="flex items-center justify-between mb-2">
                     <h3 class="text-sm font-medium text-gray-600">💾 Disk Space</h3>
                     <span id="disk-status-badge" class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Loading...</span>
@@ -59,6 +79,16 @@
                 </div>
                 <div id="dbt-status" class="text-2xl font-bold text-gray-900">-</div>
                 <div id="dbt-info" class="text-sm text-gray-500 mt-1">-</div>
+            </div>
+
+            <!-- Backup Health - Cloud only, hidden by default -->
+            <div id="backup-card" class="bg-white rounded-lg shadow p-6 hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-medium text-gray-600">📦 Backup</h3>
+                    <span id="backup-status-badge" class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">-</span>
+                </div>
+                <div id="backup-status" class="text-2xl font-bold text-gray-900">-</div>
+                <div id="backup-detail" class="text-sm text-gray-500 mt-1">-</div>
             </div>
         </div>
 
@@ -103,8 +133,8 @@
                 </div>
             </div>
 
-            <!-- Disk Details - Hidden for MVP -->
-            <div class="bg-white rounded-lg shadow hidden">
+            <!-- Disk Details - shown when cloud resources present -->
+            <div id="disk-details" class="bg-white rounded-lg shadow hidden">
                 <div class="px-6 py-4 border-b border-gray-200">
                     <h2 class="text-lg font-semibold text-gray-900">Disk Usage</h2>
                 </div>
@@ -152,6 +182,12 @@
     <script>
         let refreshInterval;
 
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
         async function fetchHealth() {
             try {
                 const response = await fetch('/api/health/platform');
@@ -188,7 +224,7 @@
                 statusIcon.textContent = '⚠️';
                 statusTitle.textContent = 'Platform Has Warnings';
                 statusTitle.className = 'text-lg font-semibold text-yellow-800';
-                statusIssues.innerHTML = health.warnings.map(w => `• ${w}`).join('<br>');
+                statusIssues.innerHTML = health.warnings.map(w => `&bull; ${escapeHtml(w)}`).join('<br>');
                 statusIssues.className = 'mt-1 text-sm text-yellow-700';
             } else if (health.status === 'critical') {
                 banner.classList.add('bg-red-50', 'border-red-200');
@@ -196,7 +232,7 @@
                 statusTitle.textContent = 'Critical Issues Detected';
                 statusTitle.className = 'text-lg font-semibold text-red-800';
                 const allIssues = [...health.critical_issues, ...health.warnings];
-                statusIssues.innerHTML = allIssues.map(i => `• ${i}`).join('<br>');
+                statusIssues.innerHTML = allIssues.map(i => `&bull; ${escapeHtml(i)}`).join('<br>');
                 statusIssues.className = 'mt-1 text-sm text-red-700';
             }
 
@@ -222,7 +258,7 @@
                 dbBadge.textContent = 'Critical';
             }
 
-            // Disk Metrics
+            // Disk Metrics (always populated from platform health)
             const disk = health.disk;
             document.getElementById('disk-free').textContent = `${disk.free_gb} GB`;
             document.getElementById('disk-used').textContent = `${disk.used_pct}% used`;
@@ -242,6 +278,88 @@
             } else if (disk.status === 'critical') {
                 diskBadge.className += 'bg-red-100 text-red-800';
                 diskBadge.textContent = 'Critical';
+            }
+
+            // Cloud resources (CPU, RAM, Disk card, Backup)
+            if (health.resources) {
+                const res = health.resources;
+
+                // Show disk card and details on cloud
+                document.getElementById('disk-card').classList.remove('hidden');
+                document.getElementById('disk-details').classList.remove('hidden');
+
+                // CPU card
+                if (res.cpu_usage_pct !== null) {
+                    const cpuCard = document.getElementById('cpu-card');
+                    cpuCard.classList.remove('hidden');
+                    document.getElementById('cpu-usage').textContent = `${res.cpu_usage_pct}%`;
+                    const cpuBadge = document.getElementById('cpu-status-badge');
+                    cpuBadge.className = 'px-2 py-1 text-xs rounded-full ';
+                    if (res.cpu_usage_pct < 70) {
+                        cpuBadge.className += 'bg-green-100 text-green-800';
+                        cpuBadge.textContent = 'Normal';
+                    } else if (res.cpu_usage_pct < 90) {
+                        cpuBadge.className += 'bg-yellow-100 text-yellow-800';
+                        cpuBadge.textContent = 'High';
+                    } else {
+                        cpuBadge.className += 'bg-red-100 text-red-800';
+                        cpuBadge.textContent = 'Critical';
+                    }
+                }
+
+                // RAM card
+                if (res.ram_total_mb !== null && res.ram_used_mb !== null) {
+                    const ramCard = document.getElementById('ram-card');
+                    ramCard.classList.remove('hidden');
+                    const ramPct = Math.round(100 * res.ram_used_mb / res.ram_total_mb);
+                    document.getElementById('ram-usage').textContent = `${ramPct}%`;
+                    document.getElementById('ram-detail').textContent =
+                        `${res.ram_used_mb} MB / ${res.ram_total_mb} MB`;
+                    const ramBadge = document.getElementById('ram-status-badge');
+                    ramBadge.className = 'px-2 py-1 text-xs rounded-full ';
+                    if (ramPct < 70) {
+                        ramBadge.className += 'bg-green-100 text-green-800';
+                        ramBadge.textContent = 'Normal';
+                    } else if (ramPct < 90) {
+                        ramBadge.className += 'bg-yellow-100 text-yellow-800';
+                        ramBadge.textContent = 'High';
+                    } else {
+                        ramBadge.className += 'bg-red-100 text-red-800';
+                        ramBadge.textContent = 'Critical';
+                    }
+                }
+            }
+
+            // Backup health card
+            if (health.backup_health) {
+                const bh = health.backup_health;
+                const backupCard = document.getElementById('backup-card');
+                backupCard.classList.remove('hidden');
+
+                const backupBadge = document.getElementById('backup-status-badge');
+                backupBadge.className = 'px-2 py-1 text-xs rounded-full ';
+
+                if (bh.status === 'healthy') {
+                    backupBadge.className += 'bg-green-100 text-green-800';
+                    backupBadge.textContent = 'Healthy';
+                    document.getElementById('backup-status').textContent = 'OK';
+                } else if (bh.status === 'stale') {
+                    backupBadge.className += 'bg-yellow-100 text-yellow-800';
+                    backupBadge.textContent = 'Stale';
+                    document.getElementById('backup-status').textContent = 'Stale';
+                } else {
+                    backupBadge.className += 'bg-red-100 text-red-800';
+                    backupBadge.textContent = 'None';
+                    document.getElementById('backup-status').textContent = 'No Backups';
+                }
+
+                if (bh.last_backup) {
+                    const dt = new Date(bh.last_backup);
+                    document.getElementById('backup-detail').textContent =
+                        `Last: ${dt.toLocaleString()}`;
+                } else {
+                    document.getElementById('backup-detail').textContent = 'Not configured';
+                }
             }
 
             // Sync Status
@@ -303,13 +421,13 @@
                     <div class="border border-red-200 rounded-lg p-4 bg-red-50">
                         <div class="flex items-start">
                             <div class="flex-shrink-0">
-                                <span class="text-2xl">${issue.icon}</span>
+                                <span class="text-2xl">${escapeHtml(issue.icon)}</span>
                             </div>
                             <div class="ml-3 flex-1">
-                                <h4 class="text-sm font-semibold text-red-800">${issue.type}: ${issue.title}</h4>
-                                <p class="mt-1 text-sm text-red-700">${issue.message}</p>
-                                ${issue.count ? `<p class="mt-1 text-xs text-red-600">Failed ${issue.count} time(s)</p>` : ''}
-                                ${issue.models ? `<p class="mt-1 text-xs text-red-600 font-mono">${issue.models.join(', ')}</p>` : ''}
+                                <h4 class="text-sm font-semibold text-red-800">${escapeHtml(issue.type)}: ${escapeHtml(issue.title)}</h4>
+                                <p class="mt-1 text-sm text-red-700">${escapeHtml(issue.message)}</p>
+                                ${issue.count ? `<p class="mt-1 text-xs text-red-600">Failed ${escapeHtml(String(issue.count))} time(s)</p>` : ''}
+                                ${issue.models ? `<p class="mt-1 text-xs text-red-600 font-mono">${issue.models.map(m => escapeHtml(m)).join(', ')}</p>` : ''}
                             </div>
                         </div>
                     </div>

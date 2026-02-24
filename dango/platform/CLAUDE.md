@@ -34,7 +34,10 @@ platform/
 │   ├── spaces.py        # DO Spaces client (S3-compatible via boto3)
 │   ├── ssh.py           # SSH key management, TOFU known-hosts, exec/SFTP (TASK-024)
 │   ├── server_setup.py  # SSH-based server setup orchestration (TASK-026)
-│   └── _server_templates.py  # Config file templates for server_setup.py
+│   ├── domain.py        # DNS check, set_domain(), remove_domain() (TASK-027)
+│   ├── backup.py        # SSH-based backup + rollback (TASK-035)
+│   ├── scheduled_backup.py  # Server-side scheduled backup (TASK-103)
+│   └── _server_templates.py  # Config file templates (incl. build_caddyfile(), backup timer)
 │
 │   # Backwards-compatible shims (re-export from local/)
 ├── network.py           # → platform.local.network
@@ -59,7 +62,10 @@ platform/
 | `cloud/spaces.py` | DigitalOcean Spaces (S3-compatible) client | `SpacesClient` |
 | `cloud/ssh.py` | SSH key management, TOFU known-hosts, command exec, SFTP | `SSHManager`, `CommandResult` |
 | `cloud/server_setup.py` | SSH-based server setup orchestration (16 idempotent steps) | `setup_server`, `SetupResult` |
-| `cloud/_server_templates.py` | Config file templates (systemd, Caddy, fail2ban, etc.) | `SYSTEMD_UNIT`, `CADDYFILE`, etc. |
+| `cloud/domain.py` | DNS check, domain set/remove for HTTPS via Caddy | `check_dns`, `set_domain`, `remove_domain` |
+| `cloud/backup.py` | SSH-based backup and rollback | `create_backup`, `rollback`, `list_local_backups`, `rotate_local_backups`, `BackupManifest`, `BackupResult`, `RestoreResult` |
+| `cloud/scheduled_backup.py` | Server-side scheduled backup to Spaces | `run_scheduled_backup`, `list_spaces_backups`, `restore_from_spaces`, `enable_scheduled_backup`, `disable_scheduled_backup` |
+| `cloud/_server_templates.py` | Config file templates (systemd, Caddy, fail2ban, backup timer, etc.) | `build_caddyfile`, `SYSTEMD_UNIT`, `CADDYFILE`, `SYSTEMD_BACKUP_SERVICE`, `SYSTEMD_BACKUP_TIMER`, etc. |
 
 ## Import Patterns
 
@@ -88,6 +94,16 @@ from dango.platform.cloud import provision_droplet, suggest_nearest_region, SIZE
 
 # Firewall management (TASK-025)
 from dango.platform.cloud import create_default_firewall, add_allowed_ip, restrict_web_to_ips
+
+# Domain management (TASK-027)
+from dango.platform.cloud import check_dns, set_domain, remove_domain, build_caddyfile
+
+# Backup & rollback (TASK-035)
+from dango.platform.cloud import create_backup, rollback, list_local_backups
+from dango.platform.cloud.backup import BackupManifest, BackupResult, RestoreResult
+
+# Scheduled backup (TASK-103, runs on server)
+from dango.platform.cloud.scheduled_backup import run_scheduled_backup, list_spaces_backups
 ```
 
 ### Also valid (backwards-compatible shims):
@@ -122,6 +138,11 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 | Backup to Spaces | `cloud/spaces.py` → `SpacesClient` | `pytest tests/unit/test_spaces_client.py` |
 | Manage SSH keys / remote exec | `cloud/ssh.py` → `SSHManager` | `pytest tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py` |
 | Setup server after provisioning | `cloud/server_setup.py` → `setup_server()` | `pytest tests/unit/test_server_setup.py` |
+| Configure domain / HTTPS | `cloud/domain.py` → `set_domain()` / `remove_domain()` | `pytest tests/unit/test_domain.py` |
+| Create pre-deploy backup | `cloud/backup.py` → `create_backup()` | `pytest tests/unit/test_backup.py` |
+| Rollback from backup | `cloud/backup.py` → `rollback()` | `pytest tests/unit/test_backup.py` |
+| Scheduled backup (server-side) | `cloud/scheduled_backup.py` → `run_scheduled_backup()` | `pytest tests/unit/test_scheduled_backup.py` |
+| CLI backup commands | `cli/commands/remote_backup.py` | `pytest tests/unit/test_remote_backup_cli.py` |
 | Modify watcher logic | `local/watcher.py` | `pytest tests/unit/test_watcher_lifecycle.py` |
 | Change Docker service startup | `docker.py` | `dango start` manually |
 | Load/save cloud.yml | `from dango.config import ConfigLoader` → `load_cloud_config()` / `save_cloud_config()` | `pytest tests/unit/test_cloud_config_loader.py` |
@@ -151,4 +172,6 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 **Used by:**
 - `dango.cli.commands.platform` — start/stop/status commands
 - `dango.cli.commands.serve` — production foreground server
+- `dango.cli.commands.remote` — rollback command
+- `dango.cli.commands.remote_backup` — backup subcommands
 - `dango.web.routes.health` — get_watcher_status

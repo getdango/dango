@@ -534,6 +534,7 @@ def setup_metabase(
     project_name: str,
     organization: str | None = None,
     metabase_url: str = "http://localhost:3000",
+    cloud_mode: bool = False,
 ) -> dict[str, Any]:
     """
     Auto-setup Metabase on first start
@@ -545,6 +546,9 @@ def setup_metabase(
         project_name: Project name
         organization: Organization name (optional)
         metabase_url: Metabase URL
+        cloud_mode: When True, generate a random admin password instead
+            of the default local password. SSO session bridging handles
+            user-facing access, so the random password is invisible.
 
     Returns:
         Setup summary with credentials
@@ -585,10 +589,13 @@ def setup_metabase(
         properties = response.json()
         setup_token = properties.get("setup-token")
 
-        # Use default credentials for all Dango installations
-        # This allows auto-login to work even if Metabase volume persists
         admin_email = "admin@dango.local"
-        admin_password = "dangolocal123"
+        if cloud_mode:
+            import secrets as _secrets
+
+            admin_password = _secrets.token_urlsafe(32)
+        else:
+            admin_password = "dangolocal123"
         org_name = organization or project_name
 
         if not setup_token:

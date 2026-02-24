@@ -67,6 +67,12 @@ exemptions:
     reason: "Source management commands (add/list/remove) + sync. Extracted from cli/main.py by TASK-005. Sync command alone is ~200 lines of orchestration logic."
     review_by: "v1.1"
 
+  - file: dango/cli/commands/remote.py
+    lines: 521
+    category: exempt
+    reason: "Remote server management: rollback + firewall subgroup + domain subgroup + registration of management and backup subgroups. Each subgroup is a thin CLI layer delegating to platform/cloud modules."
+    review_by: "v1.1"
+
   # --- Exempt (stable, not modified in v1) ---
   - file: dango/ingestion/dlt_runner.py
     lines: 1759
@@ -197,6 +203,12 @@ exemptions:
     lines: 711
     category: exempt
     reason: "TASK-024: 33 tests covering SFTP upload/download (with timeout and not-connected guards), write/read remote file, wait_for_ssh (including permanent-error fast-fail), known-hosts TOFU policy, and error wrapping. Test files are verbose by design."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_server_setup.py
+    lines: 525
+    category: exempt
+    reason: "TASK-026+027: Added domain parameter tests for setup_server(). Each test requires isolated mock setup with full exec_results map."
     review_by: "v1.1"
 
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
