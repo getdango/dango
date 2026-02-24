@@ -18,7 +18,9 @@ from dango.platform.cloud.firewall import (
     add_allowed_ip,
     allow_all_web,
     create_default_firewall,
+    delete_firewall,
     format_firewall_rules,
+    get_firewall_rules,
     restrict_web_to_ips,
     save_firewall_metadata,
     validate_ip_or_cidr,
@@ -421,7 +423,40 @@ class TestFormatFirewallRules:
 
 
 # ---------------------------------------------------------------------------
-# 7. save_firewall_metadata
+# 7. delete_firewall
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestDeleteFirewall:
+    def test_delegates_to_client(self):
+        """delete_firewall calls client.delete_firewall with the firewall ID."""
+        client = MagicMock()
+        delete_firewall(client, "fw-abc")
+        client.delete_firewall.assert_called_once_with("fw-abc")
+
+
+# ---------------------------------------------------------------------------
+# 8. get_firewall_rules
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestGetFirewallRules:
+    def test_returns_firewall_dict(self):
+        """get_firewall_rules returns the dict from client.get_firewall."""
+        client = MagicMock()
+        fw = {"id": "fw-abc", "name": "dango-fw-42"}
+        client.get_firewall.return_value = fw
+
+        result = get_firewall_rules(client, "fw-abc")
+
+        assert result == fw
+        client.get_firewall.assert_called_once_with("fw-abc")
+
+
+# ---------------------------------------------------------------------------
+# 9. save_firewall_metadata
 # ---------------------------------------------------------------------------
 
 

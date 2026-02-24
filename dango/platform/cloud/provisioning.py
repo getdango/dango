@@ -202,8 +202,9 @@ def suggest_nearest_region() -> RegionInfo:
         The closest ``RegionInfo`` — defaults to ``nyc1`` on any error.
     """
     try:
-        # time.timezone is seconds *west* of UTC (sign is opposite of UTC offset)
-        if time.daylight:
+        # time.timezone is seconds *west* of UTC (sign is opposite of UTC offset).
+        # Use tm_isdst > 0 to check if DST is *currently active* (not just observed).
+        if time.localtime().tm_isdst > 0:
             local_offset_seconds = -time.altzone
         else:
             local_offset_seconds = -time.timezone
@@ -230,7 +231,8 @@ def _extract_public_ipv4(droplet: dict[str, Any]) -> str | None:
     v4_list = networks.get("v4", [])
     for network in v4_list:
         if network.get("type") == "public":
-            return str(network.get("ip_address", "")) or None
+            ip = network.get("ip_address")
+            return str(ip) if ip else None
     return None
 
 

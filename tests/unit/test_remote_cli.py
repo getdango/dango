@@ -20,7 +20,7 @@ import pytest
 from click.testing import CliRunner
 
 from dango.cli.commands.remote import remote
-from dango.exceptions import CloudAPIError, CloudError
+from dango.exceptions import CloudAPIError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -53,10 +53,19 @@ def _make_cloud_config(firewall_id: str | None = "fw-abc") -> MagicMock:
     return cfg
 
 
-def _make_loader(cloud_cfg: MagicMock | None = None) -> MagicMock:
-    """Return a mock ConfigLoader instance."""
+_UNSET = object()  # Sentinel to distinguish "no arg" from explicit None
+
+
+def _make_loader(cloud_cfg: MagicMock | None = _UNSET) -> MagicMock:  # type: ignore[assignment]
+    """Return a mock ConfigLoader instance.
+
+    Pass ``cloud_cfg=None`` to simulate no cloud deployment (load_cloud_config
+    returns None).  Omit the argument to use a default valid CloudConfig.
+    """
     loader = MagicMock()
-    loader.load_cloud_config.return_value = cloud_cfg or _make_cloud_config()
+    loader.load_cloud_config.return_value = (
+        _make_cloud_config() if cloud_cfg is _UNSET else cloud_cfg
+    )
     return loader
 
 
@@ -109,8 +118,8 @@ class TestFirewallListCommand:
             with patch(_PATCH_LOADER, return_value=mock_loader_instance):
                 result = _run(["firewall", "list"], tmp_path, catch_exceptions=True)
 
-        # Either exits non-zero, or the output contains an error message
-        assert result.exit_code != 0 or "No cloud deployment" in result.output
+        assert result.exit_code != 0
+        assert "No cloud deployment" in result.output
 
     def test_no_firewall_configured_exits_with_error(self, tmp_path: Path):
         """Exits when firewall_id is not set in cloud config."""
@@ -120,7 +129,8 @@ class TestFirewallListCommand:
             with patch(_PATCH_LOADER, return_value=mock_loader_instance):
                 result = _run(["firewall", "list"], tmp_path, catch_exceptions=True)
 
-        assert result.exit_code != 0 or "No firewall" in result.output
+        assert result.exit_code != 0
+        assert "No firewall" in result.output
 
     def test_api_error_exits_with_message(self, tmp_path: Path):
         """API error from get_firewall is shown as a user-facing error."""
@@ -137,7 +147,8 @@ class TestFirewallListCommand:
 
                     result = _run(["firewall", "list"], tmp_path, catch_exceptions=True)
 
-        assert result.exit_code != 0 or "Error" in result.output
+        assert result.exit_code != 0
+        assert "Error" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -191,18 +202,17 @@ class TestFirewallAllowIpCommand:
         assert result.exit_code == 0
 
     def test_invalid_ip_exits_with_error(self, tmp_path: Path):
-        """allow-ip with an invalid IP prints an error and exits non-zero."""
+        """allow-ip with an invalid IP prints an error and exits non-zero.
+
+        validate_ip_or_cidr raises before any API call is made, so no client
+        mock is needed — the real validation path is exercised here.
+        """
         mock_loader_instance = _make_loader()
 
         with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
             with patch(_PATCH_LOADER, return_value=mock_loader_instance):
                 with patch(_PATCH_CLIENT) as mock_client_cls:
-                    mock_client = MagicMock()
-                    # validate_ip_or_cidr is called before get_firewall, raises immediately
-                    mock_client.get_firewall.side_effect = CloudError(
-                        "Invalid IP", error_code="DANGO-D020"
-                    )
-                    mock_client_cls.return_value = mock_client
+                    mock_client_cls.return_value = MagicMock()
 
                     result = _run(
                         ["firewall", "allow-ip", "not-an-ip"],
@@ -210,7 +220,8 @@ class TestFirewallAllowIpCommand:
                         catch_exceptions=True,
                     )
 
-        assert result.exit_code != 0 or "Error" in result.output
+        assert result.exit_code != 0
+        assert "Error" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -261,4 +272,5 @@ class TestFirewallAllowAllCommand:
                         catch_exceptions=True,
                     )
 
-        assert result.exit_code != 0 or "Error" in result.output
+        assert result.exit_code != 0
+        assert "Error" in result.output

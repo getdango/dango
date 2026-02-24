@@ -166,46 +166,43 @@ class TestSuggestNearestRegion:
     def test_us_east_timezone_suggests_nyc(self):
         """UTC-5 (US East) maps to nyc1 or nyc3 (utc_offset = -5)."""
         # timezone is seconds WEST of UTC, so EST = +18000
-        with patch("dango.platform.cloud.provisioning.time.daylight", 0):
-            with patch("dango.platform.cloud.provisioning.time.timezone", 18000):
-                result = suggest_nearest_region()
+        with patch("dango.platform.cloud.provisioning.time") as mock_time:
+            mock_time.localtime.return_value.tm_isdst = 0
+            mock_time.timezone = 18000
+            result = suggest_nearest_region()
         assert result.utc_offset == -5.0
 
     def test_us_west_timezone_suggests_sfo(self):
         """UTC-8 (US West) maps to sfo3 (utc_offset = -8)."""
-        with patch("dango.platform.cloud.provisioning.time.daylight", 0):
-            with patch("dango.platform.cloud.provisioning.time.timezone", 28800):
-                result = suggest_nearest_region()
+        with patch("dango.platform.cloud.provisioning.time") as mock_time:
+            mock_time.localtime.return_value.tm_isdst = 0
+            mock_time.timezone = 28800
+            result = suggest_nearest_region()
         assert result.slug == "sfo3"
 
     def test_singapore_timezone_suggests_sgp(self):
         """UTC+8 maps to sgp1 (utc_offset = +8)."""
-        with patch("dango.platform.cloud.provisioning.time.daylight", 0):
-            with patch("dango.platform.cloud.provisioning.time.timezone", -28800):
-                result = suggest_nearest_region()
+        with patch("dango.platform.cloud.provisioning.time") as mock_time:
+            mock_time.localtime.return_value.tm_isdst = 0
+            mock_time.timezone = -28800
+            result = suggest_nearest_region()
         assert result.slug == "sgp1"
 
     def test_exception_falls_back_to_nyc1(self):
         """Any exception during offset calculation falls back to nyc1."""
-        with patch(
-            "dango.platform.cloud.provisioning.time.daylight",
-            new_callable=lambda: property(lambda self: (_ for _ in ()).throw(RuntimeError())),
-        ):
-            pass  # Can't easily mock property — test via patching the function itself
-
-        # Patch time.timezone to raise instead
         with patch("dango.platform.cloud.provisioning.time") as mock_time:
-            mock_time.daylight = 0
-            mock_time.timezone = "bad"  # Will cause division error
+            mock_time.localtime.return_value.tm_isdst = 0
+            mock_time.timezone = "bad"  # TypeError on / 3600.0 → caught by except Exception
             result = suggest_nearest_region()
         assert result.slug == "nyc1"
 
     def test_daylight_saving_uses_altzone(self):
-        """When daylight is set, altzone is used for local offset."""
+        """When DST is currently active, altzone is used for local offset."""
         # UTC+1 (Amsterdam summer time = CEST, altzone = -3600)
-        with patch("dango.platform.cloud.provisioning.time.daylight", 1):
-            with patch("dango.platform.cloud.provisioning.time.altzone", -3600):
-                result = suggest_nearest_region()
+        with patch("dango.platform.cloud.provisioning.time") as mock_time:
+            mock_time.localtime.return_value.tm_isdst = 1
+            mock_time.altzone = -3600
+            result = suggest_nearest_region()
         # ams3 and fra1 both at +1
         assert result.utc_offset == 1.0
 
@@ -353,6 +350,11 @@ class TestExtractPublicIpv4:
     def test_returns_none_when_no_networks(self):
         """Returns None when networks key is missing."""
         assert _extract_public_ipv4({}) is None
+
+    def test_returns_none_when_ip_address_is_none(self):
+        """Returns None when ip_address field is None (not just absent)."""
+        droplet: dict = {"networks": {"v4": [{"type": "public", "ip_address": None}]}}
+        assert _extract_public_ipv4(droplet) is None
 
 
 # ---------------------------------------------------------------------------

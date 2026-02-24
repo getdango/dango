@@ -229,9 +229,10 @@ def add_allowed_ip(client: Any, firewall_id: str, ip_cidr: str) -> dict[str, Any
     tags: list[str] = fw.get("tags", [])
     name: str = fw.get("name", f"dango-fw-{firewall_id}")
 
-    # Separate SSH rule from web rules
+    # Separate SSH rule from web rules; preserve any other custom inbound rules
     ssh_rules = [r for r in existing_inbound if r.get("ports") == _SSH_PORT]
     web_rules = {r["ports"]: r for r in existing_inbound if r.get("ports") in _WEB_PORTS}
+    other_rules = [r for r in existing_inbound if r.get("ports") not in (_SSH_PORT, *_WEB_PORTS)]
 
     # Determine if currently in public mode (any web rule has 0.0.0.0/0)
     public_mode = any(_is_public_sources(rule.get("sources", {})) for rule in web_rules.values())
@@ -247,7 +248,7 @@ def add_allowed_ip(client: Any, firewall_id: str, ip_cidr: str) -> dict[str, Any
         new_cidrs = sorted(existing_cidrs)
 
     new_web_rules = [_build_web_inbound_rule(port, new_cidrs) for port in sorted(_WEB_PORTS)]
-    new_inbound = ssh_rules + new_web_rules
+    new_inbound = ssh_rules + other_rules + new_web_rules
 
     return client.update_firewall(  # type: ignore[no-any-return]
         firewall_id=firewall_id,
@@ -296,8 +297,9 @@ def restrict_web_to_ips(
     name: str = fw.get("name", f"dango-fw-{firewall_id}")
 
     ssh_rules = [r for r in existing_inbound if r.get("ports") == _SSH_PORT]
+    other_rules = [r for r in existing_inbound if r.get("ports") not in (_SSH_PORT, *_WEB_PORTS)]
     new_web_rules = [_build_web_inbound_rule(port, normalised) for port in sorted(_WEB_PORTS)]
-    new_inbound = ssh_rules + new_web_rules
+    new_inbound = ssh_rules + other_rules + new_web_rules
 
     return client.update_firewall(  # type: ignore[no-any-return]
         firewall_id=firewall_id,
@@ -329,11 +331,12 @@ def allow_all_web(client: Any, firewall_id: str) -> dict[str, Any]:
     name: str = fw.get("name", f"dango-fw-{firewall_id}")
 
     ssh_rules = [r for r in existing_inbound if r.get("ports") == _SSH_PORT]
+    other_rules = [r for r in existing_inbound if r.get("ports") not in (_SSH_PORT, *_WEB_PORTS)]
     new_web_rules = [
-        {"protocol": "tcp", "ports": port, "sources": _PUBLIC_SOURCES}
+        _build_web_inbound_rule(port, list(_PUBLIC_SOURCES["addresses"]))
         for port in sorted(_WEB_PORTS)
     ]
-    new_inbound = ssh_rules + new_web_rules
+    new_inbound = ssh_rules + other_rules + new_web_rules
 
     return client.update_firewall(  # type: ignore[no-any-return]
         firewall_id=firewall_id,
