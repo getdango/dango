@@ -56,7 +56,7 @@ def _make_cloud_config(firewall_id: str | None = "fw-abc") -> MagicMock:
 _UNSET = object()  # Sentinel to distinguish "no arg" from explicit None
 
 
-def _make_loader(cloud_cfg: MagicMock | None = _UNSET) -> MagicMock:  # type: ignore[assignment]
+def _make_loader(cloud_cfg: MagicMock | None = _UNSET) -> MagicMock:  # type: ignore[assignment]  # _UNSET sentinel doesn't match annotated types
     """Return a mock ConfigLoader instance.
 
     Pass ``cloud_cfg=None`` to simulate no cloud deployment (load_cloud_config
@@ -181,7 +181,7 @@ class TestFirewallAllowIpCommand:
         assert "203.0.113.42" in result.output
 
     def test_valid_cidr_succeeds(self, tmp_path: Path):
-        """allow-ip with a CIDR range succeeds."""
+        """allow-ip with a CIDR range succeeds and echoes the normalised CIDR."""
         fw = _make_firewall_dict()
         mock_loader_instance = _make_loader()
 
@@ -200,6 +200,7 @@ class TestFirewallAllowIpCommand:
                     )
 
         assert result.exit_code == 0
+        assert "203.0.113.0" in result.output
 
     def test_invalid_ip_exits_with_error(self, tmp_path: Path):
         """allow-ip with an invalid IP prints an error and exits non-zero.
@@ -222,6 +223,38 @@ class TestFirewallAllowIpCommand:
 
         assert result.exit_code != 0
         assert "Error" in result.output
+        # Validation raises before any API call is made
+        mock_client_cls.return_value.get_firewall.assert_not_called()
+
+    def test_no_deployment_exits_with_error(self, tmp_path: Path):
+        """Exits when no cloud deployment is configured."""
+        mock_loader_instance = _make_loader(cloud_cfg=None)
+
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=mock_loader_instance):
+                result = _run(
+                    ["firewall", "allow-ip", "203.0.113.42"],
+                    tmp_path,
+                    catch_exceptions=True,
+                )
+
+        assert result.exit_code != 0
+        assert "No cloud deployment" in result.output
+
+    def test_no_firewall_configured_exits_with_error(self, tmp_path: Path):
+        """Exits when firewall_id is not set in cloud config."""
+        mock_loader_instance = _make_loader(cloud_cfg=_make_cloud_config(firewall_id=None))
+
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=mock_loader_instance):
+                result = _run(
+                    ["firewall", "allow-ip", "203.0.113.42"],
+                    tmp_path,
+                    catch_exceptions=True,
+                )
+
+        assert result.exit_code != 0
+        assert "No firewall" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -274,3 +307,25 @@ class TestFirewallAllowAllCommand:
 
         assert result.exit_code != 0
         assert "Error" in result.output
+
+    def test_no_deployment_exits_with_error(self, tmp_path: Path):
+        """Exits when no cloud deployment is configured."""
+        mock_loader_instance = _make_loader(cloud_cfg=None)
+
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=mock_loader_instance):
+                result = _run(["firewall", "allow-all"], tmp_path, catch_exceptions=True)
+
+        assert result.exit_code != 0
+        assert "No cloud deployment" in result.output
+
+    def test_no_firewall_configured_exits_with_error(self, tmp_path: Path):
+        """Exits when firewall_id is not set in cloud config."""
+        mock_loader_instance = _make_loader(cloud_cfg=_make_cloud_config(firewall_id=None))
+
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=mock_loader_instance):
+                result = _run(["firewall", "allow-all"], tmp_path, catch_exceptions=True)
+
+        assert result.exit_code != 0
+        assert "No firewall" in result.output

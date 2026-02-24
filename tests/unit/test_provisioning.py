@@ -192,16 +192,19 @@ class TestSuggestNearestRegion:
         """Any exception during offset calculation falls back to nyc1."""
         with patch("dango.platform.cloud.provisioning.time") as mock_time:
             mock_time.localtime.return_value.tm_isdst = 0
-            mock_time.timezone = "bad"  # TypeError on / 3600.0 → caught by except Exception
+            # -"bad" raises TypeError (unary minus on str) → caught by except Exception
+            mock_time.timezone = "bad"
             result = suggest_nearest_region()
         assert result.slug == "nyc1"
 
     def test_daylight_saving_uses_altzone(self):
         """When DST is currently active, altzone is used for local offset."""
-        # UTC+1 (Amsterdam summer time = CEST, altzone = -3600)
+        # UTC+1 (Amsterdam summer time = CEST, altzone = -3600).
+        # timezone set to sfo3 equivalent so a wrong branch gives utc_offset=-8, not +1.
         with patch("dango.platform.cloud.provisioning.time") as mock_time:
             mock_time.localtime.return_value.tm_isdst = 1
-            mock_time.altzone = -3600
+            mock_time.altzone = -3600  # DST branch: UTC+1 → ams3/fra1
+            mock_time.timezone = 28800  # non-DST branch: UTC-8 → sfo3 (wrong result)
             result = suggest_nearest_region()
         # ams3 and fra1 both at +1
         assert result.utc_offset == 1.0

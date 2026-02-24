@@ -256,7 +256,7 @@ def add_allowed_ip(client: Any, firewall_id: str, ip_cidr: str) -> dict[str, Any
         inbound_rules=new_inbound,
         outbound_rules=existing_outbound,
         droplet_ids=droplet_ids,
-        tags=tags or None,
+        tags=tags,
     )
 
 
@@ -307,7 +307,7 @@ def restrict_web_to_ips(
         inbound_rules=new_inbound,
         outbound_rules=existing_outbound,
         droplet_ids=droplet_ids,
-        tags=tags or None,
+        tags=tags,
     )
 
 
@@ -344,7 +344,7 @@ def allow_all_web(client: Any, firewall_id: str) -> dict[str, Any]:
         inbound_rules=new_inbound,
         outbound_rules=existing_outbound,
         droplet_ids=droplet_ids,
-        tags=tags or None,
+        tags=tags,
     )
 
 

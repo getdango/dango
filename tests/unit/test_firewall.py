@@ -7,6 +7,7 @@ All DO API client calls are mocked — no real network traffic.
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -30,23 +31,42 @@ from dango.platform.cloud.firewall import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Rule constants are references only — never passed directly into firewall dicts.
+# Helper functions deep-copy them so each test gets independent mutable state.
 _PUBLIC_SOURCES = {"addresses": ["0.0.0.0/0", "::/0"]}
-_SSH_RULE = {"protocol": "tcp", "ports": "22", "sources": _PUBLIC_SOURCES}
-_HTTP_RULE_PUBLIC = {"protocol": "tcp", "ports": "80", "sources": _PUBLIC_SOURCES}
-_HTTPS_RULE_PUBLIC = {"protocol": "tcp", "ports": "443", "sources": _PUBLIC_SOURCES}
+
+
+def _ssh_rule() -> dict:
+    return {"protocol": "tcp", "ports": "22", "sources": copy.deepcopy(_PUBLIC_SOURCES)}
+
+
+def _http_rule_public() -> dict:
+    return {"protocol": "tcp", "ports": "80", "sources": copy.deepcopy(_PUBLIC_SOURCES)}
+
+
+def _https_rule_public() -> dict:
+    return {"protocol": "tcp", "ports": "443", "sources": copy.deepcopy(_PUBLIC_SOURCES)}
 
 
 def _make_public_firewall(
     fw_id: str = "fw-abc",
     droplet_ids: list[int] | None = None,
     tags: list[str] | None = None,
+    extra_inbound: list[dict] | None = None,
 ) -> dict:
-    """Return a firewall dict with all-public inbound rules."""
+    """Return a firewall dict with all-public inbound rules.
+
+    Each call returns a fully independent dict (no shared references).
+    Pass ``extra_inbound`` to include custom rules beyond SSH/HTTP/HTTPS.
+    """
+    inbound = [_ssh_rule(), _http_rule_public(), _https_rule_public()]
+    if extra_inbound:
+        inbound.extend(extra_inbound)
     return {
         "id": fw_id,
         "name": f"dango-fw-{fw_id}",
-        "inbound_rules": [_SSH_RULE, _HTTP_RULE_PUBLIC, _HTTPS_RULE_PUBLIC],
-        "outbound_rules": DEFAULT_OUTBOUND_RULES,
+        "inbound_rules": inbound,
+        "outbound_rules": copy.deepcopy(DEFAULT_OUTBOUND_RULES),
         "droplet_ids": droplet_ids or [42],
         "tags": tags or [],
     }
@@ -58,16 +78,16 @@ def _make_allowlist_firewall(
     droplet_ids: list[int] | None = None,
 ) -> dict:
     """Return a firewall dict with allowlist inbound rules for ports 80 and 443."""
-    sources = {"addresses": cidrs}
+    sources = {"addresses": list(cidrs)}
     return {
         "id": fw_id,
         "name": f"dango-fw-{fw_id}",
         "inbound_rules": [
-            _SSH_RULE,
-            {"protocol": "tcp", "ports": "80", "sources": sources},
-            {"protocol": "tcp", "ports": "443", "sources": sources},
+            _ssh_rule(),
+            {"protocol": "tcp", "ports": "80", "sources": copy.deepcopy(sources)},
+            {"protocol": "tcp", "ports": "443", "sources": copy.deepcopy(sources)},
         ],
-        "outbound_rules": DEFAULT_OUTBOUND_RULES,
+        "outbound_rules": copy.deepcopy(DEFAULT_OUTBOUND_RULES),
         "droplet_ids": droplet_ids or [42],
         "tags": [],
     }
@@ -262,6 +282,19 @@ class TestRestrictWebToIps:
             assert "1.1.1.1/32" in addrs
             assert "2.2.2.2/32" in addrs
 
+    def test_preserves_other_inbound_rules(self):
+        """Custom inbound rules (non-SSH, non-web) are not dropped."""
+        custom_rule = {"protocol": "tcp", "ports": "8080", "sources": {"addresses": ["10.0.0.0/8"]}}
+        client = MagicMock()
+        client.get_firewall.return_value = _make_public_firewall(extra_inbound=[custom_rule])
+        client.update_firewall.return_value = {"id": "fw-abc"}
+
+        restrict_web_to_ips(client, "fw-abc", ["1.2.3.4"])
+
+        kwargs = client.update_firewall.call_args[1]
+        ports_in_output = [r["ports"] for r in kwargs["inbound_rules"]]
+        assert "8080" in ports_in_output
+
 
 # ---------------------------------------------------------------------------
 # 4. allow_all_web
@@ -305,6 +338,19 @@ class TestAllowAllWeb:
 
         kwargs = client.update_firewall.call_args[1]
         assert kwargs["outbound_rules"] == DEFAULT_OUTBOUND_RULES
+
+    def test_preserves_other_inbound_rules(self):
+        """Custom inbound rules (non-SSH, non-web) are not dropped."""
+        custom_rule = {"protocol": "tcp", "ports": "8080", "sources": {"addresses": ["10.0.0.0/8"]}}
+        client = MagicMock()
+        client.get_firewall.return_value = _make_public_firewall(extra_inbound=[custom_rule])
+        client.update_firewall.return_value = {"id": "fw-abc"}
+
+        allow_all_web(client, "fw-abc")
+
+        kwargs = client.update_firewall.call_args[1]
+        ports_in_output = [r["ports"] for r in kwargs["inbound_rules"]]
+        assert "8080" in ports_in_output
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +424,19 @@ class TestAddAllowedIp:
         web_rules = [r for r in kwargs["inbound_rules"] if r["ports"] in ("80", "443")]
         for rule in web_rules:
             assert "10.0.0.0/24" in rule["sources"]["addresses"]
+
+    def test_preserves_other_inbound_rules(self):
+        """Custom inbound rules (non-SSH, non-web) are not dropped."""
+        custom_rule = {"protocol": "tcp", "ports": "8080", "sources": {"addresses": ["10.0.0.0/8"]}}
+        client = MagicMock()
+        client.get_firewall.return_value = _make_public_firewall(extra_inbound=[custom_rule])
+        client.update_firewall.return_value = {"id": "fw-abc"}
+
+        add_allowed_ip(client, "fw-abc", "1.2.3.4")
+
+        kwargs = client.update_firewall.call_args[1]
+        ports_in_output = [r["ports"] for r in kwargs["inbound_rules"]]
+        assert "8080" in ports_in_output
 
 
 # ---------------------------------------------------------------------------
