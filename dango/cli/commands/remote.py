@@ -5,6 +5,11 @@ Remote server management commands for Dango cloud deployments.
 Command hierarchy::
 
     dango remote (group)
+    ├── env (subgroup)
+    │   ├── set K=V    — Set an environment variable
+    │   ├── get K      — Display a variable (masked)
+    │   ├── list       — List all variables (masked)
+    │   └── delete K   — Remove a variable
     └── firewall (subgroup)
         ├── list       — Show current firewall rules
         ├── allow-ip   — Restrict ports 80/443 to a specific IP
@@ -96,6 +101,47 @@ def _load_cloud_config_or_fail(ctx: click.Context) -> tuple[Any, str]:
         raise SystemExit(1)
 
     return cloud_cfg, cloud_cfg.firewall_id
+
+
+def _ssh_connect_or_fail(ctx: click.Context) -> tuple[Any, Any, Path]:
+    """Load cloud config, connect SSH as ``dango`` user, return context.
+
+    Returns:
+        Tuple of (CloudConfig, connected SSHManager, project_root Path).
+        Caller **must** call ``ssh.disconnect()`` when done.
+
+    Raises:
+        SystemExit: If no deployment or SSH connection fails.
+    """
+    from dango.cli.utils import require_project_context
+    from dango.config.loader import ConfigLoader
+    from dango.platform.cloud.ssh import SSHManager
+
+    project_root: Path = require_project_context(ctx)
+    loader = ConfigLoader(project_root)
+    cloud_cfg = loader.load_cloud_config()
+
+    if cloud_cfg is None or cloud_cfg.droplet_id is None:
+        console.print(
+            "[red]Error:[/red] No cloud deployment found. "
+            "Run [bold]dango deploy[/bold] to provision a server first."
+        )
+        raise SystemExit(1)
+
+    server_ip = cloud_cfg.droplet_ip
+    if server_ip is None:
+        console.print("[red]Error:[/red] No server IP in cloud config.")
+        raise SystemExit(1)
+
+    key_path = Path(cloud_cfg.ssh_key_path) if cloud_cfg.ssh_key_path else None
+    ssh = SSHManager(key_path=key_path)
+    try:
+        ssh.connect(server_ip, username="dango")
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] SSH connection failed: {exc}")
+        raise SystemExit(1) from exc
+
+    return cloud_cfg, ssh, project_root
 
 
 def _make_client() -> Any:
@@ -230,3 +276,12 @@ def firewall_allow_all(ctx: click.Context) -> None:
 
     console.print("[green]Firewall updated.[/green] Ports 80/443 are now open to all traffic.")
     console.print(f"  Firewall: {fw.get('name', firewall_id)}")
+
+
+# ---------------------------------------------------------------------------
+# Register subgroups from separate modules
+# ---------------------------------------------------------------------------
+
+from dango.cli.commands.remote_env import env  # noqa: E402
+
+remote.add_command(env)
