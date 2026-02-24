@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from dango.exceptions import CloudProvisioningError
@@ -175,7 +175,7 @@ def _create_archive(
     archive_path = f"{BACKUP_DIR}/{archive_name}.tar.gz"
 
     try:
-        _run_checked(ssh, f"mkdir -p {staging}", step="create_staging")
+        _run_checked(ssh, f"mkdir -p {BACKUP_DIR} {staging}", step="create_staging")
 
         # Build copy commands for all files/dirs/metabase
         copy_cmds: list[str] = []
@@ -221,16 +221,7 @@ def _create_archive(
             files=files,
             total_size_bytes=total_size,
         )
-        manifest_json = json.dumps(
-            {
-                "timestamp": timestamp,
-                "backup_type": backup_type,
-                "dango_version": dango_version,
-                "files": files,
-                "total_size_bytes": total_size,
-            },
-            indent=2,
-        )
+        manifest_json = json.dumps(asdict(manifest), indent=2)
         _run_checked(
             ssh,
             f"cat > {staging}/manifest.json << 'MANIFEST_EOF'\n{manifest_json}\nMANIFEST_EOF",

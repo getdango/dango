@@ -30,39 +30,10 @@ from dango.cli import console
 
 
 def _load_cloud_config_with_ssh_or_fail(ctx: click.Context) -> tuple[Any, Any]:
-    """Load CloudConfig and return a connected SSHManager.
+    """Load CloudConfig and return a connected SSHManager.  Caller must close SSH."""
+    from dango.cli.utils import load_cloud_config_with_ssh
 
-    Reuses the same logic as ``remote._load_cloud_config_with_ssh_or_fail``
-    but avoids circular imports by inlining.
-
-    Returns:
-        Tuple of (CloudConfig, connected SSHManager).  Caller must close SSH.
-    """
-    from dango.cli.utils import require_project_context
-    from dango.config.loader import ConfigLoader
-    from dango.platform.cloud.ssh import SSHManager
-
-    project_root: Path = require_project_context(ctx)
-    loader = ConfigLoader(project_root)
-    cloud_cfg = loader.load_cloud_config()
-
-    if cloud_cfg is None or cloud_cfg.droplet_id is None or cloud_cfg.droplet_ip is None:
-        console.print(
-            "[red]Error:[/red] No cloud deployment found. "
-            "Run [bold]dango deploy[/bold] to provision a server first."
-        )
-        raise SystemExit(1)
-
-    key_path = project_root / cloud_cfg.ssh_key_path
-    ssh = SSHManager(key_path=key_path)
-
-    try:
-        ssh.connect(cloud_cfg.droplet_ip, username="root")
-    except Exception as exc:
-        console.print(f"[red]Error:[/red] SSH connection failed: {exc}")
-        raise SystemExit(1) from exc
-
-    return cloud_cfg, ssh
+    return load_cloud_config_with_ssh(ctx)
 
 
 def _load_spaces_client_or_fail(ctx: click.Context) -> tuple[Any, Any]:
@@ -403,6 +374,14 @@ def backup_restore(ctx: click.Context, source: str, yes: bool) -> None:
         ):
             console.print("[yellow]Restore cancelled.[/yellow]")
             return
+
+    # Validate source to prevent shell injection (passed to remote Python command)
+    if not all(c.isalnum() or c in "-_." for c in source):
+        console.print(
+            "[red]Error:[/red] Invalid backup name. "
+            "Use only alphanumeric characters, hyphens, underscores, and dots."
+        )
+        raise SystemExit(1)
 
     cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
 

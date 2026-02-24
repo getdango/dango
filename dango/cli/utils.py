@@ -102,6 +102,41 @@ def get_git_branch(project_root: Path | None = None) -> str | None:
     return None
 
 
+def load_cloud_config_with_ssh(ctx: click.Context) -> tuple:
+    """Load CloudConfig and return a connected SSHManager.
+
+    Returns:
+        Tuple of (CloudConfig, connected SSHManager).  Caller must close SSH.
+
+    Raises:
+        SystemExit: If no deployment is configured or SSH connection fails.
+    """
+    from dango.config.loader import ConfigLoader
+    from dango.platform.cloud.ssh import SSHManager
+
+    project_root: Path = require_project_context(ctx)
+    loader = ConfigLoader(project_root)
+    cloud_cfg = loader.load_cloud_config()
+
+    if cloud_cfg is None or cloud_cfg.droplet_id is None or cloud_cfg.droplet_ip is None:
+        console.print(
+            "[red]Error:[/red] No cloud deployment found. "
+            "Run [bold]dango deploy[/bold] to provision a server first."
+        )
+        raise SystemExit(1)
+
+    key_path = project_root / cloud_cfg.ssh_key_path
+    ssh = SSHManager(key_path=key_path)
+
+    try:
+        ssh.connect(cloud_cfg.droplet_ip, username="root")
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] SSH connection failed: {exc}")
+        raise SystemExit(1) from exc
+
+    return cloud_cfg, ssh
+
+
 def check_git_branch_warning(project_root: Path | None = None) -> None:
     """
     Check if on main/master branch and show gentle warning.

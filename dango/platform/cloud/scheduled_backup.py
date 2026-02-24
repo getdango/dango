@@ -155,7 +155,7 @@ def _make_spaces_client(spaces_config: dict[str, Any]) -> Any:
     return SpacesClient(bucket=spaces_config["bucket"], region=spaces_config["region"])
 
 
-def _create_local_archive(backup_type: str) -> tuple[Path, dict[str, Any]]:
+def _create_local_archive(backup_type: str) -> tuple[Path, dict[str, Any], list[str]]:
     """Create a tar.gz backup archive. Stops/restarts services via try/finally."""
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     archive_name = f"backup-{timestamp}"
@@ -230,7 +230,7 @@ def _create_local_archive(backup_type: str) -> tuple[Path, dict[str, Any]]:
         subprocess.run(f"rm -rf '{staging}'", shell=True, timeout=30)
         _start_services()
 
-    return archive_path, manifest
+    return archive_path, manifest, warnings
 
 
 def _upload_to_spaces(archive_path: Path, spaces_config: dict[str, Any]) -> str:
@@ -352,8 +352,9 @@ def run_scheduled_backup() -> ScheduledBackupResult:
     lock_fd = None
     try:
         lock_fd = _acquire_backup_lock()
-        archive_path, _manifest = _create_local_archive(backup_type="scheduled")
+        archive_path, _manifest, archive_warnings = _create_local_archive(backup_type="scheduled")
         result.archive_path = str(archive_path)
+        result.warnings.extend(archive_warnings)
 
         try:
             spaces_config = _load_spaces_config()
