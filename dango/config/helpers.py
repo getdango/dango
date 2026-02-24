@@ -12,7 +12,7 @@ from .exceptions import ProjectNotFoundError
 from .loader import ConfigLoader
 
 if TYPE_CHECKING:
-    from .models import DangoConfig, SourcesConfig
+    from .models import CloudConfig, DangoConfig, SourcesConfig
 
 
 def find_project_root(start_path: Path | None = None) -> Path:
@@ -76,6 +76,34 @@ def save_config(config: DangoConfig, project_root: Path | None = None) -> None:
     """
     loader = ConfigLoader(project_root)
     loader.save_config(config)
+
+
+def is_cloud_mode(project_root: Path) -> bool:
+    """Check if this project has an active cloud deployment.
+
+    Returns True if ``.dango/cloud.yml`` exists and contains a ``droplet_id``.
+    """
+    loader = ConfigLoader(project_root)
+    cloud_cfg: CloudConfig | None = loader.load_cloud_config()
+    return cloud_cfg is not None and cloud_cfg.droplet_id is not None
+
+
+def get_cloud_origin(project_root: Path) -> str | None:
+    """Return the public origin URL for a cloud deployment.
+
+    Returns ``https://{domain}`` if a domain is configured,
+    ``http://{ip}`` if only an IP is available, or ``None`` if
+    there is no cloud deployment.
+    """
+    loader = ConfigLoader(project_root)
+    cloud_cfg: CloudConfig | None = loader.load_cloud_config()
+    if cloud_cfg is None or cloud_cfg.droplet_id is None:
+        return None
+    if cloud_cfg.domain:
+        return f"https://{cloud_cfg.domain}"
+    if cloud_cfg.droplet_ip:
+        return f"http://{cloud_cfg.droplet_ip}"
+    return None
 
 
 def check_unreferenced_custom_sources(

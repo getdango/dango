@@ -55,6 +55,7 @@ class RateLimitMiddleware:
     def __init__(self, app: Any, config: RateLimitConfig | None = None) -> None:
         self.app = app
         self.config = config if config is not None else RateLimitConfig()
+        self._trusted_proxies: frozenset[str] = frozenset(self.config.trusted_proxies)
         # group -> IP -> deque of timestamps (monotonic seconds)
         self._windows: dict[str, dict[str, deque[float]]] = {}
         self._last_cleanup: float = time.monotonic()
@@ -103,11 +104,33 @@ class RateLimitMiddleware:
         await self.app(scope, receive, send)
 
     def _get_client_ip(self, scope: Scope) -> str:
-        """Extract client IP address from the ASGI scope."""
+        """Extract client IP address from the ASGI scope.
+
+        When the direct TCP peer is in ``trusted_proxies``, walks the
+        ``X-Forwarded-For`` header right-to-left to find the rightmost
+        non-trusted IP (the actual client).  An attacker can spoof the
+        left side of XFF but not the right — the rightmost entry is
+        appended by the first trusted proxy that received the connection.
+        """
         client: tuple[str, int] | None = scope.get("client")
-        if client is not None:
-            return client[0]
-        return ""
+        peer_ip = client[0] if client is not None else ""
+
+        if not self._trusted_proxies or peer_ip not in self._trusted_proxies:
+            return peer_ip
+
+        # Peer is trusted — extract real IP from X-Forwarded-For
+        headers: list[tuple[bytes, bytes]] = scope.get("headers", [])
+        for name, value in headers:
+            if name == b"x-forwarded-for":
+                parts = [p.strip() for p in value.decode("latin-1").split(",")]
+                # Walk right-to-left, skip trusted proxies
+                for ip in reversed(parts):
+                    if ip not in self._trusted_proxies:
+                        return ip
+                # All IPs in the chain are trusted — use the leftmost
+                return parts[0] if parts else peer_ip
+
+        return peer_ip
 
     def _classify_route(self, path: str) -> str | None:
         """Map a request path to a rate limit group name, or None if unlimited."""

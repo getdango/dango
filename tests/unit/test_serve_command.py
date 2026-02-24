@@ -82,7 +82,12 @@ class TestServeHappyPath:
         mock_dashboards.assert_called_once_with(tmp_path)
         mock_check_port.assert_called_once_with(8800)
         mock_uvicorn_run.assert_called_once_with(
-            "dango.web.app:app", host="0.0.0.0", port=8800, log_level="info"
+            "dango.web.app:app",
+            host="0.0.0.0",
+            port=8800,
+            log_level="info",
+            proxy_headers=True,
+            forwarded_allow_ips="127.0.0.1",
         )
 
     @patch("uvicorn.run")
@@ -119,7 +124,12 @@ class TestServeHappyPath:
         assert result.exit_code == 0, result.output
         mock_check_port.assert_called_once_with(9000)
         mock_uvicorn_run.assert_called_once_with(
-            "dango.web.app:app", host="0.0.0.0", port=9000, log_level="info"
+            "dango.web.app:app",
+            host="0.0.0.0",
+            port=9000,
+            log_level="info",
+            proxy_headers=True,
+            forwarded_allow_ips="127.0.0.1",
         )
 
     @patch("uvicorn.run")
@@ -155,7 +165,12 @@ class TestServeHappyPath:
 
         assert result.exit_code == 0, result.output
         mock_uvicorn_run.assert_called_once_with(
-            "dango.web.app:app", host="127.0.0.1", port=8800, log_level="info"
+            "dango.web.app:app",
+            host="127.0.0.1",
+            port=8800,
+            log_level="info",
+            proxy_headers=True,
+            forwarded_allow_ips="127.0.0.1",
         )
 
 

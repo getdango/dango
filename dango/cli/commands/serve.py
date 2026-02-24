@@ -116,7 +116,14 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
 
     print(f"Starting Dango on {host}:{effective_port}")
     try:
-        uvicorn.run("dango.web.app:app", host=host, port=effective_port, log_level="info")
+        uvicorn.run(
+            "dango.web.app:app",
+            host=host,
+            port=effective_port,
+            log_level="info",
+            proxy_headers=True,
+            forwarded_allow_ips="127.0.0.1",
+        )
     finally:
         _stop_docker_quiet(project_root)
 

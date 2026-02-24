@@ -20,13 +20,13 @@ from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
 from dango.platform.cloud._server_templates import (
-    CADDYFILE,
     DOCKER_DAEMON_JSON,
     FAIL2BAN_JAIL,
     JOURNALD_CONF,
     LOGROTATE_CONF,
     SYSTEMD_UNIT,
     UNATTENDED_UPGRADES_CONF,
+    build_caddyfile,
 )
 
 if TYPE_CHECKING:
@@ -389,11 +389,14 @@ def _setup_caddyfile(
     ssh: SSHManager,
     result: SetupResult,
     on_progress: Callable[[str, str], None] | None,
+    *,
+    domain: str | None = None,
 ) -> None:
-    """Step 14: Write minimal HTTP Caddyfile."""
+    """Step 14: Write Caddyfile (HTTPS with domain or HTTP-only)."""
     step = "caddyfile"
     _notify(on_progress, step, "running")
-    changed = _write_remote_config(ssh, "/etc/caddy/Caddyfile", CADDYFILE, step=step)
+    content = build_caddyfile(domain)
+    changed = _write_remote_config(ssh, "/etc/caddy/Caddyfile", content, step=step)
     if changed:
         _run_checked(ssh, "systemctl reload-or-restart caddy", step=step)
     _mark(result, on_progress, step, changed)
@@ -467,22 +470,16 @@ def setup_server(
     ssh: SSHManager,
     *,
     on_progress: Callable[[str, str], None] | None = None,
+    domain: str | None = None,
 ) -> SetupResult:
     """Run all server setup steps on a connected droplet.
 
-    The SSH connection must already be established as **root**.  Each step
-    is idempotent — safe to re-run on a partially or fully configured server.
-
-    The systemd service is **enabled but not started**; the deploy wizard
-    (TASK-029) starts it after file sync.
+    SSH must be established as **root**.  Each step is idempotent.
 
     Args:
         ssh: A connected ``SSHManager`` (as root).
-        on_progress: Optional callback ``(step_name, status)`` where status
-            is ``"running"``, ``"done"``, or ``"skipped"``.
-
-    Returns:
-        ``SetupResult`` with completed, skipped, and warning lists.
+        on_progress: ``(step_name, status)`` callback.
+        domain: FQDN for HTTPS (Caddy auto-TLS). ``None`` → HTTP-only.
 
     Raises:
         CloudProvisioningError: If any step fails.
@@ -490,6 +487,9 @@ def setup_server(
     result = SetupResult()
 
     for step_fn in _SETUP_STEPS:
-        step_fn(ssh, result, on_progress)
+        if step_fn is _setup_caddyfile:
+            _setup_caddyfile(ssh, result, on_progress, domain=domain)
+        else:
+            step_fn(ssh, result, on_progress)
 
     return result
