@@ -9,6 +9,7 @@ Command hierarchy::
     ├── logs                — View service logs (with optional streaming)
     ├── ssh                 — Open interactive SSH session
     ├── query               — Run read-only SQL against remote DuckDB
+    ├── push                — Push local files and rebuild
     ├── rollback            — Restore from a backup
     ├── env (subgroup)
     │   ├── set K=V         — Set an environment variable
@@ -55,6 +56,7 @@ def remote(ctx: click.Context) -> None:
       dango remote logs                    View service logs
       dango remote ssh                     Open interactive SSH session
       dango remote query "SQL"             Run read-only SQL query
+      dango remote push                    Push local files and rebuild
       dango remote rollback                Restore from a backup
       dango remote firewall list           Show current firewall rules
       dango remote firewall allow-ip       Restrict web to a specific IP
@@ -271,7 +273,121 @@ def remote_rollback(ctx: click.Context, backup: str | None, yes: bool) -> None:
         console.print(f"[red]Error:[/red] Rollback failed: {exc}")
         raise SystemExit(1) from exc
     finally:
-        ssh.close()
+        ssh.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# push
+# ---------------------------------------------------------------------------
+
+
+@remote.command("push")
+@click.option("--dry-run", is_flag=True, help="Show changes without applying.")
+@click.option("--force", is_flag=True, help="Override an existing deploy lock.")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
+@click.pass_context
+def remote_push(ctx: click.Context, dry_run: bool, force: bool, yes: bool) -> None:
+    """Push local project files to the remote server and rebuild.
+
+    Syncs config and dbt files, creates a pre-deploy backup, runs
+    ``dbt compile`` and selectively rebuilds changed models.
+
+    Use ``--dry-run`` to preview changes without applying them.
+
+    Examples:
+      dango remote push
+      dango remote push --dry-run
+      dango remote push --force --yes
+    """
+    from rich.status import Status
+
+    from dango.platform.cloud.deployer import push_deploy
+
+    cloud_cfg, project_root = _require_cloud_deployment(ctx)
+
+    if cloud_cfg.droplet_ip is None:
+        console.print("[red]Error:[/red] No droplet IP found in cloud.yml.")
+        raise SystemExit(1)
+
+    if not dry_run and not yes:
+        if not click.confirm(
+            "This will push local files to the remote server and rebuild. Continue?"
+        ):
+            console.print("[yellow]Push cancelled.[/yellow]")
+            return
+
+    ssh = _connect_ssh(cloud_cfg, project_root)
+
+    try:
+        with Status("[bold blue]Deploying...", console=console) as status:
+
+            def _on_progress(step: str, step_status: str) -> None:
+                if step_status == "running":
+                    labels = {
+                        "acquire_lock": "Acquiring deploy lock...",
+                        "create_backup": "Creating pre-deploy backup...",
+                        "stop_web": "Stopping web service...",
+                        "sync_files": "Syncing files...",
+                        "detect_changes": "Detecting changes...",
+                        "upload_config": "Uploading config files...",
+                        "sync_dbt": "Syncing dbt directories...",
+                        "fix_ownership": "Fixing file ownership...",
+                        "validate_sources": "Validating sources...",
+                        "dbt_deps": "Installing dbt packages...",
+                        "dbt_compile": "Compiling dbt project...",
+                        "dbt_run": "Running dbt models...",
+                        "start_web": "Starting web service...",
+                    }
+                    status.update(f"[bold blue]{labels.get(step, step)}")
+
+            result = push_deploy(
+                ssh,
+                project_root,
+                cloud_cfg.droplet_ip,
+                dry_run=dry_run,
+                force=force,
+                on_progress=_on_progress,
+            )
+
+        # --- Summary ---
+        if dry_run:
+            console.print("\n[bold cyan]Dry-run summary:[/bold cyan]")
+        else:
+            console.print("\n[green]Push complete.[/green]")
+
+        sr = result.sync_result
+        console.print(f"  Files synced: {len(sr.synced_files)}")
+        if sr.added_models:
+            console.print(f"  New models: {', '.join(sr.added_models)}")
+        if sr.changed_models:
+            console.print(f"  Changed models: {', '.join(sr.changed_models)}")
+        if sr.removed_models:
+            console.print(f"  Removed models: {', '.join(sr.removed_models)}")
+        if sr.packages_changed:
+            console.print("  packages.yml: [yellow]changed[/yellow]")
+
+        if not dry_run:
+            if result.dbt_deps_run:
+                console.print("  dbt deps: [green]ran[/green]")
+            if result.dbt_compile_success:
+                console.print("  dbt compile: [green]success[/green]")
+            if result.models_rebuilt:
+                console.print(f"  Models rebuilt: {', '.join(result.models_rebuilt)}")
+            console.print(f"  Duration: {result.duration_seconds}s")
+
+        for warning in result.warnings:
+            console.print(f"  [yellow]Warning:[/yellow] {warning}")
+
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] Push failed: {exc}")
+        if not dry_run:
+            console.print(
+                "[dim]A pre-deploy backup was created. "
+                "Use [bold]dango remote rollback[/bold] to restore.[/dim]"
+            )
+        raise SystemExit(1) from exc
+    finally:
+        ssh.disconnect()
 
 
 # ---------------------------------------------------------------------------
@@ -461,7 +577,7 @@ def domain_set(ctx: click.Context, domain_name: str) -> None:
         console.print(f"[red]Error:[/red] {exc}")
         raise SystemExit(1) from exc
     finally:
-        ssh.close()
+        ssh.disconnect()
 
     if result["dns_ok"]:
         console.print(f"[green]DNS OK:[/green] {result['dns_message']}")
@@ -508,7 +624,7 @@ def domain_remove(ctx: click.Context) -> None:
         console.print(f"[red]Error:[/red] {exc}")
         raise SystemExit(1) from exc
     finally:
-        ssh.close()
+        ssh.disconnect()
 
     prev = result.get("previous_domain")
     if prev:

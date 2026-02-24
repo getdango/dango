@@ -57,7 +57,7 @@ def _make_ssh_mock() -> MagicMock:
     ssh = MagicMock()
     ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=0)
     ssh.connect.return_value = ssh
-    ssh.close.return_value = None
+    ssh.disconnect.return_value = None
     return ssh
 
 
@@ -100,7 +100,7 @@ class TestBackupOnDemand:
 
         assert result.exit_code == 0
         assert "completed" in result.output.lower()
-        ssh.close.assert_called_once()
+        ssh.disconnect.assert_called_once()
 
     def test_no_deployment_exits_with_error(self, tmp_path):
         """Exits when no cloud deployment is configured."""
@@ -146,7 +146,7 @@ class TestBackupList:
 
         assert result.exit_code == 0
         assert "backup-20260224-143000" in result.output
-        ssh.close.assert_called_once()
+        ssh.disconnect.assert_called_once()
 
     def test_empty_shows_no_backups(self, tmp_path):
         """Shows message when no backups exist."""
@@ -190,7 +190,7 @@ class TestBackupEnable:
         assert "enabled" in result.output.lower()
         # Verify systemd files were written
         assert ssh.write_remote_file.call_count == 2
-        ssh.close.assert_called_once()
+        ssh.disconnect.assert_called_once()
 
     def test_missing_spaces_credentials_fails(self, tmp_path):
         """Fails when SPACES_ACCESS_KEY is not in .env."""
@@ -226,7 +226,7 @@ class TestBackupDisable:
 
         assert result.exit_code == 0
         assert "disabled" in result.output.lower()
-        ssh.close.assert_called_once()
+        ssh.disconnect.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -345,4 +345,4 @@ class TestRollbackCommand:
 
         assert result.exit_code == 0
         assert "complete" in result.output.lower()
-        ssh.close.assert_called_once()
+        ssh.disconnect.assert_called_once()
