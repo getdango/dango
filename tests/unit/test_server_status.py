@@ -268,11 +268,11 @@ class TestGetLocalResourceUsage:
 
     def test_disk_none_on_missing_path(self):
         """Disk values are None when /srv/dango does not exist."""
-        # On macOS/dev machines, /srv/dango won't exist
-        result = get_local_resource_usage()
-        # We can't assert specific values since /srv/dango may or may not exist,
-        # but the function should not raise
-        assert isinstance(result, dict)
+        with patch("shutil.disk_usage", side_effect=OSError("No such file")):
+            result = get_local_resource_usage()
+        assert result["disk_total_mb"] is None
+        assert result["disk_used_mb"] is None
+        assert result["disk_free_mb"] is None
 
 
 # ---------------------------------------------------------------------------

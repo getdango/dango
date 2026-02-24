@@ -182,6 +182,12 @@
     <script>
         let refreshInterval;
 
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
         async function fetchHealth() {
             try {
                 const response = await fetch('/api/health/platform');
@@ -218,7 +224,7 @@
                 statusIcon.textContent = '⚠️';
                 statusTitle.textContent = 'Platform Has Warnings';
                 statusTitle.className = 'text-lg font-semibold text-yellow-800';
-                statusIssues.innerHTML = health.warnings.map(w => `&bull; ${w}`).join('<br>');
+                statusIssues.innerHTML = health.warnings.map(w => `&bull; ${escapeHtml(w)}`).join('<br>');
                 statusIssues.className = 'mt-1 text-sm text-yellow-700';
             } else if (health.status === 'critical') {
                 banner.classList.add('bg-red-50', 'border-red-200');
@@ -226,7 +232,7 @@
                 statusTitle.textContent = 'Critical Issues Detected';
                 statusTitle.className = 'text-lg font-semibold text-red-800';
                 const allIssues = [...health.critical_issues, ...health.warnings];
-                statusIssues.innerHTML = allIssues.map(i => `&bull; ${i}`).join('<br>');
+                statusIssues.innerHTML = allIssues.map(i => `&bull; ${escapeHtml(i)}`).join('<br>');
                 statusIssues.className = 'mt-1 text-sm text-red-700';
             }
 
@@ -415,13 +421,13 @@
                     <div class="border border-red-200 rounded-lg p-4 bg-red-50">
                         <div class="flex items-start">
                             <div class="flex-shrink-0">
-                                <span class="text-2xl">${issue.icon}</span>
+                                <span class="text-2xl">${escapeHtml(issue.icon)}</span>
                             </div>
                             <div class="ml-3 flex-1">
-                                <h4 class="text-sm font-semibold text-red-800">${issue.type}: ${issue.title}</h4>
-                                <p class="mt-1 text-sm text-red-700">${issue.message}</p>
-                                ${issue.count ? `<p class="mt-1 text-xs text-red-600">Failed ${issue.count} time(s)</p>` : ''}
-                                ${issue.models ? `<p class="mt-1 text-xs text-red-600 font-mono">${issue.models.join(', ')}</p>` : ''}
+                                <h4 class="text-sm font-semibold text-red-800">${escapeHtml(issue.type)}: ${escapeHtml(issue.title)}</h4>
+                                <p class="mt-1 text-sm text-red-700">${escapeHtml(issue.message)}</p>
+                                ${issue.count ? `<p class="mt-1 text-xs text-red-600">Failed ${escapeHtml(String(issue.count))} time(s)</p>` : ''}
+                                ${issue.models ? `<p class="mt-1 text-xs text-red-600 font-mono">${issue.models.map(m => escapeHtml(m)).join(', ')}</p>` : ''}
                             </div>
                         </div>
                     </div>

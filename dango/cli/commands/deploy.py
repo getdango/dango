@@ -208,10 +208,9 @@ def deploy_destroy(
 
 def _resolve_key_path(cloud_cfg: Any, project_root: Path) -> Path:
     """Resolve SSH key path from config."""
-    key_path = Path(cloud_cfg.ssh_key_path)
-    if not key_path.is_absolute():
-        key_path = project_root / key_path
-    return key_path
+    from dango.cli.commands.remote_mgmt import _resolve_ssh_key_path
+
+    return _resolve_ssh_key_path(cloud_cfg, project_root)
 
 
 def _offer_backup_download(cloud_cfg: Any, project_root: Path) -> None:
@@ -243,9 +242,14 @@ def _offer_backup_download(cloud_cfg: Any, project_root: Path) -> None:
             return
 
         latest_backup = result.stdout.strip()
+        if "/" in latest_backup or "\\" in latest_backup or not latest_backup:
+            console.print(
+                "[yellow]Warning:[/yellow] Unexpected backup filename — skipping download."
+            )
+            return
         if click.confirm(f"Download latest backup ({latest_backup}) before destroying?"):
             remote_path = f"/srv/dango/backups/deploy/{latest_backup}"
-            local_path = Path(f"dango-backup-{latest_backup}")
+            local_path = project_root / f"dango-backup-{latest_backup}"
             try:
                 ssh.download_file(remote_path, local_path)
                 console.print(f"[green]Downloaded[/green] backup to {local_path}")
@@ -308,7 +312,7 @@ def _delete_spaces_bucket(cloud_cfg: Any, errors: list[str]) -> None:
     try:
         spaces = SpacesClient(
             bucket=spaces_cfg.bucket,
-            region=spaces_cfg.region,
+            region=spaces_cfg.region or cloud_cfg.region,
             access_key_env=spaces_cfg.access_key_env,
             secret_key_env=spaces_cfg.secret_key_env,
         )

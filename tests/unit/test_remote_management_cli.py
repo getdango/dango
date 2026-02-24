@@ -171,6 +171,20 @@ class TestRemoteStatusCommand:
         assert result.exit_code != 0
         assert "No cloud deployment" in result.output
 
+    def test_no_droplet_ip_exits_with_error(self, tmp_path):
+        """Exits when droplet_id is set but droplet_ip is missing."""
+        cloud_cfg = _make_cloud_config(droplet_ip=None)
+        mock_loader = _make_loader(cloud_cfg=cloud_cfg)
+
+        with (
+            patch(_PATCH_REQUIRE_CTX, return_value=tmp_path),
+            patch(_PATCH_LOADER, return_value=mock_loader),
+        ):
+            result = _run(["status"], tmp_path, catch_exceptions=True)
+
+        assert result.exit_code != 0
+        assert "No droplet IP" in result.output
+
     def test_ssh_connection_failure(self, tmp_path):
         """Exits when SSH connection fails."""
         mock_loader = _make_loader()
@@ -266,6 +280,31 @@ class TestRemoteLogsCommand:
         assert result.exit_code == 0
         cmd = mock_ssh_instance.exec_command.call_args[0][0]
         assert "-n 20" in cmd
+
+    def test_follow_mode_uses_stream(self, tmp_path):
+        """logs -f calls _stream_ssh_command for streaming."""
+        mock_loader = _make_loader()
+        mock_ssh_instance = MagicMock()
+        mock_channel = MagicMock()
+        mock_channel.exit_status_ready.return_value = True
+        mock_channel.recv_ready.return_value = False
+        mock_channel.recv_stderr_ready.return_value = False
+        mock_transport = MagicMock()
+        mock_transport.open_session.return_value = mock_channel
+        mock_ssh_instance.get_transport.return_value = mock_transport
+
+        with (
+            patch(_PATCH_REQUIRE_CTX, return_value=tmp_path),
+            patch(_PATCH_LOADER, return_value=mock_loader),
+            patch(_PATCH_SSH, return_value=mock_ssh_instance),
+        ):
+            result = _run(["logs", "-f"], tmp_path)
+
+        assert result.exit_code == 0
+        mock_transport.open_session.assert_called_once()
+        mock_channel.exec_command.assert_called_once()
+        cmd = mock_channel.exec_command.call_args[0][0]
+        assert "-f" in cmd
 
     def test_no_deployment_exits(self, tmp_path):
         """Exits when no deployment configured."""

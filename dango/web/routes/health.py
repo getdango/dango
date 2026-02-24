@@ -5,7 +5,7 @@ Health check and platform status endpoints.
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -163,7 +163,7 @@ async def get_platform_health() -> dict[str, Any]:
         result["resources"] = cloud_data["resources"]
         result["backup_health"] = cloud_data["backup_health"]
         if cloud_data["backup_health"]["status"] == "stale":
-            warnings.append("Backup is stale (>36h)")
+            warnings.append(f"Backup is stale (>{_BACKUP_STALENESS_HOURS}h)")
         elif cloud_data["backup_health"]["status"] == "none":
             warnings.append("No backups configured")
 
@@ -246,8 +246,8 @@ def _check_backup_health() -> dict[str, Any]:
     if latest_mtime == 0 or latest_name is None:
         return {"status": "none", "last_backup": None}
 
-    last_backup_dt = datetime.fromtimestamp(latest_mtime)
-    age_hours = (datetime.now() - last_backup_dt).total_seconds() / 3600
+    last_backup_dt = datetime.fromtimestamp(latest_mtime, tz=timezone.utc)
+    age_hours = (datetime.now(tz=timezone.utc) - last_backup_dt).total_seconds() / 3600
 
     status = "healthy" if age_hours <= _BACKUP_STALENESS_HOURS else "stale"
 

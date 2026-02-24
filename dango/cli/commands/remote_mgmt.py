@@ -61,10 +61,7 @@ def _make_ssh_manager(cloud_cfg: Any, project_root: Path) -> Any:
     """Create SSHManager from CloudConfig, resolving ssh_key_path."""
     from dango.platform.cloud.ssh import SSHManager
 
-    key_path = Path(cloud_cfg.ssh_key_path)
-    if not key_path.is_absolute():
-        key_path = project_root / key_path
-
+    key_path = _resolve_ssh_key_path(cloud_cfg, project_root)
     return SSHManager(
         key_path=key_path,
         known_hosts_path=key_path.parent / "known_hosts",
@@ -161,12 +158,12 @@ def remote_status(ctx: click.Context) -> None:
     resource_lines = []
     if status.cpu_usage_pct is not None:
         resource_lines.append(f"  CPU: {status.cpu_usage_pct}%")
-    if status.ram_total_mb is not None and status.ram_used_mb is not None:
+    if status.ram_total_mb and status.ram_used_mb is not None:
         ram_pct = round(100 * status.ram_used_mb / status.ram_total_mb, 1)
         resource_lines.append(
             f"  RAM: {status.ram_used_mb} MB / {status.ram_total_mb} MB ({ram_pct}%)"
         )
-    if status.disk_total_mb is not None and status.disk_used_mb is not None:
+    if status.disk_total_mb and status.disk_used_mb is not None:
         disk_pct = round(100 * status.disk_used_mb / status.disk_total_mb, 1)
         avail = f", {status.disk_available_mb} MB free" if status.disk_available_mb else ""
         resource_lines.append(
@@ -288,23 +285,31 @@ def remote_logs(
 def _stream_ssh_command(ssh: Any, command: str) -> None:
     """Stream SSH command output until Ctrl+C or EOF."""
     transport = ssh.get_transport()
-    channel = transport.open_session()
-    channel.exec_command(command)
+    channel = None
     try:
+        channel = transport.open_session()
+        channel.exec_command(command)
         while not channel.exit_status_ready():
             if channel.recv_ready():
                 sys.stdout.buffer.write(channel.recv(4096))
                 sys.stdout.buffer.flush()
+            elif channel.recv_stderr_ready():
+                sys.stderr.buffer.write(channel.recv_stderr(4096))
+                sys.stderr.buffer.flush()
             else:
                 time.sleep(0.1)
         # Drain remaining output
         while channel.recv_ready():
             sys.stdout.buffer.write(channel.recv(4096))
+        while channel.recv_stderr_ready():
+            sys.stderr.buffer.write(channel.recv_stderr(4096))
         sys.stdout.buffer.flush()
+        sys.stderr.buffer.flush()
     except KeyboardInterrupt:
         console.print("\n[dim]Log streaming stopped.[/dim]")
     finally:
-        channel.close()
+        if channel is not None:
+            channel.close()
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +392,11 @@ def remote_query(ctx: click.Context, sql: str, timeout: int) -> None:
         console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
         raise SystemExit(1) from exc
 
+    # SQL is passed as a shell-quoted argv argument to Python on the remote
+    # server. shlex.quote handles local quoting; SSH passes through one
+    # additional shell layer, but since the quoted argument contains no
+    # unquoted metacharacters this is safe for standard SQL input.
+    # DuckDB's read_only=True provides defense-in-depth against writes.
     escaped_sql = shlex.quote(sql)
     cmd = (
         f"{_VENV_PYTHON} -c "

@@ -66,6 +66,7 @@ _VENV_PYTHON = "/srv/dango/venv/bin/python3"
 _SYNC_HISTORY = "/srv/dango/project/.dango/state/sync_history.jsonl"
 _DEPLOY_TIMESTAMP = "/srv/dango/project/.dango/state/deploy_timestamp"
 _BACKUP_DIR = "/srv/dango/backups/deploy"
+_SYNC_HISTORY_TAIL = 50  # Recent lines to read — sufficient for per-source latest timestamps
 
 
 def collect_server_status(ssh: Any, cloud_config: Any) -> ServerStatus:
@@ -105,7 +106,7 @@ def _get_cpu_usage(ssh: Any) -> float | None:
     try:
         # Format: %Cpu(s):  1.5 us,  0.3 sy, ... 97.2 id, ...
         for part in result.stdout.split(","):
-            if "id" in part:
+            if part.strip().endswith("id"):
                 idle = float(part.strip().split()[0])
                 return round(100.0 - idle, 1)
     except (ValueError, IndexError):
@@ -215,7 +216,7 @@ def _get_last_backup(ssh: Any) -> str | None:
 
 def _get_sync_history(ssh: Any) -> dict[str, str]:
     """Parse per-source last sync timestamps from sync_history.jsonl."""
-    result = ssh.exec_command(f"cat {_SYNC_HISTORY} 2>/dev/null | tail -50")
+    result = ssh.exec_command(f"cat {_SYNC_HISTORY} 2>/dev/null | tail -{_SYNC_HISTORY_TAIL}")
     if not result.success or not result.stdout.strip():
         return {}
     latest: dict[str, str] = {}
@@ -308,17 +309,15 @@ def get_local_resource_usage() -> dict[str, Any]:
     except (OSError, ValueError):
         pass
 
-    # CPU — Linux only (/proc/stat, single-sample so approximate)
+    # CPU — Linux only (/proc/loadavg, 1-min load average normalized by CPU count)
     try:
-        with open("/proc/stat") as f:
-            line = f.readline()
-            if line.startswith("cpu "):
-                values = [int(v) for v in line.split()[1:]]
-                # user, nice, system, idle, iowait, irq, softirq, steal
-                idle = values[3] + (values[4] if len(values) > 4 else 0)
-                total = sum(values)
-                if total > 0:
-                    result["cpu_usage_pct"] = round(100.0 * (1.0 - idle / total), 1)
+        import os
+
+        with open("/proc/loadavg") as f:
+            load_1min = float(f.readline().split()[0])
+        cpu_count = os.cpu_count() or 1
+        # Normalize load average to percentage (capped at 100%)
+        result["cpu_usage_pct"] = round(min(100.0, 100.0 * load_1min / cpu_count), 1)
     except (OSError, ValueError, IndexError):
         pass
 
