@@ -382,8 +382,8 @@ def remote_push(ctx: click.Context, dry_run: bool, force: bool, yes: bool) -> No
         console.print(f"[red]Error:[/red] Push failed: {exc}")
         if not dry_run:
             console.print(
-                "[dim]A pre-deploy backup was created. "
-                "Use [bold]dango remote rollback[/bold] to restore.[/dim]"
+                "[dim]A pre-deploy backup may have been created. "
+                "Use [bold]dango remote rollback[/bold] to check and restore.[/dim]"
             )
         raise SystemExit(1) from exc
     finally:

@@ -76,6 +76,7 @@ class SyncResult:
     added_models: list[str] = field(default_factory=list)
     removed_models: list[str] = field(default_factory=list)
     packages_changed: bool = False
+    has_macro_changes: bool = False
     is_first_deploy: bool = False
     dry_run: bool = False
 
@@ -167,7 +168,7 @@ def _detect_dbt_changes(
 
 def _build_rsync_ssh_arg(ssh_key_path: Path) -> str:
     """Build the ``-e`` argument for rsync to use the correct SSH key."""
-    return f"ssh -i {ssh_key_path} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    return f'ssh -i "{ssh_key_path}" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
 
 
 def _rsync_directory(
@@ -347,23 +348,30 @@ def sync_project_files(
         synced_files.append(f"{dbt_dir}/")
     _notify(on_progress, "sync_dbt", "done")
 
-    # --- Step 4: Detect model changes ---
+    # --- Step 4: Detect model and macro changes ---
+    has_macro_changes = False
     if first_deploy:
         # All local models are "added" on first deploy
         added_models = sorted(_extract_model_name(p) for p in local_model_hashes)
         changed_models: list[str] = []
         removed_models: list[str] = []
+        # Any macros present = macro changes on first deploy
+        if local_macro_hashes:
+            has_macro_changes = True
         # packages.yml is always "changed" on first deploy if it exists
         if (local_project_root / "dbt" / "packages.yml").is_file():
             packages_changed = True
     else:
-        added_m, changed_m, removed_m = _detect_dbt_changes(before_model_hashes, local_model_hashes)
+        # Model changes — reported individually for selective dbt run
+        added_models, changed_models, removed_models = _detect_dbt_changes(
+            before_model_hashes, local_model_hashes
+        )
+        # Macro changes — any change triggers full dbt run (macros aren't
+        # individually selectable in dbt run --select)
         added_mac, changed_mac, removed_mac = _detect_dbt_changes(
             before_macro_hashes, local_macro_hashes
         )
-        added_models = sorted(set(added_m + added_mac))
-        changed_models = sorted(set(changed_m + changed_mac))
-        removed_models = sorted(set(removed_m + removed_mac))
+        has_macro_changes = bool(added_mac or changed_mac or removed_mac)
 
     return SyncResult(
         synced_files=synced_files,
@@ -371,6 +379,7 @@ def sync_project_files(
         added_models=added_models,
         removed_models=removed_models,
         packages_changed=packages_changed,
+        has_macro_changes=has_macro_changes,
         is_first_deploy=first_deploy,
         dry_run=dry_run,
     )

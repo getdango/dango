@@ -1,45 +1,21 @@
 """dango/platform/cloud/deployer.py
 
-Full push deployment workflow for Dango cloud deployments.
+Push deployment workflow: lock → stop services → backup → sync → dbt → restart.
 
-Orchestrates file sync, pre-deploy backup, dbt operations, and service
-management into a single ``push_deploy()`` function.  Uses a deploy lock
-to prevent concurrent deployments.
-
-Deploy lock
------------
-Lock file at ``/srv/dango/deploy.lock`` contains JSON with deployer
-identity, start time, and expiry (30 minutes).  ``--force`` overrides
-any existing lock.  Lock is always released in a ``finally`` block.
-
-Push workflow
--------------
-1. Acquire deploy lock
-2. Create pre-deploy backup (stops/starts services internally)
-3. Stop dango-web service (DuckDB single-writer constraint)
-4. Sync files (via ``file_sync.sync_project_files``)
-5. Fix file ownership (rsync runs as root, creates root-owned files)
-6. Validate sources (check credentials exist on remote)
-7. ``dbt deps`` (if packages.yml changed)
-8. ``dbt compile`` (abort on failure)
-9. ``dbt run --select <changed models>`` (if any)
-10. Start dango-web service
-11. Release deploy lock
-12. Report results
-
-Error handling: ``finally`` block always releases the lock and restarts
-dango-web.  On failure, the pre-deploy backup is available for
-``dango remote rollback``.
+Uses a deploy lock (``/srv/dango/deploy.lock``, 30-min timeout, atomic
+via ``set -C``) to prevent concurrent deployments.  ``finally`` block
+always restarts services and releases the lock.
 """
 
 from __future__ import annotations
 
 import json
 import platform
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -59,6 +35,9 @@ LOCK_TIMEOUT_MINUTES = 30
 REMOTE_PROJECT_DIR = "/srv/dango/project"
 VENV_BIN = "/srv/dango/venv/bin"
 DBT_PROJECT_DIR = "/srv/dango/project/dbt"
+
+#: Pattern for valid dbt model/macro names (shell-safe for SSH commands).
+_SAFE_DBT_NAME = re.compile(r"^[a-zA-Z0-9_]+$")
 
 
 # ---------------------------------------------------------------------------
@@ -138,14 +117,24 @@ def _is_lock_expired(lock: DeployLock) -> bool:
     if not lock.expires_at:
         return True
     try:
-        expires = datetime.fromisoformat(lock.expires_at)
+        expires_str = lock.expires_at
+        # Python 3.10 fromisoformat does not parse timezone suffixes;
+        # strip them and treat as UTC (we always write UTC timestamps).
+        for suffix in ("+00:00", "Z"):
+            if expires_str.endswith(suffix):
+                expires_str = expires_str[: -len(suffix)]
+                break
+        expires = datetime.fromisoformat(expires_str).replace(tzinfo=timezone.utc)
         return datetime.now(tz=timezone.utc) > expires
-    except ValueError:
+    except (ValueError, TypeError):
         return True
 
 
 def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
     """Acquire the deploy lock on the remote server.
+
+    Uses shell ``set -C`` (noclobber) for atomic lock creation so that
+    two concurrent ``dango remote push`` invocations cannot both succeed.
 
     Args:
         ssh: Connected SSHManager.
@@ -155,20 +144,21 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
         The newly created :class:`DeployLock`.
 
     Raises:
-        CloudProvisioningError: If a valid lock exists and *force* is False.
+        CloudProvisioningError: If a valid lock exists and *force* is False,
+            or if another deployer grabbed the lock concurrently.
     """
     existing = _check_existing_lock(ssh)
-    if existing is not None and not force:
-        if not _is_lock_expired(existing):
+    if existing is not None:
+        if not force and not _is_lock_expired(existing):
             raise CloudProvisioningError(
                 f"Deploy lock held by {existing.deployer} "
                 f"(started {existing.started_at}). "
                 "Use --force to override."
             )
+        # Remove stale or force-overridden lock before creating new one
+        ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")
 
     now = datetime.now(tz=timezone.utc)
-    from datetime import timedelta
-
     expires = now + timedelta(minutes=LOCK_TIMEOUT_MINUTES)
 
     lock = DeployLock(
@@ -185,9 +175,15 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
     )
 
     ssh.exec_command(f"mkdir -p {Path(DEPLOY_LOCK_PATH).parent}")
-    result = ssh.exec_command(f"cat > {DEPLOY_LOCK_PATH} << 'LOCK_EOF'\n{lock_json}\nLOCK_EOF")
+    # Atomic creation: noclobber (set -C) makes > fail if the file
+    # already exists, preventing a concurrent deployer from silently
+    # overwriting our lock.
+    result = ssh.exec_command(f"(set -C; echo '{lock_json}' > {DEPLOY_LOCK_PATH}) 2>/dev/null")
     if not result.success:
-        raise CloudProvisioningError(f"Failed to write deploy lock: {result.stderr.strip()}")
+        raise CloudProvisioningError(
+            "Failed to acquire deploy lock — another deployment may have "
+            "started concurrently. Use --force to override."
+        )
 
     return lock
 
@@ -207,11 +203,21 @@ def _start_web_service(ssh: SSHManager) -> None:
     ssh.exec_command("systemctl start dango-web || true", timeout=60)
 
 
+def _start_all_services(ssh: SSHManager) -> None:
+    """Start Metabase then dango-web (same order as backup._start_services)."""
+    ssh.exec_command(
+        f"docker compose -f {REMOTE_PROJECT_DIR}/docker-compose.yml "
+        "start metabase 2>/dev/null || true",
+        timeout=120,
+    )
+    ssh.exec_command("systemctl start dango-web || true", timeout=60)
+
+
 def _validate_remote_sources(ssh: SSHManager) -> list[str]:
     """Validate that remote sources have corresponding credentials.
 
     Parses ``.dango/sources.yml`` on the remote and checks that
-    ``.dlt/secrets.toml`` has entries for each source.
+    ``.dlt/secrets.toml`` has section headers for each source.
 
     Returns:
         List of error messages.  Empty list means all sources are valid.
@@ -244,10 +250,29 @@ def _validate_remote_sources(ssh: SSHManager) -> list[str]:
         if not isinstance(source, dict):
             continue
         name = source.get("name", "")
-        if name and f"[sources.{name}]" not in secrets_content:
+        if not name:
+            continue
+        # Check for TOML section header at start of line
+        pattern = rf"^\[sources\.{re.escape(name)}\]"
+        if not re.search(pattern, secrets_content, re.MULTILINE):
             errors.append(f"Source '{name}' has no credentials in .dlt/secrets.toml on the server")
 
     return errors
+
+
+def _validate_model_names(names: list[str]) -> None:
+    """Validate that model names are safe for shell interpolation.
+
+    Raises:
+        CloudProvisioningError: If any name contains characters outside
+            ``[a-zA-Z0-9_]``.
+    """
+    for name in names:
+        if not _SAFE_DBT_NAME.match(name):
+            raise CloudProvisioningError(
+                f"Invalid model name for remote execution: {name!r}. "
+                "Model names must contain only alphanumeric characters and underscores."
+            )
 
 
 def _run_remote_dbt(
@@ -302,7 +327,7 @@ def push_deploy(
 
     Raises:
         CloudProvisioningError: On lock conflict, dbt compile failure,
-            or other deployment errors.
+            dbt run failure, or other deployment errors.
     """
     from dango.platform.cloud.backup import create_backup
     from dango.platform.cloud.file_sync import SyncResult, sync_project_files
@@ -340,7 +365,7 @@ def push_deploy(
 
     # --- Full deploy ---
     lock: DeployLock | None = None
-    web_stopped = False
+    services_stopped = False
 
     try:
         # Step 1: Acquire deploy lock
@@ -348,18 +373,27 @@ def push_deploy(
         lock = _acquire_lock(ssh, force=force)
         _notify(on_progress, "acquire_lock", "done")
 
-        # Step 2: Pre-deploy backup (stops/starts services internally)
+        # Step 2: Stop dango-web BEFORE backup (DuckDB single-writer).
+        # Backup will also stop services (web already stopped = noop,
+        # Metabase stopped for consistent H2 backup).  With
+        # restart_services=False, services remain stopped throughout
+        # the entire sync + dbt workflow.
+        _notify(on_progress, "stop_web", "running")
+        _stop_web_service(ssh)
+        services_stopped = True
+        _notify(on_progress, "stop_web", "done")
+
+        # Step 3: Pre-deploy backup (services stay down after backup)
         _notify(on_progress, "create_backup", "running")
-        backup_result = create_backup(ssh, backup_type="pre-deploy", on_progress=on_progress)
+        backup_result = create_backup(
+            ssh,
+            backup_type="pre-deploy",
+            restart_services=False,
+            on_progress=on_progress,
+        )
         if backup_result.warnings:
             warnings.extend(backup_result.warnings)
         _notify(on_progress, "create_backup", "done")
-
-        # Step 3: Stop dango-web (DuckDB single-writer constraint)
-        _notify(on_progress, "stop_web", "running")
-        _stop_web_service(ssh)
-        web_stopped = True
-        _notify(on_progress, "stop_web", "done")
 
         # Step 4: Sync files
         _notify(on_progress, "sync_files", "running")
@@ -402,26 +436,40 @@ def push_deploy(
         dbt_compile_success = True
         _notify(on_progress, "dbt_compile", "done")
 
-        # Step 9: dbt run (if models changed)
+        # Step 9: dbt run
+        # If macros changed, any model could be affected → full rebuild.
+        # If only models changed, selective rebuild by name.
         all_changed = sync_result.added_models + sync_result.changed_models
-        if all_changed:
+        if sync_result.has_macro_changes:
+            _notify(on_progress, "dbt_run", "running")
+            run_result = _run_remote_dbt(ssh, "run")
+            if run_result.success:
+                models_rebuilt = ["(full rebuild — macros changed)"]
+            else:
+                raise CloudProvisioningError(
+                    f"dbt run failed: {run_result.stderr.strip() or run_result.stdout.strip()}"
+                )
+            _notify(on_progress, "dbt_run", "done")
+        elif all_changed:
+            _validate_model_names(all_changed)
             _notify(on_progress, "dbt_run", "running")
             select_arg = " ".join(all_changed)
             run_result = _run_remote_dbt(ssh, "run", f"--select {select_arg}")
             if run_result.success:
                 models_rebuilt = list(all_changed)
             else:
-                warnings.append(
-                    f"dbt run failed: {run_result.stderr.strip() or run_result.stdout.strip()}"
+                raise CloudProvisioningError(
+                    f"dbt run failed for models [{select_arg}]: "
+                    f"{run_result.stderr.strip() or run_result.stdout.strip()}"
                 )
             _notify(on_progress, "dbt_run", "done")
 
     finally:
-        # Always restart web service and release lock
-        if web_stopped:
-            _notify(on_progress, "start_web", "running")
-            _start_web_service(ssh)
-            _notify(on_progress, "start_web", "done")
+        # Always restart all services and release lock
+        if services_stopped:
+            _notify(on_progress, "start_services", "running")
+            _start_all_services(ssh)
+            _notify(on_progress, "start_services", "done")
 
         if lock is not None:
             _release_lock(ssh)

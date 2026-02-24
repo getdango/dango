@@ -90,6 +90,7 @@ class TestSyncResult:
         assert result.added_models == []
         assert result.removed_models == []
         assert result.packages_changed is False
+        assert result.has_macro_changes is False
         assert result.is_first_deploy is False
         assert result.dry_run is False
 
@@ -201,7 +202,11 @@ class TestBuildRsyncSshArg:
 
     def test_contains_key_path(self):
         arg = _build_rsync_ssh_arg(Path("/home/user/.dango/ssh/key"))
-        assert "-i /home/user/.dango/ssh/key" in arg
+        assert '-i "/home/user/.dango/ssh/key"' in arg
+
+    def test_key_path_with_spaces(self):
+        arg = _build_rsync_ssh_arg(Path("/home/John Doe/.dango/ssh/key"))
+        assert '-i "/home/John Doe/.dango/ssh/key"' in arg
 
     def test_disables_host_key_checking(self):
         arg = _build_rsync_ssh_arg(Path("/tmp/key"))
@@ -233,6 +238,8 @@ class TestSyncProjectFiles:
         assert result.changed_models == []
         assert result.removed_models == []
         assert result.packages_changed is True
+        # Macros exist locally → has_macro_changes on first deploy
+        assert result.has_macro_changes is True
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
     @patch("dango.platform.cloud.file_sync.subprocess.run")
@@ -307,10 +314,10 @@ class TestSyncProjectFiles:
             assert cmd_list[0] == "rsync"
             assert "-avz" in cmd_list
             assert "--delete" in cmd_list
-            # -e flag with SSH key
+            # -e flag with SSH key (quoted for paths with spaces)
             e_idx = cmd_list.index("-e")
             ssh_arg = cmd_list[e_idx + 1]
-            assert "-i /tmp/test_key" in ssh_arg
+            assert '-i "/tmp/test_key"' in ssh_arg
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value=None)
     def test_rsync_not_installed(self, mock_which, tmp_path):
@@ -346,3 +353,68 @@ class TestSyncProjectFiles:
         assert "detect_changes" in step_names
         assert "upload_config" in step_names
         assert "sync_dbt" in step_names
+
+    @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
+    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    def test_packages_unchanged_not_flagged(self, mock_run, mock_which, tmp_path):
+        """When remote and local packages.yml have the same hash, packages_changed is False."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        project = _make_project(tmp_path)
+        # Compute the actual local hash so the mock returns the same one
+        import hashlib
+
+        local_hash = hashlib.md5((project / "dbt" / "packages.yml").read_bytes()).hexdigest()
+
+        ssh = MagicMock()
+        ssh.key_path = Path("/tmp/test_key")
+
+        def _exec_side_effect(cmd, **kwargs):
+            if f"test -f {REMOTE_PROJECT_DIR}/.dango/sources.yml" in cmd:
+                return CommandResult(stdout="", stderr="", exit_code=0)  # existing deploy
+            if "md5sum" in cmd and "packages.yml" in cmd:
+                return CommandResult(
+                    stdout=f"{local_hash}  {REMOTE_PROJECT_DIR}/dbt/packages.yml",
+                    stderr="",
+                    exit_code=0,
+                )
+            return CommandResult(stdout="", stderr="", exit_code=0)
+
+        ssh.exec_command.side_effect = _exec_side_effect
+        ssh.upload_file.return_value = None
+
+        result = sync_project_files(ssh, project, remote_host="10.0.0.1")
+        assert result.packages_changed is False
+
+    @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
+    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    def test_no_macro_changes_when_macros_unchanged(self, mock_run, mock_which, tmp_path):
+        """has_macro_changes is False when macro hashes match remote."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        project = _make_project(tmp_path)
+        import hashlib
+
+        macro_hash = hashlib.md5(
+            (project / "dbt" / "macros" / "my_macro.sql").read_bytes()
+        ).hexdigest()
+
+        ssh = MagicMock()
+        ssh.key_path = Path("/tmp/test_key")
+
+        def _exec_side_effect(cmd, **kwargs):
+            if f"test -f {REMOTE_PROJECT_DIR}/.dango/sources.yml" in cmd:
+                return CommandResult(stdout="", stderr="", exit_code=0)
+            if "find" in cmd and "macros" in cmd and "md5sum" in cmd:
+                return CommandResult(
+                    stdout=f"{macro_hash}  {REMOTE_PROJECT_DIR}/dbt/macros/my_macro.sql",
+                    stderr="",
+                    exit_code=0,
+                )
+            if "md5sum" in cmd and "packages.yml" in cmd:
+                return CommandResult(stdout="abc123  path", stderr="", exit_code=0)
+            return CommandResult(stdout="", stderr="", exit_code=0)
+
+        ssh.exec_command.side_effect = _exec_side_effect
+        ssh.upload_file.return_value = None
+
+        result = sync_project_files(ssh, project, remote_host="10.0.0.1")
+        assert result.has_macro_changes is False

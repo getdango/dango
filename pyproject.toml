@@ -232,6 +232,7 @@ module = [
     "tests.unit.test_remote_backup_cli",
     "tests.unit.test_file_sync",
     "tests.unit.test_deployer",
+    "tests.unit.test_deployer_push",
 ]
 ignore_errors = true
 

@@ -23,7 +23,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/metabase_cmd.py` (431 lines) | `metabase` group (`save`, `load`, `refresh`) | `metabase` |
 | `commands/model.py` (212 lines) | `model` group (`add`, `remove`) | `model` |
 | `commands/dashboard.py` (125 lines) | `dashboard` group (`provision`) | `dashboard` |
-| `commands/remote.py` (~300 lines) | `remote` group → `push`, `firewall` subgroup (`list`, `allow-ip`, `allow-all`) | `remote`, `firewall`, `remote_push()` |
+| `commands/remote.py` (~650 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
 | `commands/serve.py` (~110 lines) | `serve` production foreground server | `serve()` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
