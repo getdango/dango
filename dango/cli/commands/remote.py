@@ -10,6 +10,11 @@ Command hierarchy::
     ├── ssh                 — Open interactive SSH session
     ├── query               — Run read-only SQL against remote DuckDB
     ├── rollback            — Restore from a backup
+    ├── env (subgroup)
+    │   ├── set K=V         — Set an environment variable
+    │   ├── get K           — Display a variable (masked)
+    │   ├── list            — List all variables (masked)
+    │   └── delete K        — Remove a variable
     ├── firewall (subgroup)
     │   ├── list            — Show current firewall rules
     │   ├── allow-ip        — Restrict ports 80/443 to a specific IP
@@ -144,6 +149,46 @@ def _load_cloud_config_with_ssh_or_fail(ctx: click.Context) -> tuple[Any, Any]:
     from dango.cli.utils import load_cloud_config_with_ssh
 
     return load_cloud_config_with_ssh(ctx)
+
+
+def _ssh_connect_or_fail(ctx: click.Context) -> tuple[Any, Any, Path]:
+    """Load cloud config, connect SSH as ``dango`` user, return context.
+
+    Unlike ``_load_cloud_config_with_ssh_or_fail`` (which connects as root
+    for system operations), this connects as the ``dango`` service user
+    for project-level file operations (e.g. ``.env`` management).
+
+    Returns:
+        Tuple of (CloudConfig, connected SSHManager, project_root Path).
+        Caller **must** call ``ssh.disconnect()`` when done.
+
+    Raises:
+        SystemExit: If no deployment or SSH connection fails.
+    """
+    from dango.cli.utils import require_project_context
+    from dango.config.loader import ConfigLoader
+    from dango.platform.cloud.ssh import SSHManager
+
+    project_root: Path = require_project_context(ctx)
+    loader = ConfigLoader(project_root)
+    cloud_cfg = loader.load_cloud_config()
+
+    if cloud_cfg is None or cloud_cfg.droplet_id is None or cloud_cfg.droplet_ip is None:
+        console.print(
+            "[red]Error:[/red] No cloud deployment found. "
+            "Run [bold]dango deploy[/bold] to provision a server first."
+        )
+        raise SystemExit(1)
+
+    key_path = project_root / cloud_cfg.ssh_key_path
+    ssh = SSHManager(key_path=key_path)
+    try:
+        ssh.connect(cloud_cfg.droplet_ip, username="dango")
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] SSH connection failed: {exc}")
+        raise SystemExit(1) from exc
+
+    return cloud_cfg, ssh, project_root
 
 
 def _make_client() -> Any:
@@ -478,10 +523,12 @@ def domain_remove(ctx: click.Context) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Register management commands + backup subgroup
+# Register subgroups from separate modules
 # ---------------------------------------------------------------------------
 
 import dango.cli.commands.remote_mgmt as _remote_mgmt  # noqa: E402, F401
 from dango.cli.commands.remote_backup import backup_group  # noqa: E402
+from dango.cli.commands.remote_env import env  # noqa: E402
 
 remote.add_command(backup_group)
+remote.add_command(env)

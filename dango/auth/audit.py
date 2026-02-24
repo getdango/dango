@@ -50,6 +50,10 @@ class AuditEvent(str, Enum):
     RECOVERY_CODE_USED = "recovery_code_used"
     INVITE_ACCEPTED    = "invite_accepted"
     INVITE_RESENT      = "invite_resent"
+    SECRET_SET         = "secret_set"
+    SECRET_DELETED     = "secret_deleted"
+    OAUTH_SOURCE_CONNECTED    = "oauth_source_connected"
+    OAUTH_SOURCE_DISCONNECTED = "oauth_source_disconnected"
     # fmt: on
 
 

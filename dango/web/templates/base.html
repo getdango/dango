@@ -99,6 +99,7 @@
                             <a href="/settings/account" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Account Settings</a>
                             {% if request.state.user.role.value == 'admin' %}
                             <a href="/settings/users" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">User Management</a>
+                            <a href="/settings/secrets" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Secrets & Credentials</a>
                             {% endif %}
                             <hr class="my-1">
                             <button @click="fetch('/api/auth/logout', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}}).then(() => window.location.href = '/login').catch(() => window.location.href = '/login')" class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100">Logout</button>
