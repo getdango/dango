@@ -36,6 +36,13 @@ from .provisioning import (
     wait_for_ssh,
 )
 from .server_setup import SetupResult, setup_server
+from .server_status import (
+    ServerStatus,
+    ServiceInfo,
+    check_latest_pypi_version,
+    collect_server_status,
+    get_local_resource_usage,
+)
 from .spaces import SpacesClient
 from .ssh import CommandResult, SSHManager
 
@@ -74,4 +81,10 @@ __all__ = [
     # Server setup
     "setup_server",
     "SetupResult",
+    # Server status
+    "ServerStatus",
+    "ServiceInfo",
+    "collect_server_status",
+    "check_latest_pypi_version",
+    "get_local_resource_usage",
 ]

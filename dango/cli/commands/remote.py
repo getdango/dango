@@ -5,13 +5,20 @@ Remote server management commands for Dango cloud deployments.
 Command hierarchy::
 
     dango remote (group)
+    ├── status     — Show server status and resource usage
+    ├── logs       — View service logs (with optional streaming)
+    ├── ssh        — Open interactive SSH session
+    ├── query      — Run read-only SQL against remote DuckDB
     └── firewall (subgroup)
         ├── list       — Show current firewall rules
         ├── allow-ip   — Restrict ports 80/443 to a specific IP
         └── allow-all  — Revert ports 80/443 to public access
 
-All commands require an active cloud deployment (``droplet_id`` and
-``firewall_id`` set in ``.dango/cloud.yml``).
+All commands require an active cloud deployment (``droplet_id`` set in
+``.dango/cloud.yml``).  Firewall commands additionally require ``firewall_id``.
+
+Management commands (status, logs, ssh, query) are defined in
+``remote_mgmt.py`` and registered on the ``remote`` group via import.
 """
 
 from __future__ import annotations
@@ -34,9 +41,13 @@ def remote(ctx: click.Context) -> None:
     """Manage the remote Dango cloud server.
 
     Commands:
-      dango remote firewall list        Show current firewall rules
-      dango remote firewall allow-ip    Restrict web to a specific IP
-      dango remote firewall allow-all   Revert web access to public
+      dango remote status                Show server status
+      dango remote logs                  View service logs
+      dango remote ssh                   Open interactive SSH session
+      dango remote query "SQL"           Run read-only SQL query
+      dango remote firewall list         Show current firewall rules
+      dango remote firewall allow-ip     Restrict web to a specific IP
+      dango remote firewall allow-all    Revert web access to public
     """
     ctx.ensure_object(dict)
 
@@ -60,7 +71,7 @@ def firewall(ctx: click.Context) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Internal helpers (firewall-specific)
 # ---------------------------------------------------------------------------
 
 
@@ -230,3 +241,10 @@ def firewall_allow_all(ctx: click.Context) -> None:
 
     console.print("[green]Firewall updated.[/green] Ports 80/443 are now open to all traffic.")
     console.print(f"  Firewall: {fw.get('name', firewall_id)}")
+
+
+# ---------------------------------------------------------------------------
+# Register management commands from remote_mgmt.py
+# ---------------------------------------------------------------------------
+
+import dango.cli.commands.remote_mgmt as _remote_mgmt  # noqa: E402, F401

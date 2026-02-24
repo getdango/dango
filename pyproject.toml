@@ -216,6 +216,9 @@ module = [
     "tests.unit.test_remote_cli",
     "tests.unit.test_server_setup",
     "tests.unit.test_serve_command",
+    "tests.unit.test_server_status",
+    "tests.unit.test_remote_management_cli",
+    "tests.unit.test_deploy_destroy",
 ]
 ignore_errors = true
 

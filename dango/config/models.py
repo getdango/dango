@@ -523,6 +523,9 @@ class CloudConfig(BaseModel):
     domain: str | None = Field(default=None, description="Custom domain name")
     spaces: SpacesConfig | None = Field(default=None, description="Spaces backup configuration")
     ssh_key_path: str = Field(default=".dango/cloud_key", description="Path to SSH private key")
+    ssh_key_id: int | None = Field(
+        default=None, description="DigitalOcean SSH key ID (set after provisioning)"
+    )
     dbt_overrides: DbtOverrides | None = Field(
         default=None, description="Cloud dbt configuration overrides"
     )
