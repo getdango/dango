@@ -82,11 +82,18 @@ def _run_local(command: str, *, step: str, timeout: int = 120) -> str:
 
 
 def _stop_services() -> None:
-    """Stop dango-web and Metabase."""
-    _run_local("systemctl stop dango-web || true", step="stop_web", timeout=60)
-    _run_local(
+    """Stop dango-web and Metabase.
+
+    Best-effort — does not raise if services are already stopped.
+    """
+    subprocess.run(
+        "systemctl stop dango-web || true",
+        shell=True,
+        timeout=60,
+    )
+    subprocess.run(
         f"docker compose -f {PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
-        step="stop_metabase",
+        shell=True,
         timeout=120,
     )
 

@@ -102,28 +102,29 @@ def generate_dbt_profiles_yml(
         if getattr(dbt_overrides, "memory_limit", None) is not None:
             memory_limit = dbt_overrides.memory_limit
 
-    return f"""# dbt Profile Configuration for DuckDB
-# Auto-generated for cloud deployment — do not edit manually
-
-{project_name}:
-  target: dev
-  outputs:
-    dev:
-      type: duckdb
-      path: /srv/dango/project/data/warehouse.duckdb
-      schema: main
-      threads: {threads}
-
-      # DuckDB-specific settings
-      extensions:
-        - httpfs
-        - parquet
-
-      # Settings
-      settings:
-        memory_limit: {memory_limit}
-        threads: {threads}
-"""
+    profile: dict[str, Any] = {
+        project_name: {
+            "target": "dev",
+            "outputs": {
+                "dev": {
+                    "type": "duckdb",
+                    "path": "/srv/dango/project/data/warehouse.duckdb",
+                    "schema": "main",
+                    "threads": threads,
+                    "extensions": ["httpfs", "parquet"],
+                    "settings": {
+                        "memory_limit": memory_limit,
+                        "threads": threads,
+                    },
+                }
+            },
+        }
+    }
+    header = (
+        "# dbt Profile Configuration for DuckDB\n"
+        "# Auto-generated for cloud deployment — do not edit manually\n\n"
+    )
+    return header + yaml.dump(profile, default_flow_style=False, sort_keys=False)
 
 
 def regenerate_dbt_profiles(

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import platform
 import re
+import shlex
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -178,7 +179,9 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
     # Atomic creation: noclobber (set -C) makes > fail if the file
     # already exists, preventing a concurrent deployer from silently
     # overwriting our lock.
-    result = ssh.exec_command(f"(set -C; echo '{lock_json}' > {DEPLOY_LOCK_PATH}) 2>/dev/null")
+    result = ssh.exec_command(
+        f"(set -C; echo {shlex.quote(lock_json)} > {DEPLOY_LOCK_PATH}) 2>/dev/null"
+    )
     if not result.success:
         raise CloudProvisioningError(
             "Failed to acquire deploy lock — another deployment may have "
