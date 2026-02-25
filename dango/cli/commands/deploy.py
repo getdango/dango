@@ -108,7 +108,11 @@ def deploy(  # noqa: PLR0913
     else:
         config = run_wizard(project_root)
 
-    result = run_provisioning(project_root, config)
+    try:
+        result = run_provisioning(project_root, config)
+    except Exception:
+        # run_provisioning already prints error details and cleans up resources
+        raise SystemExit(1) from None
 
     # --- Success output ---
     console.print("\n[bold green]Deployment complete![/bold green]")

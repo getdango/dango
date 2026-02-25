@@ -21,6 +21,7 @@ from typing import Any
 
 from dango.cli import console
 from dango.cli.commands.deploy_wizard import _EMAIL_RE, WizardConfig
+from dango.exceptions import CloudProvisioningError
 
 
 @dataclass
@@ -102,7 +103,7 @@ def run_provisioning(
         ``ProvisionResult`` with deployment details.
 
     Raises:
-        SystemExit: On unrecoverable failure (after cleanup).
+        CloudProvisioningError: On unrecoverable failure (after cleanup).
     """
     from dango.platform.cloud.digitalocean import DigitalOceanClient
     from dango.platform.cloud.ssh import SSHManager
@@ -123,7 +124,7 @@ def run_provisioning(
         _status("Uploading SSH key to DigitalOcean...")
         key_name = f"dango-{project_root.name}-{int(time.time())}"
         key_data = client.upload_ssh_key(key_name, public_key)
-        ssh_key_id: int = key_data["ssh_key"]["id"]
+        ssh_key_id: int = key_data["id"]
         tracker.ssh_key_id = ssh_key_id
 
         # --- Sub-step 3: Provision droplet ---
@@ -262,8 +263,6 @@ def run_provisioning(
             warnings=warnings,
         )
 
-    except SystemExit:
-        raise
     except Exception as exc:
         console.print(f"\n[red]Provisioning failed:[/red] {exc}")
         console.print("Cleaning up resources...")
@@ -274,7 +273,7 @@ def run_provisioning(
                 console.print(f"  - {err}")
         else:
             console.print("[green]All resources cleaned up.[/green]")
-        raise SystemExit(1) from exc
+        raise CloudProvisioningError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------

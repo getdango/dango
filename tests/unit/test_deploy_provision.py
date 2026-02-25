@@ -21,6 +21,7 @@ from dango.cli.commands.deploy_provision import (
     _setup_backups,
     _trigger_initial_sync,
 )
+from dango.exceptions import CloudProvisioningError
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -294,7 +295,7 @@ class TestProvisionSequence:
         (dlt_dir / "secrets.toml").write_text("[sources]\n")
 
         mock_client = MagicMock()
-        mock_client.upload_ssh_key.return_value = {"ssh_key": {"id": 111}}
+        mock_client.upload_ssh_key.return_value = {"id": 111}
         mock_ssh = MagicMock()
         mock_result = MagicMock()
         mock_result.success = True
@@ -364,7 +365,7 @@ class TestProvisionSequence:
         )
 
         mock_client = MagicMock()
-        mock_client.upload_ssh_key.return_value = {"ssh_key": {"id": 111}}
+        mock_client.upload_ssh_key.return_value = {"id": 111}
         mock_ssh = MagicMock()
         mock_ssh.generate_key_pair.return_value = "ssh-ed25519 AAAA..."
 
@@ -381,7 +382,7 @@ class TestProvisionSequence:
                 "dango.platform.cloud.provisioning.provision_droplet",
                 side_effect=RuntimeError("API error"),
             ),
-            pytest.raises(SystemExit),
+            pytest.raises(CloudProvisioningError),
         ):
             run_provisioning(project_root, config)
 
