@@ -39,6 +39,9 @@ platform/
 │   ├── file_sync.py     # Project file sync: SFTP + rsync (TASK-028)
 │   ├── deployer.py      # Push deployment workflow + deploy lock (TASK-030)
 │   ├── scheduled_backup.py  # Server-side scheduled backup (TASK-103)
+│   ├── resize.py        # In-place resize (power off → resize → power on) (TASK-104)
+│   ├── migrate.py       # Server migration (new droplet via Spaces) (TASK-105)
+│   ├── upgrade.py       # Remote Dango version upgrade (TASK-106)
 │   └── _server_templates.py  # Config file templates (incl. build_caddyfile(), backup timer)
 │
 │   # Backwards-compatible shims (re-export from local/)
@@ -69,6 +72,9 @@ platform/
 | `cloud/file_sync.py` | Project file sync (SFTP + rsync) with change detection | `sync_project_files`, `SyncResult` |
 | `cloud/deployer.py` | Push deployment workflow with deploy lock | `push_deploy`, `DeployLock`, `DeployResult` |
 | `cloud/scheduled_backup.py` | Server-side scheduled backup to Spaces | `run_scheduled_backup`, `list_spaces_backups`, `restore_from_spaces`, `enable_scheduled_backup`, `disable_scheduled_backup` |
+| `cloud/resize.py` | In-place droplet resize (power off → resize → power on, regenerate dbt profiles) | `resize_droplet`, `ResizeResult`, `validate_size_slug`, `generate_dbt_profiles_yml`, `regenerate_dbt_profiles`, `get_disk_warning` |
+| `cloud/migrate.py` | Server migration via Spaces (new droplet, transfer data, destroy old) | `migrate_server`, `MigrateResult` |
+| `cloud/upgrade.py` | Remote Dango version upgrade (pip install, migrations, Docker rebuild) | `upgrade_dango`, `UpgradeResult`, `validate_version_string`, `check_versions` |
 | `cloud/_server_templates.py` | Config file templates (systemd, Caddy, fail2ban, backup timer, etc.) | `build_caddyfile`, `SYSTEMD_UNIT`, `CADDYFILE`, `SYSTEMD_BACKUP_SERVICE`, `SYSTEMD_BACKUP_TIMER`, etc. |
 
 ## Import Patterns
@@ -116,6 +122,17 @@ from dango.platform.cloud.deployer import DeployLock, DeployResult, push_deploy 
 
 # Scheduled backup (TASK-103, runs on server)
 from dango.platform.cloud.scheduled_backup import run_scheduled_backup, list_spaces_backups
+
+# Resize (TASK-104)
+from dango.platform.cloud import resize_droplet, ResizeResult, validate_size_slug
+from dango.platform.cloud.resize import generate_dbt_profiles_yml, regenerate_dbt_profiles
+
+# Migrate (TASK-105)
+from dango.platform.cloud import migrate_server, MigrateResult
+
+# Upgrade (TASK-106)
+from dango.platform.cloud import upgrade_dango, UpgradeResult, validate_version_string
+from dango.platform.cloud.upgrade import check_versions
 ```
 
 ### Also valid (backwards-compatible shims):
@@ -156,6 +173,10 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 | Sync files to remote | `cloud/file_sync.py` → `sync_project_files()` | `pytest tests/unit/test_file_sync.py` |
 | Push deploy to remote | `cloud/deployer.py` → `push_deploy()` | `pytest tests/unit/test_deployer.py` |
 | Scheduled backup (server-side) | `cloud/scheduled_backup.py` → `run_scheduled_backup()` | `pytest tests/unit/test_scheduled_backup.py` |
+| Resize droplet | `cloud/resize.py` → `resize_droplet()` | `pytest tests/unit/test_resize.py` |
+| Migrate to new server | `cloud/migrate.py` → `migrate_server()` | `pytest tests/unit/test_migrate.py` |
+| Upgrade remote Dango | `cloud/upgrade.py` → `upgrade_dango()` | `pytest tests/unit/test_upgrade.py` |
+| CLI resize/migrate/upgrade | `cli/commands/remote_ops.py` | `pytest tests/unit/test_remote_ops_cli.py` |
 | CLI backup commands | `cli/commands/remote_backup.py` | `pytest tests/unit/test_remote_backup_cli.py` |
 | Modify watcher logic | `local/watcher.py` | `pytest tests/unit/test_watcher_lifecycle.py` |
 | Change Docker service startup | `docker.py` | `dango start` manually |
@@ -188,4 +209,5 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 - `dango.cli.commands.serve` — production foreground server
 - `dango.cli.commands.remote` — rollback command
 - `dango.cli.commands.remote_backup` — backup subcommands
+- `dango.cli.commands.remote_ops` — resize, migrate, upgrade commands
 - `dango.web.routes.health` — get_watcher_status

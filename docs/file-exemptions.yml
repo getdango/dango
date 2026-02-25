@@ -200,6 +200,12 @@ exemptions:
     reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
     review_by: "v1.1"
 
+  - file: dango/platform/cloud/digitalocean.py
+    lines: 542
+    category: exempt
+    reason: "TASK-104: Added get_action() and wait_for_action() for resize/migrate action polling. Core DO API client — splitting would fragment related HTTP methods."
+    review_by: "v1.1"
+
   - file: dango/platform/cloud/ssh.py
     lines: 665
     category: exempt
