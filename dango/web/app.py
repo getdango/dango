@@ -250,6 +250,7 @@ from dango.web.routes.auth_2fa import router as auth_2fa_router  # noqa: E402
 from dango.web.routes.config import router as config_router  # noqa: E402
 from dango.web.routes.dbt import router as dbt_router  # noqa: E402
 from dango.web.routes.health import router as health_router  # noqa: E402
+from dango.web.routes.initial_sync import router as initial_sync_router  # noqa: E402
 from dango.web.routes.logs import router as logs_router  # noqa: E402
 from dango.web.routes.metabase_proxy import router as metabase_proxy_router  # noqa: E402
 from dango.web.routes.oauth_connect import router as oauth_connect_router  # noqa: E402
@@ -269,6 +270,7 @@ app.include_router(health_router)
 app.include_router(config_router)
 app.include_router(sources_router)
 app.include_router(sync_router)
+app.include_router(initial_sync_router)
 app.include_router(logs_router)
 app.include_router(upload_router)
 app.include_router(secrets_router)

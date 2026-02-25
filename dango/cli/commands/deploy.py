@@ -4,11 +4,9 @@ Deploy group and destroy command for Dango cloud deployments.
 
 Command hierarchy::
 
-    dango deploy (group)
-    └── destroy   — Tear down cloud infrastructure
-
-The ``deploy`` group is a stub — future tasks (TASK-029) will add provisioning
-and deployment commands here.
+    dango deploy             — Interactive deployment wizard (default)
+    dango deploy --reconnect — Reconnect to existing server
+    dango deploy destroy     — Tear down cloud infrastructure
 """
 
 from __future__ import annotations
@@ -26,20 +24,148 @@ from dango.cli import console
 # ---------------------------------------------------------------------------
 
 
-@click.group()
+@click.group(invoke_without_command=True)
+@click.option("--non-interactive", is_flag=True, help="Non-interactive mode (requires flags/env).")
+@click.option("--reconnect", is_flag=True, help="Reconnect to an existing server.")
+@click.option("--ip", type=str, default=None, help="Server IP for --reconnect.")
+@click.option("--region", type=str, default=None, help="DO region slug.")
+@click.option("--size", type=str, default=None, help="Droplet size slug.")
+@click.option("--domain", type=str, default=None, help="Custom domain for HTTPS.")
+@click.option("--admin-email", type=str, default=None, help="Admin user email.")
+@click.option(
+    "--admin-password", type=str, default=None, help="Admin password (or DANGO_ADMIN_PASSWORD env)."
+)
+@click.option("--skip-backups", is_flag=True, help="Skip automated backup setup.")
+@click.option("--skip-initial-sync", is_flag=True, help="Skip initial data sync.")
 @click.pass_context
-def deploy(ctx: click.Context) -> None:
+def deploy(  # noqa: PLR0913
+    ctx: click.Context,
+    non_interactive: bool,
+    reconnect: bool,
+    ip: str | None,
+    region: str | None,
+    size: str | None,
+    domain: str | None,
+    admin_email: str | None,
+    admin_password: str | None,
+    skip_backups: bool,
+    skip_initial_sync: bool,
+) -> None:
     """Deploy and manage Dango cloud infrastructure.
 
-    Commands:
-      dango deploy destroy    Tear down cloud infrastructure
+    Run without a subcommand to start the interactive deployment wizard.
+
+    \b
+    Examples:
+      dango deploy                     Interactive wizard
+      dango deploy --non-interactive   All params via flags/env
+      dango deploy --reconnect --ip X  Reconnect to existing server
+      dango deploy destroy             Tear down cloud infrastructure
     """
     ctx.ensure_object(dict)
+
+    if ctx.invoked_subcommand is not None:
+        return
+
+    from dango.cli.utils import require_project_context
+
+    project_root: Path = require_project_context(ctx)
+
+    # --- Existing deployment guard ---
+    if not reconnect:
+        from dango.config.loader import ConfigLoader
+
+        loader = ConfigLoader(project_root)
+        cloud_cfg = loader.load_cloud_config()
+        if cloud_cfg is not None and cloud_cfg.droplet_id is not None:
+            console.print(
+                "[yellow]A cloud deployment already exists.[/yellow] "
+                "Did you mean [bold]dango remote push[/bold]?"
+            )
+            console.print("  To destroy and redeploy: [bold]dango deploy destroy[/bold] first.")
+            raise SystemExit(1)
+
+    # --- Reconnect mode ---
+    if reconnect:
+        _handle_reconnect(project_root, ip)
+        return
+
+    # --- Wizard or non-interactive ---
+    from dango.cli.commands.deploy_provision import run_provisioning
+    from dango.cli.commands.deploy_wizard import run_non_interactive, run_wizard
+
+    if non_interactive:
+        config = run_non_interactive(
+            project_root,
+            region=region,
+            size=size,
+            domain=domain,
+            admin_email=admin_email,
+            admin_password=admin_password,
+            skip_backups=skip_backups,
+            skip_initial_sync=skip_initial_sync,
+        )
+    else:
+        config = run_wizard(project_root)
+
+    result = run_provisioning(project_root, config)
+
+    # --- Success output ---
+    console.print("\n[bold green]Deployment complete![/bold green]")
+    console.print(f"  URL:    {result.url}")
+    console.print(f"  IP:     {result.droplet_ip}")
+    console.print(f"  Admin:  {config.admin_email}")
+    if result.warnings:
+        for w in result.warnings:
+            console.print(f"  [yellow]Warning:[/yellow] {w}")
+    console.print("\n  Next: Visit the URL above and log in with your admin credentials.")
+    if not config.skip_initial_sync:
+        console.print("  Initial data sync is running in the background.")
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _handle_reconnect(project_root: Path, ip: str | None) -> None:
+    """Reconnect to an existing Dango server and write cloud.yml."""
+    from dango.config.loader import ConfigLoader
+    from dango.config.models import CloudConfig
+    from dango.platform.cloud.ssh import SSHManager
+
+    if not ip:
+        console.print("[red]Error:[/red] --ip is required with --reconnect.")
+        raise SystemExit(1)
+
+    key_path = project_root / ".dango" / "cloud_key"
+    if not key_path.exists():
+        console.print(f"[red]Error:[/red] SSH key not found at {key_path}")
+        console.print("  Cannot reconnect without the original SSH key.")
+        raise SystemExit(1)
+
+    ssh = SSHManager(key_path=key_path)
+    try:
+        ssh.connect(ip, username="root")
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] SSH connection failed: {exc}")
+        raise SystemExit(1) from exc
+
+    try:
+        result = ssh.exec_command("cat /srv/dango/project/.dango/project.yml 2>/dev/null | head -5")
+        if not result.success or not result.stdout.strip():
+            console.print("[red]Error:[/red] Server does not appear to be a Dango deployment.")
+            raise SystemExit(1)
+    finally:
+        ssh.disconnect()
+
+    # Write minimal cloud.yml
+    loader = ConfigLoader(project_root)
+    config = CloudConfig(droplet_ip=ip)
+    loader.save_cloud_config(config)
+
+    console.print(f"[green]Reconnected[/green] to server at {ip}.")
+    console.print("  Run [bold]dango remote status[/bold] for details.")
 
 
 def _load_deploy_config(ctx: click.Context) -> tuple[Any, Path]:

@@ -16,6 +16,65 @@
 
 {% block content %}
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <!-- Initial Sync Progress Banner -->
+        <div x-data="initialSyncProgress()" x-init="init()" x-show="visible" x-cloak class="mb-6">
+            <div class="rounded-lg shadow p-4 border-l-4"
+                 :class="{
+                     'bg-blue-50 border-blue-500': phase === 'syncing' || phase === 'dbt_docs' || phase === 'metabase',
+                     'bg-green-50 border-green-500': phase === 'complete',
+                     'bg-red-50 border-red-500': phase === 'failed',
+                     'bg-yellow-50 border-yellow-500': phase === 'cancelled'
+                 }">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center space-x-3">
+                            <span class="text-xl" x-text="phaseIcon()"></span>
+                            <div class="flex-1">
+                                <p class="text-sm font-medium" :class="{'text-blue-800': isRunning(), 'text-green-800': phase === 'complete', 'text-red-800': phase === 'failed', 'text-yellow-800': phase === 'cancelled'}" x-text="statusText()"></p>
+                                <!-- Progress bar -->
+                                <template x-if="isRunning() && totalSources > 0">
+                                    <div class="mt-2">
+                                        <div class="w-full bg-gray-200 rounded-full h-2">
+                                            <div class="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                                                 :style="'width: ' + progressPct() + '%'"></div>
+                                        </div>
+                                        <p class="text-xs text-gray-600 mt-1" x-text="'Source ' + currentSourceIndex + '/' + totalSources + ': ' + currentSourceName"></p>
+                                    </div>
+                                </template>
+                                <!-- Failed sources -->
+                                <template x-if="failedSources.length > 0">
+                                    <div class="mt-2 text-xs text-amber-700">
+                                        <template x-for="fs in failedSources" :key="fs.name">
+                                            <p>Failed: <span x-text="fs.name"></span> — <span x-text="fs.error"></span></p>
+                                        </template>
+                                    </div>
+                                </template>
+                                <!-- Error message -->
+                                <template x-if="error">
+                                    <p class="mt-1 text-xs text-red-700" x-text="error"></p>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2 ml-4">
+                        <template x-if="phase === 'syncing'">
+                            <button @click="skipSource()" class="text-xs px-3 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200">Skip (after current)</button>
+                        </template>
+                        <template x-if="isRunning()">
+                            <button @click="cancelSync()" class="text-xs px-3 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200">Cancel</button>
+                        </template>
+                        <template x-if="!isRunning()">
+                            <button @click="dismiss()" class="text-gray-400 hover:text-gray-600">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Platform Health Widget -->
         <div class="mb-6">
             <a href="/health" class="block">
@@ -433,4 +492,128 @@
 {% block scripts %}
     <!-- JavaScript -->
     <script src="/static/js/app.js?v=1763651648"></script>
+    <script>
+    function initialSyncProgress() {
+        return {
+            visible: false,
+            phase: 'idle',
+            totalSources: 0,
+            currentSourceIndex: 0,
+            currentSourceName: '',
+            completedSources: [],
+            failedSources: [],
+            skippedSources: [],
+            error: null,
+            dismissed: false,
+
+            async init() {
+                try {
+                    const resp = await fetch('/api/initial-sync/status', {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    });
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        this.updateState(data);
+                    }
+                } catch (e) {
+                    // Endpoint may not exist (local dev)
+                }
+
+                // Listen for WebSocket updates
+                if (window.dangoWs) {
+                    const origHandler = window.dangoWs.onmessage;
+                    window.dangoWs.onmessage = (event) => {
+                        if (origHandler) origHandler(event);
+                        try {
+                            const msg = JSON.parse(event.data);
+                            if (msg.event === 'initial_sync_progress' && msg.data) {
+                                this.updateState(msg.data);
+                            }
+                        } catch (e) {}
+                    };
+                }
+            },
+
+            updateState(data) {
+                this.phase = data.phase || 'idle';
+                this.totalSources = data.total_sources || 0;
+                this.currentSourceIndex = data.current_source_index || 0;
+                this.currentSourceName = data.current_source_name || '';
+                this.completedSources = data.completed_sources || [];
+                this.failedSources = data.failed_sources || [];
+                this.skippedSources = data.skipped_sources || [];
+                this.error = data.error || null;
+
+                if (!this.dismissed && this.phase !== 'idle') {
+                    this.visible = true;
+                }
+            },
+
+            isRunning() {
+                return ['syncing', 'dbt_docs', 'metabase'].includes(this.phase);
+            },
+
+            progressPct() {
+                if (this.totalSources === 0) return 0;
+                return Math.round((this.currentSourceIndex / this.totalSources) * 100);
+            },
+
+            statusText() {
+                switch (this.phase) {
+                    case 'syncing':
+                        return 'Initial data sync in progress...';
+                    case 'dbt_docs':
+                        return 'Generating dbt documentation...';
+                    case 'metabase':
+                        return 'Refreshing Metabase...';
+                    case 'complete':
+                        const count = this.completedSources.length;
+                        const failed = this.failedSources.length;
+                        let msg = `Initial sync complete! ${count} source(s) synced.`;
+                        if (failed > 0) msg += ` ${failed} failed.`;
+                        return msg;
+                    case 'cancelled':
+                        return 'Initial sync cancelled.';
+                    case 'failed':
+                        return 'Initial sync failed.';
+                    default:
+                        return '';
+                }
+            },
+
+            phaseIcon() {
+                switch (this.phase) {
+                    case 'syncing': case 'dbt_docs': case 'metabase': return '\u23F3';
+                    case 'complete': return '\u2705';
+                    case 'failed': return '\u274C';
+                    case 'cancelled': return '\u26A0\uFE0F';
+                    default: return '';
+                }
+            },
+
+            async skipSource() {
+                try {
+                    await fetch('/api/initial-sync/skip-source', {
+                        method: 'POST',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    });
+                } catch (e) {}
+            },
+
+            async cancelSync() {
+                try {
+                    await fetch('/api/initial-sync/cancel', {
+                        method: 'POST',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    });
+                } catch (e) {}
+            },
+
+            dismiss() {
+                this.visible = false;
+                this.dismissed = true;
+            }
+        };
+    }
+    </script>
 {% endblock %}
