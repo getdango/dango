@@ -218,6 +218,28 @@ class SpacesClient:
             _reraise_if_not_client_error(exc)
             raise self._wrap_client_error(exc, "delete", key) from exc
 
+    def create_bucket(self) -> None:
+        """Create the configured S3 bucket. Idempotent (no error if exists).
+
+        Raises:
+            CloudError: If the bucket cannot be created.
+        """
+        client = self._get_client()
+        try:
+            client.create_bucket(
+                Bucket=self.bucket,
+                CreateBucketConfiguration={"LocationConstraint": self.region},
+            )
+        except Exception as exc:
+            _reraise_if_not_client_error(exc)
+            code = _get_boto_error_code(exc)
+            if code == "BucketAlreadyOwnedByYou":
+                return  # Idempotent
+            raise CloudError(
+                f"Failed to create bucket '{self.bucket}': {exc}",
+                context={"bucket": self.bucket, "region": self.region},
+            ) from exc
+
     def delete_bucket(self) -> None:
         """Delete the Spaces bucket.
 

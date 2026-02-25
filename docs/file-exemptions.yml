@@ -48,6 +48,19 @@ exemptions:
     reason: "TASK-100 added invite link flow to add-user and invite status to list-users (+38 lines)."
     review_by: "v1.1"
 
+  # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
+  - file: dango/cli/commands/deploy_wizard.py
+    lines: 576
+    category: exempt
+    reason: "TASK-029: Interactive wizard steps 1-9 + non-interactive validation mode. Sequential prompt flow with display logic — splitting would scatter closely coupled wizard steps."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/deploy_provision.py
+    lines: 547
+    category: exempt
+    reason: "TASK-029: 10-step provisioning orchestration with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery."
+    review_by: "v1.1"
+
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
     lines: 1026

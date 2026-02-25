@@ -233,6 +233,9 @@ module = [
     "tests.unit.test_file_sync",
     "tests.unit.test_deployer",
     "tests.unit.test_deployer_push",
+    "tests.unit.test_deploy_wizard",
+    "tests.unit.test_deploy_provision",
+    "tests.unit.test_initial_sync",
 ]
 ignore_errors = true
 
