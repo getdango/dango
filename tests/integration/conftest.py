@@ -295,11 +295,11 @@ def deployed_server(
     result = None
     ssh = None
 
-    # Provision — SystemExit is caught here only, not around the yield
+    # Provision — catch provisioning errors here only, not around the yield
     try:
         result = run_provisioning(project_root, config)
-    except SystemExit as exc:
-        pytest.fail(f"Provisioning failed with SystemExit({exc.code})")
+    except Exception as exc:
+        pytest.fail(f"Provisioning failed: {exc}")
 
     try:
         # Load the saved cloud config
