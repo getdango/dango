@@ -14,6 +14,9 @@ from .backup import (
     list_local_backups,
     rollback,
     rotate_local_backups,
+    start_services,
+    stop_services,
+    verify_health,
 )
 from .deployer import DeployLock, DeployResult, push_deploy
 from .digitalocean import DigitalOceanClient
@@ -30,6 +33,7 @@ from .firewall import (
     save_firewall_metadata,
     validate_ip_or_cidr,
 )
+from .migrate import MigrateResult, migrate_server
 from .provisioning import (
     BUDGET_TIER,
     DEFAULT_TIER,
@@ -48,6 +52,7 @@ from .provisioning import (
     wait_for_droplet_ready,
     wait_for_ssh,
 )
+from .resize import ResizeResult, resize_droplet, validate_size_slug
 from .server_setup import SetupResult, setup_server
 from .server_status import (
     ServerStatus,
@@ -58,6 +63,7 @@ from .server_status import (
 )
 from .spaces import SpacesClient
 from .ssh import CommandResult, SSHManager
+from .upgrade import UpgradeResult, upgrade_dango, validate_version_string
 
 __all__ = [
     "CommandResult",
@@ -113,6 +119,9 @@ __all__ = [
     "list_local_backups",
     "rollback",
     "rotate_local_backups",
+    "stop_services",
+    "start_services",
+    "verify_health",
     # File sync (TASK-028)
     "SyncResult",
     "sync_project_files",
@@ -120,4 +129,15 @@ __all__ = [
     "DeployLock",
     "DeployResult",
     "push_deploy",
+    # Resize (TASK-104)
+    "ResizeResult",
+    "resize_droplet",
+    "validate_size_slug",
+    # Migrate (TASK-105)
+    "MigrateResult",
+    "migrate_server",
+    # Upgrade (TASK-106)
+    "UpgradeResult",
+    "upgrade_dango",
+    "validate_version_string",
 ]

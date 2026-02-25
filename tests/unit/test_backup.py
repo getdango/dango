@@ -112,22 +112,22 @@ class TestBackupHelpers:
             _check_disk_space(ssh)
 
     def test_stop_services_calls_systemctl_and_docker(self):
-        """_stop_services stops dango-web and metabase."""
-        from dango.platform.cloud.backup import _stop_services
+        """stop_services stops dango-web and metabase."""
+        from dango.platform.cloud.backup import stop_services
 
         ssh = _make_ssh_mock()
-        _stop_services(ssh)
+        stop_services(ssh)
 
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
         assert any("systemctl stop dango-web" in cmd for cmd in cmds)
         assert any("docker compose" in cmd and "stop metabase" in cmd for cmd in cmds)
 
     def test_start_services_starts_metabase_then_web(self):
-        """_start_services starts metabase first, then dango-web."""
-        from dango.platform.cloud.backup import _start_services
+        """start_services starts metabase first, then dango-web."""
+        from dango.platform.cloud.backup import start_services
 
         ssh = _make_ssh_mock()
-        _start_services(ssh)
+        start_services(ssh)
 
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
         metabase_idx = next(i for i, c in enumerate(cmds) if "start metabase" in c)
@@ -191,24 +191,24 @@ class TestBackupHelpers:
         assert path is None
 
     def test_verify_health_success(self):
-        """_verify_health returns True when endpoint responds."""
-        from dango.platform.cloud.backup import _verify_health
+        """verify_health returns True when endpoint responds."""
+        from dango.platform.cloud.backup import verify_health
 
         ssh = _make_ssh_mock(exec_results={"curl": ('{"status":"ok"}', "", 0)})
-        result = _verify_health(ssh, timeout=10)
+        result = verify_health(ssh, timeout=10)
         assert result is True
 
     @patch("dango.platform.cloud.backup.time.sleep")
     @patch("dango.platform.cloud.backup.time.monotonic")
     def test_verify_health_timeout(self, mock_monotonic, mock_sleep):
-        """_verify_health returns False after timeout."""
-        from dango.platform.cloud.backup import _verify_health
+        """verify_health returns False after timeout."""
+        from dango.platform.cloud.backup import verify_health
 
         # Simulate timeout: first call returns start time, second call exceeds timeout
         mock_monotonic.side_effect = [0.0, 100.0]
 
         ssh = _make_ssh_mock(exec_results={"curl": ("", "connection refused", 1)})
-        result = _verify_health(ssh, timeout=90)
+        result = verify_health(ssh, timeout=90)
         assert result is False
 
 

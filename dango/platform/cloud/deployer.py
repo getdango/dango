@@ -204,7 +204,7 @@ def _start_web_service(ssh: SSHManager) -> None:
 
 
 def _start_all_services(ssh: SSHManager) -> None:
-    """Start Metabase then dango-web (same order as backup._start_services)."""
+    """Start Metabase then dango-web (same order as backup.start_services)."""
     ssh.exec_command(
         f"docker compose -f {REMOTE_PROJECT_DIR}/docker-compose.yml "
         "start metabase 2>/dev/null || true",

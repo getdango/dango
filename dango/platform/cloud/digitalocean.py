@@ -310,6 +310,63 @@ class DigitalOceanClient:
         return self.droplet_action(droplet_id, "resize", size=size)
 
     # ------------------------------------------------------------------
+    # Action polling
+    # ------------------------------------------------------------------
+
+    def get_action(self, action_id: int) -> dict[str, Any]:
+        """Retrieve an action by ID.
+
+        Returns:
+            The ``action`` object from the DO API response.
+        """
+        response = self._request_with_retry("GET", f"/actions/{action_id}")
+        data: dict[str, Any] = response.json()
+        return cast(dict[str, Any], data["action"])
+
+    def wait_for_action(
+        self,
+        action_id: int,
+        *,
+        poll_interval: float = 5.0,
+        timeout: float = 300.0,
+    ) -> dict[str, Any]:
+        """Poll an action until ``status='completed'``.
+
+        Args:
+            action_id: DO action ID to poll.
+            poll_interval: Seconds between polls. Default: 5.
+            timeout: Maximum seconds to wait. Default: 300.
+
+        Returns:
+            The completed ``action`` object.
+
+        Raises:
+            CloudError: If action enters ``'errored'`` status or timeout
+                elapses before completion.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            action = self.get_action(action_id)
+            status = action.get("status", "")
+
+            if status == "completed":
+                return action
+
+            if status == "errored":
+                raise CloudError(
+                    f"Action {action_id} entered 'errored' status.",
+                    error_code="DANGO-D013",
+                )
+
+            if time.monotonic() >= deadline:
+                raise CloudError(
+                    f"Action {action_id} timed out after {timeout}s (last status: {status!r}).",
+                    error_code="DANGO-D014",
+                )
+
+            time.sleep(poll_interval)
+
+    # ------------------------------------------------------------------
     # SSH Key operations
     # ------------------------------------------------------------------
 
