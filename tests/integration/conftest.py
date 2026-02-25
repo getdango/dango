@@ -197,7 +197,7 @@ def auth_headers(
 # ---------------------------------------------------------------------------
 
 _DEPLOY_ADMIN_EMAIL = "test-admin@dango-test.dev"
-_DEPLOY_ADMIN_PASSWORD = os.environ.get("DANGO_ADMIN_PASSWORD", "TestPassword123!")
+_DEPLOY_ADMIN_PASSWORD_DEFAULT = "TestPassword123!"
 
 
 @pytest.fixture(scope="session")
@@ -276,13 +276,15 @@ def deployed_server(
     (dbt_dir / "models").mkdir()
     (dbt_dir / "macros").mkdir()
 
+    admin_password = os.environ.get("DANGO_ADMIN_PASSWORD", _DEPLOY_ADMIN_PASSWORD_DEFAULT)
+
     config = WizardConfig(
         region="nyc1",
         size_slug="s-1vcpu-1gb",
         size_tier=None,
         domain=None,
         admin_email=_DEPLOY_ADMIN_EMAIL,
-        admin_password=_DEPLOY_ADMIN_PASSWORD,
+        admin_password=admin_password,
         skip_oauth=True,
         enable_backups=False,
         skip_initial_sync=True,
@@ -293,9 +295,13 @@ def deployed_server(
     result = None
     ssh = None
 
+    # Provision — SystemExit is caught here only, not around the yield
     try:
         result = run_provisioning(project_root, config)
+    except SystemExit as exc:
+        pytest.fail(f"Provisioning failed with SystemExit({exc.code})")
 
+    try:
         # Load the saved cloud config
         loader = ConfigLoader(project_root)
         cloud_cfg = loader.load_cloud_config()
@@ -314,9 +320,6 @@ def deployed_server(
             "droplet_ip": result.droplet_ip,
         }
 
-    except SystemExit as exc:
-        pytest.fail(f"Provisioning failed with SystemExit({exc.code})")
-
     finally:
         # Teardown: disconnect SSH, delete DO resources
         if ssh is not None:
@@ -331,11 +334,15 @@ def _cleanup_deployment(
     firewall_id: str,
     ssh_key_id: int,
 ) -> None:
-    """Best-effort cleanup of DO resources after test."""
-    for _label, fn in [
-        ("firewall", lambda: client.delete_firewall(firewall_id)),
-        ("droplet", lambda: client.delete_droplet(droplet_id)),
-        ("ssh_key", lambda: client.delete_ssh_key(ssh_key_id)),
+    """Best-effort cleanup of DO resources after test.
+
+    Deletion order matters: firewalls reference droplets, so delete
+    firewalls first.
+    """
+    for fn in [
+        lambda: client.delete_firewall(firewall_id),
+        lambda: client.delete_droplet(droplet_id),
+        lambda: client.delete_ssh_key(ssh_key_id),
     ]:
         try:
             fn()

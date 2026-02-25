@@ -12,6 +12,7 @@ Cost: ~$0.01/run (cheapest droplet for ~2 minutes + API calls).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Generator
 from typing import Any
 
 import pytest
@@ -113,9 +114,8 @@ class TestSSHKeyLifecycle:
             ssh = SSHManager(key_path=key_path)
             public_key = ssh.generate_key_pair()
 
-            # Upload
-            key_data = do_client.upload_ssh_key(unique_test_name, public_key)
-            ssh_key = key_data["ssh_key"]
+            # Upload — upload_ssh_key() returns the unwrapped ssh_key dict
+            ssh_key = do_client.upload_ssh_key(unique_test_name, public_key)
             key_id = ssh_key["id"]
             assert key_id > 0
             assert ssh_key["name"] == unique_test_name
@@ -216,11 +216,10 @@ class TestSpacesOperations:
     """Upload, download, list, and delete objects in DigitalOcean Spaces."""
 
     @pytest.fixture(scope="class")
-    def spaces_client(self, require_spaces_env: tuple[str, str]) -> SpacesClient:
-        """Create a SpacesClient for testing.
-
-        Uses existing bucket from SPACES_BUCKET env var, or a temporary one.
-        """
+    def spaces_client(
+        self, require_spaces_env: tuple[str, str]
+    ) -> Generator[SpacesClient, None, None]:
+        """Create a SpacesClient with a temporary bucket for testing."""
         access_key, secret_key = require_spaces_env
         bucket = f"dango-test-{uuid.uuid4().hex[:8]}"
         client = SpacesClient(

@@ -76,6 +76,16 @@ class TestRemoteQuery:
         """Read-only SELECT works on the remote DuckDB."""
         ssh: SSHManager = deployed_server["ssh"]
 
+        # Create the DuckDB file if it doesn't exist yet (fresh deploy)
+        ssh.exec_command(
+            '/srv/dango/venv/bin/python -c "'
+            "import duckdb, pathlib; "
+            "pathlib.Path('/srv/dango/project/data').mkdir(parents=True, exist_ok=True); "
+            "conn = duckdb.connect('/srv/dango/project/data/warehouse.duckdb'); "
+            'conn.close()"',
+            timeout=30,
+        )
+
         result = ssh.exec_command(
             '/srv/dango/venv/bin/python -c "'
             "import duckdb; "
@@ -84,9 +94,8 @@ class TestRemoteQuery:
             'conn.close()"',
             timeout=30,
         )
-        # DuckDB file may not exist yet on a fresh deploy, which is OK
-        if result.success:
-            assert "1" in result.stdout
+        assert result.success, f"DuckDB query failed: {result.stderr}"
+        assert "1" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +177,8 @@ class TestBackupRestore:
         restore_result = rollback(ssh, backup_path=backup_result.archive_path)
 
         assert restore_result.restored_from == backup_result.archive_path
+        assert restore_result.services_restarted is True
+        assert restore_result.health_check_passed is True
         assert restore_result.duration_seconds >= 0
 
 
