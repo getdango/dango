@@ -168,7 +168,7 @@ dango/                          # Python package source
 │   │   ├── watcher_lifecycle.py # Watcher subprocess lifecycle
 │   │   └── watcher_runner.py   # Background watcher process
 │   ├── cloud/                  # Cloud components (TASK-022+)
-│   │   ├── __init__.py         # Re-exports 74 symbols
+│   │   ├── __init__.py         # Re-exports 63 symbols
 │   │   ├── digitalocean.py     # DO REST API v2 client (542 lines)
 │   │   ├── provisioning.py     # Size tiers, regions, provision_droplet()
 │   │   ├── firewall.py         # Firewall lifecycle, IP allowlisting
@@ -276,8 +276,8 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/source_wizard.py` | 1324 | — |
 | `visualization/metabase.py` | 1142 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
-| `cli/commands/platform.py` | 941 | — (extracted from main.py by TASK-005) |
 | `cli/init.py` | 965 | — |
+| `cli/commands/platform.py` | 941 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | ~854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 815 | — (renamed from auth.py by TASK-093) |
 | `oauth/providers.py` | 801 | — |

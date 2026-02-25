@@ -27,7 +27,7 @@ platform/
 │   └── watcher_runner.py    # Background watcher process entry point
 │
 ├── cloud/               # Cloud-only components (TASK-022+)
-│   ├── __init__.py      # Re-exports 74 symbols (clients, provisioning, firewall, backup, deploy, etc.)
+│   ├── __init__.py      # Re-exports 63 symbols (clients, provisioning, firewall, backup, deploy, etc.)
 │   ├── digitalocean.py  # DO REST API v2 client (Droplets, SSH Keys, Firewalls)
 │   ├── provisioning.py  # Size tiers, regions, provision_droplet() orchestration (TASK-023)
 │   ├── firewall.py      # Firewall lifecycle, IP allowlisting (TASK-025)

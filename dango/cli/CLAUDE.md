@@ -25,9 +25,9 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/dashboard.py` (125 lines) | `dashboard` group (`provision`) | `dashboard` |
 | `commands/remote.py` (~650 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
-| `commands/serve.py` (~110 lines) | `serve` production foreground server | `serve()` |
-| `commands/deploy.py` (~410 lines) | `deploy` group (wizard default, destroy) | `deploy`, `deploy_destroy()` |
-| `commands/deploy_wizard.py` (~430 lines) | Interactive wizard steps 1-9 + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig` |
+| `commands/serve.py` (~152 lines) | `serve` production foreground server | `serve()` |
+| `commands/deploy.py` (~460 lines) | `deploy` group (wizard default, destroy) | `deploy`, `deploy_destroy()` |
+| `commands/deploy_wizard.py` (~579 lines) | Interactive wizard steps 1-9 + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig` |
 | `commands/deploy_provision.py` (~543 lines) | Provisioning orchestration + cleanup | `run_provisioning()`, `ProvisionResult`, `_ResourceTracker` |
 | `commands/remote_env.py` | `remote env` subgroup (set, get, list, delete) | `env` (Click group) |
 | `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
