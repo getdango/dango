@@ -13,6 +13,7 @@ Manages browser-based OAuth authentication flows, provider-specific token exchan
 | `router.py` | Routes OAuth requests to correct provider | `run_oauth_for_source`, `check_oauth_credentials_exist`, `OAUTH_PROVIDER_MAP` |
 | `storage.py` | Token persistence to `.dlt/secrets.toml` with metadata | `OAuthStorage`, `OAuthCredential` |
 | `validation.py` | Live token validation and refresh checking via API calls | `TokenValidationResult`, `validate_token`, `validate_all_tokens`, `validate_before_sync`, `validate_google_token`, `validate_facebook_token`, `validate_shopify_token` |
+| `web_flow.py` | Browser-based OAuth token exchange for cloud deployments | `OAuthFlowError`, `SUPPORTED_OAUTH_SOURCES`, `build_google_auth_url()`, `exchange_google_code()`, `fetch_google_user_info()`, `build_facebook_auth_url()`, `exchange_facebook_code()` |
 
 ## Common Tasks
 

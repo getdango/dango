@@ -14,7 +14,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/__init__.py` (4 lines) | Package marker | — |
 | `commands/project.py` (292 lines) | `init`, `rename`, `info` | `init()`, `rename()`, `info()` |
 | `commands/source.py` (521 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
-| `commands/platform.py` (955 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
+| `commands/platform.py` (941 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
 | `commands/auth.py` (500 lines) | `auth` group (12 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_status()`, etc. |
 | `commands/oauth.py` (815 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
 | `commands/transform.py` (326 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
@@ -28,7 +28,11 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/serve.py` (~110 lines) | `serve` production foreground server | `serve()` |
 | `commands/deploy.py` (~410 lines) | `deploy` group (wizard default, destroy) | `deploy`, `deploy_destroy()` |
 | `commands/deploy_wizard.py` (~430 lines) | Interactive wizard steps 1-9 + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig` |
-| `commands/deploy_provision.py` (~400 lines) | Provisioning orchestration + cleanup | `run_provisioning()`, `ProvisionResult`, `_ResourceTracker` |
+| `commands/deploy_provision.py` (~543 lines) | Provisioning orchestration + cleanup | `run_provisioning()`, `ProvisionResult`, `_ResourceTracker` |
+| `commands/remote_env.py` | `remote env` subgroup (set, get, list, delete) | `env` (Click group) |
+| `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
+| `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore) | `backup_group` |
+| `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query` | `remote_status()`, `remote_logs()` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
 | `init.py` (965 lines) | Project initialization wizard | `ProjectInitializer` |
@@ -79,9 +83,17 @@ dango (top-level group)
 ├── migrate (group)             ← commands/migrate.py
 │   ├── status, run
 ├── remote (group)              ← commands/remote.py
-│   ├── push
-│   └── firewall (subgroup)
-│       ├── list, allow-ip, allow-all
+│   ├── push, rollback          ← commands/remote.py
+│   ├── status, logs, ssh, query ← commands/remote_mgmt.py
+│   ├── upgrade, resize, migrate ← commands/remote_ops.py
+│   ├── env (subgroup)          ← commands/remote_env.py
+│   │   ├── set, get, list, delete
+│   ├── firewall (subgroup)     ← commands/remote.py
+│   │   ├── list, allow-ip, allow-all
+│   ├── domain (subgroup)       ← commands/remote.py
+│   │   ├── set, remove
+│   └── backup (subgroup)       ← commands/remote_backup.py
+│       ├── list, enable, disable, download, restore
 ├── deploy (group)              ← commands/deploy.py
 │   ├── (default)  interactive wizard → commands/deploy_wizard.py + deploy_provision.py
 │   └── destroy    tear down cloud infrastructure
@@ -94,6 +106,8 @@ dango (top-level group)
 - **Lazy imports:** All command functions use `from dango.xxx import ...` inside the function body, not at module level. This prevents circular imports and speeds up CLI startup.
 - **Shared console:** All command modules import `console` from `dango.cli` for Rich terminal output.
 - **Project root via context:** `ctx.obj["project_root"]` is set by the top-level `cli` group in `main.py` (via `dango.config.helpers.find_project_root`).
+- **Cross-file command registration:** `remote_mgmt.py`, `remote_ops.py`, `remote_env.py`, and `remote_backup.py` import `remote` from `remote.py` and register commands via `@remote.command()` / `@remote.group()`. Registration is triggered by bottom-of-file imports in `remote.py`.
+- **Two SSH users:** `root` for system ops (backup, rollback, domain, server setup) via `load_cloud_config_with_ssh()` in `cli/utils.py`. `dango` for project file ops (.env, .dlt/secrets.toml) via `_ssh_connect_or_fail()` in `remote.py`.
 
 ## Common Tasks
 

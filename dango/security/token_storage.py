@@ -71,6 +71,9 @@ class SecureTokenStorage:
                 return key_file.read_bytes()
             else:
                 key = Fernet.generate_key()
+                # TOCTOU: file is briefly world-readable between write_bytes
+                # and chmod. For a more secure pattern, use os.open() with
+                # mode at creation time (see cloud/ssh.py generate_key()).
                 key_file.write_bytes(key)
                 key_file.chmod(0o600)  # Restrict permissions
                 return key

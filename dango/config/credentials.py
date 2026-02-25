@@ -59,6 +59,9 @@ class CredentialManager:
 # access_token = "your-long-lived-token"
 # account_id = "act_123456789"
 """
+            # Note: write_text without prior chmod — low risk since file is
+            # user-owned and gitignored, but see cloud/ssh.py os.open() pattern
+            # for sensitive files that need restricted permissions at creation.
             self.secrets_file.write_text(secrets_template)
             console.print(f"[dim]Created {self.secrets_file.relative_to(self.project_root)}[/dim]")
 
