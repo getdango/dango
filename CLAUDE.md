@@ -19,7 +19,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | Shared utilities | `dango/utils/` | [`dango/utils/CLAUDE.md`](dango/utils/CLAUDE.md) |
 | Logging / diagnostics | `dango/logging.py` | Module docstring |
 | Database migrations | `dango/migrations/` | [`dango/migrations/CLAUDE.md`](dango/migrations/CLAUDE.md) |
-| Docker / file watcher | `dango/platform/` | [`dango/platform/CLAUDE.md`](dango/platform/CLAUDE.md) |
+| Docker / file watcher / cloud deployment | `dango/platform/` | [`dango/platform/CLAUDE.md`](dango/platform/CLAUDE.md) |
 | Jinja2 templates / Dockerfiles | `dango/templates/` | [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md) |
 | Auth / users / sessions | `dango/auth/` | [`dango/auth/CLAUDE.md`](dango/auth/CLAUDE.md) |
 | Notebooks | `dango/notebooks/` | Not yet created (Phase 6) |
@@ -51,6 +51,8 @@ When unsure which module to look at:
   - Config file format (`.dango/*.yml`) → `config/`
 - **Shared utility** (locking, logging, DB helpers) → `utils/`
 - **Docker containers / file watching** → `platform/`
+- **HOW code gets deployed to the cloud** → `platform/cloud/`
+- **CLI for cloud operations** → `cli/commands/remote*.py`, `cli/commands/deploy*.py`
 - **Still unsure** → read `ARCHITECTURE.md` §6 (Cross-Module Workflows)
 
 ## Repository Structure
@@ -71,11 +73,21 @@ dango/                          # Python package source
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
 │   │   ├── model.py            # model group (add/remove)
-│   │   ├── platform.py         # start/stop/status + port helpers (1026 lines)
+│   │   ├── platform.py         # start/stop/status + port helpers (941 lines)
 │   │   ├── project.py          # init/rename/info
 │   │   ├── source.py           # source group (add/list/remove) + sync (549 lines)
 │   │   ├── transform.py        # run/docs/generate
-│   │   └── web.py              # web dev server
+│   │   ├── web.py              # web dev server
+│   │   ├── serve.py            # serve production foreground server
+│   │   ├── deploy.py           # deploy group (wizard default, destroy)
+│   │   ├── deploy_wizard.py    # Interactive deploy wizard (579 lines)
+│   │   ├── deploy_provision.py # Provisioning orchestration (543 lines)
+│   │   ├── migrate.py          # migrate group (status, run)
+│   │   ├── remote.py           # remote group + push/rollback/firewall/domain (651 lines)
+│   │   ├── remote_env.py       # remote env subgroup (set/get/list/delete)
+│   │   ├── remote_ops.py       # remote upgrade/resize/migrate
+│   │   ├── remote_backup.py    # remote backup subgroup
+│   │   └── remote_mgmt.py      # remote status/logs/ssh/query
 │   ├── init.py                 # Project initialization wizard
 │   ├── wizard.py               # Interactive setup wizards
 │   ├── source_wizard.py        # Source configuration wizard
@@ -127,13 +139,17 @@ dango/                          # Python package source
 │   │   ├── upload.py           # CSV upload/list/delete (680 lines)
 │   │   ├── websocket.py        # ConnectionManager, ws_manager, /ws
 │   │   ├── ui.py               # /, /health, /logs, /login, /account, /admin/users
-│   │   └── metabase_proxy.py   # Metabase reverse proxy + SSO session
+│   │   ├── metabase_proxy.py   # Metabase reverse proxy + SSO session
+│   │   ├── secrets.py          # Secrets + OAuth credential management (admin-only)
+│   │   ├── oauth_connect.py    # Web-based OAuth connect/callback
+│   │   └── initial_sync.py     # Initial data sync after first deploy
 │   ├── templates/              # Auth page templates
 │   │   ├── login.html          # Alpine.js two-step login (credentials → totp)
 │   │   ├── change_password.html # First-login password change
 │   │   ├── admin_users.html    # Admin user management
 │   │   ├── account.html        # User account settings
-│   │   └── invite.html         # Invite acceptance page
+│   │   ├── invite.html         # Invite acceptance page
+│   │   └── secrets.html        # Secrets management page
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
@@ -152,7 +168,23 @@ dango/                          # Python package source
 │   │   ├── watcher_lifecycle.py # Watcher subprocess lifecycle
 │   │   └── watcher_runner.py   # Background watcher process
 │   ├── cloud/                  # Cloud components (TASK-022+)
-│   │   └── __init__.py         # Empty package marker
+│   │   ├── __init__.py         # Re-exports 63 symbols
+│   │   ├── digitalocean.py     # DO REST API v2 client (542 lines)
+│   │   ├── provisioning.py     # Size tiers, regions, provision_droplet()
+│   │   ├── firewall.py         # Firewall lifecycle, IP allowlisting
+│   │   ├── spaces.py           # DO Spaces (S3-compatible via boto3)
+│   │   ├── ssh.py              # SSH key mgmt, TOFU, exec/SFTP (665 lines)
+│   │   ├── server_setup.py     # Server setup orchestration (16 steps)
+│   │   ├── server_status.py    # Server metrics + service status
+│   │   ├── domain.py           # DNS check, domain set/remove
+│   │   ├── backup.py           # Backup + rollback + service lifecycle
+│   │   ├── file_sync.py        # Project file sync (SFTP + rsync)
+│   │   ├── deployer.py         # Push deploy workflow + deploy lock
+│   │   ├── scheduled_backup.py # Server-side scheduled backup (505 lines)
+│   │   ├── resize.py           # In-place droplet resize
+│   │   ├── migrate.py          # Server migration via Spaces
+│   │   ├── upgrade.py          # Remote Dango version upgrade
+│   │   └── _server_templates.py # Config file templates
 │   │   # Backwards-compatible shims (re-export from local/):
 │   ├── network.py              # → local/network.py
 │   ├── watcher.py              # → local/watcher.py
@@ -174,7 +206,9 @@ dango/                          # Python package source
 │   ├── __init__.py             # OAuthManager
 │   ├── providers.py            # Google, Facebook, Shopify providers (801 lines)
 │   ├── storage.py              # Credential CRUD in .dlt/secrets.toml
-│   └── router.py               # FastAPI OAuth callback endpoints
+│   ├── router.py               # FastAPI OAuth callback endpoints
+│   ├── validation.py           # Live token validation + refresh checking
+│   └── web_flow.py             # Browser-based OAuth for cloud deployments
 │
 ├── config/                     # Level 0 — Configuration & credentials
 │   ├── models.py               # Pydantic models (DangoConfig, DataSource, etc.)
@@ -191,7 +225,8 @@ dango/                          # Python package source
 │   ├── database.py             # Schema creation helpers
 │   ├── db_health.py            # DuckDB health checks
 │   ├── dbt_status.py           # dbt model status tracking
-│   └── data_validation.py      # Data validation utilities
+│   ├── data_validation.py      # Data validation utilities
+│   └── env_file.py             # .env file parsing and serialization
 │
 ├── migrations/                 # Level 0 — Database migration framework
 │   ├── __init__.py             # Public API: apply_all_pending(), get_all_status()
@@ -241,19 +276,26 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/source_wizard.py` | 1324 | — |
 | `visualization/metabase.py` | 1142 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
-| `cli/commands/platform.py` | 1026 | — (extracted from main.py by TASK-005) |
 | `cli/init.py` | 965 | — |
+| `cli/commands/platform.py` | 941 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | ~854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 815 | — (renamed from auth.py by TASK-093) |
 | `oauth/providers.py` | 801 | — |
 | `web/helpers.py` | 798 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 742 | — |
 | `web/routes/upload.py` | 680 | — (extracted from app.py by TASK-085) |
+| `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
+| `cli/commands/remote.py` | 651 | — (remote group + push/rollback/firewall/domain) |
 | `cli/validate.py` | 651 | — |
+| `cli/commands/deploy_wizard.py` | 579 | — (interactive deploy wizard) |
 | `transformation/generator.py` | 577 | — |
 | `cli/commands/source.py` | 549 | — (extracted from main.py by TASK-005) |
+| `cli/commands/deploy_provision.py` | 543 | — (provisioning orchestration) |
+| `platform/cloud/digitalocean.py` | 542 | — (DO REST API v2 client) |
+| `web/routes/users.py` | 527 | — (admin user CRUD) |
 | `cli/model_wizard.py` | 507 | — |
 | `platform/local/watcher.py` | 506 | — |
+| `platform/cloud/scheduled_backup.py` | 505 | — (server-side scheduled backup) |
 
 ## Module Documentation Index
 

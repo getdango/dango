@@ -23,6 +23,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `templates/admin_users.html` | Admin user management page — invite, edit roles, deactivate | Alpine.js with modal dialogs |
 | `templates/account.html` | User account settings — change password, sessions, API keys, 2FA | Alpine.js `accountPage()` component |
 | `templates/invite.html` | Invite acceptance page — set password for invited users | — |
+| `templates/secrets.html` | Secrets management page (env vars + OAuth credentials) | — |
 | `routes/__init__.py` | Package marker | — |
 | `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~854 lines) | `_bridge_metabase_session()`, `_set_session_cookie()` |
 | `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery (~328 lines) | — |
@@ -37,6 +38,9 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/websocket.py` | `ConnectionManager`, `ws_manager` singleton, `/ws` endpoint | `ConnectionManager`, `ws_manager` |
 | `routes/ui.py` | `/`, `/health`, `/logs`, `/api`, `/api/docs`, `/api/redoc`, `/login`, `/account`, `/admin/users`, `/invite/{token}` | `templates`, `_render_template()` |
 | `routes/metabase_proxy.py` | All Metabase proxy routes + SSO session state | `proxy_to_metabase()`, `get_metabase_session()` |
+| `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
+| `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
+| `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |
 | `static/` | CSS and JS assets (`css/main.css`, `js/app.js`, `js/logs.js`) | — |
 
 ## Architecture

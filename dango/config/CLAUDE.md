@@ -39,6 +39,7 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 - `dango/oauth/` — uses `CredentialManager` for token storage
 - `dango/web/` — serves config through API endpoints
 - `dango/platform/` — reads config for Docker and watcher setup
+- `dango/platform/cloud/` — reads CloudConfig for deployment operations
 
 ## Testing
 

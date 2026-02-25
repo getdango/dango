@@ -27,13 +27,14 @@ platform/
 │   └── watcher_runner.py    # Background watcher process entry point
 │
 ├── cloud/               # Cloud-only components (TASK-022+)
-│   ├── __init__.py      # Exports CommandResult, DigitalOceanClient, SpacesClient, SSHManager, provisioning, firewall symbols
+│   ├── __init__.py      # Re-exports 63 symbols (clients, provisioning, firewall, backup, deploy, etc.)
 │   ├── digitalocean.py  # DO REST API v2 client (Droplets, SSH Keys, Firewalls)
 │   ├── provisioning.py  # Size tiers, regions, provision_droplet() orchestration (TASK-023)
 │   ├── firewall.py      # Firewall lifecycle, IP allowlisting (TASK-025)
 │   ├── spaces.py        # DO Spaces client (S3-compatible via boto3)
 │   ├── ssh.py           # SSH key management, TOFU known-hosts, exec/SFTP (TASK-024)
 │   ├── server_setup.py  # SSH-based server setup orchestration (TASK-026)
+│   ├── server_status.py # Server resource metrics + service status via SSH (TASK-104)
 │   ├── domain.py        # DNS check, set_domain(), remove_domain() (TASK-027)
 │   ├── backup.py        # SSH-based backup + rollback (TASK-035)
 │   ├── file_sync.py     # Project file sync: SFTP + rsync (TASK-028)
@@ -51,7 +52,7 @@ platform/
 └── watcher_runner.py    # → platform.local.watcher_runner
 ```
 
-## File Purpose
+## Files
 
 | File | Purpose | Key Symbols |
 |------|---------|-------------|
@@ -67,6 +68,7 @@ platform/
 | `cloud/spaces.py` | DigitalOcean Spaces (S3-compatible) client | `SpacesClient` |
 | `cloud/ssh.py` | SSH key management, TOFU known-hosts, command exec, SFTP | `SSHManager`, `CommandResult` |
 | `cloud/server_setup.py` | SSH-based server setup orchestration (16 idempotent steps) | `setup_server`, `SetupResult` |
+| `cloud/server_status.py` | Server resource metrics, service status, PyPI version check | `ServerStatus`, `ServiceInfo`, `collect_server_status`, `check_latest_pypi_version`, `get_local_resource_usage` |
 | `cloud/domain.py` | DNS check, domain set/remove for HTTPS via Caddy | `check_dns`, `set_domain`, `remove_domain` |
 | `cloud/backup.py` | SSH-based backup and rollback | `create_backup`, `rollback`, `list_local_backups`, `rotate_local_backups`, `BackupManifest`, `BackupResult`, `RestoreResult` |
 | `cloud/file_sync.py` | Project file sync (SFTP + rsync) with change detection | `sync_project_files`, `SyncResult` |
@@ -188,6 +190,7 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 - **`local/` is local-only** — nginx routing and file watcher don't apply to cloud deployments (cloud uses Caddy, and `auto_sync=false`).
 - **`common/startup.py` raises, never displays** — no `console`, `click`, or `rich` imports. Callers (CLI, cloud serve) handle all user-facing output.
 - **Shims for backwards compatibility** — existing code that imports from `dango.platform.watcher_lifecycle` continues to work without changes.
+- **`cloud/backup.py` is evolving beyond pure backup** — it also provides `stop_services()`, `start_services()`, and `verify_health()`, used by resize, migrate, and deployer as service lifecycle utilities. If more lifecycle functions accumulate, consider extracting a `service_lifecycle.py` module.
 
 ## Dependencies
 
@@ -210,4 +213,77 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 - `dango.cli.commands.remote` — rollback command
 - `dango.cli.commands.remote_backup` — backup subcommands
 - `dango.cli.commands.remote_ops` — resize, migrate, upgrade commands
+- `dango.cli.commands.deploy_provision` — provisioning orchestration
+- `dango.cli.commands.remote_env` — remote env var management (uses file_sync)
+- `dango.cli.commands.remote_mgmt` — remote status/logs/ssh/query
 - `dango.web.routes.health` — get_watcher_status
+
+## Cloud Deployment Flow
+
+```
+Local Machine                          DigitalOcean
+─────────────                          ────────────
+
+dango deploy
+  ├─ deploy_wizard.py (interactive)
+  ├─ deploy_provision.py
+  │  ├─ ssh.py → generate_key()
+  │  ├─ digitalocean.py → create       ──→  Droplet (Ubuntu 22.04)
+  │  ├─ provisioning.py → wait         ←──  IP address
+  │  ├─ firewall.py → create           ──→  Firewall rules
+  │  ├─ server_setup.py → setup        ──→  Docker, Caddy, systemd
+  │  ├─ file_sync.py → sync            ──→  Project files via SFTP
+  │  └─ deployer.py → push_deploy      ──→  Build + restart services
+  └─ initial_sync (web)                ──→  First data sync
+
+dango remote push
+  ├─ backup.py → create_backup         ──→  Pre-deploy backup
+  ├─ file_sync.py → sync               ──→  Changed files
+  └─ deployer.py → push_deploy         ──→  Rebuild + restart
+
+dango remote rollback
+  └─ backup.py → rollback              ──→  Restore from backup
+```
+
+## Remote Server Layout
+
+```
+/srv/dango/                            # Application root (owner: dango)
+├── project/                           # Synced project files
+│   ├── .dango/                        # Dango state
+│   │   ├── cloud.yml                  # Cloud config (IP, region, size, etc.)
+│   │   ├── state/                     # Runtime state
+│   │   └── logs/                      # Activity + audit logs
+│   ├── .dlt/                          # dlt config + secrets
+│   ├── .env                           # Environment variables
+│   ├── data/warehouse.duckdb          # DuckDB database
+│   └── docker-compose.yml             # Generated Docker Compose
+├── venv/                              # Python virtual environment
+└── backups/deploy/                    # Pre-deploy backups
+
+/etc/caddy/Caddyfile                   # Reverse proxy (HTTP or HTTPS)
+/etc/systemd/system/dango.service      # Dango systemd unit
+/etc/systemd/system/dango-backup.*     # Scheduled backup timer + service
+```
+
+## Security Recommendations
+
+Post-deployment hardening (not automated by Dango):
+
+- **Cloudflare proxy:** Route traffic through Cloudflare for DDoS protection and CDN. Set Caddy to trust Cloudflare IPs for correct client IP logging.
+- **UptimeRobot:** Monitor `/api/health` endpoint for uptime alerts. Free tier supports 5-minute check intervals.
+- **Firewall IP restriction:** Use `dango remote firewall allow-ip` to restrict web access to known IPs during development/staging.
+
+## Testing
+
+- **Local platform:** `pytest tests/unit/test_platform_startup.py tests/unit/test_watcher_lifecycle.py`
+- **Cloud modules:** `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py tests/unit/test_provisioning.py tests/unit/test_firewall.py tests/unit/test_server_setup.py tests/unit/test_domain.py tests/unit/test_backup.py tests/unit/test_file_sync.py tests/unit/test_deployer.py tests/unit/test_scheduled_backup.py tests/unit/test_resize.py tests/unit/test_migrate.py tests/unit/test_upgrade.py`
+- **Manual:** `dango start` (local platform), `dango deploy` (cloud provisioning)
+
+## Don't Modify
+
+| File | Reason |
+|------|--------|
+| `cloud/__init__.py` export list | Other modules depend on re-exported symbols; changes break downstream imports |
+| `cloud/_server_templates.py` systemd unit structure | Running servers depend on the exact systemd unit format |
+| `local/` watcher event format | Web UI parses watcher status responses |

@@ -17,6 +17,7 @@ Shared utilities for process management, activity logging, sync history tracking
 | `dbt_lock.py` | Cross-process file lock for dbt operations (fcntl/msvcrt) | `DbtLock`, `dbt_lock()` context manager (imports `DbtLockError` from `dango.exceptions`) |
 | `dbt_status.py` | Persistent dbt model status from run_results.json | `update_model_status()`, `get_model_statuses()` |
 | `data_validation.py` | Schema/data integrity checks against DuckDB | `validate_cursor_field()`, `detect_schema_changes()`, `validate_data_completeness()`, `print_validation_report()` |
+| `env_file.py` | .env file parsing and serialization | `parse_env_file()`, `serialize_env_file()` |
 
 ## Common Tasks
 
