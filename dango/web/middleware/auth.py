@@ -61,6 +61,7 @@ _PUBLIC_EXACT: frozenset[str] = frozenset({
     "/api/auth/2fa/verify",
     "/api/auth/oauth/callback",
     "/api/auth/accept-invite",
+    "/api/initial-sync/start",  # Uses one-time deploy token (own auth check)
     "/login",
     "/setup",
     "/api/health",
