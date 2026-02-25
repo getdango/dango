@@ -240,6 +240,9 @@ module = [
     "tests.unit.test_resize",
     "tests.unit.test_migrate",
     "tests.unit.test_remote_ops_cli",
+    "tests.integration.test_digitalocean",
+    "tests.integration.test_deploy",
+    "tests.integration.test_remote",
 ]
 ignore_errors = true
 
@@ -249,5 +252,6 @@ pythonpath = ["."]
 markers = [
     "unit: Unit tests (no external services or network — tmp_path filesystem operations are allowed)",
     "integration: Integration tests (may use temp dirs, real files, DuckDB)",
+    "cloud: Cloud integration tests (requires DIGITALOCEAN_TOKEN, on-demand CI)",
 ]
 addopts = "--strict-markers"
