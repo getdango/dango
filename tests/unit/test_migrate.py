@@ -123,7 +123,9 @@ class TestUploadBackupToSpaces:
             ssh, "/srv/dango/backups/deploy/backup-test.tar.gz", spaces_cfg
         )
         assert key == "migration/backup-test.tar.gz"
-        ssh.exec_command.assert_called_once()
+        # Script written to file, then executed + cleaned up
+        ssh.write_remote_file.assert_called_once()
+        assert ssh.exec_command.call_count == 2  # exec + rm cleanup
 
     def test_raises_on_failure(self) -> None:
         from dango.platform.cloud.migrate import _upload_backup_to_spaces
@@ -321,10 +323,14 @@ class TestMigrateServer:
             patches["setup"],
             patches["download"],
             patches["restore"],
-            patch("dango.platform.cloud.migrate.time.sleep"),
+            patch("dango.platform.cloud.backup.time.sleep"),
             patch(
                 "dango.platform.cloud.migrate.time.monotonic",
-                side_effect=[0.0, 0.0, 1.0, 100.0, 100.0, 100.0],
+                side_effect=[0.0, 100.0],
+            ),
+            patch(
+                "dango.platform.cloud.backup.time.monotonic",
+                side_effect=[0.0, 1.0, 100.0, 100.0],
             ),
         ):
             result = migrate_server(

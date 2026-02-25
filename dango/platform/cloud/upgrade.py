@@ -86,36 +86,6 @@ def _notify(callback: Callable[[str, str], None] | None, step: str, status: str)
         callback(step, status)
 
 
-def _stop_services(ssh: SSHManager) -> None:
-    """Stop dango-web and Metabase for upgrade."""
-    _run_checked(ssh, "systemctl stop dango-web || true", step="stop_services", timeout=60)
-    _run_checked(
-        ssh,
-        f"docker compose -f {_PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
-        step="stop_services",
-        timeout=120,
-    )
-
-
-def _start_services(ssh: SSHManager) -> None:
-    """Start Metabase then dango-web (reverse order of stop)."""
-    ssh.exec_command(
-        f"docker compose -f {_PROJECT_DIR}/docker-compose.yml start metabase 2>/dev/null || true",
-        timeout=120,
-    )
-    ssh.exec_command("systemctl reload-or-restart dango-web || true", timeout=60)
-
-
-def _verify_health(ssh: SSHManager, timeout: int = 90) -> bool:
-    """Poll the health endpoint until it responds OK or timeout."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if ssh.exec_command("curl -sf http://localhost:8800/api/health", timeout=10).success:
-            return True
-        time.sleep(5)
-    return False
-
-
 def upgrade_dango(
     ssh: SSHManager,
     *,
@@ -204,8 +174,10 @@ def upgrade_dango(
         warnings.append("Pre-upgrade backup skipped (--skip-backup).")
 
     # 5. Stop services
+    from dango.platform.cloud.backup import start_services, stop_services, verify_health
+
     _notify(on_progress, "stop_services", "running")
-    _stop_services(ssh)
+    stop_services(ssh)
     _notify(on_progress, "stop_services", "done")
 
     try:
@@ -253,12 +225,12 @@ def upgrade_dango(
     finally:
         # 10. Start services
         _notify(on_progress, "start_services", "running")
-        _start_services(ssh)
+        start_services(ssh)
         _notify(on_progress, "start_services", "done")
 
     # 11. Verify health
     _notify(on_progress, "verify_health", "running")
-    health_ok = _verify_health(ssh)
+    health_ok = verify_health(ssh)
     if not health_ok:
         warnings.append(
             "Health check did not pass within 90 seconds. "

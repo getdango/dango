@@ -267,6 +267,45 @@ class TestRemoteResizeCommand:
         assert "Resize plan" in result.output
         assert "s-4vcpu-8gb" in result.output
 
+    def test_yes_flag_runs_resize(self, tmp_path: Path) -> None:
+        """--yes skips the confirmation prompt."""
+        from dango.platform.cloud.resize import ResizeResult
+
+        cloud_cfg = _make_cloud_config(size="s-2vcpu-4gb")
+        loader = _make_loader(cloud_cfg)
+        ssh = _make_ssh_mock()
+
+        resize_result = ResizeResult(
+            old_size="s-2vcpu-4gb",
+            new_size="s-4vcpu-8gb",
+            old_tier="Standard",
+            new_tier="Performance",
+            duration_seconds=120.0,
+            backup_path="/srv/dango/backups/deploy/backup.tar.gz",
+            dbt_profiles_regenerated=True,
+        )
+
+        with (
+            patch(_PATCH_REQUIRE_CTX, return_value=tmp_path),
+            patch(_PATCH_LOADER, return_value=loader),
+            patch(_PATCH_SSH_CLS, return_value=ssh),
+            patch(
+                "dango.platform.cloud.resize.resize_droplet",
+                return_value=resize_result,
+            ),
+            patch(
+                "dango.platform.cloud.digitalocean.DigitalOceanClient",
+                return_value=MagicMock(),
+            ),
+        ):
+            result = _run(
+                ["resize", "s-4vcpu-8gb", "--yes"],
+                tmp_path,
+                catch_exceptions=True,
+            )
+
+        assert "Resize complete" in result.output
+
 
 # ---------------------------------------------------------------------------
 # dango remote migrate
@@ -356,3 +395,20 @@ class TestRemoteMigrateCommand:
             )
 
         assert "Migration complete" in result.output
+
+    def test_region_shows_in_plan(self, tmp_path: Path) -> None:
+        """--region shows target region in migration plan."""
+        cloud_cfg = _make_cloud_config(size="s-2vcpu-4gb")
+        loader = _make_loader(cloud_cfg)
+
+        with (
+            patch(_PATCH_REQUIRE_CTX, return_value=tmp_path),
+            patch(_PATCH_LOADER, return_value=loader),
+        ):
+            result = _run(
+                ["migrate", "--size", "s-4vcpu-8gb", "--region", "sfo3"],
+                tmp_path,
+                catch_exceptions=True,
+            )
+
+        assert "sfo3" in result.output

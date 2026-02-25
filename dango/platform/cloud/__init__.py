@@ -14,6 +14,9 @@ from .backup import (
     list_local_backups,
     rollback,
     rotate_local_backups,
+    start_services,
+    stop_services,
+    verify_health,
 )
 from .deployer import DeployLock, DeployResult, push_deploy
 from .digitalocean import DigitalOceanClient
@@ -116,6 +119,9 @@ __all__ = [
     "list_local_backups",
     "rollback",
     "rotate_local_backups",
+    "stop_services",
+    "start_services",
+    "verify_health",
     # File sync (TASK-028)
     "SyncResult",
     "sync_project_files",

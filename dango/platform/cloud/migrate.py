@@ -61,8 +61,8 @@ def _upload_backup_to_spaces(
 ) -> str:
     """Upload a backup archive to Spaces from the remote server via SSH.
 
-    Runs a short Python script on the server that uses ``boto3`` (available
-    in the dango venv) to upload the archive.
+    Writes a Python script to the server and executes it.  Uses ``repr()``
+    for all interpolated values to prevent injection.
 
     Returns:
         The Spaces object key for the uploaded archive.
@@ -70,24 +70,28 @@ def _upload_backup_to_spaces(
     archive_name = archive_path.rsplit("/", 1)[-1]
     spaces_key = f"migration/{archive_name}"
 
-    bucket = spaces_config.bucket
     region = spaces_config.region or "nyc3"
-    access_key_env = spaces_config.access_key_env
-    secret_key_env = spaces_config.secret_key_env
+    endpoint = f"https://{region}.digitaloceanspaces.com"
 
-    upload_script = (
-        f"import boto3, os; "
-        f"s3 = boto3.client('s3', region_name='{region}', "
-        f"endpoint_url='https://{region}.digitaloceanspaces.com', "
-        f"aws_access_key_id=os.environ['{access_key_env}'], "
-        f"aws_secret_access_key=os.environ['{secret_key_env}']); "
-        f"s3.upload_file('{archive_path}', '{bucket}', '{spaces_key}')"
+    script = (
+        "import boto3, os\n"
+        f"s3 = boto3.client('s3', region_name={region!r},\n"
+        f"    endpoint_url={endpoint!r},\n"
+        f"    aws_access_key_id=os.environ[{spaces_config.access_key_env!r}],\n"
+        f"    aws_secret_access_key=os.environ[{spaces_config.secret_key_env!r}])\n"
+        f"s3.upload_file({archive_path!r}, {spaces_config.bucket!r}, {spaces_key!r})\n"
     )
 
-    result = ssh.exec_command(
-        f'source {_PROJECT_DIR}/.env 2>/dev/null; /srv/dango/venv/bin/python -c "{upload_script}"',
-        timeout=600,
-    )
+    script_path = "/tmp/_dango_upload.py"
+    ssh.write_remote_file(script_path, script, mode=0o600)
+    try:
+        result = ssh.exec_command(
+            f"source {_PROJECT_DIR}/.env 2>/dev/null && /srv/dango/venv/bin/python {script_path}",
+            timeout=600,
+        )
+    finally:
+        ssh.exec_command(f"rm -f {script_path}")
+
     if not result.success:
         raise CloudProvisioningError(
             f"Failed to upload backup to Spaces (exit {result.exit_code}): "
@@ -103,32 +107,38 @@ def _download_backup_from_spaces(
 ) -> str:
     """Download a backup archive from Spaces to the remote server via SSH.
 
+    Writes a Python script to the server and executes it.  Uses ``repr()``
+    for all interpolated values to prevent injection.
+
     Returns:
         The local path of the downloaded archive on the server.
     """
     archive_name = spaces_key.rsplit("/", 1)[-1]
     local_path = f"/srv/dango/backups/deploy/{archive_name}"
 
-    bucket = spaces_config.bucket
     region = spaces_config.region or "nyc3"
-    access_key_env = spaces_config.access_key_env
-    secret_key_env = spaces_config.secret_key_env
+    endpoint = f"https://{region}.digitaloceanspaces.com"
 
-    download_script = (
-        f"import boto3, os; "
-        f"os.makedirs('/srv/dango/backups/deploy', exist_ok=True); "
-        f"s3 = boto3.client('s3', region_name='{region}', "
-        f"endpoint_url='https://{region}.digitaloceanspaces.com', "
-        f"aws_access_key_id=os.environ['{access_key_env}'], "
-        f"aws_secret_access_key=os.environ['{secret_key_env}']); "
-        f"s3.download_file('{bucket}', '{spaces_key}', '{local_path}')"
+    script = (
+        "import boto3, os\n"
+        "os.makedirs('/srv/dango/backups/deploy', exist_ok=True)\n"
+        f"s3 = boto3.client('s3', region_name={region!r},\n"
+        f"    endpoint_url={endpoint!r},\n"
+        f"    aws_access_key_id=os.environ[{spaces_config.access_key_env!r}],\n"
+        f"    aws_secret_access_key=os.environ[{spaces_config.secret_key_env!r}])\n"
+        f"s3.download_file({spaces_config.bucket!r}, {spaces_key!r}, {local_path!r})\n"
     )
 
-    result = ssh.exec_command(
-        f"source {_PROJECT_DIR}/.env 2>/dev/null; "
-        f'/srv/dango/venv/bin/python -c "{download_script}"',
-        timeout=600,
-    )
+    script_path = "/tmp/_dango_download.py"
+    ssh.write_remote_file(script_path, script, mode=0o600)
+    try:
+        result = ssh.exec_command(
+            f"source {_PROJECT_DIR}/.env 2>/dev/null && /srv/dango/venv/bin/python {script_path}",
+            timeout=600,
+        )
+    finally:
+        ssh.exec_command(f"rm -f {script_path}")
+
     if not result.success:
         raise CloudProvisioningError(
             f"Failed to download backup from Spaces (exit {result.exit_code}): "
@@ -186,16 +196,6 @@ def _update_firewall_droplets(
     )
 
 
-def _verify_health(ssh: SSHManager, timeout: int = 90) -> bool:
-    """Poll the health endpoint until it responds OK or timeout."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if ssh.exec_command("curl -sf http://localhost:8800/api/health", timeout=10).success:
-            return True
-        time.sleep(5)
-    return False
-
-
 def migrate_server(
     client: DigitalOceanClient,
     old_ssh: SSHManager,
@@ -238,7 +238,7 @@ def migrate_server(
         CloudError: If Spaces is not configured or validation fails.
         CloudProvisioningError: If any step fails.
     """
-    from dango.platform.cloud.backup import create_backup, restore_from_archive
+    from dango.platform.cloud.backup import create_backup, restore_from_archive, verify_health
     from dango.platform.cloud.provisioning import (
         provision_droplet,
         save_provisioning_metadata,
@@ -345,7 +345,7 @@ def migrate_server(
 
         # 12. Verify health
         _notify(on_progress, "verify_health", "running")
-        health_ok = _verify_health(new_ssh)
+        health_ok = verify_health(new_ssh)
         _notify(on_progress, "verify_health", "done")
 
         # 13. Destroy old or keep both

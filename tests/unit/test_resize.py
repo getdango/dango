@@ -15,8 +15,10 @@ from dango.platform.cloud.ssh import CommandResult
 
 # Patch paths — lazy imports, patch at source.
 _PATCH_BACKUP = "dango.platform.cloud.backup.create_backup"
-_PATCH_STOP = "dango.platform.cloud.backup._stop_services"
-_PATCH_START = "dango.platform.cloud.backup._start_services"
+_PATCH_STOP = "dango.platform.cloud.backup.stop_services"
+_PATCH_START = "dango.platform.cloud.backup.start_services"
+_PATCH_VERIFY = "dango.platform.cloud.backup.verify_health"
+_PATCH_SAVE_META = "dango.platform.cloud.provisioning.save_provisioning_metadata"
 _PATCH_WAIT_DROPLET = "dango.platform.cloud.provisioning.wait_for_droplet_ready"
 _PATCH_WAIT_SSH = "dango.platform.cloud.provisioning.wait_for_ssh"
 
@@ -321,3 +323,74 @@ class TestResizeDroplet:
 
         # Should attempt to power on after failure
         assert client.power_on.call_count >= 1
+
+    def test_resize_without_backup(self) -> None:
+        from dango.platform.cloud.resize import resize_droplet
+
+        ssh = _make_ssh_mock(
+            exec_results={
+                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                    "name: proj\nversion: 1.0.0",
+                    "",
+                    0,
+                ),
+                "curl -sf": ("ok", "", 0),
+                "systemctl": ("", "", 0),
+                "docker compose": ("", "", 0),
+            }
+        )
+        client = _make_do_client()
+
+        with (
+            patch(_PATCH_STOP) as mock_stop,
+            patch(_PATCH_WAIT_DROPLET),
+            patch(_PATCH_WAIT_SSH),
+            patch(_PATCH_START),
+            patch(_PATCH_VERIFY, return_value=True),
+        ):
+            result = resize_droplet(client, ssh, 42, "s-4vcpu-8gb", create_backup=False)
+
+        assert result.backup_path is None
+        mock_stop.assert_called_once()
+
+    def test_resize_persists_metadata(self, tmp_path: Any) -> None:
+        from dango.platform.cloud.resize import resize_droplet
+
+        ssh = _make_ssh_mock(
+            exec_results={
+                "cat /srv/dango/project/dbt/dbt_project.yml": (
+                    "name: proj\nversion: 1.0.0",
+                    "",
+                    0,
+                ),
+                "curl -sf": ("ok", "", 0),
+                "systemctl": ("", "", 0),
+                "docker compose": ("", "", 0),
+            }
+        )
+        client = _make_do_client()
+
+        backup_result = MagicMock()
+        backup_result.archive_path = "/srv/dango/backups/deploy/backup-test.tar.gz"
+
+        with (
+            patch(_PATCH_BACKUP, return_value=backup_result),
+            patch(_PATCH_WAIT_DROPLET),
+            patch(_PATCH_WAIT_SSH),
+            patch(_PATCH_START),
+            patch(_PATCH_VERIFY, return_value=True),
+            patch(_PATCH_SAVE_META) as mock_save,
+        ):
+            resize_droplet(
+                client,
+                ssh,
+                42,
+                "s-4vcpu-8gb",
+                project_root=tmp_path,
+                region="nyc1",
+            )
+
+        mock_save.assert_called_once()
+        kwargs = mock_save.call_args[1]
+        assert kwargs["size"] == "s-4vcpu-8gb"
+        assert kwargs["region"] == "nyc1"

@@ -172,7 +172,6 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
     from dango.platform.cloud.provisioning import (
         SIZE_TIERS,
         get_size_tier,
-        save_provisioning_metadata,
     )
     from dango.platform.cloud.resize import (
         ResizeResult,
@@ -263,7 +262,7 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
             return
 
     # Connect SSH + DO client
-    cloud_cfg_ssh, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
+    _, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
     client = _make_client()
 
     try:
@@ -291,16 +290,9 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
                 size,
                 dbt_overrides=cloud_cfg.dbt_overrides,
                 on_progress=_on_progress,
+                project_root=project_root,
+                region=cloud_cfg.region,
             )
-
-        # Update cloud.yml
-        save_provisioning_metadata(
-            project_root,
-            droplet_id=cloud_cfg.droplet_id,
-            droplet_ip=cloud_cfg.droplet_ip,
-            region=cloud_cfg.region,
-            size=size,
-        )
 
         # Show results
         console.print()

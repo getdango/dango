@@ -108,18 +108,19 @@ def _check_disk_space(ssh: SSHManager, required_mb: int = 500) -> None:
             )
 
 
-def _stop_services(ssh: SSHManager) -> None:
-    """Stop dango-web and Metabase to ensure no concurrent writes."""
-    _run_checked(ssh, "systemctl stop dango-web || true", step="stop_services", timeout=60)
-    _run_checked(
-        ssh,
+def stop_services(ssh: SSHManager) -> None:
+    """Stop dango-web and Metabase to ensure no concurrent writes.
+
+    Best-effort — does not raise if services are already stopped.
+    """
+    ssh.exec_command("systemctl stop dango-web || true", timeout=60)
+    ssh.exec_command(
         f"docker compose -f {PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
-        step="stop_services",
         timeout=120,
     )
 
 
-def _start_services(ssh: SSHManager) -> None:
+def start_services(ssh: SSHManager) -> None:
     """Start Metabase then dango-web (reverse order of stop)."""
     ssh.exec_command(
         f"docker compose -f {PROJECT_DIR}/docker-compose.yml start metabase 2>/dev/null || true",
@@ -244,7 +245,7 @@ def _create_archive(
     return archive_path, manifest
 
 
-def _verify_health(ssh: SSHManager, timeout: int = 90) -> bool:
+def verify_health(ssh: SSHManager, timeout: int = 90) -> bool:
     """Poll the health endpoint until it responds OK or timeout."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -283,7 +284,7 @@ def create_backup(
     _notify(on_progress, "check_disk_space", "done")
 
     _notify(on_progress, "stop_services", "running")
-    _stop_services(ssh)
+    stop_services(ssh)
     _notify(on_progress, "stop_services", "done")
 
     try:
@@ -306,7 +307,7 @@ def create_backup(
     finally:
         if restart_services:
             _notify(on_progress, "start_services", "running")
-            _start_services(ssh)
+            start_services(ssh)
             _notify(on_progress, "start_services", "done")
 
     _notify(on_progress, "rotate_backups", "running")
@@ -388,7 +389,7 @@ def restore_from_archive(
         _notify(on_progress, "read_manifest", "done")
 
     _notify(on_progress, "stop_services", "running")
-    _stop_services(ssh)
+    stop_services(ssh)
     _notify(on_progress, "stop_services", "done")
 
     services_restarted = False
@@ -441,12 +442,12 @@ def restore_from_archive(
         ssh.exec_command(f"rm -rf {staging}")
     finally:
         _notify(on_progress, "start_services", "running")
-        _start_services(ssh)
+        start_services(ssh)
         services_restarted = True
         _notify(on_progress, "start_services", "done")
 
     _notify(on_progress, "verify_health", "running")
-    health_ok = _verify_health(ssh)
+    health_ok = verify_health(ssh)
     if not health_ok:
         warnings.append("Health check did not pass within 90 seconds")
     _notify(on_progress, "verify_health", "done")

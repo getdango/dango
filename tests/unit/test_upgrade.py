@@ -207,16 +207,21 @@ class TestUpgradeDango:
         with (
             patch(_PATCH_PYPI, return_value="1.1.0"),
             patch(_PATCH_BACKUP, return_value=backup_result),
-            patch("dango.platform.cloud.upgrade.time.sleep"),
+            patch("dango.platform.cloud.backup.time.sleep"),
             patch(
                 "dango.platform.cloud.upgrade.time.monotonic",
                 side_effect=[
                     0.0,  # start_time
+                    100.0,  # final duration
+                ],
+            ),
+            patch(
+                "dango.platform.cloud.backup.time.monotonic",
+                side_effect=[
                     0.0,
-                    1.0,  # _verify_health loop iterations
+                    1.0,  # verify_health loop iterations
                     100.0,
                     100.0,  # timeout exceeded
-                    100.0,  # final duration
                 ],
             ),
         ):

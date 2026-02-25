@@ -13,7 +13,10 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import yaml
 
 from dango.exceptions import CloudError
 
@@ -145,13 +148,14 @@ def regenerate_dbt_profiles(
     if not result.success or not result.stdout.strip():
         return False
 
-    # Parse project name (first "name:" line in YAML)
+    # Parse project name via YAML
     project_name = "dango"
-    for line in result.stdout.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("name:"):
-            project_name = stripped.split(":", 1)[1].strip().strip("'\"")
-            break
+    try:
+        data: dict[str, Any] = yaml.safe_load(result.stdout)
+        if isinstance(data, dict) and "name" in data:
+            project_name = str(data["name"])
+    except yaml.YAMLError:
+        pass  # Fall back to default name
 
     # Determine specs from tier or defaults
     tier = get_size_tier(new_size_slug)
@@ -195,6 +199,8 @@ def resize_droplet(
     create_backup: bool = True,
     dbt_overrides: Any | None = None,
     on_progress: Callable[[str, str], None] | None = None,
+    project_root: Path | None = None,
+    region: str | None = None,
 ) -> ResizeResult:
     """Resize a Droplet to a new size slug.
 
@@ -206,6 +212,7 @@ def resize_droplet(
         5. Wait for droplet active + SSH reachable
         6. Regenerate dbt profiles.yml
         7. Start services + verify health
+        8. Persist new size to cloud.yml (if *project_root* provided)
 
     Args:
         client: ``DigitalOceanClient`` instance.
@@ -215,6 +222,9 @@ def resize_droplet(
         create_backup: If ``True``, create a backup before resizing.
         dbt_overrides: Optional ``DbtOverrides`` for profiles.yml.
         on_progress: Optional ``(step, status)`` callback.
+        project_root: Local project root. When provided (along with
+            *region*), the new size is persisted to ``cloud.yml``.
+        region: Current region slug — required when *project_root* is set.
 
     Returns:
         ``ResizeResult`` with size change details.
@@ -225,6 +235,7 @@ def resize_droplet(
     """
     from dango.platform.cloud.provisioning import (
         get_size_tier,
+        save_provisioning_metadata,
         wait_for_droplet_ready,
         wait_for_ssh,
     )
@@ -259,9 +270,9 @@ def resize_droplet(
         _notify(on_progress, "backup", "done")
     else:
         # Stop services manually if no backup (backup stops them)
-        from dango.platform.cloud.backup import _stop_services
+        from dango.platform.cloud.backup import stop_services
 
-        _stop_services(ssh)
+        stop_services(ssh)
 
     try:
         # 5. Power off
@@ -310,17 +321,27 @@ def resize_droplet(
     _notify(on_progress, "dbt_profiles", "done")
 
     # 11. Start services + verify health
-    from dango.platform.cloud.backup import _start_services
+    from dango.platform.cloud.backup import start_services, verify_health
 
     _notify(on_progress, "start_services", "running")
-    _start_services(ssh)
+    start_services(ssh)
     _notify(on_progress, "start_services", "done")
 
     _notify(on_progress, "verify_health", "running")
-    health_ok = _verify_health(ssh)
+    health_ok = verify_health(ssh)
     if not health_ok:
         warnings.append("Health check did not pass within 90 seconds.")
     _notify(on_progress, "verify_health", "done")
+
+    # 12. Persist new size to cloud.yml
+    if project_root is not None and region is not None:
+        save_provisioning_metadata(
+            project_root,
+            droplet_id=droplet_id,
+            droplet_ip=droplet_ip,
+            region=region,
+            size=new_size,
+        )
 
     return ResizeResult(
         old_size=current_size,
@@ -343,13 +364,3 @@ def _extract_ipv4(droplet: dict[str, Any]) -> str:
         "Could not find public IPv4 address for droplet.",
         error_code="DANGO-D031",
     )
-
-
-def _verify_health(ssh: SSHManager, timeout: int = 90) -> bool:
-    """Poll the health endpoint until it responds OK or timeout."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if ssh.exec_command("curl -sf http://localhost:8800/api/health", timeout=10).success:
-            return True
-        time.sleep(5)
-    return False
