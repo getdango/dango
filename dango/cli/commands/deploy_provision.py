@@ -13,7 +13,6 @@ that were created (no orphans).
 from __future__ import annotations
 
 import base64
-import re
 import secrets
 import time
 from dataclasses import dataclass, field
@@ -21,13 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from dango.cli import console
-from dango.cli.commands.deploy_wizard import WizardConfig
-
-# ---------------------------------------------------------------------------
-# Resource tracker — teardown on failure
-# ---------------------------------------------------------------------------
-
-_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+from dango.cli.commands.deploy_wizard import _EMAIL_RE, WizardConfig
 
 
 @dataclass
@@ -356,6 +349,11 @@ def _create_admin_and_enable_auth(
     if not _EMAIL_RE.match(email):
         raise ValueError(f"Invalid email format: {email}")
 
+    # Hash password locally — never send plaintext to remote server
+    from dango.auth.security import hash_password
+
+    pw_hash = hash_password(password)
+
     # Generate one-time deploy token
     deploy_token = secrets.token_urlsafe(32)
 
@@ -367,9 +365,8 @@ def _create_admin_and_enable_auth(
         "from pathlib import Path\n"
         "from dango.auth.database import create_user, init_db\n"
         "from dango.auth.models import Role, User\n"
-        "from dango.auth.security import hash_password\n"
         f"email = {email!r}\n"
-        f"pw_hash = hash_password({password!r})\n"
+        f"pw_hash = {pw_hash!r}\n"
         "db_path = Path('.dango/auth.db')\n"
         "db_path.parent.mkdir(parents=True, exist_ok=True)\n"
         "init_db(db_path)\n"

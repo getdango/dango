@@ -13,6 +13,7 @@ Other endpoints require a valid session or API key (handled by auth middleware).
 
 from __future__ import annotations
 
+import hmac
 import json
 import shutil
 from dataclasses import asdict, dataclass, field
@@ -149,7 +150,7 @@ def _validate_deploy_token(token: str) -> bool:
         return False
 
     stored = token_path.read_text().strip()
-    if token != stored:
+    if not hmac.compare_digest(token, stored):
         return False
 
     # One-time use — delete after validation
@@ -158,6 +159,41 @@ def _validate_deploy_token(token: str) -> bool:
     except OSError:
         pass
     return True
+
+
+def _get_admin_user_from_session(request: Request) -> Any:
+    """Validate session cookie and return user if admin, else None.
+
+    This endpoint is in ``_PUBLIC_EXACT`` so the auth middleware skips it.
+    We validate the session explicitly to allow admins to re-trigger sync
+    after the one-time deploy token has been consumed.
+    """
+    from dango.auth.admin import get_auth_db_path, is_auth_enabled
+    from dango.auth.models import Role
+    from dango.auth.sessions import validate_session
+    from dango.web.middleware.auth import COOKIE_NAME
+
+    project_root = get_project_root()
+    if not is_auth_enabled(project_root):
+        return None
+
+    db_path = get_auth_db_path(project_root)
+    if not db_path.exists():
+        return None
+
+    # Extract session cookie from request
+    cookie_value = request.cookies.get(COOKIE_NAME)
+    if not cookie_value:
+        return None
+
+    user = validate_session(db_path, cookie_value)
+    if user is None:
+        return None
+
+    if user.role != Role.ADMIN:
+        return None
+
+    return user
 
 
 # ---------------------------------------------------------------------------
@@ -307,26 +343,30 @@ def _check_disk_usage() -> str | None:
 
 @router.post("/start")
 async def start_initial_sync(request: Request, background_tasks: BackgroundTasks) -> dict[str, str]:
-    """Start the initial data sync. Requires deploy token or admin session."""
+    """Start the initial data sync.
+
+    Accepts either:
+    - A one-time deploy token (``Authorization: Bearer <token>``) — used by
+      ``dango deploy`` immediately after provisioning.
+    - An admin session cookie — used for re-triggering from the dashboard
+      after the deploy token has been consumed.
+    """
     global _sync_state  # noqa: PLW0603
 
     # Auth: check deploy token first, then fall back to session user
     auth_header = request.headers.get("authorization", "")
-    user = getattr(request.state, "user", None) if hasattr(request, "state") else None
 
     token_valid = False
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
         token_valid = _validate_deploy_token(token)
 
-    if not token_valid and user is None:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
-    if user is not None and getattr(user, "role", None) is not None:
-        from dango.auth.models import Role
-
-        if user.role != Role.ADMIN:
-            raise HTTPException(status_code=403, detail="Admin access required")
+    if not token_valid:
+        # Fall back to session-based auth (this endpoint is in _PUBLIC_EXACT
+        # so the middleware sets user=None; validate the session explicitly)
+        user = _get_admin_user_from_session(request)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Unauthorized")
 
     if _sync_state.phase == SyncPhase.SYNCING:
         raise HTTPException(status_code=409, detail="Sync already in progress")

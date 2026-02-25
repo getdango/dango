@@ -416,3 +416,75 @@ class TestPostSync:
         mock_dbt.assert_not_called()
         mock_mb.assert_not_called()
         assert mod._sync_state.phase == SyncPhase.COMPLETE
+
+
+# ---------------------------------------------------------------------------
+# 7. Admin session re-trigger (after deploy token consumed)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestAdminSessionRetrigger:
+    @patch("dango.config.helpers.load_config")
+    @patch("dango.web.routes.initial_sync._get_admin_user_from_session")
+    def test_admin_session_starts_sync(self, mock_get_admin, mock_config, client, tmp_path):
+        """POST /start with valid admin session starts sync (no deploy token)."""
+        mock_admin = MagicMock()
+        mock_admin.role = MagicMock()
+        mock_get_admin.return_value = mock_admin
+
+        mock_source = MagicMock()
+        mock_source.name = "stripe"
+        mock_source.type.value = "stripe"
+        mock_cfg = MagicMock()
+        mock_cfg.sources.sources = [mock_source]
+        mock_config.return_value = mock_cfg
+
+        with patch("dango.web.routes.initial_sync.get_project_root", return_value=tmp_path):
+            resp = client.post("/api/initial-sync/start")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "started"
+
+    @patch("dango.web.routes.initial_sync._get_admin_user_from_session")
+    def test_no_token_no_session_returns_401(self, mock_get_admin, client, tmp_path):
+        """POST /start without token or session returns 401."""
+        mock_get_admin.return_value = None
+
+        with patch("dango.web.routes.initial_sync.get_project_root", return_value=tmp_path):
+            resp = client.post("/api/initial-sync/start")
+        assert resp.status_code == 401
+
+    @patch("dango.config.helpers.load_config")
+    def test_consumed_token_then_admin_session(self, mock_config, client, tmp_path):
+        """After token is consumed, admin session can still start sync."""
+        # Create and consume token
+        token_dir = tmp_path / ".dango" / "state"
+        token_dir.mkdir(parents=True)
+        (token_dir / "deploy_token").write_text("one-time-token")
+
+        mock_source = MagicMock()
+        mock_source.name = "test"
+        mock_source.type.value = "test"
+        mock_cfg = MagicMock()
+        mock_cfg.sources.sources = [mock_source]
+        mock_config.return_value = mock_cfg
+
+        with patch("dango.web.routes.initial_sync.get_project_root", return_value=tmp_path):
+            # First use: deploy token
+            resp1 = client.post(
+                "/api/initial-sync/start",
+                headers={"Authorization": "Bearer one-time-token"},
+            )
+            assert resp1.status_code == 200
+
+            # Reset state
+            import dango.web.routes.initial_sync as mod
+
+            mod._sync_state = InitialSyncState()
+
+            # Second use: admin session (mock _get_admin_user_from_session)
+            with patch("dango.web.routes.initial_sync._get_admin_user_from_session") as mock_admin:
+                mock_admin.return_value = MagicMock()
+                resp2 = client.post("/api/initial-sync/start")
+            assert resp2.status_code == 200
+            assert resp2.json()["status"] == "started"

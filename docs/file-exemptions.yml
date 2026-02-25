@@ -224,6 +224,12 @@ exemptions:
     reason: "TASK-026+027: Added domain parameter tests for setup_server(). Each test requires isolated mock setup with full exec_results map."
     review_by: "v1.1"
 
+  - file: tests/unit/test_deploy_provision.py
+    lines: 533
+    category: exempt
+    reason: "TASK-029: 9 test classes covering ResourceTracker, IP extraction, secrets push, admin creation, health check, provisioning sequence, backup setup, metadata persistence, and sync trigger. Each requires isolated mock setup."
+    review_by: "v1.1"
+
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:
   - file: dango/ingestion/dlt_sources/mongodb/helpers.py

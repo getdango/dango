@@ -164,13 +164,16 @@ def _step_size() -> tuple[str, Any | None]:
             return tier.slug, tier
         if idx == len(SIZE_TIERS):
             # Custom slug
-            slug = click.prompt("  Enter DO size slug (e.g. s-2vcpu-4gb)")
-            if validate_custom_size(slug):
-                return slug, get_size_tier(slug)
-            console.print(
-                "[yellow]Warning: slug format not recognized. Proceeding anyway.[/yellow]"
-            )
-            return slug, None
+            while True:
+                slug = click.prompt("  Enter DO size slug (e.g. s-2vcpu-4gb)")
+                if validate_custom_size(slug):
+                    return slug, get_size_tier(slug)
+                console.print(
+                    "  [red]Invalid slug format.[/red] Expected format: s-{vcpus}vcpu-{ram}gb"
+                )
+                if not click.confirm("  Try again?", default=True):
+                    console.print(f"  Using default: {DEFAULT_TIER.name}")
+                    return DEFAULT_TIER.slug, DEFAULT_TIER
 
     # Fallback to default
     console.print(f"[yellow]Invalid choice, using default: {DEFAULT_TIER.name}[/yellow]")
@@ -560,7 +563,7 @@ def run_non_interactive(
         raise SystemExit(1)
 
     size_tier = get_size_tier(size)
-    monthly_cost = _get_monthly_cost(size, skip_backups is False)
+    monthly_cost = _get_monthly_cost(size, not skip_backups)
 
     return WizardConfig(
         region=region,

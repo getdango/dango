@@ -17,6 +17,9 @@ from dango.cli.commands.deploy_provision import (
     _health_check,
     _push_secrets,
     _ResourceTracker,
+    _save_extra_metadata,
+    _setup_backups,
+    _trigger_initial_sync,
 )
 
 # ---------------------------------------------------------------------------
@@ -384,3 +387,143 @@ class TestProvisionSequence:
 
         # SSH key was created, so cleanup should try to delete it
         mock_client.delete_ssh_key.assert_called_once_with(111)
+
+
+# ---------------------------------------------------------------------------
+# 7. Backup setup
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSetupBackups:
+    @patch("dango.platform.cloud.spaces.SpacesClient")
+    def test_creates_bucket_and_enables_timer(self, mock_spaces_cls, project_root):
+        """Backup setup creates bucket, writes credentials, enables systemd timer."""
+        from dango.cli.commands.deploy_wizard import WizardConfig
+
+        mock_spaces = MagicMock()
+        mock_spaces_cls.return_value = mock_spaces
+
+        ssh = _make_mock_ssh()
+        config = WizardConfig(
+            region="nyc1",
+            size_slug="s-2vcpu-4gb",
+            size_tier=None,
+            domain=None,
+            admin_email="admin@test.com",
+            admin_password="pw",
+            skip_oauth=True,
+            enable_backups=True,
+            skip_initial_sync=True,
+            monthly_cost=29,
+            spaces_access_key="DO_KEY",
+            spaces_secret_key="DO_SECRET",
+        )
+        tracker = _ResourceTracker()
+
+        _setup_backups(ssh, MagicMock(), project_root, config, tracker)
+
+        # Bucket created
+        mock_spaces.create_bucket.assert_called_once()
+        # Tracker updated
+        assert tracker.spaces_bucket is not None
+        assert tracker.spaces_client is mock_spaces
+        # Credentials appended to .env
+        env_write_calls = [
+            c for c in ssh.write_remote_file.call_args_list if c[0][0] == "/srv/dango/project/.env"
+        ]
+        assert len(env_write_calls) == 1
+        written_content = env_write_calls[0][0][1]
+        assert "SPACES_ACCESS_KEY=DO_KEY" in written_content
+        assert "SPACES_SECRET_KEY=DO_SECRET" in written_content
+        # Systemd files written
+        systemd_calls = [
+            c for c in ssh.write_remote_file.call_args_list if c[0][0].startswith("/etc/systemd/")
+        ]
+        assert len(systemd_calls) == 2  # .service + .timer
+        # Timer enabled
+        enable_calls = [c for c in ssh.exec_command.call_args_list if "enable --now" in str(c)]
+        assert len(enable_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# 8. Save extra metadata
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSaveExtraMetadata:
+    def test_saves_firewall_and_ssh_key(self, project_root):
+        """Saves firewall_id and ssh_key_id to cloud.yml."""
+        # Create a minimal cloud.yml first (simulating save_provisioning_metadata)
+        cloud_yml = project_root / ".dango" / "cloud.yml"
+        cloud_yml.write_text(
+            "droplet_id: 123\ndroplet_ip: 1.2.3.4\nregion: nyc1\nsize: s-2vcpu-4gb\n"
+        )
+
+        _save_extra_metadata(
+            project_root,
+            firewall_id="fw-456",
+            ssh_key_id=789,
+            domain=None,
+            spaces_config=None,
+        )
+
+        content = cloud_yml.read_text()
+        assert "fw-456" in content
+        assert "789" in content
+
+    def test_saves_domain_when_provided(self, project_root):
+        """Saves domain to cloud.yml when provided."""
+        cloud_yml = project_root / ".dango" / "cloud.yml"
+        cloud_yml.write_text(
+            "droplet_id: 123\ndroplet_ip: 1.2.3.4\nregion: nyc1\nsize: s-2vcpu-4gb\n"
+        )
+
+        _save_extra_metadata(
+            project_root,
+            firewall_id="fw-456",
+            ssh_key_id=789,
+            domain="example.com",
+            spaces_config=None,
+        )
+
+        content = cloud_yml.read_text()
+        assert "example.com" in content
+
+    def test_noop_when_no_cloud_yml(self, project_root):
+        """Does nothing when cloud.yml does not exist."""
+        # No cloud.yml — should not raise
+        _save_extra_metadata(
+            project_root,
+            firewall_id="fw-456",
+            ssh_key_id=789,
+            domain=None,
+            spaces_config=None,
+        )
+        assert not (project_root / ".dango" / "cloud.yml").exists()
+
+
+# ---------------------------------------------------------------------------
+# 9. Trigger initial sync
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestTriggerInitialSync:
+    @patch("httpx.post")
+    def test_posts_with_token(self, mock_post):
+        """Trigger sends POST with deploy token."""
+        _trigger_initial_sync("http://1.2.3.4", "test-token-123")
+
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args
+        assert call_kwargs[0][0] == "http://1.2.3.4/api/initial-sync/start"
+        headers = call_kwargs[1]["headers"]
+        assert headers["Authorization"] == "Bearer test-token-123"
+
+    @patch("httpx.post", side_effect=ConnectionError("refused"))
+    def test_swallows_errors(self, mock_post):
+        """Trigger does not raise on connection failure."""
+        # Should not raise
+        _trigger_initial_sync("http://1.2.3.4", "test-token-123")

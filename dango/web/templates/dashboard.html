@@ -58,7 +58,7 @@
                     </div>
                     <div class="flex items-center space-x-2 ml-4">
                         <template x-if="phase === 'syncing'">
-                            <button @click="skipSource()" class="text-xs px-3 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200">Skip Source</button>
+                            <button @click="skipSource()" class="text-xs px-3 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200">Skip (after current)</button>
                         </template>
                         <template x-if="isRunning()">
                             <button @click="cancelSync()" class="text-xs px-3 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200">Cancel</button>
