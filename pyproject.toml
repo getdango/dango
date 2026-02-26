@@ -257,6 +257,7 @@ module = [
     "tests.unit.test_webhook",
     "tests.unit.test_slack_formatter",
     "tests.unit.test_scheduler",
+    "tests.unit.test_scheduler_resilience",
     "tests.unit.test_schedules_config",
     "tests.unit.test_schedules_loading",
     "tests.unit.test_sync_jobs",
