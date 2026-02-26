@@ -54,6 +54,12 @@ class ResilienceConfig:
     retry_delays: tuple[int, ...] = _DEFAULT_RETRY_DELAYS
     timeout_minutes: int = _DEFAULT_TIMEOUT_MINUTES
 
+    def __post_init__(self) -> None:
+        if self.max_retries < 1:
+            raise ValueError("max_retries must be at least 1")
+        if self.timeout_minutes <= 0:
+            raise ValueError("timeout_minutes must be positive")
+
 
 class SchedulerService:
     """Wrapper around APScheduler AsyncIOScheduler.
@@ -227,6 +233,8 @@ class SchedulerService:
 
     def _register_cancel_flag(self, job_id: str) -> threading.Event:
         """Create and store a cancel flag for a starting job."""
+        if job_id in self._cancel_flags:
+            logger.warning("cancel_flag_overwrite", job_id=job_id)
         flag = threading.Event()
         self._cancel_flags[job_id] = flag
         return flag
@@ -491,4 +499,4 @@ def _fire_callbacks(
         try:
             cb(**kwargs)
         except Exception:  # noqa: BLE001
-            logger.debug("callback_error", exc_info=True)
+            logger.warning("callback_error", exc_info=True)

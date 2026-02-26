@@ -58,6 +58,24 @@ class TestResilienceConfig:
         with pytest.raises(AttributeError):
             cfg.max_retries = 10  # type: ignore[misc]
 
+    def test_rejects_zero_max_retries(self):
+        from dango.platform.scheduling.scheduler import ResilienceConfig
+
+        with pytest.raises(ValueError, match="max_retries must be at least 1"):
+            ResilienceConfig(max_retries=0)
+
+    def test_rejects_zero_timeout(self):
+        from dango.platform.scheduling.scheduler import ResilienceConfig
+
+        with pytest.raises(ValueError, match="timeout_minutes must be positive"):
+            ResilienceConfig(timeout_minutes=0)
+
+    def test_rejects_negative_timeout(self):
+        from dango.platform.scheduling.scheduler import ResilienceConfig
+
+        with pytest.raises(ValueError, match="timeout_minutes must be positive"):
+            ResilienceConfig(timeout_minutes=-1)
+
 
 @pytest.mark.unit
 class TestCancellation:
@@ -449,6 +467,15 @@ class TestRaiseInThread:
         t.join(timeout=2)
 
         assert caught.is_set()
+
+    def test_invalid_thread_id_logs_debug(self):
+        from dango.platform.scheduling.scheduler import _raise_in_thread
+
+        with patch(f"{_SCHEDULER_MOD}.logger") as mock_logger:
+            _raise_in_thread(999999999, JobTimeoutError)
+
+        mock_logger.debug.assert_called_once()
+        assert mock_logger.debug.call_args[0][0] == "raise_in_thread_invalid_id"
 
 
 @pytest.mark.unit
