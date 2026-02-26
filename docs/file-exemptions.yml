@@ -75,9 +75,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 549
+    lines: 653
     category: exempt
-    reason: "Source management commands (add/list/remove) + sync. Extracted from cli/main.py by TASK-005. Sync command alone is ~200 lines of orchestration logic."
+    reason: "Source management commands (add/list/remove) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation."
     review_by: "v1.1"
 
   - file: dango/cli/commands/remote.py

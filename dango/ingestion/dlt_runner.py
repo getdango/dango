@@ -152,6 +152,7 @@ class DltPipelineRunner:
         end_date: datetime | None = None,
         full_refresh: bool = False,
         timeout_minutes: int = 60,
+        limit: int | None = None,
     ) -> dict[str, Any]:
         """
         Run data pipeline for any source type
@@ -162,6 +163,7 @@ class DltPipelineRunner:
             end_date: Override end date for incremental loading
             full_refresh: Drop existing data and reload from scratch
             timeout_minutes: Timeout in minutes (default: 60)
+            limit: Max rows to load (dev testing, applies to dlt sources only)
 
         Returns:
             Dictionary with load statistics and status
@@ -284,7 +286,11 @@ class DltPipelineRunner:
             elif source_type == SourceType.DLT_NATIVE:
                 try:
                     result = self._run_with_timeout(
-                        self._run_dlt_native_source, timeout_minutes, source_config, full_refresh
+                        self._run_dlt_native_source,
+                        timeout_minutes,
+                        source_config,
+                        full_refresh,
+                        limit=limit,
                     )
                 except SyncTimeoutError as e:
                     error_message = str(e)
@@ -328,6 +334,7 @@ class DltPipelineRunner:
                         start_date,
                         end_date,
                         full_refresh,
+                        limit=limit,
                     )
                 except SyncTimeoutError as e:
                     error_message = str(e)
@@ -493,7 +500,10 @@ class DltPipelineRunner:
         }
 
     def _run_dlt_native_source(
-        self, source_config: DataSource, full_refresh: bool = False
+        self,
+        source_config: DataSource,
+        full_refresh: bool = False,
+        limit: int | None = None,
     ) -> dict[str, Any]:
         """
         Run dlt native source (registry bypass for advanced users)
@@ -506,6 +516,7 @@ class DltPipelineRunner:
         Args:
             source_config: Source configuration with dlt_native config
             full_refresh: Drop pipeline state and reload
+            limit: Max rows to load (dev testing)
 
         Returns:
             Load statistics
@@ -567,6 +578,11 @@ class DltPipelineRunner:
                     f"  [dim]Calling {config.source_function}(**{config.function_kwargs})[/dim]"
                 )
                 source = source_function(**config.function_kwargs)
+
+                # Apply row limit if specified (dev testing)
+                if limit is not None:
+                    source.add_limit(limit)
+                    console.print(f"  [dim]Row limit: {limit}[/dim]")
 
             finally:
                 # Remove custom_sources from path
@@ -692,6 +708,7 @@ class DltPipelineRunner:
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         full_refresh: bool = False,
+        limit: int | None = None,
     ) -> dict[str, Any]:
         """
         Run dlt pipeline for any verified source (generic implementation)
@@ -706,6 +723,7 @@ class DltPipelineRunner:
             start_date: Override start date
             end_date: Override end date
             full_refresh: Drop pipeline state and reload
+            limit: Max rows to load (dev testing)
 
         Returns:
             Load statistics
@@ -790,6 +808,11 @@ class DltPipelineRunner:
             # Dynamic import of dlt source
             # dlt resolves dlt.secrets.value parameters at this point
             source = self._load_dlt_source(dlt_package, dlt_function, source_kwargs)
+
+            # Apply row limit if specified (dev testing)
+            if limit is not None:
+                source.add_limit(limit)
+                console.print(f"  [dim]Row limit: {limit}[/dim]")
 
             # Detect actual load type from dlt source configuration
             # Check if source uses replace write_disposition (full refresh by design)
@@ -1575,6 +1598,7 @@ def run_sync(
     start_date: datetime | None = None,
     end_date: datetime | None = None,
     full_refresh: bool = False,
+    limit: int | None = None,
 ) -> dict[str, Any]:
     """
     Sync multiple sources and return summary
@@ -1585,6 +1609,7 @@ def run_sync(
         start_date: Override start date
         end_date: Override end date
         full_refresh: Full refresh mode
+        limit: Max rows per source (dev testing)
 
     Returns:
         Summary dictionary with success/failed counts
@@ -1602,7 +1627,7 @@ def run_sync(
             skipped_sources.append(source_config.name)
             continue
 
-        result = runner.run_source(source_config, start_date, end_date, full_refresh)
+        result = runner.run_source(source_config, start_date, end_date, full_refresh, limit=limit)
         results.append(result)
 
         if result.get("status") == "success":
