@@ -71,6 +71,7 @@ dependencies = [
     # Scheduling
     "apscheduler>=3.11,<4",   # Job scheduling (AsyncIOScheduler + SQLAlchemy job store)
     "sqlalchemy>=2.0,<3",     # Required by APScheduler SQLAlchemyJobStore
+    "croniter>=2.0,<4",       # Cron expression validation and iteration
 ]
 
 [project.optional-dependencies]
@@ -185,6 +186,8 @@ module = [
     "apscheduler.*",
     "sqlalchemy",
     "sqlalchemy.*",
+    "croniter",
+    "croniter.*",
 ]
 ignore_missing_imports = true
 
@@ -251,7 +254,9 @@ module = [
     "tests.unit.test_remote_ops_cli",
     "tests.unit.test_cli_sync",
     "tests.unit.test_webhook",
+    "tests.unit.test_slack_formatter",
     "tests.unit.test_scheduler",
+    "tests.unit.test_schedules_config",
     "tests.integration.test_digitalocean",
     "tests.integration.test_deploy",
     "tests.integration.test_remote",

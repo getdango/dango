@@ -12,6 +12,7 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 | `models.py` | Pydantic models for config data | `DangoConfig`, `ProjectContext`, `SourcesConfig`, `DataSource`, `SourceType`, `DeduplicationStrategy`, `PlatformSettings`, `Stakeholder`, `CSVSourceConfig`, `GoogleSheetsSourceConfig`, `StripeSourceConfig`, `ShopifySourceConfig`, `CloudConfig` (incl. `firewall_id`) |
 | `loader.py` | Load/save YAML config files | `ConfigLoader` |
 | `helpers.py` | Config convenience functions | `find_project_root`, `get_config`, `load_config`, `save_config`, `check_unreferenced_custom_sources`, `format_unreferenced_sources_warning` |
+| `schedules.py` | Schedule config models, validation, reload | `ScheduleConfig`, `SchedulesConfig`, `ScheduleType`, `ReloadResult`, `CRON_PRESETS`, `load_schedules_config`, `validate_schedules`, `reload_schedules`, `log_startup_checks` |
 | `credentials.py` | Credential loading for dlt sources | `CredentialManager`, `init_dlt_directory` |
 | `exceptions.py` | Re-export shim — classes live in `dango/exceptions.py` | `ConfigError`, `ConfigNotFoundError`, `ConfigValidationError`, `ProjectNotFoundError` |
 
@@ -23,14 +24,16 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 | Add a new source type | `models.py` (`SourceType` enum) | `pytest tests/unit/test_config_models.py` |
 | Change config loading logic | `loader.py` | `pytest tests/unit/test_config_loader.py` |
 | Add a new config error type | `exceptions.py` | `pytest tests/unit/test_config_loader.py` |
+| Add/modify schedule config | `schedules.py` | `pytest tests/unit/test_schedules_config.py` |
 | Add a new credential provider | `credentials.py` | Manual: create test project with `.dlt/secrets.toml` |
 
 ## Dependencies
 
 **Imports from:**
 - `pydantic` — model validation (`BaseModel`, `Field`, `validator`)
-- `yaml` — YAML parsing in `loader.py`
+- `yaml` — YAML parsing in `loader.py`, `schedules.py`
 - `toml` — TOML parsing in `credentials.py`
+- `croniter` — cron expression validation and iteration in `schedules.py`
 
 **Used by:**
 - `dango/cli/` — loads config to drive CLI commands
@@ -43,7 +46,7 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 
 ## Testing
 
-- **Unit:** `pytest tests/unit/test_config_loader.py tests/unit/test_config_models.py`
+- **Unit:** `pytest tests/unit/test_config_loader.py tests/unit/test_config_models.py tests/unit/test_schedules_config.py`
 - **Integration:** `pytest tests/integration/test_config_loading.py`
 - **Manual:** `dango config show` in a dango project directory
 
