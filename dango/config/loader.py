@@ -3,14 +3,19 @@
 Handles loading and validation of YAML configuration files.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import ValidationError
 
 from .exceptions import ConfigError, ConfigNotFoundError, ConfigValidationError
 from .models import CloudConfig, DangoConfig, ProjectContext, SourcesConfig
+
+if TYPE_CHECKING:
+    from .schedules import SchedulesConfig
 
 
 class ConfigLoader:
@@ -20,6 +25,7 @@ class ConfigLoader:
     PROJECT_FILE = "project.yml"
     SOURCES_FILE = "sources.yml"
     CLOUD_FILE = "cloud.yml"
+    SCHEDULES_FILE = "schedules.yml"
 
     def __init__(self, project_root: Path | None = None):
         """
@@ -33,6 +39,7 @@ class ConfigLoader:
         self.project_file = self.dango_dir / self.PROJECT_FILE
         self.sources_file = self.dango_dir / self.SOURCES_FILE
         self.cloud_file = self.dango_dir / self.CLOUD_FILE
+        self.schedules_file = self.dango_dir / self.SCHEDULES_FILE
 
     def is_dango_project(self) -> bool:
         """Check if current directory is a Dango project"""
@@ -179,6 +186,22 @@ class ConfigLoader:
             )
 
         return sources
+
+    def load_schedules_config(self) -> SchedulesConfig:
+        """Load schedule configuration from schedules.yml.
+
+        Delegates to the standalone ``load_schedules_config()`` function which
+        handles missing-file detection internally (returns empty config).
+
+        Returns:
+            SchedulesConfig model (empty if file is missing)
+
+        Raises:
+            ConfigValidationError: If the file exists but fails validation
+        """
+        from dango.config.schedules import load_schedules_config
+
+        return load_schedules_config(self.project_root)
 
     def load_config(self) -> DangoConfig:
         """
