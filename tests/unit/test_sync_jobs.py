@@ -270,6 +270,30 @@ class TestRunScheduledSync:
 
         mock_notify.assert_called_once()
 
+    def test_no_sources_resolved_records_and_returns(self, tmp_path):
+        """When all source names are unknown, record no_sources and return early."""
+        mock_lock = MagicMock()
+        config = MagicMock()
+        config.sources.get_source.return_value = None  # all unknown
+
+        with (
+            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(f"{_SYNC_MOD}.run_sync") as mock_run,
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+            patch(f"{_JOBS_MOD}._record_execution") as mock_record,
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["bogus"], project_root=str(tmp_path))
+
+        mock_run.assert_not_called()
+        mock_bc.assert_not_called()
+        mock_record.assert_called_once()
+        assert mock_record.call_args[1]["status"] == "no_sources"
+
     def test_is_pickle_serializable(self):
         """Job function must be pickle-serializable (APScheduler requirement)."""
         import pickle
@@ -327,6 +351,56 @@ class TestRunScheduledDbt:
         assert "dbt_started" in events
         assert "dbt_completed" in events
 
+    def test_lock_failure_broadcasts_and_records(self, tmp_path):
+        """DbtLockError should broadcast job_queued + dbt_failed and record lock_failed."""
+        from dango.exceptions import DbtLockError
+
+        mock_lock = MagicMock()
+        mock_lock.acquire.side_effect = DbtLockError("busy")
+
+        with (
+            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+            patch(f"{_JOBS_MOD}._notify") as mock_notify,
+            patch(f"{_JOBS_MOD}._record_execution") as mock_record,
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_dbt
+
+            run_scheduled_dbt("nightly", None, project_root=str(tmp_path))
+
+        events = [c.args[0]["event"] for c in mock_bc.call_args_list]
+        assert "job_queued" in events
+        assert "dbt_failed" in events
+        mock_notify.assert_called_once()
+        mock_record.assert_called_once()
+        assert mock_record.call_args[1]["status"] == "lock_failed"
+
+    def test_exception_broadcasts_dbt_failed(self, tmp_path):
+        """Unexpected exception from run_dbt_models should broadcast dbt_failed."""
+        mock_lock = MagicMock()
+
+        with (
+            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch(f"{_DBT_MOD}.run_dbt_models", side_effect=RuntimeError("crash")),
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+            patch(f"{_JOBS_MOD}._notify"),
+            patch(f"{_JOBS_MOD}._record_execution") as mock_record,
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_dbt
+
+            run_scheduled_dbt("nightly", None, project_root=str(tmp_path))
+
+        events = [c.args[0]["event"] for c in mock_bc.call_args_list]
+        assert "dbt_failed" in events
+        mock_record.assert_called()
+        assert mock_record.call_args[1]["status"] == "failed"
+        assert "crash" in mock_record.call_args[1]["error"]
+        mock_lock.release.assert_called_once()
+
     def test_dbt_failure_notifies(self, tmp_path):
         mock_lock = MagicMock()
 
@@ -355,6 +429,57 @@ class TestRunScheduledDbt:
         data = pickle.dumps(run_scheduled_dbt)
         restored = pickle.loads(data)  # noqa: S301
         assert callable(restored)
+
+
+# ---------------------------------------------------------------------------
+# _notify helper
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestNotifyHelper:
+    """Test _notify() never-raises contract."""
+
+    def test_swallows_sender_exception(self):
+        """_notify must never propagate exceptions from sender.send()."""
+        import dango.platform.scheduling.jobs as jobs_mod
+
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        old = jobs_mod._event_loop
+        try:
+            jobs_mod._event_loop = loop
+
+            sender = MagicMock()
+            sender.is_configured = True
+            sender.send.side_effect = RuntimeError("webhook exploded")
+
+            # Should not raise
+            jobs_mod._notify(
+                sender,
+                event_type="TEST",
+                schedule_name="daily",
+            )
+        finally:
+            jobs_mod._event_loop = old
+
+    def test_skips_when_sender_not_configured(self):
+        """_notify should be a no-op when sender is not configured."""
+        import dango.platform.scheduling.jobs as jobs_mod
+
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        old = jobs_mod._event_loop
+        try:
+            jobs_mod._event_loop = loop
+
+            sender = MagicMock()
+            sender.is_configured = False
+
+            with patch(f"{_JOBS_MOD}.asyncio") as mock_asyncio:
+                jobs_mod._notify(sender, event_type="TEST", schedule_name="daily")
+
+            mock_asyncio.run_coroutine_threadsafe.assert_not_called()
+        finally:
+            jobs_mod._event_loop = old
 
 
 # ---------------------------------------------------------------------------

@@ -242,6 +242,12 @@ exemptions:
     reason: "TASK-029: 9 test classes covering ResourceTracker, IP extraction, secrets push, admin creation, health check, provisioning sequence, backup setup, metadata persistence, and sync trigger. Each requires isolated mock setup."
     review_by: "v1.1"
 
+  - file: tests/unit/test_sync_jobs.py
+    lines: 562
+    category: exempt
+    reason: "TASK-041: 25 tests across 6 classes covering configure_jobs, _broadcast, _notify, run_scheduled_sync (8 tests incl. lock failure, no sources, exception), run_scheduled_dbt (6 tests incl. lock failure, exception), and _check_freshness. Each test requires isolated mock setup for lazy-import patching."
+    review_by: "v1.1"
+
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:
   - file: dango/ingestion/dlt_sources/mongodb/helpers.py
