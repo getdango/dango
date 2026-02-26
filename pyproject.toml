@@ -259,6 +259,7 @@ module = [
     "tests.unit.test_scheduler",
     "tests.unit.test_schedules_config",
     "tests.unit.test_schedules_loading",
+    "tests.unit.test_sync_jobs",
     "tests.integration.test_digitalocean",
     "tests.integration.test_deploy",
     "tests.integration.test_remote",

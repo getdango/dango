@@ -374,34 +374,26 @@ class TestSchedulerStartupSummary:
 
 
 @pytest.mark.unit
-class TestJobStubs:
-    """Test module-level job function stubs."""
+class TestJobFunctions:
+    """Test module-level job functions are importable."""
 
-    def test_sync_source_job_is_module_level(self):
-        """sync_source_job should be importable at module level."""
-        from dango.platform.scheduling.jobs import sync_source_job
+    def test_run_scheduled_sync_is_module_level(self):
+        """run_scheduled_sync should be importable at module level."""
+        from dango.platform.scheduling.jobs import run_scheduled_sync
 
-        assert callable(sync_source_job)
+        assert callable(run_scheduled_sync)
 
-    def test_dbt_run_job_is_module_level(self):
-        """dbt_run_job should be importable at module level."""
-        from dango.platform.scheduling.jobs import dbt_run_job
+    def test_run_scheduled_dbt_is_module_level(self):
+        """run_scheduled_dbt should be importable at module level."""
+        from dango.platform.scheduling.jobs import run_scheduled_dbt
 
-        assert callable(dbt_run_job)
+        assert callable(run_scheduled_dbt)
 
-    def test_sync_source_job_raises_not_implemented(self):
-        """sync_source_job should raise NotImplementedError (pending TASK-041)."""
-        from dango.platform.scheduling.jobs import sync_source_job
+    def test_configure_jobs_is_module_level(self):
+        """configure_jobs should be importable at module level."""
+        from dango.platform.scheduling.jobs import configure_jobs
 
-        with pytest.raises(NotImplementedError, match="TASK-041"):
-            sync_source_job("test-source", "/tmp/project")
-
-    def test_dbt_run_job_raises_not_implemented(self):
-        """dbt_run_job should raise NotImplementedError (pending TASK-041)."""
-        from dango.platform.scheduling.jobs import dbt_run_job
-
-        with pytest.raises(NotImplementedError, match="TASK-041"):
-            dbt_run_job("/tmp/project")
+        assert callable(configure_jobs)
 
 
 _HEALTH_MOD = "dango.web.routes.health"

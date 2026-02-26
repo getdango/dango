@@ -200,6 +200,12 @@ exemptions:
     reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
     review_by: "v1.1"
 
+  - file: dango/platform/scheduling/jobs.py
+    lines: 553
+    category: exempt
+    reason: "TASK-041: Scheduled sync/dbt job functions with DbtLock, WebSocket broadcast, webhook notification, and history recording. Each job path (lock failure, success, error) requires broadcast + notify + record calls — splitting would fragment the job lifecycle."
+    review_by: "v1.1"
+
   - file: dango/platform/cloud/digitalocean.py
     lines: 542
     category: exempt

@@ -1,0 +1,437 @@
+"""tests/unit/test_sync_jobs.py
+
+Tests for dango.platform.scheduling.jobs — scheduled sync and dbt job functions.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+_JOBS_MOD = "dango.platform.scheduling.jobs"
+
+# Lazy imports in job functions → patch at origin
+_LOCK_MOD = "dango.utils.dbt_lock"
+_LOCK_ERR_MOD = "dango.exceptions"
+_NOTIF_MOD = "dango.platform.notifications.webhook"
+_SYNC_MOD = "dango.ingestion.dlt_runner"
+_DBT_MOD = "dango.transformation"
+_HIST_MOD = "dango.utils.sync_history"
+_CFG_MOD = "dango.config.helpers"
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_source(name="test_source", enabled=True):
+    """Create a minimal DataSource mock."""
+    src = MagicMock()
+    src.name = name
+    src.enabled = enabled
+    return src
+
+
+def _make_config_with_sources(*source_names):
+    """Create a mock load_config that returns sources by name."""
+    sources = {n: _make_source(n) for n in source_names}
+    config = MagicMock()
+    config.sources.get_source.side_effect = lambda n: sources.get(n)
+    return config
+
+
+# ---------------------------------------------------------------------------
+# configure_jobs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestConfigureJobs:
+    """Test configure_jobs() stores the event loop."""
+
+    def test_stores_loop(self):
+        import dango.platform.scheduling.jobs as jobs_mod
+
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        old = jobs_mod._event_loop
+        try:
+            jobs_mod.configure_jobs(loop)
+            assert jobs_mod._event_loop is loop
+        finally:
+            jobs_mod._event_loop = old
+
+    def test_called_from_scheduler_start(self, tmp_path):
+        """SchedulerService.start() should call configure_jobs."""
+        from tests.unit.test_scheduler import _make_service
+
+        svc = _make_service(tmp_path)
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+
+        with patch(f"{_JOBS_MOD}.configure_jobs") as mock_cfg:
+            svc.start(loop)
+
+        mock_cfg.assert_called_once_with(loop)
+
+
+# ---------------------------------------------------------------------------
+# _broadcast helper
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestBroadcastHelper:
+    """Test _broadcast() async bridge."""
+
+    def test_delegates_to_ws_manager(self):
+        import dango.platform.scheduling.jobs as jobs_mod
+
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        future = MagicMock()
+        old = jobs_mod._event_loop
+        try:
+            jobs_mod._event_loop = loop
+
+            with patch(f"{_JOBS_MOD}.asyncio") as mock_asyncio:
+                mock_asyncio.run_coroutine_threadsafe.return_value = future
+                jobs_mod._broadcast({"event": "test"})
+
+            mock_asyncio.run_coroutine_threadsafe.assert_called_once()
+            future.result.assert_called_once()
+        finally:
+            jobs_mod._event_loop = old
+
+    def test_skips_without_loop(self):
+        import dango.platform.scheduling.jobs as jobs_mod
+
+        old = jobs_mod._event_loop
+        try:
+            jobs_mod._event_loop = None
+            jobs_mod._broadcast({"event": "test"})
+        finally:
+            jobs_mod._event_loop = old
+
+    def test_catches_exceptions(self):
+        import dango.platform.scheduling.jobs as jobs_mod
+
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        old = jobs_mod._event_loop
+        try:
+            jobs_mod._event_loop = loop
+            with patch(f"{_JOBS_MOD}.asyncio") as mock_asyncio:
+                mock_asyncio.run_coroutine_threadsafe.side_effect = RuntimeError("closed")
+                jobs_mod._broadcast({"event": "test"})
+        finally:
+            jobs_mod._event_loop = old
+
+
+# ---------------------------------------------------------------------------
+# run_scheduled_sync
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRunScheduledSync:
+    """Test run_scheduled_sync() job function."""
+
+    def test_acquires_and_releases_lock(self, tmp_path):
+        mock_lock = MagicMock()
+        config = _make_config_with_sources("src1")
+
+        with (
+            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(f"{_SYNC_MOD}.run_sync", return_value={}),
+            patch(f"{_HIST_MOD}.save_sync_history_entry"),
+            patch(f"{_JOBS_MOD}._broadcast"),
+            patch(f"{_JOBS_MOD}._notify"),
+            patch(f"{_JOBS_MOD}._check_freshness"),
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["src1"], project_root=str(tmp_path))
+
+        mock_lock.acquire.assert_called_once()
+        mock_lock.release.assert_called_once()
+
+    def test_lock_failure_broadcasts_and_notifies(self, tmp_path):
+        from dango.exceptions import DbtLockError
+
+        mock_lock = MagicMock()
+        mock_lock.acquire.side_effect = DbtLockError("busy")
+
+        with (
+            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+            patch(f"{_JOBS_MOD}._notify") as mock_notify,
+            patch(f"{_JOBS_MOD}._record_execution") as mock_record,
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["src1"], project_root=str(tmp_path))
+
+        events = [c.args[0]["event"] for c in mock_bc.call_args_list]
+        assert "job_queued" in events
+        assert "sync_failed" in events
+        mock_notify.assert_called_once()
+        mock_record.assert_called_once()
+        assert mock_record.call_args[1]["status"] == "lock_failed"
+
+    def test_broadcasts_sync_started_and_completed(self, tmp_path):
+        mock_lock = MagicMock()
+        config = _make_config_with_sources("src1")
+
+        with (
+            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(f"{_SYNC_MOD}.run_sync", return_value={}),
+            patch(f"{_HIST_MOD}.save_sync_history_entry"),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+            patch(f"{_JOBS_MOD}._notify"),
+            patch(f"{_JOBS_MOD}._check_freshness"),
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["src1"], project_root=str(tmp_path))
+
+        events = [c.args[0]["event"] for c in mock_bc.call_args_list]
+        assert "sync_started" in events
+        assert "sync_completed" in events
+
+    def test_exception_broadcasts_sync_failed(self, tmp_path):
+        mock_lock = MagicMock()
+        config = _make_config_with_sources("src1")
+
+        with (
+            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(f"{_SYNC_MOD}.run_sync", side_effect=RuntimeError("boom")),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+            patch(f"{_JOBS_MOD}._notify"),
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["src1"], project_root=str(tmp_path))
+
+        events = [c.args[0]["event"] for c in mock_bc.call_args_list]
+        assert "sync_failed" in events
+        mock_lock.release.assert_called_once()
+
+    def test_records_history_per_source(self, tmp_path):
+        mock_lock = MagicMock()
+        config = _make_config_with_sources("src1", "src2")
+
+        with (
+            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(f"{_SYNC_MOD}.run_sync", return_value={}),
+            patch(f"{_HIST_MOD}.save_sync_history_entry") as mock_hist,
+            patch(f"{_JOBS_MOD}._broadcast"),
+            patch(f"{_JOBS_MOD}._notify"),
+            patch(f"{_JOBS_MOD}._check_freshness"),
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["src1", "src2"], project_root=str(tmp_path))
+
+        assert mock_hist.call_count == 2
+
+    def test_notifies_on_success(self, tmp_path):
+        """Notification should be dispatched on successful sync."""
+        mock_lock = MagicMock()
+        config = _make_config_with_sources("src1")
+
+        with (
+            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(f"{_SYNC_MOD}.run_sync", return_value={}),
+            patch(f"{_HIST_MOD}.save_sync_history_entry"),
+            patch(f"{_JOBS_MOD}._broadcast"),
+            patch(f"{_JOBS_MOD}._notify") as mock_notify,
+            patch(f"{_JOBS_MOD}._check_freshness"),
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["src1"], project_root=str(tmp_path))
+
+        mock_notify.assert_called_once()
+
+    def test_is_pickle_serializable(self):
+        """Job function must be pickle-serializable (APScheduler requirement)."""
+        import pickle
+
+        from dango.platform.scheduling.jobs import run_scheduled_sync
+
+        data = pickle.dumps(run_scheduled_sync)
+        restored = pickle.loads(data)  # noqa: S301
+        assert callable(restored)
+
+
+# ---------------------------------------------------------------------------
+# run_scheduled_dbt
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRunScheduledDbt:
+    """Test run_scheduled_dbt() job function."""
+
+    def test_acquires_lock_and_calls_dbt(self, tmp_path):
+        mock_lock = MagicMock()
+
+        with (
+            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch(f"{_DBT_MOD}.run_dbt_models", return_value=(True, "ok")),
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_JOBS_MOD}._broadcast"),
+            patch(f"{_JOBS_MOD}._notify"),
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_dbt
+
+            run_scheduled_dbt("nightly", "model_name+", project_root=str(tmp_path))
+
+        mock_lock.acquire.assert_called_once()
+        mock_lock.release.assert_called_once()
+
+    def test_broadcasts_dbt_events(self, tmp_path):
+        mock_lock = MagicMock()
+
+        with (
+            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch(f"{_DBT_MOD}.run_dbt_models", return_value=(True, "ok")),
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+            patch(f"{_JOBS_MOD}._notify"),
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_dbt
+
+            run_scheduled_dbt("nightly", None, project_root=str(tmp_path))
+
+        events = [c.args[0]["event"] for c in mock_bc.call_args_list]
+        assert "dbt_started" in events
+        assert "dbt_completed" in events
+
+    def test_dbt_failure_notifies(self, tmp_path):
+        mock_lock = MagicMock()
+
+        with (
+            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch(f"{_DBT_MOD}.run_dbt_models", return_value=(False, "dbt error")),
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+            patch(f"{_JOBS_MOD}._notify") as mock_notify,
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_dbt
+
+            run_scheduled_dbt("nightly", None, project_root=str(tmp_path))
+
+        events = [c.args[0]["event"] for c in mock_bc.call_args_list]
+        assert "dbt_failed" in events
+        mock_notify.assert_called_once()
+
+    def test_is_pickle_serializable(self):
+        """Job function must be pickle-serializable (APScheduler requirement)."""
+        import pickle
+
+        from dango.platform.scheduling.jobs import run_scheduled_dbt
+
+        data = pickle.dumps(run_scheduled_dbt)
+        restored = pickle.loads(data)  # noqa: S301
+        assert callable(restored)
+
+
+# ---------------------------------------------------------------------------
+# _check_freshness
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCheckFreshness:
+    """Test _check_freshness() staleness detection."""
+
+    def test_stale_triggers_notification(self, tmp_path):
+        from dango.platform.scheduling.jobs import _check_freshness
+
+        old_ts = "2026-01-01T00:00:00"
+        mock_sender = MagicMock()
+        mock_sender.is_configured = True
+
+        notif_config = MagicMock()
+        notif_config.stale_threshold_hours = 24
+
+        with (
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=notif_config),
+            patch(f"{_HIST_MOD}.load_sync_history", return_value=[{"completed_at": old_ts}]),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+            patch(f"{_JOBS_MOD}._notify") as mock_notify,
+        ):
+            _check_freshness(tmp_path, "daily", ["src1"], mock_sender)
+
+        assert any(c.args[0].get("event") == "sync_stale" for c in mock_bc.call_args_list)
+        mock_notify.assert_called_once()
+
+    def test_fresh_data_no_notification(self, tmp_path):
+        from datetime import datetime, timezone
+
+        from dango.platform.scheduling.jobs import _check_freshness
+
+        recent_ts = datetime.now(tz=timezone.utc).isoformat()
+        mock_sender = MagicMock()
+        mock_sender.is_configured = True
+
+        notif_config = MagicMock()
+        notif_config.stale_threshold_hours = 24
+
+        with (
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=notif_config),
+            patch(f"{_HIST_MOD}.load_sync_history", return_value=[{"completed_at": recent_ts}]),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+            patch(f"{_JOBS_MOD}._notify") as mock_notify,
+        ):
+            _check_freshness(tmp_path, "daily", ["src1"], mock_sender)
+
+        mock_bc.assert_not_called()
+        mock_notify.assert_not_called()
+
+    def test_no_config_is_noop(self, tmp_path):
+        from dango.platform.scheduling.jobs import _check_freshness
+
+        mock_sender = MagicMock()
+
+        with patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None):
+            _check_freshness(tmp_path, "daily", ["src1"], mock_sender)
+
+    def test_missing_history_is_noop(self, tmp_path):
+        from dango.platform.scheduling.jobs import _check_freshness
+
+        mock_sender = MagicMock()
+        mock_sender.is_configured = True
+
+        notif_config = MagicMock()
+        notif_config.stale_threshold_hours = 24
+
+        with (
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=notif_config),
+            patch(f"{_HIST_MOD}.load_sync_history", return_value=[]),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+        ):
+            _check_freshness(tmp_path, "daily", ["src1"], mock_sender)
+
+        mock_bc.assert_not_called()
