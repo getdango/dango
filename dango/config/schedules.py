@@ -32,6 +32,7 @@ __all__ = [
     "ScheduleConfig",
     "ScheduleType",
     "SchedulesConfig",
+    "get_schedule_job_id",
     "load_schedules_config",
     "log_startup_checks",
     "reload_schedules",
@@ -55,6 +56,16 @@ _SCHEDULE_JOB_PREFIX = "schedule:"
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 _VALID_NOTIFY_ON = frozenset({"failure", "success", "stale"})
+
+
+def get_schedule_job_id(schedule_name: str) -> str:
+    """Return the APScheduler job ID for a schedule name.
+
+    Downstream consumers (TASK-038 CRUD API, TASK-041 sync wiring) should use
+    this instead of hard-coding the ``schedule:`` prefix.
+    """
+    return f"{_SCHEDULE_JOB_PREFIX}{schedule_name}"
+
 
 # ---------------------------------------------------------------------------
 # Models
@@ -151,7 +162,12 @@ class SchedulesConfig(BaseModel):
 
 
 class ReloadResult(BaseModel):
-    """Result of a schedule reload operation."""
+    """Result of a schedule reload operation.
+
+    Note: ``unchanged`` is always empty in the current implementation because
+    APScheduler 3.x has no cheap way to diff trigger parameters. All existing
+    jobs that remain in config are treated as ``updated`` (remove + re-add).
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -250,14 +266,25 @@ def validate_schedules(
     return issues
 
 
-def _get_cron_interval_seconds(cron_expr: str) -> float:
-    """Estimate the average interval between cron runs in seconds."""
+def _get_cron_interval_seconds(cron_expr: str, sample_count: int = 5) -> float:
+    """Return the minimum interval between consecutive cron runs in seconds.
+
+    Samples ``sample_count`` consecutive intervals and returns the smallest one.
+    This handles non-uniform crons like ``0 6,18 * * *`` (12h and 12h gap) or
+    ``0 9-17 * * 1-5`` where sampling only two ticks might see a long weekend gap.
+    """
     from croniter import croniter
 
     it = croniter(cron_expr)
-    t1: float = it.get_next(float)
-    t2: float = it.get_next(float)
-    return t2 - t1
+    prev: float = it.get_next(float)
+    min_interval = float("inf")
+    for _ in range(sample_count):
+        nxt: float = it.get_next(float)
+        gap = nxt - prev
+        if gap < min_interval:
+            min_interval = gap
+        prev = nxt
+    return min_interval
 
 
 def _detect_overlaps(
@@ -410,7 +437,6 @@ def reload_schedules(
         job_kwargs: dict[str, Any] = {
             "id": job_id,
             "name": sched.name,
-            "replace_existing": True,
         }
         if sched.misfire_grace_time is not None:
             job_kwargs["misfire_grace_time"] = sched.misfire_grace_time
@@ -421,6 +447,8 @@ def reload_schedules(
         func_kwargs: dict[str, Any]
         if sched.type == ScheduleType.SYNC:
             func = sync_source_job
+            # sync_source_job accepts a comma-separated string of source names
+            # (matches the CLI `dango sync src1,src2` convention)
             func_kwargs = {
                 "source_name": ",".join(sched.sources),
                 "project_root": str(project_root),
@@ -440,12 +468,6 @@ def reload_schedules(
             added.append(sched.name)
 
         scheduler.add_job(func, trigger, kwargs=func_kwargs, **job_kwargs)
-
-    # Unchanged = desired jobs that already existed and weren't updated
-    # (We always remove+re-add for existing jobs, so unchanged only applies
-    # if we detect no config change. For simplicity, we treat all existing
-    # jobs as updated since we can't cheaply diff trigger params.)
-    # unchanged stays empty — the caller can infer from the result.
 
     return ReloadResult(
         added=added,

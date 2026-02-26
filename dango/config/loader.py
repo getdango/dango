@@ -188,8 +188,10 @@ class ConfigLoader:
         return sources
 
     def load_schedules_config(self) -> SchedulesConfig:
-        """
-        Load schedule configuration from schedules.yml.
+        """Load schedule configuration from schedules.yml.
+
+        Delegates to the standalone ``load_schedules_config()`` function which
+        handles missing-file detection internally (returns empty config).
 
         Returns:
             SchedulesConfig model (empty if file is missing)
@@ -197,10 +199,7 @@ class ConfigLoader:
         Raises:
             ConfigValidationError: If the file exists but fails validation
         """
-        from dango.config.schedules import SchedulesConfig, load_schedules_config
-
-        if not self.schedules_file.exists():
-            return SchedulesConfig()
+        from dango.config.schedules import load_schedules_config
 
         return load_schedules_config(self.project_root)
 

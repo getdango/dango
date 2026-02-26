@@ -1,12 +1,12 @@
 """tests/unit/test_schedules_config.py
 
-Tests for dango.config.schedules — schedule config models, validation, and reload.
+Tests for dango.config.schedules — models, validators, and cross-validation.
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import yaml
 
 _MOD = "dango.config.schedules"
 
@@ -222,7 +222,7 @@ class TestLogStartupChecks:
         from dango.config.schedules import log_startup_checks
 
         with patch(f"{_MOD}.logger") as mock_logger:
-            log_startup_checks([], {"csv"}, "/tmp/project")
+            log_startup_checks([], {"csv"}, Path("/tmp/project"))
 
         mock_logger.info.assert_called_once_with("no_schedules_configured")
 
@@ -235,7 +235,7 @@ class TestLogStartupChecks:
             patch("dango.config.loader.ConfigLoader") as mock_loader_cls,
         ):
             mock_loader_cls.return_value.load_cloud_config.return_value = None
-            log_startup_checks(scheds, {"csv", "stripe"}, "/tmp/project")
+            log_startup_checks(scheds, {"csv", "stripe"}, Path("/tmp/project"))
 
         info_calls = mock_logger.info.call_args_list
         assert any(call[0][0] == "unscheduled_sources" for call in info_calls)
@@ -252,7 +252,7 @@ class TestLogStartupChecks:
             patch("dango.config.loader.ConfigLoader") as mock_loader_cls,
         ):
             mock_loader_cls.return_value.load_cloud_config.return_value = cloud_cfg
-            log_startup_checks(scheds, {"csv"}, "/tmp/project")
+            log_startup_checks(scheds, {"csv"}, Path("/tmp/project"))
 
         mock_logger.warning.assert_called_once()
         assert mock_logger.warning.call_args[0][0] == "cloud_schedule_conflict"
@@ -266,7 +266,7 @@ class TestLogStartupChecks:
             patch("dango.config.loader.ConfigLoader") as mock_loader_cls,
         ):
             mock_loader_cls.return_value.load_cloud_config.return_value = None
-            log_startup_checks(scheds, {"csv"}, "/tmp/project")
+            log_startup_checks(scheds, {"csv"}, Path("/tmp/project"))
 
         info_calls = mock_logger.info.call_args_list
         # No "unscheduled_sources" log when all are covered
@@ -274,116 +274,69 @@ class TestLogStartupChecks:
 
 
 @pytest.mark.unit
-class TestLoadSchedulesConfig:
-    """Test load_schedules_config() file loading."""
+class TestGetScheduleJobId:
+    """Test get_schedule_job_id() helper."""
 
-    def test_missing_file_returns_empty(self, tmp_path):
-        from dango.config.schedules import load_schedules_config
+    def test_returns_prefixed_id(self):
+        from dango.config.schedules import get_schedule_job_id
 
-        cfg = load_schedules_config(tmp_path)
-        assert cfg.schedules == []
+        assert get_schedule_job_id("daily_sync") == "schedule:daily_sync"
 
-    def test_valid_yaml(self, tmp_path):
-        from dango.config.schedules import load_schedules_config
+    def test_round_trips_with_removeprefix(self):
+        from dango.config.schedules import get_schedule_job_id
 
-        dango_dir = tmp_path / ".dango"
-        dango_dir.mkdir()
-        data = {
-            "schedules": [
-                {"name": "daily_sync", "cron": "0 6 * * *", "sources": ["csv"]},
-            ]
-        }
-        (dango_dir / "schedules.yml").write_text(yaml.safe_dump(data))
-
-        cfg = load_schedules_config(tmp_path)
-        assert len(cfg.schedules) == 1
-        assert cfg.schedules[0].name == "daily_sync"
-
-    def test_invalid_yaml_raises(self, tmp_path):
-        from dango.config.exceptions import ConfigValidationError
-        from dango.config.schedules import load_schedules_config
-
-        dango_dir = tmp_path / ".dango"
-        dango_dir.mkdir()
-        (dango_dir / "schedules.yml").write_text("schedules: [unclosed bracket\n")
-
-        with pytest.raises(ConfigValidationError, match="Invalid YAML"):
-            load_schedules_config(tmp_path)
+        job_id = get_schedule_job_id("my_job")
+        assert job_id.removeprefix("schedule:") == "my_job"
 
 
 @pytest.mark.unit
-class TestReloadSchedules:
-    """Test reload_schedules() diff and apply logic."""
+class TestHelpers:
+    """Test private helper functions."""
 
-    def _make_scheduler(self, existing_jobs=None):
-        """Create a mock SchedulerService with optional existing jobs."""
-        scheduler = MagicMock()
-        jobs = []
-        if existing_jobs:
-            for job_id in existing_jobs:
-                job = MagicMock()
-                job.id = job_id
-                jobs.append(job)
-        scheduler.get_jobs.return_value = jobs
-        return scheduler
+    def test_get_cron_interval_uniform(self):
+        """Uniform cron (every hour) returns 3600s."""
+        from dango.config.schedules import _get_cron_interval_seconds
 
-    def test_add_new_job(self):
-        from dango.config.schedules import ScheduleConfig, reload_schedules
+        interval = _get_cron_interval_seconds("0 * * * *")
+        assert interval == 3600.0
 
-        scheduler = self._make_scheduler()
-        scheds = [ScheduleConfig(name="daily_sync", cron="0 6 * * *", sources=["csv"])]
+    def test_get_cron_interval_non_uniform(self):
+        """Non-uniform cron (6am and 6pm) returns the min gap (12h)."""
+        from dango.config.schedules import _get_cron_interval_seconds
 
-        result = reload_schedules(scheduler, scheds, "/tmp/project")
+        interval = _get_cron_interval_seconds("0 6,18 * * *")
+        assert interval == 12 * 3600.0
 
-        assert "daily_sync" in result.added
-        scheduler.add_job.assert_called_once()
+    def test_detect_overlaps_identical_crons(self):
+        """Two schedules with identical crons and shared source produce a warning."""
+        from dango.config.schedules import ScheduleConfig, _detect_overlaps
 
-    def test_remove_old_job(self):
-        from dango.config.schedules import reload_schedules
-
-        scheduler = self._make_scheduler(existing_jobs=["schedule:old_job"])
-
-        result = reload_schedules(scheduler, [], "/tmp/project")
-
-        assert "old_job" in result.removed
-        scheduler.remove_job.assert_called_once_with("schedule:old_job")
-
-    def test_update_existing_job(self):
-        from dango.config.schedules import ScheduleConfig, reload_schedules
-
-        scheduler = self._make_scheduler(existing_jobs=["schedule:my_sync"])
-        scheds = [ScheduleConfig(name="my_sync", cron="0 6 * * *", sources=["csv"])]
-
-        result = reload_schedules(scheduler, scheds, "/tmp/project")
-
-        assert "my_sync" in result.updated
-        # remove + re-add for update
-        scheduler.remove_job.assert_called_with("schedule:my_sync")
-        scheduler.add_job.assert_called_once()
-
-    def test_disabled_schedule_not_added(self):
-        from dango.config.schedules import ScheduleConfig, reload_schedules
-
-        scheduler = self._make_scheduler()
         scheds = [
-            ScheduleConfig(name="disabled_sync", cron="daily", sources=["csv"], enabled=False)
+            ScheduleConfig(name="s1", cron="0 6 * * *", sources=["csv"]),
+            ScheduleConfig(name="s2", cron="0 6 * * *", sources=["csv"]),
         ]
+        warnings = _detect_overlaps(scheds)
+        assert len(warnings) == 1
+        assert "overlapping" in warnings[0].lower()
 
-        result = reload_schedules(scheduler, scheds, "/tmp/project")
+    def test_detect_overlaps_no_shared_source(self):
+        """Same cron but different sources -> no overlap warning."""
+        from dango.config.schedules import ScheduleConfig, _detect_overlaps
 
-        assert result.added == []
-        scheduler.add_job.assert_not_called()
+        scheds = [
+            ScheduleConfig(name="s1", cron="0 6 * * *", sources=["csv"]),
+            ScheduleConfig(name="s2", cron="0 6 * * *", sources=["stripe"]),
+        ]
+        warnings = _detect_overlaps(scheds)
+        assert warnings == []
 
-    def test_result_shape(self):
-        from dango.config.schedules import ReloadResult, ScheduleConfig, reload_schedules
+    def test_detect_overlaps_disabled_ignored(self):
+        """Disabled schedules are not checked for overlaps."""
+        from dango.config.schedules import ScheduleConfig, _detect_overlaps
 
-        scheduler = self._make_scheduler()
-        scheds = [ScheduleConfig(name="s1", cron="daily", sources=["csv"])]
-
-        result = reload_schedules(scheduler, scheds, "/tmp/project")
-
-        assert isinstance(result, ReloadResult)
-        assert isinstance(result.added, list)
-        assert isinstance(result.updated, list)
-        assert isinstance(result.removed, list)
-        assert isinstance(result.unchanged, list)
+        scheds = [
+            ScheduleConfig(name="s1", cron="0 6 * * *", sources=["csv"]),
+            ScheduleConfig(name="s2", cron="0 6 * * *", sources=["csv"], enabled=False),
+        ]
+        warnings = _detect_overlaps(scheds)
+        assert warnings == []

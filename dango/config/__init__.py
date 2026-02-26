@@ -34,6 +34,7 @@ from .schedules import (
     ScheduleConfig,
     SchedulesConfig,
     ScheduleType,
+    get_schedule_job_id,
 )
 
 __all__ = [
@@ -59,6 +60,7 @@ __all__ = [
     "ScheduleType",
     "ReloadResult",
     "CRON_PRESETS",
+    "get_schedule_job_id",
     # Loader
     "ConfigLoader",
     # Helpers
