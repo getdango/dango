@@ -387,3 +387,34 @@ class TestWebhookSender:
             )
             # Both webhooks should be called
             assert mock_client.post.call_count == 2
+
+    def test_slack_format_dispatch(self) -> None:
+        config = NotificationConfig(
+            webhooks=[
+                WebhookConfig(
+                    name="slack-hook",
+                    url="https://hooks.slack.com/test",
+                    format="slack",
+                ),
+            ],
+            on_failure=True,
+        )
+        sender = WebhookSender(config)
+        mock_client = _mock_httpx_client(_resp(200))
+
+        with patch(_HTTPX_CLIENT, return_value=mock_client):
+            self._run(
+                sender.send(
+                    event_type=EventType.SYNC_FAILED,
+                    schedule_name="daily",
+                    sources=["stripe"],
+                    error="Connection refused",
+                )
+            )
+            mock_client.post.assert_called_once()
+            payload = mock_client.post.call_args.kwargs["json"]
+            # Slack format uses attachments with color, not flat JSON
+            assert "attachments" in payload
+            assert payload["attachments"][0]["color"] == "#e01e5a"
+            body = payload["attachments"][0]["blocks"][1]["text"]["text"]
+            assert "Connection refused" in body

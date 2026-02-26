@@ -8,6 +8,7 @@ attachments.  Each event type gets a distinct color and block layout.
 
 from __future__ import annotations
 
+from datetime import timezone
 from typing import Any
 
 from dango.platform.notifications.webhook import EventType, WebhookPayload
@@ -79,7 +80,8 @@ def _build_body(payload: WebhookPayload) -> str:
         if payload.attempt_number is not None:
             lines.append(f"*Attempt:* {payload.attempt_number}")
         if payload.next_retry_at is not None:
-            lines.append(f"*Next retry:* {payload.next_retry_at.strftime('%H:%M:%S UTC')}")
+            utc_time = payload.next_retry_at.astimezone(timezone.utc)
+            lines.append(f"*Next retry:* {utc_time.strftime('%H:%M:%S UTC')}")
 
     return "\n".join(lines)
 
