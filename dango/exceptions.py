@@ -35,6 +35,9 @@ __all__ = [
     "DiskSpaceError",
     "DuckDBHealthError",
     "DbtLockError",
+    "SchedulerError",
+    "JobTimeoutError",
+    "JobCancelledError",
     "MigrationError",
     "MigrationDiscoveryError",
     "MigrationApplicationError",
@@ -215,6 +218,24 @@ class DbtLockError(InfrastructureError):
             context=context,
             user_message=user_message,
         )
+
+
+class SchedulerError(InfrastructureError):
+    """Base exception for scheduler-related errors."""
+
+    _default_error_code = "DANGO-U005"
+
+
+class JobTimeoutError(SchedulerError):
+    """Raised when a scheduled job exceeds its timeout."""
+
+    _default_error_code = "DANGO-U006"
+
+
+class JobCancelledError(SchedulerError):
+    """Raised when a scheduled job is cancelled."""
+
+    _default_error_code = "DANGO-U007"
 
 
 # ---------------------------------------------------------------------------
