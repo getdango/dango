@@ -69,7 +69,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         try:
             d["sources"] = json.loads(d["sources"])
         except (json.JSONDecodeError, TypeError):
-            pass
+            logger.debug("sources_json_parse_failed", raw_value=d.get("sources"))
     return d
 
 

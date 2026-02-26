@@ -98,6 +98,9 @@ class SchedulerService:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._project_root = project_root
         self._started = False
+        # Maps job_id → execution_history record_id for event listeners.
+        # Thread-safe under CPython GIL (dict ops are atomic). Revisit if
+        # targeting free-threaded Python (PEP 703).
         self._running_records: dict[str, int] = {}
 
         # Cancellation flags: job_id -> threading.Event (set = cancel requested).

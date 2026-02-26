@@ -152,6 +152,56 @@ class TestScheduleHistoryAPI:
         assert resp.status_code == 400
         assert "Invalid status" in resp.json()["message"]
 
+    def test_validates_since_param(self, tmp_path):
+        from fastapi.testclient import TestClient
+
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        db_path = _create_db(tmp_path)
+        db_path.rename(dango_dir / "scheduler.db")
+
+        app = _make_schedule_app(tmp_path)
+
+        with patch("dango.web.routes.schedules.get_project_root", return_value=tmp_path):
+            client = TestClient(app)
+            resp = client.get("/api/schedules/daily-sync/history?since=banana")
+
+        assert resp.status_code == 400
+        assert "since" in resp.json()["message"]
+
+    def test_validates_until_param(self, tmp_path):
+        from fastapi.testclient import TestClient
+
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        db_path = _create_db(tmp_path)
+        db_path.rename(dango_dir / "scheduler.db")
+
+        app = _make_schedule_app(tmp_path)
+
+        with patch("dango.web.routes.schedules.get_project_root", return_value=tmp_path):
+            client = TestClient(app)
+            resp = client.get("/api/schedules/daily-sync/history?until=not-a-date")
+
+        assert resp.status_code == 400
+        assert "until" in resp.json()["message"]
+
+    def test_accepts_valid_iso_since(self, tmp_path):
+        from fastapi.testclient import TestClient
+
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        db_path = _create_db(tmp_path)
+        db_path.rename(dango_dir / "scheduler.db")
+
+        app = _make_schedule_app(tmp_path)
+
+        with patch("dango.web.routes.schedules.get_project_root", return_value=tmp_path):
+            client = TestClient(app)
+            resp = client.get("/api/schedules/daily-sync/history?since=2026-01-01T00:00:00Z")
+
+        assert resp.status_code == 200
+
 
 @pytest.mark.unit
 class TestRecentExecutionsAPI:

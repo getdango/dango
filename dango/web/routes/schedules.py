@@ -8,6 +8,7 @@ Extended by TASK-038 with schedule CRUD endpoints.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
@@ -83,6 +84,19 @@ async def schedule_history(
                 "message": f"Invalid status filter. Must be one of: {', '.join(sorted(VALID_STATUSES))}",
             },
         )
+
+    for label, value in [("since", since), ("until", until)]:
+        if value is not None:
+            try:
+                datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "error_code": "DANGO-S002",
+                        "message": f"Invalid '{label}' parameter. Must be an ISO 8601 timestamp.",
+                    },
+                )
 
     project_root = get_project_root()
     db_path = get_scheduler_db_path(project_root)

@@ -268,6 +268,126 @@ class TestSchedulerServiceEventListeners:
 
 
 @pytest.mark.unit
+class TestSchedulerServiceHistoryIntegration:
+    """Test execution history recording from event listeners."""
+
+    def test_register_execution_stores_record_id(self, tmp_path):
+        """register_execution() should store the mapping for later lookup."""
+        svc = _make_service(tmp_path)
+        svc.register_execution("my-job", 42)
+        assert svc._running_records["my-job"] == 42
+
+    def test_executed_event_calls_record_completion(self, tmp_path):
+        """_on_job_executed should call record_completion for registered jobs."""
+        svc = _make_service(tmp_path)
+        svc._project_root = tmp_path
+        svc.register_execution("my-job", 7)
+
+        event = MagicMock()
+        event.job_id = "my-job"
+        event.scheduled_run_time = "2026-03-01T10:00:00"
+
+        with (
+            patch(f"{_SCHEDULER_MOD}.logger"),
+            patch("dango.platform.scheduling.history.record_completion") as mock_complete,
+            patch(
+                "dango.platform.scheduling.history.get_scheduler_db_path",
+                return_value=tmp_path / ".dango" / "scheduler.db",
+            ),
+        ):
+            svc._on_job_executed(event)
+
+        mock_complete.assert_called_once_with(tmp_path / ".dango" / "scheduler.db", 7)
+        assert "my-job" not in svc._running_records
+
+    def test_error_event_calls_record_failure(self, tmp_path):
+        """_on_job_error should call record_failure for registered jobs."""
+        svc = _make_service(tmp_path)
+        svc._project_root = tmp_path
+        svc.register_execution("my-job", 9)
+
+        event = MagicMock()
+        event.job_id = "my-job"
+        event.scheduled_run_time = "2026-03-01T10:00:00"
+        event.exception = ValueError("connection lost")
+        event.traceback = "traceback text"
+
+        with (
+            patch(f"{_SCHEDULER_MOD}.logger"),
+            patch("dango.platform.scheduling.history.record_failure") as mock_failure,
+            patch(
+                "dango.platform.scheduling.history.get_scheduler_db_path",
+                return_value=tmp_path / ".dango" / "scheduler.db",
+            ),
+        ):
+            svc._on_job_error(event)
+
+        mock_failure.assert_called_once_with(
+            tmp_path / ".dango" / "scheduler.db", 9, "connection lost"
+        )
+        assert "my-job" not in svc._running_records
+
+    def test_executed_event_skips_unregistered_jobs(self, tmp_path):
+        """_on_job_executed should not call history for unregistered jobs."""
+        svc = _make_service(tmp_path)
+
+        event = MagicMock()
+        event.job_id = "unregistered-job"
+        event.scheduled_run_time = "2026-03-01T10:00:00"
+
+        with (
+            patch(f"{_SCHEDULER_MOD}.logger"),
+            patch("dango.platform.scheduling.history.record_completion") as mock_complete,
+        ):
+            svc._on_job_executed(event)
+
+        mock_complete.assert_not_called()
+
+    def test_history_error_does_not_propagate(self, tmp_path):
+        """History recording errors should be caught, not propagated."""
+        svc = _make_service(tmp_path)
+        svc._project_root = tmp_path
+        svc.register_execution("my-job", 1)
+
+        event = MagicMock()
+        event.job_id = "my-job"
+        event.scheduled_run_time = "2026-03-01T10:00:00"
+
+        with (
+            patch(f"{_SCHEDULER_MOD}.logger"),
+            patch(
+                "dango.platform.scheduling.history.record_completion",
+                side_effect=RuntimeError("db locked"),
+            ),
+            patch(
+                "dango.platform.scheduling.history.get_scheduler_db_path",
+                return_value=tmp_path / ".dango" / "scheduler.db",
+            ),
+        ):
+            # Should not raise
+            svc._on_job_executed(event)
+
+    def test_setup_history_cleanup_registers_job(self, tmp_path):
+        """_setup_history_cleanup should register a daily cleanup job."""
+        svc = _make_service(tmp_path)
+        svc._project_root = tmp_path
+
+        with (
+            patch(
+                "dango.platform.scheduling.history.get_scheduler_db_path",
+                return_value=tmp_path / ".dango" / "scheduler.db",
+            ),
+            patch("dango.platform.scheduling.history.cleanup_old_records"),
+        ):
+            svc._setup_history_cleanup()
+
+        svc._scheduler.add_job.assert_called_once()
+        call_kwargs = svc._scheduler.add_job.call_args
+        assert call_kwargs[1]["id"] == "dango-internal:history-cleanup"
+        assert call_kwargs[1]["hours"] == 24
+
+
+@pytest.mark.unit
 class TestSchedulerServiceCoroutineBridge:
     """Test run_coroutine() async bridge."""
 

@@ -254,6 +254,12 @@ exemptions:
     reason: "TASK-041: 25 tests across 6 classes covering configure_jobs, _broadcast, _notify, run_scheduled_sync (8 tests incl. lock failure, no sources, exception), run_scheduled_dbt (6 tests incl. lock failure, exception), and _check_freshness. Each test requires isolated mock setup for lazy-import patching."
     review_by: "v1.1"
 
+  - file: tests/unit/test_scheduler.py
+    lines: 604
+    category: exempt
+    reason: "TASK-036+039: 10 test classes covering SchedulerService init, lifecycle, jobs, status, event listeners, history integration, coroutine bridge, cloud warning, startup summary, health endpoint, and job stubs. Each class requires isolated mock setup with APScheduler dual-patch pattern."
+    review_by: "v1.1"
+
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:
   - file: dango/ingestion/dlt_sources/mongodb/helpers.py
