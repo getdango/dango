@@ -98,6 +98,10 @@ class SchedulerService:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._project_root = project_root
         self._started = False
+        # Maps job_id → execution_history record_id for event listeners.
+        # Thread-safe under CPython GIL (dict ops are atomic). Revisit if
+        # targeting free-threaded Python (PEP 703).
+        self._running_records: dict[str, int] = {}
 
         # Cancellation flags: job_id -> threading.Event (set = cancel requested).
         # Python GIL ensures dict.__setitem__ and dict.pop are atomic.
@@ -139,6 +143,7 @@ class SchedulerService:
         self._scheduler.start()
         self._started = True
 
+        self._setup_history_cleanup()
         self._log_startup_summary()
         self._check_dual_scheduler()
 
@@ -202,6 +207,19 @@ class SchedulerService:
             "job_count": len(jobs),
             "next_run_time": next_run,
         }
+
+    def register_execution(self, job_id: str, record_id: int) -> None:
+        """Register an execution history record for a running job.
+
+        Called by job functions (TASK-041) after ``record_start()`` so that
+        event listeners can look up the record ID when the job completes
+        or fails.
+
+        Args:
+            job_id: The APScheduler job ID.
+            record_id: The execution_history row ID from ``record_start()``.
+        """
+        self._running_records[job_id] = record_id
 
     # ------------------------------------------------------------------
     # Cancellation
@@ -279,6 +297,18 @@ class SchedulerService:
             job_id=event.job_id,
             scheduled_run_time=str(event.scheduled_run_time),
         )
+        record_id = self._running_records.pop(event.job_id, None)
+        if record_id is not None:
+            try:
+                from dango.platform.scheduling.history import (
+                    get_scheduler_db_path,
+                    record_completion,
+                )
+
+                db_path = get_scheduler_db_path(self._project_root)
+                record_completion(db_path, record_id)
+            except Exception:  # noqa: BLE001
+                logger.debug("execution_history_completion_failed", exc_info=True)
 
     def _on_job_error(self, event: JobExecutionEvent) -> None:
         logger.error(
@@ -288,6 +318,18 @@ class SchedulerService:
             exception=str(event.exception),
             traceback=str(event.traceback),
         )
+        record_id = self._running_records.pop(event.job_id, None)
+        if record_id is not None:
+            try:
+                from dango.platform.scheduling.history import (
+                    get_scheduler_db_path,
+                    record_failure,
+                )
+
+                db_path = get_scheduler_db_path(self._project_root)
+                record_failure(db_path, record_id, str(event.exception))
+            except Exception:  # noqa: BLE001
+                logger.debug("execution_history_failure_record_failed", exc_info=True)
 
     def _on_job_missed(self, event: JobExecutionEvent) -> None:
         logger.warning(
@@ -299,6 +341,30 @@ class SchedulerService:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _setup_history_cleanup(self) -> None:
+        """Run initial cleanup and register daily cleanup job."""
+        try:
+            from dango.platform.scheduling.history import (
+                cleanup_history_job,
+                cleanup_old_records,
+                get_scheduler_db_path,
+            )
+
+            db_path = get_scheduler_db_path(self._project_root)
+            if db_path.exists():
+                cleanup_old_records(db_path)
+
+            self._scheduler.add_job(
+                cleanup_history_job,
+                "interval",
+                hours=24,
+                args=[str(self._project_root)],
+                id="dango-internal:history-cleanup",
+                replace_existing=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("history_cleanup_setup_failed", exc_info=True)
 
     def _log_startup_summary(self) -> None:
         """Log the number of loaded jobs and next run times."""
