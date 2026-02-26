@@ -3,6 +3,7 @@
 Webhook notification infrastructure for sync event notifications.
 """
 
+from .slack import format_slack_message
 from .webhook import (
     EVENT_TO_CATEGORY,
     EventCategory,
@@ -23,6 +24,7 @@ __all__ = [
     "WebhookConfig",
     "WebhookPayload",
     "WebhookSender",
+    "format_slack_message",
     "load_notification_config",
     "should_notify",
 ]
