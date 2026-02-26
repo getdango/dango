@@ -240,6 +240,7 @@ module = [
     "tests.unit.test_resize",
     "tests.unit.test_migrate",
     "tests.unit.test_remote_ops_cli",
+    "tests.unit.test_webhook",
     "tests.integration.test_digitalocean",
     "tests.integration.test_deploy",
     "tests.integration.test_remote",
