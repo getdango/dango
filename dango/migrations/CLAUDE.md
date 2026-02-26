@@ -20,9 +20,13 @@ migrations/
 ├── __init__.py     # Public API
 ├── runner.py       # Core engine
 ├── CLAUDE.md       # This file
-└── auth/           # Created by TASK-011 (Phase 2)
-    ├── 001_initial_auth.py
-    └── 002_add_sessions.py
+├── auth/           # Created by TASK-011 (Phase 2)
+│   ├── 001_initial_auth.py
+│   ├── 002_complete_auth_schema.py
+│   ├── 003_metabase_password.py
+│   └── 004_invite_tokens.py
+└── scheduler/      # Created by TASK-039 (Phase 4)
+    └── 001_execution_history.py
 ```
 
 ## Migration File Contract

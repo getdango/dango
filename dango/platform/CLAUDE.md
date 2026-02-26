@@ -27,8 +27,9 @@ platform/
 │   └── watcher_runner.py    # Background watcher process entry point
 │
 ├── scheduling/          # APScheduler-based job scheduling (TASK-036+)
-│   ├── __init__.py      # Re-exports SchedulerService, ResilienceConfig, run_with_resilience
+│   ├── __init__.py      # Re-exports SchedulerService, ResilienceConfig, run_with_resilience, history functions
 │   ├── scheduler.py     # SchedulerService + resilience (retry, timeout, cancellation)
+│   ├── history.py       # Execution history tracking (TASK-039)
 │   └── jobs.py          # Module-level job functions (pickle-safe)
 │
 ├── cloud/               # Cloud-only components (TASK-022+)
@@ -68,6 +69,7 @@ platform/
 | `local/watcher_lifecycle.py` | Watcher subprocess lifecycle | `start_file_watcher`, `stop_file_watcher`, `get_watcher_status`, `get_watcher_pid_file_path` |
 | `local/watcher_runner.py` | Background watcher process | `main` |
 | `scheduling/scheduler.py` | APScheduler wrapper with SQLite persistence, resilience (retry/timeout/cancel) | `SchedulerService`, `ResilienceConfig`, `run_with_resilience` |
+| `scheduling/history.py` | Execution history tracking for scheduled jobs | `record_start`, `record_completion`, `record_failure`, `get_schedule_history`, `get_recent_history`, `get_average_duration`, `get_last_run`, `cleanup_old_records` |
 | `scheduling/jobs.py` | Module-level job functions (pickle-safe) | `configure_jobs`, `run_scheduled_sync`, `run_scheduled_dbt` |
 | `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |
 | `cloud/provisioning.py` | Droplet size tiers, regions, provisioning orchestration | `DropletSizeTier`, `RegionInfo`, `SIZE_TIERS`, `DEFAULT_TIER`, `provision_droplet`, `wait_for_droplet_ready`, `wait_for_ssh`, `suggest_nearest_region`, `save_provisioning_metadata` |
@@ -96,6 +98,8 @@ from dango.platform.common.startup import run_pending_migrations, start_docker_s
 
 # Scheduling (TASK-036+)
 from dango.platform.scheduling import SchedulerService, ResilienceConfig, run_with_resilience
+from dango.platform.scheduling import record_start, record_completion, get_schedule_history
+from dango.platform.scheduling.history import get_average_duration, get_last_run
 from dango.platform.scheduling.jobs import run_scheduled_sync, run_scheduled_dbt
 
 # Local-only components
@@ -173,6 +177,7 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 | To... | Modify... | Test with... |
 |-------|-----------|--------------|
 | Add/modify scheduled jobs | `scheduling/scheduler.py`, `scheduling/jobs.py` | `pytest tests/unit/test_scheduler.py` |
+| Query execution history | `scheduling/history.py` | `pytest tests/unit/test_execution_history.py` |
 | Add a startup step for both local + cloud | `common/startup.py` | `pytest tests/unit/test_platform_startup.py` |
 | Add a local-only startup step | `local/` and `cli/commands/platform.py` | `dango start` manually |
 | Add cloud infrastructure | `cloud/` | `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py` |
@@ -291,7 +296,7 @@ Post-deployment hardening (not automated by Dango):
 
 ## Testing
 
-- **Scheduling:** `pytest tests/unit/test_scheduler.py tests/unit/test_scheduler_resilience.py`
+- **Scheduling:** `pytest tests/unit/test_scheduler.py tests/unit/test_scheduler_resilience.py tests/unit/test_execution_history.py`
 - **Local platform:** `pytest tests/unit/test_platform_startup.py tests/unit/test_watcher_lifecycle.py`
 - **Cloud modules:** `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py tests/unit/test_provisioning.py tests/unit/test_firewall.py tests/unit/test_server_setup.py tests/unit/test_domain.py tests/unit/test_backup.py tests/unit/test_file_sync.py tests/unit/test_deployer.py tests/unit/test_scheduled_backup.py tests/unit/test_resize.py tests/unit/test_migrate.py tests/unit/test_upgrade.py`
 - **Manual:** `dango start` (local platform), `dango deploy` (cloud provisioning)
