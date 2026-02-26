@@ -3,6 +3,8 @@
 Unit tests for dango sync CLI backfill and dev-sync options.
 """
 
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +17,8 @@ from dango.cli.commands.source import (
     _source_supports_date_range,
     sync,
 )
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 @pytest.mark.unit
@@ -70,12 +74,28 @@ class TestSourceSupportsDateRange:
         assert _source_supports_date_range("nonexistent_source_xyz") is False
 
 
-def _patch_sync_prereqs():
+def _make_mock_source(name: str = "test_src", source_type: str = "stripe"):
+    """Create a mock DataSource with the given name and type."""
+    mock_src = MagicMock()
+    mock_src.name = name
+    mock_src.type.value = source_type
+    mock_src.enabled = True
+    mock_src.csv = None
+    mock_src.dlt_native = None
+    mock_src.dlt_config = None
+    return mock_src
+
+
+def _patch_sync_prereqs(sources=None):
     """Stack patches for all sync prerequisites (lazy imports)."""
-    mock_sources = MagicMock()
-    mock_sources.sources = []
+    if sources is None:
+        sources = [_make_mock_source()]
+
+    mock_sources_cfg = MagicMock()
+    mock_sources_cfg.sources = sources
+    mock_sources_cfg.get_enabled_sources.return_value = sources
     mock_config = MagicMock()
-    mock_config.sources = mock_sources
+    mock_config.sources = mock_sources_cfg
 
     return [
         patch("dango.cli.utils.require_project_context", return_value=Path("/tmp/fake")),
@@ -91,12 +111,14 @@ def _patch_sync_prereqs():
 
 @pytest.mark.unit
 class TestSyncBackfillValidation:
-    """Tests for backfill/limit validation via CliRunner."""
+    """Tests for backfill/limit validation and happy paths via CliRunner."""
 
-    def _invoke(self, args: list[str]) -> object:
+    def _invoke(self, args: list[str], sources=None, extra_patches=None):
         """Invoke sync command with all prerequisites mocked."""
         runner = CliRunner()
-        patches = _patch_sync_prereqs()
+        patches = _patch_sync_prereqs(sources)
+        if extra_patches:
+            patches.extend(extra_patches)
         for p in patches:
             p.start()
         try:
@@ -134,3 +156,35 @@ class TestSyncBackfillValidation:
         result = self._invoke(["--limit", "0"])
         assert result.exit_code != 0
         assert "positive" in result.output.lower()
+
+    def test_backfill_computes_dates_in_dry_run(self) -> None:
+        """--backfill 30d shows correct date range in dry-run output."""
+        result = self._invoke(["--backfill", "30d", "--dry-run"])
+        assert result.exit_code == 0
+        plain = _ANSI_RE.sub("", result.output)
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        expected_since = (today - timedelta(days=30)).strftime("%Y-%m-%d")
+        expected_until = today.strftime("%Y-%m-%d")
+        assert expected_since in plain
+        assert expected_until in plain
+
+    def test_limit_passed_to_run_sync(self) -> None:
+        """--limit value is forwarded to run_sync()."""
+        mock_run_sync = MagicMock(
+            return_value={"failed_count": 0, "success_count": 1, "oauth_warnings": []}
+        )
+        mock_metabase = patch(
+            "dango.visualization.metabase.sync_metabase_schema", return_value=False
+        )
+        mock_validate = patch("dango.oauth.validation.validate_before_sync")
+        result = self._invoke(
+            ["--limit", "500"],
+            extra_patches=[
+                patch("dango.ingestion.run_sync", mock_run_sync),
+                mock_metabase,
+                mock_validate,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        mock_run_sync.assert_called_once()
+        assert mock_run_sync.call_args.kwargs["limit"] == 500

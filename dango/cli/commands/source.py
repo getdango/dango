@@ -27,7 +27,7 @@ def _parse_duration(value: str) -> int:
         Number of days.
 
     Raises:
-        click.BadParameter: If the format is invalid or value is zero/negative.
+        click.BadParameter: If the format is invalid or value is zero.
     """
     match = _DURATION_PATTERN.match(value)
     if not match:
@@ -536,15 +536,20 @@ def sync(
         if limit:
             console.print(f"[yellow]⚠️  Dev mode: limiting to {limit} rows per source[/yellow]")
 
-        # Warn if date range specified for sources that don't support it
-        has_date_range = start_date_obj is not None or end_date_obj is not None
-        if has_date_range:
-            for src in sources_to_sync:
-                if not _source_supports_date_range(src.type.value):
-                    console.print(
-                        f"[yellow]⚠️  '{src.name}' ({src.type.value}) does not support "
-                        f"date range filtering — dates will be ignored[/yellow]"
-                    )
+        # Warn about source-specific option limitations
+        for src in sources_to_sync:
+            src_type = src.type.value
+            has_date_range = start_date_obj is not None or end_date_obj is not None
+            if has_date_range and not _source_supports_date_range(src_type):
+                console.print(
+                    f"[yellow]⚠️  '{src.name}' ({src_type}) does not support "
+                    f"date range filtering — dates will be ignored[/yellow]"
+                )
+            if limit and src_type == "csv":
+                console.print(
+                    f"[yellow]⚠️  '{src.name}' (csv) does not support "
+                    f"--limit — CSV loads all rows[/yellow]"
+                )
 
         console.print()
 
