@@ -157,6 +157,12 @@ async def get_platform_health() -> dict[str, Any]:
         "warnings": warnings,
     }
 
+    # Scheduler health
+    scheduler_status = _get_scheduler_status()
+    result["scheduler"] = scheduler_status
+    if not scheduler_status.get("running"):
+        warnings.append("Scheduler not running")
+
     # Cloud-specific: add resource metrics and backup health
     cloud_data = await _get_cloud_health_data()
     if cloud_data:
@@ -175,6 +181,23 @@ async def get_platform_health() -> dict[str, Any]:
         result["status"] = "healthy"
 
     return result
+
+
+_SCHEDULER_FALLBACK: dict[str, Any] = {"running": False, "job_count": 0, "next_run_time": None}
+
+
+def _get_scheduler_status() -> dict[str, Any]:
+    """Return scheduler status from app state, with a safe fallback."""
+    try:
+        from dango.web.app import app
+
+        scheduler = getattr(app.state, "scheduler", None)
+        if scheduler is not None:
+            status: dict[str, Any] = scheduler.get_status()
+            return status
+    except Exception:  # noqa: BLE001
+        logger.debug("scheduler_status_check_failed", exc_info=True)
+    return dict(_SCHEDULER_FALLBACK)
 
 
 async def _get_cloud_health_data() -> dict[str, Any] | None:

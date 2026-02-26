@@ -67,6 +67,10 @@ dependencies = [
     # Cloud deployment
     "boto3>=1.34.0",      # DigitalOcean Spaces (S3-compatible)
     "paramiko>=3.0.0",    # SSH key management and remote execution
+
+    # Scheduling
+    "apscheduler>=3.11,<4",   # Job scheduling (AsyncIOScheduler + SQLAlchemy job store)
+    "sqlalchemy>=2.0,<3",     # Required by APScheduler SQLAlchemyJobStore
 ]
 
 [project.optional-dependencies]
@@ -111,6 +115,7 @@ packages = [
     "dango.platform.local",
     "dango.platform.common",
     "dango.platform.cloud",
+    "dango.platform.scheduling",
     "dango.templates",
     "dango.utils",
     "dango.visualization",
@@ -176,6 +181,10 @@ module = [
     "botocore.*",
     "paramiko",
     "paramiko.*",
+    "apscheduler",
+    "apscheduler.*",
+    "sqlalchemy",
+    "sqlalchemy.*",
 ]
 ignore_missing_imports = true
 
@@ -242,6 +251,7 @@ module = [
     "tests.unit.test_remote_ops_cli",
     "tests.unit.test_cli_sync",
     "tests.unit.test_webhook",
+    "tests.unit.test_scheduler",
     "tests.integration.test_digitalocean",
     "tests.integration.test_deploy",
     "tests.integration.test_remote",
