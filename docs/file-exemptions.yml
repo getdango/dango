@@ -200,10 +200,22 @@ exemptions:
     reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
     review_by: "v1.1"
 
+  - file: dango/platform/scheduling/jobs.py
+    lines: 553
+    category: exempt
+    reason: "TASK-041: Scheduled sync/dbt job functions with DbtLock, WebSocket broadcast, webhook notification, and history recording. Each job path (lock failure, success, error) requires broadcast + notify + record calls — splitting would fragment the job lifecycle."
+    review_by: "v1.1"
+
   - file: dango/platform/cloud/digitalocean.py
     lines: 542
     category: exempt
     reason: "TASK-104: Added get_action() and wait_for_action() for resize/migrate action polling. Core DO API client — splitting would fragment related HTTP methods."
+    review_by: "v1.1"
+
+  - file: dango/platform/cloud/scheduled_backup.py
+    lines: 505
+    category: exempt
+    reason: "TASK-103: Server-side scheduled backup to Spaces with list/restore/enable/disable. Marginally over limit."
     review_by: "v1.1"
 
   - file: dango/platform/cloud/ssh.py
@@ -234,6 +246,12 @@ exemptions:
     lines: 533
     category: exempt
     reason: "TASK-029: 9 test classes covering ResourceTracker, IP extraction, secrets push, admin creation, health check, provisioning sequence, backup setup, metadata persistence, and sync trigger. Each requires isolated mock setup."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_sync_jobs.py
+    lines: 562
+    category: exempt
+    reason: "TASK-041: 25 tests across 6 classes covering configure_jobs, _broadcast, _notify, run_scheduled_sync (8 tests incl. lock failure, no sources, exception), run_scheduled_dbt (6 tests incl. lock failure, exception), and _check_freshness. Each test requires isolated mock setup for lazy-import patching."
     review_by: "v1.1"
 
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)

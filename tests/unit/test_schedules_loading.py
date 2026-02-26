@@ -218,5 +218,5 @@ class TestReloadSchedules:
         assert "nightly_dbt" in result.added
         scheduler.add_job.assert_called_once()
         _, call_kwargs = scheduler.add_job.call_args
-        assert call_kwargs["kwargs"]["select"] == "run --select daily_models"
+        assert call_kwargs["kwargs"]["dbt_command"] == "run --select daily_models"
         assert call_kwargs["id"] == "schedule:nightly_dbt"

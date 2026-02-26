@@ -399,7 +399,7 @@ def reload_schedules(
     """
     from apscheduler.triggers.cron import CronTrigger
 
-    from dango.platform.scheduling.jobs import dbt_run_job, sync_source_job
+    from dango.platform.scheduling.jobs import run_scheduled_dbt, run_scheduled_sync
 
     # Collect current schedule jobs
     existing_jobs: dict[str, Any] = {}
@@ -446,18 +446,18 @@ def reload_schedules(
         func: Any
         func_kwargs: dict[str, Any]
         if sched.type == ScheduleType.SYNC:
-            func = sync_source_job
-            # sync_source_job accepts a comma-separated string of source names
-            # (matches the CLI `dango sync src1,src2` convention)
+            func = run_scheduled_sync
             func_kwargs = {
-                "source_name": ",".join(sched.sources),
+                "schedule_name": sched.name,
+                "sources": list(sched.sources),
                 "project_root": str(project_root),
             }
         else:
-            func = dbt_run_job
+            func = run_scheduled_dbt
             func_kwargs = {
+                "schedule_name": sched.name,
+                "dbt_command": sched.dbt_command,
                 "project_root": str(project_root),
-                "select": sched.dbt_command,
             }
 
         if job_id in existing_ids:

@@ -68,7 +68,7 @@ platform/
 | `local/watcher_lifecycle.py` | Watcher subprocess lifecycle | `start_file_watcher`, `stop_file_watcher`, `get_watcher_status`, `get_watcher_pid_file_path` |
 | `local/watcher_runner.py` | Background watcher process | `main` |
 | `scheduling/scheduler.py` | APScheduler wrapper with SQLite persistence | `SchedulerService` |
-| `scheduling/jobs.py` | Module-level job function stubs (pickle-safe) | `sync_source_job`, `dbt_run_job` |
+| `scheduling/jobs.py` | Module-level job functions (pickle-safe) | `configure_jobs`, `run_scheduled_sync`, `run_scheduled_dbt` |
 | `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |
 | `cloud/provisioning.py` | Droplet size tiers, regions, provisioning orchestration | `DropletSizeTier`, `RegionInfo`, `SIZE_TIERS`, `DEFAULT_TIER`, `provision_droplet`, `wait_for_droplet_ready`, `wait_for_ssh`, `suggest_nearest_region`, `save_provisioning_metadata` |
 | `cloud/firewall.py` | Firewall lifecycle and IP allowlisting | `create_default_firewall`, `add_allowed_ip`, `restrict_web_to_ips`, `allow_all_web`, `validate_ip_or_cidr`, `save_firewall_metadata` |
@@ -96,7 +96,7 @@ from dango.platform.common.startup import run_pending_migrations, start_docker_s
 
 # Scheduling (TASK-036+)
 from dango.platform.scheduling import SchedulerService
-from dango.platform.scheduling.jobs import sync_source_job, dbt_run_job
+from dango.platform.scheduling.jobs import run_scheduled_sync, run_scheduled_dbt
 
 # Local-only components
 from dango.platform.local.watcher_lifecycle import start_file_watcher, get_watcher_status

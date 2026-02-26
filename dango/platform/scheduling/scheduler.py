@@ -88,6 +88,10 @@ class SchedulerService:
 
         self._loop = loop
 
+        from dango.platform.scheduling.jobs import configure_jobs
+
+        configure_jobs(loop)
+
         self._scheduler.add_listener(self._on_job_executed, EVENT_JOB_EXECUTED)
         self._scheduler.add_listener(self._on_job_error, EVENT_JOB_ERROR)
         self._scheduler.add_listener(self._on_job_missed, EVENT_JOB_MISSED)
