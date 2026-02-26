@@ -142,6 +142,10 @@ class TestWebhookConfig:
         wh = WebhookConfig(name="test", url="https://hooks.example.com/abc")
         assert wh.url == "https://hooks.example.com/abc"
 
+    def test_valid_http_url(self) -> None:
+        wh = WebhookConfig(name="test", url="http://internal.example.com/hook")
+        assert wh.url == "http://internal.example.com/hook"
+
     def test_invalid_url_raises(self) -> None:
         with pytest.raises(ValueError, match="must start with http"):
             WebhookConfig(name="test", url="ftp://bad.example.com")
@@ -213,6 +217,11 @@ class TestWebhookSender:
                 schedule_name="daily",
             )
         )
+
+    def test_empty_webhooks_not_configured(self) -> None:
+        config = NotificationConfig(webhooks=[])
+        sender = WebhookSender(config)
+        assert sender.is_configured is False
 
     def test_filtered_event_skipped(self) -> None:
         config = _make_config(on_success=False)
@@ -308,6 +317,55 @@ class TestWebhookSender:
                 )
             )
             assert mock_client.post.call_count == 2
+
+    def test_client_error_no_retry(self) -> None:
+        config = _make_config(on_failure=True)
+        sender = WebhookSender(config)
+        mock_client = _mock_httpx_client(_resp(400))
+
+        with patch(_HTTPX_CLIENT, return_value=mock_client):
+            self._run(
+                sender.send(
+                    event_type=EventType.SYNC_FAILED,
+                    schedule_name="daily",
+                )
+            )
+            # 4xx should not retry
+            mock_client.post.assert_called_once()
+
+    def test_connection_error_retries(self) -> None:
+        config = _make_config(on_failure=True)
+        sender = WebhookSender(config)
+        mock_client = _mock_httpx_client()
+        mock_client.post = AsyncMock(
+            side_effect=[httpx.ConnectError("connection refused"), _resp(200)],
+        )
+
+        with (
+            patch(_HTTPX_CLIENT, return_value=mock_client),
+            patch(_ASYNC_SLEEP, new_callable=AsyncMock),
+        ):
+            self._run(
+                sender.send(
+                    event_type=EventType.SYNC_FAILED,
+                    schedule_name="daily",
+                )
+            )
+            assert mock_client.post.call_count == 2
+
+    def test_send_never_raises(self) -> None:
+        config = _make_config(on_failure=True)
+        sender = WebhookSender(config)
+
+        # Patch _build_json_payload to raise — send() must catch it
+        with patch.object(WebhookSender, "_build_json_payload", side_effect=RuntimeError("boom")):
+            self._run(
+                sender.send(
+                    event_type=EventType.SYNC_FAILED,
+                    schedule_name="daily",
+                )
+            )
+            # No exception should propagate
 
     def test_multiple_webhooks_concurrent(self) -> None:
         config = NotificationConfig(

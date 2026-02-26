@@ -42,10 +42,6 @@ __all__ = [
 # Event types and categories
 # ---------------------------------------------------------------------------
 
-_TIMEOUT = 10.0
-_MAX_RETRIES = 3
-_RETRY_DELAYS = [5, 15, 45]
-
 
 class EventType(str, Enum):
     """Sync event types that can trigger notifications."""
@@ -182,6 +178,13 @@ def should_notify(
 # Webhook sender
 # ---------------------------------------------------------------------------
 
+_TIMEOUT = 10.0
+_MAX_RETRIES = 3
+_RETRY_DELAYS = [5, 15, 45]
+
+#: Retryable transport errors (connection reset, DNS failure, timeouts).
+_RETRYABLE_ERRORS = (httpx.TimeoutException, httpx.ConnectError)
+
 
 class WebhookSender:
     """Sends webhook notifications to configured endpoints.
@@ -215,55 +218,58 @@ class WebhookSender:
         if not self.is_configured:
             return
 
-        assert self._config is not None  # for type narrowing
+        try:
+            assert self._config is not None  # for type narrowing
 
-        if not should_notify(event_type, self._config, schedule_notify_on):
-            logger.debug(
-                "notification_filtered",
-                event_type=event_type.value,
-                schedule_name=schedule_name,
-            )
-            return
-
-        payload = WebhookPayload(
-            event_type=event_type,
-            schedule_name=schedule_name,
-            sources=sources or [],
-            error=error,
-            duration_seconds=duration_seconds,
-            occurred_at=datetime.now(tz=timezone.utc),
-            dashboard_url=dashboard_url,
-        )
-
-        json_payload = self._build_json_payload(payload)
-
-        results = await asyncio.gather(
-            *(self._send_to_webhook(wh, json_payload) for wh in self._config.webhooks),
-            return_exceptions=True,
-        )
-
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                logger.warning(
-                    "webhook_send_exception",
-                    webhook=self._config.webhooks[i].name,
-                    error=str(result),
+            if not should_notify(event_type, self._config, schedule_notify_on):
+                logger.debug(
+                    "notification_filtered",
+                    event_type=event_type.value,
+                    schedule_name=schedule_name,
                 )
+                return
+
+            payload = WebhookPayload(
+                event_type=event_type,
+                schedule_name=schedule_name,
+                sources=sources or [],
+                error=error,
+                duration_seconds=duration_seconds,
+                occurred_at=datetime.now(tz=timezone.utc),
+                dashboard_url=dashboard_url,
+            )
+
+            json_payload = self._build_json_payload(payload)
+
+            results = await asyncio.gather(
+                *(self._send_to_webhook(wh, json_payload) for wh in self._config.webhooks),
+                return_exceptions=True,
+            )
+
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.warning(
+                        "webhook_send_exception",
+                        webhook=self._config.webhooks[i].name,
+                        error=str(result),
+                    )
+        except Exception:
+            logger.warning(
+                "webhook_send_unexpected_error",
+                schedule_name=schedule_name,
+                exc_info=True,
+            )
 
     async def _send_to_webhook(self, webhook: WebhookConfig, json_payload: dict[str, Any]) -> bool:
         """Send payload to a single webhook with retry logic.
 
         Retries up to 3 times with exponential backoff (5s, 15s, 45s) on
-        server errors (5xx) and timeouts.
+        server errors (5xx), timeouts, and connection errors.
         """
         for attempt in range(_MAX_RETRIES):
             try:
                 async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                    resp = await client.post(
-                        webhook.url,
-                        json=json_payload,
-                        headers={"Content-Type": "application/json"},
-                    )
+                    resp = await client.post(webhook.url, json=json_payload)
 
                 if resp.status_code < 300:
                     logger.info(
@@ -293,11 +299,12 @@ class WebhookSender:
                 )
                 return False
 
-            except httpx.TimeoutException:
+            except _RETRYABLE_ERRORS:
                 logger.warning(
-                    "webhook_timeout",
+                    "webhook_transport_error",
                     webhook=webhook.name,
                     attempt=attempt + 1,
+                    exc_info=True,
                 )
                 if attempt < _MAX_RETRIES - 1:
                     await asyncio.sleep(_RETRY_DELAYS[attempt])
