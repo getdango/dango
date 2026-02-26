@@ -3,6 +3,8 @@
 Data source management commands (add, list, remove) and sync.
 """
 
+import re
+
 import click
 
 from dango.cli import console
@@ -10,6 +12,58 @@ from dango.config.helpers import (
     check_unreferenced_custom_sources,
     format_unreferenced_sources_warning,
 )
+
+_DURATION_PATTERN = re.compile(r"^(\d+)([dwmDWM])$")
+_DURATION_MULTIPLIERS = {"d": 1, "w": 7, "m": 30}
+
+
+def _parse_duration(value: str) -> int:
+    """Parse a duration string like '7d', '2w', '1m' into days.
+
+    Args:
+        value: Duration string (e.g. '7d', '30d', '2w', '1m').
+
+    Returns:
+        Number of days.
+
+    Raises:
+        click.BadParameter: If the format is invalid or value is zero/negative.
+    """
+    match = _DURATION_PATTERN.match(value)
+    if not match:
+        raise click.BadParameter(
+            f"Invalid duration '{value}'. Use format like '7d', '2w', '1m' "
+            "(d=days, w=weeks, m=months/30d)."
+        )
+    amount = int(match.group(1))
+    unit = match.group(2).lower()
+    if amount <= 0:
+        raise click.BadParameter("Duration must be a positive number.")
+    return amount * _DURATION_MULTIPLIERS[unit]
+
+
+def _source_supports_date_range(source_type: str) -> bool:
+    """Check whether a source type supports start_date/end_date filtering.
+
+    Looks up the source in the registry and checks for a 'start_date'
+    parameter in optional_params or required_params.
+
+    Args:
+        source_type: Source type key (e.g. 'facebook_ads', 'csv').
+
+    Returns:
+        True if the source has a start_date parameter.
+    """
+    from dango.ingestion.sources.registry import get_source_metadata
+
+    metadata = get_source_metadata(source_type)
+    if not metadata:
+        return False
+    for param_list_key in ("optional_params", "required_params"):
+        for param in metadata.get(param_list_key, []):
+            if param.get("name") == "start_date":
+                return True
+    return False
 
 
 @click.group()
@@ -338,16 +392,20 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
 
 @click.command()
 @click.option("--source", help="Sync specific source only")
-@click.option("--start-date", help="Start date for incremental loading (YYYY-MM-DD)")
-@click.option("--end-date", help="End date for incremental loading (YYYY-MM-DD)")
+@click.option("--since", help="Start date for incremental loading (YYYY-MM-DD)")
+@click.option("--until", help="End date for incremental loading (YYYY-MM-DD)")
+@click.option("--backfill", help="Backfill duration (e.g. '7d', '2w', '1m')")
+@click.option("--limit", type=int, help="Limit rows per source (dev testing)")
 @click.option("--full-refresh", is_flag=True, help="Drop existing data and reload from scratch")
 @click.option("--dry-run", is_flag=True, help="Show what would be synced without executing")
 @click.pass_context
 def sync(
     ctx: click.Context,
     source: str | None,
-    start_date: str | None,
-    end_date: str | None,
+    since: str | None,
+    until: str | None,
+    backfill: str | None,
+    limit: int | None,
     full_refresh: bool,
     dry_run: bool,
 ) -> None:
@@ -357,7 +415,9 @@ def sync(
     Examples:
       dango sync                               Sync all enabled sources
       dango sync --source orders               Sync only 'orders' source
-      dango sync --start-date 2024-01-01       Override start date
+      dango sync --since 2024-01-01            Override start date
+      dango sync --backfill 30d                Backfill last 30 days
+      dango sync --limit 1000                  Dev mode: limit rows per source
       dango sync --full-refresh                Reset state and reload all data
       dango sync --dry-run                     Preview what would be synced
 
@@ -366,7 +426,7 @@ def sync(
       2. Runs dlt pipelines (API sources)
       3. Optionally runs dbt models (transformations)
     """
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
     from dango.config import get_config
     from dango.ingestion import run_sync
@@ -407,23 +467,44 @@ def sync(
         if unreferenced:
             console.print(format_unreferenced_sources_warning(unreferenced))
 
-        # Parse dates if provided
+        # --- Validate option conflicts ---
+        if backfill and (since or until):
+            console.print(
+                "[red]Error:[/red] --backfill conflicts with --since/--until. Use one or the other."
+            )
+            raise click.Abort()
+
+        if limit is not None and limit <= 0:
+            console.print("[red]Error:[/red] --limit must be a positive integer.")
+            raise click.Abort()
+
+        # --- Resolve dates ---
         start_date_obj = None
         end_date_obj = None
 
-        if start_date:
+        if backfill:
+            days = _parse_duration(backfill)
+            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            start_date_obj = today - timedelta(days=days)
+            end_date_obj = today
+
+        if since:
             try:
-                start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+                start_date_obj = datetime.strptime(since, "%Y-%m-%d")
             except ValueError:
-                console.print("[red]Error:[/red] Invalid start date format. Use YYYY-MM-DD")
+                console.print("[red]Error:[/red] Invalid --since date format. Use YYYY-MM-DD")
                 raise click.Abort() from None
 
-        if end_date:
+        if until:
             try:
-                end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+                end_date_obj = datetime.strptime(until, "%Y-%m-%d")
             except ValueError:
-                console.print("[red]Error:[/red] Invalid end date format. Use YYYY-MM-DD")
+                console.print("[red]Error:[/red] Invalid --until date format. Use YYYY-MM-DD")
                 raise click.Abort() from None
+
+        if start_date_obj and end_date_obj and start_date_obj >= end_date_obj:
+            console.print("[red]Error:[/red] --since must be before --until.")
+            raise click.Abort()
 
         # Get sources to sync
         if source:
@@ -452,6 +533,19 @@ def sync(
         if full_refresh:
             console.print("[yellow]⚠️  Full refresh mode: existing data will be dropped[/yellow]")
 
+        if limit:
+            console.print(f"[yellow]⚠️  Dev mode: limiting to {limit} rows per source[/yellow]")
+
+        # Warn if date range specified for sources that don't support it
+        has_date_range = start_date_obj is not None or end_date_obj is not None
+        if has_date_range:
+            for src in sources_to_sync:
+                if not _source_supports_date_range(src.type.value):
+                    console.print(
+                        f"[yellow]⚠️  '{src.name}' ({src.type.value}) does not support "
+                        f"date range filtering — dates will be ignored[/yellow]"
+                    )
+
         console.print()
 
         # Dry run mode - show what would be synced without executing
@@ -472,8 +566,12 @@ def sync(
             console.print()
             console.print("[dim]Options:[/dim]")
             console.print(f"  • Full refresh: {'Yes' if full_refresh else 'No'}")
-            console.print(f"  • Start date: {start_date or 'Default'}")
-            console.print(f"  • End date: {end_date or 'Default'}")
+            since_display = start_date_obj.strftime("%Y-%m-%d") if start_date_obj else "Default"
+            until_display = end_date_obj.strftime("%Y-%m-%d") if end_date_obj else "Default"
+            console.print(f"  • Since: {since_display}")
+            console.print(f"  • Until: {until_display}")
+            if limit:
+                console.print(f"  • Limit: {limit} rows")
             console.print()
             console.print("[dim]Run without --dry-run to execute sync[/dim]")
             return
@@ -496,6 +594,7 @@ def sync(
             start_date=start_date_obj,
             end_date=end_date_obj,
             full_refresh=full_refresh,
+            limit=limit,
         )
 
         # Trigger Metabase schema sync (if Metabase is running)
