@@ -329,7 +329,7 @@ async def startup_event() -> None:
         from dango.platform.scheduling import SchedulerService
 
         scheduler = SchedulerService(project_root)
-        scheduler.start(asyncio.get_event_loop())
+        scheduler.start(asyncio.get_running_loop())
         app.state.scheduler = scheduler
     except Exception:
         logger.error("scheduler_startup_failed", exc_info=True)
@@ -339,10 +339,14 @@ async def startup_event() -> None:
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
     """Run on application shutdown."""
+    import asyncio
+
     scheduler = getattr(app.state, "scheduler", None)
     if scheduler is not None:
         try:
-            scheduler.shutdown(wait=True)
+            # Run in thread to avoid blocking the event loop if a job is
+            # still executing in the ThreadPoolExecutor.
+            await asyncio.to_thread(scheduler.shutdown, True)
         except Exception:
             logger.error("scheduler_shutdown_failed", exc_info=True)
 

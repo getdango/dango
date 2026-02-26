@@ -122,6 +122,18 @@ class TestSchedulerServiceLifecycle:
 
         svc._scheduler.shutdown.assert_not_called()
 
+    def test_start_is_idempotent(self, tmp_path):
+        """Calling start() twice should be a no-op the second time."""
+        svc = _make_service(tmp_path)
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+
+        svc.start(loop)
+        svc.start(loop)
+
+        # Listeners registered exactly once (3 listeners), not 6
+        assert svc._scheduler.add_listener.call_count == 3
+        svc._scheduler.start.assert_called_once()
+
 
 @pytest.mark.unit
 class TestSchedulerServiceJobs:
@@ -390,3 +402,83 @@ class TestJobStubs:
 
         with pytest.raises(NotImplementedError, match="TASK-041"):
             dbt_run_job("/tmp/project")
+
+
+_HEALTH_MOD = "dango.web.routes.health"
+
+
+@pytest.mark.unit
+class TestGetSchedulerStatus:
+    """Test _get_scheduler_status() in health.py."""
+
+    def test_returns_status_from_scheduler(self):
+        """Should return scheduler.get_status() when scheduler is present."""
+        from dango.web.routes.health import _get_scheduler_status
+
+        mock_scheduler = MagicMock()
+        mock_scheduler.get_status.return_value = {
+            "running": True,
+            "job_count": 3,
+            "next_run_time": "2026-03-01T10:00:00+00:00",
+        }
+
+        # Patch at source — the lazy import does `from dango.web.app import app`
+        from dango.web.app import app
+
+        original_scheduler = getattr(app.state, "scheduler", None)
+        app.state.scheduler = mock_scheduler
+        try:
+            result = _get_scheduler_status()
+        finally:
+            app.state.scheduler = original_scheduler
+
+        assert result["running"] is True
+        assert result["job_count"] == 3
+
+    def test_returns_fallback_when_scheduler_is_none(self):
+        """Should return fallback dict when scheduler is None."""
+        from dango.web.app import app
+        from dango.web.routes.health import _get_scheduler_status
+
+        original_scheduler = getattr(app.state, "scheduler", None)
+        app.state.scheduler = None
+        try:
+            result = _get_scheduler_status()
+        finally:
+            app.state.scheduler = original_scheduler
+
+        assert result == {"running": False, "job_count": 0, "next_run_time": None}
+
+    def test_returns_fallback_on_exception(self):
+        """Should return fallback dict when an exception occurs."""
+        from dango.web.routes.health import _get_scheduler_status
+
+        mock_scheduler = MagicMock()
+        mock_scheduler.get_status.side_effect = RuntimeError("boom")
+
+        from dango.web.app import app
+
+        original_scheduler = getattr(app.state, "scheduler", None)
+        app.state.scheduler = mock_scheduler
+        try:
+            result = _get_scheduler_status()
+        finally:
+            app.state.scheduler = original_scheduler
+
+        assert result == {"running": False, "job_count": 0, "next_run_time": None}
+
+    def test_fallback_returns_fresh_dict_each_time(self):
+        """Each fallback call should return an independent dict (no mutation)."""
+        from dango.web.app import app
+        from dango.web.routes.health import _get_scheduler_status
+
+        original_scheduler = getattr(app.state, "scheduler", None)
+        app.state.scheduler = None
+        try:
+            result1 = _get_scheduler_status()
+            result1["running"] = True  # mutate
+            result2 = _get_scheduler_status()
+        finally:
+            app.state.scheduler = original_scheduler
+
+        assert result2["running"] is False

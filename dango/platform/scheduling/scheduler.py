@@ -8,15 +8,16 @@ build on this foundation.
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import concurrent.futures
 
 from apscheduler.events import (
     EVENT_JOB_ERROR,
     EVENT_JOB_EXECUTED,
     EVENT_JOB_MISSED,
-    JobEvent,
     JobExecutionEvent,
 )
 from apscheduler.executors.pool import ThreadPoolExecutor
@@ -66,6 +67,7 @@ class SchedulerService:
         )
         self._loop: asyncio.AbstractEventLoop | None = None
         self._project_root = project_root
+        self._started = False
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -74,9 +76,16 @@ class SchedulerService:
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         """Start the scheduler and register event listeners.
 
+        Calling ``start()`` more than once is a no-op (listeners are
+        registered exactly once).
+
         Args:
             loop: The running asyncio event loop (for coroutine bridging).
         """
+        if self._started:
+            logger.warning("scheduler_already_started")
+            return
+
         self._loop = loop
 
         self._scheduler.add_listener(self._on_job_executed, EVENT_JOB_EXECUTED)
@@ -84,6 +93,7 @@ class SchedulerService:
         self._scheduler.add_listener(self._on_job_missed, EVENT_JOB_MISSED)
 
         self._scheduler.start()
+        self._started = True
 
         self._log_startup_summary()
         self._check_dual_scheduler()
@@ -184,7 +194,7 @@ class SchedulerService:
             traceback=str(event.traceback),
         )
 
-    def _on_job_missed(self, event: JobEvent) -> None:
+    def _on_job_missed(self, event: JobExecutionEvent) -> None:
         logger.warning(
             "scheduler_job_missed",
             job_id=event.job_id,
@@ -226,5 +236,4 @@ class SchedulerService:
                     ),
                 )
         except Exception:  # noqa: BLE001
-            # Config loading failure is non-fatal for this check
-            pass
+            logger.debug("dual_scheduler_check_failed", exc_info=True)

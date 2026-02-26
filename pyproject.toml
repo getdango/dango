@@ -70,7 +70,7 @@ dependencies = [
 
     # Scheduling
     "apscheduler>=3.11,<4",   # Job scheduling (AsyncIOScheduler + SQLAlchemy job store)
-    "sqlalchemy>=2.0",        # Required by APScheduler SQLAlchemyJobStore
+    "sqlalchemy>=2.0,<3",     # Required by APScheduler SQLAlchemyJobStore
 ]
 
 [project.optional-dependencies]
