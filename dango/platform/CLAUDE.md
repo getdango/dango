@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Docker service lifecycle, file watching, and platform startup helpers. Shared between local (`dango start`) and cloud (`dango serve`, TASK-026) startup flows.
+Docker service lifecycle, file watching, job scheduling, and platform startup helpers. Shared between local (`dango start`) and cloud (`dango serve`, TASK-026) startup flows.
 
 ## Directory Layout
 
@@ -25,6 +25,11 @@ platform/
 │   ├── watcher.py       # DebouncedFileHandler, FileWatcher, MultiTargetWatcher
 │   ├── watcher_lifecycle.py  # start/stop/status for watcher subprocess
 │   └── watcher_runner.py    # Background watcher process entry point
+│
+├── scheduling/          # APScheduler-based job scheduling (TASK-036+)
+│   ├── __init__.py      # Re-exports SchedulerService
+│   ├── scheduler.py     # SchedulerService (AsyncIOScheduler wrapper)
+│   └── jobs.py          # Module-level job functions (pickle-safe)
 │
 ├── cloud/               # Cloud-only components (TASK-022+)
 │   ├── __init__.py      # Re-exports 63 symbols (clients, provisioning, firewall, backup, deploy, etc.)
@@ -62,6 +67,8 @@ platform/
 | `local/watcher.py` | File change detection | `DebouncedFileHandler`, `FileWatcher`, `MultiTargetWatcher`, `SyncTrigger` |
 | `local/watcher_lifecycle.py` | Watcher subprocess lifecycle | `start_file_watcher`, `stop_file_watcher`, `get_watcher_status`, `get_watcher_pid_file_path` |
 | `local/watcher_runner.py` | Background watcher process | `main` |
+| `scheduling/scheduler.py` | APScheduler wrapper with SQLite persistence | `SchedulerService` |
+| `scheduling/jobs.py` | Module-level job function stubs (pickle-safe) | `sync_source_job`, `dbt_run_job` |
 | `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |
 | `cloud/provisioning.py` | Droplet size tiers, regions, provisioning orchestration | `DropletSizeTier`, `RegionInfo`, `SIZE_TIERS`, `DEFAULT_TIER`, `provision_droplet`, `wait_for_droplet_ready`, `wait_for_ssh`, `suggest_nearest_region`, `save_provisioning_metadata` |
 | `cloud/firewall.py` | Firewall lifecycle and IP allowlisting | `create_default_firewall`, `add_allowed_ip`, `restrict_web_to_ips`, `allow_all_web`, `validate_ip_or_cidr`, `save_firewall_metadata` |
@@ -86,6 +93,10 @@ platform/
 # Shared infrastructure
 from dango.platform import DockerManager, ServiceStatus
 from dango.platform.common.startup import run_pending_migrations, start_docker_services
+
+# Scheduling (TASK-036+)
+from dango.platform.scheduling import SchedulerService
+from dango.platform.scheduling.jobs import sync_source_job, dbt_run_job
 
 # Local-only components
 from dango.platform.local.watcher_lifecycle import start_file_watcher, get_watcher_status
@@ -161,6 +172,7 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 
 | To... | Modify... | Test with... |
 |-------|-----------|--------------|
+| Add/modify scheduled jobs | `scheduling/scheduler.py`, `scheduling/jobs.py` | `pytest tests/unit/test_scheduler.py` |
 | Add a startup step for both local + cloud | `common/startup.py` | `pytest tests/unit/test_platform_startup.py` |
 | Add a local-only startup step | `local/` and `cli/commands/platform.py` | `dango start` manually |
 | Add cloud infrastructure | `cloud/` | `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py` |
@@ -206,6 +218,8 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 - `paramiko` — SSH transport (cloud/ssh.py)
 - `cryptography` — Ed25519 key generation (cloud/ssh.py; core dependency)
 - `watchdog` — Observer, FileSystemEventHandler (watcher.py)
+- `apscheduler` — AsyncIOScheduler, SQLAlchemyJobStore (scheduling/)
+- `sqlalchemy` — Required by APScheduler job store (scheduling/)
 
 **Used by:**
 - `dango.cli.commands.platform` — start/stop/status commands
@@ -216,7 +230,8 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 - `dango.cli.commands.deploy_provision` — provisioning orchestration
 - `dango.cli.commands.remote_env` — remote env var management (uses file_sync)
 - `dango.cli.commands.remote_mgmt` — remote status/logs/ssh/query
-- `dango.web.routes.health` — get_watcher_status
+- `dango.web.routes.health` — get_watcher_status, scheduler status
+- `dango.web.app` — SchedulerService lifecycle (startup/shutdown)
 
 ## Cloud Deployment Flow
 
@@ -276,6 +291,7 @@ Post-deployment hardening (not automated by Dango):
 
 ## Testing
 
+- **Scheduling:** `pytest tests/unit/test_scheduler.py`
 - **Local platform:** `pytest tests/unit/test_platform_startup.py tests/unit/test_watcher_lifecycle.py`
 - **Cloud modules:** `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py tests/unit/test_provisioning.py tests/unit/test_firewall.py tests/unit/test_server_setup.py tests/unit/test_domain.py tests/unit/test_backup.py tests/unit/test_file_sync.py tests/unit/test_deployer.py tests/unit/test_scheduled_backup.py tests/unit/test_resize.py tests/unit/test_migrate.py tests/unit/test_upgrade.py`
 - **Manual:** `dango start` (local platform), `dango deploy` (cloud provisioning)

@@ -322,10 +322,30 @@ async def startup_event() -> None:
     except Exception:
         logger.warning("first_run_admin_check_failed", exc_info=True)
 
+    # Initialize APScheduler for job scheduling
+    try:
+        import asyncio
+
+        from dango.platform.scheduling import SchedulerService
+
+        scheduler = SchedulerService(project_root)
+        scheduler.start(asyncio.get_event_loop())
+        app.state.scheduler = scheduler
+    except Exception:
+        logger.error("scheduler_startup_failed", exc_info=True)
+        app.state.scheduler = None
+
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
     """Run on application shutdown."""
+    scheduler = getattr(app.state, "scheduler", None)
+    if scheduler is not None:
+        try:
+            scheduler.shutdown(wait=True)
+        except Exception:
+            logger.error("scheduler_shutdown_failed", exc_info=True)
+
     logger.info("api_shutting_down")
 
 
