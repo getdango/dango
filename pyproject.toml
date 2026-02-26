@@ -117,6 +117,7 @@ packages = [
     "dango.platform.common",
     "dango.platform.cloud",
     "dango.platform.scheduling",
+    "dango.platform.notifications",
     "dango.templates",
     "dango.utils",
     "dango.visualization",
