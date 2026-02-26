@@ -76,6 +76,12 @@ class TestResilienceConfig:
         with pytest.raises(ValueError, match="timeout_minutes must be positive"):
             ResilienceConfig(timeout_minutes=-1)
 
+    def test_rejects_empty_retry_delays(self):
+        from dango.platform.scheduling.scheduler import ResilienceConfig
+
+        with pytest.raises(ValueError, match="retry_delays must not be empty"):
+            ResilienceConfig(retry_delays=())
+
 
 @pytest.mark.unit
 class TestCancellation:
@@ -84,49 +90,42 @@ class TestCancellation:
     def test_cancel_job_sets_flag(self, tmp_path):
         svc = _make_service(tmp_path)
         flag = svc._register_cancel_flag("job-1")
-
-        result = svc.cancel_job("job-1")
-
-        assert result is True
+        assert svc.cancel_job("job-1") is True
         assert flag.is_set()
 
     def test_cancel_job_returns_false_for_unknown(self, tmp_path):
         svc = _make_service(tmp_path)
-
-        result = svc.cancel_job("nonexistent")
-
-        assert result is False
+        assert svc.cancel_job("nonexistent") is False
 
     def test_is_cancelled_true_when_set(self, tmp_path):
         svc = _make_service(tmp_path)
-        flag = svc._register_cancel_flag("job-1")
-        flag.set()
-
+        svc._register_cancel_flag("job-1").set()
         assert svc.is_cancelled("job-1") is True
 
-    def test_is_cancelled_false_when_not_set(self, tmp_path):
+    def test_is_cancelled_false_when_not_set_or_unknown(self, tmp_path):
         svc = _make_service(tmp_path)
         svc._register_cancel_flag("job-1")
-
         assert svc.is_cancelled("job-1") is False
-
-    def test_is_cancelled_false_for_unknown(self, tmp_path):
-        svc = _make_service(tmp_path)
-
         assert svc.is_cancelled("nonexistent") is False
 
     def test_clear_cancel_flag_removes(self, tmp_path):
         svc = _make_service(tmp_path)
         svc._register_cancel_flag("job-1")
-
         svc._clear_cancel_flag("job-1")
-
         assert "job-1" not in svc._cancel_flags
 
     def test_clear_cancel_flag_noop_for_unknown(self, tmp_path):
-        """Clearing a non-existent flag should not raise."""
+        _make_service(tmp_path)._clear_cancel_flag("nonexistent")
+
+    def test_register_cancel_flag_warns_on_overwrite(self, tmp_path):
         svc = _make_service(tmp_path)
-        svc._clear_cancel_flag("nonexistent")  # should not raise
+        svc._register_cancel_flag("job-1")
+
+        with patch(f"{_SCHEDULER_MOD}.logger") as mock_logger:
+            svc._register_cancel_flag("job-1")
+
+        mock_logger.warning.assert_called_once()
+        assert mock_logger.warning.call_args[0][0] == "cancel_flag_overwrite"
 
     def test_shutdown_sets_all_flags(self, tmp_path):
         svc = _make_service(tmp_path)

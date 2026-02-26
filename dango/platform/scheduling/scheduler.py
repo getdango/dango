@@ -57,6 +57,8 @@ class ResilienceConfig:
     def __post_init__(self) -> None:
         if self.max_retries < 1:
             raise ValueError("max_retries must be at least 1")
+        if not self.retry_delays:
+            raise ValueError("retry_delays must not be empty")
         if self.timeout_minutes <= 0:
             raise ValueError("timeout_minutes must be positive")
 
