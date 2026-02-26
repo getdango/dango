@@ -411,7 +411,7 @@ def reload_schedules(
     desired: dict[str, ScheduleConfig] = {}
     for sched in new_schedules:
         if sched.enabled:
-            desired[f"{_SCHEDULE_JOB_PREFIX}{sched.name}"] = sched
+            desired[get_schedule_job_id(sched.name)] = sched
 
     existing_ids = set(existing_jobs.keys())
     desired_ids = set(desired.keys())

@@ -24,7 +24,7 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 | Add a new source type | `models.py` (`SourceType` enum) | `pytest tests/unit/test_config_models.py` |
 | Change config loading logic | `loader.py` | `pytest tests/unit/test_config_loader.py` |
 | Add a new config error type | `exceptions.py` | `pytest tests/unit/test_config_loader.py` |
-| Add/modify schedule config | `schedules.py` | `pytest tests/unit/test_schedules_config.py` |
+| Add/modify schedule config | `schedules.py` | `pytest tests/unit/test_schedules_config.py tests/unit/test_schedules_loading.py` |
 | Add a new credential provider | `credentials.py` | Manual: create test project with `.dlt/secrets.toml` |
 
 ## Dependencies
@@ -46,7 +46,7 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 
 ## Testing
 
-- **Unit:** `pytest tests/unit/test_config_loader.py tests/unit/test_config_models.py tests/unit/test_schedules_config.py`
+- **Unit:** `pytest tests/unit/test_config_loader.py tests/unit/test_config_models.py tests/unit/test_schedules_config.py tests/unit/test_schedules_loading.py`
 - **Integration:** `pytest tests/integration/test_config_loading.py`
 - **Manual:** `dango config show` in a dango project directory
 

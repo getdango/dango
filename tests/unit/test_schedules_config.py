@@ -202,6 +202,14 @@ class TestValidateSchedules:
         # No duration warning when average_durations is None
         assert not any("less than 80%" in i for i in issues)
 
+    def test_interval_vs_duration_skipped_when_empty_dict(self):
+        from dango.config.schedules import ScheduleConfig, validate_schedules
+
+        scheds = [ScheduleConfig(name="s1", cron="every_15m", sources=["csv"])]
+        issues = validate_schedules(scheds, {"csv"}, average_durations={})
+        # Empty dict is truthy but has no entries — no duration warning
+        assert not any("less than 80%" in i for i in issues)
+
     def test_overlap_warning(self):
         from dango.config.schedules import ScheduleConfig, validate_schedules
 
