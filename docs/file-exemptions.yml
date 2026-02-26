@@ -212,6 +212,12 @@ exemptions:
     reason: "TASK-104: Added get_action() and wait_for_action() for resize/migrate action polling. Core DO API client — splitting would fragment related HTTP methods."
     review_by: "v1.1"
 
+  - file: dango/platform/cloud/scheduled_backup.py
+    lines: 505
+    category: exempt
+    reason: "TASK-103: Server-side scheduled backup to Spaces with list/restore/enable/disable. Marginally over limit."
+    review_by: "v1.1"
+
   - file: dango/platform/cloud/ssh.py
     lines: 665
     category: exempt

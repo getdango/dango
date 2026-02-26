@@ -6,15 +6,22 @@ Tests for dango.platform.scheduling.jobs — scheduled sync and dbt job function
 from __future__ import annotations
 
 import asyncio
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import dango.utils.dbt_lock  # noqa: F401 — force submodule into sys.modules
+
+# dango.utils.__init__ exports a *function* named ``dbt_lock`` which shadows
+# the submodule ``dango.utils.dbt_lock``.  Both string-based patch() and
+# ``import X as Y`` resolve to the function.  Fetch the module from
+# sys.modules to get the real module object for patch.object().
+_dbt_lock_module = sys.modules["dango.utils.dbt_lock"]
+
 _JOBS_MOD = "dango.platform.scheduling.jobs"
 
 # Lazy imports in job functions → patch at origin
-_LOCK_MOD = "dango.utils.dbt_lock"
-_LOCK_ERR_MOD = "dango.exceptions"
 _NOTIF_MOD = "dango.platform.notifications.webhook"
 _SYNC_MOD = "dango.ingestion.dlt_runner"
 _DBT_MOD = "dango.transformation"
@@ -141,7 +148,7 @@ class TestRunScheduledSync:
         config = _make_config_with_sources("src1")
 
         with (
-            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
@@ -165,7 +172,7 @@ class TestRunScheduledSync:
         mock_lock.acquire.side_effect = DbtLockError("busy")
 
         with (
-            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
@@ -188,7 +195,7 @@ class TestRunScheduledSync:
         config = _make_config_with_sources("src1")
 
         with (
-            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
@@ -211,7 +218,7 @@ class TestRunScheduledSync:
         config = _make_config_with_sources("src1")
 
         with (
-            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
@@ -232,7 +239,7 @@ class TestRunScheduledSync:
         config = _make_config_with_sources("src1", "src2")
 
         with (
-            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
@@ -254,7 +261,7 @@ class TestRunScheduledSync:
         config = _make_config_with_sources("src1")
 
         with (
-            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
@@ -277,7 +284,7 @@ class TestRunScheduledSync:
         config.sources.get_source.return_value = None  # all unknown
 
         with (
-            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
@@ -318,7 +325,7 @@ class TestRunScheduledDbt:
         mock_lock = MagicMock()
 
         with (
-            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_DBT_MOD}.run_dbt_models", return_value=(True, "ok")),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
@@ -336,7 +343,7 @@ class TestRunScheduledDbt:
         mock_lock = MagicMock()
 
         with (
-            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_DBT_MOD}.run_dbt_models", return_value=(True, "ok")),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
@@ -359,7 +366,7 @@ class TestRunScheduledDbt:
         mock_lock.acquire.side_effect = DbtLockError("busy")
 
         with (
-            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
@@ -382,7 +389,7 @@ class TestRunScheduledDbt:
         mock_lock = MagicMock()
 
         with (
-            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_DBT_MOD}.run_dbt_models", side_effect=RuntimeError("crash")),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
@@ -405,7 +412,7 @@ class TestRunScheduledDbt:
         mock_lock = MagicMock()
 
         with (
-            patch(f"{_LOCK_MOD}.DbtLock", return_value=mock_lock),
+            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_DBT_MOD}.run_dbt_models", return_value=(False, "dbt error")),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
