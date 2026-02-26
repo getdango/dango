@@ -119,6 +119,10 @@ class WebhookPayload(BaseModel):
     duration_seconds: float | None = None
     occurred_at: datetime | None = None
     dashboard_url: str | None = None
+    rows_loaded: int | None = None
+    stale_hours: float | None = None
+    attempt_number: int | None = None
+    next_retry_at: datetime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +213,10 @@ class WebhookSender:
         error: str | None = None,
         duration_seconds: float | None = None,
         dashboard_url: str | None = None,
+        rows_loaded: int | None = None,
+        stale_hours: float | None = None,
+        attempt_number: int | None = None,
+        next_retry_at: datetime | None = None,
         schedule_notify_on: dict[str, bool] | None = None,
     ) -> None:
         """Send notifications to all configured webhooks.
@@ -237,12 +245,14 @@ class WebhookSender:
                 duration_seconds=duration_seconds,
                 occurred_at=datetime.now(tz=timezone.utc),
                 dashboard_url=dashboard_url,
+                rows_loaded=rows_loaded,
+                stale_hours=stale_hours,
+                attempt_number=attempt_number,
+                next_retry_at=next_retry_at,
             )
 
-            json_payload = self._build_json_payload(payload)
-
             results = await asyncio.gather(
-                *(self._send_to_webhook(wh, json_payload) for wh in self._config.webhooks),
+                *(self._send_to_webhook(wh, payload) for wh in self._config.webhooks),
                 return_exceptions=True,
             )
 
@@ -260,12 +270,21 @@ class WebhookSender:
                 exc_info=True,
             )
 
-    async def _send_to_webhook(self, webhook: WebhookConfig, json_payload: dict[str, Any]) -> bool:
+    def _format_payload(self, webhook: WebhookConfig, payload: WebhookPayload) -> dict[str, Any]:
+        """Select the appropriate wire format for a webhook."""
+        if webhook.format == "slack":
+            from dango.platform.notifications.slack import format_slack_message
+
+            return format_slack_message(payload)
+        return self._build_json_payload(payload)
+
+    async def _send_to_webhook(self, webhook: WebhookConfig, payload: WebhookPayload) -> bool:
         """Send payload to a single webhook with retry logic.
 
         Retries up to 3 times with exponential backoff (5s, 15s, 45s) on
         server errors (5xx), timeouts, and connection errors.
         """
+        json_payload = self._format_payload(webhook, payload)
         for attempt in range(_MAX_RETRIES):
             try:
                 async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -338,5 +357,9 @@ class WebhookSender:
             "duration_seconds": payload.duration_seconds,
             "timestamp": payload.occurred_at.isoformat() if payload.occurred_at else None,
             "dashboard_url": payload.dashboard_url,
+            "rows_loaded": payload.rows_loaded,
+            "stale_hours": payload.stale_hours,
+            "attempt_number": payload.attempt_number,
+            "next_retry_at": (payload.next_retry_at.isoformat() if payload.next_retry_at else None),
         }
         return result
