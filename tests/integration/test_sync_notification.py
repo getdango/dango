@@ -100,14 +100,14 @@ class TestSyncFailureNotification:
                 run_scheduled_sync("daily", ["src1"], project_root=str(tmp_path))
 
                 # 5. Run captured coroutines while httpx patch is still active
-                assert len(captured_coros) >= 1, "Expected at least one notification coroutine"
+                assert len(captured_coros) == 1, "Expected exactly one notification coroutine"
                 for coro in captured_coros:
                     asyncio.run(coro)
         finally:
             jobs_mod._event_loop = old_loop
 
         # 6. Verify Slack payload
-        assert len(posted_payloads) >= 1, "Expected at least one POST"
+        assert len(posted_payloads) == 1, "Expected exactly one POST"
         payload = posted_payloads[0]
         assert "attachments" in payload
         attachment = payload["attachments"][0]
