@@ -75,6 +75,10 @@ Rules:
 - `dango/cli/commands/platform.py` — auto-migrate on `dango start`
 - `dango/cli/commands/migrate.py` — manual CLI commands
 
+## Key Conventions
+
+- **Testing digit-prefixed migration files:** Can't `import dango.migrations.scheduler.001_execution_history` (invalid Python identifier). Use `importlib.util.spec_from_file_location()` to load and call `upgrade()`. See `tests/unit/test_execution_history.py` for the pattern.
+
 ## Testing
 
 - **Unit:** `pytest tests/unit/test_migrations.py -v`

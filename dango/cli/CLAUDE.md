@@ -33,6 +33,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
 | `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore) | `backup_group` |
 | `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query` | `remote_status()`, `remote_logs()` |
+| `commands/schedule.py` (499 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
 | `init.py` (965 lines) | Project initialization wizard | `ProjectInitializer` |
@@ -94,6 +95,8 @@ dango (top-level group)
 │   │   ├── set, remove
 │   └── backup (subgroup)       ← commands/remote_backup.py
 │       ├── list, enable, disable, download, restore
+├── schedule (group)            ← commands/schedule.py
+│   ├── add, list, remove, status, enable, disable, webhook
 ├── deploy (group)              ← commands/deploy.py
 │   ├── (default)  interactive wizard → commands/deploy_wizard.py + deploy_provision.py
 │   └── destroy    tear down cloud infrastructure
@@ -108,6 +111,10 @@ dango (top-level group)
 - **Project root via context:** `ctx.obj["project_root"]` is set by the top-level `cli` group in `main.py` (via `dango.config.helpers.find_project_root`).
 - **Cross-file command registration:** `remote_mgmt.py`, `remote_ops.py`, `remote_env.py`, and `remote_backup.py` import `remote` from `remote.py` and register commands via `@remote.command()` / `@remote.group()`. Registration is triggered by bottom-of-file imports in `remote.py`.
 - **Two SSH users:** `root` for system ops (backup, rollback, domain, server setup) via `load_cloud_config_with_ssh()` in `cli/utils.py`. `dango` for project file ops (.env, .dlt/secrets.toml) via `_ssh_connect_or_fail()` in `remote.py`.
+
+### Key conventions
+
+- **Dual cron preset drift risk:** Both `config/schedules.py` and `cli/commands/schedule.py` define human-readable cron preset maps (e.g., "every 6 hours" → `0 */6 * * *`). These must stay in sync — changes to one without updating the other cause inconsistent behavior between CLI and config validation.
 
 ### Known pre-existing bugs
 
