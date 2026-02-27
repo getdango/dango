@@ -207,3 +207,32 @@ class TwoFARegenerateRequest(BaseModel):
 
     password: str
     code: str
+
+
+# ---------------------------------------------------------------------------
+# Schedule DTOs (used by web/routes/schedules.py)
+# ---------------------------------------------------------------------------
+
+
+class ScheduleCreateRequest(BaseModel):
+    """Schedule creation/update payload."""
+
+    name: str
+    type: str = "sync"
+    cron: str
+    sources: list[str] = []
+    enabled: bool = True
+    timezone: str | None = None
+    start_date: str | None = None
+    misfire_grace_time: int | None = None
+    timeout_minutes: int | None = None
+    notify_on: list[str] = []
+    dbt_command: str | None = None
+
+
+class TriggerRequest(BaseModel):
+    """Manual trigger payload (optional overrides)."""
+
+    full_refresh: bool = False
+    start_date: str | None = None
+    end_date: str | None = None

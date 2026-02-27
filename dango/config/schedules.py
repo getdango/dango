@@ -36,6 +36,7 @@ __all__ = [
     "load_schedules_config",
     "log_startup_checks",
     "reload_schedules",
+    "save_schedules_config",
     "validate_schedules",
 ]
 
@@ -208,6 +209,20 @@ def load_schedules_config(project_root: Path) -> SchedulesConfig:
         return SchedulesConfig(schedules=schedules_data)
     except Exception as e:
         raise ConfigValidationError(f"Invalid schedule configuration in {path}:\n{e}") from e
+
+
+def save_schedules_config(project_root: Path, config: SchedulesConfig) -> None:
+    """Save schedule config to ``.dango/schedules.yml``.
+
+    Serialises the config with ``mode="json"`` so datetimes become ISO strings.
+    """
+    path = project_root / ".dango" / "schedules.yml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data: dict[str, Any] = {
+        "schedules": [s.model_dump(exclude_none=True, mode="json") for s in config.schedules]
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
 # ---------------------------------------------------------------------------

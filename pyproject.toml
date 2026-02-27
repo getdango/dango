@@ -263,6 +263,7 @@ module = [
     "tests.unit.test_sync_jobs",
     "tests.unit.test_execution_history",
     "tests.unit.test_schedule_history_api",
+    "tests.unit.test_schedule_crud_api",
     "tests.integration.test_digitalocean",
     "tests.integration.test_deploy",
     "tests.integration.test_remote",

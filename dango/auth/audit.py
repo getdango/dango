@@ -54,6 +54,12 @@ class AuditEvent(str, Enum):
     SECRET_DELETED     = "secret_deleted"
     OAUTH_SOURCE_CONNECTED    = "oauth_source_connected"
     OAUTH_SOURCE_DISCONNECTED = "oauth_source_disconnected"
+    SCHEDULE_CREATED          = "schedule_created"
+    SCHEDULE_UPDATED          = "schedule_updated"
+    SCHEDULE_DELETED          = "schedule_deleted"
+    SCHEDULE_TRIGGERED        = "schedule_triggered"
+    SCHEDULES_RELOADED        = "schedules_reloaded"
+    JOB_CANCELLED             = "job_cancelled"
     # fmt: on
 
 
