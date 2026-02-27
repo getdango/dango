@@ -28,10 +28,18 @@ platform/
 │
 ├── scheduling/          # APScheduler-based job scheduling (TASK-036+)
 │   ├── __init__.py      # Re-exports SchedulerService, ResilienceConfig, run_with_resilience, history functions
+│   ├── CLAUDE.md        # Scheduling module navigation doc
 │   ├── scheduler.py     # SchedulerService (lifecycle, events, cancellation, async bridge)
 │   ├── resilience.py    # Resilience: retry, timeout, cancellation (extracted from scheduler.py)
 │   ├── history.py       # Execution history tracking (TASK-039)
-│   └── jobs.py          # Module-level job functions (pickle-safe)
+│   ├── jobs.py          # Module-level job functions (pickle-safe)
+│   └── sync_trigger.py  # Server-side manual sync runner (dango remote sync)
+│
+├── notifications/       # Webhook notification infrastructure (TASK-043+)
+│   ├── __init__.py      # Re-exports WebhookSender, EventType, etc.
+│   ├── CLAUDE.md        # Notifications module navigation doc
+│   ├── webhook.py       # Event types, config, filtering, async sender with retry
+│   └── slack.py         # Slack Block Kit formatter
 │
 ├── cloud/               # Cloud-only components (TASK-022+)
 │   ├── __init__.py      # Re-exports 63 symbols (clients, provisioning, firewall, backup, deploy, etc.)
@@ -73,6 +81,9 @@ platform/
 | `scheduling/resilience.py` | Resilience: retry with backoff, timeout via thread kill, cancellation | `ResilienceConfig`, `run_with_resilience`, `_execute_with_timeout`, `_raise_in_thread` |
 | `scheduling/history.py` | Execution history tracking for scheduled jobs | `record_start`, `record_completion`, `record_failure`, `get_schedule_history`, `get_recent_history`, `get_average_duration`, `get_last_run`, `cleanup_old_records` |
 | `scheduling/jobs.py` | Module-level job functions (pickle-safe) | `configure_jobs`, `run_scheduled_sync`, `run_scheduled_dbt` |
+| `scheduling/sync_trigger.py` | Server-side manual sync runner (invoked via SSH) | `main()`, `_run_sync()` |
+| `notifications/webhook.py` | Event types, config models, event filtering, async sender with retry | `WebhookSender`, `WebhookConfig`, `NotificationConfig`, `EventType`, `EventCategory`, `WebhookPayload` |
+| `notifications/slack.py` | Slack Block Kit formatter for webhook payloads | `format_slack_message` |
 | `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |
 | `cloud/provisioning.py` | Droplet size tiers, regions, provisioning orchestration | `DropletSizeTier`, `RegionInfo`, `SIZE_TIERS`, `DEFAULT_TIER`, `provision_droplet`, `wait_for_droplet_ready`, `wait_for_ssh`, `suggest_nearest_region`, `save_provisioning_metadata` |
 | `cloud/firewall.py` | Firewall lifecycle and IP allowlisting | `create_default_firewall`, `add_allowed_ip`, `restrict_web_to_ips`, `allow_all_web`, `validate_ip_or_cidr`, `save_firewall_metadata` |
@@ -180,6 +191,9 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 |-------|-----------|--------------|
 | Add/modify scheduled jobs | `scheduling/scheduler.py`, `scheduling/jobs.py` | `pytest tests/unit/test_scheduler.py` |
 | Query execution history | `scheduling/history.py` | `pytest tests/unit/test_execution_history.py` |
+| Trigger manual sync from SSH | `scheduling/sync_trigger.py` | `pytest tests/unit/test_sync_trigger.py` |
+| Configure webhook notifications | `notifications/webhook.py` | `pytest tests/unit/test_webhook_notifications.py` |
+| Add a notification format | Create `notifications/{format}.py`, add dispatch in `webhook.py` | `pytest tests/unit/test_webhook_notifications.py` |
 | Add a startup step for both local + cloud | `common/startup.py` | `pytest tests/unit/test_platform_startup.py` |
 | Add a local-only startup step | `local/` and `cli/commands/platform.py` | `dango start` manually |
 | Add cloud infrastructure | `cloud/` | `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py` |
@@ -248,6 +262,8 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 - `watchdog` — Observer, FileSystemEventHandler (watcher.py)
 - `apscheduler` — AsyncIOScheduler, SQLAlchemyJobStore (scheduling/)
 - `sqlalchemy` — Required by APScheduler job store (scheduling/)
+- `pydantic` — Notification config models (notifications/)
+- `yaml` — Notification config loading (notifications/)
 
 **Used by:**
 - `dango.cli.commands.platform` — start/stop/status commands
@@ -259,7 +275,9 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 - `dango.cli.commands.remote_env` — remote env var management (uses file_sync)
 - `dango.cli.commands.remote_mgmt` — remote status/logs/ssh/query
 - `dango.web.routes.health` — get_watcher_status, scheduler status
+- `dango.web.routes.schedules` — schedule CRUD, trigger, cancel, history, notification config
 - `dango.web.app` — SchedulerService lifecycle (startup/shutdown)
+- `dango.cli.commands.schedule` — CLI schedule management
 
 ## Cloud Deployment Flow
 
@@ -319,7 +337,8 @@ Post-deployment hardening (not automated by Dango):
 
 ## Testing
 
-- **Scheduling:** `pytest tests/unit/test_scheduler.py tests/unit/test_scheduler_resilience.py tests/unit/test_execution_history.py`
+- **Scheduling:** `pytest tests/unit/test_scheduler.py tests/unit/test_scheduler_resilience.py tests/unit/test_execution_history.py tests/unit/test_scheduler_jobs.py tests/unit/test_sync_trigger.py`
+- **Notifications:** `pytest tests/unit/test_webhook_notifications.py tests/unit/test_slack_formatter.py`
 - **Local platform:** `pytest tests/unit/test_platform_startup.py tests/unit/test_watcher_lifecycle.py`
 - **Cloud modules:** `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py tests/unit/test_provisioning.py tests/unit/test_firewall.py tests/unit/test_server_setup.py tests/unit/test_domain.py tests/unit/test_backup.py tests/unit/test_file_sync.py tests/unit/test_deployer.py tests/unit/test_scheduled_backup.py tests/unit/test_resize.py tests/unit/test_migrate.py tests/unit/test_upgrade.py`
 - **Manual:** `dango start` (local platform), `dango deploy` (cloud provisioning)
