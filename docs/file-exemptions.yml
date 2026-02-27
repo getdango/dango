@@ -279,6 +279,12 @@ exemptions:
     reason: "TASK-038: 13 test classes covering all schedule CRUD endpoints (list, get, create, update, delete, trigger, reload, cancel, unscheduled) plus audit logging, reload verification, rename guard, and RBAC enforcement. Each class needs isolated app setup."
     review_by: "v1.1"
 
+  - file: tests/unit/test_cli_schedule.py
+    lines: 509
+    category: exempt
+    reason: "TASK-045a: 8 test classes covering schedule help, list, status, remove, enable, disable, add wizard (sync, dbt, custom cron, cancelled). Marginally over limit."
+    review_by: "v1.1"
+
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:
   - file: dango/ingestion/dlt_sources/mongodb/helpers.py
