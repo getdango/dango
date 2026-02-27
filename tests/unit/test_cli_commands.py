@@ -28,6 +28,8 @@ class TestCliCommandRegistration:
             oauth,  # noqa: F401
             platform,  # noqa: F401
             project,  # noqa: F401
+            schedule,  # noqa: F401
+            schedule_webhook,  # noqa: F401
             source,  # noqa: F401
             transform,  # noqa: F401
             web,  # noqa: F401
@@ -48,15 +50,20 @@ class TestCliCommandRegistration:
             "config",
             "dashboard",
             "db",
+            "deploy",
             "docs",
             "generate",
             "info",
             "init",
             "metabase",
+            "migrate",
             "model",
             "oauth",
+            "remote",
             "rename",
             "run",
+            "schedule",
+            "serve",
             "source",
             "start",
             "status",
@@ -156,6 +163,14 @@ class TestCliCommandRegistration:
         result = runner.invoke(cli, ["dashboard", "--help"])
         assert result.exit_code == 0
         assert "provision" in result.output
+
+    def test_schedule_subcommands(self) -> None:
+        """Schedule group has all expected subcommands."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "--help"])
+        assert result.exit_code == 0
+        for cmd in ["list", "status", "add", "remove", "enable", "disable", "webhook"]:
+            assert cmd in result.output, f"Schedule subcommand '{cmd}' missing"
 
     def test_no_circular_imports(self) -> None:
         """CLI main module imports without circular dependency errors."""
