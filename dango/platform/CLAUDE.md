@@ -28,7 +28,8 @@ platform/
 │
 ├── scheduling/          # APScheduler-based job scheduling (TASK-036+)
 │   ├── __init__.py      # Re-exports SchedulerService, ResilienceConfig, run_with_resilience, history functions
-│   ├── scheduler.py     # SchedulerService + resilience (retry, timeout, cancellation)
+│   ├── scheduler.py     # SchedulerService (lifecycle, events, cancellation, async bridge)
+│   ├── resilience.py    # Resilience: retry, timeout, cancellation (extracted from scheduler.py)
 │   ├── history.py       # Execution history tracking (TASK-039)
 │   └── jobs.py          # Module-level job functions (pickle-safe)
 │
@@ -68,7 +69,8 @@ platform/
 | `local/watcher.py` | File change detection | `DebouncedFileHandler`, `FileWatcher`, `MultiTargetWatcher`, `SyncTrigger` |
 | `local/watcher_lifecycle.py` | Watcher subprocess lifecycle | `start_file_watcher`, `stop_file_watcher`, `get_watcher_status`, `get_watcher_pid_file_path` |
 | `local/watcher_runner.py` | Background watcher process | `main` |
-| `scheduling/scheduler.py` | APScheduler wrapper with SQLite persistence, resilience (retry/timeout/cancel) | `SchedulerService`, `ResilienceConfig`, `run_with_resilience` |
+| `scheduling/scheduler.py` | APScheduler wrapper with SQLite persistence, event listeners, retry callback | `SchedulerService` |
+| `scheduling/resilience.py` | Resilience: retry with backoff, timeout via thread kill, cancellation | `ResilienceConfig`, `run_with_resilience`, `_execute_with_timeout`, `_raise_in_thread` |
 | `scheduling/history.py` | Execution history tracking for scheduled jobs | `record_start`, `record_completion`, `record_failure`, `get_schedule_history`, `get_recent_history`, `get_average_duration`, `get_last_run`, `cleanup_old_records` |
 | `scheduling/jobs.py` | Module-level job functions (pickle-safe) | `configure_jobs`, `run_scheduled_sync`, `run_scheduled_dbt` |
 | `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |

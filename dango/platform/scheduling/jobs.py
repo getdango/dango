@@ -7,9 +7,9 @@ defined at module level (not as methods or lambdas) so they can be pickled
 and restored from the SQLite job store across restarts.
 
 Public API:
-    configure_jobs(loop)       -- set the event loop (called by SchedulerService.start)
-    run_scheduled_sync(...)    -- sync one or more data sources on schedule
-    run_scheduled_dbt(...)     -- run dbt models on schedule
+    configure_jobs(loop, scheduler)  -- set event loop + scheduler service
+    run_scheduled_sync(...)          -- sync one or more data sources on schedule
+    run_scheduled_dbt(...)           -- run dbt models on schedule
 """
 
 from __future__ import annotations
@@ -24,20 +24,26 @@ from dango.logging import get_logger
 
 if TYPE_CHECKING:
     from dango.config.models import DataSource
+    from dango.platform.scheduling.scheduler import SchedulerService
 
 logger = get_logger(__name__)
 
 _event_loop: asyncio.AbstractEventLoop | None = None
+_scheduler_service: SchedulerService | None = None
 _BROADCAST_TIMEOUT = 5  # seconds to wait for a WebSocket broadcast
 
 
-def configure_jobs(loop: asyncio.AbstractEventLoop) -> None:
-    """Store the running event loop for async bridging.
+def configure_jobs(
+    loop: asyncio.AbstractEventLoop,
+    scheduler: SchedulerService | None = None,
+) -> None:
+    """Store the running event loop and scheduler service for async bridging.
 
     Called once by ``SchedulerService.start()``.
     """
-    global _event_loop  # noqa: PLW0603
+    global _event_loop, _scheduler_service  # noqa: PLW0603
     _event_loop = loop
+    _scheduler_service = scheduler
     logger.info("scheduler_jobs_configured")
 
 
@@ -115,11 +121,11 @@ def _resolve_sources(project_root: Path, names: list[str]) -> list[DataSource]:
 
 
 # ---------------------------------------------------------------------------
-# Execution history
+# Execution history (structlog)
 # ---------------------------------------------------------------------------
 
 
-def _record_execution(
+def _log_execution_event(
     *,
     schedule_name: str,
     job_type: str,
@@ -128,7 +134,7 @@ def _record_execution(
     error: str | None = None,
     sources: list[str] | None = None,
 ) -> None:
-    """Log a structured execution record (TASK-039 upgrades to SQLite)."""
+    """Log a structured execution record (complements SQLite history)."""
     logger.info(
         "job_execution_recorded",
         schedule_name=schedule_name,
@@ -138,6 +144,52 @@ def _record_execution(
         error=error,
         sources=sources or [],
     )
+
+
+# ---------------------------------------------------------------------------
+# SQLite history helpers
+# ---------------------------------------------------------------------------
+
+
+def _try_record_start(
+    project_root: Path,
+    schedule_name: str,
+    source_names: list[str] | None = None,
+) -> int | None:
+    """Attempt to record job start in SQLite history. Returns record_id or None."""
+    if _scheduler_service is None:
+        return None
+    try:
+        from dango.platform.scheduling.history import get_scheduler_db_path, record_start
+
+        db_path = get_scheduler_db_path(project_root)
+        record_id = record_start(db_path, schedule_name, sources=source_names)
+        _scheduler_service.register_execution(f"schedule:{schedule_name}", record_id)
+        return record_id
+    except Exception:  # noqa: BLE001
+        logger.debug("record_start_failed", exc_info=True)
+        return None
+
+
+def _try_finish_record(
+    project_root: Path,
+    schedule_name: str,
+    record_id: int | None,
+    finish_func_name: str,
+    **kwargs: Any,
+) -> None:
+    """Attempt to finalize a history record (completion/failure/timeout/cancel)."""
+    if record_id is None or _scheduler_service is None:
+        return
+    try:
+        from dango.platform.scheduling import history as hist_mod
+
+        db_path = hist_mod.get_scheduler_db_path(project_root)
+        func = getattr(hist_mod, finish_func_name)
+        func(db_path, record_id, **kwargs)
+        _scheduler_service._running_records.pop(f"schedule:{schedule_name}", None)
+    except Exception:  # noqa: BLE001
+        logger.debug("record_finish_failed", func=finish_func_name, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +269,8 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
     with DbtLock serialization, WebSocket broadcasting, webhook notifications,
     and execution history recording.
 
+    Sources are synced individually with cancellation checks between each source.
+
     Args:
         schedule_name: Human-readable schedule identifier.
         sources: List of source names to sync.
@@ -226,7 +280,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
     full_refresh = bool(kwargs.get("full_refresh", False))
     t0 = time.monotonic()
 
-    from dango.exceptions import DbtLockError
+    from dango.exceptions import DbtLockError, JobCancelledError, JobTimeoutError
     from dango.platform.notifications.webhook import (
         EventType,
         WebhookSender,
@@ -237,6 +291,8 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
     sender = WebhookSender(load_notification_config(project_root))
     source_names = list(sources)
     lock = DbtLock(project_root, source="scheduler", operation=f"sync:{schedule_name}")
+
+    record_id: int | None = None
 
     try:
         try:
@@ -272,7 +328,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 error="Could not acquire lock",
                 duration_seconds=elapsed,
             )
-            _record_execution(
+            _log_execution_event(
                 schedule_name=schedule_name,
                 job_type="sync",
                 status="lock_failed",
@@ -286,7 +342,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         if not resolved:
             elapsed = time.monotonic() - t0
             logger.warning("no_sources_resolved", schedule=schedule_name, names=source_names)
-            _record_execution(
+            _log_execution_event(
                 schedule_name=schedule_name,
                 job_type="sync",
                 status="no_sources",
@@ -294,6 +350,8 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 sources=source_names,
             )
             return
+
+        record_id = _try_record_start(project_root, schedule_name, source_names)
 
         _broadcast(
             {
@@ -305,13 +363,13 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         )
 
         from dango.ingestion.dlt_runner import run_sync
-
-        run_sync(project_root, resolved, full_refresh=full_refresh)
-        elapsed = time.monotonic() - t0
-
         from dango.utils.sync_history import save_sync_history_entry
 
+        job_id = f"schedule:{schedule_name}"
         for src in resolved:
+            if _scheduler_service is not None and _scheduler_service.is_cancelled(job_id):
+                raise JobCancelledError(f"Sync cancelled between sources for {schedule_name}")
+            run_sync(project_root, [src], full_refresh=full_refresh)
             save_sync_history_entry(
                 project_root,
                 src.name,
@@ -320,11 +378,15 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                     "schedule": schedule_name,
                     "status": "completed",
                     "completed_at": _ts(),
-                    "duration_seconds": round(elapsed, 2),
+                    "duration_seconds": round(time.monotonic() - t0, 2),
                 },
             )
 
-        _record_execution(
+        elapsed = time.monotonic() - t0
+
+        _try_finish_record(project_root, schedule_name, record_id, "record_completion")
+
+        _log_execution_event(
             schedule_name=schedule_name,
             job_type="sync",
             status="completed",
@@ -349,6 +411,56 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         )
         _check_freshness(project_root, schedule_name, source_names, sender)
 
+    except JobTimeoutError:
+        elapsed = time.monotonic() - t0
+        _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
+        _log_execution_event(
+            schedule_name=schedule_name,
+            job_type="sync",
+            status="timeout",
+            duration_seconds=elapsed,
+            error="Job timed out",
+            sources=source_names,
+        )
+        _broadcast(
+            {
+                "event": "sync_failed",
+                "schedule": schedule_name,
+                "sources": source_names,
+                "error": "Job timed out",
+                "timestamp": _ts(),
+            }
+        )
+        _notify(
+            sender,
+            event_type=EventType.SYNC_FAILED,
+            schedule_name=schedule_name,
+            sources=source_names,
+            error="Job timed out",
+            duration_seconds=elapsed,
+        )
+
+    except JobCancelledError:
+        elapsed = time.monotonic() - t0
+        _try_finish_record(project_root, schedule_name, record_id, "record_cancellation")
+        _log_execution_event(
+            schedule_name=schedule_name,
+            job_type="sync",
+            status="cancelled",
+            duration_seconds=elapsed,
+            error="Job cancelled",
+            sources=source_names,
+        )
+        _broadcast(
+            {
+                "event": "sync_failed",
+                "schedule": schedule_name,
+                "sources": source_names,
+                "error": "Job cancelled",
+                "timestamp": _ts(),
+            }
+        )
+
     except Exception as exc:  # noqa: BLE001
         elapsed = time.monotonic() - t0
         error_msg = str(exc)
@@ -359,7 +471,10 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             error=error_msg,
             exc_info=True,
         )
-        _record_execution(
+        _try_finish_record(
+            project_root, schedule_name, record_id, "record_failure", error=error_msg
+        )
+        _log_execution_event(
             schedule_name=schedule_name,
             job_type="sync",
             status="failed",
@@ -407,7 +522,7 @@ def run_scheduled_dbt(
     project_root = Path(kwargs.get("project_root", "."))
     t0 = time.monotonic()
 
-    from dango.exceptions import DbtLockError
+    from dango.exceptions import DbtLockError, JobCancelledError, JobTimeoutError
     from dango.platform.notifications.webhook import (
         EventType,
         WebhookSender,
@@ -417,6 +532,8 @@ def run_scheduled_dbt(
 
     sender = WebhookSender(load_notification_config(project_root))
     lock = DbtLock(project_root, source="scheduler", operation=f"dbt:{schedule_name}")
+
+    record_id: int | None = None
 
     try:
         try:
@@ -449,7 +566,7 @@ def run_scheduled_dbt(
                 error="Could not acquire lock",
                 duration_seconds=elapsed,
             )
-            _record_execution(
+            _log_execution_event(
                 schedule_name=schedule_name,
                 job_type="dbt",
                 status="lock_failed",
@@ -457,6 +574,8 @@ def run_scheduled_dbt(
                 error="Lock contention",
             )
             return
+
+        record_id = _try_record_start(project_root, schedule_name, source_names=None)
 
         _broadcast(
             {
@@ -473,7 +592,8 @@ def run_scheduled_dbt(
         elapsed = time.monotonic() - t0
 
         if success:
-            _record_execution(
+            _try_finish_record(project_root, schedule_name, record_id, "record_completion")
+            _log_execution_event(
                 schedule_name=schedule_name,
                 job_type="dbt",
                 status="completed",
@@ -494,7 +614,10 @@ def run_scheduled_dbt(
                 duration_seconds=round(elapsed, 2),
             )
         else:
-            _record_execution(
+            _try_finish_record(
+                project_root, schedule_name, record_id, "record_failure", error=output
+            )
+            _log_execution_event(
                 schedule_name=schedule_name,
                 job_type="dbt",
                 status="failed",
@@ -517,6 +640,36 @@ def run_scheduled_dbt(
                 duration_seconds=elapsed,
             )
 
+    except JobTimeoutError:
+        elapsed = time.monotonic() - t0
+        _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
+        _log_execution_event(
+            schedule_name=schedule_name,
+            job_type="dbt",
+            status="timeout",
+            duration_seconds=elapsed,
+            error="Job timed out",
+        )
+        _broadcast(
+            {
+                "event": "dbt_failed",
+                "schedule": schedule_name,
+                "error": "Job timed out",
+                "timestamp": _ts(),
+            }
+        )
+
+    except JobCancelledError:
+        elapsed = time.monotonic() - t0
+        _try_finish_record(project_root, schedule_name, record_id, "record_cancellation")
+        _log_execution_event(
+            schedule_name=schedule_name,
+            job_type="dbt",
+            status="cancelled",
+            duration_seconds=elapsed,
+            error="Job cancelled",
+        )
+
     except Exception as exc:  # noqa: BLE001
         elapsed = time.monotonic() - t0
         error_msg = str(exc)
@@ -527,7 +680,10 @@ def run_scheduled_dbt(
             error=error_msg,
             exc_info=True,
         )
-        _record_execution(
+        _try_finish_record(
+            project_root, schedule_name, record_id, "record_failure", error=error_msg
+        )
+        _log_execution_event(
             schedule_name=schedule_name,
             job_type="dbt",
             status="failed",

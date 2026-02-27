@@ -267,10 +267,12 @@ module = [
     "tests.unit.test_cli_schedule",
     "tests.unit.test_cli_schedule_webhook",
     "tests.unit.test_notifications_audit",
+    "tests.unit.test_scheduler_gaps",
     "tests.integration.test_sync_notification",
     "tests.integration.test_digitalocean",
     "tests.integration.test_deploy",
     "tests.integration.test_remote",
+    "tests.integration.test_scheduler_integration",
 ]
 ignore_errors = true
 

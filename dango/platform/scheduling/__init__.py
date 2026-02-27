@@ -28,11 +28,11 @@ from dango.platform.scheduling.jobs import (
     run_scheduled_dbt,
     run_scheduled_sync,
 )
-from dango.platform.scheduling.scheduler import (
+from dango.platform.scheduling.resilience import (
     ResilienceConfig,
-    SchedulerService,
     run_with_resilience,
 )
+from dango.platform.scheduling.scheduler import SchedulerService
 
 __all__ = [
     "ResilienceConfig",
