@@ -49,8 +49,8 @@
                         <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
                 </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                    <template x-for="sched in schedules" :key="sched.name">
+                <template x-for="sched in schedules" :key="sched.name">
+                    <tbody class="bg-white border-b border-gray-200">
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <button @click="toggleHistory(sched)"
@@ -105,59 +105,54 @@
                                 </div>
                             </td>
                         </tr>
-                    </template>
-                    <!-- Expanded history row -->
-                    <template x-for="sched in schedules" :key="'hist-' + sched.name">
-                        <template x-if="expandedSchedule === sched.name">
-                            <tr class="bg-gray-50">
-                                <td colspan="8" class="px-6 py-4">
-                                    <div class="text-sm font-medium text-gray-700 mb-2">Recent Executions</div>
-                                    <template x-if="historyLoading">
-                                        <p class="text-sm text-gray-500">Loading...</p>
-                                    </template>
-                                    <template x-if="!historyLoading && historyItems.length === 0">
-                                        <p class="text-sm text-gray-500">No execution history.</p>
-                                    </template>
-                                    <template x-if="!historyLoading && historyItems.length > 0">
-                                        <table class="min-w-full divide-y divide-gray-200">
-                                            <thead>
+                        <tr x-show="expandedSchedule === sched.name" x-cloak class="bg-gray-50">
+                            <td colspan="8" class="px-6 py-4">
+                                <div class="text-sm font-medium text-gray-700 mb-2">Recent Executions</div>
+                                <template x-if="historyLoading">
+                                    <p class="text-sm text-gray-500">Loading...</p>
+                                </template>
+                                <template x-if="!historyLoading && historyItems.length === 0">
+                                    <p class="text-sm text-gray-500">No execution history.</p>
+                                </template>
+                                <template x-if="!historyLoading && historyItems.length > 0">
+                                    <table class="min-w-full divide-y divide-gray-200">
+                                        <thead>
+                                            <tr>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Started</th>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Duration</th>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Error</th>
+                                                <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <template x-for="run in historyItems" :key="run.id">
                                                 <tr>
-                                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Started</th>
-                                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Duration</th>
-                                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
-                                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Error</th>
-                                                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">Actions</th>
+                                                    <td class="px-3 py-2 text-xs text-gray-600" x-text="timeAgo(run.started_at)"></td>
+                                                    <td class="px-3 py-2 text-xs text-gray-600" x-text="run.duration_seconds != null ? formatDuration(run.duration_seconds) : '—'"></td>
+                                                    <td class="px-3 py-2">
+                                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                                              :class="statusBadge(run.status)"
+                                                              x-text="run.status"></span>
+                                                    </td>
+                                                    <td class="px-3 py-2 text-xs text-red-600 max-w-xs truncate" x-text="run.error_message || ''"></td>
+                                                    <td class="px-3 py-2 text-right">
+                                                        <template x-if="run.status === 'failed' && isEditorPlus">
+                                                            <button @click="openTriggerModal(sched)"
+                                                                    class="text-blue-600 hover:text-blue-800 text-xs">Re-run</button>
+                                                        </template>
+                                                    </td>
                                                 </tr>
-                                            </thead>
-                                            <tbody class="divide-y divide-gray-100">
-                                                <template x-for="run in historyItems" :key="run.id">
-                                                    <tr>
-                                                        <td class="px-3 py-2 text-xs text-gray-600" x-text="timeAgo(run.started_at)"></td>
-                                                        <td class="px-3 py-2 text-xs text-gray-600" x-text="run.duration_seconds != null ? formatDuration(run.duration_seconds) : '—'"></td>
-                                                        <td class="px-3 py-2">
-                                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
-                                                                  :class="statusBadge(run.status)"
-                                                                  x-text="run.status"></span>
-                                                        </td>
-                                                        <td class="px-3 py-2 text-xs text-red-600 max-w-xs truncate" x-text="run.error_message || ''"></td>
-                                                        <td class="px-3 py-2 text-right">
-                                                            <template x-if="run.status === 'failed' && isEditorPlus">
-                                                                <button @click="openTriggerModal(sched)"
-                                                                        class="text-blue-600 hover:text-blue-800 text-xs">Re-run</button>
-                                                            </template>
-                                                        </td>
-                                                    </tr>
-                                                </template>
-                                            </tbody>
-                                        </table>
-                                    </template>
-                                </td>
-                            </tr>
-                        </template>
-                    </template>
-                    <template x-if="schedules.length === 0">
-                        <tr><td colspan="8" class="px-6 py-8 text-center text-sm text-gray-500">No schedules configured.</td></tr>
-                    </template>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </template>
+                            </td>
+                        </tr>
+                    </tbody>
+                </template>
+                <tbody x-show="schedules.length === 0" x-cloak>
+                    <tr><td colspan="8" class="px-6 py-8 text-center text-sm text-gray-500">No schedules configured.</td></tr>
                 </tbody>
             </table>
         </div>

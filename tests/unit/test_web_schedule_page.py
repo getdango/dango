@@ -154,6 +154,7 @@ class TestNotificationConfigEndpoint:
         assert data["webhooks"] == []
         assert data["on_failure"] is True
         assert data["on_success"] is False
+        assert data["on_stale"] is True
         assert data["stale_threshold_hours"] == 24
 
     def test_requires_scheduler_view_permission(self, tmp_path: Path) -> None:
