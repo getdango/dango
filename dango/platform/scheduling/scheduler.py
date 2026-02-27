@@ -351,16 +351,13 @@ class SchedulerService:
 
             notif_config = load_notification_config(self._project_root)
             sender = WebhookSender(notif_config)
-            if sender.is_configured:
-                from dango.platform.scheduling.jobs import _event_loop
-
-                if _event_loop is not None:
-                    coro = sender.send(
-                        event_type=EventType.SYNC_FAILED,
-                        schedule_name=schedule_name,
-                        error=f"Retrying (attempt {attempt}/{max_retries}): {error}",
-                    )
-                    asyncio.run_coroutine_threadsafe(coro, _event_loop)
+            if sender.is_configured and self._loop is not None:
+                coro = sender.send(
+                    event_type=EventType.SYNC_FAILED,
+                    schedule_name=schedule_name,
+                    error=f"Retrying (attempt {attempt}/{max_retries}): {error}",
+                )
+                asyncio.run_coroutine_threadsafe(coro, self._loop)
         except Exception:  # noqa: BLE001
             logger.warning("retry_event_callback_error", exc_info=True)
 

@@ -369,6 +369,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         for src in resolved:
             if _scheduler_service is not None and _scheduler_service.is_cancelled(job_id):
                 raise JobCancelledError(f"Sync cancelled between sources for {schedule_name}")
+            src_t0 = time.monotonic()
             run_sync(project_root, [src], full_refresh=full_refresh)
             save_sync_history_entry(
                 project_root,
@@ -378,7 +379,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                     "schedule": schedule_name,
                     "status": "completed",
                     "completed_at": _ts(),
-                    "duration_seconds": round(time.monotonic() - t0, 2),
+                    "duration_seconds": round(time.monotonic() - src_t0, 2),
                 },
             )
 
@@ -459,6 +460,14 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 "error": "Job cancelled",
                 "timestamp": _ts(),
             }
+        )
+        _notify(
+            sender,
+            event_type=EventType.SYNC_FAILED,
+            schedule_name=schedule_name,
+            sources=source_names,
+            error="Job cancelled",
+            duration_seconds=elapsed,
         )
 
     except Exception as exc:  # noqa: BLE001
@@ -658,6 +667,13 @@ def run_scheduled_dbt(
                 "timestamp": _ts(),
             }
         )
+        _notify(
+            sender,
+            event_type=EventType.SYNC_FAILED,
+            schedule_name=schedule_name,
+            error="Job timed out",
+            duration_seconds=elapsed,
+        )
 
     except JobCancelledError:
         elapsed = time.monotonic() - t0
@@ -668,6 +684,13 @@ def run_scheduled_dbt(
             status="cancelled",
             duration_seconds=elapsed,
             error="Job cancelled",
+        )
+        _notify(
+            sender,
+            event_type=EventType.SYNC_FAILED,
+            schedule_name=schedule_name,
+            error="Job cancelled",
+            duration_seconds=elapsed,
         )
 
     except Exception as exc:  # noqa: BLE001

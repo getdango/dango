@@ -9,10 +9,8 @@ timeout distinct status.
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 import sys
 import threading
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -62,31 +60,6 @@ def _make_config_with_sources(*source_names):
     config = MagicMock()
     config.sources.get_source.side_effect = lambda n: sources.get(n)
     return config
-
-
-def _create_history_db(db_path: Path) -> None:
-    """Create a scheduler DB with the execution_history table."""
-    import importlib.util
-
-    migration_path = (
-        Path(__file__).resolve().parents[2]
-        / "dango"
-        / "migrations"
-        / "scheduler"
-        / "001_execution_history.py"
-    )
-    spec = importlib.util.spec_from_file_location("migration_001", str(migration_path))
-    assert spec is not None and spec.loader is not None
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
-    try:
-        mod.upgrade(conn)
-        conn.commit()
-    finally:
-        conn.close()
 
 
 # ---------------------------------------------------------------------------
