@@ -22,7 +22,7 @@ APScheduler-based job scheduling for Dango data pipelines. Manages scheduled syn
 - **`_on_job_missed` only logs:** Missed runs do not create execution history records. This is a known v1 limitation — missed jobs are invisible in the history UI and excluded from average duration calculations.
 - **Exception handler side-effect completeness:** When adding exception handlers that mirror existing ones (e.g., `JobTimeoutError` alongside `JobCancelledError`), copy ALL side-effect calls: broadcast + notify + log + record. Omitting any one creates silent inconsistencies.
 
-For additional scheduling patterns, see [`../../platform/CLAUDE.md`](../CLAUDE.md) § Scheduling patterns:
+For additional scheduling patterns, see [`platform/CLAUDE.md`](../CLAUDE.md) § Scheduling patterns:
 - APScheduler dual-patch testing (mock both `SQLAlchemyJobStore` and `AsyncIOScheduler`)
 - No atomic trigger update (remove + re-add)
 - Cron interval estimation needs sampling (5+ intervals, return minimum)
@@ -34,7 +34,7 @@ For additional scheduling patterns, see [`../../platform/CLAUDE.md`](../CLAUDE.m
 
 | To... | Modify... | Test with... |
 |-------|-----------|--------------|
-| Add a new scheduled job type | `jobs.py`, `config/schedules.py` | `pytest tests/unit/test_scheduler.py tests/unit/test_scheduler_jobs.py` |
+| Add a new scheduled job type | `jobs.py`, `config/schedules.py` | `pytest tests/unit/test_scheduler.py tests/unit/test_sync_jobs.py` |
 | Change retry/timeout defaults | `resilience.py` (`ResilienceConfig`) | `pytest tests/unit/test_scheduler_resilience.py` |
 | Query execution history | `history.py` | `pytest tests/unit/test_execution_history.py` |
 | Add a new history status | `history.py` (add constant + recording function) | `pytest tests/unit/test_execution_history.py` |
@@ -62,7 +62,7 @@ For additional scheduling patterns, see [`../../platform/CLAUDE.md`](../CLAUDE.m
 
 ## Testing
 
-- **Unit:** `pytest tests/unit/test_scheduler.py tests/unit/test_scheduler_resilience.py tests/unit/test_execution_history.py tests/unit/test_scheduler_jobs.py tests/unit/test_sync_trigger.py`
+- **Unit:** `pytest tests/unit/test_scheduler.py tests/unit/test_scheduler_resilience.py tests/unit/test_execution_history.py tests/unit/test_sync_jobs.py tests/unit/test_sync_trigger.py`
 - **Manual:** `dango start` (starts scheduler), web UI `/schedules` page
 
 ## Don't Modify

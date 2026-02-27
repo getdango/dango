@@ -192,8 +192,8 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 | Add/modify scheduled jobs | `scheduling/scheduler.py`, `scheduling/jobs.py` | `pytest tests/unit/test_scheduler.py` |
 | Query execution history | `scheduling/history.py` | `pytest tests/unit/test_execution_history.py` |
 | Trigger manual sync from SSH | `scheduling/sync_trigger.py` | `pytest tests/unit/test_sync_trigger.py` |
-| Configure webhook notifications | `notifications/webhook.py` | `pytest tests/unit/test_webhook_notifications.py` |
-| Add a notification format | Create `notifications/{format}.py`, add dispatch in `webhook.py` | `pytest tests/unit/test_webhook_notifications.py` |
+| Configure webhook notifications | `notifications/webhook.py` | `pytest tests/unit/test_webhook.py` |
+| Add a notification format | Create `notifications/{format}.py`, add dispatch in `webhook.py` | `pytest tests/unit/test_webhook.py` |
 | Add a startup step for both local + cloud | `common/startup.py` | `pytest tests/unit/test_platform_startup.py` |
 | Add a local-only startup step | `local/` and `cli/commands/platform.py` | `dango start` manually |
 | Add cloud infrastructure | `cloud/` | `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py` |
@@ -337,8 +337,8 @@ Post-deployment hardening (not automated by Dango):
 
 ## Testing
 
-- **Scheduling:** `pytest tests/unit/test_scheduler.py tests/unit/test_scheduler_resilience.py tests/unit/test_execution_history.py tests/unit/test_scheduler_jobs.py tests/unit/test_sync_trigger.py`
-- **Notifications:** `pytest tests/unit/test_webhook_notifications.py tests/unit/test_slack_formatter.py`
+- **Scheduling:** `pytest tests/unit/test_scheduler.py tests/unit/test_scheduler_resilience.py tests/unit/test_execution_history.py tests/unit/test_sync_jobs.py tests/unit/test_sync_trigger.py`
+- **Notifications:** `pytest tests/unit/test_webhook.py tests/unit/test_slack_formatter.py`
 - **Local platform:** `pytest tests/unit/test_platform_startup.py tests/unit/test_watcher_lifecycle.py`
 - **Cloud modules:** `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py tests/unit/test_provisioning.py tests/unit/test_firewall.py tests/unit/test_server_setup.py tests/unit/test_domain.py tests/unit/test_backup.py tests/unit/test_file_sync.py tests/unit/test_deployer.py tests/unit/test_scheduled_backup.py tests/unit/test_resize.py tests/unit/test_migrate.py tests/unit/test_upgrade.py`
 - **Manual:** `dango start` (local platform), `dango deploy` (cloud provisioning)

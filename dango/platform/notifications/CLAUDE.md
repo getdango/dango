@@ -23,10 +23,10 @@ Webhook notification infrastructure for sync event notifications. Sends configur
 
 | To... | Modify... | Test with... |
 |-------|-----------|--------------|
-| Add a new event type | `webhook.py` (`EventType` enum + `EVENT_TO_CATEGORY` mapping) | `pytest tests/unit/test_webhook_notifications.py` |
-| Add a new notification format | Create `{format}.py` with `format_{format}_message()`, add dispatch in `webhook.py` `_format_payload()` | `pytest tests/unit/test_webhook_notifications.py` |
-| Change retry behavior | `webhook.py` (`_RETRYABLE_ERRORS`, `_MAX_RETRIES`, `_RETRY_DELAYS`) | `pytest tests/unit/test_webhook_notifications.py` |
-| Modify event filtering logic | `webhook.py` (`should_notify()`) | `pytest tests/unit/test_webhook_notifications.py` |
+| Add a new event type | `webhook.py` (`EventType` enum + `EVENT_TO_CATEGORY` mapping) | `pytest tests/unit/test_webhook.py` |
+| Add a new notification format | Create `{format}.py` with `format_{format}_message()`, add dispatch in `webhook.py` `_format_payload()` | `pytest tests/unit/test_webhook.py` |
+| Change retry behavior | `webhook.py` (`_RETRYABLE_ERRORS`, `_MAX_RETRIES`, `_RETRY_DELAYS`) | `pytest tests/unit/test_webhook.py` |
+| Modify event filtering logic | `webhook.py` (`should_notify()`) | `pytest tests/unit/test_webhook.py` |
 | Update Slack message layout | `slack.py` | `pytest tests/unit/test_slack_formatter.py` |
 
 ## Dependencies
@@ -44,7 +44,7 @@ Webhook notification infrastructure for sync event notifications. Sends configur
 
 ## Testing
 
-- **Unit:** `pytest tests/unit/test_webhook_notifications.py tests/unit/test_slack_formatter.py`
+- **Unit:** `pytest tests/unit/test_webhook.py tests/unit/test_slack_formatter.py`
 - **Manual:** Configure webhook in `schedules.yml`, trigger sync, observe delivery
 
 ## Don't Modify

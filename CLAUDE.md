@@ -297,18 +297,18 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `oauth/providers.py` | 801 | — |
 | `web/helpers.py` | 798 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 742 | — |
+| `platform/scheduling/jobs.py` | 732 | — (module-level job functions) |
+| `web/routes/schedules.py` | 720 | — (schedule CRUD, history, notifications) |
 | `web/routes/upload.py` | 680 | — (extracted from app.py by TASK-085) |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
 | `cli/commands/remote.py` | 651 | — (remote group + push/rollback/firewall/domain) |
 | `cli/validate.py` | 651 | — |
 | `cli/commands/deploy_wizard.py` | 579 | — (interactive deploy wizard) |
 | `transformation/generator.py` | 577 | — |
+| `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/source.py` | 549 | — (extracted from main.py by TASK-005) |
 | `cli/commands/deploy_provision.py` | 543 | — (provisioning orchestration) |
 | `platform/cloud/digitalocean.py` | 542 | — (DO REST API v2 client) |
-| `platform/scheduling/jobs.py` | 732 | — (module-level job functions) |
-| `web/routes/schedules.py` | 720 | — (schedule CRUD, history, notifications) |
-| `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/auth.py` | 538 | — (12 auth subcommands) |
 | `config/models.py` | 530 | — (Pydantic config models) |
 | `auth/database.py` | 529 | — (SQLite CRUD) |
