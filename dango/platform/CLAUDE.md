@@ -209,6 +209,27 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 - **Shims for backwards compatibility** — existing code that imports from `dango.platform.watcher_lifecycle` continues to work without changes.
 - **`cloud/backup.py` is evolving beyond pure backup** — it also provides `stop_services()`, `start_services()`, and `verify_health()`, used by resize, migrate, and deployer as service lifecycle utilities. If more lifecycle functions accumulate, consider extracting a `service_lifecycle.py` module.
 
+## Development Patterns
+
+### Cloud module patterns
+
+- **S3 pagination:** DO Spaces (via boto3) paginates `list_objects_v2`. Always check `IsTruncated` and pass `ContinuationToken` in a loop — don't assume all results come in one response.
+- **SSHManager guard ordering:** Check connection state before attempting operations. Guards must follow: (1) check `self._client is not None`, (2) check connection is active, (3) proceed with operation.
+- **Shell injection prevention:** Never interpolate user input into SSH commands. Use parameterized approaches or validate inputs against strict patterns before building command strings.
+- **SystemExit convention:** Cloud operations that encounter unrecoverable errors (invalid API key, exhausted retries) raise `SystemExit` rather than propagating implementation-specific exceptions to the CLI layer.
+- **Two SSH users:** `root` for system operations (backup, rollback, domain, server setup). `dango` for project file operations (.env, .dlt/secrets.toml). Don't mix — root writes to `/srv/dango/project/` with wrong ownership.
+- **Sensitive file writes:** Use `os.open()` with explicit mode (e.g., `os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)`) for files containing secrets. `Path.write_bytes()` + `chmod()` has a TOCTOU window.
+- **Click cross-file command registration:** `remote_mgmt.py`, `remote_ops.py`, `remote_env.py`, and `remote_backup.py` register commands on the `remote` group from `remote.py` via bottom-of-file imports.
+
+### Scheduling patterns
+
+- **APScheduler dual-patch testing:** APScheduler 3.x `AsyncIOScheduler` validates jobstores via `isinstance`. Must mock both `SQLAlchemyJobStore` AND `AsyncIOScheduler` — a `MagicMock` jobstore alone gets rejected. See `test_scheduler.py` `_make_service()` helper.
+- **No atomic trigger update:** APScheduler 3.x has no single API for updating a job's trigger. Update = `remove_job()` + `add_job()`. `ReloadResult.unchanged` is always empty as a consequence.
+- **Cron interval estimation needs sampling:** Non-uniform crons (e.g., `0 6,18 * * *`, `0 9-17 * * 1-5`) have variable gaps. Sample 5+ intervals from `croniter` and return the minimum, not just two consecutive ticks.
+- **`dbt_lock` module/function collision:** See [STANDARDS.md §7 Mocking and patching](../../STANDARDS.md#mocking-and-patching) for the workaround when patching `dango.utils.dbt_lock.DbtLock`.
+- **Job function signature coupling:** `reload_schedules()` in `dango/config/schedules.py` references job function names and kwargs from `scheduling/jobs.py`. Any rename must update both files in the same PR.
+- **APScheduler is untyped** — mypy can't catch type mismatches at the boundary (e.g., `JobEvent` vs `JobExecutionEvent`). Budget review time for scheduler tasks.
+
 ## Dependencies
 
 **Imports from:**

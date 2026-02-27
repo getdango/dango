@@ -17,6 +17,9 @@
 9. [Type Hints Policy](#9-type-hints-policy)
 10. [File Header Standard](#10-file-header-standard)
 11. [Authentication & Web Patterns](#11-authentication--web-patterns)
+12. [Development Workflow](#12-development-workflow)
+13. [Compatibility Notes](#13-compatibility-notes)
+14. [CI/CD](#14-cicd)
 
 ---
 
@@ -248,6 +251,25 @@ validate_source_name(name)       # raises InvalidSourceNameError
 validate_date_string("2024-01-15")  # raises InvalidDateFormatError
 ```
 
+### API and async error patterns
+
+**Never `HTTPException(detail=str(e))`** — this leaks internal implementation details (stack frames, SQL, file paths) to API consumers.
+
+```python
+# BAD — leaks internals
+except Exception as e:
+    raise HTTPException(status_code=500, detail=str(e))
+
+# GOOD — human-readable message
+except Exception as e:
+    logger.error("sync_failed", source=name, error=str(e))
+    raise HTTPException(status_code=500, detail="Source sync failed")
+```
+
+**"Never raises" contract** — any async function documented as "never raises" must wrap its **full body** in `try/except Exception` with `logger.warning`. Internal error handling (e.g., `return_exceptions=True` in `asyncio.gather`) is insufficient — setup code before the guarded section can still propagate. See `auth/metabase_bridge.py`, `platform/notifications/webhook.py`.
+
+**HTTP retry baseline** — use `_RETRYABLE_ERRORS = (httpx.TimeoutException, httpx.ConnectError)` as the retry tuple. Connection errors (reset, DNS blip) are the most common retry-worthy failures. Don't limit retries to only 5xx status codes + timeout. See `platform/notifications/webhook.py`.
+
 ---
 
 ## 6. Logging Patterns
@@ -339,6 +361,50 @@ def tmp_project_dir(tmp_path: Path) -> Path:
 - Use `pytest.raises` for expected exceptions, not try/except in tests
 - Factory pattern for test data (TASK-002 creates `tests/factories/`)
 
+### Markers and organization
+
+Apply markers (`@pytest.mark.unit`, `@pytest.mark.integration`) on the **class**, not on individual test methods. No `__init__.py` in test directories except `tests/__init__.py` and `tests/factories/__init__.py`. Integration test files use the `_integration` suffix (e.g., `test_auth_middleware_integration.py`) — cross-reference [§11](#11-authentication--web-patterns) for naming rules.
+
+### Factory pattern
+
+Test data factories live in `tests/factories/config_factories.py`. Use `make_*()` naming (e.g., `make_config()`, `make_source()`). The `unit` marker allows `tmp_path` usage — no external services or network, but filesystem is OK.
+
+### Mocking and patching
+
+- **Lazy imports → patch at origin.** When target code uses function-body imports (`from dango.config import X` inside a function), patch the source module (`dango.config.X`), not the consuming module. When code uses module-level imports, patch the consuming module's reference.
+- **MagicMock base + explicit AsyncMock** for objects with both sync and async methods. Don't rely on `MagicMock` auto-detecting coroutines.
+- **Shallow copy trap:** `dict()` / `{**d}` shares nested objects. Use `copy.deepcopy()` in fixtures that return mutable nested structures.
+- **Mocking psutil:** Set `mock_psutil.NoSuchProcess = psutil.NoSuchProcess` — the exception class must be wired on the mock for `except psutil.NoSuchProcess` to work.
+- **`dango.utils.dbt_lock` module/function collision:** `dango/utils/__init__.py` exports a function `dbt_lock` that shadows the submodule `dango.utils.dbt_lock`. On Python 3.10, `patch("dango.utils.dbt_lock.DbtLock")` resolves to the function, not the module. Fix: `import dango.utils.dbt_lock; _mod = sys.modules["dango.utils.dbt_lock"]` then `patch.object(_mod, "DbtLock", ...)`.
+
+### TestClient gotchas
+
+- **`TestClient.delete()` doesn't support `json=`** — use `client.request("DELETE", url, json=...)` instead.
+- **Multi-router tests** must call `app.include_router()` for each needed router before creating the `TestClient`.
+- **Cookie + middleware:** httpx cookie jar doesn't reliably populate raw ASGI cookie headers. Pass cookies via explicit `Cookie` header in integration tests: `headers={"Cookie": f"dango_session={token}"}`.
+
+### Test file sizing
+
+Split test files at creation (~300 lines target), not after hitting 500. Review rounds add ~30-50% more tests. When a plan estimates 200+ test lines, create two files upfront. Natural split: models/validation vs. loading/integration.
+
+### Regression and verification
+
+- **Silent corruption rule:** When fixing a bug that doesn't raise an error (just produces wrong data), verify a test fails if the fix is reverted. If not, the fix is untested.
+- **When changing a default, grep tests AND templates** for the old behavior — `grep -rn "old_pattern" tests/ dango/web/templates/`. API response format changes can break template JS silently (unit tests don't catch this).
+- **Define error messages as constants** when multiple code paths handle the same failure (e.g., API route + page route diverging on the same error string).
+
+### Integration test requirements
+
+Session-creation paths need integration tests — unit tests with mocked middleware miss security gaps (OAuth 2FA bypass, missing Metabase bridge). Any task adding a new login/session flow should include at least one integration test.
+
+### Advanced patterns
+
+- **Rich ANSI codes in CliRunner output:** CLI tests with Rich `console.print()` embed ANSI escapes. Strip before asserting: `_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m"); plain = _ANSI_RE.sub("", result.output)`.
+- **`time.monotonic()` polling loops:** For functions with internal polling (e.g., `verify_health`), prefer patching the function itself rather than its clock dependency. If you must patch the clock, accept a `clock` callable parameter.
+- **Digit-prefixed migration files:** Can't `import dango.migrations.scheduler.001_execution_history` (invalid Python identifier). Use `importlib.util.spec_from_file_location()` to load and call `upgrade()`.
+- **New test files need mypy exemptions** under current config (test methods lack type annotations → `disallow_untyped_defs` fails). Add `ignore_errors = true` to `pyproject.toml` under the new file's mypy override. This is a known limitation — exempt files should be fixed over time per [§14 Mypy-exempt files](#mypy-exempt-files).
+- **APScheduler dual-patch testing:** APScheduler 3.x `AsyncIOScheduler` constructor validates jobstores via `isinstance(value, BaseJobStore)`. Must mock both `SQLAlchemyJobStore` AND `AsyncIOScheduler` — a `MagicMock` jobstore alone gets rejected.
+
 ---
 
 ## 8. Documentation Requirements
@@ -428,6 +494,28 @@ class ProjectContext(BaseModel):
 ```
 
 > **Note:** Some existing code uses `Optional[str]` (pre-3.10 style). New code should use `str | None`. Existing files are updated incrementally per [Section 1](#1-incremental-adoption-policy).
+
+### Gotchas
+
+**Annotate `dict[str, Any]` when unpacking into Pydantic models.** Bare `{"key": "value"}` gets inferred as `dict[str, str]` by mypy, which fails when unpacked into typed constructors.
+
+```python
+from typing import Any
+
+# BAD — mypy infers dict[str, str], unpacking into Pydantic fails
+data = {"name": "test", "value": "123"}
+config = MyModel(**data)
+
+# GOOD — explicit annotation
+data: dict[str, Any] = {"name": "test", "value": "123"}
+config = MyModel(**data)
+```
+
+**`json.load()` / `toml.load()` return `Any`** — always annotate the result to get downstream type checking:
+
+```python
+result: dict[str, Any] = json.load(f)
+```
 
 ---
 
@@ -575,3 +663,110 @@ Login endpoints (`POST /api/auth/login`) return **400** for bad credentials, not
 ### Test file naming
 
 Integration test files use the `_integration` suffix (e.g., `test_auth_middleware_integration.py`). Test directories lack `__init__.py`, so basenames must be globally unique across `tests/unit/` and `tests/integration/`.
+
+---
+
+## 12. Development Workflow
+
+### Pre-commit validation
+
+Before committing non-trivial changes, run the full check suite to catch everything in one pass (pre-commit hooks surface errors serially):
+
+```bash
+source venv/bin/activate
+ruff check dango/ && ruff format --check dango/ && mypy dango/ && python scripts/check_file_sizes.py
+```
+
+### File-move checklist
+
+Any time a file is moved or renamed, immediately check:
+- `pyproject.toml` mypy exemptions for old path
+- `docs/file-exemptions.yml` for old path
+- CLAUDE.md files for old path references
+- `grep -rn "old.module.path" dango/ tests/` for stale imports
+
+### File size conventions
+
+See [§2 File size](#file-size) for the 500-line soft limit and when to split. Additional workflow rules:
+
+- If a new or modified file exceeds 500 lines, add it to `docs/file-exemptions.yml`.
+- **Target ~430 lines pre-format** — ruff format expands code by 10-15%.
+- **Incremental commits for large restructurings:** Tasks touching 10+ files should be split into 2-3 logical commits (e.g., "move files", "add new code", "update tests").
+
+### Package registration
+
+New subpackages must be added to the `packages` list in `pyproject.toml`. `pip install -e .` discovers packages automatically, but PyPI wheel builds don't — missing packages cause import failures for installed users.
+
+### Template verification
+
+After bulk find-and-replace operations on Jinja2 templates, grep to verify zero remaining occurrences of the old string. Automated replacements can silently miss matches in template syntax.
+
+### Dependency awareness
+
+Check `pyproject.toml` dependencies before writing utility code. PyYAML, httpx, toml, etc. are already available — don't hand-parse YAML with string splitting or write custom HTTP clients.
+
+### Common gotchas
+
+**`or default()` sentinel bug:** `param=None` then `param or make_default()` silently replaces explicit `None` with a default. Use `if param is None:` instead. Check test helpers and factory functions for this pattern.
+
+**`__init__.py` export drift:** Verify `__init__.py` exports match the public API after adding new public functions. Missing exports are silent — internal tests import directly, but external consumers use the package interface.
+
+---
+
+## 13. Compatibility Notes
+
+Dango supports Python >=3.10,<3.13. These patterns address cross-version compatibility:
+
+**`datetime.fromisoformat()` timezone parsing:** Python 3.10 cannot parse timezone suffixes (`+00:00`, `Z`) — this was fixed in 3.11. Strip the suffix before parsing:
+
+```python
+# Works on Python 3.10+
+ts = timestamp_str.replace("+00:00", "").replace("Z", "")
+dt = datetime.fromisoformat(ts)
+```
+
+This affects backup manifests, scheduled backup metadata, and any serialized timestamps.
+
+**`time.daylight` vs `time.localtime().tm_isdst`:** `time.daylight` is static ("does this timezone observe DST ever?"), while `.tm_isdst` is dynamic ("is DST active right now?"). Use `.tm_isdst > 0` for current offset calculations.
+
+**`asyncio.get_running_loop()` not `get_event_loop()`:** `get_event_loop()` is deprecated in Python 3.12+. Always use `asyncio.get_running_loop()` inside async functions.
+
+**`asyncio.to_thread()` for blocking calls:** Use `asyncio.to_thread()` to run blocking operations (database queries, file I/O, subprocess calls) from async handlers. Don't call blocking functions directly — they block the event loop.
+
+---
+
+## 14. CI/CD
+
+### Blocking checks
+
+These checks must pass for a PR to merge:
+- `ruff check` (lint)
+- `ruff format --check` (formatting)
+- File header validation (`validate_headers.py`)
+- Public function docstrings (`validate_docstrings.py`)
+- File size check (`check_file_sizes.py` + `docs/file-exemptions.yml`)
+- `pytest` (unit + integration tests)
+- `mypy` (type checking)
+
+### Soft checks
+
+These run in CI but don't block merging (tracked for future enforcement):
+- CLAUDE.md structure validation
+- Orphan file detection
+- Pinned dependency check
+
+### New file requirements
+
+Every new Python file must have:
+- STD-003 file header (see [§10](#10-file-header-standard))
+- Docstrings on all public functions (see [§8](#8-documentation-requirements))
+- Pass ruff lint + format
+- Pass mypy type checking
+
+### Exception chaining (B904)
+
+Default to `from e` for exception re-raises. Use `from None` only when suppressing the chain is intentional — see [§5](#5-error-handling-patterns) for the full rule (KeyboardInterrupt handlers, security boundaries, user-facing error translations).
+
+### Mypy-exempt files
+
+17 source files and ~50 test files currently have `ignore_errors = true` in `pyproject.toml`. Policy: fix ALL mypy errors when touching an exempt file — don't add new violations while the exemption is in place.
