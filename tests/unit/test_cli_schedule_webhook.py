@@ -201,3 +201,47 @@ class TestWebhookTest:
         result = runner.invoke(cli, ["schedule", "webhook", "test", "my_hook"])
         plain = _strip_ansi(result.output)
         assert "Failed" in plain
+
+    @patch("dango.cli.utils.find_project_root")
+    def test_test_nonexistent_exit_code(self, mock_root: MagicMock, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"notifications": {"webhooks": []}})
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "webhook", "test", "nope"])
+        assert result.exit_code != 0
+
+    @patch("dango.cli.utils.find_project_root")
+    def test_remove_nonexistent_exit_code(self, mock_root: MagicMock, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"notifications": {"webhooks": []}})
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "webhook", "remove", "nope"])
+        assert result.exit_code != 0
+
+
+@pytest.mark.unit
+class TestScheduleHelpers:
+    """Tests for schedule helper functions."""
+
+    def test_get_local_timezone_returns_string(self) -> None:
+        from dango.cli.commands.schedule import _get_local_timezone
+
+        tz = _get_local_timezone()
+        assert isinstance(tz, str)
+        assert len(tz) > 0
+
+    def test_get_next_run_valid_cron(self) -> None:
+        from dango.cli.commands.schedule import _get_next_run
+
+        result = _get_next_run("0 * * * *")
+        # Should return a date string, not the fallback em-dash
+        assert result != "\u2014"
+        assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", result)
+
+    def test_get_next_run_invalid_cron(self) -> None:
+        from dango.cli.commands.schedule import _get_next_run
+
+        result = _get_next_run("not a cron")
+        assert result == "\u2014"

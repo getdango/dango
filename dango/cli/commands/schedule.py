@@ -17,6 +17,9 @@ import click
 import yaml
 
 from dango.cli import console
+from dango.logging import get_logger
+
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -205,6 +208,7 @@ def schedule_status(ctx: click.Context) -> None:
                 earliest_dt = nxt
                 earliest_name = sched.get("name", "?")
         except Exception:
+            logger.debug("croniter_parse_failed", schedule=sched.get("name"))
             continue
 
     if earliest_dt is not None:
@@ -241,6 +245,7 @@ def schedule_status(ctx: click.Context) -> None:
         sources_cfg = loader.load_sources_config()
         all_sources = {s.name for s in sources_cfg.sources if s.enabled}
     except Exception:
+        logger.debug("sources_config_load_failed")
         all_sources = set()
 
     scheduled_sources: set[str] = set()
@@ -262,7 +267,7 @@ def schedule_status(ctx: click.Context) -> None:
         for w in warnings:
             console.print(f"[yellow]Warning:[/yellow] {w}")
     except Exception:
-        pass
+        logger.debug("schedule_validation_failed")
 
 
 # ---------------------------------------------------------------------------

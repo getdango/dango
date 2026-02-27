@@ -21,6 +21,7 @@ import click
 
 from dango.cli import console
 from dango.cli.commands.schedule import (
+    _SLUG_RE,
     _load_schedules_yaml,
     _save_schedules_yaml,
     webhook,
@@ -83,10 +84,15 @@ def webhook_add(ctx: click.Context) -> None:
     data = _load_schedules_yaml(project_root)
     notifications: dict[str, Any] = data.setdefault("notifications", {})
     webhooks: list[dict[str, Any]] = notifications.setdefault("webhooks", [])
+    existing_names = {wh.get("name") for wh in webhooks}
 
     answers = inquirer.prompt(
         [
-            inquirer.Text("name", message="Webhook name"),
+            inquirer.Text(
+                "name",
+                message="Webhook name (lowercase, alphanumeric + underscore)",
+                validate=lambda _, x: bool(_SLUG_RE.match(x)) and x not in existing_names,
+            ),
             inquirer.Text(
                 "url",
                 message="Webhook URL",

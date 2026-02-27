@@ -214,6 +214,7 @@ class TestScheduleRemove:
         _write_schedules_yaml(project_root, {"schedules": []})
         runner = CliRunner()
         result = runner.invoke(cli, ["schedule", "remove", "nope"])
+        assert result.exit_code != 0
         plain = _strip_ansi(result.output)
         assert "not found" in plain
 
@@ -326,6 +327,7 @@ class TestScheduleEnable:
         _write_schedules_yaml(project_root, {"schedules": []})
         runner = CliRunner()
         result = runner.invoke(cli, ["schedule", "enable", "nope"])
+        assert result.exit_code != 0
         plain = _strip_ansi(result.output)
         assert "not found" in plain
 
@@ -390,6 +392,7 @@ class TestScheduleDisable:
         _write_schedules_yaml(project_root, {"schedules": []})
         runner = CliRunner()
         result = runner.invoke(cli, ["schedule", "disable", "nope"])
+        assert result.exit_code != 0
         plain = _strip_ansi(result.output)
         assert "not found" in plain
 
@@ -456,6 +459,37 @@ class TestScheduleAdd:
         data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
         assert data["schedules"][0]["type"] == "dbt"
         assert data["schedules"][0]["dbt_command"] == "run"
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_custom_cron(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path
+    ) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+        _write_sources_yaml(
+            project_root,
+            [{"name": "stripe", "type": "stripe", "enabled": True}],
+        )
+
+        mock_prompt.side_effect = [
+            {"name": "custom_sched"},
+            {"type": "sync"},
+            {"sources": ["stripe"]},
+            {"frequency": "Custom cron"},
+            {"cron": "*/15 * * * *"},
+            {"timezone": "UTC"},
+            {"notify_on": []},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "added" in plain
+
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        assert data["schedules"][0]["cron"] == "*/15 * * * *"
 
     @patch("inquirer.prompt")
     @patch("dango.cli.utils.find_project_root")
