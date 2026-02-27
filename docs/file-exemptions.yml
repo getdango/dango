@@ -274,9 +274,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_schedule_crud_api.py
-    lines: 518
+    lines: 751
     category: exempt
-    reason: "TASK-038: 9 test classes covering all schedule CRUD endpoints (list, get, create, update, delete, trigger, reload, cancel, unscheduled). Each class needs isolated app setup."
+    reason: "TASK-038: 13 test classes covering all schedule CRUD endpoints (list, get, create, update, delete, trigger, reload, cancel, unscheduled) plus audit logging, reload verification, rename guard, and RBAC enforcement. Each class needs isolated app setup."
     review_by: "v1.1"
 
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)

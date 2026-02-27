@@ -26,21 +26,11 @@ def _make_admin_user() -> User:
 
 
 def _make_editor_user() -> User:
-    return User(
-        id="editor-id",
-        email="editor@test.com",
-        role=Role.EDITOR,
-        is_active=True,
-    )
+    return User(id="editor-id", email="editor@test.com", role=Role.EDITOR, is_active=True)
 
 
 def _make_viewer_user() -> User:
-    return User(
-        id="viewer-id",
-        email="viewer@test.com",
-        role=Role.VIEWER,
-        is_active=True,
-    )
+    return User(id="viewer-id", email="viewer@test.com", role=Role.VIEWER, is_active=True)
 
 
 def _make_crud_app(
@@ -50,7 +40,9 @@ def _make_crud_app(
 ) -> Any:
     """Build a minimal FastAPI app with schedules router and injected user."""
     from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
 
+    from dango.exceptions import AuthorizationError
     from dango.web.routes.schedules import router
 
     app = FastAPI()
@@ -65,6 +57,10 @@ def _make_crud_app(
     async def inject_user(request: Any, call_next: Any) -> Any:
         request.state.user = test_user
         return await call_next(request)
+
+    @app.exception_handler(AuthorizationError)
+    async def auth_error_handler(request: Any, exc: AuthorizationError) -> Any:
+        return JSONResponse(status_code=403, content={"detail": str(exc)})
 
     return app
 
@@ -97,6 +93,9 @@ def _mock_scheduler() -> MagicMock:
     scheduler = MagicMock()
     scheduler.get_jobs.return_value = []
     scheduler.cancel_job.return_value = True
+    mock_job = MagicMock()
+    mock_job.id = "mock-job-id"
+    scheduler.add_job.return_value = mock_job
     return scheduler
 
 
@@ -525,3 +524,228 @@ class TestUnscheduledSources:
         data = resp.json()
         assert "hubspot" in data["sources"]
         assert "stripe" not in data["sources"]
+
+
+# ---------------------------------------------------------------------------
+# Tests — Audit logging verification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestAuditLogging:
+    """Verify audit events are logged on write endpoints."""
+
+    def test_create_logs_audit_event(self, tmp_path: Path) -> None:
+        from fastapi.testclient import TestClient
+
+        (tmp_path / ".dango").mkdir(parents=True, exist_ok=True)
+        scheduler = _mock_scheduler()
+        app = _make_crud_app(tmp_path, scheduler=scheduler)
+
+        with (
+            patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path),
+            patch(
+                f"{_PATCH_ROOT}.load_sources_config",
+                return_value=[{"name": "stripe", "type": "stripe"}],
+            ),
+            patch(f"{_PATCH_ROOT}.log_auth_event") as mock_audit,
+        ):
+            client = TestClient(app)
+            client.post(
+                "/api/schedules",
+                json=_sample_schedule(),
+                headers={"X-Requested-With": "fetch"},
+            )
+
+        mock_audit.assert_called_once()
+        call_args = mock_audit.call_args
+        from dango.auth.audit import AuditEvent
+
+        assert call_args[0][0] == AuditEvent.SCHEDULE_CREATED
+
+    def test_delete_logs_audit_event(self, tmp_path: Path) -> None:
+        from fastapi.testclient import TestClient
+
+        _write_schedules_yml(tmp_path, [_sample_schedule()])
+        scheduler = _mock_scheduler()
+        app = _make_crud_app(tmp_path, scheduler=scheduler)
+
+        with (
+            patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path),
+            patch(f"{_PATCH_ROOT}.log_auth_event") as mock_audit,
+        ):
+            client = TestClient(app)
+            client.request(
+                "DELETE",
+                "/api/schedules/daily_sync",
+                headers={"X-Requested-With": "fetch"},
+            )
+
+        mock_audit.assert_called_once()
+        from dango.auth.audit import AuditEvent
+
+        assert mock_audit.call_args[0][0] == AuditEvent.SCHEDULE_DELETED
+
+
+# ---------------------------------------------------------------------------
+# Tests — Scheduler reload verification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSchedulerReloadIntegration:
+    """Verify scheduler is reloaded after config changes."""
+
+    def test_create_calls_reload(self, tmp_path: Path) -> None:
+        from fastapi.testclient import TestClient
+
+        (tmp_path / ".dango").mkdir(parents=True, exist_ok=True)
+        scheduler = _mock_scheduler()
+        app = _make_crud_app(tmp_path, scheduler=scheduler)
+
+        with (
+            patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path),
+            patch(
+                f"{_PATCH_ROOT}.load_sources_config",
+                return_value=[{"name": "stripe", "type": "stripe"}],
+            ),
+            patch(f"{_PATCH_ROOT}.reload_schedules") as mock_reload,
+        ):
+            client = TestClient(app)
+            resp = client.post(
+                "/api/schedules",
+                json=_sample_schedule(),
+                headers={"X-Requested-With": "fetch"},
+            )
+
+        assert resp.status_code == 201
+        mock_reload.assert_called_once()
+
+    def test_update_calls_reload(self, tmp_path: Path) -> None:
+        from fastapi.testclient import TestClient
+
+        _write_schedules_yml(tmp_path, [_sample_schedule()])
+        scheduler = _mock_scheduler()
+        app = _make_crud_app(tmp_path, scheduler=scheduler)
+
+        updated = _sample_schedule()
+        updated["cron"] = "0 12 * * *"
+
+        with (
+            patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path),
+            patch(
+                f"{_PATCH_ROOT}.load_sources_config",
+                return_value=[{"name": "stripe", "type": "stripe"}],
+            ),
+            patch(f"{_PATCH_ROOT}.reload_schedules") as mock_reload,
+        ):
+            client = TestClient(app)
+            resp = client.put(
+                "/api/schedules/daily_sync",
+                json=updated,
+                headers={"X-Requested-With": "fetch"},
+            )
+
+        assert resp.status_code == 200
+        mock_reload.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Tests — Rename guard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRenameGuard:
+    """Verify update rejects name changes."""
+
+    def test_rename_rejected(self, tmp_path: Path) -> None:
+        from fastapi.testclient import TestClient
+
+        _write_schedules_yml(tmp_path, [_sample_schedule()])
+        app = _make_crud_app(tmp_path, scheduler=_mock_scheduler())
+
+        renamed = _sample_schedule()
+        renamed["name"] = "different_name"
+
+        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+            client = TestClient(app)
+            resp = client.put(
+                "/api/schedules/daily_sync",
+                json=renamed,
+                headers={"X-Requested-With": "fetch"},
+            )
+
+        assert resp.status_code == 400
+        assert "does not match" in resp.json()["message"]
+
+
+# ---------------------------------------------------------------------------
+# Tests — RBAC enforcement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRBACEnforcement:
+    """Verify permission checks on schedule endpoints."""
+
+    def test_viewer_can_list_schedules(self, tmp_path: Path) -> None:
+        from fastapi.testclient import TestClient
+
+        _write_schedules_yml(tmp_path, [_sample_schedule()])
+        app = _make_crud_app(tmp_path, user=_make_viewer_user(), scheduler=_mock_scheduler())
+
+        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+            client = TestClient(app)
+            resp = client.get("/api/schedules")
+
+        assert resp.status_code == 200
+
+    def test_viewer_cannot_create_schedule(self, tmp_path: Path) -> None:
+        from fastapi.testclient import TestClient
+
+        (tmp_path / ".dango").mkdir(parents=True, exist_ok=True)
+        app = _make_crud_app(tmp_path, user=_make_viewer_user(), scheduler=_mock_scheduler())
+
+        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+            client = TestClient(app)
+            resp = client.post(
+                "/api/schedules",
+                json=_sample_schedule(),
+                headers={"X-Requested-With": "fetch"},
+            )
+
+        assert resp.status_code == 403
+
+    def test_editor_cannot_create_schedule(self, tmp_path: Path) -> None:
+        from fastapi.testclient import TestClient
+
+        (tmp_path / ".dango").mkdir(parents=True, exist_ok=True)
+        app = _make_crud_app(tmp_path, user=_make_editor_user(), scheduler=_mock_scheduler())
+
+        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+            client = TestClient(app)
+            resp = client.post(
+                "/api/schedules",
+                json=_sample_schedule(),
+                headers={"X-Requested-With": "fetch"},
+            )
+
+        assert resp.status_code == 403
+
+    def test_editor_can_trigger_schedule(self, tmp_path: Path) -> None:
+        from fastapi.testclient import TestClient
+
+        _write_schedules_yml(tmp_path, [_sample_schedule()])
+        scheduler = _mock_scheduler()
+        app = _make_crud_app(tmp_path, user=_make_editor_user(), scheduler=scheduler)
+
+        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+            client = TestClient(app)
+            resp = client.post(
+                "/api/schedules/daily_sync/trigger",
+                json={},
+                headers={"X-Requested-With": "fetch"},
+            )
+
+        assert resp.status_code == 200

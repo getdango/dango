@@ -8,6 +8,7 @@ unscheduled-source discovery, and paginated execution history.
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -66,7 +67,7 @@ def _audit(
     event: AuditEvent,
     user: User,
     request: Request,
-    project_root: Any,
+    project_root: Path,
     **extra: Any,
 ) -> None:
     """Log an audit event with standard fields."""
@@ -175,11 +176,11 @@ async def create_schedule(
             },
         )
 
-    # Cross-validate against sources
+    # Cross-validate against sources (only block on errors, not overlap/interval warnings)
     sources = load_sources_config()
     source_names = {s["name"] for s in sources if "name" in s}
     issues = validate_schedules([*config.schedules, new_sched], source_names)
-    errors = [i for i in issues if not i.startswith("Schedule") or "warning" not in i.lower()]
+    errors = [i for i in issues if "Duplicate" in i or "unknown source" in i]
     if errors:
         return JSONResponse(
             status_code=400,
@@ -372,6 +373,20 @@ async def update_schedule(
             content={
                 "error_code": "DANGO-S003",
                 "message": f"Schedule {name!r} not found.",
+            },
+        )
+
+    # Block renames — body name must match URL name to avoid orphaned history
+    if body.name != name:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error_code": "DANGO-S004",
+                "message": (
+                    f"Schedule name in body ({body.name!r}) does not match "
+                    f"URL name ({name!r}). Renaming is not supported — "
+                    "delete and re-create instead."
+                ),
             },
         )
 
