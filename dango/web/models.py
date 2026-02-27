@@ -249,11 +249,3 @@ class SyncTriggerRequest(BaseModel):
     sources: list[str]
     full_refresh: bool = False
     backfill: str | None = None  # "7d", "2w", "1m"
-
-
-class SyncTriggerResponse(BaseModel):
-    """Remote sync trigger response."""
-
-    job_id: int
-    sources: list[str]
-    status: str = "started"

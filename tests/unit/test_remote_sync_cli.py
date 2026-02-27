@@ -20,7 +20,6 @@ from dango.cli.main import cli
 # ---------------------------------------------------------------------------
 
 _PATCH_MGMT = "dango.cli.commands.remote_mgmt"
-_PATCH_REMOTE_SYNC = "dango.cli.commands.remote_sync"
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 

@@ -83,6 +83,18 @@ def run_manual_sync(
             if src is not None:
                 resolved.append(src)
 
+        if not resolved:
+            msg = f"No valid sources found for: {', '.join(sources)}"
+            logger.warning("manual_sync_no_sources", source_names=sources)
+            record_failure(db_path, record_id, msg)
+            duration = round(time.time() - start_time, 1)
+            return {
+                "record_id": record_id,
+                "status": "failed",
+                "duration_seconds": duration,
+                "error": msg,
+            }
+
         start_date = None
         if backfill_days is not None:
             start_date = datetime.now(tz=timezone.utc) - timedelta(days=backfill_days)
