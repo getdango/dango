@@ -260,6 +260,25 @@ exemptions:
     reason: "TASK-036+039: 10 test classes covering SchedulerService init, lifecycle, jobs, status, event listeners, history integration, coroutine bridge, cloud warning, startup summary, health endpoint, and job stubs. Each class requires isolated mock setup with APScheduler dual-patch pattern."
     review_by: "v1.1"
 
+  # --- Phase 4 scheduling ---
+  - file: dango/platform/scheduling/scheduler.py
+    lines: 570
+    category: exempt
+    reason: "SchedulerService + resilience (retry/timeout/cancel). Extraction of resilience functions into scheduling/resilience.py planned for TEST-008."
+    review_by: "v1.1"
+
+  - file: dango/web/routes/schedules.py
+    lines: 630
+    category: exempt
+    reason: "TASK-037+038: 11 endpoints (history×2, CRUD×5, trigger, reload, cancel, unscheduled). Single router file — split would scatter schedule logic across files."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_schedule_crud_api.py
+    lines: 751
+    category: exempt
+    reason: "TASK-038: 13 test classes covering all schedule CRUD endpoints (list, get, create, update, delete, trigger, reload, cancel, unscheduled) plus audit logging, reload verification, rename guard, and RBAC enforcement. Each class needs isolated app setup."
+    review_by: "v1.1"
+
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:
   - file: dango/ingestion/dlt_sources/mongodb/helpers.py
