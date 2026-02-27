@@ -80,7 +80,7 @@ class TestConfigureJobs:
         with patch(f"{_JOBS_MOD}.configure_jobs") as mock_cfg:
             svc.start(loop)
 
-        mock_cfg.assert_called_once_with(loop)
+        mock_cfg.assert_called_once_with(loop, svc)
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +177,7 @@ class TestRunScheduledSync:
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._notify") as mock_notify,
-            patch(f"{_JOBS_MOD}._record_execution") as mock_record,
+            patch(f"{_JOBS_MOD}._log_execution_event") as mock_record,
         ):
             from dango.platform.scheduling.jobs import run_scheduled_sync
 
@@ -290,7 +290,7 @@ class TestRunScheduledSync:
             patch(f"{_CFG_MOD}.load_config", return_value=config),
             patch(f"{_SYNC_MOD}.run_sync") as mock_run,
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
-            patch(f"{_JOBS_MOD}._record_execution") as mock_record,
+            patch(f"{_JOBS_MOD}._log_execution_event") as mock_record,
         ):
             from dango.platform.scheduling.jobs import run_scheduled_sync
 
@@ -371,7 +371,7 @@ class TestRunScheduledDbt:
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._notify") as mock_notify,
-            patch(f"{_JOBS_MOD}._record_execution") as mock_record,
+            patch(f"{_JOBS_MOD}._log_execution_event") as mock_record,
         ):
             from dango.platform.scheduling.jobs import run_scheduled_dbt
 
@@ -395,7 +395,7 @@ class TestRunScheduledDbt:
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._notify"),
-            patch(f"{_JOBS_MOD}._record_execution") as mock_record,
+            patch(f"{_JOBS_MOD}._log_execution_event") as mock_record,
         ):
             from dango.platform.scheduling.jobs import run_scheduled_dbt
 

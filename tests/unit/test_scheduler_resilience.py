@@ -11,6 +11,7 @@ import pytest
 from dango.exceptions import JobCancelledError, JobTimeoutError
 
 _SCHEDULER_MOD = "dango.platform.scheduling.scheduler"
+_RESILIENCE_MOD = "dango.platform.scheduling.resilience"
 
 
 def _make_service(tmp_path):
@@ -36,7 +37,7 @@ class TestResilienceConfig:
     """Test ResilienceConfig default and custom values."""
 
     def test_default_values(self):
-        from dango.platform.scheduling.scheduler import ResilienceConfig
+        from dango.platform.scheduling.resilience import ResilienceConfig
 
         cfg = ResilienceConfig()
         assert cfg.max_retries == 3
@@ -44,7 +45,7 @@ class TestResilienceConfig:
         assert cfg.timeout_minutes == 60
 
     def test_custom_values(self):
-        from dango.platform.scheduling.scheduler import ResilienceConfig
+        from dango.platform.scheduling.resilience import ResilienceConfig
 
         cfg = ResilienceConfig(max_retries=5, retry_delays=(10, 20), timeout_minutes=30)
         assert cfg.max_retries == 5
@@ -52,32 +53,32 @@ class TestResilienceConfig:
         assert cfg.timeout_minutes == 30
 
     def test_frozen(self):
-        from dango.platform.scheduling.scheduler import ResilienceConfig
+        from dango.platform.scheduling.resilience import ResilienceConfig
 
         cfg = ResilienceConfig()
         with pytest.raises(AttributeError):
             cfg.max_retries = 10  # type: ignore[misc]
 
     def test_rejects_zero_max_retries(self):
-        from dango.platform.scheduling.scheduler import ResilienceConfig
+        from dango.platform.scheduling.resilience import ResilienceConfig
 
         with pytest.raises(ValueError, match="max_retries must be at least 1"):
             ResilienceConfig(max_retries=0)
 
     def test_rejects_zero_timeout(self):
-        from dango.platform.scheduling.scheduler import ResilienceConfig
+        from dango.platform.scheduling.resilience import ResilienceConfig
 
         with pytest.raises(ValueError, match="timeout_minutes must be positive"):
             ResilienceConfig(timeout_minutes=0)
 
     def test_rejects_negative_timeout(self):
-        from dango.platform.scheduling.scheduler import ResilienceConfig
+        from dango.platform.scheduling.resilience import ResilienceConfig
 
         with pytest.raises(ValueError, match="timeout_minutes must be positive"):
             ResilienceConfig(timeout_minutes=-1)
 
     def test_rejects_empty_retry_delays(self):
-        from dango.platform.scheduling.scheduler import ResilienceConfig
+        from dango.platform.scheduling.resilience import ResilienceConfig
 
         with pytest.raises(ValueError, match="retry_delays must not be empty"):
             ResilienceConfig(retry_delays=())
@@ -145,7 +146,7 @@ class TestRunWithResilience:
     """Test the run_with_resilience() wrapper."""
 
     def test_success_passthrough(self, tmp_path):
-        from dango.platform.scheduling.scheduler import ResilienceConfig, run_with_resilience
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
 
         svc = _make_service(tmp_path)
         func = MagicMock(return_value="result")
@@ -163,7 +164,7 @@ class TestRunWithResilience:
         func.assert_called_once_with("arg1", key="val")
 
     def test_cancel_flag_cleared_on_success(self, tmp_path):
-        from dango.platform.scheduling.scheduler import ResilienceConfig, run_with_resilience
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
 
         svc = _make_service(tmp_path)
         func = MagicMock(return_value="ok")
@@ -178,7 +179,7 @@ class TestRunWithResilience:
         assert "job-1" not in svc._cancel_flags
 
     def test_cancel_flag_cleared_on_failure(self, tmp_path):
-        from dango.platform.scheduling.scheduler import ResilienceConfig, run_with_resilience
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
 
         svc = _make_service(tmp_path)
         func = MagicMock(side_effect=ValueError("boom"))
@@ -194,7 +195,7 @@ class TestRunWithResilience:
         assert "job-1" not in svc._cancel_flags
 
     def test_retry_on_failure(self, tmp_path):
-        from dango.platform.scheduling.scheduler import ResilienceConfig, run_with_resilience
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
 
         svc = _make_service(tmp_path)
         func = MagicMock(side_effect=[ValueError("fail1"), "success"])
@@ -214,7 +215,7 @@ class TestRunWithResilience:
         assert func.call_count == 2
 
     def test_all_retries_exhausted(self, tmp_path):
-        from dango.platform.scheduling.scheduler import ResilienceConfig, run_with_resilience
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
 
         svc = _make_service(tmp_path)
         func = MagicMock(side_effect=ValueError("persistent"))
@@ -234,7 +235,7 @@ class TestRunWithResilience:
         assert func.call_count == 2
 
     def test_retry_emits_callback(self, tmp_path):
-        from dango.platform.scheduling.scheduler import ResilienceConfig, run_with_resilience
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
 
         svc = _make_service(tmp_path)
         callback = MagicMock()
@@ -261,7 +262,7 @@ class TestRunWithResilience:
         assert "fail" in call_kwargs["error"]
 
     def test_cancel_before_execution(self, tmp_path):
-        from dango.platform.scheduling.scheduler import ResilienceConfig, run_with_resilience
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
 
         svc = _make_service(tmp_path)
         func = MagicMock(return_value="ok")
@@ -282,7 +283,7 @@ class TestRunWithResilience:
         func.assert_not_called()
 
     def test_cancel_during_retry_wait(self, tmp_path):
-        from dango.platform.scheduling.scheduler import ResilienceConfig, run_with_resilience
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
 
         svc = _make_service(tmp_path)
         func = MagicMock(side_effect=ValueError("fail"))
@@ -313,7 +314,7 @@ class TestRunWithResilience:
             )
 
     def test_uses_default_config_when_none(self, tmp_path):
-        from dango.platform.scheduling.scheduler import run_with_resilience
+        from dango.platform.scheduling.resilience import run_with_resilience
 
         svc = _make_service(tmp_path)
         func = MagicMock(return_value="ok")
@@ -328,7 +329,7 @@ class TestRunWithResilience:
         assert result == "ok"
 
     def test_timeout_does_not_retry(self, tmp_path):
-        from dango.platform.scheduling.scheduler import ResilienceConfig, run_with_resilience
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
 
         svc = _make_service(tmp_path)
 
@@ -344,7 +345,7 @@ class TestRunWithResilience:
             )
 
     def test_timeout_emits_callback(self, tmp_path):
-        from dango.platform.scheduling.scheduler import ResilienceConfig, run_with_resilience
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
 
         svc = _make_service(tmp_path)
         callback = MagicMock()
@@ -367,7 +368,7 @@ class TestRunWithResilience:
         assert call_kwargs["timeout_minutes"] == 5
 
     def test_callback_error_does_not_propagate(self, tmp_path):
-        from dango.platform.scheduling.scheduler import ResilienceConfig, run_with_resilience
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
 
         svc = _make_service(tmp_path)
         bad_callback = MagicMock(side_effect=RuntimeError("callback boom"))
@@ -395,7 +396,7 @@ class TestExecuteWithTimeout:
     """Test _execute_with_timeout() timeout enforcement."""
 
     def test_completes_within_timeout(self):
-        from dango.platform.scheduling.scheduler import _execute_with_timeout
+        from dango.platform.scheduling.resilience import _execute_with_timeout
 
         func = MagicMock(return_value="done")
         cancel_flag = threading.Event()
@@ -405,7 +406,7 @@ class TestExecuteWithTimeout:
         assert result == "done"
 
     def test_cancel_before_execution_raises(self):
-        from dango.platform.scheduling.scheduler import _execute_with_timeout
+        from dango.platform.scheduling.resilience import _execute_with_timeout
 
         cancel_flag = threading.Event()
         cancel_flag.set()
@@ -418,7 +419,7 @@ class TestExecuteWithTimeout:
 
     def test_timeout_raises_job_timeout_error(self):
         """Verify timeout fires _raise_in_thread with JobTimeoutError."""
-        from dango.platform.scheduling.scheduler import _execute_with_timeout
+        from dango.platform.scheduling.resilience import _execute_with_timeout
 
         cancel_flag = threading.Event()
 
@@ -443,7 +444,7 @@ class TestRaiseInThread:
     """Test _raise_in_thread() ctypes injection."""
 
     def test_raises_in_target_thread(self):
-        from dango.platform.scheduling.scheduler import _raise_in_thread
+        from dango.platform.scheduling.resilience import _raise_in_thread
 
         caught = threading.Event()
 
@@ -468,9 +469,9 @@ class TestRaiseInThread:
         assert caught.is_set()
 
     def test_invalid_thread_id_logs_debug(self):
-        from dango.platform.scheduling.scheduler import _raise_in_thread
+        from dango.platform.scheduling.resilience import _raise_in_thread
 
-        with patch(f"{_SCHEDULER_MOD}.logger") as mock_logger:
+        with patch(f"{_RESILIENCE_MOD}.logger") as mock_logger:
             _raise_in_thread(999999999, JobTimeoutError)
 
         mock_logger.debug.assert_called_once()
