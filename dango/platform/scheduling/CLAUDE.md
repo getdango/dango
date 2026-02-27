@@ -58,7 +58,6 @@ For additional scheduling patterns, see [`platform/CLAUDE.md`](../CLAUDE.md) § 
 - `dango.web.routes.schedules` — schedule CRUD, trigger, cancel, history
 - `dango.web.routes.health` — scheduler status in platform health
 - `dango.cli.commands.schedule` — CLI schedule management
-- `dango.cli.commands.platform` — scheduler start/stop on `dango start`
 
 ## Testing
 

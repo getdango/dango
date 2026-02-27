@@ -31,7 +31,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/health.py` | `/api/status`, `/api/watcher/status`, `/api/health/platform` | — |
 | `routes/config.py` | `/api/config`, `/api/metabase-config` | — |
 | `routes/sources.py` | `/api/sources`, `/api/sources/{name}/details` | — |
-| `routes/sync.py` | `/api/sources/{name}/sync` + background `run_sync_task()` | `run_sync_task()` |
+| `routes/sync.py` | `/api/sources/{name}/sync`, `/api/sync/trigger` (remote), `/api/sync/status/{id}` + background `run_sync_task()` (~558 lines) | `run_sync_task()` |
 | `routes/logs.py` | `/api/logs`, `/api/sources/{name}/logs` | — |
 | `routes/dbt.py` | `/api/dbt/models`, `/api/dbt/models/{name}/run` + dbt docs proxy (`/manifest.json`, `/catalog.json`, `/dbt-docs/*`) | `run_dbt_model_task()` |
 | `routes/upload.py` | CSV upload/list/delete + background `run_dbt_after_delete()` | `run_dbt_after_delete()` |
