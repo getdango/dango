@@ -347,6 +347,33 @@ ruff format --check dango/
 mypy dango/
 ```
 
+### Git Workflow
+
+All v1 development happens on feature branches off `v1`. Never commit directly to `v1` or `main`.
+
+```bash
+# Start a task
+git checkout v1 && git pull && git checkout -b feat/<task-name>
+
+# Use feat/ prefix — git can't create v1/... branches when v1 exists
+# Rebase onto v1 before creating PR (surfaces conflicts, keeps linear history)
+git rebase v1
+
+# Push and create PR
+git push -u origin feat/<task-name>
+gh pr create --base v1 --title "TASK-XXX: Description" --body "..."
+
+# Merge via API (avoids local checkout conflicts)
+gh api repos/getdango/dango/pulls/NUMBER/merge -X PUT -f merge_method=merge
+
+# If merge blocked by strict branch protection:
+gh api repos/getdango/dango/pulls/NUMBER/update-branch -X PUT
+# Wait ~2-3 min for CI, then retry merge
+
+# Cleanup remote branch
+gh api repos/getdango/dango/git/refs/heads/feat/<task-name> -X DELETE
+```
+
 ### Pre-commit hooks
 
 Pre-commit hooks run automatically on `git commit`. The local hooks (`language: system`) use whatever `python3` is in your PATH.
