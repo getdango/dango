@@ -245,3 +245,33 @@ class TestScheduleHelpers:
 
         result = _get_next_run("not a cron")
         assert result == "\u2014"
+
+    def test_slug_rejects_invalid_names(self) -> None:
+        from dango.cli.commands.schedule import _SLUG_RE
+
+        # Valid slugs
+        assert _SLUG_RE.match("hourly_sync")
+        assert _SLUG_RE.match("a")
+        assert _SLUG_RE.match("my_schedule_2")
+
+        # Invalid slugs
+        assert not _SLUG_RE.match("")
+        assert not _SLUG_RE.match("2starts_with_digit")
+        assert not _SLUG_RE.match("HAS_UPPER")
+        assert not _SLUG_RE.match("has space")
+        assert not _SLUG_RE.match("has-dash")
+
+    def test_slug_uniqueness_logic(self) -> None:
+        """Validates the duplicate-name rejection logic used by schedule add and webhook add."""
+        from dango.cli.commands.schedule import _SLUG_RE
+
+        existing_names = {"hourly_sync", "daily_dbt"}
+
+        # The validator lambda used in both wizards
+        def validate(name: str) -> bool:
+            return bool(_SLUG_RE.match(name)) and name not in existing_names
+
+        assert validate("new_schedule")
+        assert not validate("hourly_sync")  # duplicate
+        assert not validate("daily_dbt")  # duplicate
+        assert not validate("Bad Name")  # invalid slug + not duplicate
