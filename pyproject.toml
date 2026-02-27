@@ -271,6 +271,7 @@ module = [
     "tests.unit.test_sync_trigger_api",
     "tests.unit.test_sync_trigger",
     "tests.unit.test_remote_sync_cli",
+    "tests.unit.test_web_schedule_page",
     "tests.integration.test_sync_notification",
     "tests.integration.test_digitalocean",
     "tests.integration.test_deploy",
