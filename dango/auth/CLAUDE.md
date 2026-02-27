@@ -41,6 +41,11 @@ User authentication and access control for Dango. Handles password-based login w
 - **Timing oracle prevention:** `verify_password("dummy", DUMMY_HASH)` called on all login failure paths to equalize bcrypt timing.
 - **Lockout is identity-blind:** unknown and inactive emails get identical 400 responses (no user enumeration).
 - **Metabase bridge:** `_bridge_metabase_session()` in `web/routes/auth.py` consolidates Metabase SSO cookie bridging. Called from 4 login paths (password, OAuth×2, 2FA verify).
+- **Read-modify-write must clear stale trigger fields** — skipping a time-based field in a SQL UPDATE means the stale DB value re-triggers logic on the next read (e.g., `invite_expires_at`, `locked_until`).
+- **Audit event copy-paste bugs:** Grep-verify each `AuditEvent` member is used in the correct semantic context when touching audit calls. Copy-paste from a nearby call often carries the wrong event type.
+- **Self-action + last admin are separate guards** for destructive admin actions. A user deleting their own account and a user deleting the last admin are two independent checks — don't combine them.
+- **Web route tests must use `.dango/` subdirectory** for the `auth.db` path — matching the production layout.
+- **Don't import private functions (`_foo`) across files** — if another module needs a private function, extract it to a shared helper with a public name.
 
 ### Password Login Flow
 

@@ -109,6 +109,13 @@ dango (top-level group)
 - **Cross-file command registration:** `remote_mgmt.py`, `remote_ops.py`, `remote_env.py`, and `remote_backup.py` import `remote` from `remote.py` and register commands via `@remote.command()` / `@remote.group()`. Registration is triggered by bottom-of-file imports in `remote.py`.
 - **Two SSH users:** `root` for system ops (backup, rollback, domain, server setup) via `load_cloud_config_with_ssh()` in `cli/utils.py`. `dango` for project file ops (.env, .dlt/secrets.toml) via `_ssh_connect_or_fail()` in `remote.py`.
 
+### Known pre-existing bugs
+
+- `commands/transform.py:124` — `lock.release()` called before lock acquisition (release in error path when `lock.acquire()` may not have been reached)
+- `commands/source.py:651` — same `lock.release()` before acquisition pattern
+
+These are latent bugs in MVP code (pre-v1). They'll be addressed during CLI refactoring (TASK-005) or when the affected code is modified.
+
 ## Common Tasks
 
 | To... | Modify... | Test with... |

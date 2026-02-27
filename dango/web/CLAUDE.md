@@ -73,6 +73,14 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 
 **Circular import prevention:** `helpers.py` uses a lazy import (`from dango.web.app import app`) inside `get_project_root()` to avoid circular imports at module load time. This is safe because `app = create_app()` executes before any router imports.
 
+## Key Conventions
+
+- **`{{ data | tojson }}` never `{{ json_string | safe }}`** in Jinja2 templates. `| safe` disables HTML escaping and creates XSS vulnerabilities. `| tojson` safely serializes Python objects to JSON with proper escaping.
+- **Health endpoint integration checklist:** When adding status data to `/api/health/platform`: (1) add data to the result dict, (2) contribute to the warnings list so it affects overall status, (3) place the warning append before the `if critical_issues:` / `elif warnings:` block. Missing step 2 means silent failures.
+- **FastAPI route ordering:** Literal routes (e.g., `/api/schedules/history/recent`) must be registered BEFORE parameterized routes (e.g., `/api/schedules/{name}/history`), or FastAPI captures the literal segment as the path parameter.
+- **Manual body parsing needs try/except:** `await request.json()` + `Model(**body)` bypasses FastAPI's built-in validation handler. Wrap in try/except to return proper 422 responses.
+- **Every admin endpoint must call `log_auth_event()`** from `dango.auth.audit` — this is a mandatory checklist item for audit compliance.
+
 ## Adding a New Page
 
 1. **Create a template** in `templates/` extending `base.html`:
