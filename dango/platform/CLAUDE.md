@@ -226,7 +226,7 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 - **APScheduler dual-patch testing:** APScheduler 3.x `AsyncIOScheduler` validates jobstores via `isinstance`. Must mock both `SQLAlchemyJobStore` AND `AsyncIOScheduler` — a `MagicMock` jobstore alone gets rejected. See `test_scheduler.py` `_make_service()` helper.
 - **No atomic trigger update:** APScheduler 3.x has no single API for updating a job's trigger. Update = `remove_job()` + `add_job()`. `ReloadResult.unchanged` is always empty as a consequence.
 - **Cron interval estimation needs sampling:** Non-uniform crons (e.g., `0 6,18 * * *`, `0 9-17 * * 1-5`) have variable gaps. Sample 5+ intervals from `croniter` and return the minimum, not just two consecutive ticks.
-- **`dbt_lock` module/function collision:** See STANDARDS.md [§7 Mocking and patching](#mocking-and-patching) for the workaround when patching `dango.utils.dbt_lock.DbtLock`.
+- **`dbt_lock` module/function collision:** See [STANDARDS.md §7 Mocking and patching](../../STANDARDS.md#mocking-and-patching) for the workaround when patching `dango.utils.dbt_lock.DbtLock`.
 - **Job function signature coupling:** `reload_schedules()` in `dango/config/schedules.py` references job function names and kwargs from `scheduling/jobs.py`. Any rename must update both files in the same PR.
 - **APScheduler is untyped** — mypy can't catch type mismatches at the boundary (e.g., `JobEvent` vs `JobExecutionEvent`). Budget review time for scheduler tasks.
 

@@ -402,7 +402,7 @@ Session-creation paths need integration tests — unit tests with mocked middlew
 - **Rich ANSI codes in CliRunner output:** CLI tests with Rich `console.print()` embed ANSI escapes. Strip before asserting: `_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m"); plain = _ANSI_RE.sub("", result.output)`.
 - **`time.monotonic()` polling loops:** For functions with internal polling (e.g., `verify_health`), prefer patching the function itself rather than its clock dependency. If you must patch the clock, accept a `clock` callable parameter.
 - **Digit-prefixed migration files:** Can't `import dango.migrations.scheduler.001_execution_history` (invalid Python identifier). Use `importlib.util.spec_from_file_location()` to load and call `upgrade()`.
-- **New test files need mypy exemptions** under current config (test methods lack type annotations → `disallow_untyped_defs` fails). Add `ignore_errors = true` to `pyproject.toml` under the new file's mypy override.
+- **New test files need mypy exemptions** under current config (test methods lack type annotations → `disallow_untyped_defs` fails). Add `ignore_errors = true` to `pyproject.toml` under the new file's mypy override. This is a known limitation — exempt files should be fixed over time per [§14 Mypy-exempt files](#mypy-exempt-files).
 - **APScheduler dual-patch testing:** APScheduler 3.x `AsyncIOScheduler` constructor validates jobstores via `isinstance(value, BaseJobStore)`. Must mock both `SQLAlchemyJobStore` AND `AsyncIOScheduler` — a `MagicMock` jobstore alone gets rejected.
 
 ---
@@ -687,7 +687,9 @@ Any time a file is moved or renamed, immediately check:
 
 ### File size conventions
 
-- **Soft limit:** 500 lines. If a new or modified file exceeds 500 lines, add it to `docs/file-exemptions.yml`.
+See [§2 File size](#file-size) for the 500-line soft limit and when to split. Additional workflow rules:
+
+- If a new or modified file exceeds 500 lines, add it to `docs/file-exemptions.yml`.
 - **Target ~430 lines pre-format** — ruff format expands code by 10-15%.
 - **Incremental commits for large restructurings:** Tasks touching 10+ files should be split into 2-3 logical commits (e.g., "move files", "add new code", "update tests").
 
@@ -697,7 +699,7 @@ New subpackages must be added to the `packages` list in `pyproject.toml`. `pip i
 
 ### Template verification
 
-After `replace_all` edits on Jinja2 templates, grep to verify zero remaining occurrences of the old string. The tool can silently miss matches in template syntax.
+After bulk find-and-replace operations on Jinja2 templates, grep to verify zero remaining occurrences of the old string. Automated replacements can silently miss matches in template syntax.
 
 ### Dependency awareness
 

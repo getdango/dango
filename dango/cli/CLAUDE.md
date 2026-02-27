@@ -111,8 +111,8 @@ dango (top-level group)
 
 ### Known pre-existing bugs
 
-- `commands/transform.py:124` — `lock.release()` called before lock acquisition (release in error path when `lock.acquire()` may not have been reached)
-- `commands/source.py:651` — same `lock.release()` before acquisition pattern
+- `commands/transform.py:124` — `lock.release()` on a lock that was constructed but never acquired. The `if lock is not None` guard only catches constructor failure; if `DbtLock()` succeeds but `acquire()` fails, `finally` calls `release()` on an unacquired lock (silenced by `try/except Exception: pass`).
+- `commands/source.py:651` — same pattern.
 
 These are latent bugs in MVP code (pre-v1). They'll be addressed during CLI refactoring (TASK-005) or when the affected code is modified.
 
