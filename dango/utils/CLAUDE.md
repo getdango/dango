@@ -55,6 +55,10 @@ Shared utilities for process management, activity logging, sync history tracking
 - **Integration:** None yet
 - **Manual:** `dango start` exercises database.py; `dango sync` exercises activity_log, sync_history, db_health, dbt_lock
 
+## Key Conventions
+
+- **`dbt_lock` module/function name collision:** `__init__.py` exports a function `dbt_lock` that shadows the submodule `dango.utils.dbt_lock`. On Python 3.10, `patch("dango.utils.dbt_lock.DbtLock")` resolves to the function, not the module. Fix: `import dango.utils.dbt_lock; _mod = sys.modules["dango.utils.dbt_lock"]` then `patch.object(_mod, "DbtLock", ...)`. See [STANDARDS.md §7](../../STANDARDS.md#mocking-and-patching).
+
 ## Don't Modify
 
 | File | Reason |

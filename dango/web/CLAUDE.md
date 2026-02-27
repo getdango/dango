@@ -31,7 +31,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/health.py` | `/api/status`, `/api/watcher/status`, `/api/health/platform` | — |
 | `routes/config.py` | `/api/config`, `/api/metabase-config` | — |
 | `routes/sources.py` | `/api/sources`, `/api/sources/{name}/details` | — |
-| `routes/sync.py` | `/api/sources/{name}/sync` + background `run_sync_task()` | `run_sync_task()` |
+| `routes/sync.py` | `/api/sources/{name}/sync`, `/api/sync/trigger` (remote), `/api/sync/status/{id}` + background `run_sync_task()` (~558 lines) | `run_sync_task()` |
 | `routes/logs.py` | `/api/logs`, `/api/sources/{name}/logs` | — |
 | `routes/dbt.py` | `/api/dbt/models`, `/api/dbt/models/{name}/run` + dbt docs proxy (`/manifest.json`, `/catalog.json`, `/dbt-docs/*`) | `run_dbt_model_task()` |
 | `routes/upload.py` | CSV upload/list/delete + background `run_dbt_after_delete()` | `run_dbt_after_delete()` |
@@ -40,7 +40,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/metabase_proxy.py` | All Metabase proxy routes + SSO session state | `proxy_to_metabase()`, `get_metabase_session()` |
 | `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
-| `routes/schedules.py` | Schedule CRUD, trigger, reload, cancel, history, `/schedules` page, notification config/test (~726 lines) | `router` |
+| `routes/schedules.py` | Schedule CRUD, trigger, reload, cancel, history, notification config/test, `/schedules` page (~720 lines) | `router` |
 | `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |
 | `templates/schedules.html` | Schedule management page (extends `base.html`) — table, modals, WebSocket | Alpine.js `schedulesPage()` component |
 | `static/` | CSS and JS assets (`css/main.css`, `js/app.js`, `js/logs.js`) | — |
@@ -82,6 +82,12 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 - **FastAPI route ordering:** Literal routes (e.g., `/api/schedules/history/recent`) must be registered BEFORE parameterized routes (e.g., `/api/schedules/{name}/history`), or FastAPI captures the literal segment as the path parameter.
 - **Manual body parsing needs try/except:** `await request.json()` + `Model(**body)` bypasses FastAPI's built-in validation handler. Wrap in try/except to return proper 422 responses.
 - **Every admin endpoint must call `log_auth_event()`** from `dango.auth.audit` — this is a mandatory checklist item for audit compliance.
+- **BackgroundTasks run synchronously in TestClient:** Starlette's `TestClient` executes `background_tasks.add_task(fn, ...)` before returning the response. Mock the background function at the route module level (e.g., `@patch("dango.web.routes.sync._run_manual_sync")`).
+- **TOCTOU in validate-then-background-execute:** Endpoints that validate inputs then launch background tasks must re-validate inside the background function. State can change between validation and execution — add explicit guards.
+- **Rename-via-PUT guard:** Any CRUD API where the resource name is in both URL path and request body must check `body.name != url_name → 400`. Without this, renames silently orphan related records (e.g., execution history keyed by schedule name).
+- **`load_sources_config()` patching:** `load_sources_config()` in `helpers.py` internally calls `get_project_root()`. Patching `get_project_root` at the route module level doesn't reach the call inside `load_sources_config()`. Patch `load_sources_config` directly at the route module level instead.
+- **Alpine.js object reactivity:** Proxy doesn't track `delete obj[key]` or direct property mutation. Must use object spread reassignment (`this.obj = {...updated}`) for reactive updates. Arrays with `.push()`/`.splice()` work fine; objects do not.
+- **Dual logger debt in `routes/sync.py`:** Uses both stdlib `logging` and structlog `get_logger`. Known debt — consolidate when touching the file.
 
 ## Adding a New Page
 

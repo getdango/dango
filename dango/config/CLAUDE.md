@@ -50,6 +50,11 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 - **Integration:** `pytest tests/integration/test_config_loading.py`
 - **Manual:** `dango config show` in a dango project directory
 
+## Key Conventions
+
+- **`validate_schedules()` mixed return type:** Returns a tuple of `(errors, warnings)` where both are `list[str]`. Callers filter by string content to distinguish severity — there's no structured severity field. Structured return type deferred to Phase 8.
+- **Dual cron preset drift:** `config/schedules.py` and `cli/commands/schedule.py` both define human-readable cron preset maps. Must stay in sync — see [`cli/CLAUDE.md`](../cli/CLAUDE.md) key conventions.
+
 ## Don't Modify
 
 | File | Reason |

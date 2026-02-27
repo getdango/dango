@@ -385,7 +385,7 @@ Test data factories live in `tests/factories/config_factories.py`. Use `make_*()
 
 ### Test file sizing
 
-Split test files at creation (~300 lines target), not after hitting 500. Review rounds add ~30-50% more tests. When a plan estimates 200+ test lines, create two files upfront. Natural split: models/validation vs. loading/integration.
+Split test files at creation (~300 lines target), not after hitting 500. Review rounds add ~30-50% more tests. When a plan estimates 200+ test lines, create two files upfront. Natural split: models/validation vs. loading/integration. Before creating a new test file, check that the basename doesn't exist in any other test directory — see [§11 Test file naming](#test-file-naming) for the uniqueness rule.
 
 ### Regression and verification
 
@@ -697,6 +697,10 @@ See [§2 File size](#file-size) for the 500-line soft limit and when to split. A
 
 New subpackages must be added to the `packages` list in `pyproject.toml`. `pip install -e .` discovers packages automatically, but PyPI wheel builds don't — missing packages cause import failures for installed users.
 
+### CLAUDE.md cross-references
+
+CLAUDE.md cross-references must use relative paths (`../../STANDARDS.md#section-name`), not bare `#anchor` links. Bare `#anchor` links resolve within the current file on GitHub and break when linking across files.
+
 ### Template verification
 
 After bulk find-and-replace operations on Jinja2 templates, grep to verify zero remaining occurrences of the old string. Automated replacements can silently miss matches in template syntax.
@@ -769,4 +773,4 @@ Default to `from e` for exception re-raises. Use `from None` only when suppressi
 
 ### Mypy-exempt files
 
-17 source files and ~50 test files currently have `ignore_errors = true` in `pyproject.toml`. Policy: fix ALL mypy errors when touching an exempt file — don't add new violations while the exemption is in place.
+17 source files and ~62 test files currently have `ignore_errors = true` in `pyproject.toml`. Policy: fix ALL mypy errors when touching an exempt file — don't add new violations while the exemption is in place.

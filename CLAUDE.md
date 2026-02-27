@@ -19,7 +19,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | Shared utilities | `dango/utils/` | [`dango/utils/CLAUDE.md`](dango/utils/CLAUDE.md) |
 | Logging / diagnostics | `dango/logging.py` | Module docstring |
 | Database migrations | `dango/migrations/` | [`dango/migrations/CLAUDE.md`](dango/migrations/CLAUDE.md) |
-| Docker / file watcher / cloud deployment | `dango/platform/` | [`dango/platform/CLAUDE.md`](dango/platform/CLAUDE.md) |
+| Docker / file watcher / cloud / scheduling / notifications | `dango/platform/` | [`dango/platform/CLAUDE.md`](dango/platform/CLAUDE.md) |
+| Scheduling / job orchestration | `dango/platform/scheduling/` | [`dango/platform/scheduling/CLAUDE.md`](dango/platform/scheduling/CLAUDE.md) |
+| Notifications / webhooks | `dango/platform/notifications/` | [`dango/platform/notifications/CLAUDE.md`](dango/platform/notifications/CLAUDE.md) |
 | Jinja2 templates / Dockerfiles | `dango/templates/` | [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md) |
 | Auth / users / sessions | `dango/auth/` | [`dango/auth/CLAUDE.md`](dango/auth/CLAUDE.md) |
 | Notebooks | `dango/notebooks/` | Not yet created (Phase 6) |
@@ -51,6 +53,8 @@ When unsure which module to look at:
   - Config file format (`.dango/*.yml`) → `config/`
 - **Shared utility** (locking, logging, DB helpers) → `utils/`
 - **Docker containers / file watching** → `platform/`
+- **HOW scheduled jobs run** → `platform/scheduling/`
+- **HOW notifications are sent** → `platform/notifications/`
 - **HOW code gets deployed to the cloud** → `platform/cloud/`
 - **CLI for cloud operations** → `cli/commands/remote*.py`, `cli/commands/deploy*.py`
 - **Still unsure** → read `ARCHITECTURE.md` §6 (Cross-Module Workflows)
@@ -87,7 +91,8 @@ dango/                          # Python package source
 │   │   ├── remote_env.py       # remote env subgroup (set/get/list/delete)
 │   │   ├── remote_ops.py       # remote upgrade/resize/migrate
 │   │   ├── remote_backup.py    # remote backup subgroup
-│   │   └── remote_mgmt.py      # remote status/logs/ssh/query
+│   │   ├── remote_mgmt.py      # remote status/logs/ssh/query
+│   │   └── schedule.py         # schedule group (add/list/remove/status/enable/disable/webhook)
 │   ├── init.py                 # Project initialization wizard
 │   ├── wizard.py               # Interactive setup wizards
 │   ├── source_wizard.py        # Source configuration wizard
@@ -156,7 +161,7 @@ dango/                          # Python package source
 │   ├── metabase.py             # Metabase API (1142 lines)
 │   └── dashboard_manager.py    # Dashboard export/import (1113 lines)
 │
-├── platform/                   # Level 2 — Docker, network, file watcher
+├── platform/                   # Level 2 — Docker, network, file watcher, scheduling
 │   ├── __main__.py             # Platform CLI entry point
 │   ├── docker.py               # Docker Compose lifecycle (shared local + cloud)
 │   ├── CLAUDE.md               # Module navigation doc
@@ -167,6 +172,15 @@ dango/                          # Python package source
 │   │   ├── watcher.py          # File change detection (506 lines)
 │   │   ├── watcher_lifecycle.py # Watcher subprocess lifecycle
 │   │   └── watcher_runner.py   # Background watcher process
+│   ├── scheduling/             # APScheduler-based job scheduling (TASK-036+)
+│   │   ├── scheduler.py        # SchedulerService (lifecycle, events, cancellation)
+│   │   ├── resilience.py       # Retry, timeout, cancellation
+│   │   ├── history.py          # Execution history tracking
+│   │   ├── jobs.py             # Module-level job functions (732 lines)
+│   │   └── sync_trigger.py     # Server-side manual sync runner
+│   ├── notifications/          # Webhook notifications (TASK-043+)
+│   │   ├── webhook.py          # Event types, config, async sender
+│   │   └── slack.py            # Slack Block Kit formatter
 │   ├── cloud/                  # Cloud components (TASK-022+)
 │   │   ├── __init__.py         # Re-exports 63 symbols
 │   │   ├── digitalocean.py     # DO REST API v2 client (542 lines)
@@ -283,15 +297,21 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `oauth/providers.py` | 801 | — |
 | `web/helpers.py` | 798 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 742 | — |
+| `platform/scheduling/jobs.py` | 732 | — (module-level job functions) |
+| `web/routes/schedules.py` | 720 | — (schedule CRUD, history, notifications) |
 | `web/routes/upload.py` | 680 | — (extracted from app.py by TASK-085) |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
 | `cli/commands/remote.py` | 651 | — (remote group + push/rollback/firewall/domain) |
 | `cli/validate.py` | 651 | — |
 | `cli/commands/deploy_wizard.py` | 579 | — (interactive deploy wizard) |
 | `transformation/generator.py` | 577 | — |
+| `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/source.py` | 549 | — (extracted from main.py by TASK-005) |
 | `cli/commands/deploy_provision.py` | 543 | — (provisioning orchestration) |
 | `platform/cloud/digitalocean.py` | 542 | — (DO REST API v2 client) |
+| `cli/commands/auth.py` | 538 | — (12 auth subcommands) |
+| `config/models.py` | 530 | — (Pydantic config models) |
+| `auth/database.py` | 529 | — (SQLite CRUD) |
 | `web/routes/users.py` | 527 | — (admin user CRUD) |
 | `cli/model_wizard.py` | 507 | — |
 | `platform/local/watcher.py` | 506 | — |
@@ -317,6 +337,8 @@ Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 - [`dango/auth/CLAUDE.md`](dango/auth/CLAUDE.md)
 
 - [`dango/platform/CLAUDE.md`](dango/platform/CLAUDE.md)
+- [`dango/platform/scheduling/CLAUDE.md`](dango/platform/scheduling/CLAUDE.md)
+- [`dango/platform/notifications/CLAUDE.md`](dango/platform/notifications/CLAUDE.md)
 
 **Planned later phases:**
 - `dango/notebooks/CLAUDE.md` (Phase 6)
