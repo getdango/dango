@@ -263,9 +263,9 @@ exemptions:
   # --- Phase 4 scheduling ---
 
   - file: dango/web/routes/schedules.py
-    lines: 630
+    lines: 720
     category: exempt
-    reason: "TASK-037+038: 11 endpoints (history×2, CRUD×5, trigger, reload, cancel, unscheduled). Single router file — split would scatter schedule logic across files."
+    reason: "TASK-037+038+045b: 14 endpoints (history×2, CRUD×5, trigger, reload, cancel, unscheduled, page route, notification config/test). Single router file — split would scatter schedule logic across files."
     review_by: "v1.1"
 
   - file: dango/web/routes/sync.py

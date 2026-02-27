@@ -40,7 +40,9 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/metabase_proxy.py` | All Metabase proxy routes + SSO session state | `proxy_to_metabase()`, `get_metabase_session()` |
 | `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
+| `routes/schedules.py` | Schedule CRUD, trigger, reload, cancel, history, `/schedules` page, notification config/test (~726 lines) | `router` |
 | `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |
+| `templates/schedules.html` | Schedule management page (extends `base.html`) — table, modals, WebSocket | Alpine.js `schedulesPage()` component |
 | `static/` | CSS and JS assets (`css/main.css`, `js/app.js`, `js/logs.js`) | — |
 
 ## Architecture

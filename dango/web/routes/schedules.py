@@ -12,9 +12,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import ValidationError
 
+import dango
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
@@ -28,6 +29,12 @@ from dango.config.schedules import (
     validate_schedules,
 )
 from dango.logging import get_logger
+from dango.platform.notifications.webhook import (
+    EventType,
+    NotificationConfig,
+    WebhookSender,
+    load_notification_config,
+)
 from dango.platform.scheduling.history import (
     VALID_STATUSES,
     get_last_run,
@@ -37,6 +44,7 @@ from dango.platform.scheduling.history import (
 )
 from dango.web.helpers import get_project_root, load_sources_config
 from dango.web.models import ScheduleCreateRequest, TriggerRequest
+from dango.web.routes.ui import _render_template
 
 if TYPE_CHECKING:
     from dango.platform.scheduling.scheduler import SchedulerService
@@ -82,8 +90,87 @@ def _audit(
 
 
 # ---------------------------------------------------------------------------
+# Page route
+# ---------------------------------------------------------------------------
+
+
+@router.get("/schedules")
+async def schedules_page(
+    request: Request,
+    user: User = Depends(require_permission("scheduler.view")),
+) -> HTMLResponse:
+    """Render the schedule management UI page."""
+    return _render_template(
+        "schedules.html",
+        {
+            "request": request,
+            "version": dango.__version__,
+            "current_page": "schedules",
+            "subtitle": "Schedules",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Literal routes (must be registered BEFORE parameterized {name} routes)
 # ---------------------------------------------------------------------------
+
+
+@router.get("/api/notifications/config")
+async def get_notification_config(
+    user: User = Depends(require_permission("scheduler.view")),
+) -> JSONResponse:
+    """Get the current notification configuration."""
+    project_root = get_project_root()
+    config = load_notification_config(project_root) or NotificationConfig()
+
+    return JSONResponse(
+        content={
+            "webhooks": [wh.model_dump() for wh in config.webhooks],
+            "on_failure": config.on_failure,
+            "on_success": config.on_success,
+            "on_stale": config.on_stale,
+            "stale_threshold_hours": config.stale_threshold_hours,
+        }
+    )
+
+
+@router.post("/api/notifications/test")
+async def test_notification(
+    request: Request,
+    user: User = Depends(require_permission("scheduler.manage")),
+) -> JSONResponse:
+    """Send a test notification to all configured webhooks."""
+    project_root = get_project_root()
+    config = load_notification_config(project_root)
+
+    if config is None or len(config.webhooks) == 0:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error_code": "DANGO-S008",
+                "message": "No webhooks configured. Add webhooks in .dango/schedules.yml.",
+            },
+        )
+
+    sender = WebhookSender(config)
+    # Override filtering so the test fires regardless of on_success/on_failure config
+    await sender.send(
+        event_type=EventType.SYNC_COMPLETED,
+        schedule_name="test",
+        sources=["test"],
+        schedule_notify_on={"on_success": True, "on_failure": True, "on_stale": True},
+    )
+
+    _audit(
+        AuditEvent.SCHEDULE_TRIGGERED,
+        user,
+        request,
+        project_root,
+        action="test_notification",
+    )
+
+    return JSONResponse(content={"status": "sent"})
 
 
 @router.get("/api/schedules/history/recent")

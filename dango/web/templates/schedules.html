@@ -1,0 +1,761 @@
+{% extends "base.html" %}
+
+{% block title %}Schedules - Dango{% endblock %}
+
+{% block content %}
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div x-data="schedulesPage()" x-init="init()">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-bold text-gray-900">Schedules</h2>
+            <div class="flex items-center space-x-3">
+                {% if request.state.user.role.value == 'admin' %}
+                <button @click="reloadFromYaml()"
+                        :disabled="reloadLoading"
+                        class="px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm font-medium transition-colors disabled:opacity-50">
+                    <span x-show="!reloadLoading">Reload from YAML</span>
+                    <span x-show="reloadLoading" x-cloak>Reloading...</span>
+                </button>
+                <button @click="showCreateModal = true"
+                        class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors">
+                    Create Schedule
+                </button>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Error banner -->
+        <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p class="text-sm text-red-700" x-text="error"></p>
+        </div>
+
+        <!-- Success banner -->
+        <div x-show="success" x-cloak class="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+            <p class="text-sm text-green-700" x-text="success"></p>
+        </div>
+
+        <!-- Scheduled sources table -->
+        <div class="bg-white shadow rounded-lg overflow-hidden mb-6">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Sources</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Cron</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Next Run</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Enabled</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <template x-for="sched in schedules" :key="sched.name">
+                    <tbody class="bg-white border-b border-gray-200">
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <button @click="toggleHistory(sched)"
+                                        class="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline">
+                                    <span x-text="sched.name"></span>
+                                </button>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                      :class="sched.type === 'sync' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'"
+                                      x-text="sched.type"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell"
+                                x-text="sched.sources.join(', ')"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
+                                x-text="humanCron(sched.cron)"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden lg:table-cell"
+                                x-text="sched.next_run_time ? timeAgo(sched.next_run_time) : '—'"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                <template x-if="runningJobs[sched.name]">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 animate-pulse">running</span>
+                                </template>
+                                <template x-if="!runningJobs[sched.name] && sched.last_run">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                          :class="statusBadge(sched.last_run.status)"
+                                          x-text="sched.last_run.status"></span>
+                                </template>
+                                <template x-if="!runningJobs[sched.name] && !sched.last_run">
+                                    <span class="text-gray-400">—</span>
+                                </template>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap hidden sm:table-cell">
+                                {% if request.state.user.role.value == 'admin' %}
+                                <input type="checkbox" :checked="sched.enabled"
+                                       @change="toggleEnabled(sched)"
+                                       class="h-4 w-4 text-dango-600 focus:ring-dango-500 border-gray-300 rounded">
+                                {% else %}
+                                <span class="text-sm" :class="sched.enabled ? 'text-green-600' : 'text-gray-400'"
+                                      x-text="sched.enabled ? 'Yes' : 'No'"></span>
+                                {% endif %}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
+                                <div class="flex items-center justify-end space-x-2">
+                                    <template x-if="isEditorPlus">
+                                        <button @click="openTriggerModal(sched)"
+                                                class="text-blue-600 hover:text-blue-800 text-xs font-medium">Trigger</button>
+                                    </template>
+                                    {% if request.state.user.role.value == 'admin' %}
+                                    <button @click="openDeleteModal(sched)"
+                                            class="text-red-600 hover:text-red-800 text-xs font-medium">Delete</button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        <tr x-show="expandedSchedule === sched.name" x-cloak class="bg-gray-50">
+                            <td colspan="8" class="px-6 py-4">
+                                <div class="text-sm font-medium text-gray-700 mb-2">Recent Executions</div>
+                                <template x-if="historyLoading">
+                                    <p class="text-sm text-gray-500">Loading...</p>
+                                </template>
+                                <template x-if="!historyLoading && historyItems.length === 0">
+                                    <p class="text-sm text-gray-500">No execution history.</p>
+                                </template>
+                                <template x-if="!historyLoading && historyItems.length > 0">
+                                    <table class="min-w-full divide-y divide-gray-200">
+                                        <thead>
+                                            <tr>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Started</th>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Duration</th>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Error</th>
+                                                <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <template x-for="run in historyItems" :key="run.id">
+                                                <tr>
+                                                    <td class="px-3 py-2 text-xs text-gray-600" x-text="timeAgo(run.started_at)"></td>
+                                                    <td class="px-3 py-2 text-xs text-gray-600" x-text="run.duration_seconds != null ? formatDuration(run.duration_seconds) : '—'"></td>
+                                                    <td class="px-3 py-2">
+                                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                                              :class="statusBadge(run.status)"
+                                                              x-text="run.status"></span>
+                                                    </td>
+                                                    <td class="px-3 py-2 text-xs text-red-600 max-w-xs truncate" x-text="run.error_message || ''"></td>
+                                                    <td class="px-3 py-2 text-right">
+                                                        <template x-if="run.status === 'failed' && isEditorPlus">
+                                                            <button @click="openTriggerModal(sched)"
+                                                                    class="text-blue-600 hover:text-blue-800 text-xs">Re-run</button>
+                                                        </template>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </template>
+                            </td>
+                        </tr>
+                    </tbody>
+                </template>
+                <tbody x-show="schedules.length === 0" x-cloak>
+                    <tr><td colspan="8" class="px-6 py-8 text-center text-sm text-gray-500">No schedules configured.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Unscheduled sources (collapsed by default) -->
+        <div class="bg-white shadow rounded-lg overflow-hidden mb-6">
+            <button @click="showUnscheduled = !showUnscheduled"
+                    class="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-gray-50">
+                <div class="flex items-center space-x-2">
+                    <span class="text-sm font-medium text-gray-700">Unscheduled Sources</span>
+                    <span x-show="unscheduledSources.length > 0"
+                          class="px-2 py-0.5 text-xs rounded-full bg-yellow-100 text-yellow-800"
+                          x-text="unscheduledSources.length"></span>
+                </div>
+                <svg class="h-5 w-5 text-gray-400 transition-transform" :class="showUnscheduled && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+            <div x-show="showUnscheduled" x-cloak class="border-t border-gray-200">
+                <template x-if="unscheduledSources.length === 0">
+                    <p class="px-6 py-4 text-sm text-gray-500">All sources are scheduled.</p>
+                </template>
+                <template x-if="unscheduledSources.length > 0">
+                    <ul class="divide-y divide-gray-100">
+                        <template x-for="src in unscheduledSources" :key="src">
+                            <li class="px-6 py-3 flex items-center justify-between">
+                                <span class="text-sm text-gray-700" x-text="src"></span>
+                                <div class="flex items-center space-x-2">
+                                    <button @click="syncSource(src)"
+                                            class="text-blue-600 hover:text-blue-800 text-xs font-medium">Sync Now</button>
+                                    {% if request.state.user.role.value == 'admin' %}
+                                    <button @click="prefillCreateFromSource(src)"
+                                            class="text-dango-600 hover:text-dango-800 text-xs font-medium">Create Schedule</button>
+                                    {% endif %}
+                                </div>
+                            </li>
+                        </template>
+                    </ul>
+                </template>
+            </div>
+        </div>
+
+        <!-- Notifications summary -->
+        <div class="bg-white shadow rounded-lg overflow-hidden mb-6">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-medium text-gray-700">Notifications</h3>
+                    {% if request.state.user.role.value == 'admin' %}
+                    <button @click="testNotification()"
+                            :disabled="testLoading || notifConfig.webhooks.length === 0"
+                            class="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span x-show="!testLoading">Test</span>
+                        <span x-show="testLoading" x-cloak>Sending...</span>
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="px-6 py-4">
+                <template x-if="notifConfig.webhooks.length === 0">
+                    <p class="text-sm text-gray-500">Not configured. Add webhooks in <code class="bg-gray-100 px-1 rounded">.dango/schedules.yml</code>.</p>
+                </template>
+                <template x-if="notifConfig.webhooks.length > 0">
+                    <div>
+                        <ul class="divide-y divide-gray-100 mb-3">
+                            <template x-for="wh in notifConfig.webhooks" :key="wh.name">
+                                <li class="py-2 flex items-center justify-between">
+                                    <div>
+                                        <span class="text-sm font-medium text-gray-700" x-text="wh.name"></span>
+                                        <span class="ml-2 text-xs text-gray-400" x-text="wh.format"></span>
+                                    </div>
+                                    <span class="text-xs text-gray-500 truncate max-w-xs" x-text="wh.url"></span>
+                                </li>
+                            </template>
+                        </ul>
+                        <div class="flex items-center space-x-4 text-xs text-gray-500">
+                            <span :class="notifConfig.on_failure ? 'text-green-600' : 'text-gray-400'">
+                                Failures: <span x-text="notifConfig.on_failure ? 'On' : 'Off'"></span>
+                            </span>
+                            <span :class="notifConfig.on_success ? 'text-green-600' : 'text-gray-400'">
+                                Success: <span x-text="notifConfig.on_success ? 'On' : 'Off'"></span>
+                            </span>
+                            <span :class="notifConfig.on_stale ? 'text-green-600' : 'text-gray-400'">
+                                Stale: <span x-text="notifConfig.on_stale ? 'On' : 'Off'"></span>
+                            </span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Create Schedule Modal -->
+        {% if request.state.user.role.value == 'admin' %}
+        <div x-show="showCreateModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showCreateModal = false"></div>
+                <div class="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 relative z-10">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">Create Schedule</h3>
+                    <form @submit.prevent="createSchedule()">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                            <input type="text" x-model="newSchedule.name" required pattern="[a-z0-9_]+"
+                                   placeholder="daily_sync"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500">
+                            <p class="text-xs text-gray-400 mt-1">Lowercase letters, numbers, underscores only.</p>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                            <select x-model="newSchedule.type"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500">
+                                <option value="sync">Sync</option>
+                                <option value="dbt">dbt</option>
+                            </select>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Cron Schedule</label>
+                            <select x-model="cronPreset" @change="applyCronPreset()"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 mb-2">
+                                <option value="">Select preset...</option>
+                                <option value="*/15 * * * *">Every 15 minutes</option>
+                                <option value="0 * * * *">Every hour</option>
+                                <option value="0 */6 * * *">Every 6 hours</option>
+                                <option value="0 6 * * *">Daily at 6 AM</option>
+                                <option value="0 6 * * 1">Weekly (Monday 6 AM)</option>
+                                <option value="custom">Custom</option>
+                            </select>
+                            <div x-show="cronPreset === 'custom'" x-cloak>
+                                <input type="text" x-model="newSchedule.cron" placeholder="0 6 * * *"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500">
+                            </div>
+                        </div>
+                        <div class="mb-4" x-show="newSchedule.type === 'sync'">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Sources</label>
+                            <div class="border border-gray-300 rounded-md p-2 max-h-40 overflow-y-auto">
+                                <template x-for="src in allSources" :key="src">
+                                    <label class="flex items-center py-1">
+                                        <input type="checkbox" :value="src"
+                                               :checked="newSchedule.sources.includes(src)"
+                                               @change="toggleSource(src)"
+                                               class="h-4 w-4 text-dango-600 focus:ring-dango-500 border-gray-300 rounded mr-2">
+                                        <span class="text-sm text-gray-700" x-text="src"></span>
+                                    </label>
+                                </template>
+                                <template x-if="allSources.length === 0">
+                                    <p class="text-xs text-gray-400">No sources configured.</p>
+                                </template>
+                            </div>
+                        </div>
+                        <div class="mb-4" x-show="newSchedule.type === 'dbt'" x-cloak>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">dbt Command</label>
+                            <input type="text" x-model="newSchedule.dbt_command" placeholder="run"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500">
+                        </div>
+                        <div class="mb-4">
+                            <label class="flex items-center">
+                                <input type="checkbox" x-model="newSchedule.enabled"
+                                       class="h-4 w-4 text-dango-600 focus:ring-dango-500 border-gray-300 rounded mr-2">
+                                <span class="text-sm text-gray-700">Enabled</span>
+                            </label>
+                        </div>
+                        <div class="flex justify-end space-x-3">
+                            <button type="button" @click="showCreateModal = false"
+                                    class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                            <button type="submit" :disabled="createLoading"
+                                    class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700 disabled:opacity-50">
+                                <span x-show="!createLoading">Create</span>
+                                <span x-show="createLoading" x-cloak>Creating...</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Trigger / Re-run Modal -->
+        <div x-show="showTriggerModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showTriggerModal = false"></div>
+                <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative z-10">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">
+                        Trigger <span class="font-mono" x-text="triggerTarget?.name"></span>
+                    </h3>
+                    <form @submit.prevent="triggerSchedule()">
+                        <div class="mb-4">
+                            <label class="flex items-center">
+                                <input type="checkbox" x-model="triggerOpts.full_refresh"
+                                       class="h-4 w-4 text-dango-600 focus:ring-dango-500 border-gray-300 rounded mr-2">
+                                <span class="text-sm text-gray-700">Full refresh</span>
+                            </label>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Start Date (optional)</label>
+                            <input type="datetime-local" x-model="triggerOpts.start_date"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500">
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">End Date (optional)</label>
+                            <input type="datetime-local" x-model="triggerOpts.end_date"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500">
+                        </div>
+                        <div class="flex justify-end space-x-3">
+                            <button type="button" @click="showTriggerModal = false"
+                                    class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                            <button type="submit" :disabled="triggerLoading"
+                                    class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700 disabled:opacity-50">
+                                <span x-show="!triggerLoading">Trigger Now</span>
+                                <span x-show="triggerLoading" x-cloak>Triggering...</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delete Confirmation Modal -->
+        {% if request.state.user.role.value == 'admin' %}
+        <div x-show="showDeleteModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showDeleteModal = false"></div>
+                <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative z-10">
+                    <h3 class="text-lg font-medium text-red-600 mb-2">Delete Schedule</h3>
+                    <p class="text-sm text-gray-500 mb-4">
+                        This will permanently delete the schedule and its configuration.
+                        Type the schedule name
+                        (<span class="font-mono font-medium" x-text="deleteTarget?.name"></span>)
+                        to confirm.
+                    </p>
+                    <input type="text" x-model="deleteConfirmName" placeholder="Type name to confirm"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 mb-4">
+                    <div class="flex justify-end space-x-3">
+                        <button @click="showDeleteModal = false; deleteConfirmName = ''"
+                                class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                        <button @click="deleteSchedule()" :disabled="deleteLoading || deleteConfirmName !== deleteTarget?.name"
+                                class="px-4 py-2 text-sm text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function schedulesPage() {
+    const headers = {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'};
+    const userRole = {{ request.state.user.role.value | tojson }};
+
+    return {
+        schedules: [],
+        unscheduledSources: [],
+        allSources: [],
+        notifConfig: { webhooks: [], on_failure: true, on_success: false, on_stale: true, stale_threshold_hours: 24 },
+        runningJobs: {},
+        error: '', success: '',
+        isAdmin: userRole === 'admin',
+        isEditorPlus: userRole === 'admin' || userRole === 'editor',
+
+        // UI state
+        showUnscheduled: false,
+        expandedSchedule: null,
+        historyItems: [],
+        historyLoading: false,
+
+        // Create modal
+        showCreateModal: false,
+        cronPreset: '',
+        newSchedule: { name: '', type: 'sync', cron: '', sources: [], enabled: true, dbt_command: 'run' },
+        createLoading: false,
+
+        // Trigger modal
+        showTriggerModal: false,
+        triggerTarget: null,
+        triggerOpts: { full_refresh: false, start_date: '', end_date: '' },
+        triggerLoading: false,
+
+        // Delete modal
+        showDeleteModal: false,
+        deleteTarget: null,
+        deleteConfirmName: '',
+        deleteLoading: false,
+
+        // Other loading
+        reloadLoading: false,
+        testLoading: false,
+
+        // WebSocket
+        ws: null,
+        reconnectInterval: null,
+
+        async init() {
+            await Promise.all([
+                this.loadSchedules(),
+                this.loadUnscheduled(),
+                this.loadNotifConfig(),
+                this.loadAllSources()
+            ]);
+            this.connectWebSocket();
+        },
+
+        // --- Data loading ---
+        async loadSchedules() {
+            try {
+                const res = await fetch('/api/schedules', { headers });
+                if (res.ok) this.schedules = await res.json();
+            } catch (e) { this.error = 'Failed to load schedules'; }
+        },
+        async loadUnscheduled() {
+            try {
+                const res = await fetch('/api/sources/unscheduled', { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    this.unscheduledSources = data.sources || [];
+                }
+            } catch (e) { /* ignore */ }
+        },
+        async loadNotifConfig() {
+            try {
+                const res = await fetch('/api/notifications/config', { headers });
+                if (res.ok) this.notifConfig = await res.json();
+            } catch (e) { /* ignore */ }
+        },
+        async loadAllSources() {
+            try {
+                const res = await fetch('/api/sources', { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    this.allSources = (data.sources || data || []).map(s => s.name || s).filter(Boolean);
+                }
+            } catch (e) { /* ignore */ }
+        },
+
+        // --- Schedule CRUD ---
+        async createSchedule() {
+            this.createLoading = true; this.error = '';
+            try {
+                const body = { ...this.newSchedule };
+                if (body.type !== 'dbt') delete body.dbt_command;
+                const res = await fetch('/api/schedules', {
+                    method: 'POST', headers, body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to create schedule'; this.createLoading = false; return; }
+                this.showCreateModal = false;
+                this.newSchedule = { name: '', type: 'sync', cron: '', sources: [], enabled: true, dbt_command: 'run' };
+                this.cronPreset = '';
+                this.success = 'Schedule created.';
+                setTimeout(() => this.success = '', 3000);
+                await Promise.all([this.loadSchedules(), this.loadUnscheduled()]);
+            } catch (e) { this.error = 'Failed to create schedule'; }
+            this.createLoading = false;
+        },
+        async toggleEnabled(sched) {
+            this.error = '';
+            try {
+                const body = {
+                    name: sched.name, type: sched.type, cron: sched.cron,
+                    sources: sched.sources, enabled: !sched.enabled
+                };
+                const res = await fetch(`/api/schedules/${sched.name}`, {
+                    method: 'PUT', headers, body: JSON.stringify(body)
+                });
+                if (!res.ok) {
+                    const data = await res.json();
+                    this.error = data.message || 'Failed to update schedule';
+                }
+                await this.loadSchedules();
+            } catch (e) { this.error = 'Failed to update schedule'; await this.loadSchedules(); }
+        },
+        async deleteSchedule() {
+            this.deleteLoading = true; this.error = '';
+            try {
+                const res = await fetch(`/api/schedules/${this.deleteTarget.name}`, {
+                    method: 'DELETE', headers
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to delete schedule'; this.deleteLoading = false; return; }
+                this.showDeleteModal = false;
+                this.deleteConfirmName = '';
+                this.success = 'Schedule deleted.';
+                setTimeout(() => this.success = '', 3000);
+                await Promise.all([this.loadSchedules(), this.loadUnscheduled()]);
+            } catch (e) { this.error = 'Failed to delete schedule'; }
+            this.deleteLoading = false;
+        },
+
+        // --- Trigger ---
+        openTriggerModal(sched) {
+            this.triggerTarget = sched;
+            this.triggerOpts = { full_refresh: false, start_date: '', end_date: '' };
+            this.showTriggerModal = true;
+        },
+        async triggerSchedule() {
+            this.triggerLoading = true; this.error = '';
+            try {
+                const body = {};
+                if (this.triggerOpts.full_refresh) body.full_refresh = true;
+                if (this.triggerOpts.start_date) body.start_date = this.triggerOpts.start_date;
+                if (this.triggerOpts.end_date) body.end_date = this.triggerOpts.end_date;
+                const res = await fetch(`/api/schedules/${this.triggerTarget.name}/trigger`, {
+                    method: 'POST', headers, body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to trigger schedule'; this.triggerLoading = false; return; }
+                this.showTriggerModal = false;
+                this.success = `Schedule "${this.triggerTarget.name}" triggered.`;
+                setTimeout(() => this.success = '', 3000);
+            } catch (e) { this.error = 'Failed to trigger schedule'; }
+            this.triggerLoading = false;
+        },
+
+        // --- History ---
+        async toggleHistory(sched) {
+            if (this.expandedSchedule === sched.name) {
+                this.expandedSchedule = null;
+                this.historyItems = [];
+                return;
+            }
+            this.expandedSchedule = sched.name;
+            this.historyLoading = true;
+            this.historyItems = [];
+            try {
+                const res = await fetch(`/api/schedules/${sched.name}/history?limit=30`, { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    this.historyItems = data.items || [];
+                }
+            } catch (e) { /* ignore */ }
+            this.historyLoading = false;
+        },
+
+        // --- Reload ---
+        async reloadFromYaml() {
+            this.reloadLoading = true; this.error = '';
+            try {
+                const res = await fetch('/api/schedules/reload', { method: 'POST', headers });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to reload'; this.reloadLoading = false; return; }
+                this.success = `Reload complete: ${data.added?.length || 0} added, ${data.removed?.length || 0} removed, ${data.updated?.length || 0} updated.`;
+                setTimeout(() => this.success = '', 5000);
+                await this.loadSchedules();
+            } catch (e) { this.error = 'Failed to reload schedules'; }
+            this.reloadLoading = false;
+        },
+
+        // --- Notifications ---
+        async testNotification() {
+            this.testLoading = true; this.error = '';
+            try {
+                const res = await fetch('/api/notifications/test', { method: 'POST', headers });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to send test'; this.testLoading = false; return; }
+                this.success = 'Test notification sent.';
+                setTimeout(() => this.success = '', 3000);
+            } catch (e) { this.error = 'Failed to send test notification'; }
+            this.testLoading = false;
+        },
+
+        // --- Source sync ---
+        async syncSource(name) {
+            this.error = '';
+            try {
+                const res = await fetch(`/api/sources/${name}/sync`, {
+                    method: 'POST', headers, body: JSON.stringify({})
+                });
+                if (!res.ok) {
+                    const data = await res.json();
+                    this.error = data.message || 'Failed to start sync';
+                    return;
+                }
+                this.success = `Sync started for "${name}".`;
+                setTimeout(() => this.success = '', 3000);
+            } catch (e) { this.error = 'Failed to start sync'; }
+        },
+
+        // --- Helpers ---
+        openDeleteModal(sched) {
+            this.deleteTarget = sched;
+            this.deleteConfirmName = '';
+            this.showDeleteModal = true;
+        },
+        prefillCreateFromSource(src) {
+            this.newSchedule = { name: src + '_daily', type: 'sync', cron: '0 6 * * *', sources: [src], enabled: true, dbt_command: 'run' };
+            this.cronPreset = '0 6 * * *';
+            this.showCreateModal = true;
+        },
+        applyCronPreset() {
+            if (this.cronPreset && this.cronPreset !== 'custom') {
+                this.newSchedule.cron = this.cronPreset;
+            }
+        },
+        toggleSource(src) {
+            const idx = this.newSchedule.sources.indexOf(src);
+            if (idx >= 0) this.newSchedule.sources.splice(idx, 1);
+            else this.newSchedule.sources.push(src);
+        },
+
+        // --- JS helpers ---
+        humanCron(cron) {
+            const map = {
+                '*/15 * * * *': 'Every 15 min',
+                '0 * * * *': 'Every hour',
+                '0 */6 * * *': 'Every 6h',
+                '0 6 * * *': 'Daily 6 AM',
+                '0 12 * * *': 'Daily noon',
+                '0 0 * * *': 'Daily midnight',
+                '0 6 * * 1': 'Weekly Mon 6 AM',
+                '0 0 * * 1': 'Weekly Mon midnight',
+            };
+            return map[cron] || cron;
+        },
+        statusBadge(status) {
+            const m = {
+                'success': 'bg-green-100 text-green-800',
+                'completed': 'bg-green-100 text-green-800',
+                'failed': 'bg-red-100 text-red-800',
+                'running': 'bg-blue-100 text-blue-800',
+                'cancelled': 'bg-yellow-100 text-yellow-800',
+                'timeout': 'bg-gray-100 text-gray-800',
+            };
+            return m[status] || 'bg-gray-100 text-gray-800';
+        },
+        timeAgo(iso) {
+            if (!iso) return '—';
+            const diff = (new Date() - new Date(iso)) / 1000;
+            if (diff < 0) {
+                const absDiff = Math.abs(diff);
+                if (absDiff < 60) return 'in ' + Math.round(absDiff) + 's';
+                if (absDiff < 3600) return 'in ' + Math.round(absDiff / 60) + ' min';
+                if (absDiff < 86400) return 'in ' + Math.round(absDiff / 3600) + 'h';
+                return 'in ' + Math.round(absDiff / 86400) + 'd';
+            }
+            if (diff < 60) return Math.round(diff) + 's ago';
+            if (diff < 3600) return Math.round(diff / 60) + ' min ago';
+            if (diff < 86400) return Math.round(diff / 3600) + 'h ago';
+            return Math.round(diff / 86400) + 'd ago';
+        },
+        formatDuration(seconds) {
+            if (seconds == null) return '—';
+            if (seconds < 60) return Math.round(seconds) + 's';
+            const m = Math.floor(seconds / 60);
+            const s = Math.round(seconds % 60);
+            return m + 'm ' + s + 's';
+        },
+
+        // --- WebSocket ---
+        connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            this.ws = new WebSocket(wsUrl);
+
+            this.ws.onopen = () => {
+                if (this.reconnectInterval) {
+                    clearInterval(this.reconnectInterval);
+                    this.reconnectInterval = null;
+                }
+            };
+
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleWsMessage(data);
+                } catch (e) { /* ignore parse errors */ }
+            };
+
+            this.ws.onclose = () => {
+                if (!this.reconnectInterval) {
+                    this.reconnectInterval = setInterval(() => this.connectWebSocket(), 5000);
+                }
+            };
+
+            this.ws.onerror = () => {};
+        },
+        handleWsMessage(data) {
+            const ev = data.event;
+            const source = data.source;
+
+            if (ev === 'sync_started' || ev === 'dbt_started') {
+                const updated = {...this.runningJobs};
+                for (const sched of this.schedules) {
+                    // sync events: match by source name; dbt events: match dbt-type schedules only
+                    const match = ev === 'sync_started'
+                        ? sched.sources.includes(source)
+                        : sched.type === 'dbt';
+                    if (match) updated[sched.name] = true;
+                }
+                this.runningJobs = updated;
+            }
+            if (ev === 'sync_completed' || ev === 'sync_failed' ||
+                ev === 'dbt_completed' || ev === 'dbt_failed') {
+                const updated = {...this.runningJobs};
+                for (const sched of this.schedules) {
+                    const match = ev.startsWith('sync_')
+                        ? sched.sources.includes(source)
+                        : sched.type === 'dbt';
+                    if (match) delete updated[sched.name];
+                }
+                this.runningJobs = updated;
+                this.loadSchedules();
+            }
+        }
+    }
+}
+</script>
+{% endblock %}
