@@ -247,6 +247,34 @@ def record_cancellation(db_path: Path, record_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 
+def get_execution_record(
+    db_path: Path,
+    record_id: int,
+) -> dict[str, Any] | None:
+    """Get a single execution record by its ID.
+
+    Used by the ``GET /api/sync/status/{record_id}`` polling endpoint.
+
+    Args:
+        db_path: Path to the scheduler database.
+        record_id: The execution record ID to look up.
+
+    Returns:
+        Record dict or ``None`` if no record with that ID exists.
+    """
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM execution_history WHERE id = ?",
+            (record_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_dict(row)
+    finally:
+        conn.close()
+
+
 def get_schedule_history(
     db_path: Path,
     schedule_name: str,

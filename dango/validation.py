@@ -19,6 +19,7 @@ from dango.exceptions import (
 )
 
 __all__ = [
+    "parse_backfill_duration",
     "validate_source_name",
     "validate_identifier",
     "validate_date_string",
@@ -31,6 +32,41 @@ __all__ = [
 # digits, and underscores.  The model validator also lowercases; we do the
 # same here so validated names always match what the config stores.
 _SOURCE_NAME_RE = re.compile(r"^[a-zA-Z0-9_]+$")
+
+# Duration parsing for backfill values ("7d", "2w", "1m")
+_DURATION_PATTERN = re.compile(r"^(\d+)([dwmDWM])$")
+_DURATION_MULTIPLIERS = {"d": 1, "w": 7, "m": 30}
+
+
+def parse_backfill_duration(value: str) -> int:
+    """Parse a duration string like ``'7d'``, ``'2w'``, ``'1m'`` into days.
+
+    Unlike ``cli/commands/source.py:_parse_duration`` this raises a plain
+    ``ValueError`` instead of ``click.BadParameter``, making it usable by
+    both CLI and web code.
+
+    Args:
+        value: Duration string (``d`` = days, ``w`` = weeks, ``m`` = 30-day months).
+
+    Returns:
+        Number of days.
+
+    Raises:
+        ValueError: If the format is invalid or the amount is not positive.
+    """
+    match = _DURATION_PATTERN.match(value)
+    if not match:
+        raise ValueError(
+            f"Invalid duration '{value}'. Use format like '7d', '2w', '1m' "
+            "(d=days, w=weeks, m=months/30d)."
+        )
+    amount = int(match.group(1))
+    unit = match.group(2).lower()
+    if amount <= 0:
+        raise ValueError("Duration must be a positive number.")
+    return amount * _DURATION_MULTIPLIERS[unit]
+
+
 _SOURCE_NAME_MAX_LEN = 128
 
 
