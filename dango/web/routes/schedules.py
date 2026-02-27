@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import ValidationError
 
 import dango
@@ -29,7 +29,12 @@ from dango.config.schedules import (
     validate_schedules,
 )
 from dango.logging import get_logger
-from dango.platform.notifications.webhook import WebhookSender, load_notification_config
+from dango.platform.notifications.webhook import (
+    EventType,
+    NotificationConfig,
+    WebhookSender,
+    load_notification_config,
+)
 from dango.platform.scheduling.history import (
     VALID_STATUSES,
     get_last_run,
@@ -93,7 +98,7 @@ def _audit(
 async def schedules_page(
     request: Request,
     user: User = Depends(require_permission("scheduler.view")),
-) -> Any:
+) -> HTMLResponse:
     """Render the schedule management UI page."""
     return _render_template(
         "schedules.html",
@@ -117,18 +122,7 @@ async def get_notification_config(
 ) -> JSONResponse:
     """Get the current notification configuration."""
     project_root = get_project_root()
-    config = load_notification_config(project_root)
-
-    if config is None:
-        return JSONResponse(
-            content={
-                "webhooks": [],
-                "on_failure": True,
-                "on_success": False,
-                "on_stale": True,
-                "stale_threshold_hours": 24,
-            }
-        )
+    config = load_notification_config(project_root) or NotificationConfig()
 
     return JSONResponse(
         content={
@@ -160,12 +154,12 @@ async def test_notification(
         )
 
     sender = WebhookSender(config)
-    from dango.platform.notifications.webhook import EventType
-
+    # Override filtering so the test fires regardless of on_success/on_failure config
     await sender.send(
         event_type=EventType.SYNC_COMPLETED,
         schedule_name="test",
         sources=["test"],
+        schedule_notify_on={"on_success": True, "on_failure": True, "on_stale": True},
     )
 
     _audit(

@@ -737,21 +737,26 @@ function schedulesPage() {
             const source = data.source;
 
             if (ev === 'sync_started' || ev === 'dbt_started') {
-                // Find which schedule includes this source
+                const updated = {...this.runningJobs};
                 for (const sched of this.schedules) {
-                    if (sched.sources.includes(source) || ev === 'dbt_started') {
-                        this.runningJobs[sched.name] = true;
-                    }
+                    // sync events: match by source name; dbt events: match dbt-type schedules only
+                    const match = ev === 'sync_started'
+                        ? sched.sources.includes(source)
+                        : sched.type === 'dbt';
+                    if (match) updated[sched.name] = true;
                 }
+                this.runningJobs = updated;
             }
             if (ev === 'sync_completed' || ev === 'sync_failed' ||
                 ev === 'dbt_completed' || ev === 'dbt_failed') {
-                // Clear running state and refresh
+                const updated = {...this.runningJobs};
                 for (const sched of this.schedules) {
-                    if (sched.sources.includes(source) || ev.startsWith('dbt_')) {
-                        delete this.runningJobs[sched.name];
-                    }
+                    const match = ev.startsWith('sync_')
+                        ? sched.sources.includes(source)
+                        : sched.type === 'dbt';
+                    if (match) delete updated[sched.name];
                 }
+                this.runningJobs = updated;
                 this.loadSchedules();
             }
         }
