@@ -236,3 +236,16 @@ class TriggerRequest(BaseModel):
     full_refresh: bool = False
     start_date: str | None = None
     end_date: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Sync trigger DTOs (used by web/routes/sync.py — remote sync trigger)
+# ---------------------------------------------------------------------------
+
+
+class SyncTriggerRequest(BaseModel):
+    """Remote sync trigger payload."""
+
+    sources: list[str]
+    full_refresh: bool = False
+    backfill: str | None = None  # "7d", "2w", "1m"

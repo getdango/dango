@@ -1,15 +1,34 @@
 """dango/web/routes/sync.py
 
-Source sync trigger endpoint and background sync task.
+Source sync trigger endpoint, background sync task, and remote sync trigger API.
 """
+
+from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 
-from dango.validation import validate_date_string, validate_source_name
+from dango.auth.audit import AuditEvent, log_auth_event
+from dango.auth.models import User
+from dango.auth.permissions import require_permission
+from dango.logging import get_logger
+from dango.platform.scheduling.history import (
+    get_execution_record,
+    get_scheduler_db_path,
+    record_completion,
+    record_failure,
+    record_start,
+)
+from dango.validation import (
+    parse_backfill_duration,
+    validate_date_string,
+    validate_source_name,
+)
 from dango.web.helpers import (
     append_log_entry,
     get_project_root,
@@ -17,10 +36,11 @@ from dango.web.helpers import (
     load_sources_config,
     save_sync_history_entry,
 )
-from dango.web.models import SyncRequest, SyncResponse
+from dango.web.models import SyncRequest, SyncResponse, SyncTriggerRequest
 from dango.web.routes.websocket import ws_manager
 
 logger = logging.getLogger(__name__)
+_logger = get_logger(__name__)
 
 router = APIRouter(tags=["sync"])
 
@@ -371,3 +391,168 @@ async def run_sync_task(
                 lock.release()
             except Exception:
                 pass
+
+
+# ---------------------------------------------------------------------------
+# Remote sync trigger API (TASK-040c)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/sync/trigger")
+async def trigger_manual_sync(
+    request: Request,
+    body: SyncTriggerRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(require_permission("source.sync")),
+) -> JSONResponse:
+    """Trigger a manual sync for one or more sources with execution history tracking.
+
+    Returns a ``job_id`` that can be polled via ``GET /api/sync/status/{job_id}``.
+    """
+    project_root = get_project_root()
+
+    # Validate sources exist
+    sources_config = load_sources_config()
+    known_names = {s.get("name") for s in sources_config}
+    for src in body.sources:
+        if src not in known_names:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "error_code": "DANGO-SYNC-001",
+                    "message": f"Source {src!r} not found.",
+                },
+            )
+
+    # Parse backfill duration
+    backfill_days: int | None = None
+    if body.backfill is not None:
+        try:
+            backfill_days = parse_backfill_duration(body.backfill)
+        except ValueError as exc:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "error_code": "DANGO-SYNC-002",
+                    "message": str(exc),
+                },
+            )
+
+    # Create execution history record
+    db_path = get_scheduler_db_path(project_root)
+    job_id = record_start(db_path, "manual", sources=body.sources)
+
+    # Launch background sync
+    background_tasks.add_task(
+        _run_manual_sync,
+        project_root,
+        body.sources,
+        body.full_refresh,
+        backfill_days,
+        job_id,
+        db_path,
+    )
+
+    # Audit log
+    log_auth_event(
+        AuditEvent.SYNC_TRIGGERED,
+        user_id=user.id,
+        email=user.email,
+        ip=request.client.host if request.client else None,
+        details={
+            "sources": body.sources,
+            "full_refresh": body.full_refresh,
+            "backfill": body.backfill,
+            "job_id": job_id,
+        },
+    )
+
+    return JSONResponse(
+        content={
+            "job_id": job_id,
+            "sources": body.sources,
+            "status": "started",
+        },
+    )
+
+
+async def _run_manual_sync(
+    project_root: Any,
+    source_names: list[str],
+    full_refresh: bool,
+    backfill_days: int | None,
+    record_id: int,
+    db_path: Any,
+) -> None:
+    """Background task that executes a manual sync and records the result."""
+    from dango.config.helpers import load_config
+    from dango.ingestion import run_sync
+    from dango.utils import DbtLock, DbtLockError
+
+    lock = None
+    try:
+        lock = DbtLock(
+            project_root=project_root,
+            source="manual",
+            operation=f"sync:{','.join(source_names)}",
+        )
+        lock.acquire()
+    except DbtLockError as exc:
+        record_failure(db_path, record_id, f"Lock unavailable: {exc}")
+        return
+
+    try:
+        config = load_config(project_root)
+        resolved = []
+        for name in source_names:
+            src = config.sources.get_source(name)
+            if src is not None:
+                resolved.append(src)
+
+        if not resolved:
+            msg = f"No valid sources found for: {', '.join(source_names)}"
+            _logger.warning("manual_sync_no_sources", source_names=source_names)
+            record_failure(db_path, record_id, msg)
+            return
+
+        start_date = None
+        if backfill_days is not None:
+            start_date = datetime.now(tz=timezone.utc) - timedelta(days=backfill_days)
+
+        run_sync(
+            project_root=project_root,
+            sources=resolved,
+            full_refresh=full_refresh,
+            start_date=start_date,
+        )
+
+        record_completion(db_path, record_id)
+    except Exception as exc:
+        _logger.warning("manual_sync_failed", error=str(exc), exc_info=True)
+        record_failure(db_path, record_id, str(exc))
+    finally:
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:
+                pass
+
+
+@router.get("/api/sync/status/{record_id}")
+async def get_sync_status(
+    record_id: int,
+    user: User = Depends(require_permission("source.sync")),
+) -> JSONResponse:
+    """Poll execution status for a manual sync job."""
+    project_root = get_project_root()
+    db_path = get_scheduler_db_path(project_root)
+    record = get_execution_record(db_path, record_id)
+    if record is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error_code": "DANGO-SYNC-003",
+                "message": f"Execution record {record_id} not found.",
+            },
+        )
+    return JSONResponse(content=record)
