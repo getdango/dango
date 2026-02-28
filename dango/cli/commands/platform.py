@@ -930,6 +930,25 @@ def status(ctx: click.Context) -> None:
             console.print()
             console.print(f"[dim]Logs: {fastapi_status['log_file']}[/dim]")
 
+        # Check for available updates (cached, non-blocking)
+        try:
+            from dango import __version__ as current_version
+            from dango.cli.commands.upgrade import _get_latest_version_cached
+
+            latest_version = _get_latest_version_cached(project_root)
+            if latest_version:
+                from packaging.version import Version
+
+                if Version(latest_version) > Version(current_version):
+                    console.print()
+                    console.print(
+                        f"[yellow]Update available:[/yellow] "
+                        f"{current_version} → [bold]{latest_version}[/bold]  "
+                        f"Run [cyan]dango upgrade[/cyan] to update."
+                    )
+        except Exception:  # noqa: BLE001
+            pass  # Never let version check break status output
+
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode

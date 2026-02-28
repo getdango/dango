@@ -32,6 +32,7 @@ class TestCliCommandRegistration:
             schedule_webhook,  # noqa: F401
             source,  # noqa: F401
             transform,  # noqa: F401
+            upgrade,  # noqa: F401
             web,  # noqa: F401
         )
 
@@ -69,6 +70,7 @@ class TestCliCommandRegistration:
             "status",
             "stop",
             "sync",
+            "upgrade",
             "validate",
             "web",
         ]
