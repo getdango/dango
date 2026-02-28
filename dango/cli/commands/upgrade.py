@@ -5,6 +5,7 @@ Local Dango upgrade command and PyPI version cache helper.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -15,13 +16,17 @@ import click
 from dango.cli import console
 
 _VERSION_CACHE_TTL = 86400  # 24 hours in seconds
+_NEGATIVE_CACHE_TTL = 300  # 5 minutes — avoid hammering a down PyPI
 
 
-def _get_latest_version_cached(project_root: Path) -> str | None:
+def get_latest_version_cached(project_root: Path) -> str | None:
     """Check PyPI for the latest getdango version, with 24h file cache.
 
     Returns the latest version string, or ``None`` if the check fails.
     Cache location: ``.dango/state/version_check.json``.
+
+    Negative results (PyPI unreachable) are cached for 5 minutes to avoid
+    repeated slow network calls on every ``dango status`` invocation.
     """
     import json
     from datetime import datetime, timezone
@@ -34,9 +39,10 @@ def _get_latest_version_cached(project_root: Path) -> str | None:
             data = json.loads(cache_path.read_text())
             checked_at = datetime.fromisoformat(data["checked_at"])
             age = (datetime.now(timezone.utc) - checked_at).total_seconds()
-            if age < _VERSION_CACHE_TTL:
-                version: str | None = data.get("version")
-                return version
+            cached_version: str | None = data.get("version")
+            ttl = _VERSION_CACHE_TTL if cached_version else _NEGATIVE_CACHE_TTL
+            if age < ttl:
+                return cached_version
         except Exception:  # noqa: BLE001
             pass  # Corrupt cache — fall through to PyPI
 
@@ -44,19 +50,18 @@ def _get_latest_version_cached(project_root: Path) -> str | None:
     from dango.platform.cloud.server_status import check_latest_pypi_version
 
     latest = check_latest_pypi_version()
-    if latest:
-        try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                json.dumps(
-                    {
-                        "version": latest,
-                        "checked_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                )
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            json.dumps(
+                {
+                    "version": latest,
+                    "checked_at": datetime.now(timezone.utc).isoformat(),
+                }
             )
-        except OSError:
-            pass  # Non-critical — can't write cache
+        )
+    except OSError:
+        pass  # Non-critical — can't write cache
     return latest
 
 
@@ -66,8 +71,6 @@ def _validate_version(version_str: str) -> None:
     Raises:
         click.BadParameter: If the version string is invalid.
     """
-    import re
-
     if not re.match(r"^\d+\.\d+\.\d+$", version_str):
         raise click.BadParameter(
             f"Invalid version: {version_str!r}. Expected format: X.Y.Z (e.g. 1.2.3)"
@@ -104,7 +107,7 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
     # Determine target version
     if target_version is None:
         console.print("[bold]Checking for updates...[/bold]")
-        latest = _get_latest_version_cached(project_root)
+        latest = get_latest_version_cached(project_root)
         if latest is None:
             console.print(
                 "[red]Error:[/red] Could not determine latest version from PyPI.\n"
@@ -177,12 +180,16 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
     console.print()
     console.print(f"[bold]Installing getdango=={target_version}...[/bold]")
 
-    pip_result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", f"getdango=={target_version}", "--quiet"],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
+    try:
+        pip_result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", f"getdango=={target_version}", "--quiet"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired as exc:
+        console.print("[red]Error:[/red] pip install timed out after 5 minutes.")
+        raise SystemExit(1) from exc
 
     if pip_result.returncode != 0:
         console.print("[red]Error:[/red] pip install failed.")
@@ -211,6 +218,7 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
                     )
     except Exception as exc:
         console.print(f"[red]Migration error:[/red] {exc}")
+        # NOTE: ``dango restore`` is planned for Phase 8 (local backup).
         console.print(
             "\n[yellow]The package was upgraded but migrations failed.[/yellow]\n"
             "If you have a backup, run [bold]dango restore <path>[/bold] to roll back.\n"

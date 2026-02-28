@@ -933,9 +933,9 @@ def status(ctx: click.Context) -> None:
         # Check for available updates (cached, non-blocking)
         try:
             from dango import __version__ as current_version
-            from dango.cli.commands.upgrade import _get_latest_version_cached
+            from dango.cli.commands.upgrade import get_latest_version_cached
 
-            latest_version = _get_latest_version_cached(project_root)
+            latest_version = get_latest_version_cached(project_root)
             if latest_version:
                 from packaging.version import Version
 
