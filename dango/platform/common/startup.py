@@ -14,6 +14,22 @@ from pathlib import Path
 from typing import Any
 
 
+def rotate_logs(project_root: Path) -> None:
+    """Rotate JSONL log files if size or age thresholds are exceeded.
+
+    Rotates ``audit.jsonl`` and ``activity.jsonl`` using gzip compression.
+    Never raises — delegates to never-fail rotation functions.
+
+    Args:
+        project_root: Project root directory.
+    """
+    from dango.utils.log_rotation import rotate_jsonl_log
+
+    log_dir = project_root / ".dango" / "logs"
+    rotate_jsonl_log(log_dir / "audit.jsonl")
+    rotate_jsonl_log(log_dir / "activity.jsonl")
+
+
 def run_pending_migrations(project_root: Path) -> dict[str, Any]:
     """
     Run all pending database migrations.

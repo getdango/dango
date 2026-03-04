@@ -7,12 +7,14 @@ from .startup import (
     ensure_dbt_schemas,
     ensure_duckdb_driver,
     import_dashboards,
+    rotate_logs,
     run_pending_migrations,
     setup_metabase_if_needed,
     start_docker_services,
 )
 
 __all__ = [
+    "rotate_logs",
     "run_pending_migrations",
     "ensure_dbt_schemas",
     "ensure_duckdb_driver",

@@ -140,6 +140,7 @@ def start(ctx: click.Context) -> None:
         ensure_dbt_schemas,
         ensure_duckdb_driver,
         import_dashboards,
+        rotate_logs,
         run_pending_migrations,
         setup_metabase_if_needed,
         start_docker_services,
@@ -159,6 +160,9 @@ def start(ctx: click.Context) -> None:
         config = config_loader.load_config()
         project_name = config.project.name
         platform_config = config.platform
+
+        # Rotate JSONL logs (never-fail)
+        rotate_logs(project_root)
 
         # Auto-migrate databases
         try:

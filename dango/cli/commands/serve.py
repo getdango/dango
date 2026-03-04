@@ -41,6 +41,7 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
         ensure_dbt_schemas,
         ensure_duckdb_driver,
         import_dashboards,
+        rotate_logs,
         run_pending_migrations,
         setup_metabase_if_needed,
         start_docker_services,
@@ -64,6 +65,9 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
     project_name = config.project.name
     organization = getattr(config.project, "organization", None)
     effective_port = port if port is not None else config.platform.port
+
+    # 0. Log rotation (never-fail)
+    rotate_logs(project_root)
 
     # 1. Migrations
     try:
