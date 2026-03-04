@@ -252,6 +252,29 @@ class TestFileRotation:
         handler = self._get_file_handler(tmp_path)
         assert handler.rotator is not None
 
+    def test_should_rollover_triggers_on_size(self, tmp_path: Path) -> None:
+        handler = self._get_file_handler(tmp_path)
+        log_file = tmp_path / "logs" / "dango.log"
+
+        # Write data exceeding maxBytes (10 MB)
+        big_line = "x" * (10 * 1024 * 1024 + 1) + "\n"
+        log_file.write_text(big_line)
+
+        # Re-open stream so handler sees the new content
+        handler.stream.close()
+        handler.stream = open(handler.baseFilename, handler.mode, encoding=handler.encoding)
+
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="trigger",
+            args=(),
+            exc_info=None,
+        )
+        assert handler.shouldRollover(record) == 1
+
 
 @pytest.mark.unit
 class TestCorrelationIds:

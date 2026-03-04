@@ -146,6 +146,22 @@ class TestRotateJsonlLog:
         # Original file should still exist
         assert log.exists()
 
+    def test_recovers_data_on_compression_failure(self, tmp_path: Path) -> None:
+        log = tmp_path / "audit.jsonl"
+        content = _write_jsonl(log, _MAX_FILE_SIZE + 1024)
+
+        with patch("dango.utils.log_rotation.gzip.open", side_effect=OSError("disk full")):
+            rotate_jsonl_log(log)  # should not raise (never-fail contract)
+
+        # Original data should be restored (possibly with new data appended)
+        assert log.exists()
+        assert log.read_text().startswith(content[:100])
+        # No .rotating temp file should be left behind
+        assert not (tmp_path / "audit.jsonl.rotating").exists()
+        # No partial archive should exist
+        archives = list(tmp_path.glob("audit.*.jsonl.gz"))
+        assert len(archives) == 0
+
     def test_cleans_up_leftover_rotating_file(self, tmp_path: Path) -> None:
         log = tmp_path / "audit.jsonl"
         leftover = tmp_path / "audit.jsonl.rotating"
@@ -183,6 +199,17 @@ class TestCleanupOldArchives:
             side_effect=OSError("fail"),
         ):
             cleanup_old_archives(tmp_path, "*.gz")  # should not raise
+
+    def test_deletes_counter_suffixed_old_archives(self, tmp_path: Path) -> None:
+        # Counter-suffixed archive from same-day collision (e.g. audit.20250101_1.jsonl.gz)
+        old_archive = tmp_path / "audit.20250101_1.jsonl.gz"
+        old_archive.write_bytes(b"old_counter")
+        old_time = time.time() - (91 * 86_400)
+        os.utime(old_archive, (old_time, old_time))
+
+        cleanup_old_archives(tmp_path, "audit.*.jsonl.gz", max_age_days=90)
+
+        assert not old_archive.exists()
 
     def test_noop_on_missing_directory(self) -> None:
         cleanup_old_archives(Path("/nonexistent/dir"), "*.gz")

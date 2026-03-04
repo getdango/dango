@@ -130,7 +130,7 @@ def _rotate_jsonl_log_impl(log_path: Path, max_age_days: int) -> None:
         archive_path = log_path.parent / archive_name
 
     # Rotate: atomic rename → touch new → compress → delete temp
-    tmp_path = log_path.with_suffix(".jsonl.rotating")
+    tmp_path = log_path.parent / (log_path.name + ".rotating")
 
     # Clean up any leftover temp file from a previous failed rotation
     if tmp_path.exists():
@@ -141,12 +141,24 @@ def _rotate_jsonl_log_impl(log_path: Path, max_age_days: int) -> None:
     # Create new empty file so writers can continue immediately
     log_path.touch()
 
-    # Compress the renamed file into the archive
-    with open(tmp_path, "rb") as f_in:
-        with gzip.open(archive_path, "wb") as f_out:
-            shutil.copyfileobj(f_in, f_out)
-
-    tmp_path.unlink()
+    # Compress the renamed file into the archive.
+    # On failure, restore the original so data is not stranded in .rotating.
+    try:
+        with open(tmp_path, "rb") as f_in:
+            with gzip.open(archive_path, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        tmp_path.unlink()
+    except Exception:
+        # Remove partial archive if it was created
+        if archive_path.exists():
+            archive_path.unlink()
+        # Restore: prepend old data back into the (now-empty) live file
+        if tmp_path.exists():
+            new_data = log_path.read_bytes()
+            old_data = tmp_path.read_bytes()
+            log_path.write_bytes(old_data + new_data)
+            tmp_path.unlink()
+        raise
 
     _logger.info(
         "log_rotated",

@@ -5,6 +5,9 @@ Shared startup helpers for platform lifecycle.
 Contains logic extracted from cli/commands/platform.py for reuse by both
 `dango start` (local) and `dango serve` (cloud, TASK-026). All functions
 raise exceptions on failure; callers handle display and user interaction.
+
+Exception: ``rotate_logs()`` follows the never-fail contract — errors are
+logged as warnings, never raised.
 """
 
 from __future__ import annotations
