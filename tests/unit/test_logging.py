@@ -57,7 +57,7 @@ class TestConfigureLogging:
         configure_logging(log_dir=log_dir, json_console=True)
         root = logging.getLogger()
         handler_types = [type(h).__name__ for h in root.handlers]
-        assert "RotatingFileHandler" in handler_types
+        assert "_DangoFileHandler" in handler_types
 
     def test_creates_console_handler(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
@@ -110,7 +110,7 @@ class TestConfigureLogging:
         # File handler should NOT be present
         root = logging.getLogger()
         handler_types = [type(h).__name__ for h in root.handlers]
-        assert "RotatingFileHandler" not in handler_types
+        assert "_DangoFileHandler" not in handler_types
         assert "StreamHandler" in handler_types
 
 
@@ -216,25 +216,66 @@ class TestJSONOutput:
 
 @pytest.mark.unit
 class TestFileRotation:
-    def test_max_bytes_configured(self, tmp_path: Path) -> None:
+    def _get_file_handler(self, tmp_path: Path) -> logging.Handler:
         log_dir = tmp_path / "logs"
         configure_logging(log_dir=log_dir, json_console=True)
         root = logging.getLogger()
-        rotating_handlers = [
-            h for h in root.handlers if isinstance(h, logging.handlers.RotatingFileHandler)
+        timed_handlers = [
+            h for h in root.handlers if isinstance(h, logging.handlers.TimedRotatingFileHandler)
         ]
-        assert len(rotating_handlers) == 1
-        assert rotating_handlers[0].maxBytes == 10 * 1024 * 1024
+        assert len(timed_handlers) == 1
+        return timed_handlers[0]
+
+    def test_is_timed_rotating_handler(self, tmp_path: Path) -> None:
+        handler = self._get_file_handler(tmp_path)
+        assert isinstance(handler, logging.handlers.TimedRotatingFileHandler)
+
+    def test_rotates_daily_at_midnight(self, tmp_path: Path) -> None:
+        handler = self._get_file_handler(tmp_path)
+        assert handler.when == "MIDNIGHT"
 
     def test_backup_count_configured(self, tmp_path: Path) -> None:
-        log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
-        root = logging.getLogger()
-        rotating_handlers = [
-            h for h in root.handlers if isinstance(h, logging.handlers.RotatingFileHandler)
-        ]
-        assert len(rotating_handlers) == 1
-        assert rotating_handlers[0].backupCount == 5
+        handler = self._get_file_handler(tmp_path)
+        assert handler.backupCount == 30
+
+    def test_max_bytes_configured(self, tmp_path: Path) -> None:
+        handler = self._get_file_handler(tmp_path)
+        assert handler.maxBytes == 10 * 1024 * 1024
+
+    def test_gzip_namer_configured(self, tmp_path: Path) -> None:
+        handler = self._get_file_handler(tmp_path)
+        assert handler.namer is not None
+        # Namer should append .gz
+        assert handler.namer("dango.log.20260303") == "dango.log.20260303.gz"
+
+    def test_gzip_rotator_configured(self, tmp_path: Path) -> None:
+        handler = self._get_file_handler(tmp_path)
+        assert handler.rotator is not None
+
+    def test_should_rollover_triggers_on_size(self, tmp_path: Path) -> None:
+        handler = self._get_file_handler(tmp_path)
+        log_file = tmp_path / "logs" / "dango.log"
+
+        # Write data exceeding maxBytes (10 MB)
+        big_line = "x" * (10 * 1024 * 1024 + 1) + "\n"
+        log_file.write_text(big_line)
+
+        # Re-open stream so handler sees the new content
+        handler.stream.close()
+        handler.stream = open(  # noqa: SIM115
+            handler.baseFilename, handler.mode, encoding=handler.encoding
+        )
+
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg="trigger",
+            args=(),
+            exc_info=None,
+        )
+        assert handler.shouldRollover(record) == 1
 
 
 @pytest.mark.unit

@@ -5,6 +5,9 @@ Shared startup helpers for platform lifecycle.
 Contains logic extracted from cli/commands/platform.py for reuse by both
 `dango start` (local) and `dango serve` (cloud, TASK-026). All functions
 raise exceptions on failure; callers handle display and user interaction.
+
+Exception: ``rotate_logs()`` follows the never-fail contract — errors are
+logged as warnings, never raised.
 """
 
 from __future__ import annotations
@@ -12,6 +15,22 @@ from __future__ import annotations
 import socket
 from pathlib import Path
 from typing import Any
+
+
+def rotate_logs(project_root: Path) -> None:
+    """Rotate JSONL log files if size or age thresholds are exceeded.
+
+    Rotates ``audit.jsonl`` and ``activity.jsonl`` using gzip compression.
+    Never raises — delegates to never-fail rotation functions.
+
+    Args:
+        project_root: Project root directory.
+    """
+    from dango.utils.log_rotation import rotate_jsonl_log
+
+    log_dir = project_root / ".dango" / "logs"
+    rotate_jsonl_log(log_dir / "audit.jsonl")
+    rotate_jsonl_log(log_dir / "activity.jsonl")
 
 
 def run_pending_migrations(project_root: Path) -> dict[str, Any]:

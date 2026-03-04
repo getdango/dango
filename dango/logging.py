@@ -17,12 +17,16 @@ Public API:
 
 from __future__ import annotations
 
+import gzip
 import logging
 import logging.config
 import logging.handlers
 import os
+import re
+import shutil
 import warnings
 from pathlib import Path
+from typing import Any
 
 import structlog
 from structlog.contextvars import (
@@ -43,7 +47,56 @@ __all__ = [
 # Defaults
 _DEFAULT_LOG_LEVEL = "INFO"
 _DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
-_DEFAULT_BACKUP_COUNT = 5
+_DEFAULT_BACKUP_COUNT = 30  # 30 daily archives
+
+# Pattern for the date suffix appended by TimedRotatingFileHandler
+_DATE_SUFFIX_RE = re.compile(r"^\d{8}\.gz$", re.ASCII)
+
+
+class _DangoFileHandler(logging.handlers.TimedRotatingFileHandler):
+    """Daily rotation with gzip compression and mid-day size guard.
+
+    Combines ``TimedRotatingFileHandler`` (daily at midnight) with a file-size
+    check so that runaway logging mid-day still triggers a rotation.  Archives
+    are gzip-compressed with a compact ``YYYYMMDD`` date suffix.
+    """
+
+    def __init__(self, *args: Any, maxBytes: int = 0, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.maxBytes = maxBytes
+        # Override suffix/extMatch for YYYYMMDD.gz naming
+        self.suffix = "%Y%m%d"
+        self.extMatch = _DATE_SUFFIX_RE
+        self.namer = self._gzip_namer
+        self.rotator = self._gzip_rotator
+
+    # -- naming / compression callbacks ------------------------------------
+
+    @staticmethod
+    def _gzip_namer(name: str) -> str:
+        """Append ``.gz`` to the rotated filename."""
+        return name + ".gz"
+
+    @staticmethod
+    def _gzip_rotator(source: str, dest: str) -> None:
+        """Gzip-compress *source* into *dest*, then remove *source*."""
+        with open(source, "rb") as f_in:
+            with gzip.open(dest, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        os.remove(source)
+
+    # -- rollover trigger --------------------------------------------------
+
+    def shouldRollover(self, record: logging.LogRecord) -> int:  # noqa: N802
+        """Check both time and size triggers for rotation."""
+        if super().shouldRollover(record):
+            return 1
+        # Mid-day size guard
+        if self.maxBytes > 0 and self.stream:
+            self.stream.seek(0, 2)  # seek to end
+            if self.stream.tell() >= self.maxBytes:
+                return 1
+        return 0
 
 
 def _resolve_log_level(log_level: str | None) -> str:
@@ -186,11 +239,12 @@ def _setup_file_handler(
         return False
 
     handlers["file"] = {
-        "class": "logging.handlers.RotatingFileHandler",
+        "()": _DangoFileHandler,
         "formatter": "json",
         "filename": str(log_file),
-        "maxBytes": _DEFAULT_MAX_BYTES,
+        "when": "midnight",
         "backupCount": _DEFAULT_BACKUP_COUNT,
+        "maxBytes": _DEFAULT_MAX_BYTES,
         "level": level,
         "encoding": "utf-8",
     }
