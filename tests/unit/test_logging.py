@@ -262,7 +262,9 @@ class TestFileRotation:
 
         # Re-open stream so handler sees the new content
         handler.stream.close()
-        handler.stream = open(handler.baseFilename, handler.mode, encoding=handler.encoding)
+        handler.stream = open(  # noqa: SIM115
+            handler.baseFilename, handler.mode, encoding=handler.encoding
+        )
 
         record = logging.LogRecord(
             name="test",
