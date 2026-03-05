@@ -82,8 +82,14 @@ def _collect_dbt_artifacts(project_root: Path) -> list[tuple[Path, int]]:
     return results
 
 
+_SKIP_DIRS = {"venv", ".venv", "node_modules", ".git", ".tox"}
+
+
 def _collect_pycache(project_root: Path) -> list[tuple[Path, int]]:
     """Find __pycache__ directories under the project root.
+
+    Skips virtual environments, node_modules, and .git directories to avoid
+    unnecessary traversal and churn.
 
     Args:
         project_root: Project root directory.
@@ -92,9 +98,19 @@ def _collect_pycache(project_root: Path) -> list[tuple[Path, int]]:
         List of (directory_path, total_size_bytes) for each __pycache__ dir.
     """
     results: list[tuple[Path, int]] = []
+    seen_parents: set[Path] = set()
 
     for cache_dir in project_root.rglob("__pycache__"):
         if not cache_dir.is_dir():
+            continue
+
+        # Skip directories inside venv, .git, etc.
+        parts = cache_dir.relative_to(project_root).parts
+        if _SKIP_DIRS.intersection(parts):
+            continue
+
+        # Skip nested __pycache__ already covered by a parent
+        if any(cache_dir.is_relative_to(parent) for parent in seen_parents):
             continue
 
         total_size = 0
@@ -106,6 +122,7 @@ def _collect_pycache(project_root: Path) -> list[tuple[Path, int]]:
                     continue
 
         results.append((cache_dir, total_size))
+        seen_parents.add(cache_dir)
 
     return results
 
@@ -227,15 +244,14 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool) -> No
 
         # Log archives
         if log_archives:
-            # Use cleanup_old_archives which handles deletion safely
-            for pattern in ("audit.*.jsonl.gz", "activity.*.jsonl.gz"):
-                cleanup_old_archives(log_dir, pattern, max_age_days)
-            # Also clean any other archive patterns
+            log_size_before = get_log_disk_usage(log_dir)["total_bytes"]
             cleanup_old_archives(log_dir, "*.jsonl.gz", max_age_days)
-            freed += log_total
+            log_size_after = get_log_disk_usage(log_dir)["total_bytes"]
+            log_freed = max(0, log_size_before - log_size_after)
+            freed += log_freed
             console.print(
                 f"[green]\u2713[/green] Removed {len(log_archives)} log archive(s)"
-                f" ({_format_size(log_total)})"
+                f" ({_format_size(log_freed)})"
             )
 
         # dbt artifacts
@@ -254,18 +270,23 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool) -> No
 
         # Python cache
         cache_removed = 0
+        cache_freed = 0
         for path, size in pycache_dirs:
+            if not path.exists():
+                # Already removed as child of a parent __pycache__
+                continue
             try:
                 shutil.rmtree(path)
-                freed += size
+                cache_freed += size
                 cache_removed += 1
             except OSError:
                 continue
 
+        freed += cache_freed
         if cache_removed:
             console.print(
                 f"[green]\u2713[/green] Removed {cache_removed} __pycache__ dir(s)"
-                f" ({_format_size(cache_total)})"
+                f" ({_format_size(cache_freed)})"
             )
 
         # --- After summary ---
