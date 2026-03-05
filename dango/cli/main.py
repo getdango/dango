@@ -10,6 +10,7 @@ import click
 
 from dango import __version__
 from dango.cli.commands.auth import auth
+from dango.cli.commands.cleanup import cleanup
 from dango.cli.commands.config_cmd import config
 from dango.cli.commands.dashboard import dashboard
 from dango.cli.commands.data import db, validate
@@ -75,6 +76,7 @@ cli.add_command(validate)
 cli.add_command(web)
 cli.add_command(serve)
 cli.add_command(upgrade)
+cli.add_command(cleanup)
 
 # --- Register command groups ---
 cli.add_command(source)
