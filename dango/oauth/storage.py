@@ -212,7 +212,11 @@ class OAuthStorage:
             else:
                 # Non-Google: flat parameters are the credentials
                 # Check for common OAuth credential keys
-                if "access_token" in source_section or "api_key" in source_section:
+                if (
+                    "access_token" in source_section
+                    or "api_key" in source_section
+                    or "private_app_password" in source_section
+                ):
                     creds = source_section
                 else:
                     return None
@@ -280,7 +284,11 @@ class OAuthStorage:
                         continue
                 else:
                     # Non-Google: flat parameters are the credentials
-                    if "access_token" in source_section or "api_key" in source_section:
+                    if (
+                        "access_token" in source_section
+                        or "api_key" in source_section
+                        or "private_app_password" in source_section
+                    ):
                         creds = source_section
                     else:
                         continue

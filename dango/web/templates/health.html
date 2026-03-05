@@ -160,6 +160,19 @@
                 </div>
             </div>
 
+            <!-- OAuth Token Health -->
+            <div id="oauth-health" class="bg-white rounded-lg shadow hidden">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <h2 class="text-lg font-semibold text-gray-900">OAuth Tokens</h2>
+                </div>
+                <div class="p-6">
+                    <div id="oauth-health-list" class="space-y-3"></div>
+                    <div class="mt-4">
+                        <a href="/settings/secrets" class="text-sm text-blue-600 hover:text-blue-800">Manage credentials &rarr;</a>
+                    </div>
+                </div>
+            </div>
+
             <!-- Disk Breakdown by Component -->
             <div id="disk-breakdown" class="bg-white rounded-lg shadow hidden">
                 <div class="px-6 py-4 border-b border-gray-200">
@@ -380,6 +393,29 @@
                 }
 
                 listEl.innerHTML = rows;
+            }
+
+            // OAuth Token Health
+            if (health.oauth_health && health.oauth_health.length > 0) {
+                document.getElementById('oauth-health').classList.remove('hidden');
+                const oauthList = document.getElementById('oauth-health-list');
+                oauthList.innerHTML = health.oauth_health.map(t => {
+                    let statusClass, statusText;
+                    if (t.is_expired) {
+                        statusClass = 'bg-red-100 text-red-800';
+                        statusText = 'Expired';
+                    } else if (t.days_until_expiry !== null && t.days_until_expiry <= 7) {
+                        statusClass = 'bg-yellow-100 text-yellow-800';
+                        statusText = `Expires in ${t.days_until_expiry}d`;
+                    } else {
+                        statusClass = 'bg-green-100 text-green-800';
+                        statusText = t.days_until_expiry !== null ? `${t.days_until_expiry}d remaining` : 'No expiry';
+                    }
+                    return `<div class="flex justify-between items-center">
+                        <dt class="text-sm text-gray-600">${escapeHtml(t.source_type)} <span class="text-xs text-gray-400">(${escapeHtml(t.provider)})</span></dt>
+                        <dd><span class="px-2 py-1 text-xs rounded-full ${statusClass}">${escapeHtml(statusText)}</span></dd>
+                    </div>`;
+                }).join('');
             }
 
             // Cloud resources (CPU, RAM, Backup)
