@@ -3,7 +3,10 @@
 DuckDB Health Monitoring and Disk Space Utilities.
 """
 
+import logging
 import shutil
+import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +14,8 @@ import duckdb
 from rich.console import Console
 
 from dango.exceptions import DiskSpaceError, DuckDBHealthError
+
+logger = logging.getLogger(__name__)
 
 console = Console()
 
@@ -207,6 +212,148 @@ def get_disk_usage_summary(project_root: Path) -> dict[str, Any]:
     except Exception as e:
         console.print(f"[yellow]⚠️  Could not get disk usage: {e}[/yellow]")
         return {"free_gb": 0, "total_gb": 0, "used_gb": 0, "used_pct": 0, "status": "unknown"}
+
+
+def _dir_size_bytes(path: Path) -> int:
+    """Sum file sizes in a directory tree.
+
+    Returns 0 if the directory does not exist or is empty.
+    """
+    if not path.is_dir():
+        return 0
+    total = 0
+    try:
+        for f in path.rglob("*"):
+            if f.is_file():
+                try:
+                    total += f.stat().st_size
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return total
+
+
+_component_disk_cache: dict[str, Any] | None = None
+_component_disk_cache_time: float = 0
+_COMPONENT_DISK_TTL: float = 60  # seconds
+
+
+def get_component_disk_usage(project_root: Path) -> dict[str, Any]:
+    """Get per-component disk usage breakdown.
+
+    Collects sizes for DuckDB (file + per-schema estimates), Metabase H2,
+    CSV uploads (per source), dbt artifacts, dlt pipeline state, and backups.
+
+    Results are cached for 60 seconds to avoid repeated directory traversal
+    on the 30-second health poll interval.
+
+    Args:
+        project_root: Path to Dango project root directory.
+
+    Returns:
+        Dictionary with per-component sizes in MB, plus a total.
+        Missing components return 0 or None (never raises).
+    """
+    global _component_disk_cache, _component_disk_cache_time  # noqa: PLW0603
+    now = time.monotonic()
+    if (
+        _component_disk_cache is not None
+        and (now - _component_disk_cache_time) < _COMPONENT_DISK_TTL
+    ):
+        return _component_disk_cache
+    result: dict[str, Any] = {}
+
+    # DuckDB file size + per-schema estimates
+    duckdb_info: dict[str, Any] = {"file_size_mb": 0, "schema_sizes": {}}
+    duckdb_path = project_root / "data" / "warehouse.duckdb"
+    try:
+        if duckdb_path.exists():
+            duckdb_info["file_size_mb"] = round(duckdb_path.stat().st_size / (1024**2), 2)
+            # Per-schema estimated sizes (read-only connection)
+            try:
+                conn = duckdb.connect(str(duckdb_path), read_only=True)
+                try:
+                    rows = conn.execute(
+                        "SELECT schema_name, COALESCE(SUM(estimated_size), 0) "
+                        "FROM duckdb_tables() GROUP BY schema_name"
+                    ).fetchall()
+                    duckdb_info["schema_sizes"] = {row[0]: int(row[1]) for row in rows}
+                finally:
+                    conn.close()
+            except Exception:  # noqa: BLE001
+                logger.debug("duckdb_schema_sizes_failed", exc_info=True)
+    except Exception:  # noqa: BLE001
+        logger.debug("duckdb_file_size_failed", exc_info=True)
+    result["duckdb"] = duckdb_info
+
+    # Metabase H2 database size (inside Docker container)
+    metabase_info: dict[str, Any] = {"size_mb": None}
+    try:
+        proc = subprocess.run(  # noqa: S603
+            [
+                "docker",
+                "compose",
+                "exec",
+                "-T",
+                "metabase",
+                "stat",
+                "-c",
+                "%s",
+                "/metabase-data/metabase.db.mv.db",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=project_root,
+        )
+        if proc.returncode == 0 and proc.stdout.strip().isdigit():
+            metabase_info["size_mb"] = round(int(proc.stdout.strip()) / (1024**2), 2)
+    except Exception:  # noqa: BLE001
+        pass  # Container not running or Docker unavailable
+    result["metabase"] = metabase_info
+
+    # CSV uploads — per source subdirectory
+    csv_info: dict[str, Any] = {"total_mb": 0, "by_source": {}}
+    uploads_dir = project_root / "data" / "uploads"
+    try:
+        if uploads_dir.is_dir():
+            total_csv_bytes = 0
+            for child in sorted(uploads_dir.iterdir()):
+                if child.is_dir():
+                    source_bytes = _dir_size_bytes(child)
+                    csv_info["by_source"][child.name] = round(source_bytes / (1024**2), 2)
+                    total_csv_bytes += source_bytes
+            csv_info["total_mb"] = round(total_csv_bytes / (1024**2), 2)
+    except Exception:  # noqa: BLE001
+        logger.debug("csv_uploads_size_failed", exc_info=True)
+    result["csv_uploads"] = csv_info
+
+    # dbt artifacts
+    dbt_bytes = _dir_size_bytes(project_root / "dbt" / "target")
+    result["dbt_artifacts"] = {"size_mb": round(dbt_bytes / (1024**2), 2)}
+
+    # dlt pipeline state
+    dlt_bytes = _dir_size_bytes(project_root / ".dlt" / "pipelines")
+    result["dlt_pipelines"] = {"size_mb": round(dlt_bytes / (1024**2), 2)}
+
+    # Local backups
+    backup_bytes = _dir_size_bytes(project_root / ".dango" / "backups")
+    result["backups"] = {"size_mb": round(backup_bytes / (1024**2), 2)}
+
+    # Total across all components
+    total_mb = duckdb_info["file_size_mb"]
+    total_mb += metabase_info["size_mb"] or 0
+    total_mb += csv_info["total_mb"]
+    total_mb += result["dbt_artifacts"]["size_mb"]
+    total_mb += result["dlt_pipelines"]["size_mb"]
+    total_mb += result["backups"]["size_mb"]
+    result["total_mb"] = round(total_mb, 2)
+
+    _component_disk_cache = result
+    _component_disk_cache_time = now
+
+    return result
 
 
 def print_health_summary(project_root: Path, duckdb_path: Path) -> None:

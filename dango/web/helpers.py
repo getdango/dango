@@ -630,7 +630,11 @@ async def check_service_status_async(service_name: str) -> str:
 
 async def get_platform_health_data():
     """Gather platform health data (runs blocking operations in thread pool)."""
-    from dango.utils.db_health import check_duckdb_health, get_disk_usage_summary
+    from dango.utils.db_health import (
+        check_duckdb_health,
+        get_component_disk_usage,
+        get_disk_usage_summary,
+    )
 
     project_root = get_project_root()
     duckdb_path = get_duckdb_path()
@@ -655,6 +659,7 @@ async def get_platform_health_data():
     )
 
     disk_task = asyncio.create_task(asyncio.to_thread(get_disk_usage_summary, project_root))
+    breakdown_task = asyncio.create_task(asyncio.to_thread(get_component_disk_usage, project_root))
     sources_task = asyncio.create_task(asyncio.to_thread(load_sources_config))
 
     # Wait for all tasks
@@ -674,6 +679,12 @@ async def get_platform_health_data():
 
     disk = await disk_task
     sources_config = await sources_task
+
+    try:
+        disk_breakdown = await breakdown_task
+    except Exception as e:
+        logger.error(f"Error getting disk breakdown: {e}")
+        disk_breakdown: dict[str, Any] = {}
 
     # Check for failed syncs
     failed_syncs = []
@@ -734,6 +745,7 @@ async def get_platform_health_data():
     return {
         "db_health": db_health,
         "disk": disk,
+        "disk_breakdown": disk_breakdown,
         "sources_config": sources_config,
         "failed_syncs": failed_syncs,
         "failed_dbt": failed_dbt,

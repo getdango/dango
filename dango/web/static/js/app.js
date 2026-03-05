@@ -24,6 +24,19 @@ let loadSourcesRetryTimeout = null;
 let activeFileOperations = new Map();
 
 /**
+ * Format a file size in bytes to a human-readable string (B/KB/MB/GB).
+ * @param {number} bytes - Size in bytes
+ * @returns {string} Formatted size string
+ */
+function formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '-';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+/**
  * Add a file operation for tracking
  * @param {string} sourceName - Source name
  * @param {string} operationId - Unique operation ID
@@ -1279,7 +1292,7 @@ async function loadCsvFilesList(sourceName) {
                 statusIcon = '⚠';
             }
 
-            const sizeDisplay = file.size ? `${(file.size / 1024).toFixed(1)} KB` : '-';
+            const sizeDisplay = formatFileSize(file.size);
             const rowsDisplay = file.rows_loaded ? `${file.rows_loaded.toLocaleString()} rows` : '';
 
             // Add delete button for files on disk
