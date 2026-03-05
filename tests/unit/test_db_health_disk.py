@@ -1,9 +1,8 @@
 """tests/unit/test_db_health_disk.py
 
-Tests for disk monitoring utilities in dango.utils.db_health:
-- _dir_size_bytes()
-- get_component_disk_usage()
-- TTL cache for get_component_disk_usage()
+Tests for disk monitoring utilities in dango.utils.db_health.
+
+Covers _dir_size_bytes(), get_component_disk_usage(), and TTL cache behavior.
 """
 
 from __future__ import annotations
