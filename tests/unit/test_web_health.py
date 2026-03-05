@@ -2,18 +2,17 @@
 
 Tests for dango.web.routes.health — platform health endpoint.
 
-Focuses on the disk warning deduplication logic in get_platform_health():
-- Critical disk → critical_issues (no duplicate warning)
-- Disk >80% used → actionable 80% warning (suppresses "Low disk space")
-- Disk warning but <80% → generic "Low disk space"
-- Cloud vs local message variants
+Focuses on:
+- Disk warning deduplication logic in get_platform_health()
+- OAuth token health: expired → critical, expiring-soon → warning
+- Storage failure graceful degradation
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -232,3 +231,177 @@ class TestDiskWarningDeduplication:
         body = resp.json()
 
         assert body["disk_breakdown"] == {}
+
+
+# ---------------------------------------------------------------------------
+# OAuth health in platform health response
+# ---------------------------------------------------------------------------
+
+
+def _make_expired_credential() -> MagicMock:
+    """Create a mock OAuthCredential that is expired."""
+    cred = MagicMock()
+    cred.source_type = "facebook_ads"
+    cred.provider = "facebook"
+    cred.is_expired.return_value = True
+    cred.is_expiring_soon.return_value = True
+    cred.days_until_expiry.return_value = 0
+    return cred
+
+
+def _make_expiring_credential(days: int = 3) -> MagicMock:
+    """Create a mock OAuthCredential expiring in N days."""
+    cred = MagicMock()
+    cred.source_type = "shopify"
+    cred.provider = "shopify"
+    cred.is_expired.return_value = False
+    cred.is_expiring_soon.return_value = True
+    cred.days_until_expiry.return_value = days
+    return cred
+
+
+def _make_healthy_credential() -> MagicMock:
+    """Create a mock OAuthCredential with no expiry concerns."""
+    cred = MagicMock()
+    cred.source_type = "google_sheets"
+    cred.provider = "google"
+    cred.is_expired.return_value = False
+    cred.is_expiring_soon.return_value = False
+    cred.days_until_expiry.return_value = None
+    return cred
+
+
+@pytest.mark.unit
+class TestOAuthHealth:
+    """OAuth token health in the /api/health/platform response."""
+
+    @patch(
+        "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
+    )
+    @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
+    @patch("dango.web.routes.health.OAuthStorage")
+    def test_expired_token_in_critical_issues(
+        self,
+        mock_storage_cls: MagicMock,
+        mock_data: AsyncMock,
+        mock_cloud: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        """Expired OAuth token → critical_issues entry."""
+        mock_data.return_value = _base_health_data()
+        mock_storage_cls.return_value.list.return_value = [_make_expired_credential()]
+        app = _make_app(tmp_path)
+        client = TestClient(app)
+
+        resp = client.get("/api/health/platform")
+        body = resp.json()
+
+        oauth_criticals = [i for i in body["critical_issues"] if "OAuth" in i]
+        assert len(oauth_criticals) == 1
+        assert "facebook_ads" in oauth_criticals[0]
+        assert body["status"] == "critical"
+
+    @patch(
+        "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
+    )
+    @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
+    @patch("dango.web.routes.health.OAuthStorage")
+    def test_expiring_soon_in_warnings(
+        self,
+        mock_storage_cls: MagicMock,
+        mock_data: AsyncMock,
+        mock_cloud: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        """Token expiring in 3 days → warning entry."""
+        mock_data.return_value = _base_health_data()
+        mock_storage_cls.return_value.list.return_value = [_make_expiring_credential(days=3)]
+        app = _make_app(tmp_path)
+        client = TestClient(app)
+
+        resp = client.get("/api/health/platform")
+        body = resp.json()
+
+        oauth_warnings = [w for w in body["warnings"] if "OAuth" in w]
+        assert len(oauth_warnings) == 1
+        assert "3 day" in oauth_warnings[0]
+        assert "shopify" in oauth_warnings[0]
+        assert body["status"] == "warning"
+
+    @patch(
+        "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
+    )
+    @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
+    @patch("dango.web.routes.health.OAuthStorage")
+    def test_no_expiry_no_warning(
+        self,
+        mock_storage_cls: MagicMock,
+        mock_data: AsyncMock,
+        mock_cloud: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        """Credential with no expiry → no OAuth warnings or criticals."""
+        mock_data.return_value = _base_health_data()
+        mock_storage_cls.return_value.list.return_value = [_make_healthy_credential()]
+        app = _make_app(tmp_path)
+        client = TestClient(app)
+
+        resp = client.get("/api/health/platform")
+        body = resp.json()
+
+        oauth_warnings = [w for w in body["warnings"] if "OAuth" in w]
+        oauth_criticals = [i for i in body["critical_issues"] if "OAuth" in i]
+        assert oauth_warnings == []
+        assert oauth_criticals == []
+
+    @patch(
+        "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
+    )
+    @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
+    @patch("dango.web.routes.health.OAuthStorage")
+    def test_storage_failure_graceful(
+        self,
+        mock_storage_cls: MagicMock,
+        mock_data: AsyncMock,
+        mock_cloud: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        """OAuthStorage failure → oauth_health is empty list, no crash."""
+        mock_data.return_value = _base_health_data()
+        mock_storage_cls.side_effect = RuntimeError("disk read failed")
+        app = _make_app(tmp_path)
+        client = TestClient(app)
+
+        resp = client.get("/api/health/platform")
+        body = resp.json()
+
+        assert resp.status_code == 200
+        assert body["oauth_health"] == []
+
+    @patch(
+        "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
+    )
+    @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
+    @patch("dango.web.routes.health.OAuthStorage")
+    def test_oauth_health_field_structure(
+        self,
+        mock_storage_cls: MagicMock,
+        mock_data: AsyncMock,
+        mock_cloud: AsyncMock,
+        tmp_path: Path,
+    ) -> None:
+        """oauth_health entries have expected fields."""
+        mock_data.return_value = _base_health_data()
+        mock_storage_cls.return_value.list.return_value = [_make_expiring_credential(days=5)]
+        app = _make_app(tmp_path)
+        client = TestClient(app)
+
+        resp = client.get("/api/health/platform")
+        body = resp.json()
+
+        assert len(body["oauth_health"]) == 1
+        entry = body["oauth_health"][0]
+        assert entry["source_type"] == "shopify"
+        assert entry["provider"] == "shopify"
+        assert entry["is_expired"] is False
+        assert entry["days_until_expiry"] == 5
