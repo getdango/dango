@@ -168,11 +168,11 @@ class TestFacebookStorage:
 
 @pytest.mark.unit
 class TestExistsBug:
-    """Document that exists() does not check private_app_password.
+    """Regression tests for exists() Shopify detection.
 
-    The P6-002 fix updated get() and list() to detect Shopify credentials
-    via ``private_app_password``, but missed updating exists().  This test
-    verifies the fix once exists() is patched.
+    P6-002 originally updated get() and list() to detect Shopify credentials
+    via ``private_app_password``, but missed exists() and delete().  This PR
+    fixes both; these tests prevent regression.
     """
 
     def test_exists_detects_shopify_after_fix(self, tmp_path: Path) -> None:
