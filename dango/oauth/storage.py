@@ -352,6 +352,7 @@ class OAuthStorage:
                         "api_secret",
                         "refresh_token",
                         "shop_url",
+                        "private_app_password",
                     }
                     for key in CREDENTIAL_KEYS:
                         if key in secrets["sources"][source_type]:
@@ -395,4 +396,8 @@ class OAuthStorage:
             return creds is not None and "client_id" in creds
         else:
             # Non-Google: check for common OAuth credential keys
-            return "access_token" in source_section or "api_key" in source_section
+            return (
+                "access_token" in source_section
+                or "api_key" in source_section
+                or "private_app_password" in source_section
+            )
