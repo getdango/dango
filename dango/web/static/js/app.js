@@ -874,6 +874,22 @@ function updateHealthWidget(health) {
         statusText.textContent = 'Unknown Status';
         statusText.className = 'text-lg font-semibold text-gray-800';
     }
+
+    // OAuth expiry warning banner
+    const oauthBanner = document.getElementById('oauth-expiry-banner');
+    if (oauthBanner && health.oauth_health) {
+        const expiring = health.oauth_health.filter(
+            t => t.is_expired || (t.days_until_expiry !== null && t.days_until_expiry <= 7)
+        );
+        if (expiring.length > 0 && !oauthBanner.dataset.dismissed) {
+            oauthBanner.classList.remove('hidden');
+            const text = document.getElementById('oauth-banner-text');
+            if (text) {
+                const names = expiring.map(t => t.source_type).join(', ');
+                text.textContent = `OAuth token${expiring.length > 1 ? 's' : ''} expiring soon: ${names}`;
+            }
+        }
+    }
 }
 
 function showSourcesLoading() {

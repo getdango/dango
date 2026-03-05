@@ -57,7 +57,7 @@ def make_facebook_credential(**overrides: Any) -> OAuthCredential:
     """Create a Facebook OAuth credential."""
     defaults: dict[str, Any] = {
         "source_type": "facebook_ads",
-        "provider": "facebook_ads",
+        "provider": "facebook",
         "identifier": "123456789",
         "account_info": "Facebook Ads Account (123456789)",
         "credentials": {

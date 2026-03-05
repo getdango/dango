@@ -365,7 +365,7 @@ class TestValidateToken:
 
     @patch("dango.oauth.validation.requests")
     def test_routes_facebook(self, mock_requests: MagicMock) -> None:
-        """Routes facebook_ads provider to validate_facebook_token."""
+        """Routes facebook provider to validate_facebook_token."""
         resp = MagicMock()
         resp.status_code = 200
         resp.json.return_value = {"name": "Test", "id": "123"}
@@ -374,7 +374,7 @@ class TestValidateToken:
         cred = make_facebook_credential()
         result = validate_token(cred)
         assert result.valid is True
-        assert result.provider == "facebook_ads"
+        assert result.provider == "facebook"
 
     @patch("dango.oauth.validation.requests")
     def test_routes_shopify(self, mock_requests: MagicMock) -> None:
@@ -559,7 +559,7 @@ class TestValidateAllTokens:
                 source_type="google_sheets", provider="google", valid=True, message="ok"
             ),
             TokenValidationResult(
-                source_type="facebook_ads", provider="facebook_ads", valid=False, message="revoked"
+                source_type="facebook_ads", provider="facebook", valid=False, message="revoked"
             ),
         ]
 

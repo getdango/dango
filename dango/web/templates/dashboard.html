@@ -97,6 +97,27 @@
             </a>
         </div>
 
+        <!-- OAuth Expiry Warning Banner -->
+        <div id="oauth-expiry-banner" class="mb-6 hidden" x-data="{ dismissed: false }" x-show="!dismissed">
+            <div class="rounded-lg shadow p-4 border-l-4 bg-yellow-50 border-yellow-500">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-2xl">&#128273;</span>
+                        <div>
+                            <p class="text-sm font-medium text-yellow-800" id="oauth-banner-text">OAuth tokens expiring soon</p>
+                            <a href="/settings/secrets" class="text-xs text-yellow-700 hover:text-yellow-900 underline">Manage credentials &rarr;</a>
+                        </div>
+                    </div>
+                    <button @click="dismissed = true; $el.closest('#oauth-expiry-banner').dataset.dismissed = 'true'; document.getElementById('oauth-expiry-banner').classList.add('hidden')"
+                            class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Service Status Cards - Logical workflow order: Data Catalog, Query Database, Dashboards, Activity Logs -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
             <!-- dbt Docs (Data Catalog) -->

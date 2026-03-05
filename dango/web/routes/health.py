@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from dango.oauth.storage import OAuthStorage
 from dango.web.helpers import (
     check_service_status_async,
     get_duckdb_path,
@@ -182,6 +183,33 @@ async def get_platform_health() -> dict[str, Any]:
             warnings.append(f"Backup is stale (>{_BACKUP_STALENESS_HOURS}h)")
         elif cloud_data["backup_health"]["status"] == "none":
             warnings.append("No backups configured")
+
+    # OAuth token health
+    oauth_health: list[dict[str, Any]] = []
+    try:
+        oauth_storage = OAuthStorage(project_root)
+        for cred in oauth_storage.list():
+            token_info: dict[str, Any] = {
+                "source_type": cred.source_type,
+                "provider": cred.provider,
+                "is_expired": cred.is_expired(),
+                "days_until_expiry": cred.days_until_expiry(),
+            }
+            oauth_health.append(token_info)
+            if cred.is_expired():
+                critical_issues.append(
+                    f"OAuth token expired for {cred.source_type}"
+                    " \u2014 reconnect at /settings/secrets"
+                )
+            elif cred.is_expiring_soon(days=7):
+                days = cred.days_until_expiry()
+                warnings.append(
+                    f"OAuth token for {cred.source_type} expires in {days} day(s)"
+                    " \u2014 reconnect at /settings/secrets"
+                )
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to check OAuth token health", exc_info=True)
+    result["oauth_health"] = oauth_health
 
     if critical_issues:
         result["status"] = "critical"
