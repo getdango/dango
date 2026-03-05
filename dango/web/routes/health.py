@@ -133,6 +133,14 @@ async def get_platform_health() -> dict[str, Any]:
     elif disk["status"] == "warning":
         warnings.append("Low disk space")
 
+    # Percentage-based proactive warning (independent of absolute GB thresholds)
+    if disk.get("used_pct", 0) > 80 and disk["status"] != "critical":
+        cloud_yml = Path(get_project_root()) / ".dango" / "cloud.yml"
+        if cloud_yml.exists():
+            warnings.append("Disk usage above 80% \u2014 consider resizing or running cleanup")
+        else:
+            warnings.append("Disk usage above 80% \u2014 run `dango cleanup` to free space")
+
     if db_health["status"] == "critical":
         warnings.append("Very large database")
     elif db_health["status"] == "large":
@@ -149,6 +157,7 @@ async def get_platform_health() -> dict[str, Any]:
         "timestamp": datetime.now().isoformat(),
         "database": db_health,
         "disk": disk,
+        "disk_breakdown": data.get("disk_breakdown", {}),
         "sync_failures": failed_syncs,
         "dbt_failures": failed_dbt,
         "total_sources": len(sources_config),

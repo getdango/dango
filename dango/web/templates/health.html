@@ -51,8 +51,8 @@
                 <div id="ram-detail" class="text-sm text-gray-500 mt-1">-</div>
             </div>
 
-            <!-- Disk Space - shown when cloud resources present -->
-            <div id="disk-card" class="bg-white rounded-lg shadow p-6 hidden">
+            <!-- Disk Space -->
+            <div id="disk-card" class="bg-white rounded-lg shadow p-6">
                 <div class="flex items-center justify-between mb-2">
                     <h3 class="text-sm font-medium text-gray-600">💾 Disk Space</h3>
                     <span id="disk-status-badge" class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Loading...</span>
@@ -133,8 +133,8 @@
                 </div>
             </div>
 
-            <!-- Disk Details - shown when cloud resources present -->
-            <div id="disk-details" class="bg-white rounded-lg shadow hidden">
+            <!-- Disk Details -->
+            <div id="disk-details" class="bg-white rounded-lg shadow">
                 <div class="px-6 py-4 border-b border-gray-200">
                     <h2 class="text-lg font-semibold text-gray-900">Disk Usage</h2>
                 </div>
@@ -156,6 +156,17 @@
                             <dt class="text-sm text-gray-600">Usage Percentage</dt>
                             <dd id="disk-used-pct" class="text-sm font-medium text-gray-900">-</dd>
                         </div>
+                    </dl>
+                </div>
+            </div>
+
+            <!-- Disk Breakdown by Component -->
+            <div id="disk-breakdown" class="bg-white rounded-lg shadow hidden">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <h2 class="text-lg font-semibold text-gray-900">Disk Breakdown by Component</h2>
+                </div>
+                <div class="p-6">
+                    <dl id="disk-breakdown-list" class="space-y-3">
                     </dl>
                 </div>
             </div>
@@ -280,13 +291,100 @@
                 diskBadge.textContent = 'Critical';
             }
 
-            // Cloud resources (CPU, RAM, Disk card, Backup)
+            // Disk Breakdown by Component
+            if (health.disk_breakdown && Object.keys(health.disk_breakdown).length > 0) {
+                const bd = health.disk_breakdown;
+                const breakdownEl = document.getElementById('disk-breakdown');
+                const listEl = document.getElementById('disk-breakdown-list');
+                breakdownEl.classList.remove('hidden');
+
+                function fmtMB(mb) {
+                    if (mb === null || mb === undefined) return 'N/A';
+                    if (mb < 1) return (mb * 1024).toFixed(0) + ' KB';
+                    if (mb >= 1024) return (mb / 1024).toFixed(2) + ' GB';
+                    return mb.toFixed(1) + ' MB';
+                }
+
+                let rows = '';
+
+                // DuckDB
+                if (bd.duckdb) {
+                    rows += `<div class="flex justify-between">
+                        <dt class="text-sm text-gray-600">DuckDB Database</dt>
+                        <dd class="text-sm font-medium text-gray-900">${fmtMB(bd.duckdb.file_size_mb)}</dd>
+                    </div>`;
+                    if (bd.duckdb.schema_sizes && Object.keys(bd.duckdb.schema_sizes).length > 0) {
+                        for (const [schema, bytes] of Object.entries(bd.duckdb.schema_sizes)) {
+                            rows += `<div class="flex justify-between pl-4">
+                                <dt class="text-xs text-gray-500">${escapeHtml(schema)}</dt>
+                                <dd class="text-xs text-gray-700">${fmtMB(bytes / (1024 * 1024))}</dd>
+                            </div>`;
+                        }
+                    }
+                }
+
+                // Metabase
+                if (bd.metabase) {
+                    rows += `<div class="flex justify-between">
+                        <dt class="text-sm text-gray-600">Metabase Database</dt>
+                        <dd class="text-sm font-medium text-gray-900">${fmtMB(bd.metabase.size_mb)}</dd>
+                    </div>`;
+                }
+
+                // CSV Uploads
+                if (bd.csv_uploads) {
+                    rows += `<div class="flex justify-between">
+                        <dt class="text-sm text-gray-600">CSV Uploads</dt>
+                        <dd class="text-sm font-medium text-gray-900">${fmtMB(bd.csv_uploads.total_mb)}</dd>
+                    </div>`;
+                    if (bd.csv_uploads.by_source && Object.keys(bd.csv_uploads.by_source).length > 0) {
+                        for (const [source, mb] of Object.entries(bd.csv_uploads.by_source)) {
+                            rows += `<div class="flex justify-between pl-4">
+                                <dt class="text-xs text-gray-500">${escapeHtml(source)}</dt>
+                                <dd class="text-xs text-gray-700">${fmtMB(mb)}</dd>
+                            </div>`;
+                        }
+                    }
+                }
+
+                // dbt Artifacts
+                if (bd.dbt_artifacts) {
+                    rows += `<div class="flex justify-between">
+                        <dt class="text-sm text-gray-600">dbt Artifacts</dt>
+                        <dd class="text-sm font-medium text-gray-900">${fmtMB(bd.dbt_artifacts.size_mb)}</dd>
+                    </div>`;
+                }
+
+                // dlt Pipelines
+                if (bd.dlt_pipelines) {
+                    rows += `<div class="flex justify-between">
+                        <dt class="text-sm text-gray-600">dlt Pipeline State</dt>
+                        <dd class="text-sm font-medium text-gray-900">${fmtMB(bd.dlt_pipelines.size_mb)}</dd>
+                    </div>`;
+                }
+
+                // Backups
+                if (bd.backups) {
+                    rows += `<div class="flex justify-between">
+                        <dt class="text-sm text-gray-600">Local Backups</dt>
+                        <dd class="text-sm font-medium text-gray-900">${fmtMB(bd.backups.size_mb)}</dd>
+                    </div>`;
+                }
+
+                // Total
+                if (bd.total_mb !== undefined) {
+                    rows += `<div class="flex justify-between border-t border-gray-200 pt-3 mt-3">
+                        <dt class="text-sm font-semibold text-gray-700">Total Tracked</dt>
+                        <dd class="text-sm font-bold text-gray-900">${fmtMB(bd.total_mb)}</dd>
+                    </div>`;
+                }
+
+                listEl.innerHTML = rows;
+            }
+
+            // Cloud resources (CPU, RAM, Backup)
             if (health.resources) {
                 const res = health.resources;
-
-                // Show disk card and details on cloud
-                document.getElementById('disk-card').classList.remove('hidden');
-                document.getElementById('disk-details').classList.remove('hidden');
 
                 // CPU card
                 if (res.cpu_usage_pct !== null) {
