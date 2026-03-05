@@ -6,6 +6,7 @@ DuckDB Health Monitoring and Disk Space Utilities.
 import logging
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -233,11 +234,19 @@ def _dir_size_bytes(path: Path) -> int:
     return total
 
 
+_component_disk_cache: dict[str, Any] | None = None
+_component_disk_cache_time: float = 0
+_COMPONENT_DISK_TTL: float = 60  # seconds
+
+
 def get_component_disk_usage(project_root: Path) -> dict[str, Any]:
     """Get per-component disk usage breakdown.
 
     Collects sizes for DuckDB (file + per-schema estimates), Metabase H2,
     CSV uploads (per source), dbt artifacts, dlt pipeline state, and backups.
+
+    Results are cached for 60 seconds to avoid repeated directory traversal
+    on the 30-second health poll interval.
 
     Args:
         project_root: Path to Dango project root directory.
@@ -246,6 +255,13 @@ def get_component_disk_usage(project_root: Path) -> dict[str, Any]:
         Dictionary with per-component sizes in MB, plus a total.
         Missing components return 0 or None (never raises).
     """
+    global _component_disk_cache, _component_disk_cache_time  # noqa: PLW0603
+    now = time.monotonic()
+    if (
+        _component_disk_cache is not None
+        and (now - _component_disk_cache_time) < _COMPONENT_DISK_TTL
+    ):
+        return _component_disk_cache
     result: dict[str, Any] = {}
 
     # DuckDB file size + per-schema estimates
@@ -333,6 +349,9 @@ def get_component_disk_usage(project_root: Path) -> dict[str, Any]:
     total_mb += result["dlt_pipelines"]["size_mb"]
     total_mb += result["backups"]["size_mb"]
     result["total_mb"] = round(total_mb, 2)
+
+    _component_disk_cache = result
+    _component_disk_cache_time = now
 
     return result
 
