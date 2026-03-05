@@ -108,7 +108,7 @@
                             <a href="/settings/secrets" class="text-xs text-yellow-700 hover:text-yellow-900 underline">Manage credentials &rarr;</a>
                         </div>
                     </div>
-                    <button @click="dismissed = true; document.getElementById('oauth-expiry-banner').classList.add('hidden')"
+                    <button @click="dismissed = true; $el.closest('#oauth-expiry-banner').dataset.dismissed = 'true'; document.getElementById('oauth-expiry-banner').classList.add('hidden')"
                             class="text-gray-400 hover:text-gray-600">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>

@@ -208,7 +208,7 @@ async def get_platform_health() -> dict[str, Any]:
                     " \u2014 reconnect at /settings/secrets"
                 )
     except Exception:  # noqa: BLE001
-        logger.warning("Failed to check OAuth token health")
+        logger.warning("Failed to check OAuth token health", exc_info=True)
     result["oauth_health"] = oauth_health
 
     if critical_issues:

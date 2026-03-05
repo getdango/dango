@@ -365,7 +365,7 @@ class TestValidateToken:
 
     @patch("dango.oauth.validation.requests")
     def test_routes_facebook(self, mock_requests: MagicMock) -> None:
-        """Routes facebook_ads provider to validate_facebook_token."""
+        """Routes facebook provider to validate_facebook_token."""
         resp = MagicMock()
         resp.status_code = 200
         resp.json.return_value = {"name": "Test", "id": "123"}
