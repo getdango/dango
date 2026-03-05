@@ -141,6 +141,24 @@ class TestDiskWarningDeduplication:
         "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
     )
     @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
+    def test_exactly_80pct_shows_low_disk(
+        self, mock_data: AsyncMock, mock_cloud: AsyncMock, tmp_path: Path
+    ) -> None:
+        """Exactly 80% → generic 'Low disk space', not the 80% actionable message."""
+        mock_data.return_value = _base_health_data(disk_status="warning", used_pct=80.0)
+        app = _make_app(tmp_path)
+        client = TestClient(app)
+
+        resp = client.get("/api/health/platform")
+        body = resp.json()
+
+        assert "Low disk space" in body["warnings"]
+        assert not any("80%" in w for w in body["warnings"])
+
+    @patch(
+        "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
+    )
+    @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
     def test_cloud_80pct_message(
         self, mock_data: AsyncMock, mock_cloud: AsyncMock, tmp_path: Path
     ) -> None:
