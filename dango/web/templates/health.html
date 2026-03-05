@@ -199,6 +199,13 @@
             return div.innerHTML;
         }
 
+        function fmtMB(mb) {
+            if (mb === null || mb === undefined) return 'N/A';
+            if (mb < 1) return (mb * 1024).toFixed(0) + ' KB';
+            if (mb >= 1024) return (mb / 1024).toFixed(2) + ' GB';
+            return mb.toFixed(1) + ' MB';
+        }
+
         async function fetchHealth() {
             try {
                 const response = await fetch('/api/health/platform');
@@ -297,13 +304,6 @@
                 const breakdownEl = document.getElementById('disk-breakdown');
                 const listEl = document.getElementById('disk-breakdown-list');
                 breakdownEl.classList.remove('hidden');
-
-                function fmtMB(mb) {
-                    if (mb === null || mb === undefined) return 'N/A';
-                    if (mb < 1) return (mb * 1024).toFixed(0) + ' KB';
-                    if (mb >= 1024) return (mb / 1024).toFixed(2) + ' GB';
-                    return mb.toFixed(1) + ' MB';
-                }
 
                 let rows = '';
 
