@@ -314,6 +314,18 @@ configure_logging()  # uses DANGO_LOG_LEVEL env var or defaults to INFO
 - `WARNING` — recoverable issues (retry, fallback used)
 - `ERROR` — failures requiring attention
 
+### Log rotation
+
+JSONL log files (audit.jsonl, activity.jsonl) are rotated by `dango/utils/log_rotation.py`. Rotation is triggered on platform startup (`platform/common/startup.py`) and by `dango cleanup`.
+
+**Rotation rules:**
+- Rotate when file exceeds 5 MB or is older than 1 day
+- Archives are gzip-compressed with YYYYMMDD date suffix (e.g., `audit.20260305.jsonl.gz`)
+- Same-day collisions get a counter suffix (e.g., `audit.20260305_1.jsonl.gz`)
+- Old archives are cleaned up after 90 days (configurable via `max_age_days`)
+
+**Never-fail contract:** All public functions in `log_rotation.py` catch exceptions internally and log warnings rather than raising. This prevents log rotation failures from blocking platform startup or cleanup operations.
+
 ---
 
 ## 7. Testing Patterns

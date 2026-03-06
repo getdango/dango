@@ -1,6 +1,6 @@
 # Exemption registry for files exceeding the 500-line soft limit (STANDARDS.md §2).
 # Consumed by scripts/check_file_sizes.py for CI and pre-commit checks.
-# Line counts refreshed 2026-02-15 (DOC-024) — informational, not enforced by script.
+# Line counts refreshed 2026-03-06 (DOC-028) — informational, not enforced by script.
 #
 # Categories:
 #   refactor — planned for refactoring in v1 (linked to a task)
@@ -12,7 +12,7 @@ limit: 500  # Informational — scripts/check_file_sizes.py owns the enforced th
 exemptions:
   # --- Post-TASK-085 split results (from web/app.py 3032 → web/routes/) ---
   - file: dango/web/helpers.py
-    lines: 798
+    lines: 810
     category: exempt
     reason: "Shared helper functions for web routes. Consolidates DuckDB queries, config loading, service health checks, and log management. Extracted from web/app.py by TASK-085. Mirrors cli/utils.py pattern."
     review_by: "v1.1"
@@ -50,20 +50,20 @@ exemptions:
 
   # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
   - file: dango/cli/commands/deploy_wizard.py
-    lines: 576
+    lines: 579
     category: exempt
     reason: "TASK-029: Interactive wizard steps 1-9 + non-interactive validation mode. Sequential prompt flow with display logic — splitting would scatter closely coupled wizard steps."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy_provision.py
-    lines: 547
+    lines: 543
     category: exempt
     reason: "TASK-029: 10-step provisioning orchestration with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery."
     review_by: "v1.1"
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
-    lines: 1026
+    lines: 964
     category: exempt
     reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic."
     review_by: "v1.1"
@@ -81,14 +81,14 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/remote.py
-    lines: 650
+    lines: 652
     category: exempt
     reason: "Remote server management: push + rollback + firewall subgroup + domain subgroup + registration of management and backup subgroups. Each subgroup is a thin CLI layer delegating to platform/cloud modules."
     review_by: "v1.1"
 
   # --- Exempt (stable, not modified in v1) ---
   - file: dango/ingestion/dlt_runner.py
-    lines: 1759
+    lines: 1784
     category: exempt
     reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage."
     review_by: "v1.1"
@@ -106,7 +106,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/visualization/metabase.py
-    lines: 1142
+    lines: 1149
     category: exempt
     reason: "Metabase REST API wrapper. Methods map 1:1 to API endpoints — splitting would scatter related operations."
     review_by: "v1.1"
@@ -177,13 +177,13 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_digitalocean_client.py
-    lines: 620
+    lines: 628
     category: exempt
     reason: "TASK-022+023+025: 36 tests covering DigitalOceanClient init, retry/backoff logic (9 cases), Droplet/SSH Key/Firewall CRUD (incl. get_firewall, update_firewall), and error handling. Retry tests require per-test mock setup for call sequencing — each is self-contained for readability."
     review_by: "v1.1"
 
   - file: tests/unit/test_provisioning.py
-    lines: 539
+    lines: 538
     category: exempt
     reason: "TASK-023: 8 test classes covering size tiers, region info, nearest-region suggestion, wait_for_droplet_ready, wait_for_ssh, extract_public_ipv4, provision_droplet (6 scenarios incl. cleanup), and save_provisioning_metadata. Each scenario requires isolated mock setup."
     review_by: "v1.1"
@@ -195,7 +195,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/config/models.py
-    lines: 530
+    lines: 548
     category: exempt
     reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
     review_by: "v1.1"
@@ -243,19 +243,19 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_deploy_provision.py
-    lines: 533
+    lines: 530
     category: exempt
     reason: "TASK-029: 9 test classes covering ResourceTracker, IP extraction, secrets push, admin creation, health check, provisioning sequence, backup setup, metadata persistence, and sync trigger. Each requires isolated mock setup."
     review_by: "v1.1"
 
   - file: tests/unit/test_sync_jobs.py
-    lines: 562
+    lines: 569
     category: exempt
     reason: "TASK-041: 25 tests across 6 classes covering configure_jobs, _broadcast, _notify, run_scheduled_sync (8 tests incl. lock failure, no sources, exception), run_scheduled_dbt (6 tests incl. lock failure, exception), and _check_freshness. Each test requires isolated mock setup for lazy-import patching."
     review_by: "v1.1"
 
   - file: tests/unit/test_scheduler.py
-    lines: 604
+    lines: 596
     category: exempt
     reason: "TASK-036+039: 10 test classes covering SchedulerService init, lifecycle, jobs, status, event listeners, history integration, coroutine bridge, cloud warning, startup summary, health endpoint, and job stubs. Each class requires isolated mock setup with APScheduler dual-patch pattern."
     review_by: "v1.1"
@@ -269,7 +269,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/sync.py
-    lines: 552
+    lines: 558
     category: exempt
     reason: "TASK-040c: Added remote sync trigger API (POST /api/sync/trigger, GET /api/sync/status/{id}) with background task + execution history. Extends existing per-source sync endpoint."
     review_by: "v1.1"

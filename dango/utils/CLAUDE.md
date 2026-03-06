@@ -13,8 +13,9 @@ Shared utilities for process management, activity logging, sync history tracking
 | `activity_log.py` | JSONL activity logging to `.dango/logs/activity.jsonl` | `log_activity()`, `get_activity_log_file()` |
 | `sync_history.py` | Per-source sync history (JSON, last 100 entries) | `save_sync_history_entry()`, `load_sync_history()`, `get_sync_history_file()` |
 | `database.py` | DuckDB schema initialization (raw, staging, intermediate, marts) | `ensure_dbt_schemas()` |
-| `db_health.py` | Disk space checks and DuckDB health monitoring | `check_disk_space()`, `check_duckdb_health()`, `get_disk_usage_summary()`, `get_component_disk_usage()`, `print_health_summary()` (imports `DiskSpaceError`, `DuckDBHealthError` from `dango.exceptions`) |
+| `db_health.py` | Disk space checks, DuckDB health monitoring, and per-component disk breakdown with 60-second TTL cache | `check_disk_space()`, `check_duckdb_health()`, `get_disk_usage_summary()`, `get_component_disk_usage()`, `print_health_summary()` (imports `DiskSpaceError`, `DuckDBHealthError` from `dango.exceptions`) |
 | `dbt_lock.py` | Cross-process file lock for dbt operations (fcntl/msvcrt) | `DbtLock`, `dbt_lock()` context manager (imports `DbtLockError` from `dango.exceptions`) |
+| `log_rotation.py` | JSONL log rotation with gzip compression and retention management. Rotates audit.jsonl and activity.jsonl when >5 MB or >1 day old. All public functions follow the never-fail contract. | `rotate_jsonl_log()`, `cleanup_old_archives()`, `get_log_disk_usage()` |
 | `dbt_status.py` | Persistent dbt model status from run_results.json | `update_model_status()`, `get_model_statuses()` |
 | `data_validation.py` | Schema/data integrity checks against DuckDB | `validate_cursor_field()`, `detect_schema_changes()`, `validate_data_completeness()`, `print_validation_report()` |
 | `env_file.py` | .env file parsing and serialization | `parse_env_file()`, `serialize_env_file()` |
@@ -30,6 +31,8 @@ Shared utilities for process management, activity logging, sync history tracking
 | Change dbt lock behavior | `dbt_lock.py` | Manual: acquire lock from two processes, verify conflict |
 | Change dbt status tracking | `dbt_status.py` | Manual: run dbt, call `get_model_statuses()` |
 | Add a data validation check | `data_validation.py` | Manual: call against a DuckDB with test data |
+| Rotate JSONL logs | `log_rotation.py` | `pytest tests/unit/test_log_rotation.py` |
+| Change log archive retention | `log_rotation.py` (`max_age_days` param, default 90) | `pytest tests/unit/test_log_rotation.py` |
 
 ## Dependencies
 
@@ -41,19 +44,22 @@ Shared utilities for process management, activity logging, sync history tracking
 - `fcntl` / `msvcrt` — platform-specific file locking in dbt_lock.py
 
 **Used by:**
-- `dango/web/app.py` — dbt_status, sync_history, activity_log, db_health, dbt_lock
+- `dango/web/helpers.py` — db_health, sync_history, activity_log, dbt_status
+- `dango/web/routes/sync.py` — dbt_lock
 - `dango/ingestion/dlt_runner.py` — activity_log, sync_history, db_health
-- `dango/cli/main.py` — database, dbt_lock, dbt_status
-- `dango/platform/watcher_runner.py` — dbt_lock, dbt_status
+- `dango/cli/commands/platform.py` — process (kill_process)
+- `dango/cli/commands/cleanup.py` — db_health, log_rotation
+- `dango/platform/local/watcher_runner.py` — dbt_lock, dbt_status
+- `dango/platform/common/startup.py` — log_rotation
 - `dango/transformation/__init__.py` — dbt_status
 
 **Not yet imported:** `data_validation.py` (prepared utility, not integrated into any module)
 
 ## Testing
 
-- **Unit:** None yet (will be `tests/unit/test_utils.py`)
+- **Unit:** `pytest tests/unit/test_db_health_disk.py tests/unit/test_log_rotation.py`
 - **Integration:** None yet
-- **Manual:** `dango start` exercises database.py; `dango sync` exercises activity_log, sync_history, db_health, dbt_lock
+- **Manual:** `dango start` exercises database.py; `dango sync` exercises activity_log, sync_history, db_health, dbt_lock; `dango cleanup` exercises log_rotation, db_health
 
 ## Key Conventions
 

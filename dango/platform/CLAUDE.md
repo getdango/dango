@@ -253,6 +253,7 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 - `dango.exceptions` — CloudError, CloudAPIError, CloudAuthError, CloudProvisioningError (cloud/)
 - `dango.migrations` — apply_all_pending (startup.py)
 - `dango.utils.database` — ensure_dbt_schemas (startup.py)
+- `dango.utils.log_rotation` — rotate_jsonl_log (startup.py)
 - `dango.utils.process` — is_process_running, kill_process (watcher_lifecycle.py)
 - `dango.visualization` — setup_metabase, import_dashboards (startup.py)
 - `httpx` — HTTP transport for DigitalOcean API (cloud/digitalocean.py)
