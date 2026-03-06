@@ -110,8 +110,9 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | `activity_log.py` | `log_activity()` — append-only JSON activity log |
 | `sync_history.py` | `save_sync_history_entry()`, `load_sync_history()` — per-source sync results |
 | `database.py` | `ensure_dbt_schemas()` — creates raw/staging/intermediate/marts schemas |
-| `db_health.py` | `check_duckdb_health()`, `get_disk_usage_summary()` |
+| `db_health.py` | `check_disk_space()`, `check_duckdb_health()`, `get_disk_usage_summary()`, `get_component_disk_usage()` |
 | `dbt_status.py` | `get_model_statuses()`, `update_model_status()` |
+| `log_rotation.py` | `rotate_jsonl_log()`, `cleanup_old_archives()`, `get_log_disk_usage()` |
 | `data_validation.py` | Data validation utilities |
 
 **Public API:** `DbtLock`, `DbtLockError`, `dbt_lock()`, `log_activity()`, `save_sync_history_entry()`, `load_sync_history()`, `ensure_dbt_schemas()`

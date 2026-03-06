@@ -11,7 +11,7 @@ Manages browser-based OAuth authentication flows, provider-specific token exchan
 | `__init__.py` | OAuth flow orchestration and local callback server | `OAuthManager`, `OAuthCallbackHandler`, `create_oauth_manager`, re-exports from `validation.py` |
 | `providers.py` | Provider-specific OAuth implementations | `BaseOAuthProvider`, `GoogleOAuthProvider`, `FacebookOAuthProvider`, `ShopifyOAuthProvider` |
 | `router.py` | Routes OAuth requests to correct provider | `run_oauth_for_source`, `check_oauth_credentials_exist`, `OAUTH_PROVIDER_MAP` |
-| `storage.py` | Token persistence to `.dlt/secrets.toml` with metadata | `OAuthStorage`, `OAuthCredential` |
+| `storage.py` | Token persistence to `.dlt/secrets.toml` with metadata. `OAuthCredential` includes health methods: `is_expired()`, `days_until_expiry()`, `is_expiring_soon()` | `OAuthStorage`, `OAuthCredential` |
 | `validation.py` | Live token validation and refresh checking via API calls | `TokenValidationResult`, `validate_token`, `validate_all_tokens`, `validate_before_sync`, `validate_google_token`, `validate_facebook_token`, `validate_shopify_token` |
 | `web_flow.py` | Browser-based OAuth token exchange for cloud deployments | `OAuthFlowError`, `SUPPORTED_OAUTH_SOURCES`, `build_google_auth_url()`, `exchange_google_code()`, `fetch_google_user_info()`, `build_facebook_auth_url()`, `exchange_facebook_code()` |
 
@@ -40,6 +40,9 @@ Manages browser-based OAuth authentication flows, provider-specific token exchan
 - `dango/cli/source_wizard.py` — inline OAuth during `dango add`
 - `dango/cli/validate.py` — credential validation
 - `dango/ingestion/dlt_runner.py` — `OAuthStorage` for token expiry checks before sync
+- `dango/web/routes/health.py` — OAuth token health in `/api/health/platform`
+- `dango/web/routes/secrets.py` — OAuth credential management (admin-only)
+- `dango/web/routes/oauth_connect.py` — web-based OAuth connect/callback
 - `dango/web/routes/sync.py` — pre-sync validation before web-triggered syncs
 
 ## Testing

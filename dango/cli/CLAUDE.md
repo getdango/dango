@@ -13,17 +13,19 @@ Click-based command-line interface for all Dango operations — project init, so
 | **commands/** | | |
 | `commands/__init__.py` (4 lines) | Package marker | — |
 | `commands/project.py` (292 lines) | `init`, `rename`, `info` | `init()`, `rename()`, `info()` |
-| `commands/source.py` (521 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
-| `commands/platform.py` (941 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
-| `commands/auth.py` (500 lines) | `auth` group (12 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_status()`, etc. |
+| `commands/source.py` (653 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
+| `commands/platform.py` (964 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
+| `commands/auth.py` (538 lines) | `auth` group (12 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_status()`, etc. |
+| `commands/cleanup.py` (322 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
 | `commands/oauth.py` (815 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
 | `commands/transform.py` (326 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
+| `commands/upgrade.py` (236 lines) | `upgrade` command — local Dango upgrade via pip + migrations | `upgrade()`, `get_latest_version_cached()` |
 | `commands/data.py` (360 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
 | `commands/config_cmd.py` (179 lines) | `config` group (`validate`, `show`) | `config` |
 | `commands/metabase_cmd.py` (431 lines) | `metabase` group (`save`, `load`, `refresh`) | `metabase` |
 | `commands/model.py` (212 lines) | `model` group (`add`, `remove`) | `model` |
 | `commands/dashboard.py` (125 lines) | `dashboard` group (`provision`) | `dashboard` |
-| `commands/remote.py` (~650 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
+| `commands/remote.py` (652 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
 | `commands/serve.py` (~152 lines) | `serve` production foreground server | `serve()` |
 | `commands/deploy.py` (~460 lines) | `deploy` group (wizard default, destroy) | `deploy`, `deploy_destroy()` |
@@ -60,6 +62,8 @@ dango (top-level group)
 ├── init, rename, info          ← commands/project.py
 ├── start, stop, status         ← commands/platform.py
 ├── serve                       ← commands/serve.py
+├── upgrade                     ← commands/upgrade.py
+├── cleanup                     ← commands/cleanup.py
 ├── sync                        ← commands/source.py
 ├── run, docs, generate         ← commands/transform.py
 ├── validate                    ← commands/data.py
