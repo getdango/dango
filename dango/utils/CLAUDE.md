@@ -45,10 +45,9 @@ Shared utilities for process management, activity logging, sync history tracking
 
 **Used by:**
 - `dango/web/helpers.py` — db_health, sync_history, activity_log, dbt_status
-- `dango/web/routes/sync.py` — dbt_lock, sync_history, activity_log
+- `dango/web/routes/sync.py` — dbt_lock
 - `dango/ingestion/dlt_runner.py` — activity_log, sync_history, db_health
-- `dango/cli/commands/platform.py` — database, dbt_lock, dbt_status
-- `dango/cli/commands/data.py` — database, dbt_lock
+- `dango/cli/commands/platform.py` — process (kill_process)
 - `dango/cli/commands/cleanup.py` — db_health, log_rotation
 - `dango/platform/local/watcher_runner.py` — dbt_lock, dbt_status
 - `dango/platform/common/startup.py` — log_rotation
