@@ -298,6 +298,10 @@ module = [
     "tests.unit.test_profiling",
     "tests.unit.test_catalog_api",
     "tests.integration.test_catalog_integration",
+    "tests.unit.test_analysis_models",
+    "tests.unit.test_analysis_config",
+    "tests.unit.test_analysis_comparisons",
+    "tests.unit.test_analysis_metrics",
 ]
 ignore_errors = true
 

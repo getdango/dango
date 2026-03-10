@@ -3,4 +3,10 @@
 Automated data analysis module.
 """
 
-__all__: list[str] = []
+from dango.analysis.config import load_metrics_config
+from dango.analysis.metrics import run_analysis
+
+__all__: list[str] = [
+    "load_metrics_config",
+    "run_analysis",
+]
