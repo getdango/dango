@@ -38,7 +38,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/schedule.py` (499 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
-| `init.py` (965 lines) | Project initialization wizard | `ProjectInitializer` |
+| `init.py` (1098 lines) | Project initialization wizard | `ProjectInitializer` |
 | `wizard.py` (296 lines) | Interactive setup wizards | `ProjectWizard` |
 | `source_wizard.py` (1324 lines) | Source configuration wizard | `add_source()` |
 | `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |
