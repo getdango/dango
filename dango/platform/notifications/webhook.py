@@ -50,6 +50,7 @@ class EventType(str, Enum):
     SYNC_FAILED = "sync_failed"
     SYNC_STALE = "sync_stale"
     SYNC_RETRYING = "sync_retrying"
+    SCHEMA_DRIFT_DETECTED = "schema_drift_detected"
 
 
 class EventCategory(str, Enum):
@@ -58,6 +59,7 @@ class EventCategory(str, Enum):
     SUCCESS = "success"
     FAILURE = "failure"
     STALE = "stale"
+    GOVERNANCE = "governance"
 
 
 EVENT_TO_CATEGORY: dict[EventType, EventCategory] = {
@@ -65,6 +67,7 @@ EVENT_TO_CATEGORY: dict[EventType, EventCategory] = {
     EventType.SYNC_FAILED: EventCategory.FAILURE,
     EventType.SYNC_STALE: EventCategory.STALE,
     EventType.SYNC_RETRYING: EventCategory.FAILURE,
+    EventType.SCHEMA_DRIFT_DETECTED: EventCategory.GOVERNANCE,
 }
 
 # ---------------------------------------------------------------------------
@@ -99,6 +102,7 @@ class NotificationConfig(BaseModel):
     on_failure: bool = True
     on_success: bool = False
     on_stale: bool = True
+    on_governance: bool = True
     stale_threshold_hours: int = 24
 
 

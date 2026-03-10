@@ -374,8 +374,16 @@ def _run_profiling(project_root: Path, sources: list[str]) -> None:
 def _run_drift_detection(project_root: Path, sources: list[str]) -> None:
     """Detect schema drift for freshly synced sources.
 
-    Populated by P7-005.
+    Args:
+        project_root: Path to the Dango project root.
+        sources: Names of sources that synced successfully.
     """
+    try:
+        from dango.governance.schema_drift import detect_drift_for_sources
+
+        detect_drift_for_sources(project_root, sources)
+    except Exception:
+        logger.warning("drift_detection_error", sources=sources, exc_info=True)
 
 
 def _run_pii_scan(project_root: Path, sources: list[str]) -> None:

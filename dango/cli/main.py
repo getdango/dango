@@ -15,6 +15,7 @@ from dango.cli.commands.config_cmd import config
 from dango.cli.commands.dashboard import dashboard
 from dango.cli.commands.data import db, validate
 from dango.cli.commands.deploy import deploy
+from dango.cli.commands.governance import governance
 from dango.cli.commands.metabase_cmd import metabase
 from dango.cli.commands.migrate import migrate
 from dango.cli.commands.model import model
@@ -94,6 +95,7 @@ cli.add_command(remote)
 cli.add_command(notebook)
 cli.add_command(schedule)
 cli.add_command(deploy)
+cli.add_command(governance)
 
 
 def main() -> None:

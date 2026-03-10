@@ -21,6 +21,7 @@ _COLORS: dict[EventType, str] = {
     EventType.SYNC_FAILED: "#e01e5a",  # red
     EventType.SYNC_STALE: "#ecb22e",  # amber
     EventType.SYNC_RETRYING: "#aaaaaa",  # gray
+    EventType.SCHEMA_DRIFT_DETECTED: "#e0a514",  # dark amber
 }
 
 _HEADERS: dict[EventType, str] = {
@@ -28,6 +29,7 @@ _HEADERS: dict[EventType, str] = {
     EventType.SYNC_FAILED: "Sync Failed",
     EventType.SYNC_STALE: "Sync Stale",
     EventType.SYNC_RETRYING: "Sync Retrying",
+    EventType.SCHEMA_DRIFT_DETECTED: "Schema Drift Detected",
 }
 
 
@@ -82,6 +84,10 @@ def _build_body(payload: WebhookPayload) -> str:
         if payload.next_retry_at is not None:
             utc_time = payload.next_retry_at.astimezone(timezone.utc)
             lines.append(f"*Next retry:* {utc_time.strftime('%H:%M:%S UTC')}")
+
+    elif payload.event_type == EventType.SCHEMA_DRIFT_DETECTED:
+        if payload.error:
+            lines.append(f"*Details:* {payload.error}")
 
     return "\n".join(lines)
 
