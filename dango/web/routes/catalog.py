@@ -17,7 +17,7 @@ from dango.auth.permissions import require_permission
 from dango.logging import get_logger
 from dango.utils.dango_db import connect
 from dango.utils.post_sync import profile_table
-from dango.validation import validate_source_name
+from dango.validation import validate_identifier, validate_source_name
 from dango.web.helpers import get_project_root
 
 logger = get_logger(__name__)
@@ -249,7 +249,7 @@ async def get_table_columns(
         Column schema with optional cached profiling statistics.
     """
     source = validate_source_name(source)
-    table = validate_source_name(table)
+    table = validate_identifier(table)
     project_root = get_project_root()
     db_path = await _validate_and_resolve(source, table, project_root)
 
@@ -272,7 +272,7 @@ async def get_table_columns(
     }
 
 
-@router.get("/api/catalog/{source}/{table}/profile")
+@router.post("/api/catalog/{source}/{table}/profile")
 async def refresh_table_profile(
     source: str,
     table: str,
@@ -289,7 +289,7 @@ async def refresh_table_profile(
         Column schema with freshly computed profiling statistics.
     """
     source = validate_source_name(source)
-    table = validate_source_name(table)
+    table = validate_identifier(table)
     project_root = get_project_root()
     db_path = await _validate_and_resolve(source, table, project_root)
 

@@ -277,13 +277,13 @@ class TestGetTableColumns:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/catalog/{source}/{table}/profile
+# POST /api/catalog/{source}/{table}/profile
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestRefreshTableProfile:
-    """Tests for GET /api/catalog/{source}/{table}/profile."""
+    """Tests for POST /api/catalog/{source}/{table}/profile."""
 
     @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_profiled_at")
@@ -321,7 +321,7 @@ class TestRefreshTableProfile:
         mock_get_count.return_value = 50
         mock_get_profiled.return_value = "2026-03-10T15:00:00+00:00"
 
-        resp = client.get("/api/catalog/shopify/orders/profile")
+        resp = client.post("/api/catalog/shopify/orders/profile")
 
         assert resp.status_code == 200
         data = resp.json()
@@ -338,7 +338,7 @@ class TestRefreshTableProfile:
         client, project_root = _setup_client(tmp_path)
         mock_get_root.return_value = project_root
 
-        resp = client.get("/api/catalog/shopify/orders/profile")
+        resp = client.post("/api/catalog/shopify/orders/profile")
 
         assert resp.status_code == 404
 
@@ -362,7 +362,7 @@ class TestRefreshTableProfile:
         mock_schema_exists.return_value = True
         mock_table_exists.return_value = False
 
-        resp = client.get("/api/catalog/shopify/nonexistent/profile")
+        resp = client.post("/api/catalog/shopify/nonexistent/profile")
 
         assert resp.status_code == 404
 
@@ -370,12 +370,12 @@ class TestRefreshTableProfile:
         """400 for invalid source name."""
         client, _ = _setup_client(tmp_path)
 
-        resp = client.get("/api/catalog/bad-source!/orders/profile")
+        resp = client.post("/api/catalog/bad-source!/orders/profile")
 
         assert resp.status_code == 400
 
     def test_requires_permission(self, tmp_path: Path) -> None:
         """Endpoint requires governance.view permission."""
         client, _ = _setup_client(tmp_path, role=Role.VIEWER)
-        resp = client.get("/api/catalog/shopify/orders/profile")
+        resp = client.post("/api/catalog/shopify/orders/profile")
         assert resp.status_code != 403

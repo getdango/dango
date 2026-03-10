@@ -17,6 +17,7 @@ from typing import Any
 
 from dango.logging import get_logger
 from dango.utils.dango_db import connect
+from dango.validation import validate_identifier
 
 logger = get_logger(__name__)
 
@@ -166,7 +167,14 @@ def profile_table(
     finally:
         conn.close()
 
-    _cache_stats(project_root, source, table_name, stats)
+    try:
+        _cache_stats(project_root, source, table_name, stats)
+    except Exception:
+        logger.warning(
+            "profiling_cache_error",
+            source=source,
+            table=table_name,
+        )
     return stats
 
 
@@ -349,6 +357,7 @@ def _run_profiling(project_root: Path, sources: list[str]) -> None:
 
             for (tbl_name,) in tables:
                 try:
+                    tbl_name = validate_identifier(tbl_name)
                     profile_table(project_root, source, tbl_name)
                 except Exception:
                     logger.warning(
