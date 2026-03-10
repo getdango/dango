@@ -38,11 +38,11 @@ def notebook(ctx: click.Context) -> None:
     table.add_column("Size")
     table.add_column("Last Modified")
 
+    from datetime import datetime
+
     for f in sorted(notebooks_dir.glob("*.py")):
         stat = f.stat()
         size_kb = stat.st_size / 1024
-        from datetime import datetime
-
         mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
         table.add_row(f.stem, f"{size_kb:.1f} KB", mtime)
 

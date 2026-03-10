@@ -68,6 +68,7 @@ def start_marimo(project_root: Path, port: int | None = None) -> int | None:
     log_file = project_root / ".dango" / "marimo.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
+    log_handle = None
     try:
         log_handle = open(log_file, "w")  # noqa: SIM115
 
@@ -96,17 +97,19 @@ def start_marimo(project_root: Path, port: int | None = None) -> int | None:
         time.sleep(1)
 
         if proc.poll() is not None:
-            log_handle.close()
             raise RuntimeError(f"Marimo failed to start. Check logs at {log_file}")
 
         pid_file.write_text(str(proc.pid))
 
         return proc.pid
 
+    except RuntimeError:
+        raise
     except Exception as e:
-        if "log_handle" in locals():
-            log_handle.close()
         raise RuntimeError(f"Failed to start Marimo: {e}") from e
+    finally:
+        if log_handle is not None:
+            log_handle.close()
 
 
 def stop_marimo(project_root: Path) -> bool:

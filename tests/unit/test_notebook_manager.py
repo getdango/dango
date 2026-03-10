@@ -110,6 +110,18 @@ class TestStopMarimo:
         result = stop_marimo(tmp_path)
         assert result is False
 
+    @patch("dango.notebooks.manager.is_process_running", return_value=True)
+    @patch("dango.notebooks.manager.kill_process", return_value=False)
+    def test_stop_returns_false_if_kill_fails(self, mock_kill, mock_running, tmp_path):
+        pid_file = tmp_path / ".dango" / "marimo.pid"
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text("12345")
+
+        from dango.notebooks.manager import stop_marimo
+
+        result = stop_marimo(tmp_path)
+        assert result is False
+
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
     def test_stop_cleans_stale_pid(self, mock_running, tmp_path):
         pid_file = tmp_path / ".dango" / "marimo.pid"
