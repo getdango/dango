@@ -10,7 +10,6 @@ a stub that will be populated by subsequent Phase 7 tasks.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from dango.logging import get_logger
 
@@ -19,29 +18,28 @@ logger = get_logger(__name__)
 
 def dispatch_post_sync_hooks(
     project_root: Path,
-    results: dict[str, Any],
+    sources: list[str],
 ) -> None:
     """Run post-sync hooks for successfully synced sources.
 
-    Filters *results* to sources that completed successfully, then invokes
-    each hook in order: profiling, drift detection, PII scanning, analysis.
+    Invokes each hook in order: profiling, drift detection, PII scanning,
+    analysis.
 
     Args:
         project_root: Path to the Dango project root.
-        results: Per-source sync results from ``run_sync()``.
+        sources: Names of sources that synced successfully.
     """
-    successful = [name for name, outcome in results.items() if outcome.get("status") == "success"]
-    if not successful:
+    if not sources:
         return
 
-    logger.info("post_sync_hooks_start", sources=successful)
+    logger.info("post_sync_hooks_start", sources=sources)
 
-    _run_profiling(project_root, successful)
-    _run_drift_detection(project_root, successful)
-    _run_pii_scan(project_root, successful)
-    _run_analysis(project_root, successful)
+    _run_profiling(project_root, sources)
+    _run_drift_detection(project_root, sources)
+    _run_pii_scan(project_root, sources)
+    _run_analysis(project_root, sources)
 
-    logger.info("post_sync_hooks_complete", sources=successful)
+    logger.info("post_sync_hooks_complete", sources=sources)
 
 
 def _run_profiling(project_root: Path, sources: list[str]) -> None:

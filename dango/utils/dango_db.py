@@ -10,11 +10,16 @@ all governance/notebook/analysis tables exist via ``CREATE TABLE IF NOT EXISTS``
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 
 from dango.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Tracks db paths whose schema has already been ensured this process.
+_schema_initialized: set[str] = set()
 
 
 def get_dango_db_path(project_root: Path) -> Path:
@@ -36,6 +41,9 @@ def get_connection(project_root: Path) -> sqlite3.Connection:
     in WAL mode with foreign keys enabled, and ensures all required tables
     are present.
 
+    Callers are responsible for closing the returned connection.  Prefer
+    :func:`connect` (context manager) for automatic cleanup.
+
     Args:
         project_root: Path to the Dango project root.
 
@@ -50,8 +58,34 @@ def get_connection(project_root: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
 
-    _ensure_schema(conn)
+    db_key = str(db_path)
+    if db_key not in _schema_initialized:
+        _ensure_schema(conn)
+        _schema_initialized.add(db_key)
+
     return conn
+
+
+@contextmanager
+def connect(project_root: Path) -> Generator[sqlite3.Connection, None, None]:
+    """Context manager wrapper around :func:`get_connection`.
+
+    Usage::
+
+        with connect(project_root) as conn:
+            conn.execute("SELECT ...")
+
+    Args:
+        project_root: Path to the Dango project root.
+
+    Yields:
+        A ``sqlite3.Connection`` that is closed on exit.
+    """
+    conn = get_connection(project_root)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
