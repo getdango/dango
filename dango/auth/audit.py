@@ -61,6 +61,9 @@ class AuditEvent(str, Enum):
     SCHEDULES_RELOADED        = "schedules_reloaded"
     JOB_CANCELLED             = "job_cancelled"
     SYNC_TRIGGERED            = "sync_triggered"
+    NOTEBOOK_CREATED          = "notebook_created"
+    NOTEBOOK_DELETED          = "notebook_deleted"
+    NOTEBOOK_LOCK_FORCE_RELEASED = "notebook_lock_force_released"
     # fmt: on
 
 

@@ -18,6 +18,7 @@ from dango.cli.commands.deploy import deploy
 from dango.cli.commands.metabase_cmd import metabase
 from dango.cli.commands.migrate import migrate
 from dango.cli.commands.model import model
+from dango.cli.commands.notebook import notebook, snapshot
 from dango.cli.commands.oauth import oauth
 from dango.cli.commands.platform import start, status, stop
 from dango.cli.commands.project import info, init, rename
@@ -77,6 +78,7 @@ cli.add_command(web)
 cli.add_command(serve)
 cli.add_command(upgrade)
 cli.add_command(cleanup)
+cli.add_command(snapshot)
 
 # --- Register command groups ---
 cli.add_command(source)
@@ -89,6 +91,7 @@ cli.add_command(dashboard)
 cli.add_command(metabase)
 cli.add_command(migrate)
 cli.add_command(remote)
+cli.add_command(notebook)
 cli.add_command(schedule)
 cli.add_command(deploy)
 

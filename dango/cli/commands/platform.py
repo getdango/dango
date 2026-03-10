@@ -701,6 +701,21 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
 
         console.print()
 
+        # Stop Marimo notebook server
+        console.print("[cyan]Stopping Marimo notebook server...[/cyan]")
+        from dango.notebooks.manager import get_marimo_status, stop_marimo
+
+        marimo_was_running = get_marimo_status(project_root)["running"]
+        marimo_stopped = stop_marimo(project_root)
+        if marimo_stopped:
+            console.print("[green]✓[/green] Marimo notebook server stopped")
+        elif marimo_was_running:
+            console.print("[yellow]⚠[/yellow] Failed to stop Marimo")
+        else:
+            console.print("[dim]Marimo was not running[/dim]")
+
+        console.print()
+
         # Stop FastAPI backend
         console.print("[cyan]Stopping Web UI backend...[/cyan]")
         fastapi_stopped = stop_fastapi_server(project_root, verbose=True)
