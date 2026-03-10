@@ -62,6 +62,8 @@ __all__ = [
     "CloudAuthError",
     "CloudSSHError",
     "CloudProvisioningError",
+    "AnalysisError",
+    "AnalysisConfigError",
     "is_debug_mode",
 ]
 
@@ -437,3 +439,20 @@ class CloudProvisioningError(CloudError):
     """Server setup or provisioning step failed."""
 
     _default_error_code = "DANGO-D005"
+
+
+# ---------------------------------------------------------------------------
+# Analysis exceptions  (DANGO-N***)
+# ---------------------------------------------------------------------------
+
+
+class AnalysisError(DangoError):
+    """Analysis operation failed."""
+
+    _default_error_code = "DANGO-N001"
+
+
+class AnalysisConfigError(AnalysisError):
+    """Analysis configuration is invalid."""
+
+    _default_error_code = "DANGO-N002"
