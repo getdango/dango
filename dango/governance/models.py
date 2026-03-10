@@ -28,6 +28,6 @@ class DriftResponse(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     events: list[DriftEvent]
-    total: int
+    count: int
     source: str | None
     table_name: str | None

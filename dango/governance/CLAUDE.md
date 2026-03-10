@@ -10,7 +10,7 @@ Data governance module: schema drift detection and PII scanning. Monitors DuckDB
 |------|---------|----------------------|
 | `__init__.py` | Re-exports public API | `DriftEvent`, `DriftResponse`, `detect_drift_for_sources`, `detect_table_drift`, `get_drift_history` |
 | `models.py` (~35 lines) | Pydantic V2 response models | `DriftEvent`, `DriftResponse` |
-| `schema_drift.py` (~280 lines) | Schema drift detection engine | `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()`, `_send_drift_webhook()` |
+| `schema_drift.py` (~490 lines) | Schema drift detection engine | `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()`, `_send_drift_webhook()` |
 
 ## Common Tasks
 

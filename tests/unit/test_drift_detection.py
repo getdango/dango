@@ -45,13 +45,9 @@ class TestDetectTableDrift:
 
     def test_first_sync_creates_baseline(self, tmp_path: Path) -> None:
         """First sync stores baseline silently and returns empty list."""
-        mock_conn = MagicMock()
-        mock_conn.execute.return_value.fetchall.return_value = [
-            ("id", "INTEGER"),
-            ("name", "VARCHAR"),
-        ]
+        schema = {"id": "INTEGER", "name": "VARCHAR"}
         with (
-            patch("duckdb.connect", return_value=mock_conn),
+            patch(f"{_DRIFT}._get_current_schema", return_value=schema),
             patch(f"{_DRIFT}._get_baseline", return_value=None),
             patch(f"{_DRIFT}._save_baseline") as mock_save,
         ):
@@ -192,7 +188,7 @@ class TestDetectDriftForSources:
             detect_drift_for_sources(tmp_path, ["shopify"])
         sql_call = mock_conn.execute.call_args[0][0]
         assert "_dlt_%" in sql_call
-        assert "spreadsheet" in sql_call
+        assert "'spreadsheet', 'spreadsheet_info'" in sql_call
 
     def test_per_source_error_isolation(self, tmp_path: Path) -> None:
         """Error in one source doesn't stop processing of others."""

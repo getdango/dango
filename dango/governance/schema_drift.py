@@ -61,10 +61,11 @@ def detect_drift_for_sources(
             try:
                 tables = conn.execute(
                     "SELECT table_name FROM information_schema.tables "
-                    f"WHERE table_schema = '{schema}' "
+                    "WHERE table_schema = ? "
                     "AND table_name NOT LIKE '_dlt_%' "
                     "AND table_name NOT IN ('spreadsheet', 'spreadsheet_info') "
-                    "ORDER BY table_name"
+                    "ORDER BY table_name",
+                    [schema],
                 ).fetchall()
             finally:
                 conn.close()
@@ -111,6 +112,9 @@ def detect_table_drift(
         List of drift event dicts (``column_added``, ``column_removed``,
         ``type_changed``).  Empty if no drift or first sync.
     """
+    source = validate_source_name(source)
+    table_name = validate_identifier(table_name)
+
     current_schema = _get_current_schema(project_root, source, table_name)
     if not current_schema:
         return []
@@ -281,8 +285,9 @@ def _get_current_schema(
         columns = conn.execute(
             "SELECT column_name, data_type "
             "FROM information_schema.columns "
-            f"WHERE table_schema = '{schema}' AND table_name = '{table_name}' "
-            "ORDER BY ordinal_position"
+            "WHERE table_schema = ? AND table_name = ? "
+            "ORDER BY ordinal_position",
+            [schema, table_name],
         ).fetchall()
     finally:
         conn.close()
