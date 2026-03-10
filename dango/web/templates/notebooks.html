@@ -245,7 +245,9 @@ function notebooksPage() {
                 } catch (e) { /* ignore heartbeat failures */ }
             }, 60000);
             this._boundBeforeUnload = () => {
-                navigator.sendBeacon(`/api/notebooks/${name}/release`);
+                fetch(`/api/notebooks/${name}/release`, {
+                    method: 'POST', headers, keepalive: true, body: '{}'
+                });
             };
             window.addEventListener('beforeunload', this._boundBeforeUnload);
         },

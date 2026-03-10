@@ -42,10 +42,10 @@ _VALID_TEMPLATES = frozenset({"blank", "explore", "quality"})
 _DEFAULT_MARIMO_PORT = 7805
 
 
-def _validate_name(name: str) -> JSONResponse | None:
-    """Return a 400 response if name is invalid, else None."""
+def _validate_name(name: str) -> str | JSONResponse:
+    """Return the normalized name on success, or a 400 response on failure."""
     try:
-        validate_identifier(name)
+        return validate_identifier(name)
     except Exception:
         return JSONResponse(
             status_code=400,
@@ -54,7 +54,6 @@ def _validate_name(name: str) -> JSONResponse | None:
                 "message": "Invalid notebook name. Use only letters, numbers, and underscores.",
             },
         )
-    return None
 
 
 def _audit(
@@ -237,10 +236,10 @@ async def create_notebook(
     name = body.get("name", "")
     template = body.get("template", "blank")
 
-    err = _validate_name(name)
-    if err is not None:
-        return err
-    name = validate_identifier(name)  # normalize
+    validated = _validate_name(name)
+    if isinstance(validated, JSONResponse):
+        return validated
+    name = validated
     if template not in _VALID_TEMPLATES:
         return JSONResponse(
             status_code=400,
@@ -282,9 +281,9 @@ async def delete_notebook(
     user: User = Depends(require_permission("notebooks.execute")),
 ) -> JSONResponse:
     """Delete a notebook file and metadata."""
-    err = _validate_name(name)
-    if err is not None:
-        return err
+    result = _validate_name(name)
+    if isinstance(result, JSONResponse):
+        return result
 
     project_root = get_project_root()
 
@@ -346,9 +345,9 @@ async def lock_notebook(
     user: User = Depends(require_permission("notebooks.execute")),
 ) -> JSONResponse:
     """Acquire editing lock and start Marimo if needed."""
-    err = _validate_name(name)
-    if err is not None:
-        return err
+    result = _validate_name(name)
+    if isinstance(result, JSONResponse):
+        return result
 
     project_root = get_project_root()
 
@@ -468,9 +467,9 @@ async def copy_notebook(
     user: User = Depends(require_permission("notebooks.execute")),
 ) -> JSONResponse:
     """Copy a locked notebook for the current user."""
-    err = _validate_name(name)
-    if err is not None:
-        return err
+    result = _validate_name(name)
+    if isinstance(result, JSONResponse):
+        return result
 
     project_root = get_project_root()
 
