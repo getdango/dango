@@ -96,6 +96,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
         "health.view", "logs.view", "config.view",
         "notebooks.view", "notebooks.execute", "notebooks.manage",
         "scheduler.view",
+        "governance.view",
     }),
     Role.VIEWER: frozenset({
         "source.view",

@@ -1772,6 +1772,15 @@ def run_sync(
 
         console.print()
 
+    # Post-sync hooks (profiling, drift detection, PII scanning, analysis)
+    if success_sources:
+        try:
+            from dango.utils.post_sync import dispatch_post_sync_hooks
+
+            dispatch_post_sync_hooks(project_root=project_root, results=results)
+        except Exception:
+            console.print("[dim]Post-sync hooks skipped (non-critical)[/dim]")
+
     return {
         "success_count": len(success_sources),
         "failed_count": len(failed_sources),

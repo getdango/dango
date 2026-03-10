@@ -52,6 +52,11 @@ dependencies = [
     "psutil>=5.9.0",
     "structlog>=24.1.0",
 
+    # Data governance and notebooks
+    "marimo>=0.9.0",
+    "presidio-analyzer>=2.2.0",
+    "spacy>=3.7.0",
+
     # Security and encryption
     "keyring>=24.0.0",    # Secure credential storage in OS keychain
     "cryptography>=41.0.0",  # Token encryption
@@ -129,6 +134,9 @@ packages = [
     "dango.migrations",
     "dango.cli.commands",
     "dango.cli.helpers",
+    "dango.governance",
+    "dango.notebooks",
+    "dango.analysis",
 ]
 include-package-data = true
 
@@ -189,6 +197,12 @@ module = [
     "sqlalchemy.*",
     "croniter",
     "croniter.*",
+    "marimo",
+    "marimo.*",
+    "presidio_analyzer",
+    "presidio_analyzer.*",
+    "spacy",
+    "spacy.*",
 ]
 ignore_missing_imports = true
 
@@ -279,6 +293,7 @@ module = [
     "tests.integration.test_deploy",
     "tests.integration.test_remote",
     "tests.integration.test_scheduler_integration",
+    "tests.unit.test_dango_db",
 ]
 ignore_errors = true
 

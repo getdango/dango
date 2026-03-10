@@ -247,12 +247,16 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> Response:
 # ---------------------------------------------------------------------------
 from dango.web.routes.auth import router as auth_router  # noqa: E402
 from dango.web.routes.auth_2fa import router as auth_2fa_router  # noqa: E402
+from dango.web.routes.catalog import router as catalog_router  # noqa: E402
 from dango.web.routes.config import router as config_router  # noqa: E402
 from dango.web.routes.dbt import router as dbt_router  # noqa: E402
+from dango.web.routes.governance import router as governance_router  # noqa: E402
 from dango.web.routes.health import router as health_router  # noqa: E402
 from dango.web.routes.initial_sync import router as initial_sync_router  # noqa: E402
+from dango.web.routes.insights import router as insights_router  # noqa: E402
 from dango.web.routes.logs import router as logs_router  # noqa: E402
 from dango.web.routes.metabase_proxy import router as metabase_proxy_router  # noqa: E402
+from dango.web.routes.notebooks import router as notebooks_router  # noqa: E402
 from dango.web.routes.oauth_connect import router as oauth_connect_router  # noqa: E402
 from dango.web.routes.schedules import router as schedules_router  # noqa: E402
 from dango.web.routes.secrets import router as secrets_router  # noqa: E402
@@ -278,6 +282,10 @@ app.include_router(secrets_router)
 app.include_router(oauth_connect_router)
 app.include_router(dbt_router)
 app.include_router(schedules_router)
+app.include_router(catalog_router)
+app.include_router(governance_router)
+app.include_router(insights_router)
+app.include_router(notebooks_router)
 app.include_router(websocket_router)
 app.include_router(ui_router)
 

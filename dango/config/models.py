@@ -422,6 +422,11 @@ class PlatformSettings(BaseModel):
         default=8081, description="Port for dbt documentation (e.g., http://localhost:8081)"
     )
 
+    # Marimo notebooks port (change if you have a conflict)
+    marimo_port: int = Field(
+        default=7805, description="Port for Marimo notebooks (e.g., http://localhost:7805)"
+    )
+
     # Auto-trigger settings
     auto_sync: bool = True
     auto_dbt: bool = True
