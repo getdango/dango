@@ -295,6 +295,9 @@ module = [
     "tests.integration.test_scheduler_integration",
     "tests.unit.test_dango_db",
     "tests.unit.test_post_sync",
+    "tests.unit.test_profiling",
+    "tests.unit.test_catalog_api",
+    "tests.integration.test_catalog_integration",
 ]
 ignore_errors = true
 
