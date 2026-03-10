@@ -170,6 +170,12 @@ exemptions:
     reason: "35 tests covering all provider validators, routing, and pre-sync gate. Test methods are intentionally verbose for readability — each sets up mocks explicitly."
     review_by: "v1.1"
 
+  - file: tests/unit/test_catalog_lineage.py
+    lines: 550
+    category: exempt
+    reason: "P7-002: 14 tests covering lineage DAG (7) + impact analysis (7). Separate file from test_catalog_api.py per STANDARDS.md §7 split-at-creation rule."
+    review_by: "v1.1"
+
   - file: tests/unit/test_auth_database.py
     lines: 504
     category: exempt
@@ -272,6 +278,12 @@ exemptions:
     lines: 558
     category: exempt
     reason: "TASK-040c: Added remote sync trigger API (POST /api/sync/trigger, GET /api/sync/status/{id}) with background task + execution history. Extends existing per-source sync endpoint."
+    review_by: "v1.1"
+
+  - file: dango/web/routes/catalog.py
+    lines: 537
+    category: exempt
+    reason: "P7-001+P7-002: Column schema, profiling, lineage DAG, and impact analysis endpoints. Single router file per file conflict matrix — lineage helpers are private to the same module."
     review_by: "v1.1"
 
   - file: tests/unit/test_schedule_crud_api.py
