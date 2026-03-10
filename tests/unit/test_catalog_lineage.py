@@ -114,19 +114,6 @@ def _make_manifest(
                 "description": m.get("description", ""),
                 "depends_on": {"nodes": m.get("depends_on", [])},
                 "columns": m.get("columns", {}),
-                **{
-                    k: v
-                    for k, v in m.items()
-                    if k
-                    not in {
-                        "name",
-                        "schema",
-                        "materialized",
-                        "description",
-                        "depends_on",
-                        "columns",
-                    }
-                },
             }
     if tests:
         for uid, t in tests.items():
@@ -134,15 +121,6 @@ def _make_manifest(
                 "resource_type": "test",
                 "name": t.get("name", uid.split(".")[-1]),
                 "depends_on": {"nodes": t.get("depends_on", [])},
-                **{
-                    k: v
-                    for k, v in t.items()
-                    if k
-                    not in {
-                        "name",
-                        "depends_on",
-                    }
-                },
             }
 
     src: dict[str, Any] = {}
@@ -154,17 +132,6 @@ def _make_manifest(
                 "description": s.get("description", ""),
                 "columns": s.get("columns", {}),
                 "resource_type": "source",
-                **{
-                    k: v
-                    for k, v in s.items()
-                    if k
-                    not in {
-                        "name",
-                        "schema",
-                        "description",
-                        "columns",
-                    }
-                },
             }
 
     return {"nodes": nodes, "sources": src}
@@ -488,7 +455,7 @@ class TestGetImpact:
         mock_manifest: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Circular dependencies don't cause infinite loops."""
+        """Circular dependencies are flagged with cycle=True."""
         client, _ = _setup_client(tmp_path)
         # Manually build a manifest with a cycle: A → B → A
         manifest: dict[str, Any] = {
@@ -519,7 +486,63 @@ class TestGetImpact:
         resp = client.get("/api/catalog/impact/a")
 
         assert resp.status_code == 200
-        # Should complete without hanging
+        tree = resp.json()["tree"]
+        # a → b → a(cycle)
+        assert tree["name"] == "a"
+        assert len(tree["children"]) == 1
+        b_node = tree["children"][0]
+        assert b_node["name"] == "b"
+        assert len(b_node["children"]) == 1
+        cycle_node = b_node["children"][0]
+        assert cycle_node["cycle"] is True
+        assert cycle_node["children"] == []
+
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_diamond_dependency_not_flagged_as_cycle(
+        self,
+        mock_manifest: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Diamond deps expand fully under each branch (no false cycles)."""
+        client, _ = _setup_client(tmp_path)
+        # stg_base → model_a → final, stg_base → model_b → final
+        mock_manifest.return_value = _make_manifest(
+            models={
+                "model.proj.stg_base": {
+                    "name": "stg_base",
+                },
+                "model.proj.model_a": {
+                    "name": "model_a",
+                    "depends_on": ["model.proj.stg_base"],
+                },
+                "model.proj.model_b": {
+                    "name": "model_b",
+                    "depends_on": ["model.proj.stg_base"],
+                },
+                "model.proj.final": {
+                    "name": "final",
+                    "depends_on": [
+                        "model.proj.model_a",
+                        "model.proj.model_b",
+                    ],
+                },
+            },
+        )
+
+        resp = client.get("/api/catalog/impact/stg_base")
+
+        assert resp.status_code == 200
+        tree = resp.json()["tree"]
+        # stg_base has 2 direct children: model_a and model_b
+        assert len(tree["children"]) == 2
+        child_names = {c["name"] for c in tree["children"]}
+        assert child_names == {"model_a", "model_b"}
+        # Both branches should show "final" as a child — no cycle flag
+        for child in tree["children"]:
+            assert len(child["children"]) == 1
+            grandchild = child["children"][0]
+            assert grandchild["name"] == "final"
+            assert "cycle" not in grandchild
 
     def test_400_invalid_model_name(self, tmp_path: Path) -> None:
         """400 for model name with special characters."""
@@ -542,6 +565,32 @@ class TestGetImpact:
         resp = client.get("/api/catalog/impact/orders")
 
         assert resp.status_code == 404
+
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_model_preferred_over_source_on_name_collision(
+        self,
+        mock_manifest: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """When a source and model share a name, the model is preferred."""
+        client, _ = _setup_client(tmp_path)
+        mock_manifest.return_value = _make_manifest(
+            sources={
+                "source.proj.shop.orders": {"name": "orders"},
+            },
+            models={
+                "model.proj.orders": {
+                    "name": "orders",
+                    "depends_on": ["source.proj.shop.orders"],
+                },
+            },
+        )
+
+        resp = client.get("/api/catalog/impact/orders")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["type"] == "model"
 
     def test_requires_permission(self, tmp_path: Path) -> None:
         """Endpoint requires governance.view permission (viewer has it)."""

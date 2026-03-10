@@ -171,9 +171,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_catalog_lineage.py
-    lines: 550
+    lines: 599
     category: exempt
-    reason: "P7-002: 14 tests covering lineage DAG (7) + impact analysis (7). Separate file from test_catalog_api.py per STANDARDS.md §7 split-at-creation rule."
+    reason: "P7-002: 16 tests covering lineage DAG (7) + impact analysis (9). Separate file from test_catalog_api.py per STANDARDS.md §7 split-at-creation rule."
     review_by: "v1.1"
 
   - file: tests/unit/test_auth_database.py
@@ -281,7 +281,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/catalog.py
-    lines: 537
+    lines: 566
     category: exempt
     reason: "P7-001+P7-002: Column schema, profiling, lineage DAG, and impact analysis endpoints. Single router file per file conflict matrix — lineage helpers are private to the same module."
     review_by: "v1.1"

@@ -407,25 +407,28 @@ def _get_impact_tree(
     reverse_map: dict[str, list[str]],
     node_id: str,
     all_nodes: dict[str, dict[str, Any]],
-    visited: set[str] | None = None,
+    ancestors: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """Recursively build downstream impact tree from a node.
+
+    Uses an ancestor chain (not a shared visited set) so diamond dependencies
+    expand fully under each branch while true back-edge cycles are detected.
 
     Args:
         reverse_map: Mapping of node_id → list of downstream node_ids.
         node_id: Starting node unique_id.
         all_nodes: Combined dict of all manifest nodes + sources.
-        visited: Set of already-visited node_ids for cycle detection.
+        ancestors: Immutable set of ancestor node_ids for cycle detection.
 
     Returns:
         Tree dict with ``name``, ``type``, ``children``,
         ``total_downstream_count``, and optionally ``cycle``.
     """
-    if visited is None:
-        visited = set()
+    if ancestors is None:
+        ancestors = frozenset()
 
     node = all_nodes.get(node_id, {})
-    if node_id in visited:
+    if node_id in ancestors:
         return {
             "name": node.get("name", node_id),
             "type": node.get("resource_type", "unknown"),
@@ -434,11 +437,11 @@ def _get_impact_tree(
             "total_downstream_count": 0,
         }
 
-    visited.add(node_id)
+    new_ancestors = ancestors | {node_id}
     children = []
     total = 0
     for child_id in reverse_map.get(node_id, []):
-        child_tree = _get_impact_tree(reverse_map, child_id, all_nodes, visited)
+        child_tree = _get_impact_tree(reverse_map, child_id, all_nodes, new_ancestors)
         children.append(child_tree)
         total += 1 + child_tree["total_downstream_count"]
 
@@ -447,6 +450,62 @@ def _get_impact_tree(
         "type": node.get("resource_type", "unknown"),
         "children": children,
         "total_downstream_count": total,
+    }
+
+
+def _build_impact_response(
+    manifest: dict[str, Any],
+    model_name: str,
+) -> dict[str, Any] | None:
+    """Build impact analysis response from manifest (blocking helper).
+
+    Searches models first, then sources, so models take priority when
+    names collide (common in dbt: source "orders" + model "orders").
+
+    Args:
+        manifest: Parsed dbt manifest dict.
+        model_name: Validated model/source name to look up.
+
+    Returns:
+        Impact response dict, or ``None`` if *model_name* not found.
+    """
+    all_nodes: dict[str, dict[str, Any]] = {}
+    reverse_map: dict[str, list[str]] = {}
+
+    for uid, node in manifest.get("nodes", {}).items():
+        all_nodes[uid] = node
+        if node.get("resource_type") == "model":
+            for dep in node.get("depends_on", {}).get("nodes", []):
+                reverse_map.setdefault(dep, []).append(uid)
+
+    for uid, src in manifest.get("sources", {}).items():
+        all_nodes[uid] = src
+
+    # Find target — prefer models over sources for name collisions
+    target_id: str | None = None
+    for uid, node in manifest.get("nodes", {}).items():
+        if node.get("resource_type") == "model" and node.get("name") == model_name:
+            target_id = uid
+            break
+    if target_id is None:
+        for uid in manifest.get("sources", {}):
+            if all_nodes[uid].get("name") == model_name:
+                target_id = uid
+                break
+
+    if target_id is None:
+        return None
+
+    tree = _get_impact_tree(reverse_map, target_id, all_nodes)
+    direct = reverse_map.get(target_id, [])
+    node_info = all_nodes[target_id]
+
+    return {
+        "model": model_name,
+        "type": node_info.get("resource_type", "unknown"),
+        "direct_dependents": [all_nodes.get(d, {}).get("name", d) for d in direct],
+        "tree": tree,
+        "total_downstream_count": tree["total_downstream_count"],
     }
 
 
@@ -498,40 +557,10 @@ async def get_impact(
             detail="No dbt manifest found. Run dbt first to generate lineage data.",
         )
 
-    # Build combined node lookup and reverse map
-    all_nodes: dict[str, dict[str, Any]] = {}
-    reverse_map: dict[str, list[str]] = {}
-
-    for uid, node in manifest.get("nodes", {}).items():
-        all_nodes[uid] = node
-        if node.get("resource_type") == "model":
-            for dep in node.get("depends_on", {}).get("nodes", []):
-                reverse_map.setdefault(dep, []).append(uid)
-
-    for uid, src in manifest.get("sources", {}).items():
-        all_nodes[uid] = src
-
-    # Find the target model by name
-    target_id: str | None = None
-    for uid, node in all_nodes.items():
-        if node.get("name") == model_name:
-            target_id = uid
-            break
-
-    if target_id is None:
+    result = await asyncio.to_thread(_build_impact_response, manifest, model_name)
+    if result is None:
         raise HTTPException(
             status_code=404,
             detail=f"Model '{model_name}' not found in dbt manifest.",
         )
-
-    tree = _get_impact_tree(reverse_map, target_id, all_nodes)
-    direct = reverse_map.get(target_id, [])
-    node_info = all_nodes[target_id]
-
-    return {
-        "model": model_name,
-        "type": node_info.get("resource_type", "unknown"),
-        "direct_dependents": [all_nodes.get(d, {}).get("name", d) for d in direct],
-        "tree": tree,
-        "total_downstream_count": tree["total_downstream_count"],
-    }
+    return result
