@@ -126,6 +126,27 @@ class ComparisonResult(BaseModel):
     forecast_threshold_days: int | None = None
 
 
+class DimensionContributor(BaseModel):
+    """A single group's contribution to a metric change."""
+
+    model_config = ConfigDict(frozen=True)
+
+    group_value: str | None = None
+    current_value: float = 0.0
+    previous_value: float | None = None
+    change_pct: float | None = None
+    change_abs: float | None = None
+
+
+class DrillDownDimension(BaseModel):
+    """Drill-down results for a single dimension."""
+
+    model_config = ConfigDict(frozen=True)
+
+    dimension: str
+    contributors: list[DimensionContributor] = Field(default_factory=list)
+
+
 class AnalysisResult(BaseModel):
     """Bundles a metric value with its optional comparison."""
 
@@ -133,3 +154,4 @@ class AnalysisResult(BaseModel):
 
     metric: MetricValue
     comparison: ComparisonResult | None = None
+    drill_down: list[DrillDownDimension] = Field(default_factory=list)
