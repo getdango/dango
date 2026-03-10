@@ -182,6 +182,7 @@ function notebooksPage() {
         // Active editing
         activeNotebook: null,
         heartbeatInterval: null,
+        _boundBeforeUnload: null,
 
         async init() {
             await this.loadNotebooks();
@@ -243,12 +244,20 @@ function notebooksPage() {
                     });
                 } catch (e) { /* ignore heartbeat failures */ }
             }, 60000);
+            this._boundBeforeUnload = () => {
+                navigator.sendBeacon(`/api/notebooks/${name}/release`);
+            };
+            window.addEventListener('beforeunload', this._boundBeforeUnload);
         },
 
         stopHeartbeat() {
             if (this.heartbeatInterval) {
                 clearInterval(this.heartbeatInterval);
                 this.heartbeatInterval = null;
+            }
+            if (this._boundBeforeUnload) {
+                window.removeEventListener('beforeunload', this._boundBeforeUnload);
+                this._boundBeforeUnload = null;
             }
         },
 

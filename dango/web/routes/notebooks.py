@@ -39,11 +39,22 @@ router = APIRouter(tags=["notebooks"])
 logger = get_logger(__name__)
 
 _VALID_TEMPLATES = frozenset({"blank", "explore", "quality"})
+_DEFAULT_MARIMO_PORT = 7805
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+def _validate_name(name: str) -> JSONResponse | None:
+    """Return a 400 response if name is invalid, else None."""
+    try:
+        validate_identifier(name)
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error_code": "DANGO-NB001",
+                "message": "Invalid notebook name. Use only letters, numbers, and underscores.",
+            },
+        )
+    return None
 
 
 def _audit(
@@ -156,12 +167,10 @@ def _create_notebook_blocking(
     if target.exists():
         raise FileExistsError(f"Notebook file already exists: {name}.py")
 
-    # Copy template from package
     templates_dir = Path(dango.notebooks.templates.__file__).parent
     template_file = templates_dir / f"{template}.py"
     shutil.copy2(str(template_file), str(target))
 
-    # Insert metadata
     new_id = str(uuid.uuid4())
     now = datetime.now().isoformat()
 
@@ -189,11 +198,6 @@ def _delete_notebook_blocking(project_root: Path, name: str) -> None:
         conn.commit()
 
 
-# ---------------------------------------------------------------------------
-# Page route
-# ---------------------------------------------------------------------------
-
-
 @router.get("/notebooks")
 async def notebooks_page(
     request: Request,
@@ -209,11 +213,6 @@ async def notebooks_page(
             "subtitle": "Notebooks",
         },
     )
-
-
-# ---------------------------------------------------------------------------
-# API endpoints
-# ---------------------------------------------------------------------------
 
 
 @router.get("/api/notebooks")
@@ -238,19 +237,10 @@ async def create_notebook(
     name = body.get("name", "")
     template = body.get("template", "blank")
 
-    # Validate name
-    try:
-        name = validate_identifier(name)
-    except Exception:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error_code": "DANGO-NB001",
-                "message": "Invalid notebook name. Use only letters, numbers, and underscores.",
-            },
-        )
-
-    # Validate template
+    err = _validate_name(name)
+    if err is not None:
+        return err
+    name = validate_identifier(name)  # normalize
     if template not in _VALID_TEMPLATES:
         return JSONResponse(
             status_code=400,
@@ -292,11 +282,14 @@ async def delete_notebook(
     user: User = Depends(require_permission("notebooks.execute")),
 ) -> JSONResponse:
     """Delete a notebook file and metadata."""
+    err = _validate_name(name)
+    if err is not None:
+        return err
+
     project_root = get_project_root()
 
     notebook = await asyncio.to_thread(_get_notebook_by_name, project_root, name)
 
-    # Check file also exists on disk if not in metadata
     notebooks_dir = project_root / "notebooks"
     file_exists = (notebooks_dir / f"{name}.py").exists()
 
@@ -306,6 +299,17 @@ async def delete_notebook(
             content={
                 "error_code": "DANGO-NB004",
                 "message": f"Notebook {name!r} not found.",
+            },
+        )
+
+    # Refuse delete if locked by another user
+    lock = await asyncio.to_thread(get_lock_info, project_root, name)
+    if lock and lock["locked_by"] != user.email:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error_code": "DANGO-NB011",
+                "message": f"Notebook is locked by {lock['locked_by']}. Release the lock first.",
             },
         )
 
@@ -342,7 +346,21 @@ async def lock_notebook(
     user: User = Depends(require_permission("notebooks.execute")),
 ) -> JSONResponse:
     """Acquire editing lock and start Marimo if needed."""
+    err = _validate_name(name)
+    if err is not None:
+        return err
+
     project_root = get_project_root()
+
+    notebooks_dir = project_root / "notebooks"
+    if not (notebooks_dir / f"{name}.py").exists():
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error_code": "DANGO-NB004",
+                "message": f"Notebook {name!r} not found.",
+            },
+        )
 
     acquired = await asyncio.to_thread(acquire_lock, project_root, name, user.email)
     if not acquired:
@@ -356,9 +374,7 @@ async def lock_notebook(
             },
         )
 
-    # Start Marimo if not running
     status = await asyncio.to_thread(get_marimo_status, project_root)
-    port: int | None = None
     if not status["running"]:
         try:
             await asyncio.to_thread(start_marimo, project_root)
@@ -367,7 +383,7 @@ async def lock_notebook(
             # Already running (race condition) — get status again
             status = await asyncio.to_thread(get_marimo_status, project_root)
 
-    port = status.get("port") or 7805  # type: ignore[assignment]
+    port = status.get("port") or _DEFAULT_MARIMO_PORT  # type: ignore[assignment]
 
     marimo_url = f"http://localhost:{port}/@file/{name}.py"
 
@@ -452,6 +468,10 @@ async def copy_notebook(
     user: User = Depends(require_permission("notebooks.execute")),
 ) -> JSONResponse:
     """Copy a locked notebook for the current user."""
+    err = _validate_name(name)
+    if err is not None:
+        return err
+
     project_root = get_project_root()
 
     try:

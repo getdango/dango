@@ -180,12 +180,13 @@ class TestListNotebooks:
 class TestCreateNotebook:
     """Tests for POST /api/notebooks."""
 
+    @patch(f"{_P}._audit")
     @patch(f"{_P}.get_project_root")
     @patch(f"{_P}.shutil.copy2")
     def test_create_success(
-        self, mock_copy: MagicMock, mock_root: MagicMock, tmp_path: Path
+        self, _mc: MagicMock, mock_root: MagicMock, mock_audit: MagicMock, tmp_path: Path
     ) -> None:
-        """Creates notebook file and metadata entry."""
+        """Creates notebook file, metadata entry, and logs audit event."""
         mock_root.return_value = tmp_path
         _init_db(tmp_path)
         (tmp_path / "notebooks").mkdir(parents=True, exist_ok=True)
@@ -194,6 +195,8 @@ class TestCreateNotebook:
         )
         assert resp.status_code == 201
         assert resp.json()["name"] == "my_analysis"
+        mock_audit.assert_called_once()
+        assert mock_audit.call_args[0][0].value == "notebook_created"
 
     @patch(f"{_P}.get_project_root")
     def test_duplicate_name(self, mock_root: MagicMock, tmp_path: Path) -> None:
@@ -244,15 +247,20 @@ class TestCreateNotebook:
 class TestDeleteNotebook:
     """Tests for DELETE /api/notebooks/{name}."""
 
+    @patch(f"{_P}._audit")
     @patch(f"{_P}.get_project_root")
-    def test_admin_deletes(self, mock_root: MagicMock, tmp_path: Path) -> None:
-        """Admin can delete any notebook."""
+    def test_admin_deletes(
+        self, mock_root: MagicMock, mock_audit: MagicMock, tmp_path: Path
+    ) -> None:
+        """Admin can delete any notebook and logs audit event."""
         mock_root.return_value = tmp_path
         _init_db(tmp_path)
         _seed_notebook(tmp_path, "to_delete", created_by="other@test.com")
         resp = _client(tmp_path, role=Role.ADMIN).delete("/api/notebooks/to_delete")
         assert resp.status_code == 200
         assert resp.json()["status"] == "deleted"
+        mock_audit.assert_called_once()
+        assert mock_audit.call_args[0][0].value == "notebook_deleted"
 
     @patch(f"{_P}.get_project_root")
     def test_editor_deletes(self, mock_root: MagicMock, tmp_path: Path) -> None:
@@ -281,6 +289,17 @@ class TestDeleteNotebook:
         assert (
             _client(tmp_path, role=Role.VIEWER).delete("/api/notebooks/test_nb").status_code == 403
         )
+
+    @patch(f"{_P}.get_project_root")
+    def test_locked_by_other_blocked(self, mock_root: MagicMock, tmp_path: Path) -> None:
+        """Returns 409 when notebook is locked by another user."""
+        mock_root.return_value = tmp_path
+        _init_db(tmp_path)
+        _seed_notebook(tmp_path, "locked_nb", created_by="test@test.com")
+        _seed_lock(tmp_path, "locked_nb", locked_by="other@test.com")
+        resp = _client(tmp_path).delete("/api/notebooks/locked_nb")
+        assert resp.status_code == 409
+        assert "locked by" in resp.json()["message"].lower()
 
 
 @pytest.mark.unit
@@ -326,6 +345,31 @@ class TestLockNotebook:
             _client(tmp_path, role=Role.VIEWER).post("/api/notebooks/t/lock", json={}).status_code
             == 403
         )
+
+    @patch(f"{_P}.get_project_root")
+    def test_nonexistent_file_returns_404(self, mock_root: MagicMock, tmp_path: Path) -> None:
+        """Returns 404 when notebook file doesn't exist on disk."""
+        mock_root.return_value = tmp_path
+        _init_db(tmp_path)
+        resp = _client(tmp_path).post("/api/notebooks/no_file/lock", json={})
+        assert resp.status_code == 404
+
+    @patch(f"{_P}.start_marimo", side_effect=RuntimeError("already running"))
+    @patch(f"{_P}.get_marimo_status")
+    @patch(f"{_P}.get_project_root")
+    def test_marimo_start_race_condition(
+        self, mock_root: MagicMock, mock_status: MagicMock, _ms: MagicMock, tmp_path: Path
+    ) -> None:
+        """Recovers when start_marimo raises RuntimeError (race condition)."""
+        mock_root.return_value = tmp_path
+        not_running = {"running": False, "port": None, "pid": None, "log_file": None}
+        running = {"running": True, "port": 7805, "pid": 123, "log_file": None}
+        mock_status.side_effect = [not_running, running]
+        _init_db(tmp_path)
+        _seed_notebook(tmp_path, "race_nb")
+        resp = _client(tmp_path).post("/api/notebooks/race_nb/lock", json={})
+        assert resp.status_code == 200
+        assert resp.json()["locked"] is True
 
 
 @pytest.mark.unit
@@ -382,15 +426,20 @@ class TestReleaseLock:
 class TestForceReleaseLock:
     """Tests for DELETE /api/notebooks/{name}/lock."""
 
+    @patch(f"{_P}._audit")
     @patch(f"{_P}.get_project_root")
-    def test_editor_can_force_release(self, mock_root: MagicMock, tmp_path: Path) -> None:
-        """Editor (has notebooks.manage) can force-release locks."""
+    def test_editor_can_force_release(
+        self, mock_root: MagicMock, mock_audit: MagicMock, tmp_path: Path
+    ) -> None:
+        """Editor (has notebooks.manage) can force-release locks and logs audit."""
         mock_root.return_value = tmp_path
         _init_db(tmp_path)
         _seed_lock(tmp_path, "locked_nb", locked_by="other@test.com")
         resp = _client(tmp_path, role=Role.EDITOR).delete("/api/notebooks/locked_nb/lock")
         assert resp.status_code == 200
         assert resp.json()["force_released"] is True
+        mock_audit.assert_called_once()
+        assert mock_audit.call_args[0][0].value == "notebook_lock_force_released"
 
     @patch(f"{_P}.get_project_root")
     def test_no_lock_returns_404(self, mock_root: MagicMock, tmp_path: Path) -> None:
