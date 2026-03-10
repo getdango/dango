@@ -20,6 +20,7 @@ from dango.analysis.config import load_metrics_config
 from dango.analysis.models import (
     AnalysisResult,
     ComparisonResult,
+    DrillDownDimension,
     MetricConfig,
     MetricValue,
 )
@@ -79,7 +80,23 @@ def run_analysis(
             )
             _store_comparison_result(project_root, comparison)
 
-        results.append(AnalysisResult(metric=metric_value, comparison=comparison))
+        drill_down_results: list[DrillDownDimension] = []
+        if comparison is not None and comparison.exceeds_threshold and metric.drill_down:
+            from dango.analysis.drilldown import run_drill_down
+
+            drill_down_results = run_drill_down(
+                duckdb_path,
+                project_root,
+                metric,
+            )
+
+        results.append(
+            AnalysisResult(
+                metric=metric_value,
+                comparison=comparison,
+                drill_down=drill_down_results,
+            )
+        )
 
     logger.info(
         "analysis_complete",

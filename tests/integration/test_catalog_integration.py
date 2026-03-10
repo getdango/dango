@@ -1,12 +1,13 @@
 """tests/integration/test_catalog_integration.py
 
-Integration tests for catalog profiling using real DuckDB and SQLite databases.
+Integration tests for catalog profiling and lineage using real DuckDB and SQLite databases.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pytest
@@ -17,6 +18,7 @@ from dango.utils.post_sync import (
     dispatch_post_sync_hooks,
     profile_table,
 )
+from dango.web.routes.catalog import _build_lineage_dag, _get_impact_tree
 
 
 def _create_test_warehouse(tmp_path: Path) -> Path:
@@ -228,3 +230,116 @@ class TestProfilingPerformance:
         assert "username" in stats
         # Should complete well under 5 seconds on any reasonable hardware
         assert elapsed < 5.0
+
+
+def _create_test_manifest(tmp_path: Path) -> Path:
+    """Write a realistic manifest.json with sources, models, tests, and deps.
+
+    Returns:
+        Path to the manifest file.
+    """
+    manifest: dict[str, Any] = {
+        "nodes": {
+            "model.shop.stg_orders": {
+                "resource_type": "model",
+                "name": "stg_orders",
+                "schema": "analytics",
+                "config": {"materialized": "view"},
+                "description": "Staging orders",
+                "depends_on": {"nodes": ["source.shop.raw.orders"]},
+                "columns": {
+                    "id": {"name": "id", "description": "Order ID"},
+                    "total": {"name": "total", "description": ""},
+                },
+            },
+            "model.shop.fct_revenue": {
+                "resource_type": "model",
+                "name": "fct_revenue",
+                "schema": "analytics",
+                "config": {"materialized": "table"},
+                "description": "",
+                "depends_on": {"nodes": ["model.shop.stg_orders"]},
+                "columns": {},
+            },
+            "test.shop.not_null_stg_orders_id": {
+                "resource_type": "test",
+                "name": "not_null_stg_orders_id",
+                "depends_on": {"nodes": ["model.shop.stg_orders"]},
+            },
+        },
+        "sources": {
+            "source.shop.raw.orders": {
+                "name": "orders",
+                "schema": "raw_shop",
+                "description": "Raw orders table",
+                "columns": {},
+                "resource_type": "source",
+            },
+        },
+    }
+    manifest_dir = tmp_path / "dbt" / "target"
+    manifest_dir.mkdir(parents=True)
+    manifest_path = manifest_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return manifest_path
+
+
+@pytest.mark.integration
+class TestLineageIntegration:
+    """Integration tests for lineage DAG and impact tree with real manifest."""
+
+    def test_build_lineage_dag_from_manifest(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """_build_lineage_dag returns correct nodes + edges from manifest."""
+        _create_test_manifest(tmp_path)
+        monkeypatch.setattr(
+            "dango.web.routes.catalog.get_dbt_manifest",
+            lambda: json.loads((tmp_path / "dbt" / "target" / "manifest.json").read_text()),
+        )
+
+        dag = _build_lineage_dag()
+
+        assert dag is not None
+        assert len(dag["nodes"]) == 3  # 1 source + 2 models
+        assert len(dag["edges"]) == 2  # source→stg, stg→fct
+
+        names = {n["name"] for n in dag["nodes"]}
+        assert names == {"orders", "stg_orders", "fct_revenue"}
+
+        # Verify reverse lookup
+        stg = next(n for n in dag["nodes"] if n["name"] == "stg_orders")
+        assert "model.shop.fct_revenue" in stg["depended_on_by"]
+        assert stg["test_count"] == 1
+        assert stg["columns_documented"] == 1  # id has desc, total doesn't
+        assert stg["columns_total"] == 2
+
+    def test_impact_tree_from_manifest(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """_get_impact_tree returns correct downstream tree."""
+        _create_test_manifest(tmp_path)
+        manifest: dict[str, Any] = json.loads(
+            (tmp_path / "dbt" / "target" / "manifest.json").read_text()
+        )
+
+        # Build combined node lookup and reverse map
+        all_nodes: dict[str, dict[str, Any]] = {}
+        reverse_map: dict[str, list[str]] = {}
+        for uid, node in manifest["nodes"].items():
+            all_nodes[uid] = node
+            if node.get("resource_type") == "model":
+                for dep in node.get("depends_on", {}).get("nodes", []):
+                    reverse_map.setdefault(dep, []).append(uid)
+        for uid, src in manifest["sources"].items():
+            all_nodes[uid] = src
+
+        tree = _get_impact_tree(reverse_map, "source.shop.raw.orders", all_nodes)
+
+        assert tree["name"] == "orders"
+        assert tree["total_downstream_count"] == 2
+        assert len(tree["children"]) == 1
+        assert tree["children"][0]["name"] == "stg_orders"
