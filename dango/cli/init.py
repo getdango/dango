@@ -71,6 +71,10 @@ class ProjectInitializer:
             # Create README
             self._create_readme(config)
 
+            # Create COMPATIBILITY.md and SCALABILITY.md
+            self._create_compatibility_md()
+            self._create_scalability_md()
+
             # Create docker-compose.yml
             self._create_docker_compose(config)
 
@@ -357,6 +361,133 @@ When creating dashboards and reports in Metabase, use tables in this priority or
             with open(readme_path, "w", encoding="utf-8") as f:
                 f.write(readme_content)
             print_success("Created README.md")
+
+    def _create_compatibility_md(self):
+        """Create COMPATIBILITY.md with version requirements and platform support."""
+        content = f"""\
+# Compatibility
+
+Version requirements and platform support for this Dango project.
+
+## Python
+
+- **Required:** Python 3.10, 3.11, or 3.12 (`>=3.10,<3.13`)
+- System Python on macOS is 3.9 — use `python3.11` or `python3.12` explicitly
+
+## Operating Systems
+
+| OS | Version | Notes |
+|----|---------|-------|
+| macOS | 12 (Monterey)+ | Primary development platform |
+| Ubuntu | 22.04 LTS | Recommended for cloud deployment |
+| Windows | WSL2 only | Native Windows is not supported |
+
+## Docker
+
+- **Docker Engine:** 20.10+
+- **Docker Compose:** v2 (ships with Docker Desktop)
+- Required for Metabase and the full platform stack (`dango start`)
+
+## Browsers (Metabase + Dango Web UI)
+
+Latest 2 versions of:
+- Chrome
+- Firefox
+- Safari
+- Edge
+
+## Core Dependencies
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| DuckDB | ~1.4.0 | Embedded analytical database |
+| dbt-core | ~1.10.0 | Data transformation framework |
+| dlt | >=1.17.0, <2.0 | Data ingestion toolkit |
+| Metabase | v0.50.26 | Business intelligence / dashboards |
+
+## spaCy (Data Governance)
+
+The `en_core_web_sm` language model is required for PII scanning (data governance).
+
+- **Automatic:** Downloaded on first governance scan
+- **Manual:** `python -m spacy download en_core_web_sm`
+
+## Upgrade Notes
+
+- Pin your Python version in CI/CD — Dango does not yet support Python 3.13+
+- DuckDB minor version upgrades may require a database re-sync (`dango sync`)
+- dbt and dlt versions are pinned to compatible ranges in `pyproject.toml`
+
+---
+
+*Generated with Dango {self._get_dango_version()}*
+"""
+
+        compat_path = self.project_dir / "COMPATIBILITY.md"
+        if not compat_path.exists():
+            with open(compat_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            print_success("Created COMPATIBILITY.md")
+
+    def _create_scalability_md(self):
+        """Create SCALABILITY.md with platform limits and upgrade guidance."""
+        content = f"""\
+# Scalability
+
+Honest guidance on what Dango handles well and when to consider alternatives.
+
+## DuckDB (Data Warehouse)
+
+- **Sweet spot:** Datasets up to ~500 GB on a single machine
+- **Row counts:** Handles billions of rows — query performance depends on data shape \
+and available RAM
+- **Architecture:** In-process columnar engine with no network overhead — excellent for \
+analytics workloads
+- **Single-writer constraint:** Only one process can write at a time. Dango serializes \
+all writes through `DbtLock` (file lock at `.dango/state/dbt.lock`). Concurrent reads \
+during writes are fine.
+
+## Concurrent Users
+
+- **Dango Web UI:** Comfortable for ~10-20 concurrent users
+- **Metabase:** Has its own connection pool and handles concurrent dashboard viewers \
+independently
+- **DuckDB reads:** Multiple users can query simultaneously — reads don't block each other
+
+## File Watcher
+
+- Monitors `data/uploads/` for new CSV files
+- Debounce interval: 10 minutes (configurable in schedule settings)
+- Best suited for small-to-medium file counts — not designed for high-frequency file drops
+
+## Cloud Deployment
+
+- **Default droplet:** `s-2vcpu-4gb` (2 vCPUs, 4 GB RAM) on DigitalOcean
+- **Resize:** `dango remote resize` to scale up without data loss
+- **Migrate:** `dango remote migrate` to move to a different region
+
+## When to Consider Alternatives
+
+| Signal | Consider |
+|--------|----------|
+| Data exceeds single-machine disk/RAM | [MotherDuck](https://motherduck.com/) (managed DuckDB in the cloud) |
+| Need multi-region or multi-tenant | Cloud-managed warehouse (BigQuery, Snowflake, Redshift) |
+| >50 concurrent dashboard users | Dedicated Metabase instance with PostgreSQL backend |
+| Real-time streaming ingestion | Kafka/Flink pipeline feeding a separate warehouse |
+
+Dango is designed for small teams with analytical workloads that fit on one machine. \
+If you outgrow it, your dbt models and SQL are portable — migration is straightforward.
+
+---
+
+*Generated with Dango {self._get_dango_version()}*
+"""
+
+        scale_path = self.project_dir / "SCALABILITY.md"
+        if not scale_path.exists():
+            with open(scale_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            print_success("Created SCALABILITY.md")
 
     def _create_marts_readme(self):
         """Create README.md in marts/ directory with guidance"""
@@ -864,6 +995,8 @@ on-run-end:
             "docker-compose.yml",
             "Dockerfile.metabase",
             "README.md",  # Only if created by us
+            "COMPATIBILITY.md",
+            "SCALABILITY.md",
             ".gitignore",  # Only if created by us
         ]
 

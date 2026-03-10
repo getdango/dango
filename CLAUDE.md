@@ -293,7 +293,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/source_wizard.py` | 1324 | — |
 | `visualization/metabase.py` | 1149 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
-| `cli/init.py` | 965 | — |
+| `cli/init.py` | 1098 | — |
 | `cli/commands/platform.py` | 964 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | ~854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 815 | — (renamed from auth.py by TASK-093) |
