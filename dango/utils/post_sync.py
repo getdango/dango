@@ -9,11 +9,290 @@ a stub that will be populated by subsequent Phase 7 tasks.
 
 from __future__ import annotations
 
+import json
+import re
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from dango.logging import get_logger
+from dango.utils.dango_db import connect
+from dango.validation import validate_identifier
 
 logger = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# Type classification helpers
+# ---------------------------------------------------------------------------
+
+_NUMERIC_TYPES = frozenset(
+    {
+        "INTEGER",
+        "INT",
+        "BIGINT",
+        "SMALLINT",
+        "TINYINT",
+        "HUGEINT",
+        "DOUBLE",
+        "FLOAT",
+        "REAL",
+        "DECIMAL",
+        "NUMERIC",
+        "UBIGINT",
+        "UINTEGER",
+        "USMALLINT",
+        "UTINYINT",
+        "INT1",
+        "INT2",
+        "INT4",
+        "INT8",
+    }
+)
+
+_STRING_TYPES = frozenset(
+    {
+        "VARCHAR",
+        "TEXT",
+        "CHAR",
+        "BLOB",
+        "UUID",
+        "STRING",
+    }
+)
+
+_PRECISION_RE = re.compile(r"\(.*\)$")
+
+
+def _is_numeric(data_type: str) -> bool:
+    """Check whether *data_type* is a numeric DuckDB type.
+
+    Strips any precision/scale suffix (e.g. ``DECIMAL(10,2)`` → ``DECIMAL``)
+    before checking.
+
+    Args:
+        data_type: DuckDB column data type string.
+
+    Returns:
+        ``True`` if the base type is numeric.
+    """
+    base = _PRECISION_RE.sub("", data_type.strip()).upper()
+    return base in _NUMERIC_TYPES
+
+
+def _is_string(data_type: str) -> bool:
+    """Check whether *data_type* is a string/text DuckDB type.
+
+    Strips any length suffix (e.g. ``VARCHAR(255)`` → ``VARCHAR``) before
+    checking.
+
+    Args:
+        data_type: DuckDB column data type string.
+
+    Returns:
+        ``True`` if the base type is string/text.
+    """
+    base = _PRECISION_RE.sub("", data_type.strip()).upper()
+    return base in _STRING_TYPES
+
+
+# ---------------------------------------------------------------------------
+# Profiling engine
+# ---------------------------------------------------------------------------
+
+
+def profile_table(
+    project_root: Path,
+    source: str,
+    table_name: str,
+) -> dict[str, dict[str, str | None]]:
+    """Profile all columns of a single table and cache results.
+
+    Opens DuckDB read-only, queries column metadata and computes per-column
+    statistics (null counts, distinct counts, min/max, etc.).  Results are
+    cached in the ``profiling_stats`` table of ``.dango/dango.db``.
+
+    Args:
+        project_root: Path to the Dango project root.
+        source: Source name (used as ``raw_{source}`` schema).
+        table_name: Table name within the source schema.
+
+    Returns:
+        Mapping of ``{column_name: {stat_type: stat_value}}``.  Stat values
+        are always strings (or ``None``).
+    """
+    import duckdb  # lazy import (matches dlt_runner.py pattern)
+
+    db_path = project_root / "data" / "warehouse.duckdb"
+    schema = f"raw_{source}"
+
+    conn = duckdb.connect(str(db_path), read_only=True)
+    try:
+        # Discover columns
+        columns = conn.execute(
+            "SELECT column_name, data_type, is_nullable "
+            "FROM information_schema.columns "
+            f"WHERE table_schema = '{schema}' AND table_name = '{table_name}' "
+            "ORDER BY ordinal_position"
+        ).fetchall()
+
+        if not columns:
+            return {}
+
+        # Total row count
+        total_row_result = conn.execute(
+            f'SELECT COUNT(*) FROM "{schema}"."{table_name}"'
+        ).fetchone()
+        total_rows: int = total_row_result[0] if total_row_result else 0
+
+        stats: dict[str, dict[str, str | None]] = {}
+
+        for col_name, data_type, _is_nullable in columns:
+            try:
+                col_stats = _profile_column(
+                    conn,
+                    schema,
+                    table_name,
+                    col_name,
+                    data_type,
+                    total_rows,
+                )
+                stats[col_name] = col_stats
+            except Exception:
+                logger.warning(
+                    "profile_column_error",
+                    source=source,
+                    table=table_name,
+                    column=col_name,
+                )
+    finally:
+        conn.close()
+
+    try:
+        _cache_stats(project_root, source, table_name, stats)
+    except Exception:
+        logger.warning(
+            "profiling_cache_error",
+            source=source,
+            table=table_name,
+        )
+    return stats
+
+
+def _profile_column(
+    conn: Any,
+    schema: str,
+    table_name: str,
+    col_name: str,
+    data_type: str,
+    total_rows: int,
+) -> dict[str, str | None]:
+    """Compute statistics for a single column.
+
+    Args:
+        conn: Open DuckDB connection (read-only).
+        schema: DuckDB schema name (e.g. ``raw_shopify``).
+        table_name: Table name.
+        col_name: Column name.
+        data_type: DuckDB data type string.
+        total_rows: Total number of rows in the table.
+
+    Returns:
+        Mapping of ``{stat_type: stat_value}`` for this column.
+    """
+    # Build aggregation expressions
+    agg_parts = [
+        f'COUNT(*) - COUNT("{col_name}") AS null_count',
+        f'COUNT(DISTINCT "{col_name}") AS distinct_count',
+    ]
+
+    if _is_numeric(data_type):
+        agg_parts.extend(
+            [
+                f'MIN("{col_name}")::VARCHAR AS min_val',
+                f'MAX("{col_name}")::VARCHAR AS max_val',
+                f'AVG("{col_name}")::VARCHAR AS mean_val',
+            ]
+        )
+    elif _is_string(data_type):
+        agg_parts.extend(
+            [
+                f'MIN(LENGTH("{col_name}"))::VARCHAR AS min_length',
+                f'MAX(LENGTH("{col_name}"))::VARCHAR AS max_length',
+            ]
+        )
+
+    agg_sql = ", ".join(agg_parts)
+    row = conn.execute(f'SELECT {agg_sql} FROM "{schema}"."{table_name}"').fetchone()
+
+    col_stats: dict[str, str | None] = {}
+
+    if row is not None:
+        null_count = row[0]
+        distinct_count = row[1]
+        col_stats["null_count"] = str(null_count)
+        null_pct = (null_count / total_rows * 100) if total_rows > 0 else 0.0
+        col_stats["null_pct"] = str(round(null_pct, 1))
+        col_stats["distinct_count"] = str(distinct_count)
+
+        idx = 2
+        if _is_numeric(data_type):
+            col_stats["min"] = str(row[idx]) if row[idx] is not None else None
+            col_stats["max"] = str(row[idx + 1]) if row[idx + 1] is not None else None
+            col_stats["mean"] = str(row[idx + 2]) if row[idx + 2] is not None else None
+        elif _is_string(data_type):
+            col_stats["min_length"] = str(row[idx]) if row[idx] is not None else None
+            col_stats["max_length"] = str(row[idx + 1]) if row[idx + 1] is not None else None
+
+    # Sample values (separate query, up to 5 distinct non-null values)
+    try:
+        sample_rows = conn.execute(
+            f'SELECT DISTINCT "{col_name}"::VARCHAR '
+            f'FROM "{schema}"."{table_name}" '
+            f'WHERE "{col_name}" IS NOT NULL '
+            f"LIMIT 5"
+        ).fetchall()
+        sample_values = [r[0] for r in sample_rows]
+        col_stats["sample_values"] = json.dumps(sample_values)
+    except Exception:
+        col_stats["sample_values"] = None
+
+    return col_stats
+
+
+def _cache_stats(
+    project_root: Path,
+    source: str,
+    table_name: str,
+    stats: dict[str, dict[str, str | None]],
+) -> None:
+    """Write profiling stats to the ``profiling_stats`` table.
+
+    Uses ``INSERT OR REPLACE`` to upsert all stat rows in a single
+    transaction.
+
+    Args:
+        project_root: Path to the Dango project root.
+        source: Source name.
+        table_name: Table name.
+        stats: Mapping of ``{column_name: {stat_type: stat_value}}``.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+
+    with connect(project_root) as conn:
+        for col_name, col_stats in stats.items():
+            for stat_type, stat_value in col_stats.items():
+                conn.execute(
+                    "INSERT OR REPLACE INTO profiling_stats "
+                    "(source, table_name, column_name, stat_type, stat_value, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (source, table_name, col_name, stat_type, stat_value, now),
+                )
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Post-sync dispatcher
+# ---------------------------------------------------------------------------
 
 
 def dispatch_post_sync_hooks(
@@ -45,8 +324,51 @@ def dispatch_post_sync_hooks(
 def _run_profiling(project_root: Path, sources: list[str]) -> None:
     """Profile columns for freshly synced sources.
 
-    Populated by P7-001.
+    Discovers all user tables in each source's ``raw_{source}`` schema
+    (excluding dlt internal tables) and runs :func:`profile_table` on each.
+
+    Args:
+        project_root: Path to the Dango project root.
+        sources: Names of sources that synced successfully.
     """
+    import duckdb  # lazy import
+
+    db_path = project_root / "data" / "warehouse.duckdb"
+    if not db_path.exists():
+        logger.debug("profiling_skip_no_warehouse", path=str(db_path))
+        return
+
+    for source in sources:
+        try:
+            logger.debug("profiling_source_start", source=source)
+            schema = f"raw_{source}"
+
+            conn = duckdb.connect(str(db_path), read_only=True)
+            try:
+                tables = conn.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    f"WHERE table_schema = '{schema}' "
+                    "AND table_name NOT LIKE '_dlt_%' "
+                    "AND table_name NOT IN ('spreadsheet', 'spreadsheet_info') "
+                    "ORDER BY table_name"
+                ).fetchall()
+            finally:
+                conn.close()
+
+            for (tbl_name,) in tables:
+                try:
+                    tbl_name = validate_identifier(tbl_name)
+                    profile_table(project_root, source, tbl_name)
+                except Exception:
+                    logger.warning(
+                        "profiling_table_error",
+                        source=source,
+                        table=tbl_name,
+                    )
+
+            logger.debug("profiling_source_complete", source=source)
+        except Exception:
+            logger.warning("profiling_source_error", source=source)
 
 
 def _run_drift_detection(project_root: Path, sources: list[str]) -> None:
