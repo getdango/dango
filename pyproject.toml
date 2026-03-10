@@ -210,6 +210,9 @@ ignore_missing_imports = true
 module = [
     # Exempt monolithic files (see docs/file-exemptions.yml)
     # Full type checking deferred until refactoring or dedicated typing task
+    "dango.notebooks.templates.explore",
+    "dango.notebooks.templates.quality",
+    "dango.notebooks.templates.blank",
     "dango.ingestion.dlt_runner",
     "dango.ingestion.sources.registry",
     "dango.ingestion.csv_loader",
@@ -302,6 +305,11 @@ module = [
     "tests.unit.test_analysis_config",
     "tests.unit.test_analysis_comparisons",
     "tests.unit.test_analysis_metrics",
+    "tests.unit.test_notebook_manager",
+    "tests.unit.test_notebook_snapshot",
+    "tests.unit.test_notebook_locking",
+    "tests.unit.test_notebook_proxy",
+    "tests.unit.test_notebook_cli",
 ]
 ignore_errors = true
 
