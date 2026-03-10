@@ -12,11 +12,9 @@ from pathlib import Path
 import duckdb
 
 from dango.analysis.models import (
-    ComparisonResult,
     DimensionContributor,
     DrillDownDimension,
     MetricConfig,
-    MetricValue,
 )
 from dango.logging import get_logger
 from dango.utils.dango_db import connect
@@ -37,8 +35,6 @@ def run_drill_down(
     duckdb_path: Path,
     project_root: Path,
     metric: MetricConfig,
-    current_value: MetricValue,
-    comparison: ComparisonResult,
 ) -> list[DrillDownDimension]:
     """Run drill-down analysis for each configured dimension.
 
@@ -49,8 +45,6 @@ def run_drill_down(
         duckdb_path: Path to the DuckDB warehouse file.
         project_root: Path to the Dango project root.
         metric: The metric configuration with drill_down dimensions.
-        current_value: The current metric value.
-        comparison: The comparison result that triggered drill-down.
 
     Returns:
         A list of ``DrillDownDimension`` objects, one per dimension.

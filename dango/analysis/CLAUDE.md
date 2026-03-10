@@ -31,7 +31,7 @@ Automated metric monitoring and comparison engine. Executes user-defined metrics
 **Imports from (dango modules):**
 - `exceptions` — `AnalysisConfigError` (config.py)
 - `logging` — `get_logger` (all files)
-- `utils.dango_db` — `connect()` (comparisons.py, metrics.py)
+- `utils.dango_db` — `connect()` (comparisons.py, drilldown.py, metrics.py)
 
 **External packages:** `pydantic`, `yaml`, `duckdb`
 
@@ -45,7 +45,8 @@ Automated metric monitoring and comparison engine. Executes user-defined metrics
 
 ```
 pytest tests/unit/test_analysis_models.py tests/unit/test_analysis_config.py \
-  tests/unit/test_analysis_comparisons.py tests/unit/test_analysis_metrics.py -v
+  tests/unit/test_analysis_comparisons.py tests/unit/test_analysis_metrics.py \
+  tests/unit/test_analysis_drilldown.py -v
 ```
 
 ## Don't Modify

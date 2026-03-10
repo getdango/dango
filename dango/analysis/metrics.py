@@ -88,8 +88,6 @@ def run_analysis(
                 duckdb_path,
                 project_root,
                 metric,
-                metric_value,
-                comparison,
             )
 
         results.append(

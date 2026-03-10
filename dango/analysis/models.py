@@ -1,10 +1,12 @@
 """dango/analysis/models.py
 
-Pydantic V2 models for the metric engine and comparison system.
+Pydantic V2 models for the metric engine, comparison system, and drill-down.
 
 Defines configuration shapes (``MetricConfig``, ``MetricsConfig``), runtime
-value containers (``MetricValue``, ``ComparisonResult``), and the top-level
-``AnalysisResult`` that bundles a metric value with its comparison.
+value containers (``MetricValue``, ``ComparisonResult``), drill-down models
+(``DimensionContributor``, ``DrillDownDimension``), and the top-level
+``AnalysisResult`` that bundles a metric value with its comparison and
+drill-down results.
 """
 
 from __future__ import annotations

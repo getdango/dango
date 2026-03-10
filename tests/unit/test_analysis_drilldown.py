@@ -19,10 +19,7 @@ from dango.analysis.drilldown import (
     run_drill_down,
 )
 from dango.analysis.models import (
-    ComparisonResult,
-    ComparisonType,
     MetricConfig,
-    MetricValue,
 )
 from dango.utils.dango_db import connect
 
@@ -103,6 +100,23 @@ class TestQueryDimensionBreakdown:
 
         assert result == {}
 
+    @patch("dango.analysis.drilldown.duckdb")
+    def test_null_metric_value_defaults_to_zero(self, mock_duckdb, tmp_path):
+        """NULL aggregated value (row[1]) defaults to 0.0."""
+        metric = _make_metric()
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("Widget", None),
+            ("Gadget", 50.0),
+        ]
+        mock_duckdb.connect.return_value = mock_conn
+        mock_duckdb.Error = Exception
+
+        result = _query_dimension_breakdown(tmp_path / "warehouse.duckdb", metric, "product")
+
+        assert result["Widget"] == 0.0
+        assert result["Gadget"] == 50.0
+
 
 @pytest.mark.unit
 class TestGetPreviousSnapshot:
@@ -128,6 +142,29 @@ class TestGetPreviousSnapshot:
         """No snapshot returns None."""
         result = _get_previous_snapshot(tmp_path, "revenue", "product")
         assert result is None
+
+    def test_returns_most_recent_snapshot(self, tmp_path):
+        """Multiple snapshots returns the most recent one."""
+        old_snapshot = json.dumps({"Widget": 50.0})
+        new_snapshot = json.dumps({"Widget": 200.0})
+        with connect(tmp_path) as conn:
+            conn.execute(
+                "INSERT INTO metric_results "
+                "(metric_name, source, table_name, result_type, result_value, computed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("revenue", None, None, "drill_down:product", old_snapshot, "2026-01-01T00:00:00"),
+            )
+            conn.execute(
+                "INSERT INTO metric_results "
+                "(metric_name, source, table_name, result_type, result_value, computed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("revenue", None, None, "drill_down:product", new_snapshot, "2026-01-02T00:00:00"),
+            )
+            conn.commit()
+
+        result = _get_previous_snapshot(tmp_path, "revenue", "product")
+
+        assert result == {"Widget": 200.0}
 
     def test_null_sentinel_roundtrip(self, tmp_path):
         """NULL_SENTINEL in JSON maps back to None key."""
@@ -283,17 +320,6 @@ class TestComputeContributors:
 class TestRunDrillDown:
     """run_drill_down orchestration tests."""
 
-    def _make_comparison(self, exceeds=True):
-        """Create a ComparisonResult."""
-        return ComparisonResult(
-            metric_name="revenue",
-            comparison_type=ComparisonType.week_over_week,
-            current_value=100.0,
-            baseline_value=110.0,
-            change_pct=-9.1,
-            exceeds_threshold=exceeds,
-        )
-
     @patch("dango.analysis.drilldown.duckdb")
     def test_runs_all_dimensions(self, mock_duckdb, tmp_path):
         """Metric with 2 drill_down dims produces 2 DrillDownDimension results."""
@@ -303,16 +329,7 @@ class TestRunDrillDown:
         mock_duckdb.connect.return_value = mock_conn
         mock_duckdb.Error = Exception
 
-        mv = MetricValue(metric_name="revenue", value=100.0)
-        comparison = self._make_comparison()
-
-        result = run_drill_down(
-            tmp_path / "warehouse.duckdb",
-            tmp_path,
-            metric,
-            mv,
-            comparison,
-        )
+        result = run_drill_down(tmp_path / "warehouse.duckdb", tmp_path, metric)
 
         assert len(result) == 2
         assert result[0].dimension == "product"
@@ -322,16 +339,8 @@ class TestRunDrillDown:
     def test_empty_drill_down_list(self, mock_duckdb, tmp_path):
         """No dimensions configured returns empty result."""
         metric = _make_metric(drill_down=[])
-        mv = MetricValue(metric_name="revenue", value=100.0)
-        comparison = self._make_comparison()
 
-        result = run_drill_down(
-            tmp_path / "warehouse.duckdb",
-            tmp_path,
-            metric,
-            mv,
-            comparison,
-        )
+        result = run_drill_down(tmp_path / "warehouse.duckdb", tmp_path, metric)
 
         assert result == []
 
@@ -343,21 +352,12 @@ class TestRunDrillDown:
         mock_duckdb.connect.return_value = mock_conn
         mock_duckdb.Error = Exception
 
-        mv = MetricValue(metric_name="revenue", value=100.0)
-        comparison = self._make_comparison()
-
         # First run: Widget=100, Gadget=50
         mock_conn.execute.return_value.fetchall.return_value = [
             ("Widget", 100.0),
             ("Gadget", 50.0),
         ]
-        result1 = run_drill_down(
-            tmp_path / "warehouse.duckdb",
-            tmp_path,
-            metric,
-            mv,
-            comparison,
-        )
+        result1 = run_drill_down(tmp_path / "warehouse.duckdb", tmp_path, metric)
         # First run: no previous snapshot → no contributors
         assert len(result1) == 1
         assert result1[0].contributors == []
@@ -367,13 +367,7 @@ class TestRunDrillDown:
             ("Widget", 60.0),
             ("Gadget", 90.0),
         ]
-        result2 = run_drill_down(
-            tmp_path / "warehouse.duckdb",
-            tmp_path,
-            metric,
-            mv,
-            comparison,
-        )
+        result2 = run_drill_down(tmp_path / "warehouse.duckdb", tmp_path, metric)
         # Second run: has previous snapshot → contributors computed
         assert len(result2) == 1
         assert len(result2[0].contributors) == 2
