@@ -290,28 +290,105 @@ class TestSchedulerErrorMessages:
 
 @pytest.mark.unit
 class TestBackupErrorMessages:
-    """Tests for backup failure structured console messages."""
+    """Tests for backup failure structured console messages via CliRunner."""
 
-    def test_backup_module_uses_structured_errors(self) -> None:
-        """Verify remote_backup module imports format_structured_error."""
-        import dango.cli.commands.remote_backup as mod
+    def _run_remote(self, args: list[str], tmp_path: Path) -> MagicMock:
+        """Invoke ``dango remote`` with CliRunner."""
+        from click.testing import CliRunner
 
-        # Module-level import of format_structured_error confirms integration
-        assert hasattr(mod, "format_structured_error")
+        from dango.cli.commands.remote import remote
 
-    def test_restore_failure_message_format(self) -> None:
-        """Verify the restore failure message is structured."""
-        msg = format_structured_error(
-            what_failed="Restore failed from backup 'test.tar.gz'",
-            causes=[
-                "Backup archive is corrupt or incomplete",
-                "Insufficient disk space on server",
-                "Services failed to restart after restore",
-            ],
-            suggested_fix="Check server disk with 'dango remote status' and try a different backup",
+        runner = CliRunner()
+        return runner.invoke(remote, args, obj={"project_root": tmp_path}, catch_exceptions=False)
+
+    def test_backup_failure_structured(self, tmp_path: Path) -> None:
+        """On-demand backup failure prints structured error."""
+        from dango.platform.cloud.ssh import CommandResult
+
+        ssh = MagicMock()
+        ssh.exec_command.return_value = CommandResult(stdout="", stderr="disk full", exit_code=1)
+        ssh.disconnect.return_value = None
+
+        cloud_cfg = MagicMock()
+        cloud_cfg.droplet_id = 42
+        cloud_cfg.droplet_ip = "1.2.3.4"
+        cloud_cfg.ssh_key_path = ".dango/cloud_key"
+
+        loader = MagicMock()
+        loader.load_cloud_config.return_value = cloud_cfg
+
+        with (
+            patch("dango.cli.utils.require_project_context", return_value=tmp_path),
+            patch("dango.config.loader.ConfigLoader", return_value=loader),
+            patch("dango.platform.cloud.ssh.SSHManager", return_value=ssh),
+            patch("dango.cli.commands.remote_backup.console") as mock_console,
+        ):
+            result = self._run_remote(["backup"], tmp_path)
+        assert result.exit_code != 0
+        printed = mock_console.print.call_args_list[0][0][0]
+        _assert_structured(printed)
+        assert "Remote backup failed" in printed
+
+    def test_download_failure_structured(self, tmp_path: Path) -> None:
+        """Download failure prints structured error."""
+        cloud_cfg = MagicMock()
+        cloud_cfg.droplet_id = 42
+        cloud_cfg.droplet_ip = "1.2.3.4"
+        cloud_cfg.spaces = MagicMock()
+        cloud_cfg.spaces.region = "nyc3"
+        cloud_cfg.spaces.bucket = "my-bucket"
+        cloud_cfg.spaces.access_key_env = "SPACES_KEY"
+        cloud_cfg.spaces.secret_key_env = "SPACES_SECRET"
+        cloud_cfg.region = "nyc1"
+
+        loader = MagicMock()
+        loader.load_cloud_config.return_value = cloud_cfg
+
+        mock_client = MagicMock()
+        mock_client.download.side_effect = Exception("NoSuchKey")
+
+        with (
+            patch("dango.cli.utils.require_project_context", return_value=tmp_path),
+            patch("dango.config.loader.ConfigLoader", return_value=loader),
+            patch("dango.platform.cloud.spaces.SpacesClient", return_value=mock_client),
+            patch.dict("os.environ", {"SPACES_KEY": "k", "SPACES_SECRET": "s"}),
+            patch("dango.cli.commands.remote_backup.console") as mock_console,
+        ):
+            result = self._run_remote(["backup", "download", "backup-test.tar.gz"], tmp_path)
+        assert result.exit_code != 0
+        printed = mock_console.print.call_args_list[0][0][0]
+        _assert_structured(printed)
+
+    def test_restore_failure_structured(self, tmp_path: Path) -> None:
+        """Restore failure prints structured error."""
+        from dango.platform.cloud.ssh import CommandResult
+
+        ssh = MagicMock()
+        ssh.exec_command.return_value = CommandResult(
+            stdout="", stderr="restore failed", exit_code=1
         )
-        _assert_structured(msg)
-        assert "Restore failed" in msg
+        ssh.disconnect.return_value = None
+
+        cloud_cfg = MagicMock()
+        cloud_cfg.droplet_id = 42
+        cloud_cfg.droplet_ip = "1.2.3.4"
+        cloud_cfg.ssh_key_path = ".dango/cloud_key"
+
+        loader = MagicMock()
+        loader.load_cloud_config.return_value = cloud_cfg
+
+        with (
+            patch("dango.cli.utils.require_project_context", return_value=tmp_path),
+            patch("dango.config.loader.ConfigLoader", return_value=loader),
+            patch("dango.platform.cloud.ssh.SSHManager", return_value=ssh),
+            patch("dango.cli.commands.remote_backup.console") as mock_console,
+        ):
+            result = self._run_remote(
+                ["backup", "restore", "backup-test.tar.gz", "--yes"], tmp_path
+            )
+        assert result.exit_code != 0
+        printed = mock_console.print.call_args_list[0][0][0]
+        _assert_structured(printed)
 
 
 # ---------------------------------------------------------------------------
