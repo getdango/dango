@@ -7,22 +7,29 @@
         <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
             <p class="text-sm text-red-700" x-text="error"></p>
         </div>
-        <!-- Breadcrumb -->
-        <nav class="mb-4 text-sm text-gray-500">
-            <button @click="goToSources()" class="hover:text-gray-700"
-                    :class="view === 'sources' ? 'font-semibold text-gray-900' : ''">Sources</button>
-            <template x-if="selectedSource">
-                <span>
-                    <span class="mx-1">/</span>
-                    <button @click="goToTables()" class="hover:text-gray-700"
-                            :class="view === 'tables' ? 'font-semibold text-gray-900' : ''"
-                            x-text="selectedSource"></button>
-                </span>
-            </template>
-            <template x-if="selectedTable">
-                <span><span class="mx-1">/</span><span class="font-semibold text-gray-900" x-text="selectedTable"></span></span>
-            </template>
-        </nav>
+        <!-- Breadcrumb + Lineage toggle -->
+        <div class="flex items-center justify-between mb-4">
+            <nav class="text-sm text-gray-500">
+                <button @click="goToSources()" class="hover:text-gray-700"
+                        :class="view === 'sources' ? 'font-semibold text-gray-900' : ''">Sources</button>
+                <template x-if="selectedSource">
+                    <span>
+                        <span class="mx-1">/</span>
+                        <button @click="goToTables()" class="hover:text-gray-700"
+                                :class="view === 'tables' ? 'font-semibold text-gray-900' : ''"
+                                x-text="selectedSource"></button>
+                    </span>
+                </template>
+                <template x-if="selectedTable">
+                    <span><span class="mx-1">/</span><span class="font-semibold text-gray-900" x-text="selectedTable"></span></span>
+                </template>
+            </nav>
+            <button x-show="hasLineage" @click="toggleLineageView()"
+                    class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors"
+                    :class="view === 'lineage' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">
+                <span x-text="view === 'lineage' ? 'Table View' : 'Lineage'"></span>
+            </button>
+        </div>
         <div x-show="loading" x-cloak class="flex items-center justify-center py-12">
             <div class="text-gray-400 text-sm">Loading catalog...</div>
         </div>
@@ -230,6 +237,69 @@
                 </div>
             </template>
         </div>
+        <!-- View 4: Lineage graph -->
+        <div x-show="!loading && view === 'lineage'">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Data Lineage</h2>
+            <template x-if="lineageNodes.length === 0">
+                <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
+                    No lineage data available. Run dbt to generate lineage.
+                </div>
+            </template>
+            <template x-if="lineageNodes.length > 0">
+                <div class="lineage-wrapper bg-white shadow rounded-lg overflow-hidden" style="height:600px">
+                    <div id="lineage-container" style="width:100%;height:100%"></div>
+                    <div class="lineage-controls">
+                        <button @click="lineageZoomIn()" title="Zoom in">+</button>
+                        <button @click="lineageZoomOut()" title="Zoom out">&minus;</button>
+                        <button @click="lineageFitAll()" title="Fit all">&#8694;</button>
+                    </div>
+                    <!-- Detail panel -->
+                    <div class="lineage-detail" x-show="selectedNode" x-cloak x-transition.opacity>
+                        <div class="lineage-detail-header">
+                            <div class="flex items-center justify-between">
+                                <h3 class="font-semibold text-gray-900 text-sm truncate" x-text="selectedNode ? selectedNode.name : ''"></h3>
+                                <button @click="selectedNode = null; lineageClearHighlight()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+                            </div>
+                        </div>
+                        <div class="lineage-detail-body" x-show="selectedNode">
+                            <div class="lineage-detail-row">
+                                <span class="lineage-detail-label">Type</span>
+                                <span class="lineage-detail-value" x-text="selectedNode ? selectedNode.type : ''"></span>
+                            </div>
+                            <div class="lineage-detail-row" x-show="selectedNode && selectedNode.materialization">
+                                <span class="lineage-detail-label">Materialization</span>
+                                <span class="lineage-detail-value" x-text="selectedNode ? selectedNode.materialization : ''"></span>
+                            </div>
+                            <div class="lineage-detail-row">
+                                <span class="lineage-detail-label">Description</span>
+                                <span class="lineage-detail-value text-xs" x-text="selectedNode && selectedNode.description ? selectedNode.description : 'None'"></span>
+                            </div>
+                            <div class="lineage-detail-row">
+                                <span class="lineage-detail-label">Tests</span>
+                                <span class="lineage-detail-value" x-text="selectedNode ? selectedNode.test_count : 0"></span>
+                            </div>
+                            <div class="lineage-detail-row">
+                                <span class="lineage-detail-label">Doc coverage</span>
+                                <span class="lineage-detail-value" x-text="selectedNode ? (selectedNode.columns_documented + '/' + selectedNode.columns_total) : ''"></span>
+                            </div>
+                            <div class="mt-4 space-y-2">
+                                <button @click="showDownstream()" :disabled="impactHighlighted"
+                                        class="w-full px-3 py-1.5 text-sm font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
+                                    Show Downstream
+                                </button>
+                                <div x-show="impactHighlighted" class="text-sm text-center text-indigo-600">
+                                    <span x-text="impactCount"></span> downstream model<span x-show="impactCount !== 1">s</span>
+                                </div>
+                                <button x-show="impactHighlighted" @click="lineageClearHighlight()"
+                                        class="w-full px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200">
+                                    Clear Highlight
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
     </div>
 </main>
 {% endblock %}
@@ -239,7 +309,8 @@ function catalogPage() {
     return {
         view: 'sources', selectedSource: null, selectedTable: null,
         sources: [], sourceDetail: null, tablesList: [], columnData: null,
-        lineageNodes: [], driftEvents: [], piiFindings: [],
+        lineageNodes: [], lineageEdges: [], driftEvents: [], piiFindings: [],
+        selectedNode: null, impactHighlighted: false, impactCount: 0, _lineage: null,
         loading: true, tablesLoading: false, columnsLoading: false,
         profilingLoading: false, error: null, hasLineage: false,
 
@@ -254,15 +325,20 @@ function catalogPage() {
                 if (lineageRes.status === 'fulfilled' && lineageRes.value.ok) {
                     const dag = await lineageRes.value.json();
                     this.lineageNodes = dag.nodes || [];
+                    this.lineageEdges = dag.edges || [];
                     this.hasLineage = true;
                 }
             } catch (e) { this.error = 'Failed to load catalog data.'; }
             finally { this.loading = false; }
         },
         goToSources() {
+            if (this._lineage) { this._lineage.destroy(); this._lineage = null; }
+            this.selectedNode = null; this.impactHighlighted = false; this.impactCount = 0;
             this.view = 'sources'; this.selectedSource = null; this.selectedTable = null;
             this.sourceDetail = null; this.columnData = null; this.driftEvents = []; this.tablesList = [];
         },
+        // No lineage cleanup needed — breadcrumb is hidden in lineage view,
+        // so goToTables() is only reachable from tables/columns views.
         goToTables() {
             this.view = 'tables'; this.selectedTable = null; this.columnData = null; this.driftEvents = [];
         },
@@ -363,7 +439,57 @@ function catalogPage() {
             if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
             return Math.floor(diff / 86400) + 'd ago';
         },
+        toggleLineageView() {
+            if (this.view === 'lineage') {
+                this.goToSources();
+            } else {
+                this.view = 'lineage'; this.selectedNode = null;
+                this.impactHighlighted = false; this.impactCount = 0;
+                this.$nextTick(() => this.renderLineage());
+            }
+        },
+        renderLineage() {
+            if (typeof DangoLineage === 'undefined') {
+                this.error = 'Lineage visualization failed to load.'; return;
+            }
+            if (this._lineage) this._lineage.destroy();
+            this._lineage = new DangoLineage('lineage-container');
+            const self = this;
+            this._lineage.onNodeClick(function (node) {
+                self.selectedNode = node;
+                self.impactHighlighted = false;
+                self.impactCount = 0;
+            });
+            this._lineage.onBackgroundClick(function () {
+                self.selectedNode = null;
+                self.impactHighlighted = false;
+                self.impactCount = 0;
+            });
+            this._lineage.render(this.lineageNodes, this.lineageEdges);
+        },
+        async showDownstream() {
+            if (!this.selectedNode || !this._lineage) return;
+            try {
+                const res = await fetch('/api/catalog/impact/' + encodeURIComponent(this.selectedNode.name),
+                    { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (res.ok) {
+                    const data = await res.json();
+                    this._lineage.highlightImpact(this.selectedNode.id, data);
+                    this.impactHighlighted = true;
+                    this.impactCount = data.total_downstream_count || 0;
+                }
+            } catch (_) { /* silent */ }
+        },
+        lineageZoomIn() { if (this._lineage) this._lineage.zoomIn(); },
+        lineageZoomOut() { if (this._lineage) this._lineage.zoomOut(); },
+        lineageFitAll() { if (this._lineage) this._lineage.fitAll(); },
+        lineageClearHighlight() {
+            if (this._lineage) this._lineage.clearHighlight();
+            this.impactHighlighted = false; this.impactCount = 0;
+        },
     };
 }
 </script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="/static/js/lineage.js?v=1741700000"></script>
 {% endblock %}

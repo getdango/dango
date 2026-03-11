@@ -36,3 +36,50 @@
     border-radius: 3px;
     background-color: #f59e0b;
 }
+
+/* Lineage graph */
+.lineage-svg { background: #fafafa; border-radius: 0.5rem; }
+.lineage-arrow-path { fill: #9ca3af; }
+
+/* Node base */
+.lineage-node rect { stroke-width: 1.5; fill: #fef3c7; stroke: #f59e0b; }
+.lineage-node text { font-size: 12px; fill: #1f2937; font-family: ui-sans-serif, system-ui, sans-serif; pointer-events: none; }
+.lineage-node:hover rect { filter: brightness(0.95); }
+
+/* Node type colors */
+.lineage-node.source rect { fill: #dbeafe; stroke: #3b82f6; }
+.lineage-node.staging rect { fill: #d1fae5; stroke: #10b981; }
+.lineage-node.mart rect { fill: #ede9fe; stroke: #8b5cf6; }
+.lineage-node.intermediate rect { fill: #fef3c7; stroke: #f59e0b; }
+
+/* Node states */
+.lineage-node.selected rect { stroke-width: 2.5; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.15)); }
+.lineage-node.dimmed { opacity: 0.2; }
+.lineage-node.highlighted rect { stroke-width: 2.5; filter: drop-shadow(0 1px 3px rgba(0,0,0,0.15)); }
+
+/* Edges */
+.lineage-edge { fill: none; stroke: #9ca3af; stroke-width: 1.5; }
+.lineage-edge.highlighted { stroke: #6366f1; stroke-width: 2.5; }
+.lineage-edge.dimmed { opacity: 0.1; }
+
+/* Lineage container */
+.lineage-wrapper { position: relative; }
+.lineage-controls { position: absolute; top: 0.5rem; right: 0.5rem; display: flex; gap: 0.25rem; z-index: 10; }
+.lineage-controls button {
+    width: 28px; height: 28px; border-radius: 4px;
+    background: white; border: 1px solid #d1d5db; color: #374151;
+    font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.lineage-controls button:hover { background: #f3f4f6; }
+
+/* Detail panel */
+.lineage-detail {
+    position: absolute; top: 0; right: 0; width: 320px; height: 100%;
+    background: white; border-left: 1px solid #e5e7eb; box-shadow: -2px 0 8px rgba(0,0,0,0.06);
+    overflow-y: auto; z-index: 20;
+}
+.lineage-detail-header { padding: 1rem; border-bottom: 1px solid #e5e7eb; }
+.lineage-detail-body { padding: 1rem; }
+.lineage-detail-row { display: flex; justify-content: space-between; padding: 0.35rem 0; font-size: 0.875rem; }
+.lineage-detail-label { color: #6b7280; }
+.lineage-detail-value { color: #111827; font-weight: 500; }
