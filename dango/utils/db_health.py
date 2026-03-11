@@ -13,7 +13,7 @@ from typing import Any
 import duckdb
 from rich.console import Console
 
-from dango.exceptions import DiskSpaceError, DuckDBHealthError
+from dango.exceptions import DiskSpaceError, DuckDBHealthError, format_structured_error
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +172,37 @@ def check_duckdb_health(duckdb_path: Path) -> dict[str, Any]:
             conn.close()
 
     except Exception as e:
-        raise DuckDBHealthError(f"Failed to check DuckDB health: {e}") from e
+        error_lower = str(e).lower()
+        if "already open" in error_lower or "lock" in error_lower:
+            causes = [
+                "Another process holds the DuckDB write lock",
+                "A crashed process left a stale lock",
+            ]
+            fix = "Stop other dango processes, or wait and retry"
+        elif "permission" in error_lower:
+            causes = [
+                "File permission denied on the DuckDB file",
+                "Database directory is read-only",
+            ]
+            fix = "Check file permissions on the data/ directory"
+        elif "no such file" in error_lower or "not found" in error_lower:
+            causes = [
+                "DuckDB file does not exist yet",
+                "data/ directory was moved or deleted",
+            ]
+            fix = "Run 'dango sync' to create the database, or check the data/ path"
+        else:
+            causes = ["DuckDB file may be corrupt", "Incompatible DuckDB version"]
+            fix = "Check DuckDB version compatibility or restore from backup"
+        raise DuckDBHealthError(
+            f"Failed to check DuckDB health: {e}",
+            user_message=format_structured_error(
+                what_failed=f"DuckDB health check failed for {duckdb_path}",
+                causes=causes,
+                suggested_fix=fix,
+            ),
+            context={"db_path": str(duckdb_path)},
+        ) from e
 
 
 def get_disk_usage_summary(project_root: Path) -> dict[str, Any]:

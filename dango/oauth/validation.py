@@ -23,7 +23,11 @@ from typing import Any
 
 import requests
 
-from dango.exceptions import OAuthTokenExpiredError, OAuthTokenRevokedError
+from dango.exceptions import (
+    OAuthTokenExpiredError,
+    OAuthTokenRevokedError,
+    format_structured_error,
+)
 from dango.oauth.router import OAUTH_PROVIDER_MAP
 from dango.oauth.storage import OAuthCredential, OAuthStorage
 
@@ -452,21 +456,40 @@ def validate_before_sync(source_type: str, project_root: Path) -> None:
         if result.error_code == "expired":
             raise OAuthTokenExpiredError(
                 result.message,
-                user_message=result.message,
+                user_message=format_structured_error(
+                    what_failed=f"OAuth token expired for {source_type}",
+                    causes=[
+                        "Token refresh period exceeded",
+                        "Provider revoked access",
+                        "Token was manually invalidated",
+                    ],
+                    suggested_fix=f"Re-authenticate: dango oauth {source_type}",
+                ),
                 context={"source_type": source_type, "provider": result.provider},
             )
         if result.error_code == "missing_credentials":
-            msg = (
-                f"Incomplete OAuth credentials for {source_type}. "
-                f"Re-authenticate: dango oauth {source_type}"
-            )
             raise OAuthTokenRevokedError(
-                msg,
-                user_message=msg,
+                f"Incomplete OAuth credentials for {source_type}",
+                user_message=format_structured_error(
+                    what_failed=f"Incomplete OAuth credentials for {source_type}",
+                    causes=[
+                        "Credential file was partially deleted",
+                        "OAuth flow did not complete",
+                    ],
+                    suggested_fix=f"Re-authenticate: dango oauth {source_type}",
+                ),
                 context={"source_type": source_type, "provider": result.provider},
             )
         raise OAuthTokenRevokedError(
             result.message,
-            user_message=result.message,
+            user_message=format_structured_error(
+                what_failed=f"OAuth token revoked for {source_type}",
+                causes=[
+                    "User revoked access in provider settings",
+                    "Token was invalidated by the provider",
+                    "Credentials were rotated",
+                ],
+                suggested_fix=f"Re-authenticate: dango oauth {source_type}",
+            ),
             context={"source_type": source_type, "provider": result.provider},
         )

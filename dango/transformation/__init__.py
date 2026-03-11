@@ -10,6 +10,8 @@ from pathlib import Path
 
 from rich.console import Console
 
+from dango.exceptions import format_structured_error
+
 console = Console()
 
 
@@ -73,10 +75,45 @@ def run_dbt_models(project_root: Path, select: str | None = None) -> tuple[bool,
         if result.returncode == 0:
             update_model_status(project_root)
 
-        return (result.returncode == 0, result.stdout + result.stderr)
+        if result.returncode == 0:
+            return (True, result.stdout + result.stderr)
+
+        output = result.stdout + result.stderr
+        output_lower = output.lower()
+        if "compilation error" in output_lower or "parsing error" in output_lower:
+            causes = [
+                "SQL syntax error in a dbt model",
+                "Missing ref() or source() target",
+                "Undefined macro",
+            ]
+            fix = "Check the dbt model file indicated in the error output above"
+        elif "database error" in output_lower or "duckdb" in output_lower:
+            causes = [
+                "DuckDB write lock held by another process",
+                "Database file corrupted",
+            ]
+            fix = "Stop other syncs, then retry: dango transform"
+        else:
+            causes = ["dbt model logic error", "Missing dependency or configuration"]
+            fix = "Review the error output and check dbt model files in dbt/models/"
+        structured = format_structured_error(
+            what_failed="dbt run failed", causes=causes, suggested_fix=fix
+        )
+        return (False, f"{structured}\n\nFull output:\n{output}")
 
     except subprocess.TimeoutExpired:
-        return (False, "dbt run timed out after 5 minutes")
+        return (
+            False,
+            format_structured_error(
+                what_failed="dbt run timed out after 5 minutes",
+                causes=[
+                    "Large number of models",
+                    "Complex SQL queries",
+                    "DuckDB lock contention",
+                ],
+                suggested_fix="Run a subset: dango transform --select model_name",
+            ),
+        )
     except Exception as e:
         return (False, f"dbt run failed: {str(e)}")
 
