@@ -90,6 +90,7 @@ def scan_sources_for_pii(
 
     for source in sources:
         try:
+            validate_source_name(source)
             logger.debug("pii_source_start", source=source)
 
             # Get existing keys BEFORE scanning for first-detection logic
