@@ -169,6 +169,19 @@ class TestListNotebooks:
         assert data[0]["id"] is None
 
     @patch(f"{_P}.get_project_root")
+    def test_lock_includes_locked_at(self, mock_root: MagicMock, tmp_path: Path) -> None:
+        """When a notebook is locked, the API response includes locked_at."""
+        mock_root.return_value = tmp_path
+        _init_db(tmp_path)
+        _seed_notebook(tmp_path, "locked_nb")
+        _seed_lock(tmp_path, "locked_nb", locked_by="editor@test.com")
+        data = _client(tmp_path).get("/api/notebooks").json()
+        assert len(data) == 1
+        assert data[0]["lock"] is not None
+        assert data[0]["lock"]["locked_at"] is not None
+        assert isinstance(data[0]["lock"]["locked_at"], str)
+
+    @patch(f"{_P}.get_project_root")
     def test_viewer_can_list(self, mock_root: MagicMock, tmp_path: Path) -> None:
         """Viewer can list notebooks."""
         mock_root.return_value = tmp_path
