@@ -43,7 +43,7 @@
 
 /* Node base */
 .lineage-node rect { stroke-width: 1.5; fill: #fef3c7; stroke: #f59e0b; }
-.lineage-node text { font-size: 12px; fill: #1f2937; pointer-events: none; }
+.lineage-node text { font-size: 12px; fill: #1f2937; font-family: ui-sans-serif, system-ui, sans-serif; pointer-events: none; }
 .lineage-node:hover rect { filter: brightness(0.95); }
 
 /* Node type colors */
@@ -76,7 +76,7 @@
 .lineage-detail {
     position: absolute; top: 0; right: 0; width: 320px; height: 100%;
     background: white; border-left: 1px solid #e5e7eb; box-shadow: -2px 0 8px rgba(0,0,0,0.06);
-    overflow-y: auto; z-index: 20; transition: transform 0.2s ease;
+    overflow-y: auto; z-index: 20;
 }
 .lineage-detail-header { padding: 1rem; border-bottom: 1px solid #e5e7eb; }
 .lineage-detail-body { padding: 1rem; }

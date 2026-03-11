@@ -258,7 +258,7 @@
                         <div class="lineage-detail-header">
                             <div class="flex items-center justify-between">
                                 <h3 class="font-semibold text-gray-900 text-sm truncate" x-text="selectedNode ? selectedNode.name : ''"></h3>
-                                <button @click="selectedNode = null" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+                                <button @click="selectedNode = null; lineageClearHighlight()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
                             </div>
                         </div>
                         <div class="lineage-detail-body" x-show="selectedNode">
@@ -332,6 +332,8 @@ function catalogPage() {
             finally { this.loading = false; }
         },
         goToSources() {
+            if (this._lineage) { this._lineage.destroy(); this._lineage = null; }
+            this.selectedNode = null; this.impactHighlighted = false; this.impactCount = 0;
             this.view = 'sources'; this.selectedSource = null; this.selectedTable = null;
             this.sourceDetail = null; this.columnData = null; this.driftEvents = []; this.tablesList = [];
         },
@@ -445,6 +447,9 @@ function catalogPage() {
             }
         },
         renderLineage() {
+            if (typeof DangoLineage === 'undefined') {
+                this.error = 'Lineage visualization failed to load.'; return;
+            }
             if (this._lineage) this._lineage.destroy();
             this._lineage = new DangoLineage('lineage-container');
             const self = this;

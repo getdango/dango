@@ -75,7 +75,9 @@
         for (i = 0; i < queue.length; i++) layer[queue[i]] = 0;
 
         var head = 0;
-        while (head < queue.length) {
+        var maxIter = nodes.length * edges.length + nodes.length;
+        var iter = 0;
+        while (head < queue.length && iter++ < maxIter) {
             var cur = queue[head++];
             var ch = children[cur];
             for (var j = 0; j < ch.length; j++) {
@@ -201,7 +203,7 @@
         var w = container.clientWidth || 800;
         var h = container.clientHeight || 600;
 
-        this._svg = d3.select("#" + this._containerId)
+        this._svg = d3.select(container)
             .append("svg")
             .attr("width", w)
             .attr("height", h)
@@ -311,6 +313,14 @@
         });
     };
 
+    /**
+     * Highlight downstream impact nodes/edges.
+     *
+     * Note: matching is by name because the impact API returns names, not
+     * unique_ids.  If a source and model share the same name (valid in dbt),
+     * both will be highlighted.  Acceptable trade-off — the backend resolves
+     * ambiguity by preferring models.
+     */
     DangoLineage.prototype.highlightImpact = function (nodeId, impactData) {
         if (!impactData || !impactData.tree) return;
         var impactNames = new Set();
