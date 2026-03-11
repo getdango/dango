@@ -19,7 +19,7 @@ import dango
 import dango.notebooks.templates
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
-from dango.auth.permissions import require_permission
+from dango.auth.permissions import has_permission, require_permission
 from dango.logging import get_logger
 from dango.notebooks.locking import (
     acquire_lock,
@@ -284,6 +284,7 @@ async def delete_notebook(
     result = _validate_name(name)
     if isinstance(result, JSONResponse):
         return result
+    name = result
 
     project_root = get_project_root()
 
@@ -314,8 +315,6 @@ async def delete_notebook(
 
     # Check ownership: if user lacks notebooks.manage, they can only delete their own
     if notebook is not None and notebook.get("created_by") != user.email:
-        from dango.auth.permissions import has_permission
-
         if not has_permission(user, "notebooks.manage"):
             return JSONResponse(
                 status_code=403,
@@ -348,6 +347,7 @@ async def lock_notebook(
     result = _validate_name(name)
     if isinstance(result, JSONResponse):
         return result
+    name = result
 
     project_root = get_project_root()
 
@@ -470,6 +470,7 @@ async def copy_notebook(
     result = _validate_name(name)
     if isinstance(result, JSONResponse):
         return result
+    name = result
 
     project_root = get_project_root()
 

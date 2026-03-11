@@ -41,7 +41,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
 | `routes/schedules.py` | Schedule CRUD, trigger, reload, cancel, history, notification config/test, `/schedules` page (~720 lines) | `router` |
-| `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~300 lines) | `router` |
+| `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~490 lines) | `router` |
 | `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |
 | `templates/schedules.html` | Schedule management page (extends `base.html`) — table, modals, WebSocket | Alpine.js `schedulesPage()` component |
 | `templates/notebooks.html` | Notebook management page (extends `base.html`) — table, create/delete modals, locking | Alpine.js `notebooksPage()` component |
