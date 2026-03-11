@@ -27,7 +27,7 @@ Root Python package for Dango — contains all module subpackages (cli, config, 
 
 **Used by:**
 - `dango/cli/main.py`, `dango/cli/init.py`, `dango/cli/wizard.py` — import `__version__`
-- `dango.logging` — `get_logger()` used by `web/routes/`, `web/middleware/`, `web/app.py`, `platform/scheduling/`, `platform/notifications/`, `oauth/web_flow.py`, `utils/log_rotation.py`, `cli/commands/schedule.py`, `cli/commands/remote_env.py`; `configure_logging()` called by entry points
+- `dango.logging` — `get_logger()` used by `web/routes/`, `web/middleware/`, `web/app.py`, `platform/scheduling/`, `platform/notifications/`, `oauth/web_flow.py`, `utils/log_rotation.py`, `utils/post_sync.py`, `cli/commands/schedule.py`, `cli/commands/remote_env.py`, `governance/`, `notebooks/`, `analysis/`; `configure_logging()` called by entry points
 - `pyproject.toml` defines `getdango` as the installable package
 - Entry point: `dango.cli.main:cli` (configured in `pyproject.toml`)
 

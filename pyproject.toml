@@ -136,6 +136,7 @@ packages = [
     "dango.cli.helpers",
     "dango.governance",
     "dango.notebooks",
+    "dango.notebooks.templates",
     "dango.analysis",
 ]
 include-package-data = true

@@ -8,7 +8,7 @@ Click-based command-line interface for all Dango operations — project init, so
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| `main.py` (86 lines) | CLI entry point, registers all commands | `cli` (Click group), `main()` |
+| `main.py` (109 lines) | CLI entry point, registers all commands | `cli` (Click group), `main()` |
 | `__init__.py` (12 lines) | Shared `console` (Rich Console) instance | `console` |
 | **commands/** | | |
 | `commands/__init__.py` (4 lines) | Package marker | — |
@@ -36,11 +36,14 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore) | `backup_group` |
 | `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query` | `remote_status()`, `remote_logs()` |
 | `commands/schedule.py` (499 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
+| `commands/governance.py` (125 lines) | `governance` group (drift-report, pii-report) | `governance`, `drift_report()`, `pii_report()` |
+| `commands/notebook.py` (179 lines) | `notebook` group (new, open) + `snapshot` top-level | `notebook`, `notebook_new()`, `notebook_open()`, `snapshot()` |
+| `commands/analyze.py` (81 lines) | `analyze` top-level command | `analyze()` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
-| `init.py` (1098 lines) | Project initialization wizard | `ProjectInitializer` |
+| `init.py` (1125 lines) | Project initialization wizard | `ProjectInitializer` |
 | `wizard.py` (296 lines) | Interactive setup wizards | `ProjectWizard` |
-| `source_wizard.py` (1324 lines) | Source configuration wizard | `add_source()` |
+| `source_wizard.py` (1350 lines) | Source configuration wizard | `add_source()` |
 | `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |
 | **Helpers** | | |
 | `utils.py` (129 lines) | Display helpers + project context | `require_project_context()` |
@@ -104,6 +107,12 @@ dango (top-level group)
 ├── deploy (group)              ← commands/deploy.py
 │   ├── (default)  interactive wizard → commands/deploy_wizard.py + deploy_provision.py
 │   └── destroy    tear down cloud infrastructure
+├── analyze                     ← commands/analyze.py
+├── snapshot                    ← commands/notebook.py
+├── governance (group)          ← commands/governance.py
+│   ├── drift-report, pii-report
+├── notebook (group)            ← commands/notebook.py
+│   ├── new, open              (default invocation lists notebooks)
 └── metabase (group)            ← commands/metabase_cmd.py
     ├── save, load, refresh
 ```

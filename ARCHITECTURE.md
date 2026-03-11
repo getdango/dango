@@ -44,7 +44,10 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
               │                                          Facebook,         │
               │                    auth/                  Shopify)          │
               │                    (users, sessions,                       │
-              │                     RBAC, 2FA, audit)                      │
+              │                     RBAC, 2FA, audit)   governance/        │
+              │                    notebooks/            (drift, PII)      │
+              │                    (Marimo)              analysis/          │
+              │                                         (metrics)          │
               └──────────┬────────────────┬────────────────────────────────┘
                          │                │
               ┌──────────┴────────────────┴────────────────────────────────┐
@@ -70,7 +73,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | Level | Role | Modules |
 |-------|------|---------|
 | 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `migrations/`, `templates/`, `logging.py`, `exceptions.py` |
-| 1 (core) | Imports Level 0 only | `oauth/`, `ingestion/`, `transformation/`, `auth/` |
+| 1 (core) | Imports Level 0 only | `oauth/`, `ingestion/`, `transformation/`, `auth/`, `governance/`, `notebooks/`, `analysis/` |
 | 2 (platform) | Imports Level 0-1 | `platform/`, `web/`, `visualization/` |
 | 3 (ui) | Imports any level | `cli/` |
 
@@ -254,6 +257,60 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 **Public API:** `create_session()`, `validate_session()`, `require_permission()`, `has_permission()`, `hash_password()`, `verify_password()`, `AuditEvent`, `log_auth_event()`, `bridge_metabase_login()`, `bridge_metabase_logout()`, `sync_user_to_metabase()`, `Role`, `User`, `Session`, `APIKey`
 
 **Imports from:** `config/` (Level 0), `security/` (Level 0), `logging` (Level 0), `exceptions` (Level 0).
+
+#### `governance/`
+**Responsibility:** Data governance — schema drift detection and PII scanning. Monitors DuckDB warehouse schemas for changes, records drift events, scans string columns for PII, and alerts via webhooks.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | Re-exports public API |
+| `models.py` | Pydantic V2 response models: `DriftEvent`, `DriftResponse`, `PiiFinding`, `PiiResponse` |
+| `schema_drift.py` | Schema drift detection engine (490 lines): `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()` |
+| `pii_detector.py` | PII scanning engine using Presidio + spaCy (454 lines): `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()` |
+
+**Public API:** `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()`, `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()`
+
+**Imports from:** `utils/dango_db` (Level 0), `logging` (Level 0), `platform/notifications/` (Level 2 — lazy import for webhooks).
+
+---
+
+#### `notebooks/`
+**Responsibility:** Marimo notebook server lifecycle, DuckDB read-only snapshots, file-level locking, and HTTP/WebSocket reverse proxy.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | Re-exports public symbols |
+| `manager.py` | Marimo process lifecycle: start/stop/status (197 lines) |
+| `locking.py` | File-level notebook locking via SQLite `notebook_locks` table (249 lines) |
+| `snapshot.py` | DuckDB snapshot management: create, list, cleanup |
+| `proxy.py` | HTTP + WebSocket reverse proxy to Marimo (186 lines) |
+| `templates/` | Starter templates: explore, quality, blank |
+
+**Public API:** `start_marimo()`, `stop_marimo()`, `get_marimo_status()`, `acquire_lock()`, `release_lock()`, `create_snapshot()`, `proxy_to_marimo()`, `proxy_websocket_to_marimo()`
+
+**Imports from:** `utils/` (Level 0), `config/` (Level 0).
+
+---
+
+#### `analysis/`
+**Responsibility:** Automated metric monitoring and comparison engine. Executes user-defined SQL metrics against DuckDB, stores results in SQLite, and compares values against historical baselines.
+
+| File | Description |
+|------|-------------|
+| `__init__.py` | Public API re-exports |
+| `models.py` | Pydantic V2 models: `MetricConfig`, `ComparisonResult`, `AnalysisResult` |
+| `config.py` | YAML config load/save for `.dango/metrics.yml` |
+| `comparisons.py` | Comparison engine + trend detection |
+| `drilldown.py` | GROUP BY breakdown + contributor ranking |
+| `metrics.py` | Orchestration: execute → store → compare → drill-down |
+| `templates.py` | Pre-built metric templates for common sources |
+| `formatter.py` | Result categorization + display formatting |
+
+**Public API:** `run_analysis()`, `load_metrics_config()`, `save_metrics_config()`, `generate_metrics_for_source()`
+
+**Imports from:** `utils/dango_db` (Level 0), `logging` (Level 0), `exceptions` (Level 0).
+
+---
 
 ### Level 2 — Platform
 
@@ -510,6 +567,28 @@ On Metabase proxy 401 (stale session):
   → web/routes/metabase_proxy.py: re-bridge automatically using stored credentials
 ```
 
+### 6.10 Post-Sync Hooks
+
+```
+After each sync completes (in dlt_runner.py run_sync):
+
+ingestion/dlt_runner.py: run_sync()
+  → utils/post_sync.py: dispatch_post_sync_hooks(project_root, sources)
+      → _run_profiling(project_root, sources)
+          → Column stats (row count, null %, distinct count) cached in dango.db
+      → _run_drift_detection(project_root, sources)
+          → governance/schema_drift.py: detect_drift_for_sources()
+          → Drift events stored in dango.db, webhook if configured
+      → _run_pii_scan(project_root, sources)
+          → governance/pii_detector.py: scan_sources_for_pii()
+          → PII findings stored in dango.db, webhook if configured
+      → _run_analysis(project_root, sources)
+          → analysis/metrics.py: run_analysis()
+          → Metric results stored in dango.db
+
+Each hook is wrapped in try/except — failures are logged but never propagate.
+```
+
 ## 7. Database Schemas
 
 ### DuckDB Warehouse (`data/{project}.duckdb`)
@@ -582,6 +661,10 @@ The web module (`web/routes/`) exposes 19 REST endpoints, 1 WebSocket, and a Met
 | Admin | `GET /api/admin/users`, `POST /api/admin/users`, `GET /api/admin/users/{id}`, `PUT /api/admin/users/{id}`, `PUT /api/admin/users/{id}/role`, `POST /api/admin/users/{id}/reset-password`, `POST /api/admin/users/{id}/deactivate`, `POST /api/admin/users/{id}/reactivate`, `DELETE /api/admin/users/{id}`, `POST /api/admin/users/{id}/unlock`, `POST /api/admin/users/{id}/reinvite` |
 | dbt | `GET /api/dbt/models`, `POST /api/dbt/models/{name}/run` |
 | Logs | `GET /api/logs` |
+| Catalog | `GET /api/catalog/sources/{source}/columns`, `GET /api/catalog/sources/{source}/tables/{table}/profile`, `GET /api/catalog/lineage`, `GET /api/catalog/lineage/impact/{node}` |
+| Governance | `GET /api/governance/schema-drift`, `GET /api/governance/pii` |
+| Notebooks | `GET /api/notebooks`, `POST /api/notebooks`, `DELETE /api/notebooks/{id}`, `POST /api/notebooks/{id}/lock`, `POST /api/notebooks/{id}/lock/release`, `POST /api/notebooks/{id}/lock/refresh`, `POST /api/notebooks/{id}/lock/force-release`, `POST /api/notebooks/{id}/copy` |
+| Insights | `GET /api/insights`, `POST /api/insights/run`, `GET /api/insights/history` |
 | Docs | `GET /api/docs` (Swagger), `GET /api/redoc` |
 | Real-time | `WS /ws` (sync progress, errors) |
 | Proxy | `/metabase/*` (reverse proxy with SSO session injection) |
@@ -622,7 +705,7 @@ The web module (`web/routes/`) exposes 19 REST endpoints, 1 WebSocket, and a Met
 |------|-------|-----------------|
 | ~~`cli/main.py`~~ | ~~3927~~ | ~~TASK-005~~ — **Done:** split into `cli/commands/`, main.py is now ~88 lines |
 | ~~`web/app.py`~~ | ~~2900~~ | ~~TASK-085~~ — **Done:** split into `web/routes/`, app.py is now ~202 lines |
-| `ingestion/dlt_runner.py` | 1759 | Phase 3 (extract orchestration) |
+| `ingestion/dlt_runner.py` | 1796 | Phase 3 (extract orchestration) |
 
 ### Runtime Architecture
 
@@ -642,7 +725,10 @@ my-project/
 ├── .dango/              # Dango state and config
 │   ├── project.yml      # Project metadata
 │   ├── sources.yml      # Source definitions
-│   └── metabase.yml     # Auto-generated Metabase credentials (gitignored)
+│   ├── metrics.yml      # Metric analysis config (auto-generated)
+│   ├── metabase.yml     # Auto-generated Metabase credentials (gitignored)
+│   ├── dango.db         # SQLite: notebook locks, profiling cache, drift/PII/metric results
+│   └── snapshots/       # DuckDB read-only snapshots for notebooks
 ├── .dlt/                # dlt credentials
 │   └── secrets.toml     # OAuth tokens (gitignored)
 ├── .env                 # API keys (gitignored)
@@ -660,6 +746,7 @@ my-project/
 │   ├── macros/          # get_custom_schema.sql
 │   ├── tests/
 │   └── seeds/
+├── notebooks/           # Marimo notebook files (.py)
 ├── metabase/            # Dashboard export/import (YAML)
 ├── docker-compose.yml
 ├── Dockerfile.metabase

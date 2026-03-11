@@ -41,10 +41,15 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
 | `routes/schedules.py` | Schedule CRUD, trigger, reload, cancel, history, notification config/test, `/schedules` page (~720 lines) | `router` |
-| `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~490 lines) | `router` |
+| `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~491 lines) | `router` |
+| `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact (~566 lines) | `router` |
+| `routes/governance.py` | Schema drift + PII results API (~120 lines) | `router` |
+| `routes/insights.py` | Metric results, run trigger, history (~272 lines) | `router` |
 | `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |
 | `templates/schedules.html` | Schedule management page (extends `base.html`) — table, modals, WebSocket | Alpine.js `schedulesPage()` component |
 | `templates/notebooks.html` | Notebook management page (extends `base.html`) — table, create/delete modals, locking | Alpine.js `notebooksPage()` component |
+| `templates/catalog.html` | Data catalog page (extends `base.html`) — source/table browser, profiling, lineage (495 lines) | Alpine.js `catalogPage()` component |
+| `templates/insights.html` | Insights/analysis page (extends `base.html`) — metric results, trends (~153 lines) | Alpine.js `insightsPage()` component |
 | `static/` | CSS and JS assets (`css/main.css`, `js/app.js`, `js/logs.js`) | — |
 
 ## Architecture
@@ -175,6 +180,8 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 - `dango.oauth/` — `OAuthStorage` (for OAuth token health in `/api/health/platform`)
 - `dango.platform/` — `platform.watcher_lifecycle.get_watcher_status` (for watcher status endpoint)
 - `dango.notebooks/` — locking, manager, snapshot (notebook management endpoints)
+- `dango.governance/` — drift history, PII findings (governance API endpoints)
+- `dango.analysis/` — metric results, run analysis (insights API endpoints)
 
 **Used by:**
 - `dango/cli/commands/web.py` — imports `from dango.web import app` to run uvicorn

@@ -1,6 +1,6 @@
 # Exemption registry for files exceeding the 500-line soft limit (STANDARDS.md §2).
 # Consumed by scripts/check_file_sizes.py for CI and pre-commit checks.
-# Line counts refreshed 2026-03-06 (DOC-028) — informational, not enforced by script.
+# Line counts refreshed 2026-03-12 (DOC-029) — informational, not enforced by script.
 #
 # Categories:
 #   refactor — planned for refactoring in v1 (linked to a task)
@@ -37,7 +37,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/users.py
-    lines: 525
+    lines: 527
     category: exempt
     reason: "TASK-100 added invite-based user creation and reinvite endpoint (+77 lines over base)."
     review_by: "v1.1"
@@ -88,9 +88,9 @@ exemptions:
 
   # --- Exempt (stable, not modified in v1) ---
   - file: dango/ingestion/dlt_runner.py
-    lines: 1784
+    lines: 1796
     category: exempt
-    reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage."
+    reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage. Post-sync hook dispatch added in P7-000."
     review_by: "v1.1"
 
   - file: dango/ingestion/sources/registry.py
@@ -100,9 +100,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/source_wizard.py
-    lines: 1324
+    lines: 1350
     category: exempt
-    reason: "Interactive source configuration wizard. Sequential prompting logic doesn't benefit from splitting."
+    reason: "Interactive source configuration wizard. Sequential prompting logic doesn't benefit from splitting. P7-011 added metrics generation."
     review_by: "v1.1"
 
   - file: dango/visualization/metabase.py
@@ -118,9 +118,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/init.py
-    lines: 1098
+    lines: 1125
     category: exempt
-    reason: "Project initialization wizard. Sequential setup flow — splitting adds indirection without benefit. P7-014 added COMPATIBILITY.md + SCALABILITY.md generation (+133 lines)."
+    reason: "Project initialization wizard. Sequential setup flow — splitting adds indirection without benefit. P7-014 added COMPATIBILITY.md + SCALABILITY.md generation (+133 lines). P7-011 added metrics config generation."
     review_by: "v1.1"
 
   # Removed: dango/cli/utils.py — now ~130 lines after TASK-006 (utilities moved to proper modules)
@@ -201,7 +201,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/config/models.py
-    lines: 548
+    lines: 553
     category: exempt
     reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
     review_by: "v1.1"
