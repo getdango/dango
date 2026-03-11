@@ -6,12 +6,15 @@ UI page endpoints and API documentation.
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import TemplateNotFound
 
 import dango
+from dango.auth.audit import AuditEvent, log_auth_event
+from dango.auth.models import User
+from dango.auth.permissions import require_permission
 
 router = APIRouter(tags=["ui"])
 
@@ -75,6 +78,28 @@ async def logs_page(request: Request) -> HTMLResponse:
             "version": dango.__version__,
             "current_page": "logs",
             "subtitle": "Activity Logs",
+        },
+    )
+
+
+@router.get("/catalog")
+async def catalog_page(
+    request: Request,
+    user: User = Depends(require_permission("governance.view")),
+) -> HTMLResponse:
+    """Serve the data catalog page."""
+    log_auth_event(
+        AuditEvent.CATALOG_VIEWED,
+        user_id=user.id,
+        email=user.email,
+    )
+    return _render_template(
+        "catalog.html",
+        {
+            "request": request,
+            "version": dango.__version__,
+            "current_page": "catalog",
+            "subtitle": "Data Catalog",
         },
     )
 
