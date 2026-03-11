@@ -43,3 +43,15 @@ class TestDispatchPostSyncHooks:
     def test_stubs_are_noop(self, tmp_path: Path):
         """Calling with real stubs does not raise."""
         dispatch_post_sync_hooks(project_root=tmp_path, sources=["test_source"])
+
+    def test_analysis_hook_passes_raw_prefix(self, tmp_path: Path) -> None:
+        """Analysis hook prepends raw_ to source names for source_filter."""
+        with patch(
+            "dango.analysis.metrics.run_analysis",
+            return_value=[],
+        ) as mock_engine:
+            from dango.utils.post_sync import _run_analysis
+
+            _run_analysis(tmp_path, ["stripe", "ga"])
+
+        mock_engine.assert_called_once_with(tmp_path, source_filter=["raw_stripe", "raw_ga"])

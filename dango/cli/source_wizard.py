@@ -205,6 +205,32 @@ class SourceWizard:
             self._save_source(source_config)
             console.print(f"\n[green]✅ Saved '{source_name}' to sources.yml[/green]")
 
+            # Step 10: Offer automatic analysis metrics
+            try:
+                from dango.analysis.templates import generate_metrics_for_source
+
+                templates = generate_metrics_for_source(source_type, source_name)
+                if templates:
+                    if Confirm.ask(
+                        "\n[bold]Enable automatic analysis?[/bold]",
+                        default=True,
+                    ):
+                        from dango.analysis.config import add_metrics_to_config
+
+                        header = None
+                        if source_type == "csv":
+                            header = (
+                                "NOTE: Replace 'your_table' with your actual"
+                                " table name after first sync."
+                            )
+                        add_metrics_to_config(self.project_root, templates, header_comment=header)
+                        console.print(
+                            f"[green]✅ Added {len(templates)} analysis"
+                            f" metric(s) to metrics.yml[/green]"
+                        )
+            except Exception:
+                pass  # Never block source add
+
             # Success messages based on whether secrets were required
             if self.secret_params:
                 console.print(f"\n[green]✅ Source '{source_name}' fully configured![/green]")

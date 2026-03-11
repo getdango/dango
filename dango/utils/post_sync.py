@@ -396,5 +396,13 @@ def _run_pii_scan(project_root: Path, sources: list[str]) -> None:
 def _run_analysis(project_root: Path, sources: list[str]) -> None:
     """Run automated analysis on freshly synced sources.
 
-    Populated by P7-011.
+    Args:
+        project_root: Path to the Dango project root.
+        sources: Names of sources that synced successfully.
     """
+    try:
+        from dango.analysis.metrics import run_analysis
+
+        run_analysis(project_root, source_filter=[f"raw_{s}" for s in sources])
+    except Exception:
+        logger.warning("analysis_hook_error", sources=sources, exc_info=True)
