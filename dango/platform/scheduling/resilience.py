@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from dango.exceptions import JobCancelledError, JobTimeoutError
+from dango.exceptions import JobCancelledError, JobTimeoutError, format_structured_error
 from dango.logging import get_logger
 
 if TYPE_CHECKING:
@@ -80,7 +80,14 @@ def _execute_with_timeout(
     thread.
     """
     if cancel_flag.is_set():
-        raise JobCancelledError("Job cancelled before execution")
+        raise JobCancelledError(
+            "Job cancelled before execution",
+            user_message=format_structured_error(
+                what_failed="Scheduled job was cancelled before execution",
+                causes=["User requested cancellation", "Server shutdown during execution"],
+                suggested_fix="Re-enable the schedule or trigger a manual sync",
+            ),
+        )
 
     thread_id = threading.current_thread().ident
     if thread_id is None:
@@ -139,11 +146,30 @@ def run_with_resilience(
     try:
         for attempt in range(1, cfg.max_retries + 1):
             if cancel_flag.is_set():
-                raise JobCancelledError(f"Job {job_id} cancelled before attempt {attempt}")
+                raise JobCancelledError(
+                    f"Job {job_id} cancelled before attempt {attempt}",
+                    user_message=format_structured_error(
+                        what_failed=f"Scheduled job '{job_id}' was cancelled",
+                        causes=[
+                            "User requested cancellation",
+                            "Server shutdown during execution",
+                        ],
+                        suggested_fix="Re-enable the schedule or trigger a manual sync",
+                    ),
+                )
 
             try:
                 return _execute_with_timeout(func, args, kwargs, timeout_seconds, cancel_flag)
-            except JobTimeoutError:
+            except JobTimeoutError as exc:
+                exc.user_message = format_structured_error(
+                    what_failed=f"Scheduled job '{job_id}' timed out after {cfg.timeout_minutes} minutes",
+                    causes=[
+                        "Job took longer than the configured timeout",
+                        "DuckDB lock contention",
+                        "Network issue during data sync",
+                    ],
+                    suggested_fix="Increase the timeout or reduce the data volume",
+                )
                 _fire_callbacks(
                     scheduler_service._on_timeout_callbacks,
                     job_id=job_id,
@@ -181,7 +207,15 @@ def run_with_resilience(
                     # (delay elapsed normally).
                     if cancel_flag.wait(timeout=delay):
                         raise JobCancelledError(
-                            f"Job {job_id} cancelled during retry wait"
+                            f"Job {job_id} cancelled during retry wait",
+                            user_message=format_structured_error(
+                                what_failed=f"Scheduled job '{job_id}' was cancelled during retry wait",
+                                causes=[
+                                    "User requested cancellation",
+                                    "Server shutdown during execution",
+                                ],
+                                suggested_fix="Re-enable the schedule or trigger a manual sync",
+                            ),
                         ) from exc
 
         # All retries exhausted — propagate the last exception

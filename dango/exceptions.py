@@ -65,6 +65,7 @@ __all__ = [
     "AnalysisError",
     "AnalysisConfigError",
     "is_debug_mode",
+    "format_structured_error",
 ]
 
 # ---------------------------------------------------------------------------
@@ -75,6 +76,29 @@ __all__ = [
 def is_debug_mode() -> bool:
     """Return True when ``DANGO_DEBUG`` is enabled (``1``, ``true``, or ``yes``)."""
     return os.environ.get("DANGO_DEBUG", "").lower() in ("1", "true", "yes")
+
+
+def format_structured_error(
+    what_failed: str,
+    causes: list[str],
+    suggested_fix: str,
+) -> str:
+    """Format a structured error message with what/why/fix sections.
+
+    Args:
+        what_failed: One-line description of the failure.
+        causes: Possible root causes (rendered as a bullet list).
+        suggested_fix: Actionable next step for the user.
+
+    Returns:
+        Multi-line string with three sections: what, causes, fix.
+    """
+    lines = [what_failed, "", "Possible causes:"]
+    for cause in causes:
+        lines.append(f"  - {cause}")
+    lines.append("")
+    lines.append(f"Suggested fix: {suggested_fix}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
