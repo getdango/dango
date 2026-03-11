@@ -307,6 +307,8 @@ module = [
     "tests.unit.test_analysis_comparisons",
     "tests.unit.test_analysis_metrics",
     "tests.unit.test_analysis_drilldown",
+    "tests.unit.test_analysis_templates",
+    "tests.integration.test_analysis_integration",
     "tests.unit.test_notebook_manager",
     "tests.unit.test_notebook_snapshot",
     "tests.unit.test_notebook_locking",

@@ -65,6 +65,9 @@ class ProjectInitializer:
             # Save configuration
             self.loader.save_config(config)
 
+            # Create metrics config
+            self._create_metrics_config(config, force=force)
+
             # Create default .gitignore
             self._create_gitignore()
 
@@ -139,6 +142,27 @@ class ProjectInitializer:
         sources = SourcesConfig()
 
         return DangoConfig(project=project, sources=sources)
+
+    def _create_metrics_config(self, config: DangoConfig, *, force: bool = False) -> None:
+        """Create ``.dango/metrics.yml`` with default analysis metrics.
+
+        Fresh init creates an empty config.  ``--force`` re-init with existing
+        sources generates templates for configured source types.
+        """
+        try:
+            from dango.analysis.config import save_metrics_config
+            from dango.analysis.models import MetricsConfig
+            from dango.analysis.templates import generate_metrics_for_source
+
+            all_metrics = []  # type: ignore[var-annotated]
+            if force and config.sources and config.sources.sources:
+                for src in config.sources.sources:
+                    all_metrics.extend(generate_metrics_for_source(src.type, src.name))
+
+            metrics_config = MetricsConfig(enabled=True, metrics=all_metrics)
+            save_metrics_config(self.project_dir, metrics_config)
+        except Exception:
+            pass  # Non-critical — never block init
 
     def _create_directory_structure(self):
         """Create Dango project directory structure"""
