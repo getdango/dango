@@ -66,3 +66,60 @@ def drift_report(
         )
 
     console.print(tbl)
+
+
+@governance.command("pii-report")
+@click.option("--source", default=None, help="Filter by source name.")
+@click.option("--table", default=None, help="Filter by table name.")
+@click.option("--limit", default=50, type=int, help="Max findings to show.")
+@click.pass_context
+def pii_report(
+    ctx: click.Context,
+    source: str | None,
+    table: str | None,
+    limit: int,
+) -> None:
+    """Show PII findings."""
+    from rich.table import Table
+
+    from dango.cli.utils import require_project_context
+    from dango.governance.pii_detector import get_pii_findings
+
+    project_root = require_project_context(ctx)
+
+    findings = get_pii_findings(
+        project_root,
+        source=source,
+        table_name=table,
+        limit=limit,
+    )
+
+    if not findings:
+        console.print("[dim]No PII findings found.[/dim]")
+        return
+
+    tbl = Table(title="PII Findings")
+    tbl.add_column("ID", style="dim")
+    tbl.add_column("Source", style="bold")
+    tbl.add_column("Table")
+    tbl.add_column("Column")
+    tbl.add_column("Entity Type")
+    tbl.add_column("Confidence")
+    tbl.add_column("Samples")
+    tbl.add_column("Scanned At")
+
+    for f in findings:
+        confidence = f"{f['confidence']:.2f}" if f.get("confidence") is not None else "-"
+        samples = str(f["sample_count"]) if f.get("sample_count") is not None else "-"
+        tbl.add_row(
+            str(f["id"]),
+            f["source"],
+            f["table_name"],
+            f["column_name"],
+            f["entity_type"],
+            confidence,
+            samples,
+            f["scanned_at"],
+        )
+
+    console.print(tbl)

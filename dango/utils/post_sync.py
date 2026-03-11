@@ -389,8 +389,16 @@ def _run_drift_detection(project_root: Path, sources: list[str]) -> None:
 def _run_pii_scan(project_root: Path, sources: list[str]) -> None:
     """Scan for PII in freshly synced sources.
 
-    Populated by P7-006.
+    Args:
+        project_root: Path to the Dango project root.
+        sources: Names of sources that synced successfully.
     """
+    try:
+        from dango.governance.pii_detector import scan_sources_for_pii
+
+        scan_sources_for_pii(project_root, sources)
+    except Exception:
+        logger.warning("pii_scan_error", sources=sources, exc_info=True)
 
 
 def _run_analysis(project_root: Path, sources: list[str]) -> None:

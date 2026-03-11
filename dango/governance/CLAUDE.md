@@ -2,15 +2,16 @@
 
 ## Purpose
 
-Data governance module: schema drift detection and PII scanning. Monitors DuckDB warehouse schemas for changes between syncs, records drift events, and alerts via webhooks.
+Data governance module: schema drift detection and PII scanning. Monitors DuckDB warehouse schemas for changes between syncs, records drift events, scans for PII in string columns, and alerts via webhooks.
 
 ## Files
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| `__init__.py` | Re-exports public API | `DriftEvent`, `DriftResponse`, `detect_drift_for_sources`, `detect_table_drift`, `get_drift_history` |
-| `models.py` (~35 lines) | Pydantic V2 response models | `DriftEvent`, `DriftResponse` |
+| `__init__.py` | Re-exports public API | `DriftEvent`, `DriftResponse`, `PiiFinding`, `PiiResponse`, `detect_drift_for_sources`, `detect_table_drift`, `get_drift_history`, `scan_sources_for_pii`, `scan_table_for_pii`, `get_pii_findings` |
+| `models.py` (~60 lines) | Pydantic V2 response models | `DriftEvent`, `DriftResponse`, `PiiFinding`, `PiiResponse` |
 | `schema_drift.py` (~490 lines) | Schema drift detection engine | `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()`, `_send_drift_webhook()` |
+| `pii_detector.py` (~280 lines) | PII scanning engine (Presidio + spaCy) | `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()`, `_send_pii_webhook()` |
 
 ## Common Tasks
 
@@ -18,9 +19,14 @@ Data governance module: schema drift detection and PII scanning. Monitors DuckDB
 |-------|-----------|--------------|
 | Add a new drift event type | `schema_drift.py` (`detect_table_drift()` diff logic) | `pytest tests/unit/test_drift_detection.py` |
 | Query drift history | `schema_drift.py` (`get_drift_history()`) | `pytest tests/unit/test_drift_detection.py` |
-| Change webhook notification format | `schema_drift.py` (`_send_drift_webhook()`) | `pytest tests/unit/test_drift_detection.py` |
+| Change drift webhook format | `schema_drift.py` (`_send_drift_webhook()`) | `pytest tests/unit/test_drift_detection.py` |
 | Add drift CLI output columns | `dango/cli/commands/governance.py` | `dango governance drift-report` |
 | View drift via API | `dango/web/routes/governance.py` | `GET /api/governance/schema-drift` |
+| Add PII entity types | `pii_detector.py` (`SCAN_ENTITIES` constant) | `pytest tests/unit/test_pii_detection.py` |
+| Change PII scan threshold | `pii_detector.py` (`SCORE_THRESHOLD` constant) | `pytest tests/unit/test_pii_detection.py` |
+| Query PII findings | `pii_detector.py` (`get_pii_findings()`) | `pytest tests/unit/test_pii_detection.py` |
+| Add PII CLI output columns | `dango/cli/commands/governance.py` | `dango governance pii-report` |
+| View PII via API | `dango/web/routes/governance.py` | `GET /api/governance/pii` |
 
 ## Dependencies
 
@@ -32,16 +38,20 @@ Data governance module: schema drift detection and PII scanning. Monitors DuckDB
 - `dango.platform.notifications.slack` — `format_slack_message()`
 - `duckdb` — read-only DuckDB access (lazy import)
 - `httpx` — sync webhook delivery (lazy import)
+- `spacy` — NLP model for Presidio (lazy import, `pii_detector.py`)
+- `presidio_analyzer` — PII analysis engine (lazy import, `pii_detector.py`)
 
 **Used by:**
-- `dango/utils/post_sync.py` — `_run_drift_detection()` calls `detect_drift_for_sources()`
-- `dango/web/routes/governance.py` — `GET /api/governance/schema-drift` calls `get_drift_history()`
-- `dango/cli/commands/governance.py` — `dango governance drift-report` calls `get_drift_history()`
+- `dango/utils/post_sync.py` — `_run_drift_detection()` calls `detect_drift_for_sources()`, `_run_pii_scan()` calls `scan_sources_for_pii()`
+- `dango/web/routes/governance.py` — `GET /api/governance/schema-drift` calls `get_drift_history()`, `GET /api/governance/pii` calls `get_pii_findings()`
+- `dango/cli/commands/governance.py` — `dango governance drift-report` calls `get_drift_history()`, `dango governance pii-report` calls `get_pii_findings()`
 
 ## Testing
 
-- **Unit:** `pytest tests/unit/test_drift_detection.py`
-- **Integration:** `pytest tests/integration/test_drift_integration.py`
+- **Unit (drift):** `pytest tests/unit/test_drift_detection.py`
+- **Unit (PII):** `pytest tests/unit/test_pii_detection.py`
+- **Integration (drift):** `pytest tests/integration/test_drift_integration.py`
+- **Integration (PII):** `pytest tests/integration/test_pii_integration.py`
 - **Related:** `pytest tests/unit/test_post_sync.py tests/unit/test_webhook.py tests/unit/test_slack_formatter.py`
 
 ## Don't Modify
@@ -50,4 +60,6 @@ Data governance module: schema drift detection and PII scanning. Monitors DuckDB
 |------|--------|
 | `drift_events` table schema | Existing events depend on the column structure (defined in `dango/utils/dango_db.py`) |
 | `schema_baselines` table schema | Baseline comparison logic depends on exact columns |
+| `pii_findings` table schema | Cached findings depend on the column structure (defined in `dango/utils/dango_db.py`) |
 | `DriftEvent` field names | Web API consumers depend on the response shape |
+| `PiiFinding` field names | Web API consumers depend on the response shape |
