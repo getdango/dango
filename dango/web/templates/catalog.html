@@ -1,0 +1,369 @@
+{% extends "base.html" %}
+{% block title %}Data Catalog - Dango{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/catalog.css?v=1741700000">
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div x-data="catalogPage()" x-init="init()" x-cloak>
+        <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p class="text-sm text-red-700" x-text="error"></p>
+        </div>
+        <!-- Breadcrumb -->
+        <nav class="mb-4 text-sm text-gray-500">
+            <button @click="goToSources()" class="hover:text-gray-700"
+                    :class="view === 'sources' ? 'font-semibold text-gray-900' : ''">Sources</button>
+            <template x-if="selectedSource">
+                <span>
+                    <span class="mx-1">/</span>
+                    <button @click="goToTables()" class="hover:text-gray-700"
+                            :class="view === 'tables' ? 'font-semibold text-gray-900' : ''"
+                            x-text="selectedSource"></button>
+                </span>
+            </template>
+            <template x-if="selectedTable">
+                <span><span class="mx-1">/</span><span class="font-semibold text-gray-900" x-text="selectedTable"></span></span>
+            </template>
+        </nav>
+        <div x-show="loading" x-cloak class="flex items-center justify-center py-12">
+            <div class="text-gray-400 text-sm">Loading catalog...</div>
+        </div>
+        <!-- View 1: Sources list -->
+        <div x-show="!loading && view === 'sources'">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Data Catalog</h2>
+            <template x-if="sources.length === 0 && !loading">
+                <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
+                    No sources configured. Add a source to get started.
+                </div>
+            </template>
+            <template x-if="sources.length > 0">
+                <div class="bg-white shadow rounded-lg overflow-hidden">
+                    <div class="catalog-table-wrapper">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Tables</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Rows</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Freshness</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <template x-for="src in sources" :key="src.name">
+                                    <tr class="hover:bg-gray-50 cursor-pointer" @click="selectSource(src.name)">
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span class="text-sm font-medium text-blue-600 hover:text-blue-800" x-text="src.name"></span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800" x-text="src.type"></span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap hidden sm:table-cell">
+                                            <span class="inline-flex items-center">
+                                                <span class="w-2 h-2 rounded-full mr-2"
+                                                      :class="{'bg-green-400': src.status === 'synced', 'bg-yellow-400': src.status === 'syncing', 'bg-red-400': src.status === 'failed', 'bg-gray-300': src.status === 'unknown'}"></span>
+                                                <span class="text-sm text-gray-700" x-text="src.status === 'unknown' ? 'Not synced' : src.status"></span>
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell" x-text="src.tables ? src.tables.length : '--'"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell" x-text="src.row_count != null ? src.row_count.toLocaleString() : '--'"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden lg:table-cell" x-text="formatFreshness(src.freshness)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </template>
+        </div>
+        <!-- View 2: Tables list for selected source -->
+        <div x-show="!loading && view === 'tables'">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-900">
+                        <span x-text="selectedSource"></span>
+                        <span class="text-gray-400 font-normal text-base ml-2">tables</span>
+                    </h2>
+                </div>
+                <div class="hidden sm:flex items-center space-x-2 text-sm text-gray-500">
+                    <span>Sync trend</span>
+                    <div class="sparkline-container" x-effect="renderSparkline($el, sourceDetail ? sourceDetail.history : [])"></div>
+                </div>
+            </div>
+            <div x-show="tablesLoading" x-cloak class="flex items-center justify-center py-12">
+                <div class="text-gray-400 text-sm">Loading tables...</div>
+            </div>
+            <template x-if="!tablesLoading && tablesList.length === 0">
+                <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">No tables found. Run a sync first.</div>
+            </template>
+            <template x-if="!tablesLoading && tablesList.length > 0">
+                <div class="bg-white shadow rounded-lg overflow-hidden">
+                    <div class="catalog-table-wrapper">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Table</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Rows</th>
+                                    <template x-if="hasLineage">
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Documentation</th>
+                                    </template>
+                                    <template x-if="hasLineage">
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Tests</th>
+                                    </template>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Drift</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <template x-for="tbl in tablesList" :key="tbl.name">
+                                    <tr class="hover:bg-gray-50 cursor-pointer" @click="selectTable(tbl.name)">
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span class="text-sm font-medium text-blue-600 hover:text-blue-800" x-text="tbl.name"></span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell" x-text="tbl.row_count != null ? tbl.row_count.toLocaleString() : '--'"></td>
+                                        <template x-if="hasLineage">
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell" x-text="getDocStatus(tbl.name)"></td>
+                                        </template>
+                                        <template x-if="hasLineage">
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell" x-text="getTestCount(tbl.name)"></td>
+                                        </template>
+                                        <td class="px-6 py-4 whitespace-nowrap hidden lg:table-cell">
+                                            <template x-if="getTableDriftCount(tbl.name) > 0">
+                                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-orange-100 text-orange-800" x-text="getTableDriftCount(tbl.name) + ' drift'"></span>
+                                            </template>
+                                            <template x-if="getTableDriftCount(tbl.name) === 0">
+                                                <span class="text-sm text-gray-400">--</span>
+                                            </template>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </template>
+            <template x-if="!hasLineage && !tablesLoading">
+                <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                    <p class="text-sm text-blue-700">Run dbt to see documentation and test coverage.</p>
+                </div>
+            </template>
+        </div>
+        <!-- View 3: Column detail -->
+        <div x-show="!loading && view === 'columns'">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-900" x-text="selectedSource + '.' + selectedTable"></h2>
+                    <div class="mt-1 text-sm text-gray-500 space-x-4">
+                        <span x-show="columnData"><span x-text="columnData ? columnData.row_count.toLocaleString() : ''"></span> rows</span>
+                        <span x-show="columnData && columnData.profiled_at">Profiled <span x-text="columnData ? timeAgo(columnData.profiled_at) : ''"></span></span>
+                        <span x-show="columnData && !columnData.profiled_at" class="text-gray-400">Not profiled</span>
+                    </div>
+                </div>
+                <button @click="refreshProfile()" :disabled="profilingLoading"
+                        class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors disabled:opacity-50">
+                    <span x-show="!profilingLoading">Refresh Profile</span>
+                    <span x-show="profilingLoading" x-cloak>Profiling...</span>
+                </button>
+            </div>
+            <div x-show="columnsLoading" x-cloak class="flex items-center justify-center py-12">
+                <div class="text-gray-400 text-sm">Loading columns...</div>
+            </div>
+            <template x-if="!columnsLoading && columnData">
+                <div class="bg-white shadow rounded-lg overflow-hidden">
+                    <div class="catalog-table-wrapper">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Column</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Nullable</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Null %</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Distinct</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Min / Max</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Indicators</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <template x-for="col in columnData.columns" :key="col.name">
+                                    <tr :class="isUndocumented() ? 'undocumented-marker' : ''">
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <div class="text-sm font-medium text-gray-900" x-text="col.name"></div>
+                                            <template x-if="isUndocumented()">
+                                                <span class="text-xs text-yellow-600">No description</span>
+                                            </template>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap"><span class="col-type text-gray-600" x-text="col.type"></span></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell" x-text="col.nullable ? 'Yes' : 'No'"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap hidden sm:table-cell">
+                                            <template x-if="col.stats && col.stats.null_pct != null">
+                                                <div class="flex items-center space-x-2">
+                                                    <div class="null-bar"><div class="null-bar-fill" :style="'width: ' + Math.min(parseFloat(col.stats.null_pct), 100) + '%'"></div></div>
+                                                    <span class="text-xs text-gray-500" x-text="parseFloat(col.stats.null_pct).toFixed(1) + '%'"></span>
+                                                </div>
+                                            </template>
+                                            <template x-if="!col.stats || col.stats.null_pct == null">
+                                                <span class="text-sm text-gray-400">--</span>
+                                            </template>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell" x-text="col.stats && col.stats.distinct_count != null ? parseInt(col.stats.distinct_count).toLocaleString() : '--'"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden lg:table-cell">
+                                            <template x-if="col.stats && (col.stats.min_value != null || col.stats.max_value != null)">
+                                                <span><span x-text="col.stats.min_value ?? '--'"></span><span class="text-gray-300 mx-1">/</span><span x-text="col.stats.max_value ?? '--'"></span></span>
+                                            </template>
+                                            <template x-if="!col.stats || (col.stats.min_value == null && col.stats.max_value == null)">
+                                                <span class="text-gray-400">--</span>
+                                            </template>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap hidden lg:table-cell">
+                                            <div class="flex items-center space-x-1">
+                                                <template x-if="hasColumnDrift(col.name)">
+                                                    <span class="px-1.5 py-0.5 text-xs font-medium rounded bg-orange-100 text-orange-800">Drift</span>
+                                                </template>
+                                                <template x-if="hasColumnPii(col.name)">
+                                                    <span class="px-1.5 py-0.5 text-xs font-medium rounded bg-red-100 text-red-800">PII</span>
+                                                </template>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+</main>
+{% endblock %}
+{% block scripts %}
+<script>
+function catalogPage() {
+    return {
+        view: 'sources', selectedSource: null, selectedTable: null,
+        sources: [], sourceDetail: null, tablesList: [], columnData: null,
+        lineageNodes: [], driftEvents: [], piiFindings: [],
+        loading: true, tablesLoading: false, columnsLoading: false,
+        profilingLoading: false, error: null, hasLineage: false,
+
+        async init() {
+            try {
+                const [sourcesRes, lineageRes] = await Promise.allSettled([
+                    fetch('/api/sources'), fetch('/api/catalog/lineage'),
+                ]);
+                if (sourcesRes.status === 'fulfilled' && sourcesRes.value.ok) {
+                    this.sources = await sourcesRes.value.json();
+                } else { this.error = 'Failed to load sources.'; }
+                if (lineageRes.status === 'fulfilled' && lineageRes.value.ok) {
+                    const dag = await lineageRes.value.json();
+                    this.lineageNodes = dag.nodes || [];
+                    this.hasLineage = true;
+                }
+            } catch (e) { this.error = 'Failed to load catalog data.'; }
+            finally { this.loading = false; }
+        },
+        goToSources() {
+            this.view = 'sources'; this.selectedSource = null; this.selectedTable = null;
+            this.sourceDetail = null; this.columnData = null; this.driftEvents = []; this.tablesList = [];
+        },
+        goToTables() {
+            this.view = 'tables'; this.selectedTable = null; this.columnData = null; this.driftEvents = [];
+        },
+        async selectSource(sourceName) {
+            this.selectedSource = sourceName; this.selectedTable = null;
+            this.view = 'tables'; this.tablesLoading = true; this.error = null;
+            try {
+                const res = await fetch('/api/sources/' + encodeURIComponent(sourceName) + '/details');
+                if (!res.ok) { this.error = 'Failed to load source details.'; this.tablesLoading = false; return; }
+                this.sourceDetail = await res.json();
+                if (this.sourceDetail.tables && this.sourceDetail.tables.length > 0) {
+                    this.tablesList = this.sourceDetail.tables;
+                } else {
+                    this.tablesList = [{ name: sourceName, row_count: this.sourceDetail.row_count, schema: 'raw_' + sourceName }];
+                }
+                try {
+                    const driftRes = await fetch('/api/governance/schema-drift?source=' + encodeURIComponent(sourceName));
+                    if (driftRes.ok) { const d = await driftRes.json(); this.driftEvents = d.events || []; }
+                } catch (_) { /* graceful */ }
+            } catch (e) { this.error = 'Failed to load source details.'; }
+            finally { this.tablesLoading = false; }
+        },
+        async selectTable(tableName) {
+            this.selectedTable = tableName; this.view = 'columns';
+            this.columnsLoading = true; this.error = null;
+            try {
+                const base = '/api/catalog/' + encodeURIComponent(this.selectedSource) + '/' + encodeURIComponent(tableName);
+                const driftQ = '/api/governance/schema-drift?source=' + encodeURIComponent(this.selectedSource) + '&table=' + encodeURIComponent(tableName);
+                const piiQ = '/api/governance/pii?source=' + encodeURIComponent(this.selectedSource) + '&table=' + encodeURIComponent(tableName);
+                const [colRes, driftRes, piiRes] = await Promise.allSettled([
+                    fetch(base + '/columns'), fetch(driftQ), fetch(piiQ),
+                ]);
+                if (colRes.status === 'fulfilled' && colRes.value.ok) {
+                    this.columnData = await colRes.value.json();
+                } else { this.error = 'Failed to load columns. Run a sync first.'; }
+                if (driftRes.status === 'fulfilled' && driftRes.value.ok) {
+                    const d = await driftRes.value.json(); this.driftEvents = d.events || [];
+                }
+                if (piiRes.status === 'fulfilled' && piiRes.value.ok) {
+                    const p = await piiRes.value.json(); this.piiFindings = p.findings || [];
+                } else { this.piiFindings = []; }
+            } catch (e) { this.error = 'Failed to load column data.'; }
+            finally { this.columnsLoading = false; }
+        },
+        async refreshProfile() {
+            if (!this.selectedSource || !this.selectedTable) return;
+            this.profilingLoading = true; this.error = null;
+            try {
+                const url = '/api/catalog/' + encodeURIComponent(this.selectedSource) + '/' + encodeURIComponent(this.selectedTable) + '/profile';
+                const res = await fetch(url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (res.ok) { this.columnData = await res.json(); }
+                else { this.error = 'Failed to refresh profile.'; }
+            } catch (e) { this.error = 'Failed to refresh profile.'; }
+            finally { this.profilingLoading = false; }
+        },
+        getLineageNode(tableName) { return this.lineageNodes.find(n => n.name === tableName); },
+        getDocStatus(tableName) {
+            const node = this.getLineageNode(tableName);
+            if (!node) return '--';
+            return node.columns_documented + '/' + node.columns_total + ' documented';
+        },
+        getTestCount(tableName) {
+            const node = this.getLineageNode(tableName);
+            if (!node) return '--';
+            return node.test_count + (node.test_count === 1 ? ' test' : ' tests');
+        },
+        getTableDriftCount(tableName) { return this.driftEvents.filter(e => e.table_name === tableName).length; },
+        hasColumnDrift(colName) { return this.driftEvents.some(e => e.column_name === colName); },
+        hasColumnPii(colName) { return this.piiFindings.some(f => f.column_name === colName); },
+        isUndocumented() {
+            if (!this.hasLineage) return false;
+            const node = this.getLineageNode(this.selectedTable);
+            if (!node) return false;
+            return node.columns_total > 0 && node.columns_documented === 0;
+        },
+        renderSparkline(el, history) {
+            if (!history || !Array.isArray(history)) { el.innerHTML = '<span class="text-xs text-gray-400">--</span>'; return; }
+            const durations = history.filter(h => h.status === 'success' && h.duration_seconds != null).slice(-30).map(h => h.duration_seconds);
+            if (durations.length < 2) { el.innerHTML = '<span class="text-xs text-gray-400">--</span>'; return; }
+            const w = 80, ht = 24, max = Math.max(...durations), min = Math.min(...durations), range = max - min || 1;
+            const points = durations.map((d, i) => {
+                const x = 2 + (i / (durations.length - 1)) * 76, y = 2 + (1 - (d - min) / range) * 20;
+                return x + ',' + y;
+            }).join(' ');
+            el.innerHTML = '<svg width="' + w + '" height="' + ht + '"><polyline points="' + points + '" fill="none" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        },
+        formatFreshness(freshness) {
+            if (!freshness) return '--';
+            if (freshness.last_sync_time) return this.timeAgo(freshness.last_sync_time);
+            if (freshness.freshness_status) return freshness.freshness_status;
+            return '--';
+        },
+        timeAgo(dateStr) {
+            if (!dateStr) return '--';
+            const diff = Math.floor((new Date() - new Date(dateStr)) / 1000);
+            if (diff < 60) return 'just now';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            return Math.floor(diff / 86400) + 'd ago';
+        },
+    };
+}
+</script>
+{% endblock %}

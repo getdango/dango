@@ -1,0 +1,38 @@
+/* catalog.css — Catalog page styles that can't be achieved with Tailwind */
+
+.sparkline-container {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    min-width: 80px;
+}
+
+.col-type {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.75rem;
+}
+
+.undocumented-marker {
+    border-left: 3px solid #f59e0b;
+    padding-left: 0.5rem;
+}
+
+.catalog-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.null-bar {
+    height: 6px;
+    border-radius: 3px;
+    background-color: #e5e7eb;
+    width: 60px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.null-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background-color: #f59e0b;
+}
