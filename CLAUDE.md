@@ -247,7 +247,7 @@ dango/                          # Python package source
 │   └── watcher_runner.py       # → local/watcher_runner.py
 │
 ├── ingestion/                  # Level 1 — Data loading
-│   ├── dlt_runner.py           # ⚠ 1784 lines — orchestrates full sync pipeline
+│   ├── dlt_runner.py           # ⚠ 1796 lines — orchestrates full sync pipeline
 │   ├── csv_loader.py           # CSV loading with dedup (742 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (1466 lines, 33 source types)
