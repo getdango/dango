@@ -42,6 +42,80 @@ class TestNotebookList:
 
             assert "explore" in result.output
 
+    def test_shows_author_column(self):
+        """Create notebook file + metadata entry and verify Author column appears."""
+        runner = CliRunner()
+        with runner.isolated_filesystem() as td:
+            project_root = Path(td)
+            nb_dir = project_root / "notebooks"
+            nb_dir.mkdir()
+            (nb_dir / "my_nb.py").write_text("# notebook")
+            (project_root / ".dango").mkdir()
+
+            from dango.utils.dango_db import _schema_initialized, connect
+
+            _schema_initialized.clear()
+            with connect(project_root) as conn:
+                conn.execute(
+                    "INSERT INTO notebook_metadata (id, name, description, created_by, created_at, updated_at) "
+                    "VALUES ('id1', 'my_nb', 'desc', 'alice@test.com', '2026-01-01', '2026-01-01')"
+                )
+                conn.commit()
+
+            with patch("dango.cli.utils.find_project_root", return_value=project_root):
+                from dango.cli.commands.notebook import notebook
+
+                result = runner.invoke(notebook, [])
+
+            assert "Author" in result.output
+            assert "alice@test.com" in result.output
+
+    def test_shows_dash_for_unknown_author(self):
+        """Notebook on disk with no metadata shows '--' for author."""
+        runner = CliRunner()
+        with runner.isolated_filesystem() as td:
+            project_root = Path(td)
+            nb_dir = project_root / "notebooks"
+            nb_dir.mkdir()
+            (nb_dir / "orphan.py").write_text("# notebook")
+            (project_root / ".dango").mkdir()
+
+            from dango.utils.dango_db import _schema_initialized
+
+            _schema_initialized.clear()
+
+            with patch("dango.cli.utils.find_project_root", return_value=project_root):
+                from dango.cli.commands.notebook import notebook
+
+                result = runner.invoke(notebook, [])
+
+            assert "Author" in result.output
+            assert "--" in result.output
+
+    def test_works_without_metadata_db(self):
+        """CLI falls back gracefully when dango.db doesn't exist."""
+        runner = CliRunner()
+        with runner.isolated_filesystem() as td:
+            project_root = Path(td)
+            nb_dir = project_root / "notebooks"
+            nb_dir.mkdir()
+            (nb_dir / "solo.py").write_text("# notebook")
+
+            # Patch connect at source to raise (lazy import inside function)
+            with (
+                patch("dango.cli.utils.find_project_root", return_value=project_root),
+                patch(
+                    "dango.utils.dango_db.connect",
+                    side_effect=Exception("no db"),
+                ),
+            ):
+                from dango.cli.commands.notebook import notebook
+
+                result = runner.invoke(notebook, [])
+
+            assert "solo" in result.output
+            assert "--" in result.output
+
 
 @pytest.mark.unit
 class TestNotebookNew:

@@ -35,16 +35,30 @@ def notebook(ctx: click.Context) -> None:
 
     table = Table(title="Notebooks")
     table.add_column("Name", style="bold")
+    table.add_column("Author")
     table.add_column("Size")
     table.add_column("Last Modified")
 
     from datetime import datetime
 
+    # Query notebook_metadata for author info
+    authors: dict[str, str] = {}
+    try:
+        from dango.utils.dango_db import connect
+
+        with connect(project_root) as conn:
+            rows = conn.execute("SELECT name, created_by FROM notebook_metadata").fetchall()
+            for row in rows:
+                authors[row["name"]] = row["created_by"]
+    except Exception:
+        pass  # DB not initialized yet — show "--" for all
+
     for f in sorted(notebooks_dir.glob("*.py")):
         stat = f.stat()
         size_kb = stat.st_size / 1024
         mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
-        table.add_row(f.stem, f"{size_kb:.1f} KB", mtime)
+        author = authors.get(f.stem, "--")
+        table.add_row(f.stem, author, f"{size_kb:.1f} KB", mtime)
 
     console.print(table)
 
