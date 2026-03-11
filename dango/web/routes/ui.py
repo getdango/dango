@@ -104,6 +104,28 @@ async def catalog_page(
     )
 
 
+@router.get("/insights")
+async def insights_page(
+    request: Request,
+    user: User = Depends(require_permission("governance.view")),
+) -> HTMLResponse:
+    """Serve the insights page."""
+    log_auth_event(
+        AuditEvent.INSIGHTS_VIEWED,
+        user_id=user.id,
+        email=user.email,
+    )
+    return _render_template(
+        "insights.html",
+        {
+            "request": request,
+            "version": dango.__version__,
+            "current_page": "insights",
+            "subtitle": "Insights",
+        },
+    )
+
+
 @router.get("/api")
 async def api_info() -> dict[str, str]:
     """API information endpoint."""

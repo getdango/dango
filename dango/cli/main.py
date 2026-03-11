@@ -9,6 +9,7 @@ top-level ``cli`` group with version info and project-root discovery.
 import click
 
 from dango import __version__
+from dango.cli.commands.analyze import analyze
 from dango.cli.commands.auth import auth
 from dango.cli.commands.cleanup import cleanup
 from dango.cli.commands.config_cmd import config
@@ -64,6 +65,7 @@ def cli(ctx: click.Context) -> None:
 
 
 # --- Register top-level commands ---
+cli.add_command(analyze)
 cli.add_command(init)
 cli.add_command(rename)
 cli.add_command(info)

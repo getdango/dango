@@ -404,6 +404,9 @@ def _run_pii_scan(project_root: Path, sources: list[str]) -> None:
 def _run_analysis(project_root: Path, sources: list[str]) -> None:
     """Run automated analysis on freshly synced sources.
 
+    Captures results and dispatches a webhook notification if any metrics
+    exceed their configured threshold.
+
     Args:
         project_root: Path to the Dango project root.
         sources: Names of sources that synced successfully.
@@ -411,6 +414,73 @@ def _run_analysis(project_root: Path, sources: list[str]) -> None:
     try:
         from dango.analysis.metrics import run_analysis
 
-        run_analysis(project_root, source_filter=[f"raw_{s}" for s in sources])
+        results = run_analysis(project_root, source_filter=[f"raw_{s}" for s in sources])
+        flagged = [r for r in results if r.comparison and r.comparison.exceeds_threshold]
+        if flagged:
+            _send_analysis_webhook(project_root, sources, results, flagged)
     except Exception:
         logger.warning("analysis_hook_error", sources=sources, exc_info=True)
+
+
+def _send_analysis_webhook(
+    project_root: Path,
+    sources: list[str],
+    results: list[Any],
+    flagged: list[Any],
+) -> None:
+    """Send webhook for flagged metric alerts.  Never raises."""
+    try:
+        from dango.analysis.formatter import format_webhook_summary
+        from dango.platform.notifications.webhook import (
+            EventType,
+            WebhookPayload,
+            load_notification_config,
+            should_notify,
+        )
+
+        config = load_notification_config(project_root)
+        if config is None or not config.webhooks:
+            return
+        if not should_notify(EventType.METRIC_ALERT, config):
+            return
+
+        summary = format_webhook_summary(results, flagged)
+        payload = WebhookPayload(
+            event_type=EventType.METRIC_ALERT,
+            schedule_name="post_sync",
+            sources=sources,
+            metadata={
+                "summary": summary,
+                "flagged_count": len(flagged),
+                "total_count": len(results),
+            },
+            occurred_at=datetime.now(tz=timezone.utc),
+        )
+
+        import httpx
+
+        for webhook in config.webhooks:
+            try:
+                if webhook.format == "slack":
+                    from dango.platform.notifications.slack import format_slack_message
+
+                    json_payload: dict[str, Any] = format_slack_message(payload)
+                else:
+                    json_payload = {
+                        "event": payload.event_type.value,
+                        "schedule": payload.schedule_name,
+                        "sources": payload.sources,
+                        "metadata": payload.metadata,
+                        "timestamp": payload.occurred_at.isoformat()
+                        if payload.occurred_at
+                        else None,
+                    }
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.post(webhook.url, json=json_payload)
+                logger.info(
+                    "analysis_webhook_delivered", webhook=webhook.name, status=resp.status_code
+                )
+            except Exception:
+                logger.warning("analysis_webhook_error", webhook=webhook.name, exc_info=True)
+    except Exception:
+        logger.warning("analysis_webhook_outer_error", exc_info=True)
