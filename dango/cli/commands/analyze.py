@@ -25,7 +25,10 @@ def analyze(ctx: click.Context, source: str | None) -> None:
 
     source_filter: list[str] | None = None
     if source is not None:
-        source_filter = [f"raw_{source}"]
+        from dango.validation import validate_identifier
+
+        validated = validate_identifier(source)
+        source_filter = [f"raw_{validated}"]
 
     results = run_analysis(project_root, source_filter=source_filter)
 
