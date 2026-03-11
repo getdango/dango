@@ -23,6 +23,7 @@ from typing import Any
 import click
 
 from dango.cli import console
+from dango.exceptions import format_structured_error
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -122,9 +123,18 @@ def backup_group(ctx: click.Context) -> None:
             if result.stdout.strip():
                 console.print(result.stdout.strip())
         else:
-            console.print("[red]Error:[/red] Backup failed on server.")
+            msg = format_structured_error(
+                what_failed="Remote backup failed",
+                causes=[
+                    "Insufficient disk space on server",
+                    "SSH connection dropped",
+                    "Spaces credentials invalid",
+                ],
+                suggested_fix="Check server disk with 'dango remote status' and verify Spaces config",
+            )
+            console.print(f"[red]Error:[/red]\n{msg}")
             if result.stderr.strip():
-                console.print(result.stderr.strip())
+                console.print(f"\nServer output:\n{result.stderr.strip()}")
             raise SystemExit(1)
     except SystemExit:
         raise
@@ -341,7 +351,16 @@ def backup_download(ctx: click.Context, name: str, output: str | None) -> None:
             f"[green]Downloaded.[/green] Saved to [bold]{output_path}[/bold] ({size_mb:.1f} MB)"
         )
     except Exception as exc:
-        console.print(f"[red]Error:[/red] Download failed: {exc}")
+        msg = format_structured_error(
+            what_failed=f"Download failed for {name}",
+            causes=[
+                "Spaces credentials expired or invalid",
+                "Backup file does not exist in Spaces",
+                "Network connectivity issue",
+            ],
+            suggested_fix="Verify Spaces config and run 'dango remote backup list' to check available backups",
+        )
+        console.print(f"[red]Error:[/red]\n{msg}")
         raise SystemExit(1) from exc
 
 
@@ -401,9 +420,18 @@ def backup_restore(ctx: click.Context, source: str, yes: bool) -> None:
         if result.success:
             console.print(f"[green]Restore complete.[/green] Restored from: {source}")
         else:
-            console.print("[red]Error:[/red] Restore failed on server.")
+            msg = format_structured_error(
+                what_failed=f"Restore failed from backup '{source}'",
+                causes=[
+                    "Backup archive is corrupt or incomplete",
+                    "Insufficient disk space on server",
+                    "Services failed to restart after restore",
+                ],
+                suggested_fix="Check server disk with 'dango remote status' and try a different backup",
+            )
+            console.print(f"[red]Error:[/red]\n{msg}")
             if result.stderr.strip():
-                console.print(result.stderr.strip())
+                console.print(f"\nServer output:\n{result.stderr.strip()}")
             raise SystemExit(1)
     except SystemExit:
         raise

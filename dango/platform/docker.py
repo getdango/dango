@@ -10,6 +10,8 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from dango.exceptions import format_structured_error
+
 console = Console()
 
 
@@ -89,17 +91,40 @@ class DockerManager:
             True if successful, False otherwise
         """
         if not self.compose_file.exists():
-            console.print("[red]Error:[/red] docker-compose.yml not found")
-            console.print(f"Expected location: {self.compose_file}")
+            msg = format_structured_error(
+                what_failed="docker-compose.yml not found",
+                causes=[
+                    "Not in a Dango project directory",
+                    f"Expected location: {self.compose_file}",
+                ],
+                suggested_fix="Run 'dango init' to create a new project",
+            )
+            console.print(f"[red]Error:[/red]\n{msg}")
             return False
 
         if not self.is_docker_available():
-            console.print("[red]Error:[/red] Docker is not available")
-            console.print("Please install Docker: https://docs.docker.com/get-docker/")
+            msg = format_structured_error(
+                what_failed="Docker is not available",
+                causes=[
+                    "Docker Desktop not installed",
+                    "Docker daemon not running",
+                    "Docker CLI not in system PATH",
+                ],
+                suggested_fix="Install Docker from https://docs.docker.com/get-docker/ and ensure the daemon is running",
+            )
+            console.print(f"[red]Error:[/red]\n{msg}")
             return False
 
         if not self.is_compose_available():
-            console.print("[red]Error:[/red] Docker Compose is not available")
+            msg = format_structured_error(
+                what_failed="Docker Compose is not available",
+                causes=[
+                    "Docker Compose plugin not installed",
+                    "docker-compose (v1) not in PATH",
+                ],
+                suggested_fix="Install Docker Compose: https://docs.docker.com/compose/install/",
+            )
+            console.print(f"[red]Error:[/red]\n{msg}")
             return False
 
         console.print("Starting Dango services...")
@@ -118,12 +143,41 @@ class DockerManager:
                 self._print_service_urls()
                 return True
             else:
-                console.print("[red]Error:[/red] Failed to start services")
-                console.print(result.stderr)
+                stderr_lower = result.stderr.lower()
+                if "port" in stderr_lower and "already" in stderr_lower:
+                    causes = [
+                        "Another service is using the required port",
+                        "A previous Dango instance is still running",
+                    ]
+                    fix = "Run 'dango stop' first, or check for conflicting services"
+                else:
+                    causes = [
+                        "Docker image pull failed",
+                        "Container configuration error",
+                        "Insufficient disk space or memory",
+                    ]
+                    fix = "Check the error output above and Docker logs"
+                msg = format_structured_error(
+                    what_failed="Failed to start Docker services",
+                    causes=causes,
+                    suggested_fix=fix,
+                )
+                console.print(f"[red]Error:[/red]\n{msg}")
+                if result.stderr:
+                    console.print(f"\nFull output:\n{result.stderr}")
                 return False
 
         except subprocess.TimeoutExpired:
-            console.print("[red]Error:[/red] Timeout starting services")
+            msg = format_structured_error(
+                what_failed="Timeout starting Docker services",
+                causes=[
+                    "Docker image download is slow",
+                    "Insufficient system resources",
+                    "Docker daemon is unresponsive",
+                ],
+                suggested_fix="Check Docker status with 'docker ps' and retry",
+            )
+            console.print(f"[red]Error:[/red]\n{msg}")
             return False
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")

@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 import yaml
 from pydantic import ValidationError
 
+from dango.exceptions import format_structured_error
+
 from .exceptions import ConfigError, ConfigNotFoundError, ConfigValidationError
 from .models import CloudConfig, DangoConfig, ProjectContext, SourcesConfig
 
@@ -80,8 +82,15 @@ class ConfigLoader:
         """
         if not file_path.exists():
             raise ConfigNotFoundError(
-                f"Configuration file not found: {file_path}\n"
-                f"Run 'dango init' to create a new project."
+                f"Configuration file not found: {file_path}",
+                user_message=format_structured_error(
+                    what_failed=f"Configuration file not found: {file_path}",
+                    causes=[
+                        "Not in a Dango project directory",
+                        "project.yml was deleted or moved",
+                    ],
+                    suggested_fix="Run 'dango init' to create a new project, or cd into an existing project",
+                ),
             )
 
         try:
@@ -89,9 +98,27 @@ class ConfigLoader:
                 data = yaml.safe_load(f)
                 return data or {}
         except yaml.YAMLError as e:
-            raise ConfigError(f"Invalid YAML in {file_path}:\n{e}") from e
+            raise ConfigError(
+                f"Invalid YAML in {file_path}: {e}",
+                user_message=format_structured_error(
+                    what_failed=f"Invalid YAML syntax in {file_path}",
+                    causes=[
+                        "Indentation error",
+                        "Invalid YAML syntax (missing colon, unclosed quote)",
+                        "Non-UTF8 characters",
+                    ],
+                    suggested_fix="Validate the file with a YAML linter or restore from a backup",
+                ),
+            ) from e
         except Exception as e:
-            raise ConfigError(f"Error reading {file_path}: {e}") from e
+            raise ConfigError(
+                f"Error reading {file_path}: {e}",
+                user_message=format_structured_error(
+                    what_failed=f"Cannot read configuration file: {file_path}",
+                    causes=["File permission denied", "File is locked by another process"],
+                    suggested_fix="Check file permissions and try again",
+                ),
+            ) from e
 
     def save_yaml(self, data: dict[str, Any], file_path: Path) -> None:
         """
