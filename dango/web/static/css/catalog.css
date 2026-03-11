@@ -7,12 +7,6 @@
     min-width: 80px;
 }
 
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 0.5rem;
-}
-
 .col-type {
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
     font-size: 0.75rem;
@@ -41,10 +35,4 @@
     height: 100%;
     border-radius: 3px;
     background-color: #f59e0b;
-}
-
-@media (max-width: 640px) {
-    .stats-grid {
-        grid-template-columns: 1fr 1fr;
-    }
 }
