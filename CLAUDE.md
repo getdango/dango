@@ -24,8 +24,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | Notifications / webhooks | `dango/platform/notifications/` | [`dango/platform/notifications/CLAUDE.md`](dango/platform/notifications/CLAUDE.md) |
 | Jinja2 templates / Dockerfiles | `dango/templates/` | [`dango/templates/CLAUDE.md`](dango/templates/CLAUDE.md) |
 | Auth / users / sessions | `dango/auth/` | [`dango/auth/CLAUDE.md`](dango/auth/CLAUDE.md) |
-| Notebooks | `dango/notebooks/` | Not yet created (Phase 6) |
-| Data governance | `dango/governance/` | Not yet created (Phase 7) |
+| Notebooks | `dango/notebooks/` | [`dango/notebooks/CLAUDE.md`](dango/notebooks/CLAUDE.md) |
+| Data governance | `dango/governance/` | [`dango/governance/CLAUDE.md`](dango/governance/CLAUDE.md) |
+| Metric analysis / insights | `dango/analysis/` | [`dango/analysis/CLAUDE.md`](dango/analysis/CLAUDE.md) |
 
 ## Don't Read First
 
@@ -52,6 +53,9 @@ When unsure which module to look at:
   - Token encryption (keychain) → `security/`
   - Config file format (`.dango/*.yml`) → `config/`
 - **Shared utility** (locking, logging, DB helpers) → `utils/`
+- **HOW schema drift / PII is detected** → `governance/`
+- **HOW metrics are tracked / compared** → `analysis/`
+- **Marimo notebooks** → `notebooks/`
 - **Docker containers / file watching** → `platform/`
 - **HOW scheduled jobs run** → `platform/scheduling/`
 - **HOW notifications are sent** → `platform/notifications/`
@@ -67,7 +71,7 @@ dango/                          # Python package source
 ├── logging.py                  # Level 0 — Structured logging (structlog + stdlib)
 ├── cli/                        # Level 3 — Click CLI (primary user interface)
 │   ├── __init__.py             # Shared Console instance
-│   ├── main.py                 # Slim entry point (~88 lines) — registers commands
+│   ├── main.py                 # Slim entry point (~109 lines) — registers commands
 │   ├── commands/               # Command modules (extracted from main.py by TASK-005)
 │   │   ├── __init__.py         # Package marker
 │   │   ├── auth.py             # auth group (12 subcommands, 538 lines)
@@ -94,7 +98,10 @@ dango/                          # Python package source
 │   │   ├── remote_ops.py       # remote upgrade/resize/migrate
 │   │   ├── remote_backup.py    # remote backup subgroup
 │   │   ├── remote_mgmt.py      # remote status/logs/ssh/query
-│   │   └── schedule.py         # schedule group (add/list/remove/status/enable/disable/webhook)
+│   │   ├── schedule.py         # schedule group (add/list/remove/status/enable/disable/webhook)
+│   │   ├── governance.py       # governance group (drift-report/pii-report)
+│   │   ├── notebook.py         # notebook group (new/open) + snapshot
+│   │   └── analyze.py          # analyze top-level command
 │   ├── init.py                 # Project initialization wizard
 │   ├── wizard.py               # Interactive setup wizards
 │   ├── source_wizard.py        # Source configuration wizard
@@ -125,6 +132,30 @@ dango/                          # Python package source
 │   ├── metabase_sync.py        # Sync users/roles to Metabase (498 lines)
 │   └── metabase_bridge.py      # Async SSO session bridging
 │
+├── governance/                 # Level 1 — Data governance (schema drift + PII scanning)
+│   ├── __init__.py             # Re-exports public API
+│   ├── models.py               # Pydantic V2 response models
+│   ├── schema_drift.py         # Schema drift detection engine (490 lines)
+│   └── pii_detector.py         # PII scanning engine (454 lines)
+│
+├── notebooks/                  # Level 1 — Marimo notebook management
+│   ├── __init__.py             # Re-exports public symbols
+│   ├── manager.py              # Marimo process lifecycle (197 lines)
+│   ├── locking.py              # File-level notebook locking (249 lines)
+│   ├── snapshot.py             # DuckDB snapshot management
+│   ├── proxy.py                # HTTP + WebSocket reverse proxy (186 lines)
+│   └── templates/              # Marimo starter templates (explore, quality, blank)
+│
+├── analysis/                   # Level 1 — Metric monitoring + comparison engine
+│   ├── __init__.py             # Public API re-exports
+│   ├── models.py               # Pydantic V2 models (MetricConfig, ComparisonResult, etc.)
+│   ├── config.py               # YAML config load/save
+│   ├── comparisons.py          # Comparison engine + trend detection
+│   ├── drilldown.py            # Drill-down engine
+│   ├── metrics.py              # Orchestration: execute → store → compare
+│   ├── templates.py            # Pre-built metric templates for common sources
+│   └── formatter.py            # Result categorization + display formatting
+│
 ├── web/                        # Level 2 — FastAPI web server
 │   ├── app.py                  # Entry point (~301 lines) — routers, middleware, admin bootstrap
 │   ├── models.py               # Pydantic request/response DTOs (incl. auth DTOs)
@@ -149,14 +180,22 @@ dango/                          # Python package source
 │   │   ├── metabase_proxy.py   # Metabase reverse proxy + SSO session
 │   │   ├── secrets.py          # Secrets + OAuth credential management (admin-only)
 │   │   ├── oauth_connect.py    # Web-based OAuth connect/callback
+│   │   ├── catalog.py          # Data catalog: columns, profiling, lineage, impact (566 lines)
+│   │   ├── governance.py       # Schema drift + PII results API
+│   │   ├── insights.py         # Metric results, run trigger, history
+│   │   ├── notebooks.py        # Notebook management API + page route
 │   │   └── initial_sync.py     # Initial data sync after first deploy
-│   ├── templates/              # Auth page templates
+│   ├── templates/              # Jinja2 page templates
 │   │   ├── login.html          # Alpine.js two-step login (credentials → totp)
 │   │   ├── change_password.html # First-login password change
 │   │   ├── admin_users.html    # Admin user management
 │   │   ├── account.html        # User account settings
 │   │   ├── invite.html         # Invite acceptance page
-│   │   └── secrets.html        # Secrets management page
+│   │   ├── secrets.html        # Secrets management page
+│   │   ├── schedules.html      # Schedule management page
+│   │   ├── notebooks.html      # Notebook management page
+│   │   ├── catalog.html        # Data catalog page (495 lines)
+│   │   └── insights.html       # Insights/analysis page
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
@@ -208,7 +247,7 @@ dango/                          # Python package source
 │   └── watcher_runner.py       # → local/watcher_runner.py
 │
 ├── ingestion/                  # Level 1 — Data loading
-│   ├── dlt_runner.py           # ⚠ 1784 lines — orchestrates full sync pipeline
+│   ├── dlt_runner.py           # ⚠ 1796 lines — orchestrates full sync pipeline
 │   ├── csv_loader.py           # CSV loading with dedup (742 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (1466 lines, 33 source types)
@@ -243,7 +282,9 @@ dango/                          # Python package source
 │   ├── dbt_status.py           # dbt model status tracking
 │   ├── log_rotation.py         # JSONL log rotation with gzip compression
 │   ├── data_validation.py      # Data validation utilities
-│   └── env_file.py             # .env file parsing and serialization
+│   ├── env_file.py             # .env file parsing and serialization
+│   ├── dango_db.py             # SQLite context manager for .dango/dango.db + schema init
+│   └── post_sync.py            # Post-sync hook dispatcher (~486 lines)
 │
 ├── migrations/                 # Level 0 — Database migration framework
 │   ├── __init__.py             # Public API: apply_all_pending(), get_all_status()
@@ -271,7 +312,7 @@ tests/
 | Level | Role | Modules |
 |-------|------|---------|
 | 0 (base) | No dango imports | `config/`, `utils/`, `security/`, `migrations/`, `templates/`, `logging.py` |
-| 1 (core) | Imports Level 0 only | `auth/`, `oauth/`, `ingestion/`, `transformation/` |
+| 1 (core) | Imports Level 0 only | `auth/`, `oauth/`, `ingestion/`, `transformation/`, `governance/`, `notebooks/`, `analysis/` |
 | 2 (platform) | Imports Level 0–1 | `platform/`, `web/`, `visualization/` |
 | 3 (ui) | Imports any level | `cli/` |
 
@@ -288,12 +329,12 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
-| `ingestion/dlt_runner.py` | 1784 | — (exempt, too risky) |
+| `ingestion/dlt_runner.py` | 1796 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 1466 | — (metadata-only) |
-| `cli/source_wizard.py` | 1324 | — |
+| `cli/source_wizard.py` | 1350 | — |
 | `visualization/metabase.py` | 1149 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
-| `cli/init.py` | 1098 | — |
+| `cli/init.py` | 1125 | — |
 | `cli/commands/platform.py` | 964 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | ~854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 815 | — (renamed from auth.py by TASK-093) |
@@ -309,13 +350,14 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/validate.py` | 651 | — |
 | `cli/commands/deploy_wizard.py` | 579 | — (interactive deploy wizard) |
 | `transformation/generator.py` | 577 | — |
+| `web/routes/catalog.py` | 566 | — (data catalog: columns, profiling, lineage, impact) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
-| `config/models.py` | 548 | — (Pydantic config models) |
+| `config/models.py` | 553 | — (Pydantic config models) |
 | `cli/commands/deploy_provision.py` | 543 | — (provisioning orchestration) |
 | `platform/cloud/digitalocean.py` | 542 | — (DO REST API v2 client) |
 | `cli/commands/auth.py` | 538 | — (12 auth subcommands) |
 | `auth/database.py` | 529 | — (SQLite CRUD) |
-| `web/routes/users.py` | 527 | — (admin user CRUD) |
+| `web/routes/users.py` | 527 | — (admin user CRUD + invite) |
 | `cli/model_wizard.py` | 507 | — |
 | `platform/local/watcher.py` | 506 | — |
 | `platform/cloud/scheduled_backup.py` | 505 | — (server-side scheduled backup) |
@@ -342,10 +384,9 @@ Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 - [`dango/platform/CLAUDE.md`](dango/platform/CLAUDE.md)
 - [`dango/platform/scheduling/CLAUDE.md`](dango/platform/scheduling/CLAUDE.md)
 - [`dango/platform/notifications/CLAUDE.md`](dango/platform/notifications/CLAUDE.md)
-
-**Planned later phases:**
-- `dango/notebooks/CLAUDE.md` (Phase 6)
-- `dango/governance/CLAUDE.md` (Phase 7)
+- [`dango/notebooks/CLAUDE.md`](dango/notebooks/CLAUDE.md)
+- [`dango/governance/CLAUDE.md`](dango/governance/CLAUDE.md)
+- [`dango/analysis/CLAUDE.md`](dango/analysis/CLAUDE.md)
 
 ## Development Setup
 

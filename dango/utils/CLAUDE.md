@@ -19,6 +19,8 @@ Shared utilities for process management, activity logging, sync history tracking
 | `dbt_status.py` | Persistent dbt model status from run_results.json | `update_model_status()`, `get_model_statuses()` |
 | `data_validation.py` | Schema/data integrity checks against DuckDB | `validate_cursor_field()`, `detect_schema_changes()`, `validate_data_completeness()`, `print_validation_report()` |
 | `env_file.py` | .env file parsing and serialization | `parse_env_file()`, `serialize_env_file()` |
+| `dango_db.py` (~179 lines) | SQLite context manager for `.dango/dango.db` + schema init | `connect()`, `get_connection()` |
+| `post_sync.py` (~486 lines) | Post-sync hook dispatcher | `dispatch_post_sync_hooks()`, `_run_profiling()`, `_run_drift_detection()`, `_run_pii_scan()`, `_run_analysis()` |
 
 ## Common Tasks
 
@@ -46,12 +48,15 @@ Shared utilities for process management, activity logging, sync history tracking
 **Used by:**
 - `dango/web/helpers.py` — db_health, sync_history, activity_log, dbt_status
 - `dango/web/routes/sync.py` — dbt_lock
-- `dango/ingestion/dlt_runner.py` — activity_log, sync_history, db_health
+- `dango/ingestion/dlt_runner.py` — activity_log, sync_history, db_health, post_sync (dispatch_post_sync_hooks)
 - `dango/cli/commands/platform.py` — process (kill_process)
 - `dango/cli/commands/cleanup.py` — db_health, log_rotation
 - `dango/platform/local/watcher_runner.py` — dbt_lock, dbt_status
 - `dango/platform/common/startup.py` — log_rotation
 - `dango/transformation/__init__.py` — dbt_status
+- `dango/governance/` — dango_db (connect)
+- `dango/notebooks/` — dango_db (connect)
+- `dango/analysis/` — dango_db (connect)
 
 **Not yet imported:** `data_validation.py` (prepared utility, not integrated into any module)
 

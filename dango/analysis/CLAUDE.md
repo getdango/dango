@@ -15,6 +15,7 @@ Automated metric monitoring and comparison engine. Executes user-defined metrics
 | `drilldown.py` | Drill-down engine: GROUP BY breakdown + contributor ranking | `run_drill_down()` |
 | `metrics.py` | Orchestration: execute → store → compare → drill-down | `run_analysis()` |
 | `templates.py` | Pre-built metric templates for common sources | `generate_metrics_for_source()` |
+| `formatter.py` (144 lines) | Result categorization + display formatting | `categorize_results()`, status labels, trend direction |
 
 ## Common Tasks
 
@@ -43,8 +44,8 @@ Automated metric monitoring and comparison engine. Executes user-defined metrics
 - `utils/post_sync.py` — `_run_analysis()` calls `run_analysis` with `raw_`-prefixed source filter
 - `cli/source_wizard.py` — `generate_metrics_for_source()` + `add_metrics_to_config()` on source add
 - `cli/init.py` — `save_metrics_config()` + `generate_metrics_for_source()` on project init
-- `web/routes/insights.py` — planned (P7-012)
-- `cli/commands/analyze.py` — planned (P7-012)
+- `web/routes/insights.py` — GET /api/insights, POST /api/insights/run, GET /api/insights/history
+- `cli/commands/analyze.py` — `dango analyze` command
 
 ## Testing
 
