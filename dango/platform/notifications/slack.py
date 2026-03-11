@@ -23,6 +23,7 @@ _COLORS: dict[EventType, str] = {
     EventType.SYNC_RETRYING: "#aaaaaa",  # gray
     EventType.SCHEMA_DRIFT_DETECTED: "#e0a514",  # dark amber
     EventType.PII_DETECTED: "#e01e5a",  # red
+    EventType.METRIC_ALERT: "#e0a514",  # dark amber
 }
 
 _HEADERS: dict[EventType, str] = {
@@ -32,6 +33,7 @@ _HEADERS: dict[EventType, str] = {
     EventType.SYNC_RETRYING: "Sync Retrying",
     EventType.SCHEMA_DRIFT_DETECTED: "Schema Drift Detected",
     EventType.PII_DETECTED: "PII Detected",
+    EventType.METRIC_ALERT: "Metric Alert",
 }
 
 
@@ -94,6 +96,13 @@ def _build_body(payload: WebhookPayload) -> str:
     elif payload.event_type == EventType.PII_DETECTED:
         if payload.error:
             lines.append(f"*Details:* {payload.error}")
+
+    elif payload.event_type == EventType.METRIC_ALERT:
+        meta = payload.metadata or {}
+        if meta.get("summary"):
+            lines.append(f"*Summary:* {meta['summary']}")
+        if meta.get("flagged_count") is not None:
+            lines.append(f"*Flagged:* {meta['flagged_count']} of {meta.get('total_count', '?')}")
 
     return "\n".join(lines)
 

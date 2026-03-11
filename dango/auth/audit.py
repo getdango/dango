@@ -67,6 +67,7 @@ class AuditEvent(str, Enum):
     GOVERNANCE_DRIFT_VIEWED      = "governance_drift_viewed"
     GOVERNANCE_PII_VIEWED        = "governance_pii_viewed"
     CATALOG_VIEWED               = "catalog_viewed"
+    INSIGHTS_VIEWED              = "insights_viewed"
     # fmt: on
 
 

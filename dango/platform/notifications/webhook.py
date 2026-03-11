@@ -52,6 +52,7 @@ class EventType(str, Enum):
     SYNC_RETRYING = "sync_retrying"
     SCHEMA_DRIFT_DETECTED = "schema_drift_detected"
     PII_DETECTED = "pii_detected"
+    METRIC_ALERT = "metric_alert"
 
 
 class EventCategory(str, Enum):
@@ -61,6 +62,7 @@ class EventCategory(str, Enum):
     FAILURE = "failure"
     STALE = "stale"
     GOVERNANCE = "governance"
+    ANALYSIS = "analysis"
 
 
 EVENT_TO_CATEGORY: dict[EventType, EventCategory] = {
@@ -70,6 +72,7 @@ EVENT_TO_CATEGORY: dict[EventType, EventCategory] = {
     EventType.SYNC_RETRYING: EventCategory.FAILURE,
     EventType.SCHEMA_DRIFT_DETECTED: EventCategory.GOVERNANCE,
     EventType.PII_DETECTED: EventCategory.GOVERNANCE,
+    EventType.METRIC_ALERT: EventCategory.ANALYSIS,
 }
 
 # ---------------------------------------------------------------------------
@@ -105,6 +108,7 @@ class NotificationConfig(BaseModel):
     on_success: bool = False
     on_stale: bool = True
     on_governance: bool = True
+    on_analysis: bool = True
     stale_threshold_hours: int = 24
 
 
@@ -129,6 +133,7 @@ class WebhookPayload(BaseModel):
     stale_hours: float | None = None
     attempt_number: int | None = None
     next_retry_at: datetime | None = None
+    metadata: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -367,5 +372,6 @@ class WebhookSender:
             "stale_hours": payload.stale_hours,
             "attempt_number": payload.attempt_number,
             "next_retry_at": (payload.next_retry_at.isoformat() if payload.next_retry_at else None),
+            "metadata": payload.metadata,
         }
         return result
