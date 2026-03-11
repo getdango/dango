@@ -88,6 +88,9 @@
                     <a href="/schedules" class="px-3 py-2 rounded-md text-sm font-medium {% if current_page == 'schedules' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors hidden sm:block">
                         Schedules
                     </a>
+                    <a href="/notebooks" class="px-3 py-2 rounded-md text-sm font-medium {% if current_page == 'notebooks' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors hidden sm:block">
+                        Notebooks
+                    </a>
                 </div>
                 <div class="flex items-center space-x-2">
                     {% if request.state.user %}
