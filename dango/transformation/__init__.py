@@ -74,8 +74,6 @@ def run_dbt_models(project_root: Path, select: str | None = None) -> tuple[bool,
         # Update persistent model status after successful run
         if result.returncode == 0:
             update_model_status(project_root)
-
-        if result.returncode == 0:
             return (True, result.stdout + result.stderr)
 
         output = result.stdout + result.stderr
