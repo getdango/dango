@@ -337,6 +337,8 @@ function catalogPage() {
             this.view = 'sources'; this.selectedSource = null; this.selectedTable = null;
             this.sourceDetail = null; this.columnData = null; this.driftEvents = []; this.tablesList = [];
         },
+        // No lineage cleanup needed — breadcrumb is hidden in lineage view,
+        // so goToTables() is only reachable from tables/columns views.
         goToTables() {
             this.view = 'tables'; this.selectedTable = null; this.columnData = null; this.driftEvents = [];
         },
@@ -455,6 +457,11 @@ function catalogPage() {
             const self = this;
             this._lineage.onNodeClick(function (node) {
                 self.selectedNode = node;
+                self.impactHighlighted = false;
+                self.impactCount = 0;
+            });
+            this._lineage.onBackgroundClick(function () {
+                self.selectedNode = null;
                 self.impactHighlighted = false;
                 self.impactCount = 0;
             });

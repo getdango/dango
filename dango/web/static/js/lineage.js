@@ -174,6 +174,7 @@
         this._g = null;
         this._zoom = null;
         this._onNodeClick = null;
+        this._onBackgroundClick = null;
         this._nodes = [];
         this._edges = [];
         this._positions = {};
@@ -183,6 +184,10 @@
 
     DangoLineage.prototype.onNodeClick = function (cb) {
         this._onNodeClick = cb;
+    };
+
+    DangoLineage.prototype.onBackgroundClick = function (cb) {
+        this._onBackgroundClick = cb;
     };
 
     DangoLineage.prototype.render = function (nodes, edges) {
@@ -310,6 +315,7 @@
         // Deselect on background click
         this._svg.on("click", function () {
             self._g.selectAll(".lineage-node").classed("selected", false);
+            if (self._onBackgroundClick) self._onBackgroundClick();
         });
     };
 
@@ -349,6 +355,7 @@
     };
 
     DangoLineage.prototype.clearHighlight = function () {
+        if (!this._g) return;
         this._g.selectAll(".lineage-node").classed("highlighted", false).classed("dimmed", false);
         this._g.selectAll(".lineage-edge").classed("highlighted", false).classed("dimmed", false);
     };
