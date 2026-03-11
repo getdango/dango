@@ -51,6 +51,7 @@ class EventType(str, Enum):
     SYNC_STALE = "sync_stale"
     SYNC_RETRYING = "sync_retrying"
     SCHEMA_DRIFT_DETECTED = "schema_drift_detected"
+    PII_DETECTED = "pii_detected"
 
 
 class EventCategory(str, Enum):
@@ -68,6 +69,7 @@ EVENT_TO_CATEGORY: dict[EventType, EventCategory] = {
     EventType.SYNC_STALE: EventCategory.STALE,
     EventType.SYNC_RETRYING: EventCategory.FAILURE,
     EventType.SCHEMA_DRIFT_DETECTED: EventCategory.GOVERNANCE,
+    EventType.PII_DETECTED: EventCategory.GOVERNANCE,
 }
 
 # ---------------------------------------------------------------------------

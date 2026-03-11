@@ -31,3 +31,29 @@ class DriftResponse(BaseModel):
     count: int
     source: str | None
     table_name: str | None
+
+
+class PiiFinding(BaseModel):
+    """A single PII finding from column scanning."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    source: str
+    table_name: str
+    column_name: str
+    entity_type: str
+    confidence: float | None
+    sample_count: int | None
+    scanned_at: str
+
+
+class PiiResponse(BaseModel):
+    """Response model for the PII findings endpoint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    findings: list[PiiFinding]
+    count: int
+    source: str | None
+    table_name: str | None

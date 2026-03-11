@@ -314,6 +314,8 @@ module = [
     "tests.unit.test_notebook_locking",
     "tests.unit.test_notebook_proxy",
     "tests.unit.test_notebook_cli",
+    "tests.unit.test_pii_detection",
+    "tests.integration.test_pii_integration",
     "tests.unit.test_error_messages",
 ]
 ignore_errors = true
