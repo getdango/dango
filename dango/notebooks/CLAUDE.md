@@ -10,7 +10,7 @@ Marimo notebook server lifecycle, DuckDB read-only snapshots, file-level locking
 |------|-------|---------|-------------|
 | `__init__.py` | ~45 | Re-exports public symbols | All public API |
 | `manager.py` | ~197 | Marimo process lifecycle (PID file, start/stop/status) | `get_marimo_pid_file_path()`, `start_marimo()`, `stop_marimo()`, `get_marimo_status()` |
-| `snapshot.py` | ~130 | DuckDB snapshot management | `create_snapshot()`, `list_snapshots()`, `cleanup_snapshots()` |
+| `snapshot.py` | ~143 | DuckDB snapshot management | `create_snapshot()`, `list_snapshots()`, `cleanup_snapshots()` |
 | `locking.py` | ~249 | File-level notebook locking via `notebook_locks` table | `acquire_lock()`, `release_lock()`, `refresh_lock()`, `force_release_lock()`, `is_locked()`, `get_lock_info()`, `copy_locked_notebook()` |
 | `proxy.py` | ~186 | HTTP + WebSocket reverse proxy to Marimo | `proxy_to_marimo()`, `proxy_websocket_to_marimo()` |
 | `templates/__init__.py` | ~5 | Package marker | — |

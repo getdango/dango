@@ -185,7 +185,7 @@ dango/                          # Python package source
 │   │   ├── insights.py         # Metric results, run trigger, history
 │   │   ├── notebooks.py        # Notebook management API + page route
 │   │   └── initial_sync.py     # Initial data sync after first deploy
-│   ├── templates/              # Auth page templates
+│   ├── templates/              # Jinja2 page templates
 │   │   ├── login.html          # Alpine.js two-step login (credentials → totp)
 │   │   ├── change_password.html # First-login password change
 │   │   ├── admin_users.html    # Admin user management

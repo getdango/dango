@@ -647,7 +647,7 @@ Three-tier storage:
 
 ## 10. API Design Principles
 
-The web module (`web/routes/`) exposes 19 REST endpoints, 1 WebSocket, and a Metabase reverse proxy.
+The web module (`web/routes/`) exposes REST endpoints across 18 route files, 1 WebSocket, and a Metabase reverse proxy.
 
 **Current endpoints (all under `/api/`):**
 
@@ -661,9 +661,9 @@ The web module (`web/routes/`) exposes 19 REST endpoints, 1 WebSocket, and a Met
 | Admin | `GET /api/admin/users`, `POST /api/admin/users`, `GET /api/admin/users/{id}`, `PUT /api/admin/users/{id}`, `PUT /api/admin/users/{id}/role`, `POST /api/admin/users/{id}/reset-password`, `POST /api/admin/users/{id}/deactivate`, `POST /api/admin/users/{id}/reactivate`, `DELETE /api/admin/users/{id}`, `POST /api/admin/users/{id}/unlock`, `POST /api/admin/users/{id}/reinvite` |
 | dbt | `GET /api/dbt/models`, `POST /api/dbt/models/{name}/run` |
 | Logs | `GET /api/logs` |
-| Catalog | `GET /api/catalog/sources/{source}/columns`, `GET /api/catalog/sources/{source}/tables/{table}/profile`, `GET /api/catalog/lineage`, `GET /api/catalog/lineage/impact/{node}` |
+| Catalog | `GET /api/catalog/{source}/{table}/columns`, `POST /api/catalog/{source}/{table}/profile`, `GET /api/catalog/lineage`, `GET /api/catalog/impact/{model_name}` |
 | Governance | `GET /api/governance/schema-drift`, `GET /api/governance/pii` |
-| Notebooks | `GET /api/notebooks`, `POST /api/notebooks`, `DELETE /api/notebooks/{id}`, `POST /api/notebooks/{id}/lock`, `POST /api/notebooks/{id}/lock/release`, `POST /api/notebooks/{id}/lock/refresh`, `POST /api/notebooks/{id}/lock/force-release`, `POST /api/notebooks/{id}/copy` |
+| Notebooks | `GET /api/notebooks`, `POST /api/notebooks`, `DELETE /api/notebooks/{name}`, `POST /api/notebooks/{name}/lock`, `POST /api/notebooks/{name}/heartbeat`, `POST /api/notebooks/{name}/release`, `DELETE /api/notebooks/{name}/lock`, `POST /api/notebooks/{name}/copy` |
 | Insights | `GET /api/insights`, `POST /api/insights/run`, `GET /api/insights/history` |
 | Docs | `GET /api/docs` (Swagger), `GET /api/redoc` |
 | Real-time | `WS /ws` (sync progress, errors) |

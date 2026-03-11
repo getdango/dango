@@ -41,7 +41,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
 | `routes/schedules.py` | Schedule CRUD, trigger, reload, cancel, history, notification config/test, `/schedules` page (~720 lines) | `router` |
-| `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~491 lines) | `router` |
+| `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~490 lines) | `router` |
 | `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact (~566 lines) | `router` |
 | `routes/governance.py` | Schema drift + PII results API (~120 lines) | `router` |
 | `routes/insights.py` | Metric results, run trigger, history (~272 lines) | `router` |
