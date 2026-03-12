@@ -162,6 +162,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/rest_api",
         "cost_warning": "Check API provider's rate limits and pricing",
         "popularity": 8,
+        "wizard_enabled": True,
     },
     # ========================================
     # MARKETING & ANALYTICS
