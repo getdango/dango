@@ -1211,6 +1211,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.BASIC,
         "dlt_package": "sql_database",
         "dlt_function": "sql_database",
+        "pip_dependencies": [
+            {"pip": "sqlalchemy", "import": "sqlalchemy"},
+            {"pip": "psycopg2-binary", "import": "psycopg2"},
+        ],
         "wizard_enabled": True,
         "required_params": [
             {
@@ -1248,10 +1252,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "4. Install driver: pip install sqlalchemy psycopg2-binary",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/sql_database",
-        "pip_dependencies": [
-            {"pip": "sqlalchemy", "import": "sqlalchemy"},
-            {"pip": "psycopg2-binary", "import": "psycopg2"},
-        ],
         "popularity": 8,
     },
     "kafka": {
