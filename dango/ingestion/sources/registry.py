@@ -32,7 +32,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.NONE,
         "dlt_package": None,  # Custom implementation, not dlt
         "dlt_function": None,
-        "supported_in_v0": True,  # Fully tested for v0.0.1
+        "wizard_enabled": True,  # Fully tested for v0.0.1
         "required_params": [
             {
                 "name": "directory",
@@ -74,7 +74,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.NONE,  # Auth handled by source itself
         "dlt_package": None,  # User specifies
         "dlt_function": None,  # User specifies
-        "supported_in_v0": True,  # Registry bypass implementation complete
+        "wizard_enabled": True,  # Registry bypass implementation complete
         "required_params": [
             {
                 "name": "source_module",
@@ -201,7 +201,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_sheets",
         "cost_warning": "Subject to Google API quota limits",
-        "supported_in_v0": True,  # OAuth implementation complete
+        "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 10,
     },
     "facebook_ads": {
@@ -244,7 +244,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/facebook_ads",
         "cost_warning": "Rate limited: 200 calls/hour per user, 4800/day per app",
-        "supported_in_v0": True,  # OAuth implementation complete
+        "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 9,
     },
     "google_analytics": {
@@ -334,7 +334,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_analytics",
         "cost_warning": "Subject to Google API quota limits. Data is aggregated (not event-level).",
-        "supported_in_v0": True,  # OAuth implementation complete
+        "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 9,
     },
     # ========================================
@@ -432,7 +432,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "dlt_package": "stripe_analytics",
         "dlt_function": "stripe_source",
         "pip_dependencies": [{"pip": "stripe", "import": "stripe"}],
-        "supported_in_v0": True,  # Fully tested for v0.0.1
+        "wizard_enabled": True,  # Fully tested for v0.0.1
         "required_params": [
             {
                 "name": "stripe_secret_key_env",
@@ -523,7 +523,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/shopify",
         "cost_warning": "Included with Shopify plan",
-        "supported_in_v0": False,  # Blocked: Shopify deprecating legacy auth Jan 2026, awaiting dlt update
+        "wizard_enabled": False,  # Blocked: Shopify deprecating legacy auth Jan 2026, awaiting dlt update
         "popularity": 9,
     },
     # ========================================
@@ -569,7 +569,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "display_name": "Slack",
         "category": "Communication",
         "description": "Load messages, channels, and user data from Slack",
-        "auth_type": AuthType.OAUTH,
+        "auth_type": AuthType.API_KEY,
         "dlt_package": "slack",
         "dlt_function": "slack_source",
         "required_params": [
@@ -684,7 +684,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "6. Credentials are permanent (refresh token stored in .dlt/secrets.toml)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_ads",
-        "supported_in_v0": True,  # OAuth implementation complete
+        "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 7,
     },
     "matomo": {
@@ -1062,7 +1062,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "display_name": "Notion",
         "category": "Files & Storage",
         "description": "Load pages and databases from Notion",
-        "auth_type": AuthType.OAUTH,
+        "auth_type": AuthType.API_KEY,
         "dlt_package": "notion",
         "dlt_function": "notion_databases",
         "required_params": [
