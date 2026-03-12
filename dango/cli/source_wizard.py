@@ -1023,10 +1023,6 @@ class SourceWizard:
 
         value = answers[param_name]
 
-        # Parse comma-separated input into list for list-type params
-        if param_type == "list" and value and isinstance(value, str):
-            value = [item.strip() for item in value.split(",") if item.strip()]
-
         # Skip if user chose to skip optional param
         if value == "Skip" and not required:
             return None
@@ -1034,6 +1030,11 @@ class SourceWizard:
         # Return None for empty optional params
         if not required and value == "":
             return None
+
+        # Parse comma-separated input into list for list-type params
+        # (after skip/empty checks so empty input returns None, not [])
+        if param_type == "list" and value and isinstance(value, str):
+            value = [item.strip() for item in value.split(",") if item.strip()] or None
 
         # Show incremental loading education for start_date parameters
         if param_name == "start_date" and value:
