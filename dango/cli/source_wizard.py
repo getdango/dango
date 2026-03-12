@@ -997,6 +997,16 @@ class SourceWizard:
                 )
             ]
 
+        elif param_type == "list":
+            # Comma-separated list input (e.g., table_names, collection_names)
+            questions = [
+                inquirer.Text(
+                    param_name,
+                    message=prompt + (" (optional)" if not required else ""),
+                    default=None,
+                )
+            ]
+
         else:
             # String, number, path, etc.
             questions = [
@@ -1012,6 +1022,10 @@ class SourceWizard:
             return None  # User cancelled (Ctrl+C) - always abort
 
         value = answers[param_name]
+
+        # Parse comma-separated input into list for list-type params
+        if param_type == "list" and value and isinstance(value, str):
+            value = [item.strip() for item in value.split(",") if item.strip()]
 
         # Skip if user chose to skip optional param
         if value == "Skip" and not required:
@@ -1233,10 +1247,14 @@ class SourceWizard:
         # No oauth_ref needed - dlt finds credentials automatically
 
         # Add type-specific config block
-        # Always create this block even if empty - it indicates the source type
-        # and allows users to add config later
-        # Convert source_type to config field name (e.g., "facebook_ads" -> "facebook_ads")
-        config[source_type] = params if params else {}
+        # Sources with a dedicated DataSource field use that field name;
+        # all others use generic_config (e.g., postgres, mongodb)
+        from dango.config.models import DataSource
+
+        if source_type in DataSource.model_fields:
+            config[source_type] = params if params else {}
+        else:
+            config["generic_config"] = params if params else {}
 
         return config
 

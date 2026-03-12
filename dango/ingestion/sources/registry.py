@@ -1473,7 +1473,7 @@ CATEGORIES = {
     ],
     "E-commerce & Payment": ["stripe", "shopify"],
     "Files & Storage": ["notion", "inbox"],
-    "Databases": ["mongodb", "postgres"],
+    "Databases": ["mongodb", "postgres"],  # postgres uses built-in sql_database
     "Streaming": ["kafka", "kinesis"],
     "Development": ["github"],
     "Communication": ["slack"],
