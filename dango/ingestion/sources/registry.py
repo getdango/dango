@@ -1,6 +1,6 @@
 """dango/ingestion/sources/registry.py
 
-Metadata registry for all 33 supported data sources (31 dlt verified + CSV + REST API).
+Metadata registry for all 34 supported data sources (31 dlt verified + CSV + REST API + PostgreSQL).
 """
 
 from enum import Enum
@@ -1194,6 +1194,56 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/mongodb",
         "popularity": 8,
     },
+    "postgres": {
+        "display_name": "PostgreSQL",
+        "category": "Databases",
+        "description": "Load tables from PostgreSQL databases with schema filtering",
+        "auth_type": AuthType.BASIC,
+        "dlt_package": "sql_database",
+        "dlt_function": "sql_database",
+        "wizard_enabled": True,
+        "required_params": [
+            {
+                "name": "credentials_env",
+                "type": "secret",
+                "env_var": "POSTGRES_CREDENTIALS",
+                "prompt": "PostgreSQL connection URL",
+                "help": "Format: postgresql://username:password@host:port/database",
+            },
+        ],
+        "optional_params": [
+            {
+                "name": "schema",
+                "type": "string",
+                "prompt": "Schema name (empty = public)",
+                "default": "public",
+                "help": "PostgreSQL schema to load tables from",
+            },
+            {
+                "name": "table_names",
+                "type": "list",
+                "prompt": "Tables to sync (comma-separated, empty = all)",
+                "default": None,
+                "help": "Leave empty to sync all tables in the schema",
+            },
+        ],
+        "setup_guide": [
+            "1. Ensure PostgreSQL is accessible from your network",
+            "2. Create a read-only user (recommended):",
+            "   CREATE USER dango WITH PASSWORD 'your_password';",
+            "   GRANT CONNECT ON DATABASE mydb TO dango;",
+            "   GRANT USAGE ON SCHEMA public TO dango;",
+            "   GRANT SELECT ON ALL TABLES IN SCHEMA public TO dango;",
+            "3. Build connection URL: postgresql://dango:your_password@host:5432/mydb",
+            "4. Install driver: pip install sqlalchemy psycopg2-binary",
+        ],
+        "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/sql_database",
+        "pip_dependencies": [
+            {"pip": "sqlalchemy", "import": "sqlalchemy"},
+            {"pip": "psycopg2-binary", "import": "psycopg2"},
+        ],
+        "popularity": 8,
+    },
     "kafka": {
         "display_name": "Apache Kafka",
         "category": "Streaming",
@@ -1423,7 +1473,7 @@ CATEGORIES = {
     ],
     "E-commerce & Payment": ["stripe", "shopify"],
     "Files & Storage": ["notion", "inbox"],
-    "Databases": ["mongodb"],  # postgres/sql_database are built-in, not verified
+    "Databases": ["mongodb", "postgres"],
     "Streaming": ["kafka", "kinesis"],
     "Development": ["github"],
     "Communication": ["slack"],
