@@ -770,8 +770,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "airtable",
         "dlt_function": "airtable_source",
-        "wizard_enabled": True,
         "pip_dependencies": [{"pip": "pyairtable", "import": "pyairtable"}],
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "base_id",
