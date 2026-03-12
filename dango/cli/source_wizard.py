@@ -312,10 +312,10 @@ class SourceWizard:
 
     def _select_source_flat(self) -> str | None:
         """Select source from flat list (no categories)"""
-        # Get all v0-supported sources
+        # Get all wizard-enabled sources
         all_sources = []
         for source_type, source_meta in SOURCE_REGISTRY.items():
-            if source_meta.get("supported_in_v0", False):
+            if source_meta.get("wizard_enabled", False):
                 display_name = source_meta.get("display_name", source_type)
                 all_sources.append((display_name, source_type))
 
@@ -357,15 +357,15 @@ class SourceWizard:
         choices = []
         for category in categories:
             sources_in_category = get_sources_by_category(category)
-            # Filter to only v0-supported sources
+            # Filter to only wizard-enabled sources
             available = [
                 s
                 for s in sources_in_category
-                if s in SOURCE_REGISTRY and SOURCE_REGISTRY[s].get("supported_in_v0", False)
+                if s in SOURCE_REGISTRY and SOURCE_REGISTRY[s].get("wizard_enabled", False)
             ]
             count = len(available)
 
-            # Skip categories with no v0-supported sources
+            # Skip categories with no wizard-enabled sources
             if count == 0:
                 continue
 
@@ -401,11 +401,11 @@ class SourceWizard:
         """Select specific source from category"""
         sources = get_sources_by_category(category)
 
-        # Filter to only v0-supported sources
+        # Filter to only wizard-enabled sources
         available_sources = [
             s
             for s in sources
-            if s in SOURCE_REGISTRY and SOURCE_REGISTRY[s].get("supported_in_v0", False)
+            if s in SOURCE_REGISTRY and SOURCE_REGISTRY[s].get("wizard_enabled", False)
         ]
 
         if not available_sources:
