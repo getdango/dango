@@ -4,7 +4,7 @@
 
 Dango is an open-source data platform for small teams that integrates four production-grade tools into a single `pip install` + `dango start` workflow:
 
-- **dlt** (data load tool) for ingestion from 33 source types
+- **dlt** (data load tool) for ingestion from 34 source types
 - **DuckDB** as the embedded analytical warehouse
 - **dbt** for SQL-based data transformation
 - **Metabase** for dashboards and visualization
@@ -189,14 +189,14 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 ### Level 1 — Core
 
 #### `ingestion/`
-**Responsibility:** Data loading from 33 source types into DuckDB via dlt pipelines and CSV loader.
+**Responsibility:** Data loading from 34 source types into DuckDB via dlt pipelines and CSV loader.
 
 | File | Description |
 |------|-------------|
 | `__init__.py` | Re-exports `DltPipelineRunner`, `run_sync`, `CSVLoader`, `SOURCE_REGISTRY` |
 | `dlt_runner.py` | `DltPipelineRunner` — orchestrates sync: load data, generate staging models, run dbt, refresh Metabase (1796 lines). Contains lazy imports from Level 1-2 modules. |
 | `csv_loader.py` | `CSVLoader` — incremental CSV loading with 4 dedup strategies, file metadata tracking |
-| `sources/registry.py` | `SOURCE_REGISTRY` — metadata dict for all 33 sources (auth type, params, setup guide, cost warnings) |
+| `sources/registry.py` | `SOURCE_REGISTRY` — metadata dict for all 34 sources (auth type, params, setup guide, cost warnings) |
 | `dlt_sources/` | 29 vendored dlt source integrations (third-party code, rarely modified) |
 
 **Public API:** `DltPipelineRunner`, `run_sync()`, `CSVLoader`, `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata()`

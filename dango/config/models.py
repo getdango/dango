@@ -21,7 +21,7 @@ class DeduplicationStrategy(str, Enum):
 
 
 class SourceType(str, Enum):
-    """Data source types — 33 source types (31 dlt verified sources + CSV + REST API)"""
+    """Data source types — 34 source types (31 dlt verified sources + CSV + REST API + PostgreSQL)"""
 
     # Local/Custom
     CSV = "csv"
