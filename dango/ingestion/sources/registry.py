@@ -348,6 +348,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "hubspot",
         "dlt_function": "hubspot",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "api_key_env",
@@ -537,6 +538,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "github",
         "dlt_function": "github_reactions",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "access_token_env",
@@ -695,6 +697,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "matomo",
         "dlt_function": "matomo_reports",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "url",
@@ -733,6 +736,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "mux",
         "dlt_function": "mux_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "api_access_token_env",
@@ -774,6 +778,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "dlt_package": "airtable",
         "dlt_function": "airtable_source",
         "pip_dependencies": [{"pip": "pyairtable", "import": "pyairtable"}],
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "base_id",
@@ -815,6 +820,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "pipedrive",
         "dlt_function": "pipedrive_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "api_key_env",
@@ -873,6 +879,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "freshdesk",
         "dlt_function": "freshdesk_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "domain",
@@ -983,6 +990,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "workable",
         "dlt_function": "workable_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "access_token_env",
@@ -1030,6 +1038,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "asana_dlt",  # Note: source name is asana_dlt
         "dlt_function": "asana_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "access_token_env",
@@ -1209,6 +1218,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.BASIC,
         "dlt_package": "sql_database",
         "dlt_function": "sql_database",
+        "pip_dependencies": [
+            {"pip": "sqlalchemy", "import": "sqlalchemy"},
+            {"pip": "psycopg2-binary", "import": "psycopg2"},
+        ],
         "wizard_enabled": True,
         "required_params": [
             {
@@ -1246,10 +1259,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "4. Install driver: pip install sqlalchemy psycopg2-binary",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/sql_database",
-        "pip_dependencies": [
-            {"pip": "sqlalchemy", "import": "sqlalchemy"},
-            {"pip": "psycopg2-binary", "import": "psycopg2"},
-        ],
         "popularity": 8,
     },
     "kafka": {
@@ -1369,6 +1378,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.NONE,
         "dlt_package": "chess",
         "dlt_function": "source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "player_usernames",
@@ -1393,6 +1403,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "strapi",
         "dlt_function": "strapi_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "base_url",
@@ -1425,6 +1436,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "personio",
         "dlt_function": "personio_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "client_id_env",
