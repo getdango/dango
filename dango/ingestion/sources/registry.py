@@ -749,7 +749,14 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "help": "Secret key paired with access token",
             },
         ],
-        "optional_params": [],
+        "optional_params": [
+            {
+                "name": "start_date",
+                "type": "string",
+                "prompt": "Start date for video views (YYYY-MM-DD)",
+                "help": "How far back to load views. Defaults to 30 days ago.",
+            },
+        ],
         "setup_guide": [
             "1. Log in to Mux Dashboard",
             "2. Go to Settings > Access Tokens",
