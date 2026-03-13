@@ -94,7 +94,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/ingestion/sources/registry.py
-    lines: 1466
+    lines: 1621
     category: exempt
     reason: "Source metadata registry. Declarative data (no logic), naturally grows with each new source type."
     review_by: "v1.1"
