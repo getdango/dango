@@ -35,7 +35,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | `dango/ingestion/dlt_sources/` | Vendored third-party dlt connectors (127 files). Rarely modified. |
 | `dango/web/static/` | Frontend HTML/CSS/JS assets. |
 | `tests/` | Read source module first, then find its tests. |
-| `dango/ingestion/sources/registry.py` | 1615-line metadata registry. Only when adding a new source. |
+| `dango/ingestion/sources/registry.py` | 1621-line metadata registry. Only when adding a new source. |
 | `dango/templates/` | Jinja2 templates. Only when modifying project init or model generation. |
 
 ## Decision Tree
@@ -250,7 +250,7 @@ dango/                          # Python package source
 │   ├── dlt_runner.py           # ⚠ 1796 lines — orchestrates full sync pipeline
 │   ├── csv_loader.py           # CSV loading with dedup (742 lines)
 │   ├── sources/
-│   │   └── registry.py         # Source metadata (1615 lines, 35 source types)
+│   │   └── registry.py         # Source metadata (1621 lines, 32 source types)
 │   └── dlt_sources/            # ⚠ DO NOT MODIFY — vendored connectors (127 files)
 │
 ├── transformation/             # Level 1 — dbt model generation & execution
@@ -330,7 +330,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
 | `ingestion/dlt_runner.py` | 1796 | — (exempt, too risky) |
-| `ingestion/sources/registry.py` | 1615 | — (metadata-only) |
+| `ingestion/sources/registry.py` | 1621 | — (metadata-only) |
 | `cli/source_wizard.py` | 1350 | — |
 | `visualization/metabase.py` | 1149 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |

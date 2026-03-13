@@ -1,6 +1,6 @@
 """dango/ingestion/sources/registry.py
 
-Metadata registry for all 35 supported data sources (31 dlt verified + CSV + REST API + PostgreSQL + Filesystem).
+Metadata registry for all 32 supported data sources (27 dlt verified + CSV + dlt_native + REST API + PostgreSQL + Filesystem).
 """
 
 from enum import Enum
@@ -176,6 +176,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "   project_id = 'your-project'",
             "   private_key = '...'",
             "   client_email = '...'",
+            "",
+            "CLOUD STORAGE (Azure Blob):",
+            "1. Set bucket_url to your Azure path (e.g., 'az://my-container/data/')",
+            "2. Add credentials to .dlt/secrets.toml:",
+            "   [sources.filesystem.credentials]",
+            "   connection_string = 'DefaultEndpointsProtocol=https;AccountName=...'",
             "",
             "SUPPORTED FORMATS: Parquet, JSON (array or JSONL), Excel (.xlsx), CSV",
             "dlt handles schema inference automatically for all formats.",
