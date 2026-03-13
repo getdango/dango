@@ -1123,6 +1123,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.BASIC,
         "dlt_package": "inbox",
         "dlt_function": "inbox_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "host",
@@ -1170,6 +1171,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.BASIC,
         "dlt_package": "mongodb",
         "dlt_function": "mongodb",
+        "pip_dependencies": [{"pip": "pymongo", "import": "pymongo"}],
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "connection_url_env",
@@ -1269,6 +1272,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "dlt_package": "kafka",
         "dlt_function": "kafka_consumer",
         "pip_dependencies": [{"pip": "confluent-kafka", "import": "confluent_kafka"}],
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "topics",
@@ -1324,6 +1328,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.SERVICE_ACCOUNT,
         "dlt_package": "kinesis",
         "dlt_function": "kinesis_stream",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "stream_name",
