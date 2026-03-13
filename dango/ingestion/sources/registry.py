@@ -557,30 +557,16 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "display_name": "Shopify",
         "category": "E-commerce & Payment",
         "description": "Load e-commerce data from Shopify (orders, customers, products, etc.)",
-        "auth_type": AuthType.API_KEY,
+        "auth_type": AuthType.OAUTH,
         "dlt_package": "shopify_dlt",  # Note: source name is shopify_dlt
         "dlt_function": "shopify_source",
-        "required_params": [
-            {
-                "name": "shop_url",
-                "type": "string",
-                "prompt": "Shopify shop URL (e.g., myshop.myshopify.com)",
-                "help": "Your Shopify store URL",
-            },
-            {
-                "name": "api_key_env",
-                "type": "secret",
-                "env_var": "SHOPIFY_API_KEY",
-                "prompt": "Shopify Admin API Access Token",
-                "help": "Admin API Access Token (starts with 'shpat_'). Generate in Shopify Admin > Apps > Develop apps > Create app > Configure > Admin API access token. Required scopes: read_orders, read_customers, read_products.",
-            },
-        ],
+        "required_params": [],
         "optional_params": [
             {
                 "name": "resources",
                 "type": "multiselect",
                 "prompt": "Resources to sync",
-                "choices": ["orders", "customers", "products", "inventory", "transactions"],
+                "choices": ["orders", "customers", "products"],
                 "default": ["orders", "customers", "products"],
             },
             {
@@ -591,17 +577,17 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             },
         ],
         "setup_guide": [
-            "1. Custom app setup runs automatically during 'dango source add'",
+            "1. OAuth setup runs automatically during 'dango source add' — follow the prompts",
             "2. OR manually run: dango oauth shopify",
-            "3. Create custom app in Shopify Admin > Apps > Develop apps",
+            "3. Either way: create a custom app in Shopify Admin > Apps > Develop apps",
             "4. Configure Admin API scopes (read permissions needed)",
             "5. Install app and reveal Admin API access token",
-            "6. Enter shop URL (e.g., mystore.myshopify.com) and access token",
+            "6. Enter shop URL (e.g., mystore.myshopify.com) and access token when prompted",
             "7. Credentials are permanent (stored in .dlt/secrets.toml)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/shopify",
         "cost_warning": "Included with Shopify plan",
-        "wizard_enabled": False,  # Blocked: Shopify deprecating legacy auth Jan 2026, awaiting dlt update
+        "wizard_enabled": True,  # Enabled: uses Custom App access token via X-Shopify-Access-Token header
         "popularity": 9,
     },
     # ========================================
@@ -741,7 +727,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
     "google_ads": {
         "display_name": "Google Ads",
         "category": "Marketing & Analytics",
-        "description": "Load ad campaigns and performance data from Google Ads",
+        "description": "Load daily performance metrics from Google Ads via GAQL queries",
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_ads",
         "dlt_function": "google_ads",
@@ -749,22 +735,137 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "required_params": [],  # OAuth handles credentials; developer_token and customer_id are collected during auth
         "optional_params": [
             {
-                "name": "resources",
-                "type": "multiselect",
-                "prompt": "Resources to sync",
-                "choices": ["customers", "campaigns", "change_events", "customer_clients"],
-                "default": ["customers", "campaigns"],
+                "name": "start_date",
+                "type": "date",
+                "prompt": "Start date (YYYY-MM-DD)",
+                "default": None,
             },
         ],
+        # Default GAQL queries — each becomes a table. Duplicated from
+        # dlt_sources/google_ads/settings.py (registry must not import from dlt_sources/).
+        "default_config": {
+            "queries": [
+                {
+                    "resource_name": "campaign_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "campaign.status, "
+                        "campaign.advertising_channel_type, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.conversions_value, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc, "
+                        "metrics.average_cpm "
+                        "FROM campaign "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "ad_group_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "ad_group.id, "
+                        "ad_group.name, "
+                        "ad_group.status, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.conversions_value, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc "
+                        "FROM ad_group "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "keyword_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "ad_group.id, "
+                        "ad_group.name, "
+                        "ad_group_criterion.keyword.text, "
+                        "ad_group_criterion.keyword.match_type, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc "
+                        "FROM keyword_view "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "ad_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "ad_group.id, "
+                        "ad_group_ad.ad.id, "
+                        "ad_group_ad.ad.name, "
+                        "ad_group_ad.ad.type, "
+                        "ad_group_ad.status, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.ctr "
+                        "FROM ad_group_ad "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "search_term_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "ad_group.id, "
+                        "ad_group.name, "
+                        "search_term_view.search_term, "
+                        "ad_group_criterion.keyword.text, "
+                        "ad_group_criterion.keyword.match_type, "
+                        "search_term_view.status, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc "
+                        "FROM search_term_view "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+            ],
+        },
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
             "2. OR manually run: dango oauth google_ads",
             "3. Follow the browser OAuth flow to authenticate",
             "4. Enter Developer Token from Google Ads API Center",
             "5. Enter Customer ID (find in Google Ads account URL, no hyphens)",
-            "6. Credentials are permanent (refresh token stored in .dlt/secrets.toml)",
+            "6. Default queries load 5 tables: campaign_stats, ad_group_stats,"
+            " keyword_stats, ad_stats, search_term_stats",
+            "7. Edit .dlt/config.toml to customize GAQL queries",
+            "8. Paste queries from Google Ads Query Builder for custom reports",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_ads",
+        "cost_warning": "Subject to Google Ads API rate limits",
         "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 7,
     },

@@ -186,9 +186,9 @@ class StripeSourceConfig(BaseModel):
 class ShopifySourceConfig(BaseModel):
     """Shopify API source configuration"""
 
-    shop_url: str = Field(description="Shopify shop URL (e.g., 'myshop.myshopify.com')")
-    api_key_env: str = Field(
-        default="SHOPIFY_API_KEY", description="Environment variable containing API key"
+    shop_url: str = Field(
+        default="",
+        description="Shopify shop URL (e.g., 'myshop.myshopify.com'). For OAuth sources, populated from .dlt/secrets.toml at sync time.",
     )
     resources: list[str] = Field(
         default=["orders", "customers", "products"], description="Shopify resources to sync"
