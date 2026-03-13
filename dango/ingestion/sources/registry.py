@@ -384,6 +384,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.BASIC,
         "dlt_package": "salesforce",
         "dlt_function": "salesforce_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "username_env",
@@ -575,6 +576,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "slack",
         "dlt_function": "slack_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "token_env",
@@ -618,6 +620,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.BASIC,
         "dlt_package": "zendesk",
         "dlt_function": "zendesk_support",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "subdomain",
@@ -935,6 +938,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.BASIC,
         "dlt_package": "jira",
         "dlt_function": "jira",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "subdomain",
@@ -1082,6 +1086,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "notion",
         "dlt_function": "notion_databases",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "api_key_env",
