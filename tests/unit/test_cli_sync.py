@@ -58,8 +58,10 @@ class TestParseDuration:
 class TestSourceSupportsDateRange:
     """Tests for _source_supports_date_range() helper."""
 
-    def test_facebook_ads_supports(self) -> None:
-        assert _source_supports_date_range("facebook_ads") is True
+    def test_facebook_ads_no_date_range(self) -> None:
+        # facebook_ads_source() loads entity data (campaigns, ads, etc.)
+        # and does not accept start_date — insights require separate source
+        assert _source_supports_date_range("facebook_ads") is False
 
     def test_stripe_supports(self) -> None:
         assert _source_supports_date_range("stripe") is True
