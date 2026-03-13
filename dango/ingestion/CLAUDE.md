@@ -4,6 +4,13 @@
 
 Loads data into DuckDB from external sources via dlt pipelines and CSV files, with a central registry of 32 supported data sources.
 
+## Source Selection
+
+Registry contains 32 sources: 27 dlt verified (vendored in `dlt_sources/`) + CSV
+(custom) + dlt_native (passthrough) + filesystem + rest_api (dlt core built-ins) +
+PostgreSQL (dlt sql_database wrapper). Excluded: generic `sql_database` (too complex
+for wizard — use dlt_native) and Shopify (`wizard_enabled=False`, see P5-006).
+
 ## Files
 
 | File | Purpose | Key Functions/Classes |

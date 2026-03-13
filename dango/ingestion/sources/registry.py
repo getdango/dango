@@ -18,7 +18,30 @@ class AuthType(str, Enum):
 
 
 # ============================================================================
-# SOURCE REGISTRY - Top 10 Sources (Fully Implemented)
+# SOURCE SELECTION CRITERIA
+# ============================================================================
+#
+# This registry contains 32 sources in five categories:
+#   1. dlt verified sources (27): All connectors vendored in dlt_sources/. Each
+#      uses its own dlt verified source package (e.g., facebook_ads, hubspot).
+#   2. CSV (1): Custom CSVLoader — not dlt. For local structured CSV files.
+#   3. dlt_native (1): Passthrough escape hatch. User provides custom dlt pipeline
+#      code. No wizard UI — advanced users only.
+#   4. dlt core built-ins (2): filesystem + rest_api. Built into dlt, no vendoring.
+#      filesystem: local files and cloud storage (S3/GCS/Azure).
+#      rest_api: connect any REST API via declarative config.
+#   5. PostgreSQL (1): Dedicated wizard entry backed by dlt's built-in
+#      sql_database source. Structured params for the most common DB use case.
+#
+# Excluded dlt verified sources:
+#   - sql_database (generic): Too complex for wizard UI (arbitrary table selectors,
+#     multiple DB dialects). Use dlt_native with dlt's sql_database for advanced
+#     multi-database setups.
+#   - Shopify: wizard_enabled=False pending P5-006 investigation — dlt's shopify_dlt
+#     connector may be incompatible with Shopify's Jan 2026 API deprecation.
+
+# ============================================================================
+# SOURCE REGISTRY
 # ============================================================================
 
 SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
