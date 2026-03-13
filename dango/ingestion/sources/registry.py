@@ -504,10 +504,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add' — follow the prompts",
             "2. OR manually run: dango oauth shopify",
-            "3. Create a custom app in Shopify Admin > Apps > Develop apps",
+            "3. Either way: create a custom app in Shopify Admin > Apps > Develop apps",
             "4. Configure Admin API scopes (read permissions needed)",
             "5. Install app and reveal Admin API access token",
-            "6. Enter shop URL (e.g., mystore.myshopify.com) and access token",
+            "6. Enter shop URL (e.g., mystore.myshopify.com) and access token when prompted",
             "7. Credentials are permanent (stored in .dlt/secrets.toml)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/shopify",
