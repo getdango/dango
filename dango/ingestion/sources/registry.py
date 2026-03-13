@@ -482,30 +482,16 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "display_name": "Shopify",
         "category": "E-commerce & Payment",
         "description": "Load e-commerce data from Shopify (orders, customers, products, etc.)",
-        "auth_type": AuthType.API_KEY,
+        "auth_type": AuthType.OAUTH,
         "dlt_package": "shopify_dlt",  # Note: source name is shopify_dlt
         "dlt_function": "shopify_source",
-        "required_params": [
-            {
-                "name": "shop_url",
-                "type": "string",
-                "prompt": "Shopify shop URL (e.g., myshop.myshopify.com)",
-                "help": "Your Shopify store URL",
-            },
-            {
-                "name": "api_key_env",
-                "type": "secret",
-                "env_var": "SHOPIFY_API_KEY",
-                "prompt": "Shopify Admin API Access Token",
-                "help": "Admin API Access Token (starts with 'shpat_'). Generate in Shopify Admin > Apps > Develop apps > Create app > Configure > Admin API access token. Required scopes: read_orders, read_customers, read_products.",
-            },
-        ],
+        "required_params": [],
         "optional_params": [
             {
                 "name": "resources",
                 "type": "multiselect",
                 "prompt": "Resources to sync",
-                "choices": ["orders", "customers", "products", "inventory", "transactions"],
+                "choices": ["orders", "customers", "products"],
                 "default": ["orders", "customers", "products"],
             },
             {
@@ -516,17 +502,17 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             },
         ],
         "setup_guide": [
-            "1. Custom app setup runs automatically during 'dango source add'",
+            "1. OAuth setup runs automatically during 'dango source add' — follow the prompts",
             "2. OR manually run: dango oauth shopify",
-            "3. Create custom app in Shopify Admin > Apps > Develop apps",
+            "3. Either way: create a custom app in Shopify Admin > Apps > Develop apps",
             "4. Configure Admin API scopes (read permissions needed)",
             "5. Install app and reveal Admin API access token",
-            "6. Enter shop URL (e.g., mystore.myshopify.com) and access token",
+            "6. Enter shop URL (e.g., mystore.myshopify.com) and access token when prompted",
             "7. Credentials are permanent (stored in .dlt/secrets.toml)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/shopify",
         "cost_warning": "Included with Shopify plan",
-        "wizard_enabled": False,  # Blocked: Shopify deprecating legacy auth Jan 2026, awaiting dlt update
+        "wizard_enabled": True,  # Enabled: uses Custom App access token via X-Shopify-Access-Token header
         "popularity": 9,
     },
     # ========================================
