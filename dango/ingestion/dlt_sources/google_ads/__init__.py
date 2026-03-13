@@ -17,7 +17,7 @@ from .settings import DEFAULT_LOOKBACK_DAYS, DEFAULT_QUERIES
 try:
     from google.ads.googleads.client import GoogleAdsClient  # type: ignore
 except ImportError:
-    raise MissingDependencyException("Requests-OAuthlib", ["google-ads"])
+    raise MissingDependencyException("Google Ads", ["google-ads"])
 
 
 def get_client(
