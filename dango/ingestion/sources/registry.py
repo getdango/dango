@@ -1,6 +1,6 @@
 """dango/ingestion/sources/registry.py
 
-Metadata registry for all 34 supported data sources (31 dlt verified + CSV + REST API + PostgreSQL).
+Metadata registry for all 35 supported data sources (31 dlt verified + CSV + REST API + PostgreSQL + Filesystem).
 """
 
 from enum import Enum
@@ -114,6 +114,75 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/build-a-pipeline-tutorial",
         "cost_warning": "⚠️  ADVANCED FEATURE - Manual configuration required",
         "popularity": 3,  # Low - for advanced users only
+    },
+    "filesystem": {
+        "display_name": "Files & Cloud Storage (Parquet, JSON, Excel)",
+        "category": "Local & Custom",
+        "description": "Load Parquet, JSON, JSONL, Excel, or CSV files from local disk or cloud storage (S3, GCS, Azure)",
+        "auth_type": AuthType.NONE,
+        "dlt_package": "filesystem",  # Built-in dlt core source
+        "dlt_function": "filesystem",
+        "wizard_enabled": True,
+        "required_params": [
+            {
+                "name": "bucket_url",
+                "type": "path",
+                "prompt": "File path or cloud storage URL",
+                "help": "Local path (e.g., 'data/exports/') or cloud URL (e.g., 's3://my-bucket/data/', 'gs://my-bucket/data/')",
+            },
+            {
+                "name": "file_glob",
+                "type": "string",
+                "prompt": "File pattern (glob)",
+                "default": "**/*.parquet",
+                "help": "Glob pattern to match files (e.g., '*.parquet', '**/*.json', 'reports_*.xlsx')",
+            },
+        ],
+        "optional_params": [
+            {
+                "name": "file_format",
+                "type": "choice",
+                "prompt": "File format",
+                "choices": ["parquet", "jsonl", "json", "csv", "xlsx"],
+                "default": None,  # auto-detect from file extension
+                "help": "Format of files to load. Leave blank to auto-detect from file extension. Use 'jsonl' for newline-delimited JSON.",
+            },
+            {
+                "name": "credentials",
+                "type": "string",
+                "prompt": "Cloud storage credentials key (for S3/GCS only)",
+                "default": None,
+                "help": "For cloud storage: add credentials to .dlt/secrets.toml (see setup guide). Leave blank for local files.",
+            },
+        ],
+        "setup_guide": [
+            "LOCAL FILES:",
+            "1. Place your files in a project directory (e.g., data/exports/)",
+            "2. Set bucket_url to the directory path (e.g., 'data/exports/')",
+            "3. Set file_glob to match your files (e.g., '*.parquet', '**/*.json')",
+            "",
+            "CLOUD STORAGE (S3):",
+            "1. Set bucket_url to your S3 path (e.g., 's3://my-bucket/data/')",
+            "2. Add credentials to .dlt/secrets.toml:",
+            "   [sources.filesystem.credentials]",
+            "   aws_access_key_id = 'your-key'",
+            "   aws_secret_access_key = 'your-secret'",
+            "   region_name = 'us-east-1'",
+            "",
+            "CLOUD STORAGE (GCS):",
+            "1. Set bucket_url to your GCS path (e.g., 'gs://my-bucket/data/')",
+            "2. Add credentials to .dlt/secrets.toml:",
+            "   [sources.filesystem.credentials]",
+            "   project_id = 'your-project'",
+            "   private_key = '...'",
+            "   client_email = '...'",
+            "",
+            "SUPPORTED FORMATS: Parquet, JSON (array or JSONL), Excel (.xlsx), CSV",
+            "dlt handles schema inference automatically for all formats.",
+        ],
+        "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/filesystem",
+        "cost_warning": None,
+        "popularity": 7,
     },
     "rest_api": {
         "display_name": "REST API (Generic)",
@@ -1481,7 +1550,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
 # ============================================================================
 
 CATEGORIES = {
-    "Local & Custom": ["csv", "rest_api"],
+    "Local & Custom": ["csv", "filesystem", "rest_api"],
     "Marketing & Analytics": [
         "facebook_ads",
         "google_ads",
