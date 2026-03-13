@@ -330,7 +330,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
 | `ingestion/dlt_runner.py` | 1796 | — (exempt, too risky) |
-| `ingestion/sources/registry.py` | 1621 | — (metadata-only) |
+| `ingestion/sources/registry.py` | 1745 | — (metadata-only) |
 | `cli/source_wizard.py` | 1350 | — |
 | `visualization/metabase.py` | 1149 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
