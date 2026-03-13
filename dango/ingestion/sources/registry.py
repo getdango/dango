@@ -666,7 +666,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
     "google_ads": {
         "display_name": "Google Ads",
         "category": "Marketing & Analytics",
-        "description": "Load ad campaigns and performance data from Google Ads",
+        "description": "Load daily performance metrics from Google Ads via GAQL queries",
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_ads",
         "dlt_function": "google_ads",
@@ -674,22 +674,137 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "required_params": [],  # OAuth handles credentials; developer_token and customer_id are collected during auth
         "optional_params": [
             {
-                "name": "resources",
-                "type": "multiselect",
-                "prompt": "Resources to sync",
-                "choices": ["customers", "campaigns", "change_events", "customer_clients"],
-                "default": ["customers", "campaigns"],
+                "name": "start_date",
+                "type": "date",
+                "prompt": "Start date (YYYY-MM-DD)",
+                "default": None,
             },
         ],
+        # Default GAQL queries — each becomes a table. Duplicated from
+        # dlt_sources/google_ads/settings.py (registry must not import from dlt_sources/).
+        "default_config": {
+            "queries": [
+                {
+                    "resource_name": "campaign_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "campaign.status, "
+                        "campaign.advertising_channel_type, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.conversions_value, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc, "
+                        "metrics.average_cpm "
+                        "FROM campaign "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "ad_group_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "ad_group.id, "
+                        "ad_group.name, "
+                        "ad_group.status, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.conversions_value, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc "
+                        "FROM ad_group "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "keyword_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "ad_group.id, "
+                        "ad_group.name, "
+                        "ad_group_criterion.keyword.text, "
+                        "ad_group_criterion.keyword.match_type, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc "
+                        "FROM keyword_view "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "ad_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "ad_group.id, "
+                        "ad_group_ad.ad.id, "
+                        "ad_group_ad.ad.name, "
+                        "ad_group_ad.ad.type, "
+                        "ad_group_ad.status, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.ctr "
+                        "FROM ad_group_ad "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "search_term_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "ad_group.id, "
+                        "ad_group.name, "
+                        "search_term_view.search_term, "
+                        "ad_group_criterion.keyword.text, "
+                        "ad_group_criterion.keyword.match_type, "
+                        "search_term_view.status, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc "
+                        "FROM search_term_view "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+            ],
+        },
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
             "2. OR manually run: dango oauth google_ads",
             "3. Follow the browser OAuth flow to authenticate",
             "4. Enter Developer Token from Google Ads API Center",
             "5. Enter Customer ID (find in Google Ads account URL, no hyphens)",
-            "6. Credentials are permanent (refresh token stored in .dlt/secrets.toml)",
+            "6. Default queries load 5 tables: campaign_stats, ad_group_stats,"
+            " keyword_stats, ad_stats, search_term_stats",
+            "7. Edit .dlt/config.toml to customize GAQL queries",
+            "8. Paste queries from Google Ads Query Builder for custom reports",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_ads",
+        "cost_warning": "Subject to Google Ads API rate limits",
         "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 7,
     },
