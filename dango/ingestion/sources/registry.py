@@ -4,7 +4,7 @@ Metadata registry for all 32 supported data sources (27 dlt verified + CSV + dlt
 """
 
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 
 class AuthType(str, Enum):
@@ -89,6 +89,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "cost_warning": None,
         "popularity": 10,  # 1-10, used for sorting
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "dlt_native": {
         "display_name": "dlt Native Source (Advanced)",
@@ -137,6 +143,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/build-a-pipeline-tutorial",
         "cost_warning": "⚠️  ADVANCED FEATURE - Manual configuration required",
         "popularity": 3,  # Low - for advanced users only
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": True,
+        },
     },
     "filesystem": {
         "display_name": "Files & Cloud Storage (Parquet, JSON, Excel)",
@@ -212,6 +224,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/filesystem",
         "cost_warning": None,
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
     "rest_api": {
         "display_name": "REST API (Generic)",
@@ -259,8 +277,14 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/rest_api",
         "cost_warning": "Check API provider's rate limits and pricing",
-        "popularity": 8,
         "wizard_enabled": True,
+        "popularity": 8,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": True,
+        },
     },
     # ========================================
     # MARKETING & ANALYTICS
@@ -302,6 +326,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "cost_warning": "Subject to Google API quota limits",
         "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 10,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
     "facebook_ads": {
         "display_name": "Facebook Ads",
@@ -348,6 +378,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "cost_warning": "Rate limited: 200 calls/hour per user, 4800/day per app",
         "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 9,
+        "capabilities": {
+            "performance_metrics": True,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "google_analytics": {
         "display_name": "Google Analytics (GA4)",
@@ -438,6 +474,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "cost_warning": "Subject to Google API quota limits. Data is aggregated (not event-level).",
         "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 9,
+        "capabilities": {
+            "performance_metrics": True,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": True,
+        },
     },
     # ========================================
     # BUSINESS & CRM
@@ -477,6 +519,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/hubspot",
         "cost_warning": "Subject to HubSpot API limits (varies by plan)",
         "popularity": 9,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "salesforce": {
         "display_name": "Salesforce",
@@ -517,6 +565,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/salesforce",
         "cost_warning": "Salesforce API limits depend on edition (check your limits)",
         "popularity": 8,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     # ========================================
     # E-COMMERCE & PAYMENT
@@ -571,6 +625,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/stripe_analytics",
         "cost_warning": "No additional cost (included with Stripe account)",
         "popularity": 10,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "shopify": {
         "display_name": "Shopify",
@@ -608,6 +668,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "cost_warning": "Included with Shopify plan",
         "wizard_enabled": True,  # Enabled: uses Custom App access token via X-Shopify-Access-Token header
         "popularity": 9,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     # ========================================
     # DEVELOPMENT
@@ -645,6 +711,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/github",
         "cost_warning": "Rate limited: 5000 requests/hour (authenticated)",
         "popularity": 8,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     # ========================================
     # OTHER
@@ -692,6 +764,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/slack",
         "cost_warning": "Subject to Slack API rate limits",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "zendesk": {
         "display_name": "Zendesk",
@@ -741,6 +819,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/zendesk",
         "cost_warning": "Subject to Zendesk API rate limits",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     # Additional verified sources (skeleton metadata - to be expanded)
     "google_ads": {
@@ -887,6 +971,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "cost_warning": "Subject to Google Ads API rate limits",
         "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": True,
+            "date_range": True,
+            "incremental": False,
+            "custom_queries": True,
+        },
     },
     "matomo": {
         "display_name": "Matomo Analytics",
@@ -926,6 +1016,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/matomo",
         "popularity": 5,
+        "capabilities": {
+            "performance_metrics": True,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": True,
+        },
     },
     "mux": {
         "display_name": "Mux",
@@ -967,6 +1063,14 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/mux",
         "popularity": 4,
+        "capabilities": {
+            "performance_metrics": True,
+            "date_range": True,
+            # assets use merge (idempotent upsert) but no dlt.sources.incremental()
+            # cursor — re-fetches all assets each run, not true incremental loading
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
     "airtable": {
         "display_name": "Airtable",
@@ -1010,6 +1114,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/airtable",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
     "pipedrive": {
         "display_name": "Pipedrive",
@@ -1069,6 +1179,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/pipedrive",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "freshdesk": {
         "display_name": "Freshdesk",
@@ -1125,6 +1241,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/freshdesk",
         "popularity": 6,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "jira": {
         "display_name": "Jira",
@@ -1181,6 +1303,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/jira",
         "popularity": 8,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
     "workable": {
         "display_name": "Workable",
@@ -1229,6 +1357,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/workable",
         "popularity": 5,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "asana": {
         "display_name": "Asana",
@@ -1273,6 +1407,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/asana",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "notion": {
         "display_name": "Notion",
@@ -1308,6 +1448,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/notion",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
     "inbox": {
         "display_name": "Email Inbox (IMAP)",
@@ -1356,6 +1502,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/inbox",
         "popularity": 5,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "mongodb": {
         "display_name": "MongoDB",
@@ -1406,6 +1558,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/mongodb",
         "popularity": 8,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "postgres": {
         "display_name": "PostgreSQL",
@@ -1456,6 +1614,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/sql_database",
         "popularity": 8,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "kafka": {
         "display_name": "Apache Kafka",
@@ -1513,6 +1677,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/kafka",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "kinesis": {
         "display_name": "Amazon Kinesis",
@@ -1568,6 +1738,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/kinesis",
         "popularity": 6,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
     "chess": {
         "display_name": "Chess.com",
@@ -1593,6 +1769,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/chess",
         "popularity": 3,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
     "strapi": {
         "display_name": "Strapi",
@@ -1626,6 +1808,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/strapi",
         "popularity": 5,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
     "personio": {
         "display_name": "Personio",
@@ -1660,6 +1848,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/personio",
         "popularity": 4,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
 }
 
@@ -1732,3 +1926,11 @@ def get_popular_sources(limit: int = 10) -> list[str]:
 def is_source_implemented(source_type: str) -> bool:
     """Check if a source has full metadata in registry"""
     return source_type in SOURCE_REGISTRY
+
+
+def get_source_capabilities(source_type: str) -> dict[str, bool] | None:
+    """Get capability flags for a specific source type."""
+    metadata = SOURCE_REGISTRY.get(source_type)
+    if metadata is None:
+        return None
+    return cast(dict[str, bool] | None, metadata.get("capabilities"))

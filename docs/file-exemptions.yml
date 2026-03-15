@@ -94,9 +94,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/ingestion/sources/registry.py
-    lines: 1621
+    lines: 1936
     category: exempt
-    reason: "Source metadata registry. Declarative data (no logic), naturally grows with each new source type."
+    reason: "Source metadata registry. Declarative data (no logic), naturally grows with each new source type. P5-011 added capability metadata (+313 lines)."
     review_by: "v1.1"
 
   - file: dango/cli/source_wizard.py
