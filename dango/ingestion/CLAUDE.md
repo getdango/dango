@@ -15,11 +15,11 @@ for wizard — use dlt_native) and Shopify (`wizard_enabled=False`, see P5-006).
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| `__init__.py` | Public exports | `DltPipelineRunner`, `run_sync`, `CSVLoader`, `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata` |
+| `__init__.py` | Public exports | `DltPipelineRunner`, `run_sync`, `CSVLoader`, `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata`, `get_source_capabilities` |
 | `dlt_runner.py` | Generic pipeline runner for all dlt and custom sources | `DltPipelineRunner`, `run_sync` (imports `SyncTimeoutError` from `dango.exceptions`) |
 | `csv_loader.py` | Incremental CSV loading with metadata tracking and 4 dedup strategies | `CSVLoader` (imports `CSVSchemaMismatchError` from `dango.exceptions`) |
-| `sources/__init__.py` | Sources subpackage exports | Re-exports `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata` |
-| `sources/registry.py` | Central registry of 32 supported data sources with metadata | `SOURCE_REGISTRY`, `CATEGORIES`, `AuthType`, `get_source_metadata`, `get_sources_by_category` |
+| `sources/__init__.py` | Sources subpackage exports | Re-exports `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata`, `get_source_capabilities` |
+| `sources/registry.py` | Central registry of 32 supported data sources with metadata | `SOURCE_REGISTRY`, `CATEGORIES`, `AuthType`, `get_source_metadata`, `get_sources_by_category`, `get_source_capabilities` |
 | `dlt_sources/` | Third-party dlt verified source implementations (27 directories, 105+ files) | DO NOT MODIFY — see "Don't Modify" section |
 
 ## Common Tasks
