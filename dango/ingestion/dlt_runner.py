@@ -796,6 +796,9 @@ class DltPipelineRunner:
         # This ensures credentials are passed even if dlt's config resolution misses them
         source_kwargs = self._inject_oauth_credentials(source_type.value, source_kwargs)
 
+        # Pop resources before calling source function — applied via .with_resources() after
+        selected_resources = source_kwargs.pop("resources", None)
+
         # Set DLT_PROJECT_DIR so dlt finds .dlt/ regardless of when import happened
         # This is dlt's official mechanism for specifying project location
         os.environ["DLT_PROJECT_DIR"] = str(self.project_root)
@@ -808,6 +811,19 @@ class DltPipelineRunner:
             # Dynamic import of dlt source
             # dlt resolves dlt.secrets.value parameters at this point
             source = self._load_dlt_source(dlt_package, dlt_function, source_kwargs)
+
+            # Apply resource selection via .with_resources() (e.g., HubSpot, Pipedrive)
+            if selected_resources and isinstance(selected_resources, list):
+                if hasattr(source, "with_resources"):
+                    source = source.with_resources(*selected_resources)
+                    console.print(
+                        f"  [dim]Selected resources: {', '.join(selected_resources)}[/dim]"
+                    )
+                else:
+                    console.print(
+                        f"  [yellow]⚠ Source does not support .with_resources() "
+                        f"— ignoring resource selection: {', '.join(selected_resources)}[/yellow]"
+                    )
 
             # Apply row limit if specified (dev testing)
             if limit is not None:
@@ -891,6 +907,16 @@ class DltPipelineRunner:
             console.print("  🔄 Restoring previous state...")
             self._restore_dlt_state(state_backup)
             raise
+
+    # Sources with complex credential objects that need restructuring.
+    # Flat env-resolved params → nested credentials dict for dlt.
+    _CREDENTIAL_RESTRUCTURE: dict[str, dict[str, str]] = {
+        "salesforce": {
+            "username": "user_name",  # SecurityTokenAuth uses user_name
+            "password": "password",
+            "security_token": "security_token",
+        },
+    }
 
     def _build_source_config(
         self,
@@ -988,6 +1014,18 @@ class DltPipelineRunner:
                     resolved_config[param_name] = env_value
             else:
                 resolved_config[key] = value
+
+        # Restructure flat env-resolved params into nested credential objects for dlt
+        # e.g., Salesforce: flat username/password/security_token → credentials dict
+        source_type_str = source_type.value
+        if source_type_str in self._CREDENTIAL_RESTRUCTURE:
+            field_map = self._CREDENTIAL_RESTRUCTURE[source_type_str]
+            credentials: dict[str, Any] = {}
+            for flat_key, dlt_key in field_map.items():
+                if flat_key in resolved_config:
+                    credentials[dlt_key] = resolved_config.pop(flat_key)
+            if credentials:
+                resolved_config["credentials"] = credentials
 
         # Override dates if provided
         if start_date:
