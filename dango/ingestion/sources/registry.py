@@ -4,7 +4,7 @@ Metadata registry for all 32 supported data sources (27 dlt verified + CSV + dlt
 """
 
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 
 class AuthType(str, Enum):
@@ -277,6 +277,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/rest_api",
         "cost_warning": "Check API provider's rate limits and pricing",
+        "wizard_enabled": True,
         "popularity": 8,
         "capabilities": {
             "performance_metrics": False,
@@ -284,7 +285,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "incremental": True,
             "custom_queries": True,
         },
-        "wizard_enabled": True,
     },
     # ========================================
     # MARKETING & ANALYTICS
@@ -1066,6 +1066,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": True,
             "date_range": True,
+            # assets use merge (idempotent upsert) but no dlt.sources.incremental()
+            # cursor — re-fetches all assets each run, not true incremental loading
             "incremental": False,
             "custom_queries": False,
         },
@@ -1931,4 +1933,4 @@ def get_source_capabilities(source_type: str) -> dict[str, bool] | None:
     metadata = SOURCE_REGISTRY.get(source_type)
     if metadata is None:
         return None
-    return metadata.get("capabilities")
+    return cast(dict[str, bool] | None, metadata.get("capabilities"))
