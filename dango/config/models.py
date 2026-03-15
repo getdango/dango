@@ -246,7 +246,6 @@ class SalesforceSourceConfig(BaseModel):
         default="SALESFORCE_SECURITY_TOKEN",
         description="Environment variable containing security token",
     )
-    is_sandbox: bool = Field(default=False, description="Whether to use sandbox environment")
 
 
 class GitHubSourceConfig(BaseModel):
@@ -265,7 +264,7 @@ class SlackSourceConfig(BaseModel):
     token_env: str = Field(
         default="SLACK_TOKEN", description="Environment variable containing Slack bot token"
     )
-    channels: list[str] | None = Field(
+    selected_channels: list[str] | None = Field(
         default=None, description="List of channel IDs to sync (None = all channels)"
     )
     start_date: datetime | None = Field(default=None, description="Start date for message history")

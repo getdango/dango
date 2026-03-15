@@ -501,14 +501,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "help": "Reset at Setup > My Personal Information > Reset Security Token",
             },
         ],
-        "optional_params": [
-            {
-                "name": "is_sandbox",
-                "type": "boolean",
-                "prompt": "Use sandbox environment?",
-                "default": False,
-            },
-        ],
+        "optional_params": [],
         "setup_guide": [
             "1. Get Salesforce username and password",
             "2. Reset security token (Setup > Reset Security Token)",
@@ -669,7 +662,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "optional_params": [
             {
-                "name": "channels",
+                "name": "selected_channels",
                 "type": "list",
                 "prompt": "Channel IDs to sync (empty = all channels)",
                 "default": None,
@@ -1299,13 +1292,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "prompt": "Database IDs to sync (JSON array, empty = all)",
                 "default": None,
                 "help": 'Format: [{"id": "db_id", "use_name": "my_db"}] - Leave empty to sync all databases',
-            },
-            {
-                "name": "page_ids",
-                "type": "list",
-                "prompt": "Page IDs to sync (comma-separated, empty = all)",
-                "default": None,
-                "help": "Comma-separated list of Notion page IDs",
             },
         ],
         "setup_guide": [
