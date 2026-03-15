@@ -8,7 +8,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 
 class DeduplicationStrategy(str, Enum):
@@ -261,11 +261,15 @@ class GitHubSourceConfig(BaseModel):
 class SlackSourceConfig(BaseModel):
     """Slack API source configuration"""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     token_env: str = Field(
         default="SLACK_TOKEN", description="Environment variable containing Slack bot token"
     )
     selected_channels: list[str] | None = Field(
-        default=None, description="List of channel IDs to sync (None = all channels)"
+        default=None,
+        description="List of channel IDs to sync (None = all channels)",
+        validation_alias=AliasChoices("selected_channels", "channels"),
     )
     start_date: datetime | None = Field(default=None, description="Start date for message history")
 

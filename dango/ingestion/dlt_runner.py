@@ -819,6 +819,11 @@ class DltPipelineRunner:
                     console.print(
                         f"  [dim]Selected resources: {', '.join(selected_resources)}[/dim]"
                     )
+                else:
+                    console.print(
+                        f"  [yellow]⚠ Source does not support .with_resources() "
+                        f"— ignoring resource selection: {', '.join(selected_resources)}[/yellow]"
+                    )
 
             # Apply row limit if specified (dev testing)
             if limit is not None:
@@ -903,6 +908,16 @@ class DltPipelineRunner:
             self._restore_dlt_state(state_backup)
             raise
 
+    # Sources with complex credential objects that need restructuring.
+    # Flat env-resolved params → nested credentials dict for dlt.
+    _CREDENTIAL_RESTRUCTURE: dict[str, dict[str, str]] = {
+        "salesforce": {
+            "username": "user_name",  # SecurityTokenAuth uses user_name
+            "password": "password",
+            "security_token": "security_token",
+        },
+    }
+
     def _build_source_config(
         self,
         source_config: DataSource,
@@ -973,7 +988,6 @@ class DltPipelineRunner:
             "deduplication",  # Dango's deduplication strategy
             "enabled",  # Dango's source enable/disable flag
             "description",  # Dango's source description
-            "resources",  # Applied via .with_resources() after source creation
         }
 
         # Resolve environment variables (fields ending in _env)
@@ -1003,17 +1017,9 @@ class DltPipelineRunner:
 
         # Restructure flat env-resolved params into nested credential objects for dlt
         # e.g., Salesforce: flat username/password/security_token → credentials dict
-        CREDENTIAL_RESTRUCTURE: dict[str, dict[str, str]] = {
-            "salesforce": {
-                "username": "user_name",  # SecurityTokenAuth uses user_name
-                "password": "password",
-                "security_token": "security_token",
-            },
-        }
-
         source_type_str = source_type.value
-        if source_type_str in CREDENTIAL_RESTRUCTURE:
-            field_map = CREDENTIAL_RESTRUCTURE[source_type_str]
+        if source_type_str in self._CREDENTIAL_RESTRUCTURE:
+            field_map = self._CREDENTIAL_RESTRUCTURE[source_type_str]
             credentials: dict[str, Any] = {}
             for flat_key, dlt_key in field_map.items():
                 if flat_key in resolved_config:

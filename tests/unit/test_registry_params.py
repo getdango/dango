@@ -36,14 +36,17 @@ def _get_importable_sources() -> list[tuple[str, dict]]:
     return sources
 
 
+_IMPORTABLE_SOURCES = _get_importable_sources()
+
+
 @pytest.mark.unit
 class TestRegistryParamsMatchSignatures:
     """Verify optional_params names match actual dlt source function signatures."""
 
     @pytest.mark.parametrize(
         "source_key,metadata",
-        _get_importable_sources(),
-        ids=[s[0] for s in _get_importable_sources()],
+        _IMPORTABLE_SOURCES,
+        ids=[s[0] for s in _IMPORTABLE_SOURCES],
     )
     def test_optional_params_accepted_by_source_function(
         self, source_key: str, metadata: dict
