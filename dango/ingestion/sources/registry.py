@@ -306,10 +306,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
     "facebook_ads": {
         "display_name": "Facebook Ads",
         "category": "Marketing & Analytics",
-        "description": "Load ad campaigns, ad sets, ads, creatives, and leads from Facebook Ads",
+        "description": "Load ad campaigns, ads, creatives, leads, and daily performance metrics from Facebook Ads",
         "auth_type": AuthType.OAUTH,
         "dlt_package": "facebook_ads",
-        "dlt_function": "facebook_ads_source",
+        "dlt_function": "facebook_ads_combined",
         "pip_dependencies": [{"pip": "facebook-business", "import": "facebook_business"}],
         "required_params": [
             {
@@ -326,17 +326,23 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "help": "Long-lived User Access Token (60 days). Generate via 'dango oauth facebook_ads' or manually at https://developers.facebook.com/tools/accesstoken. Requires 'ads_read' permission.",
             },
         ],
-        "optional_params": [],
+        "optional_params": [
+            {
+                "name": "initial_load_past_days",
+                "type": "integer",
+                "default": 30,
+                "help": "Number of past days of performance metrics to load on first sync",
+            },
+        ],
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
             "2. OR manually run: dango oauth facebook_ads",
             "3. Follow the prompts to exchange short-lived token for long-lived token",
-            "4. IMPORTANT: Access token expires in 60 days",
-            "5. Set a reminder to re-authenticate before expiry",
-            "6. NOTE: This loads entity data (campaigns, ads, ad sets, creatives, leads).",
-            "   For daily performance metrics (reach, impressions, clicks, spend),",
-            "   configure facebook_insights_source separately via dlt_native mode.",
-            "7. Facebook retains insights data for 37 months from the date of the report.",
+            "4. IMPORTANT: Access token expires in 60 days — set reminder to re-authenticate",
+            "5. Loads entity data (campaigns, ads, etc.) AND daily performance metrics",
+            "6. Performance metrics: reach, impressions, clicks, spend, CTR, CPC, CPM",
+            "7. First sync loads 30 days of insights; subsequent syncs are incremental",
+            "8. Facebook retains insights data for 37 months",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/facebook_ads",
         "cost_warning": "Rate limited: 200 calls/hour per user, 4800/day per app",

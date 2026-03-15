@@ -203,6 +203,9 @@ class FacebookAdsSourceConfig(BaseModel):
     access_token_env: str = Field(
         default="FB_ACCESS_TOKEN", description="Environment variable containing access token"
     )
+    initial_load_past_days: int = Field(
+        default=30, description="Days of historical performance metrics to load on first sync"
+    )
     start_date: datetime | None = Field(
         default=None, description="Start date for data extraction (YYYY-MM-DD)"
     )
