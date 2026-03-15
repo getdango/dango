@@ -212,3 +212,125 @@ def facebook_insights_source(
             start_date = start_date.add(days=time_increment_days)
 
     return facebook_insights
+
+
+@dlt.source(name="facebook_ads")
+def facebook_ads_combined(
+    account_id: str = dlt.config.value,
+    access_token: str = dlt.secrets.value,
+    chunk_size: int = 50,
+    request_timeout: float = 300.0,
+    app_api_version: str = None,
+    initial_load_past_days: int = 30,
+    attribution_window_days_lag: int = 7,
+    time_increment_days: int = 1,
+    breakdowns: TInsightsBreakdownOptions = "ads_insights",
+    level: TInsightsLevels = "ad",
+) -> Sequence[DltResource]:
+    """Combined source: entity tables + daily performance insights.
+
+    Loads campaigns, ads, ad_sets, ad_creatives, leads (replace mode)
+    and facebook_insights with daily metrics (merge/incremental mode).
+
+    Args:
+        account_id: Facebook Ads account ID.
+        access_token: Long-lived access token.
+        chunk_size: Page/batch size for entity requests. Defaults to 50.
+        request_timeout: Connection timeout in seconds. Defaults to 300.0.
+        app_api_version: Facebook API version (e.g., 'v17.0'). Defaults to library default.
+        initial_load_past_days: Days of historical insights to load on first run. Defaults to 30.
+        attribution_window_days_lag: Days to re-fetch for attribution changes. Defaults to 7.
+        time_increment_days: Report aggregation window in days. Defaults to 1.
+        breakdowns: Insight breakdown preset. Defaults to "ads_insights".
+        level: Granularity level for insights. Defaults to "ad".
+
+    Returns:
+        Sequence[DltResource]: campaigns, ads, ad_sets, ad_creatives, leads, facebook_insights
+    """
+    account = get_ads_account(
+        account_id, access_token, request_timeout, app_api_version
+    )
+
+    # --- Entity resources (replace mode) ---
+
+    @dlt.resource(primary_key="id", write_disposition="replace")
+    def campaigns(
+        fields: Sequence[str] = DEFAULT_CAMPAIGN_FIELDS, states: Sequence[str] = None
+    ) -> Iterator[TDataItems]:
+        yield get_data_chunked(account.get_campaigns, fields, states, chunk_size)
+
+    @dlt.resource(primary_key="id", write_disposition="replace")
+    def ads(
+        fields: Sequence[str] = DEFAULT_AD_FIELDS, states: Sequence[str] = None
+    ) -> Iterator[TDataItems]:
+        yield get_data_chunked(account.get_ads, fields, states, chunk_size)
+
+    @dlt.resource(primary_key="id", write_disposition="replace")
+    def ad_sets(
+        fields: Sequence[str] = DEFAULT_ADSET_FIELDS, states: Sequence[str] = None
+    ) -> Iterator[TDataItems]:
+        yield get_data_chunked(account.get_ad_sets, fields, states, chunk_size)
+
+    @dlt.transformer(primary_key="id", write_disposition="replace", selected=True)
+    def leads(
+        items: TDataItems,
+        fields: Sequence[str] = DEFAULT_LEAD_FIELDS,
+        states: Sequence[str] = None,
+    ) -> Iterator[TDataItems]:
+        for item in items:
+            ad = Ad(item["id"])
+            yield get_data_chunked(ad.get_leads, fields, states, chunk_size)
+
+    @dlt.resource(primary_key="id", write_disposition="replace")
+    def ad_creatives(
+        fields: Sequence[str] = DEFAULT_ADCREATIVE_FIELDS, states: Sequence[str] = None
+    ) -> Iterator[TDataItems]:
+        yield get_data_chunked(account.get_ad_creatives, fields, states, chunk_size)
+
+    # --- Insights resource (merge/incremental mode) ---
+
+    initial_load_start_date = pendulum.today().subtract(days=initial_load_past_days)
+    initial_load_start_date_str = initial_load_start_date.isoformat()
+
+    @dlt.resource(
+        primary_key=INSIGHTS_PRIMARY_KEY,
+        write_disposition="merge",
+        columns=INSIGHT_FIELDS_TYPES,
+    )
+    def facebook_insights(
+        date_start: dlt.sources.incremental[str] = dlt.sources.incremental(
+            "date_start", initial_value=initial_load_start_date_str
+        )
+    ) -> Iterator[TDataItems]:
+        start_date = get_start_date(date_start, attribution_window_days_lag)
+        end_date = pendulum.now()
+
+        while start_date <= end_date:
+            query = {
+                "level": level,
+                "action_breakdowns": list(ALL_ACTION_BREAKDOWNS),
+                "breakdowns": list(
+                    INSIGHTS_BREAKDOWNS_OPTIONS[breakdowns]["breakdowns"]
+                ),
+                "limit": chunk_size,
+                "fields": list(
+                    set(DEFAULT_INSIGHT_FIELDS)
+                    .union(INSIGHTS_BREAKDOWNS_OPTIONS[breakdowns]["fields"])
+                    .difference(INVALID_INSIGHTS_FIELDS)
+                ),
+                "time_increment": time_increment_days,
+                "action_attribution_windows": list(ALL_ACTION_ATTRIBUTION_WINDOWS),
+                "time_ranges": [
+                    {
+                        "since": start_date.to_date_string(),
+                        "until": start_date.add(
+                            days=time_increment_days - 1
+                        ).to_date_string(),
+                    }
+                ],
+            }
+            job = execute_job(account.get_insights(params=query, is_async=True))
+            yield list(map(process_report_item, job.get_result()))
+            start_date = start_date.add(days=time_increment_days)
+
+    return campaigns, ads, ad_sets, ad_creatives, ads | leads, facebook_insights
