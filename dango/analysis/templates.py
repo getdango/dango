@@ -113,14 +113,9 @@ def _google_analytics_metrics(name: str) -> list[MetricConfig]:
 
 
 def _csv_metrics(name: str) -> list[MetricConfig]:
-    """CSV metrics: row count (placeholder table)."""
-    schema = f"raw_{name}"
-    return [
-        MetricConfig(
-            name=f"{name}_row_count",
-            source_table=f"{schema}.your_table",
-            value_expression="COUNT(*)",
-            compare=ComparisonType.week_over_week,
-            warn_threshold=10.0,
-        ),
-    ]
+    """CSV metrics: skipped — table name unknown until first sync.
+
+    CSV table names derive from filenames, unknown at source-add time.
+    Add metrics manually after first sync via 'dango db status'.
+    """
+    return []

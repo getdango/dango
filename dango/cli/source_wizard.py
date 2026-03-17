@@ -324,7 +324,7 @@ class SourceWizard:
             return None
 
         # Sort alphabetically by display name
-        all_sources.sort(key=lambda x: x[0])
+        all_sources.sort(key=lambda x: x[0].lower())
 
         # Create choices list
         choices = [s[0] for s in all_sources]
@@ -772,6 +772,9 @@ class SourceWizard:
                 "\n[bold]Optional settings[/bold] [dim](press Enter to use defaults, edit .dango/sources.yml to change later)[/dim]"
             )
             for param in optional_params:
+                # Skip auth credential params when user selected "none" auth
+                if param["name"] == "auth_token_env" and params.get("auth_type") == "none":
+                    continue
                 value = self._prompt_parameter(
                     param, source_name, source_type_display, metadata, required=False
                 )
@@ -1007,6 +1010,16 @@ class SourceWizard:
                 )
             ]
 
+        elif param_type == "json":
+            # JSON input (e.g., REST API config)
+            questions = [
+                inquirer.Text(
+                    param_name,
+                    message=prompt + (" (optional)" if not required else ""),
+                    default=str(default) if default is not None else None,
+                )
+            ]
+
         else:
             # String, number, path, etc.
             questions = [
@@ -1035,6 +1048,30 @@ class SourceWizard:
         # (after skip/empty checks so empty input returns None, not [])
         if param_type == "list" and value and isinstance(value, str):
             value = [item.strip() for item in value.split(",") if item.strip()] or None
+
+        # Parse JSON string into Python object for json-type params
+        if param_type == "json" and value and isinstance(value, str):
+            import json
+
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                console.print(f"[red]Invalid JSON: {value}[/red]")
+                return None
+
+        # Cast integer/number type params
+        if param_type == "integer" and value and isinstance(value, str):
+            try:
+                value = int(value)
+            except ValueError:
+                console.print(f"[red]Invalid integer: {value}[/red]")
+                return None
+        elif param_type == "number" and value and isinstance(value, str):
+            try:
+                value = float(value)
+            except ValueError:
+                console.print(f"[red]Invalid number: {value}[/red]")
+                return None
 
         # Show incremental loading education for start_date parameters
         if param_name == "start_date" and value:

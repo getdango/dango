@@ -691,14 +691,20 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "access_token_env",
                 "type": "secret",
                 "env_var": "GITHUB_ACCESS_TOKEN",
-                "prompt": "GitHub Personal Access Token (classic)",
-                "help": "Personal Access Token (classic) starting with 'ghp_'. Generate at https://github.com/settings/tokens. Required scopes: repo, read:org, read:user",
+                "prompt": "GitHub Personal Access Token",
+                "help": "Generate at https://github.com/settings/tokens. Required scopes: repo, read:org, read:user",
             },
             {
-                "name": "repos",
-                "type": "list",
-                "prompt": "Repository list (format: owner/repo, comma-separated)",
-                "help": "Example: facebook/react,microsoft/vscode",
+                "name": "owner",
+                "type": "string",
+                "prompt": "Repository owner (e.g., getdango)",
+                "help": "GitHub username or organization that owns the repository",
+            },
+            {
+                "name": "name",
+                "type": "string",
+                "prompt": "Repository name (e.g., dango)",
+                "help": "Name of the repository to load data from",
             },
         ],
         "optional_params": [],
@@ -1002,7 +1008,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             },
             {
                 "name": "site_id",
-                "type": "string",
+                "type": "integer",
                 "prompt": "Site ID to track",
                 "help": "Found in Matomo dashboard (usually a number like '1')",
             },
@@ -1031,22 +1037,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "dlt_package": "mux",
         "dlt_function": "mux_source",
         "wizard_enabled": True,
-        "required_params": [
-            {
-                "name": "api_access_token_env",
-                "type": "secret",
-                "env_var": "MUX_API_ACCESS_TOKEN",
-                "prompt": "Mux API Access Token ID",
-                "help": "From Mux Dashboard > Settings > Access Tokens",
-            },
-            {
-                "name": "api_secret_key_env",
-                "type": "secret",
-                "env_var": "MUX_API_SECRET_KEY",
-                "prompt": "Mux API Secret Key",
-                "help": "Secret key paired with access token",
-            },
-        ],
+        "required_params": [],
         "optional_params": [
             {
                 "name": "start_date",
@@ -1059,7 +1050,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "1. Log in to Mux Dashboard",
             "2. Go to Settings > Access Tokens",
             "3. Create new token with read permissions",
-            "4. Copy both Token ID and Secret Key to .env",
+            "4. Add to .dlt/secrets.toml:",
+            "   [sources.mux]",
+            "   mux_api_access_token = 'your_token_id'",
+            "   mux_api_secret_key = 'your_secret_key'",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/mux",
         "popularity": 4,
@@ -1131,7 +1125,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "wizard_enabled": True,
         "required_params": [
             {
-                "name": "api_key_env",
+                "name": "pipedrive_api_key_env",
                 "type": "secret",
                 "env_var": "PIPEDRIVE_API_KEY",
                 "prompt": "Pipedrive API Token",
@@ -1372,15 +1366,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "dlt_package": "asana_dlt",  # Note: source name is asana_dlt
         "dlt_function": "asana_source",
         "wizard_enabled": True,
-        "required_params": [
-            {
-                "name": "access_token_env",
-                "type": "secret",
-                "env_var": "ASANA_ACCESS_TOKEN",
-                "prompt": "Asana Personal Access Token",
-                "help": "Generate at https://app.asana.com/0/my-apps",
-            },
-        ],
+        "required_params": [],
         "optional_params": [
             {
                 "name": "resources",
@@ -1400,10 +1386,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             },
         ],
         "setup_guide": [
-            "1. Go to https://app.asana.com/0/my-apps",
-            "2. Click 'Create new token'",
-            "3. Give it a description and create",
-            "4. Copy token to .env as ASANA_ACCESS_TOKEN",
+            "1. Create a Personal Access Token at https://app.asana.com/0/developer-console",
+            "2. Add to .dlt/secrets.toml:",
+            "   [sources.asana_dlt]",
+            "   access_token = 'your_token_here'",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/asana",
         "popularity": 7,
@@ -1755,7 +1741,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "wizard_enabled": True,
         "required_params": [
             {
-                "name": "player_usernames",
+                "name": "players",
                 "type": "list",
                 "prompt": "Player usernames to track (comma-separated)",
                 "help": "Chess.com usernames to load profiles and games for",
@@ -1786,17 +1772,23 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "wizard_enabled": True,
         "required_params": [
             {
-                "name": "base_url",
+                "name": "domain",
                 "type": "string",
                 "prompt": "Strapi instance URL (e.g., https://cms.example.com)",
                 "help": "Base URL of your Strapi installation",
             },
             {
-                "name": "api_key_env",
+                "name": "api_secret_key_env",
                 "type": "secret",
-                "env_var": "STRAPI_API_KEY",
+                "env_var": "STRAPI_API_SECRET_KEY",
                 "prompt": "Strapi API Token",
                 "help": "Create at Settings > API Tokens",
+            },
+            {
+                "name": "endpoints",
+                "type": "list",
+                "prompt": "Content type endpoints (comma-separated, e.g., posts,articles)",
+                "help": "Strapi collection names to load data from",
             },
         ],
         "optional_params": [],
@@ -1804,7 +1796,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "1. Log in to Strapi admin",
             "2. Go to Settings > API Tokens",
             "3. Create new token with read permissions",
-            "4. Copy token to .env as STRAPI_API_KEY",
+            "4. Copy token to .env as STRAPI_API_SECRET_KEY",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/strapi",
         "popularity": 5,

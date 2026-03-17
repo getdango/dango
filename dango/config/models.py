@@ -21,12 +21,13 @@ class DeduplicationStrategy(str, Enum):
 
 
 class SourceType(str, Enum):
-    """Data source types — 34 source types (31 dlt verified sources + CSV + REST API + PostgreSQL)"""
+    """Data source types — 34 source types (27 dlt verified + CSV + REST API + dlt_native + Filesystem + PostgreSQL + sql_database + Scrapy)"""
 
     # Local/Custom
     CSV = "csv"
     REST_API = "rest_api"
     DLT_NATIVE = "dlt_native"  # Advanced: Direct dlt source bypass
+    FILESYSTEM = "filesystem"  # dlt core built-in file source
 
     # Marketing & Analytics (7)
     FACEBOOK_ADS = "facebook_ads"
@@ -258,7 +259,8 @@ class GitHubSourceConfig(BaseModel):
         default="GITHUB_ACCESS_TOKEN",
         description="Environment variable containing personal access token",
     )
-    repos: list[str] = Field(description="List of repositories to sync (format: 'owner/repo')")
+    owner: str = Field(description="GitHub username or organization that owns the repository")
+    name: str = Field(description="Repository name to load data from")
 
 
 class SlackSourceConfig(BaseModel):

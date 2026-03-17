@@ -42,11 +42,10 @@ class TestGenerateMetricsForSource:
         for m in metrics:
             assert m.source_table.startswith("raw_ga.")
 
-    def test_csv_generates_one_metric(self) -> None:
-        """CSV template produces 1 metric with placeholder table."""
+    def test_csv_generates_no_metrics(self) -> None:
+        """CSV template returns empty (table name unknown at add time)."""
         metrics = generate_metrics_for_source("csv", "uploads")
-        assert len(metrics) == 1
-        assert "your_table" in metrics[0].source_table
+        assert len(metrics) == 0
 
     def test_unknown_source_returns_empty(self) -> None:
         """Unknown source type returns an empty list."""
