@@ -192,7 +192,7 @@ class TestSourceConfigModels:
             (GoogleAnalyticsSourceConfig, {"property_id": "123456"}),
             (HubSpotSourceConfig, {}),
             (SalesforceSourceConfig, {}),
-            (GitHubSourceConfig, {"repos": ["owner/repo"]}),
+            (GitHubSourceConfig, {"owner": "getdango", "name": "dango"}),
             (SlackSourceConfig, {}),
             (
                 RESTAPISourceConfig,

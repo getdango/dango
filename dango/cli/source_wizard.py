@@ -1051,18 +1051,24 @@ class SourceWizard:
 
         # Parse JSON string into Python object for json-type params
         if param_type == "json" and value and isinstance(value, str):
-            import json as json_mod
+            import json
 
             try:
-                value = json_mod.loads(value)
-            except json_mod.JSONDecodeError:
+                value = json.loads(value)
+            except json.JSONDecodeError:
                 console.print(f"[red]Invalid JSON: {value}[/red]")
                 return None
 
         # Cast integer/number type params
-        if param_type in ("integer", "number") and value and isinstance(value, str):
+        if param_type == "integer" and value and isinstance(value, str):
             try:
                 value = int(value)
+            except ValueError:
+                console.print(f"[red]Invalid integer: {value}[/red]")
+                return None
+        elif param_type == "number" and value and isinstance(value, str):
+            try:
+                value = float(value)
             except ValueError:
                 console.print(f"[red]Invalid number: {value}[/red]")
                 return None
