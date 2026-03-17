@@ -41,26 +41,26 @@ from tests.factories.config_factories import (
 
 @pytest.mark.unit
 class TestSourceType:
-    def test_has_expected_members(self):
+    def test_has_expected_members(self) -> None:
         expected = {"csv", "google_sheets", "hubspot", "stripe", "shopify", "slack"}
         actual = {member.value for member in SourceType}
         assert expected.issubset(actual)
 
-    def test_values_are_lowercase_strings(self):
+    def test_values_are_lowercase_strings(self) -> None:
         for member in SourceType:
             assert member.value == member.value.lower()
             assert isinstance(member.value, str)
 
-    def test_member_count(self):
-        assert len(SourceType) == 33
+    def test_member_count(self) -> None:
+        assert len(SourceType) == 34
 
 
 @pytest.mark.unit
 class TestDeduplicationStrategy:
-    def test_has_four_members(self):
+    def test_has_four_members(self) -> None:
         assert len(DeduplicationStrategy) == 4
 
-    def test_expected_values(self):
+    def test_expected_values(self) -> None:
         expected = {"none", "latest_only", "append_only", "scd_type2"}
         actual = {m.value for m in DeduplicationStrategy}
         assert actual == expected
@@ -68,34 +68,34 @@ class TestDeduplicationStrategy:
 
 @pytest.mark.unit
 class TestStakeholder:
-    def test_valid_creation(self):
+    def test_valid_creation(self) -> None:
         s = make_stakeholder()
         assert s.name == "Test User"
         assert s.role == "Analyst"
         assert s.contact == "analyst@example.com"
 
-    def test_missing_required_field_raises(self):
+    def test_missing_required_field_raises(self) -> None:
         with pytest.raises(ValidationError):
             Stakeholder(name="Alice", role="Analyst")  # missing contact
 
 
 @pytest.mark.unit
 class TestProjectContext:
-    def test_project_context_creation(self, sample_project_context):
+    def test_project_context_creation(self, sample_project_context) -> None:
         ctx = sample_project_context
         assert ctx.name == "Test Analytics"
         assert ctx.created_by == "test@example.com"
         assert ctx.purpose == "Unit testing"
 
-    def test_minimal_required_fields(self):
+    def test_minimal_required_fields(self) -> None:
         ctx = ProjectContext(name="P", created_by="a@b.com", purpose="test")
         assert ctx.name == "P"
 
-    def test_auto_generated_created_datetime(self):
+    def test_auto_generated_created_datetime(self) -> None:
         ctx = make_project_context()
         assert isinstance(ctx.created, datetime)
 
-    def test_all_optional_fields(self):
+    def test_all_optional_fields(self) -> None:
         ctx = make_project_context(
             organization="Acme",
             dango_version="1.0.0",
@@ -109,19 +109,19 @@ class TestProjectContext:
         assert ctx.sla == "Daily by 9am"
         assert len(ctx.stakeholders) == 1
 
-    def test_missing_name_raises(self):
+    def test_missing_name_raises(self) -> None:
         with pytest.raises(ValidationError):
             ProjectContext(created_by="a@b.com", purpose="test")
 
-    def test_missing_created_by_raises(self):
+    def test_missing_created_by_raises(self) -> None:
         with pytest.raises(ValidationError):
             ProjectContext(name="P", purpose="test")
 
-    def test_missing_purpose_raises(self):
+    def test_missing_purpose_raises(self) -> None:
         with pytest.raises(ValidationError):
             ProjectContext(name="P", created_by="a@b.com")
 
-    def test_stakeholders_list(self):
+    def test_stakeholders_list(self) -> None:
         s1 = make_stakeholder(name="Alice")
         s2 = make_stakeholder(name="Bob")
         ctx = make_project_context(stakeholders=[s1, s2])
@@ -131,23 +131,23 @@ class TestProjectContext:
 
 @pytest.mark.unit
 class TestCSVSourceConfig:
-    def test_defaults(self):
+    def test_defaults(self) -> None:
         cfg = make_csv_source_config()
         assert cfg.file_pattern == "*.csv"
         assert cfg.deduplication_strategy == DeduplicationStrategy.LATEST_ONLY
         assert cfg.primary_key is None
         assert cfg.timestamp_column is None
 
-    def test_custom_pattern(self):
+    def test_custom_pattern(self) -> None:
         cfg = make_csv_source_config(file_pattern="*.tsv")
         assert cfg.file_pattern == "*.tsv"
 
-    def test_all_dedup_strategies(self):
+    def test_all_dedup_strategies(self) -> None:
         for strategy in DeduplicationStrategy:
             cfg = make_csv_source_config(deduplication_strategy=strategy)
             assert cfg.deduplication_strategy == strategy
 
-    def test_primary_key_and_timestamp(self):
+    def test_primary_key_and_timestamp(self) -> None:
         cfg = make_csv_source_config(
             primary_key="id",
             timestamp_column="updated_at",
@@ -158,23 +158,23 @@ class TestCSVSourceConfig:
 
 @pytest.mark.unit
 class TestGoogleSheetsSourceConfig:
-    def test_valid_creation(self):
+    def test_valid_creation(self) -> None:
         cfg = make_google_sheets_source_config()
         assert cfg.spreadsheet_url_or_id.startswith("1Bxi")
         assert cfg.range_names == ["Sheet1"]
 
-    def test_ensure_list_validator_single_string(self):
+    def test_ensure_list_validator_single_string(self) -> None:
         cfg = GoogleSheetsSourceConfig(
             spreadsheet_url_or_id="abc123",
             range_names="SingleSheet",
         )
         assert cfg.range_names == ["SingleSheet"]
 
-    def test_multiple_ranges(self):
+    def test_multiple_ranges(self) -> None:
         cfg = make_google_sheets_source_config(range_names=["Sheet1", "Sheet2"])
         assert len(cfg.range_names) == 2
 
-    def test_missing_required_fields(self):
+    def test_missing_required_fields(self) -> None:
         with pytest.raises(ValidationError):
             GoogleSheetsSourceConfig()
 
@@ -222,55 +222,55 @@ class TestSourceConfigModels:
             "DltNative",
         ],
     )
-    def test_source_config_creation(self, model_cls, kwargs):
+    def test_source_config_creation(self, model_cls, kwargs) -> None:
         instance = model_cls(**kwargs)
         assert instance is not None
 
 
 @pytest.mark.unit
 class TestDataSource:
-    def test_valid_underscore_name(self):
+    def test_valid_underscore_name(self) -> None:
         ds = make_data_source(name="my_source")
         assert ds.name == "my_source"
 
-    def test_valid_numeric_name(self):
+    def test_valid_numeric_name(self) -> None:
         ds = make_data_source(name="source123")
         assert ds.name == "source123"
 
-    def test_name_lowercased(self):
+    def test_name_lowercased(self) -> None:
         ds = make_data_source(name="MySource")
         assert ds.name == "mysource"
 
-    def test_rejects_empty_name(self):
+    def test_rejects_empty_name(self) -> None:
         with pytest.raises(ValidationError, match="invalid"):
             DataSource(name="", type=SourceType.CSV)
 
-    def test_rejects_hyphenated_name(self):
+    def test_rejects_hyphenated_name(self) -> None:
         with pytest.raises(ValidationError, match="invalid"):
             DataSource(name="my-source", type=SourceType.CSV)
 
-    def test_rejects_spaces(self):
+    def test_rejects_spaces(self) -> None:
         with pytest.raises(ValidationError, match="invalid"):
             DataSource(name="my source", type=SourceType.CSV)
 
-    def test_rejects_special_chars(self):
+    def test_rejects_special_chars(self) -> None:
         with pytest.raises(ValidationError, match="invalid"):
             DataSource(name="my@source", type=SourceType.CSV)
 
-    def test_enabled_defaults_true(self):
+    def test_enabled_defaults_true(self) -> None:
         ds = make_data_source()
         assert ds.enabled is True
 
-    def test_disabled_source(self):
+    def test_disabled_source(self) -> None:
         ds = make_data_source(enabled=False)
         assert ds.enabled is False
 
-    def test_csv_type_with_config(self):
+    def test_csv_type_with_config(self) -> None:
         ds = make_data_source(SourceType.CSV)
         assert ds.type == SourceType.CSV
         assert ds.csv is not None
 
-    def test_tags_and_description(self):
+    def test_tags_and_description(self) -> None:
         ds = make_data_source(
             tags=["sales", "daily"],
             description="Sales data from CSV",
@@ -281,19 +281,19 @@ class TestDataSource:
 
 @pytest.mark.unit
 class TestSourcesConfig:
-    def test_empty_sources(self):
+    def test_empty_sources(self) -> None:
         sc = make_sources_config(sources=[])
         assert sc.sources == []
 
-    def test_get_source_found(self):
+    def test_get_source_found(self) -> None:
         sc = make_sources_config()
         assert sc.get_source("test_source") is not None
 
-    def test_get_source_not_found(self):
+    def test_get_source_not_found(self) -> None:
         sc = make_sources_config()
         assert sc.get_source("nonexistent") is None
 
-    def test_get_enabled_sources_filters_disabled(self):
+    def test_get_enabled_sources_filters_disabled(self) -> None:
         enabled = make_data_source(name="enabled_src")
         disabled = make_data_source(name="disabled_src", enabled=False)
         sc = make_sources_config(sources=[enabled, disabled])
@@ -301,20 +301,20 @@ class TestSourcesConfig:
         assert len(result) == 1
         assert result[0].name == "enabled_src"
 
-    def test_all_disabled(self):
+    def test_all_disabled(self) -> None:
         d1 = make_data_source(name="a", enabled=False)
         d2 = make_data_source(name="b", enabled=False)
         sc = make_sources_config(sources=[d1, d2])
         assert sc.get_enabled_sources() == []
 
-    def test_default_version(self):
+    def test_default_version(self) -> None:
         sc = make_sources_config()
         assert sc.version == "1.0"
 
 
 @pytest.mark.unit
 class TestPlatformSettings:
-    def test_all_defaults(self):
+    def test_all_defaults(self) -> None:
         ps = PlatformSettings()
         assert ps.duckdb_path == "./data/warehouse.duckdb"
         assert ps.dbt_project_dir == "./dbt"
@@ -326,31 +326,31 @@ class TestPlatformSettings:
         assert ps.auto_dbt is True
         assert ps.debounce_seconds == 600
 
-    def test_custom_ports(self):
+    def test_custom_ports(self) -> None:
         ps = PlatformSettings(port=9000, metabase_port=4000)
         assert ps.port == 9000
         assert ps.metabase_port == 4000
 
-    def test_auto_sync_toggle(self):
+    def test_auto_sync_toggle(self) -> None:
         ps = PlatformSettings(auto_sync=False)
         assert ps.auto_sync is False
 
 
 @pytest.mark.unit
 class TestDangoConfig:
-    def test_minimal_just_project(self):
+    def test_minimal_just_project(self) -> None:
         ctx = make_project_context()
         config = DangoConfig(project=ctx)
         assert config.project.name == "Test Analytics"
         assert config.sources.sources == []
         assert config.platform.port == 8800
 
-    def test_full_config(self):
+    def test_full_config(self) -> None:
         config = make_dango_config()
         assert config.project is not None
         assert config.sources is not None
         assert config.platform is not None
 
-    def test_missing_project_raises(self):
+    def test_missing_project_raises(self) -> None:
         with pytest.raises(ValidationError):
             DangoConfig()

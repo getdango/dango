@@ -77,16 +77,21 @@ class TestGetAnalyzer:
         import sys
 
         mock_analyzer = MagicMock()
+        mock_provider = MagicMock()
+        mock_provider.create_engine.return_value = MagicMock()
         with (
             patch(f"{_PII}._analyzer", None),
             patch(f"{_PII}.spacy", create=True) as mock_spacy,
             patch("presidio_analyzer.AnalyzerEngine", return_value=mock_analyzer) as mock_cls,
+            patch("presidio_analyzer.nlp_engine.NlpEngineProvider", return_value=mock_provider),
         ):
             sys.modules["spacy"] = mock_spacy
             try:
                 result = _get_analyzer()
                 assert result is mock_analyzer
-                mock_cls.assert_called_once()
+                mock_cls.assert_called_once_with(
+                    nlp_engine=mock_provider.create_engine.return_value
+                )
             finally:
                 del sys.modules["spacy"]
 
@@ -96,11 +101,14 @@ class TestGetAnalyzer:
         mock_spacy = MagicMock()
         mock_spacy.load.side_effect = OSError("Model not found")
         mock_analyzer = MagicMock()
+        mock_provider = MagicMock()
+        mock_provider.create_engine.return_value = MagicMock()
         sys.modules["spacy"] = mock_spacy
         try:
             with (
                 patch(f"{_PII}._analyzer", None),
                 patch("presidio_analyzer.AnalyzerEngine", return_value=mock_analyzer),
+                patch("presidio_analyzer.nlp_engine.NlpEngineProvider", return_value=mock_provider),
             ):
                 result = _get_analyzer()
                 mock_spacy.cli.download.assert_called_once_with("en_core_web_sm")

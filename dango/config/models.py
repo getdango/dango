@@ -21,12 +21,13 @@ class DeduplicationStrategy(str, Enum):
 
 
 class SourceType(str, Enum):
-    """Data source types — 34 source types (31 dlt verified sources + CSV + REST API + PostgreSQL)"""
+    """Data source types — 35 source types (31 dlt verified sources + CSV + REST API + PostgreSQL + Filesystem)"""
 
     # Local/Custom
     CSV = "csv"
     REST_API = "rest_api"
     DLT_NATIVE = "dlt_native"  # Advanced: Direct dlt source bypass
+    FILESYSTEM = "filesystem"  # dlt core built-in file source
 
     # Marketing & Analytics (7)
     FACEBOOK_ADS = "facebook_ads"
