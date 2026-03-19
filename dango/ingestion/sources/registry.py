@@ -241,7 +241,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "auth_type",
                 "type": "choice",
                 "prompt": "Authentication type",
-                "choices": ["bearer", "api_key", "basic", "none"],
+                "choices": ["bearer", "api_key", "basic", "oauth2_client_credentials", "none"],
                 "default": "bearer",
             },
             {
