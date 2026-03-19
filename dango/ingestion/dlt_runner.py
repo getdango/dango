@@ -1126,29 +1126,40 @@ class DltPipelineRunner:
         endpoints = source_kwargs.pop("endpoints", [])
         auth_type = source_kwargs.pop("auth_type", None)
         auth_token = source_kwargs.pop("auth_token", None)
+        api_key_name = source_kwargs.pop("api_key_name", None)
+        api_key_location = source_kwargs.pop("api_key_location", None)
+        basic_username = source_kwargs.pop("basic_username", None)
+        basic_password = source_kwargs.pop("basic_password", None)
+        access_token_url = source_kwargs.pop("access_token_url", None)
+        client_id = source_kwargs.pop("client_id", None)
+        client_secret = source_kwargs.pop("client_secret", None)
 
         # Build client config
         client: dict[str, Any] = {"base_url": base_url}
 
         # Build auth config based on type
-        if auth_type and auth_type != "none" and auth_token:
-            if auth_type == "bearer":
-                client["auth"] = {"type": "bearer", "token": auth_token}
-            elif auth_type == "api_key":
-                client["auth"] = {
-                    "type": "api_key",
-                    "name": "Authorization",
-                    "api_key": auth_token,
-                    "location": "header",
-                }
-            elif auth_type == "basic":
-                # Basic auth: split "user:password" format
-                parts = auth_token.split(":", 1) if auth_token else ["", ""]
-                client["auth"] = {
-                    "type": "http_basic",
-                    "username": parts[0],
-                    "password": parts[1] if len(parts) > 1 else "",
-                }
+        if auth_type == "bearer" and auth_token:
+            client["auth"] = {"type": "bearer", "token": auth_token}
+        elif auth_type == "api_key" and auth_token:
+            client["auth"] = {
+                "type": "api_key",
+                "name": api_key_name or "Authorization",
+                "api_key": auth_token,
+                "location": api_key_location or "header",
+            }
+        elif auth_type == "basic" and basic_username:
+            client["auth"] = {
+                "type": "http_basic",
+                "username": basic_username,
+                "password": basic_password or "",
+            }
+        elif auth_type == "oauth2_client_credentials" and access_token_url:
+            client["auth"] = {
+                "type": "oauth2_client_credentials",
+                "access_token_url": access_token_url,
+                "client_id": client_id or "",
+                "client_secret": client_secret or "",
+            }
 
         # Build resources from endpoints
         resources: list[dict[str, Any] | str] = []
@@ -1156,7 +1167,13 @@ class DltPipelineRunner:
             if isinstance(ep, str):
                 resources.append({"name": ep, "endpoint": {"path": ep}})
             elif isinstance(ep, dict):
-                resources.append(ep)
+                # Wizard collects {"path": ..., "name": ...} — transform to
+                # rest_api_source format {"name": ..., "endpoint": {"path": ...}}
+                if "endpoint" not in ep and "path" in ep:
+                    name = ep.get("name", ep["path"].strip("/").replace("/", "_"))
+                    resources.append({"name": name, "endpoint": {"path": ep["path"]}})
+                else:
+                    resources.append(ep)
 
         return {"config": {"client": client, "resources": resources}}
 

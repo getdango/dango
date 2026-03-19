@@ -87,46 +87,10 @@ class SourceWizard:
                     # Show source info
                     self._show_source_info(metadata)
 
-                    # Special handling for dlt_native sources (file-based config only)
+                    # Special handling for dlt_native sources — guided template wizard
                     if source_type == "dlt_native":
-                        console.print(
-                            "\n[yellow]⚠️  dlt_native sources must be configured manually[/yellow]\n"
-                        )
-                        console.print(
-                            "[bold]This is an advanced feature for file-based configuration:[/bold]"
-                        )
-                        console.print("  1. Edit .dango/sources.yml manually")
-                        console.print("  2. Add a source with type: dlt_native")
-                        console.print(
-                            "  3. Configure source_module, source_function, and function_kwargs"
-                        )
-                        console.print("\n[cyan]Example configuration:[/cyan]")
-                        console.print("  sources:")
-                        console.print("    - name: my_custom_source")
-                        console.print("      type: dlt_native")
-                        console.print("      dlt_native:")
-                        console.print("        source_module: my_source")
-                        console.print("        source_function: my_source_func")
-                        console.print("        function_kwargs:")
-                        console.print("          api_key_env: MY_API_KEY")
-                        console.print("\n[dim]See docs/ADVANCED_USAGE.md for more examples[/dim]\n")
-
-                        # Ask if user wants to go back
-                        import inquirer
-
-                        questions = [
-                            inquirer.List(
-                                "action",
-                                message="What would you like to do?",
-                                choices=["← Back to source selection", "Exit wizard"],
-                            )
-                        ]
-                        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
-                        if not answers or answers["action"] == "Exit wizard":
-                            return False
-                        else:
-                            state = "source"
-                            continue
+                        result = self._setup_dlt_native_source()
+                        return result
 
                     state = "name"
 
@@ -153,7 +117,10 @@ class SourceWizard:
 
                 elif state == "params":
                     # Step 4: Collect parameters
-                    params = self._collect_parameters(source_type, metadata, source_name)
+                    if source_type == "rest_api":
+                        params = self._collect_rest_api_params(source_name)
+                    else:
+                        params = self._collect_parameters(source_type, metadata, source_name)
                     if params == "← Back":
                         # Go back to source name
                         state = "name"
@@ -714,6 +681,365 @@ class SourceWizard:
                 return True
 
         return False
+
+    def _setup_dlt_native_source(self) -> bool:
+        """Guided setup for dlt_native sources — generates template + registers in sources.yml.
+
+        Creates a Python source template in custom_sources/ and registers the
+        source in sources.yml. Bypasses the normal state machine since it handles
+        both file creation and config save internally.
+
+        Returns:
+            True if source created successfully, False otherwise.
+        """
+        console.print("\n[bold]Custom dlt Source Setup[/bold]")
+        console.print("[dim]This creates a Python template and registers it in sources.yml[/dim]\n")
+
+        # 1. Module name
+        questions = [
+            inquirer.Text(
+                "module_name",
+                message="Python module name (e.g., my_api)",
+            )
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return False
+        module_name = answers["module_name"].strip()
+        if not module_name.isidentifier():
+            console.print(
+                f"[red]'{module_name}' is not a valid Python identifier. "
+                f"Use letters, numbers, and underscores (cannot start with a number).[/red]"
+            )
+            return False
+
+        # 2. Function name
+        default_func = f"{module_name}_source"
+        questions = [
+            inquirer.Text(
+                "function_name",
+                message="Source function name",
+                default=default_func,
+            )
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return False
+        function_name = answers["function_name"].strip()
+        if not function_name.isidentifier():
+            console.print(f"[red]'{function_name}' is not a valid Python identifier.[/red]")
+            return False
+
+        # 3. Source name for sources.yml
+        default_source_name = module_name
+        questions = [
+            inquirer.Text(
+                "source_name",
+                message="Source name (used in sources.yml and sync commands)",
+                default=default_source_name,
+            )
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return False
+        source_name = answers["source_name"].strip().lower()
+        if not source_name.replace("_", "").isalnum():
+            console.print(
+                f"[red]'{source_name}' is invalid. "
+                f"Use only lowercase letters, numbers, and underscores.[/red]"
+            )
+            return False
+
+        # 4. Check for duplicate source names (before writing any files)
+        config = load_config(self.project_root)
+        existing_names = {s.name for s in config.sources.sources}
+        if source_name in existing_names:
+            console.print(
+                f"[red]A source named '{source_name}' already exists in sources.yml.[/red]"
+            )
+            return False
+
+        # 5. Check if template file already exists
+        custom_dir = self.project_root / "custom_sources"
+        template_path = custom_dir / f"{module_name}.py"
+        if template_path.exists():
+            if not Confirm.ask(
+                f"[yellow]{template_path.relative_to(self.project_root)} already exists. Overwrite?[/yellow]",
+                default=False,
+            ):
+                console.print("[dim]Aborted — existing file preserved.[/dim]")
+                return False
+
+        # 6. Generate template file
+        custom_dir.mkdir(parents=True, exist_ok=True)
+        template_content = f'''"""custom_sources/{module_name}.py
+
+Custom dlt source for {source_name}.
+Generated by dango source wizard.
+
+Documentation: https://dlthub.com/docs/general-usage/source
+"""
+
+import dlt
+
+
+@dlt.source
+def {function_name}(api_key: str = dlt.secrets.value):
+    """Load data from your API.
+
+    Args:
+        api_key: API key (resolved from .dlt/secrets.toml or environment).
+    """
+    yield {module_name}_resource(api_key)
+
+
+@dlt.resource(write_disposition="replace")
+def {module_name}_resource(api_key: str):
+    """Fetch data from the API.
+
+    Modify this function to call your API and yield records (dicts).
+    """
+    # TODO: Replace with your API calls
+    # Example:
+    #   import requests
+    #   response = requests.get(
+    #       "https://api.example.com/data",
+    #       headers={{"Authorization": f"Bearer {{api_key}}"}},
+    #   )
+    #   yield from response.json()["items"]
+    yield {{"id": 1, "name": "example"}}
+'''
+        template_path.write_text(template_content)
+        console.print(
+            f"[green]✅ Created template: {template_path.relative_to(self.project_root)}[/green]"
+        )
+
+        # 7. Register in sources.yml
+        source_config: dict[str, Any] = {
+            "name": source_name,
+            "type": "dlt_native",
+            "enabled": True,
+            "description": f"Custom dlt source - {module_name}",
+            "dlt_native": {
+                "source_module": module_name,
+                "source_function": function_name,
+            },
+        }
+        self._save_source(source_config)
+        console.print(f"[green]✅ Registered '{source_name}' in sources.yml[/green]")
+
+        # 8. Next steps
+        console.print("\n[bold cyan]Next steps:[/bold cyan]")
+        console.print(
+            f"  1. Edit [cyan]{template_path.relative_to(self.project_root)}[/cyan] "
+            f"— add your API calls"
+        )
+        console.print("  2. Add credentials to [cyan].dlt/secrets.toml[/cyan] or [cyan].env[/cyan]")
+        console.print(f"  3. Test: [cyan]dango sync --source {source_name}[/cyan]")
+        console.print("\n[dim]dlt docs: https://dlthub.com/docs/general-usage/source[/dim]")
+        return True
+
+    def _collect_rest_api_params(self, source_name: str) -> dict[str, Any] | str | None:
+        """Guided REST API parameter collection with per-auth-type prompts.
+
+        Replaces generic _collect_parameters() for rest_api sources with a
+        step-by-step flow: base URL, auth type, auth credentials, endpoints.
+
+        Args:
+            source_name: User-chosen source instance name
+
+        Returns:
+            Parameter dict on success, "← Back" to go back, None on cancel.
+        """
+        console.print("[bold]REST API Configuration[/bold]")
+        console.print("[dim]Type 'back' for Base URL to return to source name[/dim]\n")
+
+        # 1. Base URL
+        questions = [
+            inquirer.Text(
+                "base_url",
+                message="Base URL (e.g., https://api.example.com)",
+            )
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return None
+        if answers["base_url"].strip().lower() == "back":
+            return "← Back"
+        base_url = answers["base_url"].strip()
+
+        # 2. Auth type
+        auth_choices = [
+            ("Bearer Token", "bearer"),
+            ("API Key (header or query param)", "api_key"),
+            ("HTTP Basic (username + password)", "basic"),
+            ("OAuth2 Client Credentials", "oauth2_client_credentials"),
+            ("No Authentication", "none"),
+        ]
+        questions = [
+            inquirer.List(
+                "auth_type",
+                message="Authentication method",
+                choices=auth_choices,
+            )
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return None
+        auth_type = answers["auth_type"]
+
+        params: dict[str, Any] = {
+            "base_url": base_url,
+            "auth_type": auth_type,
+        }
+
+        # 3. Auth-type-specific credential prompts
+        env_prefix = source_name.upper().replace("-", "_")
+        if auth_type == "bearer":
+            default_env = f"{env_prefix}_API_TOKEN"
+            questions = [
+                inquirer.Text(
+                    "auth_token_env",
+                    message="Environment variable for bearer token",
+                    default=default_env,
+                )
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            params["auth_token_env"] = answers["auth_token_env"].strip()
+            self.secret_params.append(
+                {"name": params["auth_token_env"], "description": f"Bearer token for {source_name}"}
+            )
+
+        elif auth_type == "api_key":
+            default_env = f"{env_prefix}_API_KEY"
+            questions = [
+                inquirer.Text(
+                    "auth_token_env",
+                    message="Environment variable for API key value",
+                    default=default_env,
+                ),
+                inquirer.Text(
+                    "api_key_name",
+                    message="Header/query parameter name (e.g., X-API-Key)",
+                    default="X-API-Key",
+                ),
+                inquirer.List(
+                    "api_key_location",
+                    message="Send API key in",
+                    choices=[("Header", "header"), ("Query parameter", "query")],
+                ),
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            params["auth_token_env"] = answers["auth_token_env"].strip()
+            params["api_key_name"] = answers["api_key_name"].strip()
+            params["api_key_location"] = answers["api_key_location"]
+            self.secret_params.append(
+                {"name": params["auth_token_env"], "description": f"API key for {source_name}"}
+            )
+
+        elif auth_type == "basic":
+            default_user_env = f"{env_prefix}_USERNAME"
+            default_pass_env = f"{env_prefix}_PASSWORD"
+            questions = [
+                inquirer.Text(
+                    "basic_username_env",
+                    message="Environment variable for username",
+                    default=default_user_env,
+                ),
+                inquirer.Text(
+                    "basic_password_env",
+                    message="Environment variable for password",
+                    default=default_pass_env,
+                ),
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            params["basic_username_env"] = answers["basic_username_env"].strip()
+            params["basic_password_env"] = answers["basic_password_env"].strip()
+            self.secret_params.extend(
+                [
+                    {
+                        "name": params["basic_username_env"],
+                        "description": f"Username for {source_name}",
+                    },
+                    {
+                        "name": params["basic_password_env"],
+                        "description": f"Password for {source_name}",
+                    },
+                ]
+            )
+
+        elif auth_type == "oauth2_client_credentials":
+            default_id_env = f"{env_prefix}_CLIENT_ID"
+            default_secret_env = f"{env_prefix}_CLIENT_SECRET"
+            questions = [
+                inquirer.Text(
+                    "access_token_url",
+                    message="Token endpoint URL (e.g., https://auth.example.com/oauth/token)",
+                ),
+                inquirer.Text(
+                    "client_id_env",
+                    message="Environment variable for client ID",
+                    default=default_id_env,
+                ),
+                inquirer.Text(
+                    "client_secret_env",
+                    message="Environment variable for client secret",
+                    default=default_secret_env,
+                ),
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            params["access_token_url"] = answers["access_token_url"].strip()
+            params["client_id_env"] = answers["client_id_env"].strip()
+            params["client_secret_env"] = answers["client_secret_env"].strip()
+            self.secret_params.extend(
+                [
+                    {
+                        "name": params["client_id_env"],
+                        "description": f"OAuth2 client ID for {source_name}",
+                    },
+                    {
+                        "name": params["client_secret_env"],
+                        "description": f"OAuth2 client secret for {source_name}",
+                    },
+                ]
+            )
+
+        # 4. Endpoint collection
+        console.print("\n[bold]API Endpoints[/bold]")
+        console.print("[dim]Add one or more endpoints to sync[/dim]")
+        endpoints: list[dict[str, str]] = []
+        while True:
+            questions = [
+                inquirer.Text(
+                    "path",
+                    message="Endpoint path (e.g., /users, /orders)",
+                ),
+                inquirer.Text(
+                    "name",
+                    message="Resource name (table name in DuckDB)",
+                ),
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            path = answers["path"].strip()
+            name = answers["name"].strip() or path.strip("/").replace("/", "_")
+            endpoints.append({"path": path, "name": name})
+            console.print(f"  [green]✓[/green] Added: {path} → {name}")
+
+            if not Confirm.ask("Add another endpoint?", default=False):
+                break
+
+        params["endpoints"] = endpoints
+        return params
 
     def _collect_parameters(
         self, source_type_key: str, metadata: dict[str, Any], source_name: str

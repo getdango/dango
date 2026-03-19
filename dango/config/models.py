@@ -296,6 +296,27 @@ class RESTAPISourceConfig(BaseModel):
     auth_token_env: str | None = Field(
         default=None, description="Environment variable containing auth token/key"
     )
+    api_key_name: str | None = Field(
+        default=None, description="Header or query parameter name for API key auth"
+    )
+    api_key_location: str | None = Field(
+        default=None, description="Where to send the API key: 'header' or 'query'"
+    )
+    basic_username_env: str | None = Field(
+        default=None, description="Environment variable for HTTP Basic username"
+    )
+    basic_password_env: str | None = Field(
+        default=None, description="Environment variable for HTTP Basic password"
+    )
+    access_token_url: str | None = Field(
+        default=None, description="OAuth2 client credentials token endpoint URL"
+    )
+    client_id_env: str | None = Field(
+        default=None, description="Environment variable for OAuth2 client ID"
+    )
+    client_secret_env: str | None = Field(
+        default=None, description="Environment variable for OAuth2 client secret"
+    )
     headers: dict[str, str] | None = Field(
         default=None, description="Additional headers to include in requests"
     )
