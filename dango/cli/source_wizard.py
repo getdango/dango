@@ -220,8 +220,9 @@ class SourceWizard:
                         header = None
                         if source_type == "csv":
                             header = (
-                                "NOTE: Replace 'your_table' with your actual"
-                                " table name after first sync."
+                                f"NOTE: Tables will be created in the raw_{source_name}"
+                                f" schema. Replace 'your_table' with your actual"
+                                f" table name after first sync."
                             )
                         add_metrics_to_config(self.project_root, templates, header_comment=header)
                         console.print(
@@ -703,7 +704,7 @@ class SourceWizard:
         # Source-specific credential parameters that are collected during OAuth
         # These are stored in .dlt/secrets.toml by the OAuth provider
         oauth_collected_params = {
-            "facebook_ads": ["account_id"],  # Facebook OAuth collects account_id
+            "facebook_ads": [],  # account_id is a required wizard param, not OAuth-collected
             "google_ads": ["customer_id"],  # Google Ads OAuth collects customer_id
             "shopify": ["shop_url"],  # Shopify OAuth collects shop_url
         }
@@ -1068,7 +1069,8 @@ class SourceWizard:
                 return None
         elif param_type == "number" and value and isinstance(value, str):
             try:
-                value = float(value)
+                num = float(value)
+                value = int(num) if num.is_integer() else num
             except ValueError:
                 console.print(f"[red]Invalid number: {value}[/red]")
                 return None

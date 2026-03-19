@@ -173,23 +173,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "help": "Glob pattern to match files (e.g., '*.parquet', '**/*.json', 'reports_*.xlsx')",
             },
         ],
-        "optional_params": [
-            {
-                "name": "file_format",
-                "type": "choice",
-                "prompt": "File format",
-                "choices": ["parquet", "jsonl", "json", "csv", "xlsx"],
-                "default": None,  # auto-detect from file extension
-                "help": "Format of files to load. Leave blank to auto-detect from file extension. Use 'jsonl' for newline-delimited JSON.",
-            },
-            {
-                "name": "credentials",
-                "type": "string",
-                "prompt": "Cloud storage credentials key (for S3/GCS only)",
-                "default": None,
-                "help": "For cloud storage: add credentials to .dlt/secrets.toml (see setup guide). Leave blank for local files.",
-            },
-        ],
+        "optional_params": [],
         "setup_guide": [
             "LOCAL FILES:",
             "1. Place your files in a project directory (e.g., data/exports/)",
@@ -406,9 +390,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "optional_params": [
             {
                 "name": "start_date",
-                "type": "date",
-                "prompt": "Start date (YYYY-MM-DD)",
-                "default": None,
+                "type": "string",
+                "prompt": "Start date (YYYY-MM-DD or relative like '90daysAgo')",
+                "default": "90daysAgo",
+                "help": "GA4 accepts relative dates (e.g., '90daysAgo', '30daysAgo') or absolute dates (YYYY-MM-DD). Defaults to 90daysAgo for first sync.",
             },
         ],
         # Default queries based on industry best practices (Calibrate Analytics)
@@ -530,37 +515,22 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "display_name": "Salesforce",
         "category": "Business & CRM",
         "description": "Load data from Salesforce CRM (accounts, contacts, opportunities, etc.)",
-        "auth_type": AuthType.BASIC,
+        "auth_type": AuthType.SERVICE_ACCOUNT,
         "dlt_package": "salesforce",
         "dlt_function": "salesforce_source",
+        "pip_dependencies": [{"pip": "simple-salesforce", "import": "simple_salesforce"}],
         "wizard_enabled": True,
-        "required_params": [
-            {
-                "name": "username_env",
-                "type": "secret",
-                "env_var": "SALESFORCE_USERNAME",
-                "prompt": "Salesforce username",
-            },
-            {
-                "name": "password_env",
-                "type": "secret",
-                "env_var": "SALESFORCE_PASSWORD",
-                "prompt": "Salesforce password",
-            },
-            {
-                "name": "security_token_env",
-                "type": "secret",
-                "env_var": "SALESFORCE_SECURITY_TOKEN",
-                "prompt": "Salesforce security token",
-                "help": "Reset at Setup > My Personal Information > Reset Security Token",
-            },
-        ],
+        "required_params": [],
         "optional_params": [],
         "setup_guide": [
-            "1. Get Salesforce username and password",
-            "2. Reset security token (Setup > Reset Security Token)",
-            "3. Check email for security token",
-            "4. Add credentials to .env file",
+            "1. Create a Connected App in Salesforce Setup > App Manager",
+            "2. Enable OAuth 2.0 (Client Credentials flow)",
+            "3. Add credentials to .dlt/secrets.toml:",
+            "   [sources.salesforce.credentials]",
+            "   user_name = 'your_username'",
+            "   password = 'your_password'",
+            "   security_token = 'your_security_token'",
+            "4. Or use OAuth 2.0 Client Credentials — see Salesforce docs",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/salesforce",
         "cost_warning": "Salesforce API limits depend on edition (check your limits)",
@@ -666,7 +636,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/shopify",
         "cost_warning": "Included with Shopify plan",
-        "wizard_enabled": True,  # Enabled: uses Custom App access token via X-Shopify-Access-Token header
+        "wizard_enabled": False,  # Disabled: OAuth 2.0 rewrite needed
         "popularity": 9,
         "capabilities": {
             "performance_metrics": False,
@@ -737,9 +707,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "wizard_enabled": True,
         "required_params": [
             {
-                "name": "token_env",
+                "name": "access_token_env",
                 "type": "secret",
-                "env_var": "SLACK_TOKEN",
+                "env_var": "SLACK_ACCESS_TOKEN",
                 "prompt": "Slack Bot User OAuth Token (starts with xoxb-)",
                 "help": "Bot User OAuth Token (starts with 'xoxb-'). Create at https://api.slack.com/apps > Your App > OAuth & Permissions. Required scopes: channels:history, channels:read, users:read. Must invite bot to channels you want to sync.",
             },
@@ -765,7 +735,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "3. Add Bot Token Scopes: channels:history, channels:read, users:read",
             "4. Install app to workspace",
             "5. Copy Bot User OAuth Token",
-            "6. Add to .env as SLACK_TOKEN",
+            "6. Add to .env as SLACK_ACCESS_TOKEN",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/slack",
         "cost_warning": "Subject to Slack API rate limits",
@@ -785,27 +755,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "dlt_package": "zendesk",
         "dlt_function": "zendesk_support",
         "wizard_enabled": True,
-        "required_params": [
-            {
-                "name": "subdomain",
-                "type": "string",
-                "prompt": "Zendesk subdomain (e.g., mycompany from mycompany.zendesk.com)",
-                "help": "Your Zendesk subdomain",
-            },
-            {
-                "name": "email_env",
-                "type": "secret",
-                "env_var": "ZENDESK_EMAIL",
-                "prompt": "Zendesk email",
-            },
-            {
-                "name": "token_env",
-                "type": "secret",
-                "env_var": "ZENDESK_TOKEN",
-                "prompt": "Zendesk API token",
-                "help": "Generate at Admin > Channels > API",
-            },
-        ],
+        "required_params": [],
         "optional_params": [
             {
                 "name": "start_date",
@@ -817,10 +767,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "setup_guide": [
             "1. Log in to Zendesk as admin",
             "2. Go to Admin > Channels > API",
-            "3. Enable Token Access",
-            "4. Click '+' to add new API token",
-            "5. Copy token and add to .env as ZENDESK_TOKEN",
-            "6. Add your Zendesk email to .env as ZENDESK_EMAIL",
+            "3. Enable Token Access and create an API token",
+            "4. Add credentials to .dlt/secrets.toml:",
+            "   [sources.zendesk.credentials]",
+            "   subdomain = 'yourcompany'",
+            "   email = 'you@company.com'",
+            "   token = 'your_api_token'",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/zendesk",
         "cost_warning": "Subject to Zendesk API rate limits",
@@ -947,8 +899,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "ad_group.id, "
                         "ad_group.name, "
                         "search_term_view.search_term, "
-                        "ad_group_criterion.keyword.text, "
-                        "ad_group_criterion.keyword.match_type, "
                         "search_term_view.status, "
                         "metrics.impressions, "
                         "metrics.clicks, "
@@ -991,7 +941,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "matomo",
         "dlt_function": "matomo_reports",
-        "wizard_enabled": True,
+        "wizard_enabled": False,  # Disabled: token passed via GET param (security risk)
         "required_params": [
             {
                 "name": "url",
@@ -1014,6 +964,28 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             },
         ],
         "optional_params": [],
+        "default_config": {
+            "queries": [
+                {
+                    "resource_name": "visits_summary",
+                    "methods": ["VisitsSummary.get"],
+                    "date": "today",
+                    "period": "month",
+                },
+                {
+                    "resource_name": "referrers",
+                    "methods": ["Referrers.getAll"],
+                    "date": "today",
+                    "period": "month",
+                },
+                {
+                    "resource_name": "pages",
+                    "methods": ["Actions.getPageUrls"],
+                    "date": "today",
+                    "period": "month",
+                },
+            ],
+        },
         "setup_guide": [
             "1. Log in to Matomo",
             "2. Go to Settings > Platform > API",
@@ -1249,7 +1221,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.BASIC,
         "dlt_package": "jira",
         "dlt_function": "jira",
-        "wizard_enabled": True,
+        "wizard_enabled": False,  # Disabled: wrong endpoint in dlt source
         "required_params": [
             {
                 "name": "subdomain",
@@ -1365,7 +1337,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "asana_dlt",  # Note: source name is asana_dlt
         "dlt_function": "asana_source",
-        "wizard_enabled": True,
+        "wizard_enabled": False,  # Disabled: Asana SDK removed from dlt source
         "required_params": [],
         "optional_params": [
             {
@@ -1387,7 +1359,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "setup_guide": [
             "1. Create a Personal Access Token at https://app.asana.com/0/developer-console",
-            "2. Add to .dlt/secrets.toml:",
+            "2. Note: The Asana SDK has been removed from the dlt source.",
+            "   Credentials must be added to .dlt/secrets.toml:",
             "   [sources.asana_dlt]",
             "   access_token = 'your_token_here'",
         ],
@@ -1769,7 +1742,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "strapi",
         "dlt_function": "strapi_source",
-        "wizard_enabled": True,
+        "wizard_enabled": False,  # Disabled: untested, requires Docker Strapi instance
         "required_params": [
             {
                 "name": "domain",
@@ -1814,7 +1787,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "personio",
         "dlt_function": "personio_source",
-        "wizard_enabled": True,
+        "wizard_enabled": False,  # Disabled: enterprise-only API
         "required_params": [
             {
                 "name": "client_id_env",
