@@ -241,14 +241,16 @@ class SalesforceSourceConfig(BaseModel):
     """Salesforce API source configuration"""
 
     username_env: str = Field(
-        default="SALESFORCE_USERNAME", description="Environment variable containing username"
+        default="",
+        description="(Deprecated) Environment variable containing username. Use OAuth 2.0 via secrets.toml instead.",
     )
     password_env: str = Field(
-        default="SALESFORCE_PASSWORD", description="Environment variable containing password"
+        default="",
+        description="(Deprecated) Environment variable containing password. Use OAuth 2.0 via secrets.toml instead.",
     )
     security_token_env: str = Field(
-        default="SALESFORCE_SECURITY_TOKEN",
-        description="Environment variable containing security token",
+        default="",
+        description="(Deprecated) Environment variable containing security token. Use OAuth 2.0 via secrets.toml instead.",
     )
 
 
@@ -268,8 +270,10 @@ class SlackSourceConfig(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    token_env: str = Field(
-        default="SLACK_TOKEN", description="Environment variable containing Slack bot token"
+    access_token_env: str = Field(
+        default="SLACK_ACCESS_TOKEN",
+        description="Environment variable containing Slack bot token",
+        validation_alias=AliasChoices("access_token_env", "token_env"),
     )
     selected_channels: list[str] | None = Field(
         default=None,

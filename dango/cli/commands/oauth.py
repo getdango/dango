@@ -4,6 +4,7 @@ OAuth authentication commands.
 """
 
 import click
+from rich.markup import escape
 
 from dango.cli import console
 
@@ -82,7 +83,7 @@ def oauth_list(ctx: click.Context) -> None:
         console.print("[dim]To remove: dango oauth remove <source_type>[/dim]\n")
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -148,7 +149,7 @@ def oauth_status(ctx: click.Context) -> None:
                 )
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -205,7 +206,7 @@ def oauth_remove(ctx: click.Context, source_type: str) -> None:
             raise click.Abort()
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -282,7 +283,7 @@ def oauth_refresh(ctx: click.Context, oauth_name: str) -> None:
         console.print(f"[dim]  New credential: {new_oauth_name}[/dim]\n")
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -325,7 +326,7 @@ def oauth_facebook_ads(ctx: click.Context) -> None:
             raise click.Abort()
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -367,7 +368,7 @@ def oauth_google_sheets(ctx: click.Context) -> None:
         console.print("See: https://console.cloud.google.com/apis/credentials/consent[/dim]")
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -409,7 +410,7 @@ def oauth_google_analytics(ctx: click.Context) -> None:
         console.print("See: https://console.cloud.google.com/apis/credentials/consent[/dim]")
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -451,7 +452,7 @@ def oauth_google_ads(ctx: click.Context) -> None:
         console.print("See: https://console.cloud.google.com/apis/credentials/consent[/dim]")
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -622,7 +623,7 @@ def oauth_check(ctx: click.Context) -> None:
         console.print("")
 
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():
@@ -805,7 +806,7 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
         console.print("\n[yellow]Setup cancelled[/yellow]")
         raise click.Abort() from None
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[red]Error:[/red] {escape(str(e))}")
         from dango.exceptions import is_debug_mode
 
         if is_debug_mode():

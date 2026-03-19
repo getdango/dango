@@ -201,28 +201,69 @@ class DltPipelineRunner:
                     f"\n[green]✓ Added to requirements.txt: {', '.join(new_deps)}[/green]"
                 )
 
-            # Show error and instructions
-            error_message = (
-                f"Missing required dependencies: {', '.join(d['pip'] for d in missing_deps)}"
-            )
-            console.print(f"\n[red]❌ {error_message}[/red]")
-            console.print("\n[bold]To fix, run:[/bold]")
-            console.print("  [cyan]pip install -r requirements.txt[/cyan]")
-            console.print(f"\nThen retry: [cyan]dango sync --source {source_name}[/cyan]\n")
+            # Try auto-installing missing deps
+            import subprocess
+            import sys
 
-            log_activity(
-                project_root=self.project_root,
-                level="error",
-                source=source_name,
-                message=f"Sync blocked: {error_message}",
-            )
+            pip_packages = [d["pip"] for d in missing_deps]
+            console.print(f"\n[yellow]⚠ Missing dependencies: {', '.join(pip_packages)}[/yellow]")
+            console.print("[dim]Attempting automatic install...[/dim]")
 
-            return {
-                "status": "failed",
-                "source": source_name,
-                "error": error_message,
-                "rows_loaded": 0,
-            }
+            try:
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", *pip_packages],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                )
+                console.print(f"[green]✓ Installed: {', '.join(pip_packages)}[/green]")
+                # Re-check deps after install
+                deps_ok, _ = self._check_dependencies(source_type.value)
+                if deps_ok:
+                    console.print("[green]✓ All dependencies satisfied[/green]")
+                    # Fall through to continue sync
+                else:
+                    error_message = (
+                        f"Dependencies still missing after install: "
+                        f"{', '.join(d['pip'] for d in missing_deps)}"
+                    )
+                    console.print(f"\n[red]❌ {error_message}[/red]")
+                    console.print("\n[bold]To fix manually, run:[/bold]")
+                    console.print("  [cyan]pip install -r requirements.txt[/cyan]")
+                    console.print(f"\nThen retry: [cyan]dango sync --source {source_name}[/cyan]\n")
+
+                    log_activity(
+                        project_root=self.project_root,
+                        level="error",
+                        source=source_name,
+                        message=f"Sync blocked: {error_message}",
+                    )
+
+                    return {
+                        "status": "failed",
+                        "source": source_name,
+                        "error": error_message,
+                        "rows_loaded": 0,
+                    }
+            except subprocess.CalledProcessError:
+                error_message = f"Missing required dependencies: {', '.join(pip_packages)}"
+                console.print(f"\n[red]❌ Auto-install failed: {error_message}[/red]")
+                console.print("\n[bold]To fix manually, run:[/bold]")
+                console.print("  [cyan]pip install -r requirements.txt[/cyan]")
+                console.print(f"\nThen retry: [cyan]dango sync --source {source_name}[/cyan]\n")
+
+                log_activity(
+                    project_root=self.project_root,
+                    level="error",
+                    source=source_name,
+                    message=f"Sync blocked: {error_message}",
+                )
+
+                return {
+                    "status": "failed",
+                    "source": source_name,
+                    "error": error_message,
+                    "rows_loaded": 0,
+                }
 
         # Check disk space before starting sync
         try:
@@ -796,6 +837,10 @@ class DltPipelineRunner:
         # This ensures credentials are passed even if dlt's config resolution misses them
         source_kwargs = self._inject_oauth_credentials(source_type.value, source_kwargs)
 
+        # REST API: assemble RESTAPIConfig dict from flat source_kwargs
+        if source_type == SourceType.REST_API:
+            source_kwargs = self._build_rest_api_config(source_kwargs)
+
         # Pop resources before calling source function — applied via .with_resources() after
         selected_resources = source_kwargs.pop("resources", None)
 
@@ -904,6 +949,18 @@ class DltPipelineRunner:
         except Exception as e:
             # Pipeline failed - restore previous state
             console.print(f"  ❌ Pipeline failed: {e}")
+
+            # Per-resource error guidance
+            error_str = str(e).lower()
+            if any(kw in error_str for kw in ("403", "forbidden", "not found", "404")):
+                console.print(
+                    "\n  [yellow]💡 Tip: Some resources may require higher API permissions.[/yellow]"
+                )
+                console.print(
+                    "  [yellow]   Edit .dango/sources.yml to remove failing resources "
+                    "and retry.[/yellow]"
+                )
+
             console.print("  🔄 Restoring previous state...")
             self._restore_dlt_state(state_backup)
             raise
@@ -1024,8 +1081,26 @@ class DltPipelineRunner:
             for flat_key, dlt_key in field_map.items():
                 if flat_key in resolved_config:
                     credentials[dlt_key] = resolved_config.pop(flat_key)
-            if credentials:
+            if credentials and all(v for v in credentials.values()):
                 resolved_config["credentials"] = credentials
+
+        # Convert date strings to pendulum DateTime for sources that expect it
+        _DATETIME_SOURCES = {"workable"}
+        if source_type_str in _DATETIME_SOURCES:
+            for date_key in ("start_date", "end_date"):
+                date_val = resolved_config.get(date_key)
+                if isinstance(date_val, str) and date_val:
+                    try:
+                        import pendulum
+
+                        resolved_config[date_key] = pendulum.parse(date_val)
+                    except Exception:
+                        try:
+                            from datetime import datetime as dt
+
+                            resolved_config[date_key] = dt.fromisoformat(date_val)
+                        except Exception:
+                            pass  # Leave as string — dlt may handle it
 
         # Override dates if provided
         if start_date:
@@ -1034,6 +1109,49 @@ class DltPipelineRunner:
             resolved_config["end_date"] = end_date
 
         return resolved_config
+
+    def _build_rest_api_config(self, source_kwargs: dict[str, Any]) -> dict[str, Any]:
+        """
+        Transform flat REST API source_kwargs into RESTAPIConfig dict format.
+
+        rest_api_source() expects: config={"client": {...}, "resources": [...]}
+        Wizard collects: base_url, endpoints, auth_type, auth_token
+
+        Returns:
+            Dict with single "config" key containing RESTAPIConfig dict
+        """
+        base_url = source_kwargs.pop("base_url", "")
+        endpoints = source_kwargs.pop("endpoints", [])
+        auth_type = source_kwargs.pop("auth_type", None)
+        auth_token = source_kwargs.pop("auth_token", None)
+
+        # Build client config
+        client: dict[str, Any] = {"base_url": base_url}
+
+        # Build auth config based on type
+        if auth_type and auth_type != "none" and auth_token:
+            if auth_type == "bearer":
+                client["auth"] = {"type": "bearer", "token": auth_token}
+            elif auth_type == "api_key":
+                client["auth"] = {
+                    "type": "api_key",
+                    "name": "Authorization",
+                    "api_key": auth_token,
+                    "location": "header",
+                }
+            elif auth_type == "basic":
+                # Basic auth expects "user:password" format in token
+                client["auth"] = {"type": "http_basic", "username": auth_token, "password": ""}
+
+        # Build resources from endpoints
+        resources: list[dict[str, Any] | str] = []
+        for ep in endpoints:
+            if isinstance(ep, str):
+                resources.append({"name": ep, "endpoint": {"path": ep}})
+            elif isinstance(ep, dict):
+                resources.append(ep)
+
+        return {"config": {"client": client, "resources": resources}}
 
     def _check_oauth_token_expiry(
         self, source_type: str, source_name: str
