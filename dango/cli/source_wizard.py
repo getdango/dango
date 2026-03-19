@@ -1070,7 +1070,7 @@ class SourceWizard:
         elif param_type == "number" and value and isinstance(value, str):
             try:
                 num = float(value)
-                value = int(num) if num == int(num) else num
+                value = int(num) if num.is_integer() else num
             except ValueError:
                 console.print(f"[red]Invalid number: {value}[/red]")
                 return None

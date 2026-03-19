@@ -7,6 +7,8 @@ import importlib
 import os
 import platform
 import signal
+import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -202,12 +204,10 @@ class DltPipelineRunner:
                 )
 
             # Try auto-installing missing deps
-            import subprocess
-            import sys
-
             pip_packages = [d["pip"] for d in missing_deps]
             console.print(f"\n[yellow]⚠ Missing dependencies: {', '.join(pip_packages)}[/yellow]")
-            console.print("[dim]Attempting automatic install...[/dim]")
+            install_cmd = f"pip install {' '.join(pip_packages)}"
+            console.print(f"[dim]Installing automatically: {install_cmd}[/dim]")
 
             try:
                 subprocess.check_call(
@@ -1081,10 +1081,11 @@ class DltPipelineRunner:
             for flat_key, dlt_key in field_map.items():
                 if flat_key in resolved_config:
                     credentials[dlt_key] = resolved_config.pop(flat_key)
-            if credentials and all(v for v in credentials.values()):
+            if credentials and any(v for v in credentials.values()):
                 resolved_config["credentials"] = credentials
 
         # Convert date strings to pendulum DateTime for sources that expect it
+        # Only Workable — its dlt source types start_date as Optional[DateTime]
         _DATETIME_SOURCES = {"workable"}
         if source_type_str in _DATETIME_SOURCES:
             for date_key in ("start_date", "end_date"):
@@ -1093,13 +1094,14 @@ class DltPipelineRunner:
                     try:
                         import pendulum
 
-                        resolved_config[date_key] = pendulum.parse(date_val)
+                        parsed = pendulum.parse(date_val, strict=True)
+                        # Only accept DateTime results (reject Time, Duration)
+                        if isinstance(parsed, pendulum.DateTime):
+                            resolved_config[date_key] = parsed
                     except Exception:
                         try:
-                            from datetime import datetime as dt
-
-                            resolved_config[date_key] = dt.fromisoformat(date_val)
-                        except Exception:
+                            resolved_config[date_key] = datetime.fromisoformat(date_val)
+                        except ValueError:
                             pass  # Leave as string — dlt may handle it
 
         # Override dates if provided
@@ -1140,8 +1142,13 @@ class DltPipelineRunner:
                     "location": "header",
                 }
             elif auth_type == "basic":
-                # Basic auth expects "user:password" format in token
-                client["auth"] = {"type": "http_basic", "username": auth_token, "password": ""}
+                # Basic auth: split "user:password" format
+                parts = auth_token.split(":", 1) if auth_token else ["", ""]
+                client["auth"] = {
+                    "type": "http_basic",
+                    "username": parts[0],
+                    "password": parts[1] if len(parts) > 1 else "",
+                }
 
         # Build resources from endpoints
         resources: list[dict[str, Any] | str] = []
