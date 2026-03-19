@@ -1167,7 +1167,13 @@ class DltPipelineRunner:
             if isinstance(ep, str):
                 resources.append({"name": ep, "endpoint": {"path": ep}})
             elif isinstance(ep, dict):
-                resources.append(ep)
+                # Wizard collects {"path": ..., "name": ...} — transform to
+                # rest_api_source format {"name": ..., "endpoint": {"path": ...}}
+                if "endpoint" not in ep and "path" in ep:
+                    name = ep.get("name", ep["path"].strip("/").replace("/", "_"))
+                    resources.append({"name": name, "endpoint": {"path": ep["path"]}})
+                else:
+                    resources.append(ep)
 
         return {"config": {"client": client, "resources": resources}}
 

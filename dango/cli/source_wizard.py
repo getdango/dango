@@ -118,7 +118,7 @@ class SourceWizard:
                 elif state == "params":
                     # Step 4: Collect parameters
                     if source_type == "rest_api":
-                        params = self._collect_rest_api_params(source_name, metadata)
+                        params = self._collect_rest_api_params(source_name)
                     else:
                         params = self._collect_parameters(source_type, metadata, source_name)
                     if params == "← Back":
@@ -731,7 +731,7 @@ class SourceWizard:
             return False
 
         # 3. Source name for sources.yml
-        default_source_name = module_name.replace("_", "_")
+        default_source_name = module_name
         questions = [
             inquirer.Text(
                 "source_name",
@@ -750,7 +750,16 @@ class SourceWizard:
             )
             return False
 
-        # 4. Check if template file already exists
+        # 4. Check for duplicate source names (before writing any files)
+        config = load_config(self.project_root)
+        existing_names = {s.name for s in config.sources.sources}
+        if source_name in existing_names:
+            console.print(
+                f"[red]A source named '{source_name}' already exists in sources.yml.[/red]"
+            )
+            return False
+
+        # 5. Check if template file already exists
         custom_dir = self.project_root / "custom_sources"
         template_path = custom_dir / f"{module_name}.py"
         if template_path.exists():
@@ -761,7 +770,7 @@ class SourceWizard:
                 console.print("[dim]Aborted — existing file preserved.[/dim]")
                 return False
 
-        # 5. Generate template file
+        # 6. Generate template file
         custom_dir.mkdir(parents=True, exist_ok=True)
         template_content = f'''"""custom_sources/{module_name}.py
 
@@ -805,15 +814,6 @@ def {module_name}_resource(api_key: str):
             f"[green]✅ Created template: {template_path.relative_to(self.project_root)}[/green]"
         )
 
-        # 6. Check for duplicate source names
-        config = load_config(self.project_root)
-        existing_names = {s.name for s in config.sources.sources}
-        if source_name in existing_names:
-            console.print(
-                f"[red]A source named '{source_name}' already exists in sources.yml.[/red]"
-            )
-            return False
-
         # 7. Register in sources.yml
         source_config: dict[str, Any] = {
             "name": source_name,
@@ -839,9 +839,7 @@ def {module_name}_resource(api_key: str):
         console.print("\n[dim]dlt docs: https://dlthub.com/docs/general-usage/source[/dim]")
         return True
 
-    def _collect_rest_api_params(
-        self, source_name: str, metadata: dict[str, Any]
-    ) -> dict[str, Any] | str | None:
+    def _collect_rest_api_params(self, source_name: str) -> dict[str, Any] | str | None:
         """Guided REST API parameter collection with per-auth-type prompts.
 
         Replaces generic _collect_parameters() for rest_api sources with a
@@ -849,13 +847,12 @@ def {module_name}_resource(api_key: str):
 
         Args:
             source_name: User-chosen source instance name
-            metadata: Source metadata from registry
 
         Returns:
             Parameter dict on success, "← Back" to go back, None on cancel.
         """
         console.print("[bold]REST API Configuration[/bold]")
-        console.print("[dim]Type 'back' in any field to return to source name[/dim]\n")
+        console.print("[dim]Type 'back' for Base URL to return to source name[/dim]\n")
 
         # 1. Base URL
         questions = [
