@@ -186,7 +186,7 @@ class SourceWizard:
                     dlt_dir.mkdir(parents=True, exist_ok=True)
                     try:
                         existing = secrets_path.read_text() if secrets_path.exists() else ""
-                        section_header = f"[sources.{source_name}"
+                        section_header = f"[sources.{source_name}."
                         if section_header not in existing:
                             # Pre-populate template with wizard-collected params
                             # (e.g., zendesk subdomain). defaultdict(str) returns ""
