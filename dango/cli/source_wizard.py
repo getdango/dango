@@ -172,6 +172,48 @@ class SourceWizard:
             self._save_source(source_config)
             console.print(f"\n[green]✅ Saved '{source_name}' to sources.yml[/green]")
 
+            # Step 9b: Show setup guide + secrets.toml template for
+            # sources with credentials in secrets.toml (not .env)
+            if not self.secret_params and metadata.get("setup_guide"):
+                console.print("\n[bold]Credential setup required:[/bold]")
+                for line in metadata["setup_guide"]:
+                    console.print(f"  {line}")
+
+                secrets_template = metadata.get("secrets_toml_template")
+                if secrets_template:
+                    dlt_dir = self.project_root / ".dlt"
+                    secrets_path = dlt_dir / "secrets.toml"
+                    dlt_dir.mkdir(parents=True, exist_ok=True)
+                    try:
+                        existing = secrets_path.read_text() if secrets_path.exists() else ""
+                        section_header = f"[sources.{source_name}."
+                        if section_header not in existing:
+                            # Pre-populate template with wizard-collected params
+                            # (e.g., zendesk subdomain). defaultdict(str) returns ""
+                            # for unknown placeholders — prevents wizard crash from
+                            # registry template typos (caught during manual testing).
+                            from collections import defaultdict
+
+                            template_vars = defaultdict(str, source_name=source_name, **params)
+                            template_text = secrets_template.format_map(template_vars)
+                            prefix = existing.rstrip() + "\n\n" if existing.strip() else ""
+                            new_content = prefix + template_text + "\n"
+                            secrets_path.write_text(new_content)
+                            console.print(
+                                "\n[green]✓[/green] Added credential template to "
+                                "[cyan].dlt/secrets.toml[/cyan]"
+                            )
+                            console.print(
+                                "[yellow]Fill in the credential values before syncing.[/yellow]"
+                            )
+                        else:
+                            console.print(
+                                "\n[dim]Credential template already exists in "
+                                ".dlt/secrets.toml[/dim]"
+                            )
+                    except Exception as e:
+                        console.print(f"[yellow]Could not write secrets template: {e}[/yellow]")
+
             # Step 10: Offer automatic analysis metrics
             try:
                 from dango.analysis.templates import generate_metrics_for_source
@@ -1151,18 +1193,18 @@ def {module_name}_resource(api_key: str):
             # Use full source_name to generate unique env var
             name_suffix = source_name
 
-            # Generate unique env var by injecting name suffix
+            # Generate unique env var by replacing service prefix with source name
             # Examples:
-            #   stripe_test + STRIPE_API_KEY → STRIPE_STRIPE_TEST_API_KEY
-            #   my_store + SHOPIFY_ACCESS_TOKEN → SHOPIFY_MY_STORE_ACCESS_TOKEN
+            #   slack + SLACK_ACCESS_TOKEN → SLACK_ACCESS_TOKEN
+            #   marketing_slack + SLACK_ACCESS_TOKEN → MARKETING_SLACK_ACCESS_TOKEN
+            #   stripe_test + STRIPE_API_KEY → STRIPE_TEST_API_KEY
 
-            # Extract the prefix (source type) from base env var
-            # STRIPE_API_KEY → STRIPE, SHOPIFY_ACCESS_TOKEN → SHOPIFY
+            # Extract suffix from base env var (everything after first _)
+            # STRIPE_API_KEY → API_KEY, SHOPIFY_ACCESS_TOKEN → ACCESS_TOKEN
             if "_" in base_env_var:
-                prefix = base_env_var.split("_")[0]
                 suffix = "_".join(base_env_var.split("_")[1:])
-                # Insert name suffix between prefix and suffix
-                env_var = f"{prefix}_{name_suffix.upper().replace('-', '_')}_{suffix}"
+                source_prefix = name_suffix.upper().replace("-", "_")
+                env_var = f"{source_prefix}_{suffix}"
             else:
                 # Fallback: just append name suffix
                 env_var = f"{base_env_var}_{name_suffix.upper().replace('-', '_')}"

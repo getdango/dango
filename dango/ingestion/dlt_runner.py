@@ -837,6 +837,18 @@ class DltPipelineRunner:
         # This ensures credentials are passed even if dlt's config resolution misses them
         source_kwargs = self._inject_oauth_credentials(source_type.value, source_kwargs)
 
+        # Strip act_ prefix from Facebook Ads account_id (dlt prepends it)
+        if source_type == SourceType.FACEBOOK_ADS and "account_id" in source_kwargs:
+            account_id = str(source_kwargs["account_id"])
+            if account_id.startswith("act_"):
+                source_kwargs["account_id"] = account_id[4:]
+
+        # Zendesk: subdomain is collected for UX and written to secrets.toml,
+        # but zendesk_support() reads it from credentials — don't pass as kwarg.
+        # (Workable and Jira also have subdomain but DO take it as a function param.)
+        if source_type == SourceType.ZENDESK:
+            source_kwargs.pop("subdomain", None)
+
         # REST API: assemble RESTAPIConfig dict from flat source_kwargs
         if source_type == SourceType.REST_API:
             source_kwargs = self._build_rest_api_config(source_kwargs)
@@ -1161,18 +1173,34 @@ class DltPipelineRunner:
                 "client_secret": client_secret or "",
             }
 
-        # Build resources from endpoints
+        # Build resources from endpoints with merge + primary_key defaults
         resources: list[dict[str, Any] | str] = []
         for ep in endpoints:
             if isinstance(ep, str):
-                resources.append({"name": ep, "endpoint": {"path": ep}})
+                resources.append(
+                    {
+                        "name": ep,
+                        "endpoint": {"path": ep},
+                        "write_disposition": "merge",
+                        "primary_key": "id",
+                    }
+                )
             elif isinstance(ep, dict):
                 # Wizard collects {"path": ..., "name": ...} — transform to
                 # rest_api_source format {"name": ..., "endpoint": {"path": ...}}
                 if "endpoint" not in ep and "path" in ep:
                     name = ep.get("name", ep["path"].strip("/").replace("/", "_"))
-                    resources.append({"name": name, "endpoint": {"path": ep["path"]}})
+                    resources.append(
+                        {
+                            "name": name,
+                            "endpoint": {"path": ep["path"]},
+                            "write_disposition": ep.get("write_disposition", "merge"),
+                            "primary_key": ep.get("primary_key", "id"),
+                        }
+                    )
                 else:
+                    ep.setdefault("write_disposition", "merge")
+                    ep.setdefault("primary_key", "id")
                     resources.append(ep)
 
         return {"config": {"client": client, "resources": resources}}
@@ -1393,7 +1421,7 @@ Possible causes:
   • Wrong environment (test vs live mode)
 
 How to fix:
-  1. Check .env file for correct credentials
+  1. Check credentials in .env or .dlt/secrets.toml
   2. Verify token hasn't expired
   3. Confirm required permissions are granted
   4. Test credentials manually (curl/API docs)
@@ -1510,7 +1538,7 @@ Troubleshooting steps:
   4. Try full refresh: dango sync --source {source_name} --full-refresh
   5. Check API documentation for breaking changes
 
-Need help? Visit: https://github.com/anthropics/dango/issues
+Need help? Visit: https://github.com/getdango/dango/issues
 """
 
     def _run_with_retry(

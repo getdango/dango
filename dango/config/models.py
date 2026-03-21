@@ -220,8 +220,9 @@ class GoogleAnalyticsSourceConfig(BaseModel):
         default="GOOGLE_CREDENTIALS",
         description="Environment variable containing Google service account JSON or OAuth credentials",
     )
-    start_date: datetime | None = Field(
-        default=None, description="Start date for data extraction (YYYY-MM-DD)"
+    start_date: str | None = Field(
+        default=None,
+        description="Start date for data extraction (YYYY-MM-DD or relative like '90daysAgo')",
     )
 
 
