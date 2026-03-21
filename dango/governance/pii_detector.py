@@ -57,6 +57,12 @@ def _get_analyzer() -> Any:
             )
             raise RuntimeError(msg) from None
 
+    # Suppress verbose Presidio loggers (use alias to avoid shadowing structlog)
+    import logging as _logging
+
+    _logging.getLogger("presidio-analyzer").setLevel(_logging.WARNING)
+    _logging.getLogger("presidio_analyzer").setLevel(_logging.WARNING)
+
     from presidio_analyzer import AnalyzerEngine  # lazy import
     from presidio_analyzer.nlp_engine import NlpEngineProvider
 

@@ -218,7 +218,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
     "rest_api": {
         "display_name": "REST API (Generic)",
         "category": "Local & Custom",
-        "description": "Connect to any custom REST API (e.g., Shopee, Lazada, internal APIs)",
+        "description": "Connect to any REST API with configurable authentication",
         "auth_type": AuthType.API_KEY,
         "dlt_package": "rest_api",  # Built-in dlt source
         "dlt_function": "rest_api_source",
@@ -329,7 +329,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             {
                 "name": "account_id",
                 "type": "string",
-                "prompt": "Facebook Ads Account ID (e.g., act_123456789)",
+                "prompt": "Facebook Ads Account ID (numeric, e.g., 123456789)",
                 "help": "Find in Facebook Ads Manager URL",
             },
             {
@@ -522,14 +522,11 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "wizard_enabled": True,
         "required_params": [],
         "optional_params": [],
+        "secrets_toml_template": '[sources.{source_name}.credentials]\nuser_name = ""\npassword = ""\nsecurity_token = ""\n',
         "setup_guide": [
             "1. Create a Connected App in Salesforce Setup > App Manager",
             "2. Enable OAuth 2.0 (Client Credentials flow)",
-            "3. Add credentials to .dlt/secrets.toml:",
-            "   [sources.salesforce.credentials]",
-            "   user_name = 'your_username'",
-            "   password = 'your_password'",
-            "   security_token = 'your_security_token'",
+            "3. Fill in credentials in .dlt/secrets.toml (template added automatically)",
             "4. Or use OAuth 2.0 Client Credentials — see Salesforce docs",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/salesforce",
@@ -755,7 +752,14 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "dlt_package": "zendesk",
         "dlt_function": "zendesk_support",
         "wizard_enabled": True,
-        "required_params": [],
+        "required_params": [
+            {
+                "name": "subdomain",
+                "type": "string",
+                "description": "Your Zendesk subdomain (e.g., 'mycompany' from mycompany.zendesk.com)",
+                "help_text": "Find this in your Zendesk URL: https://<subdomain>.zendesk.com",
+            },
+        ],
         "optional_params": [
             {
                 "name": "start_date",
@@ -764,15 +768,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "default": None,
             },
         ],
+        "secrets_toml_template": '[sources.{source_name}.credentials]\nsubdomain = "{subdomain}"\nemail = ""\ntoken = ""\n',
         "setup_guide": [
             "1. Log in to Zendesk as admin",
             "2. Go to Admin > Channels > API",
             "3. Enable Token Access and create an API token",
-            "4. Add credentials to .dlt/secrets.toml:",
-            "   [sources.zendesk.credentials]",
-            "   subdomain = 'yourcompany'",
-            "   email = 'you@company.com'",
-            "   token = 'your_api_token'",
+            "4. Fill in credentials in .dlt/secrets.toml (template added automatically)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/zendesk",
         "cost_warning": "Subject to Zendesk API rate limits",
