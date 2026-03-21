@@ -843,6 +843,12 @@ class DltPipelineRunner:
             if account_id.startswith("act_"):
                 source_kwargs["account_id"] = account_id[4:]
 
+        # Zendesk: subdomain is collected for UX and written to secrets.toml,
+        # but zendesk_support() reads it from credentials — don't pass as kwarg.
+        # (Workable and Jira also have subdomain but DO take it as a function param.)
+        if source_type == SourceType.ZENDESK:
+            source_kwargs.pop("subdomain", None)
+
         # REST API: assemble RESTAPIConfig dict from flat source_kwargs
         if source_type == SourceType.REST_API:
             source_kwargs = self._build_rest_api_config(source_kwargs)
@@ -1051,7 +1057,6 @@ class DltPipelineRunner:
             "deduplication",  # Dango's deduplication strategy
             "enabled",  # Dango's source enable/disable flag
             "description",  # Dango's source description
-            "subdomain",  # Zendesk: collected for UX, lives in secrets.toml credentials
         }
 
         # Resolve environment variables (fields ending in _env)

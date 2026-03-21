@@ -756,8 +756,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             {
                 "name": "subdomain",
                 "type": "string",
-                "description": "Your Zendesk subdomain (e.g., 'mycompany' from mycompany.zendesk.com)",
-                "help_text": "Find this in your Zendesk URL: https://<subdomain>.zendesk.com",
+                "prompt": "Zendesk subdomain (e.g., 'mycompany' from mycompany.zendesk.com)",
+                "help": "Find this in your Zendesk URL: https://<subdomain>.zendesk.com",
             },
         ],
         "optional_params": [

@@ -189,13 +189,15 @@ class SourceWizard:
                         section_header = f"[sources.{source_name}"
                         if section_header not in existing:
                             # Pre-populate template with wizard-collected params
-                            # (e.g., zendesk subdomain) — defaultdict avoids KeyError
-                            # for placeholders without matching params
+                            # (e.g., zendesk subdomain). defaultdict(str) returns ""
+                            # for unknown placeholders — prevents wizard crash from
+                            # registry template typos (caught during manual testing).
                             from collections import defaultdict
 
                             template_vars = defaultdict(str, source_name=source_name, **params)
                             template_text = secrets_template.format_map(template_vars)
-                            new_content = existing.rstrip() + "\n\n" + template_text + "\n"
+                            prefix = existing.rstrip() + "\n\n" if existing.strip() else ""
+                            new_content = prefix + template_text + "\n"
                             secrets_path.write_text(new_content)
                             console.print(
                                 "\n[green]✓[/green] Added credential template to "
