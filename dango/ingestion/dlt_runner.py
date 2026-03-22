@@ -962,8 +962,25 @@ class DltPipelineRunner:
             # Pipeline failed - restore previous state
             console.print(f"  ❌ Pipeline failed: {e}")
 
-            # Per-resource error guidance
+            # Slack-specific error guidance
             error_str = str(e).lower()
+            if source_type == SourceType.SLACK:
+                if "not_in_channel" in error_str:
+                    console.print(
+                        "\n  [yellow]💡 Invite the bot to the channel you want to sync.[/yellow]"
+                    )
+                elif "invalid_auth" in error_str:
+                    console.print(
+                        "\n  [yellow]💡 Token is invalid or expired. "
+                        "Regenerate at https://api.slack.com/apps[/yellow]"
+                    )
+                elif "missing_scope" in error_str:
+                    console.print(
+                        "\n  [yellow]💡 Add scopes: channels:history, channels:read, "
+                        "users:read[/yellow]"
+                    )
+
+            # Per-resource error guidance
             if any(kw in error_str for kw in ("403", "forbidden", "not found", "404")):
                 console.print(
                     "\n  [yellow]💡 Tip: Some resources may require higher API permissions.[/yellow]"

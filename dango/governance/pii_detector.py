@@ -57,22 +57,45 @@ def _get_analyzer() -> Any:
             )
             raise RuntimeError(msg) from None
 
-    # Suppress verbose Presidio loggers (use alias to avoid shadowing structlog)
+    # Suppress verbose Presidio + spaCy loggers during init (use alias to
+    # avoid shadowing structlog).  Temporarily raise root logger to ERROR so
+    # that AnalyzerEngine() construction doesn't emit startup noise, then
+    # restore the original level.
     import logging as _logging
 
-    _logging.getLogger("presidio-analyzer").setLevel(_logging.WARNING)
-    _logging.getLogger("presidio_analyzer").setLevel(_logging.WARNING)
+    _noisy_loggers = [
+        "presidio-analyzer",
+        "presidio_analyzer",
+        "presidio_analyzer.nlp_engine",
+        "presidio_analyzer.recognizer_registry",
+        "presidio_analyzer.pattern_recognizer",
+        "spacy",
+    ]
+    saved_levels: dict[str, int] = {}
+    for _name in _noisy_loggers:
+        _lg = _logging.getLogger(_name)
+        saved_levels[_name] = _lg.level
+        _lg.setLevel(_logging.ERROR)
 
-    from presidio_analyzer import AnalyzerEngine  # lazy import
-    from presidio_analyzer.nlp_engine import NlpEngineProvider
+    root_logger = _logging.getLogger()
+    saved_root_level = root_logger.level
+    root_logger.setLevel(_logging.ERROR)
 
-    provider = NlpEngineProvider(
-        nlp_configuration={
-            "nlp_engine_name": "spacy",
-            "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
-        }
-    )
-    _analyzer = AnalyzerEngine(nlp_engine=provider.create_engine())
+    try:
+        from presidio_analyzer import AnalyzerEngine  # lazy import
+        from presidio_analyzer.nlp_engine import NlpEngineProvider
+
+        provider = NlpEngineProvider(
+            nlp_configuration={
+                "nlp_engine_name": "spacy",
+                "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+            }
+        )
+        _analyzer = AnalyzerEngine(nlp_engine=provider.create_engine())
+    finally:
+        root_logger.setLevel(saved_root_level)
+        for _name, _lvl in saved_levels.items():
+            _logging.getLogger(_name).setLevel(_lvl)
     return _analyzer
 
 
