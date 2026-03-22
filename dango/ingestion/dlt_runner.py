@@ -1068,6 +1068,7 @@ class DltPipelineRunner:
             if (
                 failing_resource
                 and hasattr(source, "resources")
+                and failing_resource in source.resources
                 and len(source.resources) > 1
                 and hasattr(source, "with_resources")
             ):

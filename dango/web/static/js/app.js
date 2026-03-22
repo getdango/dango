@@ -867,6 +867,12 @@ async function triggerFullRefresh(sourceName) {
         return;
     }
 
+    if (activeFileOperations.has(sourceName)) {
+        const count = activeFileOperations.get(sourceName).size;
+        showToast(`${sourceName} has ${count} file operation(s) in progress, please wait`, 'warning');
+        return;
+    }
+
     try {
         activeSyncs.set(sourceName, Date.now());
         updateSourceStatus(sourceName, 'syncing');
@@ -915,6 +921,12 @@ async function syncWithDateRange() {
 
     if (activeSyncs.has(sourceName)) {
         showToast(`${sourceName} is already syncing`, 'warning');
+        return;
+    }
+
+    if (activeFileOperations.has(sourceName)) {
+        const count = activeFileOperations.get(sourceName).size;
+        showToast(`${sourceName} has ${count} file operation(s) in progress, please wait`, 'warning');
         return;
     }
 

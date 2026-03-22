@@ -24,16 +24,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["sources"])
 
+# Cron expression → human-readable display string.
+# Keep in sync with CRON_PRESETS in config/schedules.py and
+# _FREQUENCY_CHOICES in cli/commands/schedule.py.
 _CRON_DISPLAY: dict[str, str] = {
     "0 */1 * * *": "Every hour",
+    "0 * * * *": "Every hour",  # CRON_PRESETS "every_hour" variant
     "0 */2 * * *": "Every 2 hours",
     "0 */4 * * *": "Every 4 hours",
     "0 */6 * * *": "Every 6 hours",
     "0 */12 * * *": "Every 12 hours",
+    "*/15 * * * *": "Every 15 minutes",  # CRON_PRESETS "every_15m"
     "0 0 * * *": "Daily at midnight",
     "0 6 * * *": "Daily at 6 AM",
     "0 0 * * 0": "Weekly (Sunday)",
     "0 0 * * 1": "Weekly (Monday)",
+    "0 6 * * 1": "Weekly (Monday at 6 AM)",  # CRON_PRESETS "weekly"
 }
 
 

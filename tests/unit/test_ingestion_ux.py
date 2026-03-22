@@ -230,3 +230,13 @@ class TestCronToDisplay:
         from dango.web.routes.sources import _cron_to_display
 
         assert _cron_to_display("0 0 * * 1") == "Weekly (Monday)"
+
+    def test_cron_presets_every_hour_variant(self) -> None:
+        from dango.web.routes.sources import _cron_to_display
+
+        assert _cron_to_display("0 * * * *") == "Every hour"
+
+    def test_cron_presets_weekly_6am(self) -> None:
+        from dango.web.routes.sources import _cron_to_display
+
+        assert _cron_to_display("0 6 * * 1") == "Weekly (Monday at 6 AM)"
