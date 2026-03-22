@@ -359,6 +359,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "8. Facebook retains insights data for 37 months",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/facebook_ads",
+        "default_config": {
+            "lookback_days": 3,
+        },
         "cost_warning": "Rate limited: 200 calls/hour per user, 4800/day per app",
         "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 9,
@@ -399,6 +402,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         # Default queries based on industry best practices (Calibrate Analytics)
         # GA4 Data API provides aggregated data only - each query becomes a table
         "default_config": {
+            "lookback_days": 2,
             "queries": [
                 {
                     "resource_name": "traffic",
@@ -444,7 +448,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                     "dimensions": ["date", "country", "city"],
                     "metrics": ["sessions", "totalUsers", "engagedSessions"],
                 },
-            ]
+            ],
         },
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
@@ -814,6 +818,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         # Default GAQL queries — each becomes a table. Duplicated from
         # dlt_sources/google_ads/settings.py (registry must not import from dlt_sources/).
         "default_config": {
+            "lookback_days": 3,
             "queries": [
                 {
                     "resource_name": "campaign_stats",

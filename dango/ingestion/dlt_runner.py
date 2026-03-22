@@ -819,6 +819,17 @@ class DltPipelineRunner:
                 elif key in config_toml_keys:
                     console.print(f"  [dim]Using {key} from .dlt/config.toml[/dim]")
 
+        # Apply lookback window: on incremental syncs, shift start_date back by
+        # lookback_days to re-load recent data and pick up late-arriving records.
+        # Ignored during full refresh (all data reloaded anyway).
+        _lookback = source_kwargs.pop("lookback_days", None)
+        if _lookback is None:
+            _lookback = getattr(source_config, "lookback_days", None)
+        if _lookback and not full_refresh and not start_date:
+            lookback_start = (date.today() - timedelta(days=int(_lookback))).isoformat()
+            source_kwargs["start_date"] = lookback_start
+            console.print(f"  [dim]Lookback: re-loading last {_lookback} day(s)[/dim]")
+
         # Apply parameter transforms from registry (e.g., string -> list)
         param_transforms = metadata.get("param_transforms", {})
         for param_name, transform_type in param_transforms.items():
@@ -1074,6 +1085,7 @@ class DltPipelineRunner:
             "deduplication",  # Dango's deduplication strategy
             "enabled",  # Dango's source enable/disable flag
             "description",  # Dango's source description
+            "lookback_days",  # Dango's lookback window for late-arriving records
         }
 
         # Resolve environment variables (fields ending in _env)

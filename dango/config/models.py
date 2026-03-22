@@ -405,6 +405,10 @@ class DataSource(BaseModel):
     description: str | None = None
     tags: list[str] = Field(default_factory=list)
 
+    # Lookback window: on each incremental sync, re-load this many days of data
+    # to pick up late-arriving records.  Ignored during full refresh.
+    lookback_days: int | None = None
+
     @field_validator("name")
     @classmethod
     def validate_name_format(cls, v: str) -> str:

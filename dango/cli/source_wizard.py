@@ -250,6 +250,14 @@ class SourceWizard:
                     "and resumes on next run.[/dim]"
                 )
 
+            # Show lookback window setting if configured
+            lookback = (metadata.get("default_config") or {}).get("lookback_days")
+            if lookback:
+                console.print(
+                    f"\n  [dim]Lookback window: {lookback} day(s) — each incremental "
+                    f"sync re-loads recent data to catch late-arriving records.[/dim]"
+                )
+
             # Success messages based on whether secrets were required
             if self.secret_params:
                 console.print(f"\n[green]✅ Source '{source_name}' fully configured![/green]")
