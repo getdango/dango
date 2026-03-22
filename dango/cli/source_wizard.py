@@ -267,8 +267,9 @@ class SourceWizard:
             # Success messages based on whether secrets were required
             if self.secret_params:
                 console.print(f"\n[green]✅ Source '{source_name}' fully configured![/green]")
-                console.print("\n[cyan]Ready to sync:[/cyan]")
-                console.print(f"  dango sync --source {source_name}")
+                console.print("\n[cyan]Next steps:[/cyan]")
+                console.print(f"  1. Sync your data:   dango sync --source {source_name}")
+                console.print("  2. Schedule syncs:   dango schedule add")
             else:
                 # No secrets required
                 console.print(f"\n[green]✅ Source '{source_name}' added successfully![/green]")

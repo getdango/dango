@@ -735,7 +735,7 @@ async function loadSources() {
             if (activeSyncs.size > 0 || totalFileOps > 0 || dbtRunStartTime !== null) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                        <td colspan="7" class="px-6 py-8 text-center text-gray-500">
                             <div class="flex flex-col items-center space-y-3">
                                 <div class="spinner"></div>
                                 <p>Processing files...</p>
@@ -839,6 +839,118 @@ async function triggerSync(sourceName) {
 }
 
 // ============================================================================
+// Sync Menu & Options
+// ============================================================================
+
+function toggleSyncMenu(sourceName) {
+    // Close all other menus first
+    document.querySelectorAll('[id^="sync-dropdown-"]').forEach(el => {
+        if (el.id !== `sync-dropdown-${sourceName}`) {
+            el.classList.add('hidden');
+        }
+    });
+    const dropdown = document.getElementById(`sync-dropdown-${sourceName}`);
+    if (dropdown) {
+        dropdown.classList.toggle('hidden');
+    }
+}
+
+function closeSyncMenus() {
+    document.querySelectorAll('[id^="sync-dropdown-"]').forEach(el => {
+        el.classList.add('hidden');
+    });
+}
+
+async function triggerFullRefresh(sourceName) {
+    if (activeSyncs.has(sourceName)) {
+        showToast(`${sourceName} is already syncing`, 'warning');
+        return;
+    }
+
+    try {
+        activeSyncs.set(sourceName, Date.now());
+        updateSourceStatus(sourceName, 'syncing');
+        addLogEntry('info', 'Triggering full refresh sync', sourceName);
+
+        const response = await apiCall(`/api/sources/${sourceName}/sync`, 'POST', {
+            full_refresh: true
+        }, 30000);
+
+        if (response.success) {
+            showToast(`Full refresh started for ${sourceName}`, 'info');
+        } else {
+            throw new Error(response.message || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error triggering full refresh:', error);
+        showToast(`Failed to start full refresh for ${sourceName}`, 'error');
+        addLogEntry('error', `Failed to trigger full refresh: ${error.message}`, sourceName);
+        activeSyncs.delete(sourceName);
+        updateSourceStatus(sourceName, 'failed');
+    }
+}
+
+function openDateRangeModal(sourceName) {
+    document.getElementById('date-range-source').value = sourceName;
+    document.getElementById('sync-start-date').value = '';
+    document.getElementById('sync-end-date').value = '';
+    document.getElementById('date-range-modal').classList.remove('hidden');
+}
+
+function closeDateRangeModal() {
+    document.getElementById('date-range-modal').classList.add('hidden');
+}
+
+async function syncWithDateRange() {
+    const sourceName = document.getElementById('date-range-source').value;
+    const startDate = document.getElementById('sync-start-date').value;
+    const endDate = document.getElementById('sync-end-date').value;
+
+    if (!startDate) {
+        showToast('Please select a start date', 'warning');
+        return;
+    }
+
+    closeDateRangeModal();
+
+    if (activeSyncs.has(sourceName)) {
+        showToast(`${sourceName} is already syncing`, 'warning');
+        return;
+    }
+
+    try {
+        activeSyncs.set(sourceName, Date.now());
+        updateSourceStatus(sourceName, 'syncing');
+        addLogEntry('info', `Triggering sync with date range: ${startDate} to ${endDate || 'now'}`, sourceName);
+
+        const response = await apiCall(`/api/sources/${sourceName}/sync`, 'POST', {
+            full_refresh: false,
+            start_date: startDate,
+            end_date: endDate || null
+        }, 30000);
+
+        if (response.success) {
+            showToast(`Date range sync started for ${sourceName}`, 'info');
+        } else {
+            throw new Error(response.message || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error triggering date range sync:', error);
+        showToast(`Failed to start sync for ${sourceName}`, 'error');
+        addLogEntry('error', `Failed to trigger date range sync: ${error.message}`, sourceName);
+        activeSyncs.delete(sourceName);
+        updateSourceStatus(sourceName, 'failed');
+    }
+}
+
+// Close sync menus when clicking outside
+document.addEventListener('click', function(event) {
+    if (!event.target.closest('[id^="sync-menu-"]')) {
+        closeSyncMenus();
+    }
+});
+
+// ============================================================================
 // UI Updates
 // ============================================================================
 
@@ -937,7 +1049,7 @@ function showSourcesLoading() {
     const tbody = document.getElementById('sources-table-body');
     tbody.innerHTML = `
         <tr>
-            <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+            <td colspan="7" class="px-6 py-8 text-center text-gray-500">
                 <div class="flex flex-col items-center space-y-3">
                     <div class="spinner"></div>
                     <p>Loading sources...</p>
@@ -956,7 +1068,7 @@ function renderSourcesTable() {
 
         tbody.innerHTML = `
             <tr>
-                <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                <td colspan="7" class="px-6 py-8 text-center text-gray-500">
                     <div class="flex flex-col items-center space-y-2">
                         <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
@@ -1012,15 +1124,27 @@ function renderSourcesTable() {
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                 ${formatRelativeTime(source.last_sync)}
             </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                ${source.has_schedule ? `<span title="${source.schedule_display || ''}">${source.schedule_display || 'Scheduled'}</span>` : '<span class="text-gray-300">—</span>'}
+            </td>
             <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                <button
-                    onclick="event.stopPropagation(); triggerSync('${source.name}')"
-                    class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150"
-                    id="sync-btn-${source.name}"
-                    ${buttonDisabled}
-                >
-                    ${buttonText}
-                </button>
+                <div class="relative inline-block text-left" id="sync-menu-${source.name}">
+                    <button
+                        onclick="event.stopPropagation(); toggleSyncMenu('${source.name}')"
+                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150"
+                        id="sync-btn-${source.name}"
+                        ${buttonDisabled}
+                    >
+                        ${buttonText} ▾
+                    </button>
+                    <div id="sync-dropdown-${source.name}" class="hidden origin-top-right absolute right-0 mt-1 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
+                        <div class="py-1">
+                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerSync('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Incremental Sync</a>
+                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerFullRefresh('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Full Refresh</a>
+                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); openDateRangeModal('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Custom Date Range...</a>
+                        </div>
+                    </div>
+                </div>
             </td>
         </tr>
         `;
@@ -1136,7 +1260,7 @@ function updateSourceStatus(sourceName, newStatus) {
         const syncBtn = document.getElementById(`sync-btn-${sourceName}`);
         if (syncBtn) {
             syncBtn.disabled = newStatus === 'syncing';
-            syncBtn.textContent = newStatus === 'syncing' ? 'Syncing...' : 'Sync Now';
+            syncBtn.innerHTML = newStatus === 'syncing' ? 'Syncing...' : 'Sync Now &#9662;';
         }
     } else {
         // Row doesn't exist yet - table hasn't been rendered
@@ -1151,7 +1275,7 @@ function showSourcesError() {
     const tbody = document.getElementById('sources-table-body');
     tbody.innerHTML = `
         <tr>
-            <td colspan="6" class="px-6 py-8 text-center text-red-500">
+            <td colspan="7" class="px-6 py-8 text-center text-red-500">
                 <div class="flex flex-col items-center space-y-2">
                     <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -2225,3 +2349,9 @@ window.switchTab = switchTab;
 window.openMetabase = openMetabase;
 window.copyMetabaseField = copyMetabaseField;
 window.dismissMetabaseBanner = dismissMetabaseBanner;
+window.toggleSyncMenu = toggleSyncMenu;
+window.closeSyncMenus = closeSyncMenus;
+window.triggerFullRefresh = triggerFullRefresh;
+window.openDateRangeModal = openDateRangeModal;
+window.closeDateRangeModal = closeDateRangeModal;
+window.syncWithDateRange = syncWithDateRange;
