@@ -41,6 +41,36 @@ def save_sync_history_entry(project_root: Path, source_name: str, entry: dict[st
         print(f"Warning: Failed to save sync history for {source_name}: {e}")
 
 
+def get_earliest_start_date(project_root: Path, source_name: str) -> str | None:
+    """Get the earliest start_date among successful syncs for a source.
+
+    Used for gap fill detection: if a user provides a start_date earlier
+    than any previous sync, the gap between the two dates needs filling.
+
+    Returns:
+        ISO date string of earliest start_date, or None if no history.
+    """
+    history_file = get_sync_history_file(project_root, source_name)
+    if not history_file.exists():
+        return None
+
+    try:
+        with open(history_file) as f:
+            history: list[dict[str, Any]] = json.load(f)
+
+        earliest: str | None = None
+        for entry in history:
+            if entry.get("status") != "success":
+                continue
+            sd = entry.get("start_date")
+            if sd and isinstance(sd, str):
+                if earliest is None or sd < earliest:
+                    earliest = sd
+        return earliest
+    except Exception:
+        return None
+
+
 def load_sync_history(
     project_root: Path, source_name: str, limit: int = 10
 ) -> list[dict[str, Any]]:

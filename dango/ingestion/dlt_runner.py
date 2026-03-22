@@ -425,13 +425,21 @@ class DltPipelineRunner:
             # Either user explicitly requested it OR source uses replace write_disposition
             is_full_refresh = full_refresh or uses_replace_mode
 
-            history_entry = {
+            # Capture effective start_date for gap fill detection
+            effective_start = None
+            if start_date:
+                effective_start = (
+                    start_date.isoformat() if hasattr(start_date, "isoformat") else str(start_date)
+                )
+
+            history_entry: dict[str, Any] = {
                 "timestamp": start_time.isoformat(),
                 "status": result_status,
                 "duration_seconds": round(duration, 2),
                 "rows_processed": rows_loaded,
                 "full_refresh": is_full_refresh,
                 "error_message": error_message,
+                "start_date": effective_start,
             }
             save_sync_history_entry(self.project_root, source_name, history_entry)
 
@@ -858,6 +866,21 @@ class DltPipelineRunner:
                 if transform_type == "list" and isinstance(value, str):
                     # Convert single string to list (e.g., sheet name -> [sheet_name])
                     source_kwargs[param_name] = [value]
+
+        # Gap fill detection: if user provided a start_date earlier than our
+        # earliest historical sync, inform them about the gap
+        if start_date and not full_refresh:
+            from dango.utils.sync_history import get_earliest_start_date
+
+            earliest = get_earliest_start_date(self.project_root, source_name)
+            start_str = (
+                start_date.isoformat() if hasattr(start_date, "isoformat") else str(start_date)
+            )
+            if earliest and start_str < earliest:
+                console.print(
+                    f"  [cyan]Gap fill: loading data from {start_str} "
+                    f"(earliest previous sync: {earliest})[/cyan]"
+                )
 
         # Check OAuth token expiry before attempting sync
         oauth_warning = self._check_oauth_token_expiry(source_type.value, source_name)
