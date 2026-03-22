@@ -593,14 +593,19 @@ def sync(
                 raise click.Abort() from oauth_err
 
         # Run sync
-        summary = run_sync(
-            project_root=project_root,
-            sources=sources_to_sync,
-            start_date=start_date_obj,
-            end_date=end_date_obj,
-            full_refresh=full_refresh,
-            limit=limit,
-        )
+        try:
+            summary = run_sync(
+                project_root=project_root,
+                sources=sources_to_sync,
+                start_date=start_date_obj,
+                end_date=end_date_obj,
+                full_refresh=full_refresh,
+                limit=limit,
+            )
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Sync interrupted — progress saved.[/yellow]")
+            console.print("[green]Resume with the same command.[/green]")
+            return
 
         # Trigger Metabase schema sync (if Metabase is running)
         if summary["failed_count"] == 0:

@@ -22,6 +22,8 @@ let loadSourcesRetryTimeout = null;
 // Track active upload/delete operations to prevent premature loadSources() retries
 // Maps sourceName to Set of operation IDs
 let activeFileOperations = new Map();
+// Track elapsed time intervals for active syncs: Map<sourceName, intervalId>
+let syncTimers = new Map();
 
 /**
  * Format a file size in bytes to a human-readable string (B/KB/MB/GB).
@@ -34,6 +36,41 @@ function formatFileSize(bytes) {
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+/**
+ * Format elapsed seconds as human-readable (e.g., "1m 23s")
+ */
+function formatElapsed(seconds) {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m ${s}s`;
+}
+
+/**
+ * Start an elapsed timer for a syncing source
+ */
+function startSyncTimer(sourceName) {
+    stopSyncTimer(sourceName);
+    const startTime = activeSyncs.get(sourceName) || Date.now();
+    const timerId = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const btn = document.getElementById(`sync-btn-${sourceName}`);
+        if (btn) btn.textContent = `Syncing... ${formatElapsed(elapsed)}`;
+    }, 1000);
+    syncTimers.set(sourceName, timerId);
+}
+
+/**
+ * Stop an elapsed timer for a source
+ */
+function stopSyncTimer(sourceName) {
+    const timerId = syncTimers.get(sourceName);
+    if (timerId) {
+        clearInterval(timerId);
+        syncTimers.delete(sourceName);
+    }
 }
 
 /**
@@ -333,6 +370,7 @@ async function handleWebSocketMessage(data) {
                 updateSyncCounter();
                 renderSourcesTable();
             }
+            startSyncTimer(source);
             break;
 
         case 'sync_started':
@@ -345,6 +383,7 @@ async function handleWebSocketMessage(data) {
                 updateSyncCounter();
                 renderSourcesTable();
             }
+            startSyncTimer(source);
             break;
 
         case 'sync_progress':
@@ -354,6 +393,7 @@ async function handleWebSocketMessage(data) {
 
         case 'sync_completed':
             console.log('✅ [WS] sync_completed - Source:', source);
+            stopSyncTimer(source);
             addLogEntry('success', message || `Sync completed`, source);
 
             // Suppress success toast during batch operations (multi-file uploads)
@@ -373,6 +413,7 @@ async function handleWebSocketMessage(data) {
 
         case 'sync_failed':
             console.log('❌ [WS] sync_failed - Source:', source);
+            stopSyncTimer(source);
             activeSyncs.delete(source);
             updateSyncCounter();  // Update header counter
             addLogEntry('error', message || `Sync failed`, source);

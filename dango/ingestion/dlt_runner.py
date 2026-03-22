@@ -414,7 +414,9 @@ class DltPipelineRunner:
             duration = (datetime.now() - start_time).total_seconds()
 
             # Save sync history and log result
-            success = result.get("status") == "success"
+            result_status = result.get("status", "failed")
+            success = result_status == "success"
+            interrupted = result_status == "interrupted"
             rows_loaded = result.get("rows_loaded", 0)
             error_message = result.get("error")
             uses_replace_mode = result.get("uses_replace_mode", False)
@@ -425,7 +427,7 @@ class DltPipelineRunner:
 
             history_entry = {
                 "timestamp": start_time.isoformat(),
-                "status": "success" if success else "failed",
+                "status": result_status,
                 "duration_seconds": round(duration, 2),
                 "rows_processed": rows_loaded,
                 "full_refresh": is_full_refresh,
@@ -434,11 +436,29 @@ class DltPipelineRunner:
             save_sync_history_entry(self.project_root, source_name, history_entry)
 
             if success:
+                # Format duration as human-readable
+                dur_str = self._format_duration(duration)
+                tables = result.get("loaded_tables", [])
+                table_count = len(tables) if tables else 0
+                if table_count > 0:
+                    console.print(
+                        f"\n  ✓ Synced {source_name}: {rows_loaded:,} rows "
+                        f"across {table_count} table(s) ({dur_str})"
+                    )
+                else:
+                    console.print(f"\n  ✓ Synced {source_name}: {rows_loaded:,} rows ({dur_str})")
                 log_activity(
                     project_root=self.project_root,
                     level="success",
                     source=source_name,
                     message=f"Sync completed in {round(duration, 1)}s - {rows_loaded:,} rows",
+                )
+            elif interrupted:
+                log_activity(
+                    project_root=self.project_root,
+                    level="warning",
+                    source=source_name,
+                    message="Sync interrupted by user — progress saved",
                 )
             else:
                 log_activity(
@@ -969,6 +989,18 @@ class DltPipelineRunner:
                     result["oauth_warning"] = self._current_oauth_warning
                 return result
 
+        except KeyboardInterrupt:
+            # User interrupted — keep current state (progress saved by dlt)
+            console.print("\n  [yellow]Sync interrupted[/yellow]")
+            console.print("  [green]Progress saved — resume with the same command[/green]")
+            self._cleanup_state_backup(state_backup)
+            return {
+                "status": "interrupted",
+                "source": source_name,
+                "rows_loaded": 0,
+                "uses_replace_mode": uses_replace_mode,
+            }
+
         except Exception as e:
             # Pipeline failed - restore previous state
             console.print(f"  ❌ Pipeline failed: {e}")
@@ -1425,6 +1457,19 @@ class DltPipelineRunner:
             ) from e
         except Exception as e:
             raise Exception(f"Error loading dlt source '{dlt_package}.{dlt_function}': {e}") from e
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        """Format duration in seconds to a human-readable string."""
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        if minutes < 60:
+            return f"{minutes}m {secs}s"
+        hours = minutes // 60
+        mins = minutes % 60
+        return f"{hours}h {mins}m"
 
     def _analyze_error(self, error: Exception, source_name: str) -> str:
         """
