@@ -241,6 +241,15 @@ class SourceWizard:
             except Exception:
                 pass  # Never block source add
 
+            # Show first sync note if present (e.g., "large accounts may take 30 min")
+            first_sync_note = metadata.get("first_sync_note")
+            if first_sync_note:
+                console.print(f"\n  [yellow]Note: {first_sync_note}[/yellow]")
+                console.print(
+                    "  [dim]You can press Ctrl+C during sync — progress is saved "
+                    "and resumes on next run.[/dim]"
+                )
+
             # Success messages based on whether secrets were required
             if self.secret_params:
                 console.print(f"\n[green]✅ Source '{source_name}' fully configured![/green]")

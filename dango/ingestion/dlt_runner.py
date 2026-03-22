@@ -10,7 +10,7 @@ import signal
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -1112,6 +1112,18 @@ class DltPipelineRunner:
                     credentials[dlt_key] = resolved_config.pop(flat_key)
             if credentials and any(v for v in credentials.values()):
                 resolved_config["credentials"] = credentials
+
+        # Resolve relative date strings like "90daysAgo" → ISO date.
+        # GA4 handles relative dates natively (e.g., "90daysAgo"), so skip it.
+        if source_type != SourceType.GOOGLE_ANALYTICS:
+            for dk in ("start_date", "end_date"):
+                dv = resolved_config.get(dk)
+                if isinstance(dv, str) and dv.endswith("daysAgo"):
+                    try:
+                        days = int(dv.replace("daysAgo", ""))
+                        resolved_config[dk] = (date.today() - timedelta(days=days)).isoformat()
+                    except ValueError:
+                        pass  # Leave as-is if not parseable
 
         # Convert date strings to pendulum DateTime for sources that expect it
         # Only Workable — its dlt source types start_date as Optional[DateTime]
