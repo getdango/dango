@@ -28,6 +28,8 @@ class SourceStatus(BaseModel):
     status: str = "unknown"  # "synced", "syncing", "failed", "unknown"
     freshness: dict[str, Any] | None = None  # Data freshness information
     tables: list[TableInfo] | None = None  # Per-table breakdown for multi-resource sources
+    has_schedule: bool = False
+    schedule_display: str | None = None  # Human-readable schedule (e.g., "Every 6 hours")
 
 
 class ServiceHealth(BaseModel):

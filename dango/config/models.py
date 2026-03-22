@@ -210,6 +210,9 @@ class FacebookAdsSourceConfig(BaseModel):
     start_date: datetime | None = Field(
         default=None, description="Start date for data extraction (YYYY-MM-DD)"
     )
+    resources: list[str] | None = Field(
+        default=None, description="Facebook Ads resources to sync (None = all)"
+    )
 
 
 class GoogleAnalyticsSourceConfig(BaseModel):
@@ -252,6 +255,9 @@ class SalesforceSourceConfig(BaseModel):
     security_token_env: str = Field(
         default="",
         description="(Deprecated) Environment variable containing security token. Use OAuth 2.0 via secrets.toml instead.",
+    )
+    resources: list[str] | None = Field(
+        default=None, description="Salesforce resources to sync (None = all)"
     )
 
 
@@ -404,6 +410,10 @@ class DataSource(BaseModel):
     # Custom metadata
     description: str | None = None
     tags: list[str] = Field(default_factory=list)
+
+    # Lookback window: on each incremental sync, re-load this many days of data
+    # to pick up late-arriving records.  Ignored during full refresh.
+    lookback_days: int | None = None
 
     @field_validator("name")
     @classmethod

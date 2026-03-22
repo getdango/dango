@@ -127,6 +127,12 @@ class SourceWizard:
                         continue
                     if params is None:
                         return False  # User cancelled
+
+                    # Step 4b: Resource selection (if source has available_resources)
+                    selected = self._select_resources(source_type, metadata)
+                    if selected is not None:
+                        params["resources"] = selected
+
                     # All inputs collected, break out of state machine
                     break
 
@@ -241,16 +247,28 @@ class SourceWizard:
             except Exception:
                 pass  # Never block source add
 
-            # Success messages based on whether secrets were required
-            if self.secret_params:
-                console.print(f"\n[green]✅ Source '{source_name}' fully configured![/green]")
-                console.print("\n[cyan]Ready to sync:[/cyan]")
-                console.print(f"  dango sync --source {source_name}")
-            else:
-                # No secrets required
-                console.print(f"\n[green]✅ Source '{source_name}' added successfully![/green]")
+            # Show first sync note if present (e.g., "large accounts may take 30 min")
+            first_sync_note = metadata.get("first_sync_note")
+            if first_sync_note:
+                console.print(f"\n  [yellow]Note: {first_sync_note}[/yellow]")
+                console.print(
+                    "  [dim]You can press Ctrl+C during sync — progress is saved "
+                    "and resumes on next run.[/dim]"
+                )
 
-                # Auto-validate configuration
+            # Show lookback window setting if configured
+            lookback = (metadata.get("default_config") or {}).get("lookback_days")
+            if lookback:
+                console.print(
+                    f"\n  [dim]Lookback window: {lookback} day(s) — each incremental "
+                    f"sync re-loads recent data to catch late-arriving records.[/dim]"
+                )
+
+            # Unified success message for all sources
+            console.print(f"\n[green]✅ Source '{source_name}' configured![/green]")
+
+            # Auto-validate configuration (skip for secret_params — already validated)
+            if not self.secret_params:
                 console.print("\n[dim]Validating configuration...[/dim]")
                 from dango.config import ConfigLoader
 
@@ -265,51 +283,20 @@ class SourceWizard:
                         console.print(f"  • {error}")
                     console.print("[dim]Run 'dango config validate' to see details[/dim]")
 
-                # CSV-specific instructions
-                if source_type == "csv" and "directory" in params:
-                    console.print("\n[bold cyan]What to do now:[/bold cyan]")
-                    console.print("\n[bold]Option A: Use Web UI (recommended)[/bold]")
-                    console.print("  1. Start platform: [cyan]dango start[/cyan]")
-                    console.print("  2. Upload files via Web UI (sync happens automatically)")
-                    console.print(
-                        "  3. [dim](Optional)[/dim] Document tables: [cyan]dango docs[/cyan]"
-                    )
-                    console.print("\n[bold]Option B: Copy files manually[/bold]")
-                    console.print(f"  1. Copy CSV files to: [cyan]{params['directory']}[/cyan]")
-                    console.print(f"  2. Load data: [cyan]dango sync --source {source_name}[/cyan]")
-                    console.print(
-                        f"     • Creates dbt staging models in dbt/models/staging/{source_name}/"
-                    )
-                    console.print("     • Creates documentation file: sources.yml")
-                    console.print(
-                        "  3. [dim](Optional)[/dim] Document tables: [cyan]dango docs[/cyan]"
-                    )
-                    console.print("\n[dim]Notes:[/dim]")
-                    console.print("  • All files must have same columns (first row = headers)")
-                    console.print("  • Change folder/filters → .dango/sources.yml")
-                    console.print(
-                        f"  • Add column descriptions → dbt/models/staging/{source_name}/sources.yml"
-                    )
-                else:
-                    console.print("\n[bold cyan]What to do now:[/bold cyan]")
-                    console.print(
-                        f"  1. Load your data: [cyan]dango sync --source {source_name}[/cyan]"
-                    )
-                    console.print(
-                        f"     • This creates dbt staging models in dbt/models/staging/{source_name}/"
-                    )
-                    console.print(
-                        f"     • Documentation file created: dbt/models/staging/{source_name}/sources.yml"
-                    )
-                    console.print(
-                        "  2. Document your tables (optional): Edit sources.yml to add descriptions"
-                    )
-                    console.print("     • Regenerate docs: [cyan]dango docs[/cyan]")
-                    console.print("\n[dim]To customize later:[/dim]")
-                    console.print("  • Change connection settings → .dango/sources.yml")
-                    console.print(
-                        f"  • Update column descriptions → dbt/models/staging/{source_name}/sources.yml (created after first sync)"
-                    )
+            # CSV-specific extra instructions
+            if source_type == "csv" and "directory" in params:
+                console.print("\n[bold cyan]CSV tips:[/bold cyan]")
+                console.print("\n[bold]Option A: Use Web UI (recommended)[/bold]")
+                console.print("  Start platform: [cyan]dango start[/cyan]")
+                console.print("  Upload files via Web UI (sync happens automatically)")
+                console.print("\n[bold]Option B: Copy files manually[/bold]")
+                console.print(f"  Copy CSV files to: [cyan]{params['directory']}[/cyan]")
+                console.print("  All files must have same columns (first row = headers)")
+
+            # Unified next steps
+            console.print("\n[cyan]Next steps:[/cyan]")
+            console.print(f"  1. Sync your data:    dango sync --source {source_name}")
+            console.print("  2. Schedule syncs:    dango schedule add")
 
             return True
 
@@ -451,6 +438,44 @@ class SourceWizard:
                 return source_type
 
         return None
+
+    def _select_resources(self, source_type: str, metadata: dict[str, Any]) -> list[str] | None:
+        """Prompt user to select which resources to sync.
+
+        Only shown for sources with ``available_resources`` in registry.
+        Sources that already have a ``resources`` multiselect param in
+        optional_params (e.g., HubSpot) are skipped — their resources
+        are collected via the normal parameter flow.
+
+        Returns:
+            Selected resource list, or None if not applicable.
+        """
+        available = metadata.get("available_resources")
+        if not available:
+            return None
+
+        # Skip if resources are already collected via optional_params
+        for p in metadata.get("optional_params", []):
+            if p.get("name") == "resources":
+                return None
+
+        defaults = metadata.get("default_resources", available)
+
+        console.print("\n[bold]Select resources to sync:[/bold]")
+        console.print("[dim](Space to toggle, Enter to confirm)[/dim]")
+
+        questions = [
+            inquirer.Checkbox(
+                "resources",
+                message="Resources",
+                choices=available,
+                default=defaults,
+            ),
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return defaults  # Ctrl+C during selection — use defaults
+        return answers.get("resources", defaults) or defaults
 
     def _show_source_info(self, metadata: dict[str, Any]) -> None:
         """Display source information"""
@@ -1182,6 +1207,10 @@ def {module_name}_resource(api_key: str):
         if help_text:
             console.print(f"  [cyan]{help_text}[/cyan]")
 
+        # Enhance prompt text with default value for optional params
+        if not required and default is not None and param_type not in ("secret", "boolean", "bool"):
+            prompt = f"{prompt} (default: {default})"
+
         # Different prompt types based on parameter type
         if param_type == "secret" or param_name.endswith("_env"):
             # Secret/env var parameter - generate unique env var name per source instance
@@ -1428,19 +1457,39 @@ def {module_name}_resource(api_key: str):
                 console.print(f"[red]Invalid JSON: {value}[/red]")
                 return None
 
-        # Cast integer/number type params
+        # Cast integer/number type params with retry on invalid input
         if param_type == "integer" and value and isinstance(value, str):
-            try:
-                value = int(value)
-            except ValueError:
-                console.print(f"[red]Invalid integer: {value}[/red]")
+            for _attempt in range(3):
+                try:
+                    value = int(value)
+                    break
+                except ValueError:
+                    console.print(f"[red]Invalid integer: {value}. Please try again.[/red]")
+                    retry = inquirer.prompt(
+                        [inquirer.Text(param_name, message=prompt)],
+                        theme=themes.GreenPassion(),
+                    )
+                    if not retry:
+                        return None
+                    value = retry[param_name]
+            else:
                 return None
         elif param_type == "number" and value and isinstance(value, str):
-            try:
-                num = float(value)
-                value = int(num) if num.is_integer() else num
-            except ValueError:
-                console.print(f"[red]Invalid number: {value}[/red]")
+            for _attempt in range(3):
+                try:
+                    num = float(value)
+                    value = int(num) if num.is_integer() else num
+                    break
+                except ValueError:
+                    console.print(f"[red]Invalid number: {value}. Please try again.[/red]")
+                    retry = inquirer.prompt(
+                        [inquirer.Text(param_name, message=prompt)],
+                        theme=themes.GreenPassion(),
+                    )
+                    if not retry:
+                        return None
+                    value = retry[param_name]
+            else:
                 return None
 
         # Show incremental loading education for start_date parameters

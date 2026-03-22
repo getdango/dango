@@ -10,7 +10,7 @@ import signal
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -414,7 +414,9 @@ class DltPipelineRunner:
             duration = (datetime.now() - start_time).total_seconds()
 
             # Save sync history and log result
-            success = result.get("status") == "success"
+            result_status = result.get("status", "failed")
+            success = result_status in ("success", "partial")
+            interrupted = result_status == "interrupted"
             rows_loaded = result.get("rows_loaded", 0)
             error_message = result.get("error")
             uses_replace_mode = result.get("uses_replace_mode", False)
@@ -423,22 +425,48 @@ class DltPipelineRunner:
             # Either user explicitly requested it OR source uses replace write_disposition
             is_full_refresh = full_refresh or uses_replace_mode
 
-            history_entry = {
+            # Capture effective start_date for gap fill detection
+            effective_start = None
+            if start_date:
+                effective_start = (
+                    start_date.isoformat() if hasattr(start_date, "isoformat") else str(start_date)
+                )
+
+            history_entry: dict[str, Any] = {
                 "timestamp": start_time.isoformat(),
-                "status": "success" if success else "failed",
+                "status": result_status,
                 "duration_seconds": round(duration, 2),
                 "rows_processed": rows_loaded,
                 "full_refresh": is_full_refresh,
                 "error_message": error_message,
+                "start_date": effective_start,
             }
             save_sync_history_entry(self.project_root, source_name, history_entry)
 
             if success:
+                # Format duration as human-readable
+                dur_str = self._format_duration(duration)
+                tables = result.get("loaded_tables", [])
+                table_count = len(tables) if tables else 0
+                if table_count > 0:
+                    console.print(
+                        f"\n  ✓ Synced {source_name}: {rows_loaded:,} rows "
+                        f"across {table_count} table(s) ({dur_str})"
+                    )
+                else:
+                    console.print(f"\n  ✓ Synced {source_name}: {rows_loaded:,} rows ({dur_str})")
                 log_activity(
                     project_root=self.project_root,
                     level="success",
                     source=source_name,
                     message=f"Sync completed in {round(duration, 1)}s - {rows_loaded:,} rows",
+                )
+            elif interrupted:
+                log_activity(
+                    project_root=self.project_root,
+                    level="warning",
+                    source=source_name,
+                    message="Sync interrupted by user — progress saved",
                 )
             else:
                 log_activity(
@@ -819,6 +847,17 @@ class DltPipelineRunner:
                 elif key in config_toml_keys:
                     console.print(f"  [dim]Using {key} from .dlt/config.toml[/dim]")
 
+        # Apply lookback window: on incremental syncs, shift start_date back by
+        # lookback_days to re-load recent data and pick up late-arriving records.
+        # Ignored during full refresh (all data reloaded anyway).
+        _lookback = source_kwargs.pop("lookback_days", None)
+        if _lookback is None:
+            _lookback = getattr(source_config, "lookback_days", None)
+        if _lookback and not full_refresh and not start_date:
+            lookback_start = (date.today() - timedelta(days=int(_lookback))).isoformat()
+            source_kwargs["start_date"] = lookback_start
+            console.print(f"  [dim]Lookback: re-loading last {_lookback} day(s)[/dim]")
+
         # Apply parameter transforms from registry (e.g., string -> list)
         param_transforms = metadata.get("param_transforms", {})
         for param_name, transform_type in param_transforms.items():
@@ -827,6 +866,21 @@ class DltPipelineRunner:
                 if transform_type == "list" and isinstance(value, str):
                     # Convert single string to list (e.g., sheet name -> [sheet_name])
                     source_kwargs[param_name] = [value]
+
+        # Gap fill detection: if user provided a start_date earlier than our
+        # earliest historical sync, inform them about the gap
+        if start_date and not full_refresh:
+            from dango.utils.sync_history import get_earliest_start_date
+
+            earliest = get_earliest_start_date(self.project_root, source_name)
+            start_str = (
+                start_date.isoformat() if hasattr(start_date, "isoformat") else str(start_date)
+            )
+            if earliest and start_str < earliest:
+                console.print(
+                    f"  [cyan]Gap fill: loading data from {start_str} "
+                    f"(earliest previous sync: {earliest})[/cyan]"
+                )
 
         # Check OAuth token expiry before attempting sync
         oauth_warning = self._check_oauth_token_expiry(source_type.value, source_name)
@@ -928,6 +982,12 @@ class DltPipelineRunner:
             # rows_loaded == -1 means we couldn't extract stats but load succeeded
             rows_loaded = stats.get("rows_loaded", 0)
 
+            # Check for row count anomalies
+            if rows_loaded >= 0:
+                anomaly = self._check_row_count_anomaly(source_name, rows_loaded)
+                if anomaly:
+                    stats["anomaly"] = anomaly
+
             if rows_loaded >= 0:
                 # Success - we got a valid row count (including 0)
                 self._cleanup_state_backup(state_backup)
@@ -958,12 +1018,41 @@ class DltPipelineRunner:
                     result["oauth_warning"] = self._current_oauth_warning
                 return result
 
+        except KeyboardInterrupt:
+            # User interrupted — keep current state (progress saved by dlt)
+            console.print("\n  [yellow]Sync interrupted[/yellow]")
+            console.print("  [green]Progress saved — resume with the same command[/green]")
+            self._cleanup_state_backup(state_backup)
+            return {
+                "status": "interrupted",
+                "source": source_name,
+                "rows_loaded": 0,
+                "uses_replace_mode": uses_replace_mode,
+            }
+
         except Exception as e:
             # Pipeline failed - restore previous state
             console.print(f"  ❌ Pipeline failed: {e}")
 
-            # Per-resource error guidance
+            # Slack-specific error guidance
             error_str = str(e).lower()
+            if source_type == SourceType.SLACK:
+                if "not_in_channel" in error_str:
+                    console.print(
+                        "\n  [yellow]💡 Invite the bot to the channel you want to sync.[/yellow]"
+                    )
+                elif "invalid_auth" in error_str:
+                    console.print(
+                        "\n  [yellow]💡 Token is invalid or expired. "
+                        "Regenerate at https://api.slack.com/apps[/yellow]"
+                    )
+                elif "missing_scope" in error_str:
+                    console.print(
+                        "\n  [yellow]💡 Add scopes: channels:history, channels:read, "
+                        "users:read[/yellow]"
+                    )
+
+            # Per-resource error guidance
             if any(kw in error_str for kw in ("403", "forbidden", "not found", "404")):
                 console.print(
                     "\n  [yellow]💡 Tip: Some resources may require higher API permissions.[/yellow]"
@@ -972,6 +1061,42 @@ class DltPipelineRunner:
                     "  [yellow]   Edit .dango/sources.yml to remove failing resources "
                     "and retry.[/yellow]"
                 )
+
+            # Attempt partial sync: if we can identify the failing resource
+            # and the source has multiple resources, retry without it
+            failing_resource = self._identify_failing_resource(str(e))
+            if (
+                failing_resource
+                and hasattr(source, "resources")
+                and failing_resource in source.resources
+                and len(source.resources) > 1
+                and hasattr(source, "with_resources")
+            ):
+                remaining = [r for r in source.resources if r != failing_resource]
+                if remaining:
+                    console.print(
+                        f"\n  [cyan]Retrying without failing resource "
+                        f"'{failing_resource}'...[/cyan]"
+                    )
+                    try:
+                        partial_source = source.with_resources(*remaining)
+                        load_info = self._run_with_retry(pipeline, partial_source, max_retries=1)
+                        stats = self._extract_load_stats(load_info)
+                        self._cleanup_state_backup(state_backup)
+                        console.print(
+                            f"  ✓ Partial sync: {stats.get('rows_loaded', 0):,} rows "
+                            f"({len(remaining)} of {len(source.resources)} resources)"
+                        )
+                        return {
+                            "status": "partial",
+                            "source": source_name,
+                            "uses_replace_mode": uses_replace_mode,
+                            "failed_resources": [failing_resource],
+                            "succeeded_resources": remaining,
+                            **stats,
+                        }
+                    except Exception:
+                        console.print("  ❌ Partial sync also failed")
 
             console.print("  🔄 Restoring previous state...")
             self._restore_dlt_state(state_backup)
@@ -1057,6 +1182,7 @@ class DltPipelineRunner:
             "deduplication",  # Dango's deduplication strategy
             "enabled",  # Dango's source enable/disable flag
             "description",  # Dango's source description
+            "lookback_days",  # Dango's lookback window for late-arriving records
         }
 
         # Resolve environment variables (fields ending in _env)
@@ -1095,6 +1221,18 @@ class DltPipelineRunner:
                     credentials[dlt_key] = resolved_config.pop(flat_key)
             if credentials and any(v for v in credentials.values()):
                 resolved_config["credentials"] = credentials
+
+        # Resolve relative date strings like "90daysAgo" → ISO date.
+        # GA4 handles relative dates natively (e.g., "90daysAgo"), so skip it.
+        if source_type != SourceType.GOOGLE_ANALYTICS:
+            for dk in ("start_date", "end_date"):
+                dv = resolved_config.get(dk)
+                if isinstance(dv, str) and dv.endswith("daysAgo"):
+                    try:
+                        days = int(dv.replace("daysAgo", ""))
+                        resolved_config[dk] = (date.today() - timedelta(days=days)).isoformat()
+                    except ValueError:
+                        pass  # Leave as-is if not parseable
 
         # Convert date strings to pendulum DateTime for sources that expect it
         # Only Workable — its dlt source types start_date as Optional[DateTime]
@@ -1385,6 +1523,79 @@ class DltPipelineRunner:
         except Exception as e:
             raise Exception(f"Error loading dlt source '{dlt_package}.{dlt_function}': {e}") from e
 
+    @staticmethod
+    def _identify_failing_resource(error_msg: str) -> str | None:
+        """Try to extract a failing resource name from an error message.
+
+        Common patterns in dlt pipeline errors:
+        - "resource <name> ..."
+        - "Pipeline execution failed for resource '<name>'"
+        - "Error in resource <name>:"
+        """
+        import re
+
+        patterns = [
+            r"resource[:\s]+['\"]?(\w+)['\"]?",
+            r"for resource[:\s]+['\"]?(\w+)['\"]?",
+            r"Error in (\w+):",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, error_msg, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        return None
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        """Format duration in seconds to a human-readable string."""
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        if minutes < 60:
+            return f"{minutes}m {secs}s"
+        hours = minutes // 60
+        mins = minutes % 60
+        return f"{hours}h {mins}m"
+
+    def _check_row_count_anomaly(
+        self, source_name: str, current_rows: int
+    ) -> dict[str, Any] | None:
+        """Check for row count anomalies compared to previous sync.
+
+        Returns an anomaly dict if detected, None otherwise.
+        """
+        from dango.utils.sync_history import load_sync_history
+
+        history = load_sync_history(self.project_root, source_name, limit=5)
+        # Find the most recent successful sync (skip current)
+        prev_rows = None
+        for entry in history:
+            if entry.get("status") == "success" and entry.get("rows_processed", 0) > 0:
+                prev_rows = entry["rows_processed"]
+                break
+
+        if prev_rows is None:
+            return None  # No baseline — first successful sync
+
+        if current_rows == 0 and prev_rows > 0:
+            msg = f"Zero rows loaded (previous sync: {prev_rows:,})"
+            console.print(f"  [red]⚠ {msg}[/red]")
+            return {"level": "error", "message": msg}
+
+        if prev_rows > 0:
+            ratio = current_rows / prev_rows
+            if ratio < 0.5:
+                msg = f"Row count dropped >50%: {current_rows:,} vs previous {prev_rows:,}"
+                console.print(f"  [yellow]⚠ {msg}[/yellow]")
+                return {"level": "warning", "message": msg}
+            if ratio > 3.0:
+                msg = f"Row count spiked >300%: {current_rows:,} vs previous {prev_rows:,}"
+                console.print(f"  [yellow]⚠ {msg}[/yellow]")
+                return {"level": "warning", "message": msg}
+
+        return None
+
     def _analyze_error(self, error: Exception, source_name: str) -> str:
         """
         Analyze exception and provide user-friendly error message
@@ -1652,6 +1863,10 @@ Need help? Visit: https://github.com/getdango/dango/issues
         elif not loaded_tables:
             # No tables loaded (or couldn't extract list)
             stats["rows_loaded"] = -1  # -1 means "unknown but successful"
+            console.print(
+                "  [yellow]⚠ Sync completed but no data tables were loaded. "
+                "Check your property ID, date range, or API permissions.[/yellow]"
+            )
 
         return stats
 

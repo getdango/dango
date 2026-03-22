@@ -24,6 +24,48 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["sources"])
 
+# Cron expression → human-readable display string.
+# Keep in sync with CRON_PRESETS in config/schedules.py and
+# _FREQUENCY_CHOICES in cli/commands/schedule.py.
+_CRON_DISPLAY: dict[str, str] = {
+    "0 */1 * * *": "Every hour",
+    "0 * * * *": "Every hour",  # CRON_PRESETS "every_hour" variant
+    "0 */2 * * *": "Every 2 hours",
+    "0 */4 * * *": "Every 4 hours",
+    "0 */6 * * *": "Every 6 hours",
+    "0 */12 * * *": "Every 12 hours",
+    "*/15 * * * *": "Every 15 minutes",  # CRON_PRESETS "every_15m"
+    "0 0 * * *": "Daily at midnight",
+    "0 6 * * *": "Daily at 6 AM",
+    "0 0 * * 0": "Weekly (Sunday)",
+    "0 0 * * 1": "Weekly (Monday)",
+    "0 6 * * 1": "Weekly (Monday at 6 AM)",  # CRON_PRESETS "weekly"
+}
+
+
+def _cron_to_display(cron: str) -> str:
+    """Convert a cron expression to a human-readable string."""
+    return _CRON_DISPLAY.get(cron, cron)
+
+
+def _build_schedule_map() -> dict[str, str]:
+    """Build source_name → schedule display mapping."""
+    try:
+        from dango.config.schedules import load_schedules_config
+        from dango.web.helpers import get_project_root
+
+        config = load_schedules_config(get_project_root())
+        mapping: dict[str, str] = {}
+        for schedule in config.schedules:
+            if not schedule.enabled:
+                continue
+            display = _cron_to_display(schedule.cron)
+            for src in schedule.sources:
+                mapping[src] = display
+        return mapping
+    except Exception:
+        return {}
+
 
 @router.get("/api/sources", response_model=list[SourceStatus])
 async def get_sources() -> list[SourceStatus]:
@@ -38,6 +80,14 @@ async def get_sources() -> list[SourceStatus]:
     # Process all sources concurrently
     tasks = [get_source_status_data(source) for source in sources_config]
     source_statuses = await asyncio.gather(*tasks)
+
+    # Enrich with schedule info
+    schedule_map = await asyncio.to_thread(_build_schedule_map)
+    for status in source_statuses:
+        sched = schedule_map.get(status.name)
+        if sched:
+            status.has_schedule = True
+            status.schedule_display = sched
 
     # Sort sources alphabetically by name for consistent ordering
     source_statuses = sorted(source_statuses, key=lambda s: s.name.lower())
