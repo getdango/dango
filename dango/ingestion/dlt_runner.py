@@ -959,6 +959,12 @@ class DltPipelineRunner:
             # rows_loaded == -1 means we couldn't extract stats but load succeeded
             rows_loaded = stats.get("rows_loaded", 0)
 
+            # Check for row count anomalies
+            if rows_loaded >= 0:
+                anomaly = self._check_row_count_anomaly(source_name, rows_loaded)
+                if anomaly:
+                    stats["anomaly"] = anomaly
+
             if rows_loaded >= 0:
                 # Success - we got a valid row count (including 0)
                 self._cleanup_state_backup(state_backup)
@@ -1471,6 +1477,44 @@ class DltPipelineRunner:
         mins = minutes % 60
         return f"{hours}h {mins}m"
 
+    def _check_row_count_anomaly(
+        self, source_name: str, current_rows: int
+    ) -> dict[str, Any] | None:
+        """Check for row count anomalies compared to previous sync.
+
+        Returns an anomaly dict if detected, None otherwise.
+        """
+        from dango.utils.sync_history import load_sync_history
+
+        history = load_sync_history(self.project_root, source_name, limit=5)
+        # Find the most recent successful sync (skip current)
+        prev_rows = None
+        for entry in history:
+            if entry.get("status") == "success" and entry.get("rows_processed", 0) > 0:
+                prev_rows = entry["rows_processed"]
+                break
+
+        if prev_rows is None:
+            return None  # No baseline — first successful sync
+
+        if current_rows == 0 and prev_rows > 0:
+            msg = f"Zero rows loaded (previous sync: {prev_rows:,})"
+            console.print(f"  [red]⚠ {msg}[/red]")
+            return {"level": "error", "message": msg}
+
+        if prev_rows > 0:
+            ratio = current_rows / prev_rows
+            if ratio < 0.5:
+                msg = f"Row count dropped >50%: {current_rows:,} vs previous {prev_rows:,}"
+                console.print(f"  [yellow]⚠ {msg}[/yellow]")
+                return {"level": "warning", "message": msg}
+            if ratio > 3.0:
+                msg = f"Row count spiked >300%: {current_rows:,} vs previous {prev_rows:,}"
+                console.print(f"  [yellow]⚠ {msg}[/yellow]")
+                return {"level": "warning", "message": msg}
+
+        return None
+
     def _analyze_error(self, error: Exception, source_name: str) -> str:
         """
         Analyze exception and provide user-friendly error message
@@ -1738,6 +1782,10 @@ Need help? Visit: https://github.com/getdango/dango/issues
         elif not loaded_tables:
             # No tables loaded (or couldn't extract list)
             stats["rows_loaded"] = -1  # -1 means "unknown but successful"
+            console.print(
+                "  [yellow]⚠ Sync completed but no data tables were loaded. "
+                "Check your property ID, date range, or API permissions.[/yellow]"
+            )
 
         return stats
 
