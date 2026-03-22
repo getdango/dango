@@ -415,7 +415,7 @@ class DltPipelineRunner:
 
             # Save sync history and log result
             result_status = result.get("status", "failed")
-            success = result_status == "success"
+            success = result_status in ("success", "partial")
             interrupted = result_status == "interrupted"
             rows_loaded = result.get("rows_loaded", 0)
             error_message = result.get("error")
@@ -1062,6 +1062,41 @@ class DltPipelineRunner:
                     "and retry.[/yellow]"
                 )
 
+            # Attempt partial sync: if we can identify the failing resource
+            # and the source has multiple resources, retry without it
+            failing_resource = self._identify_failing_resource(str(e))
+            if (
+                failing_resource
+                and hasattr(source, "resources")
+                and len(source.resources) > 1
+                and hasattr(source, "with_resources")
+            ):
+                remaining = [r for r in source.resources if r != failing_resource]
+                if remaining:
+                    console.print(
+                        f"\n  [cyan]Retrying without failing resource "
+                        f"'{failing_resource}'...[/cyan]"
+                    )
+                    try:
+                        partial_source = source.with_resources(*remaining)
+                        load_info = self._run_with_retry(pipeline, partial_source, max_retries=1)
+                        stats = self._extract_load_stats(load_info)
+                        self._cleanup_state_backup(state_backup)
+                        console.print(
+                            f"  ✓ Partial sync: {stats.get('rows_loaded', 0):,} rows "
+                            f"({len(remaining)} of {len(source.resources)} resources)"
+                        )
+                        return {
+                            "status": "partial",
+                            "source": source_name,
+                            "uses_replace_mode": uses_replace_mode,
+                            "failed_resources": [failing_resource],
+                            "succeeded_resources": remaining,
+                            **stats,
+                        }
+                    except Exception:
+                        console.print("  ❌ Partial sync also failed")
+
             console.print("  🔄 Restoring previous state...")
             self._restore_dlt_state(state_backup)
             raise
@@ -1486,6 +1521,28 @@ class DltPipelineRunner:
             ) from e
         except Exception as e:
             raise Exception(f"Error loading dlt source '{dlt_package}.{dlt_function}': {e}") from e
+
+    @staticmethod
+    def _identify_failing_resource(error_msg: str) -> str | None:
+        """Try to extract a failing resource name from an error message.
+
+        Common patterns in dlt pipeline errors:
+        - "resource <name> ..."
+        - "Pipeline execution failed for resource '<name>'"
+        - "Error in resource <name>:"
+        """
+        import re
+
+        patterns = [
+            r"resource[:\s]+['\"]?(\w+)['\"]?",
+            r"for resource[:\s]+['\"]?(\w+)['\"]?",
+            r"Error in (\w+):",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, error_msg, re.IGNORECASE)
+            if match:
+                return match.group(1)
+        return None
 
     @staticmethod
     def _format_duration(seconds: float) -> str:
