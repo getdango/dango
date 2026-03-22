@@ -127,6 +127,12 @@ class SourceWizard:
                         continue
                     if params is None:
                         return False  # User cancelled
+
+                    # Step 4b: Resource selection (if source has available_resources)
+                    selected = self._select_resources(source_type, metadata)
+                    if selected is not None:
+                        params["resources"] = selected
+
                     # All inputs collected, break out of state machine
                     break
 
@@ -468,6 +474,44 @@ class SourceWizard:
                 return source_type
 
         return None
+
+    def _select_resources(self, source_type: str, metadata: dict[str, Any]) -> list[str] | None:
+        """Prompt user to select which resources to sync.
+
+        Only shown for sources with ``available_resources`` in registry.
+        Sources that already have a ``resources`` multiselect param in
+        optional_params (e.g., HubSpot) are skipped — their resources
+        are collected via the normal parameter flow.
+
+        Returns:
+            Selected resource list, or None if not applicable.
+        """
+        available = metadata.get("available_resources")
+        if not available:
+            return None
+
+        # Skip if resources are already collected via optional_params
+        for p in metadata.get("optional_params", []):
+            if p.get("name") == "resources":
+                return None
+
+        defaults = metadata.get("default_resources", available)
+
+        console.print("\n[bold]Select resources to sync:[/bold]")
+        console.print("[dim](Space to toggle, Enter to confirm)[/dim]")
+
+        questions = [
+            inquirer.Checkbox(
+                "resources",
+                message="Resources",
+                choices=available,
+                default=defaults,
+            ),
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return defaults  # Ctrl+C during selection — use defaults
+        return answers.get("resources", defaults) or defaults
 
     def _show_source_info(self, metadata: dict[str, Any]) -> None:
         """Display source information"""
