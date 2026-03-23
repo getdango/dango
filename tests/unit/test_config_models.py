@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from dango.config.models import (
+    CSVSourceConfig,
     DangoConfig,
     DataSource,
     DeduplicationStrategy,
@@ -18,6 +19,7 @@ from dango.config.models import (
     GoogleAnalyticsSourceConfig,
     GoogleSheetsSourceConfig,
     HubSpotSourceConfig,
+    LocalFilesSourceConfig,
     PlatformSettings,
     ProjectContext,
     RESTAPISourceConfig,
@@ -42,7 +44,7 @@ from tests.factories.config_factories import (
 @pytest.mark.unit
 class TestSourceType:
     def test_has_expected_members(self) -> None:
-        expected = {"csv", "google_sheets", "hubspot", "stripe", "shopify", "slack"}
+        expected = {"csv", "local_files", "google_sheets", "hubspot", "stripe", "shopify", "slack"}
         actual = {member.value for member in SourceType}
         assert expected.issubset(actual)
 
@@ -52,7 +54,7 @@ class TestSourceType:
             assert isinstance(member.value, str)
 
     def test_member_count(self) -> None:
-        assert len(SourceType) == 34
+        assert len(SourceType) == 35
 
 
 @pytest.mark.unit
@@ -154,6 +156,49 @@ class TestCSVSourceConfig:
         )
         assert cfg.primary_key == "id"
         assert cfg.timestamp_column == "updated_at"
+
+
+@pytest.mark.unit
+class TestLocalFilesSourceConfig:
+    def test_inherits_from_csv(self) -> None:
+        cfg = LocalFilesSourceConfig(directory="data/uploads")
+        assert isinstance(cfg, CSVSourceConfig)
+
+    def test_default_file_pattern_is_star(self) -> None:
+        cfg = LocalFilesSourceConfig(directory="data/uploads")
+        assert cfg.file_pattern == "*"
+
+    def test_inherits_dedup_defaults(self) -> None:
+        cfg = LocalFilesSourceConfig(directory="data/uploads")
+        assert cfg.deduplication_strategy == DeduplicationStrategy.LATEST_ONLY
+        assert cfg.primary_key is None
+        assert cfg.timestamp_column is None
+
+    def test_custom_file_pattern(self) -> None:
+        cfg = LocalFilesSourceConfig(directory="data/uploads", file_pattern="*.json")
+        assert cfg.file_pattern == "*.json"
+
+    def test_all_csv_fields_available(self) -> None:
+        cfg = LocalFilesSourceConfig(
+            directory="data/uploads",
+            file_pattern="*.parquet",
+            deduplication_strategy=DeduplicationStrategy.SCD_TYPE2,
+            primary_key="id",
+            timestamp_column="updated_at",
+            notes="Test notes",
+        )
+        assert cfg.primary_key == "id"
+        assert cfg.timestamp_column == "updated_at"
+        assert cfg.notes == "Test notes"
+
+    def test_data_source_local_files_field(self) -> None:
+        ds = DataSource(
+            name="my_files",
+            type=SourceType.LOCAL_FILES,
+            local_files=LocalFilesSourceConfig(directory="data/uploads"),
+        )
+        assert ds.local_files is not None
+        assert ds.local_files.file_pattern == "*"
 
 
 @pytest.mark.unit

@@ -1,6 +1,6 @@
 """dango/ingestion/sources/registry.py
 
-Metadata registry for all 32 supported data sources (27 dlt verified + CSV + dlt_native + REST API + PostgreSQL + Filesystem).
+Metadata registry for all 33 supported data sources (27 dlt verified + CSV + Local Files + dlt_native + REST API + PostgreSQL + Filesystem).
 """
 
 from enum import Enum
@@ -21,16 +21,19 @@ class AuthType(str, Enum):
 # SOURCE SELECTION CRITERIA
 # ============================================================================
 #
-# This registry contains 32 sources in five categories:
+# This registry contains 33 sources in five categories:
 #   1. dlt verified sources (27): All connectors vendored in dlt_sources/. Each
 #      uses its own dlt verified source package (e.g., facebook_ads, hubspot).
 #   2. CSV (1): Custom CSVLoader — not dlt. For local structured CSV files.
-#   3. dlt_native (1): Passthrough escape hatch. User provides custom dlt pipeline
+#      Hidden from wizard — superseded by local_files.
+#   3. Local Files (1): Unified local file source (CSV, JSON, JSONL, Parquet).
+#      Extends CSVLoader with multi-format support. Primary wizard entry for local data.
+#   4. dlt_native (1): Passthrough escape hatch. User provides custom dlt pipeline
 #      code. No wizard UI — advanced users only.
-#   4. dlt core built-ins (2): filesystem + rest_api. Built into dlt, no vendoring.
-#      filesystem: local files and cloud storage (S3/GCS/Azure).
+#   5. dlt core built-ins (2): filesystem + rest_api. Built into dlt, no vendoring.
+#      filesystem: cloud storage (S3/GCS/Azure). Hidden from wizard — use local_files for local.
 #      rest_api: connect any REST API via declarative config.
-#   5. PostgreSQL (1): Dedicated wizard entry backed by dlt's built-in
+#   6. PostgreSQL (1): Dedicated wizard entry backed by dlt's built-in
 #      sql_database source. Structured params for the most common DB use case.
 #
 # Excluded dlt verified sources:
@@ -55,7 +58,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.NONE,
         "dlt_package": None,  # Custom implementation, not dlt
         "dlt_function": None,
-        "wizard_enabled": True,  # Fully tested for v0.0.1
+        "wizard_enabled": False,  # Hidden — use "local_files" instead
         "required_params": [
             {
                 "name": "directory",
@@ -89,6 +92,76 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "cost_warning": None,
         "popularity": 10,  # 1-10, used for sorting
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
+    },
+    "local_files": {
+        "display_name": "Local Files",
+        "category": "Local & Custom",
+        "description": "Load CSV, JSON, JSONL, or Parquet files from a local directory with deduplication and incremental loading",
+        "auth_type": AuthType.NONE,
+        "dlt_package": None,  # Custom implementation (extends CSVLoader)
+        "dlt_function": None,
+        "wizard_enabled": True,
+        "required_params": [
+            {
+                "name": "directory",
+                "type": "path",
+                "prompt": "Directory containing data files",
+                "default": "data/uploads",
+                "help": "Default: data/uploads (already in .gitignore). Press Enter to use default.",
+            },
+            {
+                "name": "file_pattern",
+                "type": "string",
+                "prompt": "File pattern",
+                "default": "*",
+                "help": "Glob pattern for files (e.g., '*' for all supported formats, '*.json', 'data_*.csv')",
+            },
+        ],
+        "optional_params": [
+            {
+                "name": "deduplication_strategy",
+                "type": "choice",
+                "prompt": "Deduplication strategy",
+                "choices": ["latest_only", "append_only", "scd_type2", "none"],
+                "default": "latest_only",
+                "help": "How to handle duplicate/updated records",
+            },
+            {
+                "name": "primary_key",
+                "type": "string",
+                "prompt": "Primary key column",
+                "default": None,
+                "help": "Column to use as primary key for deduplication (optional)",
+            },
+            {
+                "name": "timestamp_column",
+                "type": "string",
+                "prompt": "Timestamp column",
+                "default": None,
+                "help": "Column to use for ordering in latest_only/scd_type2 strategies (optional)",
+            },
+            {
+                "name": "notes",
+                "type": "text",
+                "prompt": "Notes on how to refresh this data",
+                "default": None,
+                "help": "How do you regenerate/update this data? (e.g., 'Run python generate_orders.py' or 'Export from app')",
+            },
+        ],
+        "setup_guide": [
+            "1. Place your data files in a directory",
+            "2. Supported formats: CSV, JSON, JSONL, Parquet",
+            "3. Files should have consistent schema across updates",
+            "4. Dango will auto-detect column types and load incrementally",
+        ],
+        "cost_warning": None,
+        "popularity": 10,
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
@@ -157,7 +230,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "auth_type": AuthType.NONE,
         "dlt_package": "filesystem",  # Built-in dlt core source
         "dlt_function": "filesystem",
-        "wizard_enabled": True,
+        "wizard_enabled": False,  # Hidden — use "local_files" for local, filesystem still works for cloud
         "required_params": [
             {
                 "name": "bucket_url",
@@ -1884,7 +1957,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
 # ============================================================================
 
 CATEGORIES = {
-    "Local & Custom": ["csv", "filesystem", "rest_api"],
+    "Local & Custom": ["local_files", "csv", "filesystem", "rest_api"],
     "Marketing & Analytics": [
         "facebook_ads",
         "google_ads",

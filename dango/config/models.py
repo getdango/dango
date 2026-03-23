@@ -21,10 +21,11 @@ class DeduplicationStrategy(str, Enum):
 
 
 class SourceType(str, Enum):
-    """Data source types — 34 source types (27 dlt verified + CSV + REST API + dlt_native + Filesystem + PostgreSQL + sql_database + Scrapy)"""
+    """Data source types — 35 source types (27 dlt verified + CSV + Local Files + REST API + dlt_native + Filesystem + PostgreSQL + sql_database + Scrapy)"""
 
     # Local/Custom
     CSV = "csv"
+    LOCAL_FILES = "local_files"  # Unified local file source (CSV, JSON, JSONL, Parquet)
     REST_API = "rest_api"
     DLT_NATIVE = "dlt_native"  # Advanced: Direct dlt source bypass
     FILESYSTEM = "filesystem"  # dlt core built-in file source
@@ -153,6 +154,13 @@ class CSVSourceConfig(BaseModel):
         default=None,
         description="Optional notes about how to regenerate this CSV data (e.g., script to run, export steps)",
     )
+
+
+class LocalFilesSourceConfig(CSVSourceConfig):
+    """Local files source — extends CSV with multi-format support (CSV, JSON, JSONL, Parquet)."""
+
+    # Override default: match all supported formats instead of just *.csv
+    file_pattern: str = Field(default="*", description="Glob pattern for files")
 
 
 class GoogleSheetsSourceConfig(BaseModel):
@@ -379,6 +387,7 @@ class DataSource(BaseModel):
 
     # Type-specific configs (only one should be set based on source type)
     csv: CSVSourceConfig | None = None
+    local_files: LocalFilesSourceConfig | None = None
     rest_api: RESTAPISourceConfig | None = None
     dlt_native: DltNativeConfig | None = None  # Advanced: Direct dlt source
 
@@ -477,7 +486,9 @@ class PlatformSettings(BaseModel):
     debounce_seconds: int = 600  # 10 minutes
 
     # Watch patterns
-    watch_patterns: list[str] = Field(default_factory=lambda: ["*.csv"])
+    watch_patterns: list[str] = Field(
+        default_factory=lambda: ["*.csv", "*.json", "*.jsonl", "*.ndjson", "*.parquet"]
+    )
 
     # Watch directories (relative to project root)
     watch_directories: list[str] = Field(default_factory=lambda: ["data/uploads"])

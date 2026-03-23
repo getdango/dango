@@ -133,6 +133,10 @@ class SourceWizard:
                     if selected is not None:
                         params["resources"] = selected
 
+                    # Step 4c: Dedup options for local_files
+                    if source_type == "local_files":
+                        params = self._collect_dedup_options(params)
+
                     # All inputs collected, break out of state machine
                     break
 
@@ -140,8 +144,8 @@ class SourceWizard:
             if metadata.get("default_config"):
                 self._write_config_template(source_type, metadata)
 
-            # Step 6b: Create directory if this is a CSV source
-            if source_type == "csv" and "directory" in params:
+            # Step 6b: Create directory if this is a file-based source
+            if source_type in ("csv", "local_files") and "directory" in params:
                 directory_path = self.project_root / params["directory"]
                 if not directory_path.exists():
                     directory_path.mkdir(parents=True, exist_ok=True)
@@ -233,7 +237,7 @@ class SourceWizard:
                         from dango.analysis.config import add_metrics_to_config
 
                         header = None
-                        if source_type == "csv":
+                        if source_type in ("csv", "local_files"):
                             header = (
                                 f"NOTE: Tables will be created in the raw_{source_name}"
                                 f" schema. Replace 'your_table' with your actual"
@@ -283,15 +287,18 @@ class SourceWizard:
                         console.print(f"  • {error}")
                     console.print("[dim]Run 'dango config validate' to see details[/dim]")
 
-            # CSV-specific extra instructions
-            if source_type == "csv" and "directory" in params:
-                console.print("\n[bold cyan]CSV tips:[/bold cyan]")
+            # File source extra instructions
+            if source_type in ("csv", "local_files") and "directory" in params:
+                label = "Local file tips" if source_type == "local_files" else "CSV tips"
+                console.print(f"\n[bold cyan]{label}:[/bold cyan]")
                 console.print("\n[bold]Option A: Use Web UI (recommended)[/bold]")
                 console.print("  Start platform: [cyan]dango start[/cyan]")
                 console.print("  Upload files via Web UI (sync happens automatically)")
                 console.print("\n[bold]Option B: Copy files manually[/bold]")
-                console.print(f"  Copy CSV files to: [cyan]{params['directory']}[/cyan]")
-                console.print("  All files must have same columns (first row = headers)")
+                console.print(f"  Copy data files to: [cyan]{params['directory']}[/cyan]")
+                if source_type == "local_files":
+                    console.print("  Supported formats: CSV, JSON, JSONL, Parquet")
+                console.print("  All files must have same columns (first row = headers for CSV)")
 
             # Unified next steps
             console.print("\n[cyan]Next steps:[/cyan]")
@@ -1177,6 +1184,53 @@ def {module_name}_resource(api_key: str):
                     return "← Back"
                 if value is not None:
                     params[param["name"]] = value
+
+        return params
+
+    def _collect_dedup_options(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Collect deduplication options for local_files sources."""
+        console.print("\n[bold]Deduplication settings[/bold]")
+
+        choices = [
+            ("Keep latest version (recommended)", "latest_only"),
+            ("Append all records", "append_only"),
+            ("Track history (SCD Type 2)", "scd_type2"),
+            ("No deduplication", "none"),
+        ]
+
+        questions = [
+            inquirer.List(
+                "dedup",
+                message="How should duplicate/updated records be handled?",
+                choices=[(label, val) for label, val in choices],
+                default="latest_only",
+            )
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if answers:
+            strategy = answers["dedup"]
+            params["deduplication_strategy"] = strategy
+
+            # For strategies that benefit from keys, optionally prompt
+            if strategy in ("latest_only", "scd_type2"):
+                console.print(
+                    "\n[dim]Optional: specify a primary key and timestamp column for smarter dedup.[/dim]"
+                )
+                console.print("[dim]Press Enter to skip (Dango will use file-level dedup).[/dim]")
+
+                pk = inquirer.text(
+                    message="Primary key column (optional)",
+                    default="",
+                )
+                if pk and pk.strip():
+                    params["primary_key"] = pk.strip()
+
+                ts = inquirer.text(
+                    message="Timestamp column (optional)",
+                    default="",
+                )
+                if ts and ts.strip():
+                    params["timestamp_column"] = ts.strip()
 
         return params
 

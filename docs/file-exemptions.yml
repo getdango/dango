@@ -132,9 +132,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/ingestion/csv_loader.py
-    lines: 742
+    lines: 775
     category: exempt
-    reason: "CSV loading with deduplication. Single-purpose module, stable."
+    reason: "Multi-format file loading (CSV, JSON, JSONL, Parquet) with deduplication. Single-purpose module, stable."
     review_by: "v1.1"
 
   - file: dango/cli/validate.py

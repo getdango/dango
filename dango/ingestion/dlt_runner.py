@@ -323,6 +323,9 @@ class DltPipelineRunner:
             # CSV: Custom implementation (Phase 1 loader)
             if source_type == SourceType.CSV:
                 result = self._run_csv_source(source_config, full_refresh)
+            # LOCAL_FILES: Unified local file source (CSV, JSON, JSONL, Parquet)
+            elif source_type == SourceType.LOCAL_FILES:
+                result = self._run_local_files_source(source_config, full_refresh)
             # DLT_NATIVE: Advanced registry bypass
             elif source_type == SourceType.DLT_NATIVE:
                 try:
@@ -557,6 +560,61 @@ class DltPipelineRunner:
         result = loader.load(
             source_name=source_config.name,
             config=source_config.csv,
+            target_schema=target_schema,
+        )
+
+        return {
+            "status": result.get("status", "success"),
+            "source": source_config.name,
+            "rows_loaded": result.get("total_rows", 0),
+            "files_processed": result.get("new", 0) + result.get("updated", 0),
+            **result,
+        }
+
+    def _run_local_files_source(
+        self, source_config: DataSource, full_refresh: bool = False
+    ) -> dict[str, Any]:
+        """
+        Run local files source using CSVLoader with multi-format support.
+
+        Args:
+            source_config: Source configuration with local_files config
+            full_refresh: If True, drop existing table and reload
+
+        Returns:
+            Load statistics
+        """
+        if not source_config.local_files:
+            raise ValueError(f"local_files config missing for source: {source_config.name}")
+
+        # Full refresh: drop existing table and clear metadata
+        if full_refresh:
+            import duckdb
+
+            conn = duckdb.connect(str(self.duckdb_path))
+            try:
+                conn.execute(f"DROP TABLE IF EXISTS raw.{source_config.name}")
+                console.print("  🔄 Full refresh: dropped existing table")
+
+                conn.execute(
+                    """
+                    DELETE FROM _dango_file_metadata
+                    WHERE source_name = ?
+                """,
+                    [source_config.name],
+                )
+                console.print("  🔄 Full refresh: cleared file metadata")
+            except Exception as e:
+                console.print(f"  ⚠️  Could not drop table/metadata: {e}")
+            finally:
+                conn.close()
+
+        # Run loader (CSVLoader now supports all formats via inheritance)
+        target_schema = f"raw_{source_config.name}"
+        loader = CSVLoader(self.project_root, self.duckdb_path)
+        result = loader.load(
+            source_name=source_config.name,
+            config=source_config.local_files,
             target_schema=target_schema,
         )
 

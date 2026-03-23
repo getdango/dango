@@ -248,9 +248,9 @@ dango/                          # Python package source
 │
 ├── ingestion/                  # Level 1 — Data loading
 │   ├── dlt_runner.py           # ⚠ 1796 lines — orchestrates full sync pipeline
-│   ├── csv_loader.py           # CSV loading with dedup (742 lines)
+│   ├── csv_loader.py           # Multi-format file loading with dedup (775 lines)
 │   ├── sources/
-│   │   └── registry.py         # Source metadata (1936 lines, 32 source types)
+│   │   └── registry.py         # Source metadata (33 source types)
 │   └── dlt_sources/            # ⚠ DO NOT MODIFY — vendored connectors (127 files)
 │
 ├── transformation/             # Level 1 — dbt model generation & execution
@@ -340,7 +340,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/oauth.py` | 815 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 810 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 801 | — |
-| `ingestion/csv_loader.py` | 742 | — |
+| `ingestion/csv_loader.py` | 775 | — |
 | `platform/scheduling/jobs.py` | 732 | — (module-level job functions) |
 | `web/routes/schedules.py` | 720 | — (schedule CRUD, history, notifications) |
 | `web/routes/upload.py` | 680 | — (extracted from app.py by TASK-085) |

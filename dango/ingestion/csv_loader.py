@@ -1,6 +1,8 @@
 """dango/ingestion/csv_loader.py
 
-Incremental CSV loading with metadata tracking and deduplication strategies.
+Incremental file loading with metadata tracking and deduplication strategies.
+
+Supports CSV, JSON, JSONL, and Parquet formats via DuckDB's native readers.
 """
 
 import glob
@@ -16,6 +18,15 @@ from dango.config.models import CSVSourceConfig
 from dango.exceptions import CSVSchemaMismatchError
 
 console = Console()
+
+# DuckDB read functions keyed by file extension
+SUPPORTED_READ_FUNCTIONS: dict[str, str] = {
+    ".csv": "read_csv_auto",
+    ".json": "read_json_auto",
+    ".jsonl": "read_json_auto",
+    ".ndjson": "read_json_auto",
+    ".parquet": "read_parquet",
+}
 
 
 class CSVLoader:
@@ -41,6 +52,14 @@ class CSVLoader:
         self.project_root = project_root
         self.duckdb_path = duckdb_path
 
+    def _get_read_function(self, filepath: str) -> str:
+        """Get DuckDB read function for file format based on extension."""
+        ext = Path(filepath).suffix.lower()
+        if ext not in SUPPORTED_READ_FUNCTIONS:
+            supported = ", ".join(sorted(SUPPORTED_READ_FUNCTIONS.keys()))
+            raise ValueError(f"Unsupported file format '{ext}'. Supported extensions: {supported}")
+        return SUPPORTED_READ_FUNCTIONS[ext]
+
     def load(
         self,
         source_name: str,
@@ -58,7 +77,7 @@ class CSVLoader:
         Returns:
             Dictionary with load statistics
         """
-        console.print(f"📄 Loading CSV source: {source_name}")
+        console.print(f"📄 Loading file source: {source_name}")
 
         # Resolve directory path (relative to project root if not absolute)
         directory = config.directory
@@ -68,9 +87,18 @@ class CSVLoader:
         if not directory.exists():
             raise FileNotFoundError(f"CSV directory not found: {directory}")
 
-        # Get current CSV files
+        # Get current files matching pattern
         pattern = str(directory / config.file_pattern)
-        current_files = sorted(glob.glob(pattern))
+        all_matched_files = sorted(glob.glob(pattern))
+
+        # Filter to supported formats only
+        current_files = []
+        for f in all_matched_files:
+            ext = Path(f).suffix.lower()
+            if ext in SUPPORTED_READ_FUNCTIONS:
+                current_files.append(f)
+            elif ext:  # Skip directories (no extension)
+                console.print(f"  ⚠️  Skipping unsupported format: {Path(f).name}")
 
         # Connect to DuckDB (needed even if no files exist, to process deletions)
         conn = duckdb.connect(str(self.duckdb_path))
@@ -298,22 +326,22 @@ class CSVLoader:
         ).fetchone()[0]
         return result > 0
 
-    def _get_csv_columns(self, conn: duckdb.DuckDBPyConnection, filepath: str) -> list[str]:
+    def _get_file_columns(self, conn: duckdb.DuckDBPyConnection, filepath: str) -> list[str]:
         """
-        Get column names from a CSV file.
+        Get column names from a data file (CSV, JSON, JSONL, or Parquet).
 
         Args:
             conn: DuckDB connection
-            filepath: Path to CSV file
+            filepath: Path to data file
 
         Returns:
             List of column names (excluding metadata columns)
         """
-        # Use DuckDB's read_csv_auto to infer schema
+        read_fn = self._get_read_function(filepath)
         temp_view = f"_temp_schema_check_{int(datetime.now().timestamp())}"
         try:
             conn.execute(
-                f"CREATE TEMP VIEW {temp_view} AS SELECT * FROM read_csv_auto('{filepath}') LIMIT 0"
+                f"CREATE TEMP VIEW {temp_view} AS SELECT * FROM {read_fn}('{filepath}') LIMIT 0"
             )
             columns = [col[0] for col in conn.execute(f"DESCRIBE {temp_view}").fetchall()]
             conn.execute(f"DROP VIEW {temp_view}")
@@ -324,7 +352,7 @@ class CSVLoader:
                 conn.execute(f"DROP VIEW IF EXISTS {temp_view}")
             except Exception:
                 pass
-            raise Exception(f"Failed to read CSV schema from {filepath}: {e}") from e
+            raise Exception(f"Failed to read file schema from {filepath}: {e}") from e
 
     def _get_table_columns(self, conn: duckdb.DuckDBPyConnection, table_name: str) -> list[str]:
         """
@@ -383,7 +411,7 @@ class CSVLoader:
             reference_name = "existing table"
         else:
             # First load: all files must match first file
-            reference_columns = self._get_csv_columns(conn, filepaths[0])
+            reference_columns = self._get_file_columns(conn, filepaths[0])
             reference_name = os.path.basename(filepaths[0])
 
         reference_set = set(reference_columns)
@@ -399,7 +427,7 @@ class CSVLoader:
                 continue
 
             try:
-                file_columns = self._get_csv_columns(conn, filepath)
+                file_columns = self._get_file_columns(conn, filepath)
                 file_set = set(file_columns)
 
                 if file_set != reference_set:
@@ -459,7 +487,7 @@ class CSVLoader:
                     "❌ No data was loaded",
                     "",
                     "To fix:",
-                    "  1. Ensure all CSV files have identical schemas",
+                    "  1. Ensure all data files have identical schemas",
                     "  2. OR remove/fix mismatched files",
                     "  3. dango sync",
                     "",
@@ -495,7 +523,7 @@ class CSVLoader:
         Raises:
             CSVSchemaMismatchError: If schemas don't match
         """
-        csv_columns = self._get_csv_columns(conn, filepath)
+        csv_columns = self._get_file_columns(conn, filepath)
         table_columns = self._get_table_columns(conn, target_table)
 
         # Compare column sets
@@ -549,6 +577,7 @@ class CSVLoader:
         temp_table = f"_temp_schema_{int(datetime.now().timestamp())}"
         metadata = self._get_file_metadata(filepath)
         filename = os.path.basename(filepath)
+        read_fn = self._get_read_function(filepath)
 
         # Load to temp table with metadata columns
         conn.execute(f"""
@@ -559,7 +588,7 @@ class CSVLoader:
                 TIMESTAMP '{metadata["mtime"].strftime("%Y-%m-%d %H:%M:%S")}' AS _dango_file_mtime,
                 CURRENT_TIMESTAMP AS _dango_loaded_at,
                 false AS _dango_deleted
-            FROM read_csv_auto('{filepath}')
+            FROM {read_fn}('{filepath}')
         """)
 
         # Create target table from temp (empty)
@@ -586,6 +615,7 @@ class CSVLoader:
             self._validate_schema_match(conn, filepath, target_table, source_name)
 
             metadata = self._get_file_metadata(filepath)
+            read_fn = self._get_read_function(filepath)
 
             # Load to temp table
             conn.execute(f"""
@@ -596,7 +626,7 @@ class CSVLoader:
                     TIMESTAMP '{metadata["mtime"].strftime("%Y-%m-%d %H:%M:%S")}' AS _dango_file_mtime,
                     CURRENT_TIMESTAMP AS _dango_loaded_at,
                     false AS _dango_deleted
-                FROM read_csv_auto('{filepath}')
+                FROM {read_fn}('{filepath}')
             """)
 
             row_count = conn.execute(f"SELECT COUNT(*) FROM {temp_table}").fetchone()[0]
@@ -653,6 +683,7 @@ class CSVLoader:
             self._validate_schema_match(conn, filepath, target_table, source_name)
 
             metadata = self._get_file_metadata(filepath)
+            read_fn = self._get_read_function(filepath)
 
             # Load to temp table
             conn.execute(f"""
@@ -663,7 +694,7 @@ class CSVLoader:
                     TIMESTAMP '{metadata["mtime"].strftime("%Y-%m-%d %H:%M:%S")}' AS _dango_file_mtime,
                     CURRENT_TIMESTAMP AS _dango_loaded_at,
                     false AS _dango_deleted
-                FROM read_csv_auto('{filepath}')
+                FROM {read_fn}('{filepath}')
             """)
 
             row_count = conn.execute(f"SELECT COUNT(*) FROM {temp_table}").fetchone()[0]
