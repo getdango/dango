@@ -45,6 +45,7 @@ dependencies = [
     "requests>=2.31.0",
     "httpx>=0.27.0",
     "fastapi>=0.109.0",
+    "starlette<1.0.0",  # Pin until TemplateResponse migration (Phase 8)
     "uvicorn[standard]>=0.27.0",
     "python-multipart>=0.0.9",
     "websockets>=12.0",
