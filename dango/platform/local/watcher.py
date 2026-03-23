@@ -38,7 +38,13 @@ class DebouncedFileHandler(FileSystemEventHandler):
         super().__init__()
         self.callback = callback
         self.debounce_seconds = debounce_seconds
-        self.watch_patterns = watch_patterns or {"*.csv"}
+        self.watch_patterns = watch_patterns or {
+            "*.csv",
+            "*.json",
+            "*.jsonl",
+            "*.ndjson",
+            "*.parquet",
+        }
 
         self._timer: threading.Timer | None = None
         self._lock = threading.Lock()
@@ -150,7 +156,13 @@ class FileWatcher:
         """
         self.callback = callback
         self.debounce_seconds = debounce_seconds
-        self.watch_patterns = watch_patterns or {"*.csv"}
+        self.watch_patterns = watch_patterns or {
+            "*.csv",
+            "*.json",
+            "*.jsonl",
+            "*.ndjson",
+            "*.parquet",
+        }
 
         self.observer = Observer()
         self.handler = DebouncedFileHandler(
@@ -403,7 +415,7 @@ class SyncTrigger:
         self.file_watcher = FileWatcher(
             callback=self._on_files_changed,
             debounce_seconds=sync_debounce,
-            watch_patterns={"*.csv"},
+            watch_patterns={"*.csv", "*.json", "*.jsonl", "*.ndjson", "*.parquet"},
         )
 
     def _on_files_changed(self, event_data: dict):

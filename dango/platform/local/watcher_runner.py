@@ -216,28 +216,28 @@ def main() -> None:
 
     multi_watcher = MultiTargetWatcher()
 
-    # Target 1: CSV files → sync (auto-generates staging + dbt)
+    # Target 1: Data files → sync (auto-generates staging + dbt)
     if platform.auto_sync:
 
-        def csv_callback(event_data: dict) -> None:
-            """CSV file changes → trigger sync"""
+        def file_callback(event_data: dict) -> None:
+            """Data file changes → trigger sync"""
             files = event_data["files"]
-            print(f"[FileWatcher] CSV changes detected, triggering sync for {len(files)} files")
+            print(f"[FileWatcher] File changes detected, triggering sync for {len(files)} files")
             run_sync_command(project_root)
 
         multi_watcher.add_watch_target(
-            name="csv_sync",
-            callback=csv_callback,
-            watch_patterns=set(platform.watch_patterns),  # Default: ["*.csv"]
+            name="file_sync",
+            callback=file_callback,
+            watch_patterns=set(platform.watch_patterns),
             debounce_seconds=platform.debounce_seconds,
         )
 
-        # Watch configured CSV directories
+        # Watch configured data directories
         for watch_dir_str in platform.watch_directories:
             watch_dir = project_root / watch_dir_str
             watch_dir.mkdir(parents=True, exist_ok=True)
-            multi_watcher.watch_directory("csv_sync", watch_dir, recursive=True)
-            print(f"[FileWatcher] Watching CSV files in: {watch_dir}")
+            multi_watcher.watch_directory("file_sync", watch_dir, recursive=True)
+            print(f"[FileWatcher] Watching data files in: {watch_dir}")
 
     # Target 2: dbt models (SQL files) → dbt run
     if platform.auto_dbt:

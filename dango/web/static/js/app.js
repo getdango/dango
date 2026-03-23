@@ -360,8 +360,9 @@ async function handleWebSocketMessage(data) {
             // Don't show toast - too spammy
             break;
 
+        case 'file_uploaded':
         case 'csv_uploaded':
-            console.log('📤 [WS] csv_uploaded - File uploaded, sync will start:', source);
+            console.log('📤 [WS] file_uploaded - File uploaded, sync will start:', source);
             addLogEntry('info', message, source);
             // Don't show toast - optimistic update already showed it
             // Ensure syncing state is set (in case optimistic update didn't happen)
@@ -1104,14 +1105,15 @@ function renderSourcesTable() {
         const buttonDisabled = isDisabled ? 'disabled' : '';
         const buttonText = isSyncing ? 'Syncing...' : (hasFileOps ? 'Processing...' : 'Sync Now');
 
-        // For CSV sources, clicking the row opens upload modal
+        // For file sources (csv/local_files), clicking the row opens upload modal
         // For other sources, clicking the row opens detail modal
-        const rowClickHandler = source.type === 'csv'
+        const isFileSource = source.type === 'csv' || source.type === 'local_files';
+        const rowClickHandler = isFileSource
             ? `openCsvUploadModal('${source.name}')`
             : `openSourceDetail('${source.name}')`;
 
-        const rowClickHelp = source.type === 'csv'
-            ? 'Click to upload CSV files'
+        const rowClickHelp = isFileSource
+            ? 'Click to upload files'
             : 'Click to view details';
 
         return `
@@ -1408,8 +1410,8 @@ function refreshSources() {
 async function openCsvUploadModal(sourceName) {
     // Find the source
     const source = sources.find(s => s.name === sourceName);
-    if (!source || source.type !== 'csv') {
-        showToast('Invalid CSV source', 'error');
+    if (!source || (source.type !== 'csv' && source.type !== 'local_files')) {
+        showToast('Invalid file source', 'error');
         return;
     }
 
@@ -1422,22 +1424,31 @@ async function openCsvUploadModal(sourceName) {
     // Reset form
     document.getElementById('csv-upload-form').reset();
 
+    // Update file input accept attribute for local_files sources
+    const fileInput = document.getElementById('csv-file-input');
+    if (fileInput) {
+        fileInput.accept = source.type === 'local_files'
+            ? '.csv,.json,.jsonl,.ndjson,.parquet'
+            : '.csv';
+    }
+
     // Populate configuration from source details
     try {
         const details = await apiCall(`/api/sources/${sourceName}/details`);
-        const csvConfig = details.config.csv || {};
+        const configKey = source.type === 'local_files' ? 'local_files' : 'csv';
+        const fileConfig = details.config[configKey] || {};
 
         // Display directory
-        document.getElementById('upload-directory').textContent = csvConfig.directory || 'data';
+        document.getElementById('upload-directory').textContent = fileConfig.directory || 'data';
 
         // Display file pattern
-        document.getElementById('upload-file-pattern').textContent = csvConfig.file_pattern || '*.csv';
+        document.getElementById('upload-file-pattern').textContent = fileConfig.file_pattern || (source.type === 'local_files' ? '*' : '*.csv');
 
         // Display regeneration notes (if present)
         const notesContainer = document.getElementById('upload-notes-container');
         const notesSpan = document.getElementById('upload-notes');
-        if (csvConfig.notes && csvConfig.notes.trim()) {
-            notesSpan.textContent = csvConfig.notes;
+        if (fileConfig.notes && fileConfig.notes.trim()) {
+            notesSpan.textContent = fileConfig.notes;
             notesContainer.style.display = 'block';
         } else {
             notesContainer.style.display = 'none';
@@ -1460,7 +1471,7 @@ async function loadCsvFilesList(sourceName) {
 
         if (!data.files || data.files.length === 0) {
             container.innerHTML = `
-                <p class="text-gray-500 text-center py-2">No CSV files found</p>
+                <p class="text-gray-500 text-center py-2">No files found</p>
             `;
             return;
         }
@@ -1660,14 +1671,14 @@ async function handleCsvUpload() {
 
                 if (response.ok && result.success) {
                     successCount++;
-                    addLogEntry('success', `CSV uploaded: ${file.name}`, sourceName);
+                    addLogEntry('success', `File uploaded: ${file.name}`, sourceName);
                 } else {
                     failCount++;
-                    addLogEntry('error', `CSV upload failed: ${file.name} - ${result.detail || 'Unknown error'}`, sourceName);
+                    addLogEntry('error', `Upload failed: ${file.name} - ${result.detail || 'Unknown error'}`, sourceName);
                 }
             } catch (error) {
                 failCount++;
-                addLogEntry('error', `CSV upload failed: ${file.name} - ${error.message}`, sourceName);
+                addLogEntry('error', `Upload failed: ${file.name} - ${error.message}`, sourceName);
             }
         }
 
@@ -1707,7 +1718,7 @@ async function handleCsvUpload() {
         // Mark upload as complete so finally block knows state
         uploadComplete = true;
     } catch (error) {
-        console.error('Error uploading CSV:', error);
+        console.error('Error uploading file:', error);
         showToast(`Upload failed: ${error.message}`, 'error');
         addLogEntry('error', `Upload failed: ${error.message}`, sourceName);
         // Clear operation on error
@@ -1856,13 +1867,15 @@ async function openSourceDetail(sourceName) {
 <div><span class="font-semibold text-gray-700">Syncing From:</span> <span class="text-gray-900">${startDate}</span></div>
 ${details.config.description ? `<div><span class="font-semibold text-gray-700">Notes:</span> <span class="text-gray-900">${details.config.description}</span></div>` : ''}
 </div>`;
-        } else if (details.config.type === 'csv' && details.config.csv) {
-            // Clean rendering for CSV sources - only show user-relevant info
-            const csvConfig = details.config.csv;
+        } else if ((details.config.type === 'csv' && details.config.csv) || (details.config.type === 'local_files' && details.config.local_files)) {
+            // Clean rendering for file sources - only show user-relevant info
+            const fileConfig = details.config.type === 'local_files' ? details.config.local_files : details.config.csv;
+            const defaultPattern = details.config.type === 'local_files' ? '*' : '*.csv';
 
             configElement.innerHTML = `<div class="space-y-3">
-<div><span class="font-semibold text-gray-700">Upload Location:</span> <span class="text-gray-900">${csvConfig.directory || 'data'}</span></div>
-<div><span class="font-semibold text-gray-700">File Pattern:</span> <span class="text-gray-900">${csvConfig.file_pattern || '*.csv'}</span></div>
+<div><span class="font-semibold text-gray-700">Upload Location:</span> <span class="text-gray-900">${fileConfig.directory || 'data'}</span></div>
+<div><span class="font-semibold text-gray-700">File Pattern:</span> <span class="text-gray-900">${fileConfig.file_pattern || defaultPattern}</span></div>
+${details.config.type === 'local_files' ? '<div><span class="font-semibold text-gray-700">Formats:</span> <span class="text-gray-900">CSV, JSON, JSONL, Parquet</span></div>' : ''}
 ${details.config.description ? `<div><span class="font-semibold text-gray-700">Notes:</span> <span class="text-gray-900">${details.config.description}</span></div>` : ''}
 </div>`;
         } else {

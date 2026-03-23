@@ -2,12 +2,13 @@
 
 ## Purpose
 
-Loads data into DuckDB from external sources via dlt pipelines and CSV files, with a central registry of 32 supported data sources.
+Loads data into DuckDB from external sources via dlt pipelines and local files, with a central registry of 33 supported data sources.
 
 ## Source Selection
 
-Registry contains 32 sources: 27 dlt verified (vendored in `dlt_sources/`) + CSV
-(custom) + dlt_native (passthrough) + filesystem + rest_api (dlt core built-ins) +
+Registry contains 33 sources: 27 dlt verified (vendored in `dlt_sources/`) + CSV
+(custom, hidden) + Local Files (unified, primary wizard entry) + dlt_native
+(passthrough) + filesystem (hidden, cloud storage) + rest_api (dlt core built-in) +
 PostgreSQL (dlt sql_database wrapper). Excluded: generic `sql_database` (too complex
 for wizard — use dlt_native) and Shopify (`wizard_enabled=False`, see P5-006).
 
@@ -17,9 +18,9 @@ for wizard — use dlt_native) and Shopify (`wizard_enabled=False`, see P5-006).
 |------|---------|----------------------|
 | `__init__.py` | Public exports | `DltPipelineRunner`, `run_sync`, `CSVLoader`, `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata`, `get_source_capabilities` |
 | `dlt_runner.py` | Generic pipeline runner for all dlt and custom sources | `DltPipelineRunner`, `run_sync` (imports `SyncTimeoutError` from `dango.exceptions`) |
-| `csv_loader.py` | Incremental CSV loading with metadata tracking and 4 dedup strategies | `CSVLoader` (imports `CSVSchemaMismatchError` from `dango.exceptions`) |
+| `csv_loader.py` | Multi-format file loading (CSV, JSON, JSONL, Parquet) with metadata tracking and 4 dedup strategies | `CSVLoader`, `SUPPORTED_READ_FUNCTIONS` (imports `CSVSchemaMismatchError` from `dango.exceptions`) |
 | `sources/__init__.py` | Sources subpackage exports | Re-exports `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata`, `get_source_capabilities` |
-| `sources/registry.py` | Central registry of 32 supported data sources with metadata | `SOURCE_REGISTRY`, `CATEGORIES`, `AuthType`, `get_source_metadata`, `get_sources_by_category`, `get_source_capabilities` |
+| `sources/registry.py` | Central registry of 33 supported data sources with metadata | `SOURCE_REGISTRY`, `CATEGORIES`, `AuthType`, `get_source_metadata`, `get_sources_by_category`, `get_source_capabilities` |
 | `dlt_sources/` | Third-party dlt verified source implementations (27 directories, 105+ files) | DO NOT MODIFY — see "Don't Modify" section |
 
 ## Common Tasks

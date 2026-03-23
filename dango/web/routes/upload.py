@@ -1,6 +1,6 @@
 """dango/web/routes/upload.py
 
-CSV file upload, listing, and deletion endpoints.
+File upload, listing, and deletion endpoints for CSV and local_files sources.
 """
 
 import glob
@@ -76,20 +76,33 @@ async def upload_csv_to_source(
         if not source_config:
             raise HTTPException(status_code=404, detail=f"Source '{source_name}' not found")
 
-        # Validate source is of type CSV
-        if source_config.get("type") != "csv":
+        # Validate source is a file-based type
+        source_type = source_config.get("type")
+        if source_type not in ("csv", "local_files"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Source '{source_name}' is not a CSV source (type: {source_config.get('type')})",
+                detail=f"Source '{source_name}' is not a file source (type: {source_type})",
             )
 
         # Validate file type
-        if not file.filename or not file.filename.endswith(".csv"):
-            raise HTTPException(status_code=400, detail="Only CSV files are supported")
+        allowed_extensions = {".csv", ".json", ".jsonl", ".ndjson", ".parquet"}
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No filename provided")
+        file_ext = Path(file.filename).suffix.lower()
+        if source_type == "csv" and file_ext != ".csv":
+            raise HTTPException(
+                status_code=400, detail="Only CSV files are supported for this source"
+            )
+        if source_type == "local_files" and file_ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file format. Supported: {', '.join(sorted(allowed_extensions))}",
+            )
 
         # Get directory from source config
-        csv_config = source_config.get("csv", {})
-        directory = csv_config.get("directory", "data")
+        config_key = "local_files" if source_type == "local_files" else "csv"
+        file_config = source_config.get(config_key, {})
+        directory = file_config.get("directory", "data")
 
         # Resolve directory path (could be relative or absolute)
         data_dir = Path(directory)
@@ -116,14 +129,14 @@ async def upload_csv_to_source(
             content = await file.read()
             await buffer.write(content)
 
-        logger.info(f"Uploaded CSV file for source '{source_name}': {file_path}")
+        logger.info(f"Uploaded file for source '{source_name}': {file_path}")
 
         # Broadcast upload event via WebSocket
         await ws_manager.broadcast(
             {
-                "event": "csv_uploaded",
+                "event": "file_uploaded",
                 "source": source_name,
-                "message": f"CSV file {safe_filename} uploaded to {source_name}",
+                "message": f"File {safe_filename} uploaded to {source_name}",
                 "timestamp": datetime.now().isoformat(),
             }
         )
@@ -137,7 +150,7 @@ async def upload_csv_to_source(
 
         return {
             "success": True,
-            "message": f"CSV uploaded successfully: {safe_filename}"
+            "message": f"File uploaded successfully: {safe_filename}"
             + (" - Sync started." if trigger_sync else ""),
             "source_name": source_name,
             "file_name": safe_filename,
@@ -183,15 +196,19 @@ async def get_csv_files(source_name: str):
         if not source_config:
             raise HTTPException(status_code=404, detail=f"Source '{source_name}' not found")
 
-        # Validate source is of type CSV
-        if source_config.get("type") != "csv":
+        # Validate source is a file-based type
+        source_type = source_config.get("type")
+        if source_type not in ("csv", "local_files"):
             raise HTTPException(
-                status_code=400, detail=f"Source '{source_name}' is not a CSV source"
+                status_code=400, detail=f"Source '{source_name}' is not a file source"
             )
 
-        csv_config = source_config.get("csv", {})
-        directory = csv_config.get("directory", "data")
-        file_pattern = csv_config.get("file_pattern", "*.csv")
+        config_key = "local_files" if source_type == "local_files" else "csv"
+        file_config = source_config.get(config_key, {})
+        directory = file_config.get("directory", "data")
+        file_pattern = file_config.get(
+            "file_pattern", "*" if source_type == "local_files" else "*.csv"
+        )
 
         # Resolve directory path
         if not Path(directory).is_absolute():
@@ -340,10 +357,11 @@ async def delete_csv_file(
         if not source_config:
             raise HTTPException(status_code=404, detail=f"Source '{source_name}' not found")
 
-        # Verify source is CSV type
-        if source_config.get("type") != "csv":
+        # Verify source is a file-based type
+        source_type = source_config.get("type")
+        if source_type not in ("csv", "local_files"):
             raise HTTPException(
-                status_code=400, detail=f"Source '{source_name}' is not a CSV source"
+                status_code=400, detail=f"Source '{source_name}' is not a file source"
             )
 
         # Verify file exists
@@ -352,7 +370,8 @@ async def delete_csv_file(
             raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
 
         # Verify file is in the source directory (security check)
-        source_directory = source_config.get("csv", {}).get("directory")
+        config_key = "local_files" if source_type == "local_files" else "csv"
+        source_directory = source_config.get(config_key, {}).get("directory")
         if not source_directory:
             raise HTTPException(status_code=500, detail="Source directory not configured")
 
