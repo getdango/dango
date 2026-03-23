@@ -340,7 +340,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/oauth.py` | 815 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 810 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 801 | — |
-| `ingestion/csv_loader.py` | 775 | — |
+| `ingestion/csv_loader.py` | 773 | — |
 | `platform/scheduling/jobs.py` | 732 | — (module-level job functions) |
 | `web/routes/schedules.py` | 720 | — (schedule CRUD, history, notifications) |
 | `web/routes/upload.py` | 680 | — (extracted from app.py by TASK-085) |

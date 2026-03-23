@@ -1222,14 +1222,14 @@ def {module_name}_resource(api_key: str):
                     message="Primary key column (optional)",
                     default="",
                 )
-                if pk and pk.strip():
+                if pk is not None and pk.strip():
                     params["primary_key"] = pk.strip()
 
                 ts = inquirer.text(
                     message="Timestamp column (optional)",
                     default="",
                 )
-                if ts and ts.strip():
+                if ts is not None and ts.strip():
                     params["timestamp_column"] = ts.strip()
 
         return params

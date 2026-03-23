@@ -534,9 +534,10 @@ class DltPipelineRunner:
         if full_refresh:
             import duckdb
 
+            target_schema = f"raw_{source_config.name}"
             conn = duckdb.connect(str(self.duckdb_path))
             try:
-                conn.execute(f"DROP TABLE IF EXISTS raw.{source_config.name}")
+                conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
                 console.print("  🔄 Full refresh: dropped existing table")
 
                 # Also clear metadata for this source so files are treated as new
@@ -588,12 +589,13 @@ class DltPipelineRunner:
             raise ValueError(f"local_files config missing for source: {source_config.name}")
 
         # Full refresh: drop existing table and clear metadata
+        target_schema = f"raw_{source_config.name}"
         if full_refresh:
             import duckdb
 
             conn = duckdb.connect(str(self.duckdb_path))
             try:
-                conn.execute(f"DROP TABLE IF EXISTS raw.{source_config.name}")
+                conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
                 console.print("  🔄 Full refresh: dropped existing table")
 
                 conn.execute(
@@ -608,9 +610,6 @@ class DltPipelineRunner:
                 console.print(f"  ⚠️  Could not drop table/metadata: {e}")
             finally:
                 conn.close()
-
-        # Run loader (CSVLoader now supports all formats via inheritance)
-        target_schema = f"raw_{source_config.name}"
         loader = CSVLoader(self.project_root, self.duckdb_path)
         result = loader.load(
             source_name=source_config.name,
