@@ -91,10 +91,10 @@ These sources are registered but disabled due to known issues:
 | Source | Reason |
 |--------|--------|
 | Shopify | Pending investigation — dlt vendor may be incompatible with Jan 2026 API deprecation |
-| Matomo | Token passed via GET parameter (security risk) |
-| Jira | Wrong endpoint in dlt source |
-| Asana | Asana SDK removed from dlt source |
-| Strapi | Untested, requires Docker Strapi instance |
-| Personio | Enterprise-only API |
+| [Matomo](marketing/matomo.md) | Token passed via GET parameter (security risk) |
+| [Jira](other/jira.md) | Wrong endpoint in dlt source |
+| [Asana](other/asana.md) | Asana SDK removed from dlt source |
+| [Strapi](other/strapi.md) | Untested, requires Docker Strapi instance |
+| [Personio](other/personio.md) | Enterprise-only API |
 
 See also: [OAuth Pattern](oauth-pattern.md) | [Known Limitations](known-limitations.md)

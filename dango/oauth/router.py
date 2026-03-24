@@ -110,6 +110,7 @@ def check_oauth_credentials_exist(source_type: str, source_name: str, project_ro
             elif source_type == "facebook_ads":
                 if "access_token" in source_creds:
                     return True
+
         # Check shared provider credentials (fallback)
         # For Google services, check for shared Google OAuth credentials
         if source_type in ["google_ads", "google_analytics", "google_sheets"]:
