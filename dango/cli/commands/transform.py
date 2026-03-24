@@ -119,7 +119,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
             console.print(traceback.format_exc())
         raise click.Abort() from e
     finally:
-        if lock is not None:
+        if lock is not None and lock._acquired:
             try:
                 lock.release()
             except Exception:

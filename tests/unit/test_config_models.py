@@ -24,7 +24,6 @@ from dango.config.models import (
     ProjectContext,
     RESTAPISourceConfig,
     SalesforceSourceConfig,
-    ShopifySourceConfig,
     SlackSourceConfig,
     SourceType,
     Stakeholder,
@@ -232,7 +231,6 @@ class TestSourceConfigModels:
         "model_cls,kwargs",
         [
             (StripeSourceConfig, {}),
-            (ShopifySourceConfig, {"shop_url": "test.myshopify.com"}),
             (FacebookAdsSourceConfig, {"account_id": "act_123456789"}),
             (GoogleAnalyticsSourceConfig, {"property_id": "123456"}),
             (HubSpotSourceConfig, {}),
@@ -256,7 +254,6 @@ class TestSourceConfigModels:
         ],
         ids=[
             "Stripe",
-            "Shopify",
             "FacebookAds",
             "GoogleAnalytics",
             "HubSpot",

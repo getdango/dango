@@ -232,7 +232,6 @@ def oauth_refresh(ctx: click.Context, oauth_name: str) -> None:
     from dango.oauth.providers import (
         FacebookOAuthProvider,
         GoogleOAuthProvider,
-        ShopifyOAuthProvider,
     )
     from dango.oauth.storage import OAuthStorage
 
@@ -268,9 +267,6 @@ def oauth_refresh(ctx: click.Context, oauth_name: str) -> None:
             facebook_provider = FacebookOAuthProvider(oauth_manager)
             new_oauth_name = facebook_provider.authenticate()
 
-        elif cred.provider == "shopify":
-            shopify_provider = ShopifyOAuthProvider(oauth_manager)
-            new_oauth_name = shopify_provider.authenticate()
         else:
             console.print(f"\n[red]✗ Unsupported provider: {cred.provider}[/red]\n")
             raise click.Abort()

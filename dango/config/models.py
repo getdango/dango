@@ -192,19 +192,6 @@ class StripeSourceConfig(BaseModel):
     end_date: datetime | None = None
 
 
-class ShopifySourceConfig(BaseModel):
-    """Shopify API source configuration"""
-
-    shop_url: str = Field(
-        default="",
-        description="Shopify shop URL (e.g., 'myshop.myshopify.com'). For OAuth sources, populated from .dlt/secrets.toml at sync time.",
-    )
-    resources: list[str] = Field(
-        default=["orders", "customers", "products"], description="Shopify resources to sync"
-    )
-    start_date: datetime | None = None
-
-
 class FacebookAdsSourceConfig(BaseModel):
     """Facebook Ads API source configuration"""
 
@@ -402,7 +389,6 @@ class DataSource(BaseModel):
 
     # E-commerce & Payment
     stripe: StripeSourceConfig | None = None
-    shopify: ShopifySourceConfig | None = None
 
     # Development
     github: GitHubSourceConfig | None = None
