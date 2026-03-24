@@ -13,11 +13,11 @@ Click-based command-line interface for all Dango operations — project init, so
 | **commands/** | | |
 | `commands/__init__.py` (4 lines) | Package marker | — |
 | `commands/project.py` (292 lines) | `init`, `rename`, `info` | `init()`, `rename()`, `info()` |
-| `commands/source.py` (653 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
-| `commands/platform.py` (964 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
+| `commands/source.py` (658 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
+| `commands/platform.py` (979 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
 | `commands/auth.py` (538 lines) | `auth` group (12 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_status()`, etc. |
 | `commands/cleanup.py` (322 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
-| `commands/oauth.py` (815 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
+| `commands/oauth.py` (812 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
 | `commands/transform.py` (326 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
 | `commands/upgrade.py` (236 lines) | `upgrade` command — local Dango upgrade via pip + migrations | `upgrade()`, `get_latest_version_cached()` |
 | `commands/data.py` (360 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
@@ -43,7 +43,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | **Wizards** | | |
 | `init.py` (1125 lines) | Project initialization wizard | `ProjectInitializer` |
 | `wizard.py` (296 lines) | Interactive setup wizards | `ProjectWizard` |
-| `source_wizard.py` (1350 lines) | Source configuration wizard | `add_source()` |
+| `source_wizard.py` (1878 lines) | Source configuration wizard | `add_source()` |
 | `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |
 | **Helpers** | | |
 | `utils.py` (129 lines) | Display helpers + project context | `require_project_context()` |
@@ -131,10 +131,7 @@ dango (top-level group)
 
 ### Known pre-existing bugs
 
-- `commands/transform.py:124` — `lock.release()` on a lock that was constructed but never acquired. The `if lock is not None` guard only catches constructor failure; if `DbtLock()` succeeds but `acquire()` fails, `finally` calls `release()` on an unacquired lock (silenced by `try/except Exception: pass`).
-- `commands/source.py:651` — same pattern.
-
-These are latent bugs in MVP code (pre-v1). They'll be addressed during CLI refactoring (TASK-005) or when the affected code is modified.
+None currently tracked. The `lock.release()` bug in `source.py` and `transform.py` was fixed in P5-008 (added `lock._acquired` guard).
 
 ## Common Tasks
 

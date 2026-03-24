@@ -747,7 +747,6 @@ class SourceWizard:
         oauth_collected_params = {
             "facebook_ads": [],  # account_id is a required wizard param, not OAuth-collected
             "google_ads": ["customer_id"],  # Google Ads OAuth collects customer_id
-            "shopify": ["shop_url"],  # Shopify OAuth collects shop_url
         }
 
         if source_type in oauth_collected_params:

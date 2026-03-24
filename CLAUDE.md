@@ -49,7 +49,7 @@ When unsure which module to look at:
   - Dango web UI → `web/`
   - Terminal commands → `cli/`
 - **WHERE credentials are stored:**
-  - OAuth flow (Google, Facebook, Shopify) → `oauth/`
+  - OAuth flow (Google, Facebook) → `oauth/`
   - Token encryption (keychain) → `security/`
   - Config file format (`.dango/*.yml`) → `config/`
 - **Shared utility** (locking, logging, DB helpers) → `utils/`
@@ -76,15 +76,15 @@ dango/                          # Python package source
 │   │   ├── __init__.py         # Package marker
 │   │   ├── auth.py             # auth group (12 subcommands, 538 lines)
 │   │   ├── cleanup.py          # cleanup old logs, dbt artifacts, Python cache
-│   │   ├── oauth.py            # oauth group + 10 subcommands (815 lines)
+│   │   ├── oauth.py            # oauth group + 10 subcommands (812 lines)
 │   │   ├── config_cmd.py       # config group (validate/show)
 │   │   ├── dashboard.py        # dashboard group (provision)
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
 │   │   ├── model.py            # model group (add/remove)
-│   │   ├── platform.py         # start/stop/status + port helpers (964 lines)
+│   │   ├── platform.py         # start/stop/status + port helpers (979 lines)
 │   │   ├── project.py          # init/rename/info
-│   │   ├── source.py           # source group (add/list/remove) + sync (653 lines)
+│   │   ├── source.py           # source group (add/list/remove) + sync (658 lines)
 │   │   ├── transform.py        # run/docs/generate
 │   │   ├── upgrade.py          # local Dango upgrade via pip + migrations
 │   │   ├── web.py              # web dev server
@@ -174,7 +174,7 @@ dango/                          # Python package source
 │   │   ├── sync.py             # /api/sources/{name}/sync + run_sync_task()
 │   │   ├── logs.py             # /api/logs, /api/sources/{name}/logs
 │   │   ├── dbt.py              # /api/dbt/models, /api/dbt/models/{name}/run + dbt docs proxy
-│   │   ├── upload.py           # CSV upload/list/delete (680 lines)
+│   │   ├── upload.py           # CSV upload/list/delete (699 lines)
 │   │   ├── websocket.py        # ConnectionManager, ws_manager, /ws
 │   │   ├── ui.py               # /, /health, /logs, /login, /account, /admin/users
 │   │   ├── metabase_proxy.py   # Metabase reverse proxy + SSO session
@@ -210,7 +210,7 @@ dango/                          # Python package source
 │   │   └── startup.py          # run_pending_migrations, start_docker_services, etc.
 │   ├── local/                  # Local-only components
 │   │   ├── network.py          # NetworkConfig, NginxManager, HostsManager
-│   │   ├── watcher.py          # File change detection (506 lines)
+│   │   ├── watcher.py          # File change detection (518 lines)
 │   │   ├── watcher_lifecycle.py # Watcher subprocess lifecycle
 │   │   └── watcher_runner.py   # Background watcher process
 │   ├── scheduling/             # APScheduler-based job scheduling (TASK-036+)
@@ -259,7 +259,7 @@ dango/                          # Python package source
 │
 ├── oauth/                      # Level 1 — OAuth flows
 │   ├── __init__.py             # OAuthManager
-│   ├── providers.py            # Google, Facebook, Shopify providers (801 lines)
+│   ├── providers.py            # Google, Facebook providers (670 lines)
 │   ├── storage.py              # Credential CRUD in .dlt/secrets.toml
 │   ├── router.py               # FastAPI OAuth callback endpoints
 │   ├── validation.py           # Live token validation + refresh checking
@@ -331,35 +331,35 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 |------|-------|-----------------|
 | `ingestion/dlt_runner.py` | 2276 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2030 | — (metadata-only) |
-| `cli/source_wizard.py` | 1879 | — |
+| `cli/source_wizard.py` | 1878 | — |
 | `visualization/metabase.py` | 1149 | — |
-| `visualization/dashboard_manager.py` | 1113 | — |
 | `cli/init.py` | 1125 | — |
-| `cli/commands/platform.py` | 964 | — (extracted from main.py by TASK-005) |
-| `web/routes/auth.py` | ~854 | — (split evaluated in DOC-025: exempt, security-critical) |
-| `cli/commands/oauth.py` | 815 | — (renamed from auth.py by TASK-093) |
+| `visualization/dashboard_manager.py` | 1113 | — |
+| `cli/commands/platform.py` | 979 | — (extracted from main.py by TASK-005) |
+| `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
+| `cli/commands/oauth.py` | 812 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 810 | — (extracted from app.py by TASK-085) |
-| `oauth/providers.py` | 801 | — |
 | `ingestion/csv_loader.py` | 773 | — |
 | `platform/scheduling/jobs.py` | 732 | — (module-level job functions) |
 | `web/routes/schedules.py` | 720 | — (schedule CRUD, history, notifications) |
-| `web/routes/upload.py` | 680 | — (extracted from app.py by TASK-085) |
+| `web/routes/upload.py` | 699 | — (extracted from app.py by TASK-085) |
+| `oauth/providers.py` | 670 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
-| `cli/commands/source.py` | 653 | — (extracted from main.py by TASK-005) |
+| `cli/commands/source.py` | 658 | — (extracted from main.py by TASK-005) |
 | `cli/commands/remote.py` | 652 | — (remote group + push/rollback/firewall/domain) |
 | `cli/validate.py` | 651 | — |
+| `config/models.py` | 594 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 579 | — (interactive deploy wizard) |
 | `transformation/generator.py` | 577 | — |
 | `web/routes/catalog.py` | 566 | — (data catalog: columns, profiling, lineage, impact) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
-| `config/models.py` | 553 | — (Pydantic config models) |
 | `cli/commands/deploy_provision.py` | 543 | — (provisioning orchestration) |
 | `platform/cloud/digitalocean.py` | 542 | — (DO REST API v2 client) |
 | `cli/commands/auth.py` | 538 | — (12 auth subcommands) |
 | `auth/database.py` | 529 | — (SQLite CRUD) |
 | `web/routes/users.py` | 527 | — (admin user CRUD + invite) |
+| `platform/local/watcher.py` | 518 | — |
 | `cli/model_wizard.py` | 507 | — |
-| `platform/local/watcher.py` | 506 | — |
 | `platform/cloud/scheduled_backup.py` | 505 | — (server-side scheduled backup) |
 
 ## Module Documentation Index

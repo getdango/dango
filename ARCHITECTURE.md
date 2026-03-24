@@ -225,7 +225,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | File | Description |
 |------|-------------|
 | `__init__.py` | `OAuthManager` — manages OAuth flows, credential persistence |
-| `providers.py` | `GoogleOAuthProvider`, `FacebookOAuthProvider`, `ShopifyOAuthProvider` — provider-specific OAuth implementations |
+| `providers.py` | `GoogleOAuthProvider`, `FacebookOAuthProvider` — provider-specific OAuth implementations |
 | `storage.py` | `OAuthStorage`, `OAuthCredential` — credential CRUD in `.dlt/secrets.toml` |
 | `router.py` | FastAPI OAuth callback endpoints |
 

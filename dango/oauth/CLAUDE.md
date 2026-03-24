@@ -9,7 +9,7 @@ Manages browser-based OAuth authentication flows, provider-specific token exchan
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
 | `__init__.py` | OAuth flow orchestration and local callback server | `OAuthManager`, `OAuthCallbackHandler`, `create_oauth_manager`, re-exports from `validation.py` |
-| `providers.py` | Provider-specific OAuth implementations | `BaseOAuthProvider`, `GoogleOAuthProvider`, `FacebookOAuthProvider`, `ShopifyOAuthProvider` |
+| `providers.py` | Provider-specific OAuth implementations | `BaseOAuthProvider`, `GoogleOAuthProvider`, `FacebookOAuthProvider` |
 | `router.py` | Routes OAuth requests to correct provider | `run_oauth_for_source`, `check_oauth_credentials_exist`, `OAUTH_PROVIDER_MAP` |
 | `storage.py` | Token persistence to `.dlt/secrets.toml` with metadata. `OAuthCredential` includes health methods: `is_expired()`, `days_until_expiry()`, `is_expiring_soon()` | `OAuthStorage`, `OAuthCredential` |
 | `validation.py` | Live token validation and refresh checking via API calls | `TokenValidationResult`, `validate_token`, `validate_all_tokens`, `validate_before_sync`, `validate_google_token`, `validate_facebook_token`, `validate_shopify_token` |
@@ -55,7 +55,7 @@ Manages browser-based OAuth authentication flows, provider-specific token exchan
 
 | File | Reason |
 |------|--------|
-| `providers.py` OAuth endpoints and scopes | Set by third-party APIs (Google, Facebook, Shopify); changes break authentication |
+| `providers.py` OAuth endpoints and scopes | Set by third-party APIs (Google, Facebook); changes break authentication |
 | `storage.py` credential key structure | Must match dlt's expected secrets.toml format (e.g., `sources.{type}.credentials` for Google, flat keys for others) |
 | `router.py` `OAUTH_PROVIDER_MAP` keys | Source type keys must match `SourceType` enum values in `config/models.py` |
 | `validation.py` network error policy | Network errors return `valid=True` by design — don't block sync on transient API failures |

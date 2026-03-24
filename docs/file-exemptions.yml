@@ -1,6 +1,6 @@
 # Exemption registry for files exceeding the 500-line soft limit (STANDARDS.md §2).
 # Consumed by scripts/check_file_sizes.py for CI and pre-commit checks.
-# Line counts refreshed 2026-03-12 (DOC-029) — informational, not enforced by script.
+# Line counts refreshed 2026-03-24 (P5-008) — informational, not enforced by script.
 #
 # Categories:
 #   refactor — planned for refactoring in v1 (linked to a task)
@@ -18,7 +18,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/upload.py
-    lines: 680
+    lines: 699
     category: exempt
     reason: "CSV upload/list/delete endpoints. Extracted from web/app.py by TASK-085. DELETE endpoint alone has ~300 lines of DuckDB cleanup logic."
     review_by: "v1.1"
@@ -63,19 +63,19 @@ exemptions:
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
-    lines: 964
+    lines: 979
     category: exempt
     reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic."
     review_by: "v1.1"
 
   - file: dango/cli/commands/oauth.py
-    lines: 815
+    lines: 812
     category: exempt
     reason: "OAuth authentication commands (10 subcommands). Renamed from auth.py by TASK-093. One command per provider — file grows linearly with providers."
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 653
+    lines: 658
     category: exempt
     reason: "Source management commands (add/list/remove) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation."
     review_by: "v1.1"
@@ -100,7 +100,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/source_wizard.py
-    lines: 1879
+    lines: 1878
     category: exempt
     reason: "Interactive source configuration wizard. Sequential prompting logic doesn't benefit from splitting. P7-011 added metrics generation. P5c grew +529 lines (credential unification, resource selection, dedup collection)."
     review_by: "v1.1"
@@ -126,9 +126,9 @@ exemptions:
   # Removed: dango/cli/utils.py — now ~130 lines after TASK-006 (utilities moved to proper modules)
 
   - file: dango/oauth/providers.py
-    lines: 801
+    lines: 670
     category: exempt
-    reason: "OAuth provider definitions (Google, Facebook, Shopify). Each provider is self-contained — file grows linearly with providers."
+    reason: "OAuth provider definitions (Google, Facebook). Shopify provider removed in P5-008. Each provider is self-contained — file grows linearly with providers."
     review_by: "v1.1"
 
   - file: dango/ingestion/csv_loader.py
@@ -150,7 +150,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/local/watcher.py
-    lines: 506
+    lines: 518
     category: exempt
     reason: "File change detection for auto-sync. Event-driven logic, stable. Moved to platform/local/ by TASK-090."
     review_by: "v1.1"
@@ -201,7 +201,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/config/models.py
-    lines: 553
+    lines: 594
     category: exempt
     reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
     review_by: "v1.1"

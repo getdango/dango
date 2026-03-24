@@ -8,7 +8,7 @@ from pathlib import Path
 from rich.console import Console
 
 from dango.oauth import OAuthManager
-from dango.oauth.providers import FacebookOAuthProvider, GoogleOAuthProvider, ShopifyOAuthProvider
+from dango.oauth.providers import FacebookOAuthProvider, GoogleOAuthProvider
 
 console = Console()
 
@@ -18,7 +18,6 @@ OAUTH_PROVIDER_MAP = {
     "google_analytics": ("google", "google_analytics"),
     "google_sheets": ("google", "google_sheets"),
     "facebook_ads": ("facebook", None),
-    "shopify": ("shopify", None),
 }
 
 
@@ -63,11 +62,6 @@ def run_oauth_for_source(source_type: str, source_name: str, project_root: Path)
             fb_provider = FacebookOAuthProvider(oauth_manager)
             # Pass source_name for instance-specific credentials
             return fb_provider.authenticate(source_name=source_name) is not None
-
-        elif provider_name == "shopify":
-            shopify_provider = ShopifyOAuthProvider(oauth_manager)
-            # Pass source_name for instance-specific credentials
-            return shopify_provider.authenticate(source_name=source_name) is not None
 
         else:
             console.print(f"[red]❌ Unknown OAuth provider: {provider_name}[/red]")
@@ -116,10 +110,6 @@ def check_oauth_credentials_exist(source_type: str, source_name: str, project_ro
             elif source_type == "facebook_ads":
                 if "access_token" in source_creds:
                     return True
-            elif source_type == "shopify":
-                if "private_app_password" in source_creds:
-                    return True
-
         # Check shared provider credentials (fallback)
         # For Google services, check for shared Google OAuth credentials
         if source_type in ["google_ads", "google_analytics", "google_sheets"]:
@@ -138,12 +128,6 @@ def check_oauth_credentials_exist(source_type: str, source_name: str, project_ro
         elif source_type == "facebook_ads":
             if "facebook_ads" in secrets["sources"]:
                 return "access_token" in secrets["sources"]["facebook_ads"]
-            return False
-
-        # For Shopify - check shared credentials
-        elif source_type == "shopify":
-            if "shopify" in secrets["sources"]:
-                return "private_app_password" in secrets["sources"]["shopify"]
             return False
 
         else:
