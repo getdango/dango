@@ -497,9 +497,9 @@ async def admin_users_page(
 ) -> HTMLResponse:
     """Render the admin user management page."""
     return _render_template(
+        request,
         "admin_users.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "settings",
             "subtitle": "User Management",
@@ -516,9 +516,9 @@ async def account_page(request: Request) -> HTMLResponse:
 
     user_json = UserResponse.model_validate(current_user).model_dump(mode="json")
     return _render_template(
+        request,
         "account.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "settings",
             "subtitle": "Account Settings",

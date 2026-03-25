@@ -101,9 +101,9 @@ async def schedules_page(
 ) -> HTMLResponse:
     """Render the schedule management UI page."""
     return _render_template(
+        request,
         "schedules.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "schedules",
             "subtitle": "Schedules",

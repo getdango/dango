@@ -119,8 +119,8 @@ class TestNotebooksPage:
         resp = _client(tmp_path).get("/notebooks")
         assert resp.status_code == 200
         mock_render.assert_called_once()
-        assert mock_render.call_args[0][0] == "notebooks.html"
-        assert mock_render.call_args[0][1]["current_page"] == "notebooks"
+        assert mock_render.call_args[0][1] == "notebooks.html"
+        assert mock_render.call_args[0][2]["current_page"] == "notebooks"
 
     def test_viewer_can_access(self, tmp_path: Path) -> None:
         """Viewer (notebooks.view) can access the page."""

@@ -5,6 +5,8 @@ mounts static files, includes all route modules, and installs global
 exception handlers.
 """
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -43,10 +45,88 @@ from dango.exceptions import (
     is_debug_mode,
 )
 from dango.logging import get_logger
-from dango.web.helpers import get_project_root
 from dango.web.middleware import AuthMiddleware, RateLimitMiddleware
 
 logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Application lifespan: startup and shutdown logic."""
+    project_root: Path = app.state.project_root
+    logger.info("api_starting", project_root=str(project_root))
+
+    # Write auth.yml if missing (migration path for pre-075d projects)
+    try:
+        from dango.auth.admin import get_auth_config_path, set_auth_enabled
+
+        auth_config_path = get_auth_config_path(project_root)
+        if not auth_config_path.exists():
+            set_auth_enabled(project_root, enabled=True)
+            logger.info("auth_auto_enabled", reason="auth.yml missing")
+    except Exception:
+        logger.warning("auth_yml_migration_failed", exc_info=True)
+
+    # First-run admin creation (non-interactive)
+    try:
+        import os
+
+        from dango.auth.admin import ensure_admin, format_credentials_panel, get_auth_db_path
+        from dango.cli.utils import console
+
+        db_path = get_auth_db_path(project_root)
+        if db_path.exists():
+            email = os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
+            result = ensure_admin(db_path, email=email)
+            if result is not None:
+                user, password = result
+                console.print()
+                console.print(format_credentials_panel(user.email, password))
+                console.print()
+
+                # Sync newly created admin to Metabase (if Metabase is running)
+                try:
+                    from dango.auth.metabase_bridge import (
+                        ensure_metabase_synced,
+                        get_metabase_url,
+                    )
+
+                    mb_url = await get_metabase_url(project_root)
+                    if mb_url is not None:
+                        await ensure_metabase_synced(db_path, user.id, project_root, mb_url)
+                except Exception:
+                    logger.debug("metabase_sync_on_admin_create_skipped", exc_info=True)
+    except Exception:
+        logger.warning("first_run_admin_check_failed", exc_info=True)
+
+    # Initialize APScheduler for job scheduling
+    try:
+        import asyncio
+
+        from dango.platform.scheduling import SchedulerService
+
+        scheduler = SchedulerService(project_root)
+        scheduler.start(asyncio.get_running_loop())
+        app.state.scheduler = scheduler
+    except Exception:
+        logger.error("scheduler_startup_failed", exc_info=True)
+        app.state.scheduler = None
+
+    yield
+
+    # Shutdown
+    import asyncio
+
+    sched = getattr(app.state, "scheduler", None)
+    if sched is not None:
+        try:
+            # Run in thread to avoid blocking the event loop if a job is
+            # still executing in the ThreadPoolExecutor.
+            await asyncio.to_thread(sched.shutdown, True)
+        except Exception:
+            logger.error("scheduler_shutdown_failed", exc_info=True)
+
+    logger.info("api_shutting_down")
 
 
 def create_app(project_root: Path | None = None) -> FastAPI:
@@ -64,6 +144,7 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         version="0.1.0",
         docs_url=None,  # Disable default docs, we'll create custom ones with navbar
         redoc_url=None,  # Disable default redoc
+        lifespan=lifespan,
     )
 
     # Resolve project_root first (needed by middleware)
@@ -293,87 +374,6 @@ app.include_router(ui_router)
 
 # Proxy routers last (catch-all routes like /metabase/{path:path})
 app.include_router(metabase_proxy_router)
-
-
-# Application startup/shutdown events
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Run on application startup."""
-    project_root = get_project_root()
-    logger.info("api_starting", project_root=str(project_root))
-
-    # Write auth.yml if missing (migration path for pre-075d projects)
-    try:
-        from dango.auth.admin import get_auth_config_path, set_auth_enabled
-
-        auth_config_path = get_auth_config_path(project_root)
-        if not auth_config_path.exists():
-            set_auth_enabled(project_root, enabled=True)
-            logger.info("auth_auto_enabled", reason="auth.yml missing")
-    except Exception:
-        logger.warning("auth_yml_migration_failed", exc_info=True)
-
-    # First-run admin creation (non-interactive)
-    try:
-        import os
-
-        from dango.auth.admin import ensure_admin, format_credentials_panel, get_auth_db_path
-        from dango.cli.utils import console
-
-        db_path = get_auth_db_path(project_root)
-        if db_path.exists():
-            email = os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
-            result = ensure_admin(db_path, email=email)
-            if result is not None:
-                user, password = result
-                console.print()
-                console.print(format_credentials_panel(user.email, password))
-                console.print()
-
-                # Sync newly created admin to Metabase (if Metabase is running)
-                try:
-                    from dango.auth.metabase_bridge import (
-                        ensure_metabase_synced,
-                        get_metabase_url,
-                    )
-
-                    mb_url = await get_metabase_url(project_root)
-                    if mb_url is not None:
-                        await ensure_metabase_synced(db_path, user.id, project_root, mb_url)
-                except Exception:
-                    logger.debug("metabase_sync_on_admin_create_skipped", exc_info=True)
-    except Exception:
-        logger.warning("first_run_admin_check_failed", exc_info=True)
-
-    # Initialize APScheduler for job scheduling
-    try:
-        import asyncio
-
-        from dango.platform.scheduling import SchedulerService
-
-        scheduler = SchedulerService(project_root)
-        scheduler.start(asyncio.get_running_loop())
-        app.state.scheduler = scheduler
-    except Exception:
-        logger.error("scheduler_startup_failed", exc_info=True)
-        app.state.scheduler = None
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    """Run on application shutdown."""
-    import asyncio
-
-    scheduler = getattr(app.state, "scheduler", None)
-    if scheduler is not None:
-        try:
-            # Run in thread to avoid blocking the event loop if a job is
-            # still executing in the ThreadPoolExecutor.
-            await asyncio.to_thread(scheduler.shutdown, True)
-        except Exception:
-            logger.error("scheduler_shutdown_failed", exc_info=True)
-
-    logger.info("api_shutting_down")
 
 
 if __name__ == "__main__":

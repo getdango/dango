@@ -274,9 +274,9 @@ async def secrets_page(
     from dango.web.routes.ui import _render_template
 
     return _render_template(
+        request,
         "secrets.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "settings",
             "subtitle": "Secrets & Credentials",
