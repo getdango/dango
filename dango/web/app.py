@@ -76,7 +76,9 @@ def create_app(project_root: Path | None = None) -> FastAPI:
 
     # Auth middleware (innermost — executes after rate limit in request flow)
     auth_config = _load_auth_config(project_root)
-    idle_timeout = auth_config.idle_timeout_minutes if auth_config else 60
+    idle_timeout = (
+        auth_config.idle_timeout_minutes if auth_config else AuthConfig().idle_timeout_minutes
+    )
     application.add_middleware(
         AuthMiddleware, project_root=project_root, idle_timeout_minutes=idle_timeout
     )
