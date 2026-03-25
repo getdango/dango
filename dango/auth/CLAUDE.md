@@ -239,7 +239,7 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 - `web/routes/users.py` (525 lines) — user CRUD, invite creation, reinvite
 - `web/routes/ui.py` (183 lines) — login/account/invite page rendering
 - `web/routes/metabase_proxy.py` (268 lines) — SSO re-bridging on 401
-- `web/app.py` (301 lines) — first-run admin bootstrap in `startup_event()`
+- `web/app.py` (~370 lines) — first-run admin bootstrap in `lifespan()`
 - `cli/commands/auth.py` (538 lines) — 12 auth subcommands (add-user, list-users, unlock, etc.)
 
 ## Testing

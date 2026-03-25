@@ -157,7 +157,7 @@ dango/                          # Python package source
 │   └── formatter.py            # Result categorization + display formatting
 │
 ├── web/                        # Level 2 — FastAPI web server
-│   ├── app.py                  # Entry point (~301 lines) — routers, middleware, admin bootstrap
+│   ├── app.py                  # Entry point (~370 lines) — routers, middleware, admin bootstrap
 │   ├── models.py               # Pydantic request/response DTOs (incl. auth DTOs)
 │   ├── helpers.py              # Shared helpers: DuckDB queries, config, logging (810 lines)
 │   ├── middleware/             # Request middleware
