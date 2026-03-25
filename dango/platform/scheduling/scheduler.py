@@ -409,12 +409,12 @@ class SchedulerService:
 
             loader = ConfigLoader(self._project_root)
             cloud_cfg = loader.load_cloud_config()
-            if cloud_cfg is not None and cloud_cfg.droplet_id is not None:
+            if cloud_cfg is not None and cloud_cfg.droplet_ip is not None:
                 logger.warning(
                     "dual_scheduler_warning",
                     message=(
-                        "A cloud deployment is active (droplet_id="
-                        f"{cloud_cfg.droplet_id}). Running a local scheduler "
+                        "A cloud deployment is active (server="
+                        f"{cloud_cfg.droplet_ip}). Running a local scheduler "
                         "alongside the cloud scheduler may cause duplicate job "
                         "execution."
                     ),

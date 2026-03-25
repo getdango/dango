@@ -172,7 +172,7 @@ class TestRemoteStatusCommand:
         assert "No cloud deployment" in result.output
 
     def test_no_droplet_ip_exits_with_error(self, tmp_path):
-        """Exits when droplet_id is set but droplet_ip is missing."""
+        """Exits when droplet_ip is missing (no active deployment)."""
         cloud_cfg = _make_cloud_config(droplet_ip=None)
         mock_loader = _make_loader(cloud_cfg=cloud_cfg)
 
@@ -183,7 +183,7 @@ class TestRemoteStatusCommand:
             result = _run(["status"], tmp_path, catch_exceptions=True)
 
         assert result.exit_code != 0
-        assert "No droplet IP" in result.output
+        assert "No cloud deployment" in result.output
 
     def test_ssh_connection_failure(self, tmp_path):
         """Exits when SSH connection fails."""

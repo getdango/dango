@@ -324,6 +324,7 @@ module = [
     "tests.unit.test_web_ai",
     "tests.unit.test_web_ai_tools",
     "tests.unit.test_web_imports",
+    "tests.unit.test_byos",
 ]
 ignore_errors = true
 

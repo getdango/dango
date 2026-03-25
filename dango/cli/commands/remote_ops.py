@@ -182,6 +182,13 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
 
     cloud_cfg, project_root = _require_cloud_deployment(ctx)
 
+    if cloud_cfg.provider == "byos":
+        console.print(
+            "[red]Error:[/red] Resize is not available for BYOS deployments. "
+            "Manage server sizing through your hosting provider."
+        )
+        raise SystemExit(1)
+
     if size is None:
         # Info mode: show current spec and available tiers
         current_tier = get_size_tier(cloud_cfg.size)
@@ -356,6 +363,10 @@ def remote_migrate(
     from dango.platform.cloud.resize import validate_size_slug
 
     cloud_cfg, project_root = _require_cloud_deployment(ctx)
+
+    if cloud_cfg.provider == "byos":
+        console.print("[red]Error:[/red] Migration is not available for BYOS deployments.")
+        raise SystemExit(1)
 
     # Validate size
     try:

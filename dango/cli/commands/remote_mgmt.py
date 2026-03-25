@@ -39,18 +39,10 @@ def _load_cloud_config_with_ip(ctx: click.Context) -> tuple[Any, Path]:
     loader = ConfigLoader(project_root)
     cloud_cfg = loader.load_cloud_config()
 
-    if cloud_cfg is None or cloud_cfg.droplet_id is None:
+    if cloud_cfg is None or cloud_cfg.droplet_ip is None:
         console.print(
             "[red]Error:[/red] No cloud deployment found. "
             "Run [bold]dango deploy[/bold] to provision a server first."
-        )
-        raise SystemExit(1)
-
-    if not cloud_cfg.droplet_ip:
-        console.print(
-            "[red]Error:[/red] No droplet IP found in cloud config. "
-            "Re-provision or manually set [bold]droplet_ip[/bold] in "
-            "[bold].dango/cloud.yml[/bold]."
         )
         raise SystemExit(1)
 

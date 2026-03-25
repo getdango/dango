@@ -97,7 +97,7 @@ def firewall(ctx: click.Context) -> None:
 def _require_cloud_deployment(ctx: click.Context) -> tuple[Any, Path]:
     """Load CloudConfig and return (config, project_root), or exit with an error.
 
-    Only requires ``droplet_id`` — does NOT check for ``firewall_id``.
+    Only requires ``droplet_ip`` — does NOT check for ``firewall_id``.
 
     Returns:
         Tuple of (CloudConfig, project_root Path).
@@ -112,7 +112,7 @@ def _require_cloud_deployment(ctx: click.Context) -> tuple[Any, Path]:
     loader = ConfigLoader(project_root)
     cloud_cfg = loader.load_cloud_config()
 
-    if cloud_cfg is None or cloud_cfg.droplet_id is None:
+    if cloud_cfg is None or cloud_cfg.droplet_ip is None:
         console.print(
             "[red]Error:[/red] No cloud deployment found. "
             "Run [bold]dango deploy[/bold] to provision a server first."
@@ -125,15 +125,22 @@ def _require_cloud_deployment(ctx: click.Context) -> tuple[Any, Path]:
 def _load_cloud_config_or_fail(ctx: click.Context) -> tuple[Any, str]:
     """Load CloudConfig and return (config, firewall_id), or exit with an error.
 
-    Requires both ``droplet_id`` and ``firewall_id``.
+    Requires both ``droplet_ip`` and ``firewall_id``.
 
     Returns:
         Tuple of (CloudConfig, firewall_id string).
 
     Raises:
-        SystemExit: If no deployment or no firewall is configured.
+        SystemExit: If no deployment, BYOS provider, or no firewall is configured.
     """
     cloud_cfg, _project_root = _require_cloud_deployment(ctx)
+
+    if cloud_cfg.provider == "byos":
+        console.print(
+            "[red]Error:[/red] Firewall management uses UFW for BYOS deployments. "
+            "SSH into the server and use [bold]ufw[/bold] commands directly."
+        )
+        raise SystemExit(1)
 
     if cloud_cfg.firewall_id is None:
         console.print(
@@ -175,7 +182,7 @@ def _ssh_connect_or_fail(ctx: click.Context) -> tuple[Any, Any, Path]:
     loader = ConfigLoader(project_root)
     cloud_cfg = loader.load_cloud_config()
 
-    if cloud_cfg is None or cloud_cfg.droplet_id is None or cloud_cfg.droplet_ip is None:
+    if cloud_cfg is None or cloud_cfg.droplet_ip is None:
         console.print(
             "[red]Error:[/red] No cloud deployment found. "
             "Run [bold]dango deploy[/bold] to provision a server first."

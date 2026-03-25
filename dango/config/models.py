@@ -559,6 +559,10 @@ class DbtOverrides(BaseModel):
 class CloudConfig(BaseModel):
     """Cloud deployment configuration stored in .dango/cloud.yml."""
 
+    provider: str = Field(
+        default="digitalocean",
+        description="Deployment provider: 'digitalocean' or 'byos'",
+    )
     droplet_id: int | None = Field(
         default=None, description="DigitalOcean droplet ID (set after provisioning)"
     )

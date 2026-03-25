@@ -253,7 +253,7 @@ class TestLogStartupChecks:
 
         scheds = [ScheduleConfig(name="s1", cron="daily", sources=["csv"])]
         cloud_cfg = MagicMock()
-        cloud_cfg.droplet_id = 12345
+        cloud_cfg.droplet_ip = "1.2.3.4"
 
         with (
             patch(f"{_MOD}.logger") as mock_logger,

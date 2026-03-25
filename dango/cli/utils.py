@@ -118,7 +118,7 @@ def load_cloud_config_with_ssh(ctx: click.Context) -> tuple:
     loader = ConfigLoader(project_root)
     cloud_cfg = loader.load_cloud_config()
 
-    if cloud_cfg is None or cloud_cfg.droplet_id is None or cloud_cfg.droplet_ip is None:
+    if cloud_cfg is None or cloud_cfg.droplet_ip is None:
         console.print(
             "[red]Error:[/red] No cloud deployment found. "
             "Run [bold]dango deploy[/bold] to provision a server first."

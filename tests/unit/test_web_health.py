@@ -165,7 +165,7 @@ class TestDiskWarningDeduplication:
         mock_data.return_value = _base_health_data(disk_status="warning", used_pct=85)
         # Create cloud.yml to simulate cloud deployment
         (tmp_path / ".dango").mkdir(parents=True, exist_ok=True)
-        (tmp_path / ".dango" / "cloud.yml").write_text("droplet_id: 123\n")
+        (tmp_path / ".dango" / "cloud.yml").write_text("droplet_ip: 1.2.3.4\n")
         app = _make_app(tmp_path)
         client = TestClient(app)
 

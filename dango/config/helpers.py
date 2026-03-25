@@ -81,11 +81,11 @@ def save_config(config: DangoConfig, project_root: Path | None = None) -> None:
 def is_cloud_mode(project_root: Path) -> bool:
     """Check if this project has an active cloud deployment.
 
-    Returns True if ``.dango/cloud.yml`` exists and contains a ``droplet_id``.
+    Returns True if ``.dango/cloud.yml`` exists and contains a ``droplet_ip``.
     """
     loader = ConfigLoader(project_root)
     cloud_cfg: CloudConfig | None = loader.load_cloud_config()
-    return cloud_cfg is not None and cloud_cfg.droplet_id is not None
+    return cloud_cfg is not None and cloud_cfg.droplet_ip is not None
 
 
 def get_cloud_origin(project_root: Path) -> str | None:
@@ -97,13 +97,11 @@ def get_cloud_origin(project_root: Path) -> str | None:
     """
     loader = ConfigLoader(project_root)
     cloud_cfg: CloudConfig | None = loader.load_cloud_config()
-    if cloud_cfg is None or cloud_cfg.droplet_id is None:
+    if cloud_cfg is None or cloud_cfg.droplet_ip is None:
         return None
     if cloud_cfg.domain:
         return f"https://{cloud_cfg.domain}"
-    if cloud_cfg.droplet_ip:
-        return f"http://{cloud_cfg.droplet_ip}"
-    return None
+    return f"http://{cloud_cfg.droplet_ip}"
 
 
 def check_unreferenced_custom_sources(

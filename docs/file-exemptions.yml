@@ -50,15 +50,21 @@ exemptions:
 
   # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
   - file: dango/cli/commands/deploy_wizard.py
-    lines: 579
+    lines: 838
     category: exempt
-    reason: "TASK-029: Interactive wizard steps 1-9 + non-interactive validation mode. Sequential prompt flow with display logic — splitting would scatter closely coupled wizard steps."
+    reason: "TASK-029+075e: Interactive wizard steps 1-9 + BYOS wizard + non-interactive modes. Sequential prompt flow — splitting would scatter closely coupled wizard steps."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy_provision.py
-    lines: 543
+    lines: 703
     category: exempt
-    reason: "TASK-029: 10-step provisioning orchestration with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery."
+    reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/deploy.py
+    lines: 669
+    category: exempt
+    reason: "TASK-029+075e: Deploy group with DO + BYOS routing, destroy command for both providers. Splitting would scatter the provider selection and destroy dispatch logic."
     review_by: "v1.1"
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
@@ -216,6 +222,12 @@ exemptions:
     lines: 542
     category: exempt
     reason: "TASK-104: Added get_action() and wait_for_action() for resize/migrate action polling. Core DO API client — splitting would fragment related HTTP methods."
+    review_by: "v1.1"
+
+  - file: dango/platform/cloud/server_setup.py
+    lines: 533
+    category: exempt
+    reason: "TASK-075e: Added optional UFW firewall step for BYOS deployments (+35 lines). 17 idempotent setup steps — splitting would scatter sequential orchestration."
     review_by: "v1.1"
 
   - file: dango/platform/cloud/scheduled_backup.py
