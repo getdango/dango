@@ -378,7 +378,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 | File | Description |
 |------|-------------|
-| `app.py` | Entry point (~301 lines) — creates FastAPI app, registers routers + middleware, admin bootstrap |
+| `app.py` | Entry point (~370 lines) — creates FastAPI app, registers routers + middleware, admin bootstrap |
 | `helpers.py` | Shared helpers: DuckDB queries, config loading, service health checks, log management |
 | `models.py` | Pydantic request/response DTOs (incl. auth DTOs: `LoginRequest`, `AcceptInviteRequest`, etc.) |
 | `middleware/auth.py` | Session/API key auth + CSRF check on every request (~325 lines) |
