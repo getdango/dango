@@ -124,6 +124,12 @@ class TestWebImports:
 
         assert router is not None
 
+    def test_import_ai_route(self):
+        """AI route module imports."""
+        from dango.web.routes.ai import router
+
+        assert router is not None
+
     def test_app_has_routes_registered(self):
         """App instance has all routers included (routes are registered)."""
         from dango.web.app import app
@@ -138,6 +144,8 @@ class TestWebImports:
             "/api/sources",
             "/api/logs",
             "/api/dbt/models",
+            "/api/catalog/summary",
+            "/api/tools",
             "/ws",
             "/",
             "/health",
