@@ -321,6 +321,9 @@ module = [
     "tests.unit.test_ingestion_ux",
     "tests.integration.test_post_sync_chain_integration",
     "tests.integration.test_notebook_lifecycle",
+    "tests.unit.test_web_ai",
+    "tests.unit.test_web_ai_tools",
+    "tests.unit.test_web_imports",
 ]
 ignore_errors = true
 

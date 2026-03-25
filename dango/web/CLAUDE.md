@@ -45,6 +45,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact (~566 lines) | `router` |
 | `routes/governance.py` | Schema drift + PII results API (~120 lines) | `router` |
 | `routes/insights.py` | Metric results, run trigger, history (~272 lines) | `router` |
+| `routes/ai.py` | Agent/AI interface: /api/catalog/summary, /api/tools (~496 lines) | `router` |
 | `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |
 | `templates/schedules.html` | Schedule management page (extends `base.html`) — table, modals, WebSocket | Alpine.js `schedulesPage()` component |
 | `templates/notebooks.html` | Notebook management page (extends `base.html`) — table, create/delete modals, locking | Alpine.js `notebooksPage()` component |
