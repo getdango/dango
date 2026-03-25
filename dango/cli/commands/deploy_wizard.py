@@ -2,8 +2,11 @@
 
 Interactive deployment wizard and non-interactive validation for ``dango deploy``.
 
-Steps 1-9 gather configuration (region, size, domain, admin credentials, etc.)
-before handing off to ``deploy_provision.py`` for the actual provisioning.
+Steps 1-9 gather DigitalOcean configuration (region, size, domain, admin
+credentials, etc.) before handing off to ``deploy_provision.py``.
+
+Also provides a BYOS (Bring Your Own Server) wizard path that skips
+cloud provisioning and goes straight to server setup.
 """
 
 from __future__ import annotations
@@ -42,6 +45,20 @@ class WizardConfig:
     # Backup credentials (only set if enable_backups is True)
     spaces_access_key: str | None = None
     spaces_secret_key: str | None = None
+
+
+@dataclass
+class BYOSConfig:
+    """Configuration collected from the BYOS (Bring Your Own Server) wizard."""
+
+    server_ip: str
+    ssh_user: str
+    ssh_key_path: str
+    domain: str | None
+    admin_email: str
+    admin_password: str
+    skip_oauth: bool
+    skip_initial_sync: bool
 
 
 # ---------------------------------------------------------------------------
@@ -576,4 +593,247 @@ def run_non_interactive(
         enable_backups=not skip_backups,
         skip_initial_sync=skip_initial_sync,
         monthly_cost=monthly_cost,
+    )
+
+
+# ---------------------------------------------------------------------------
+# BYOS (Bring Your Own Server) wizard
+# ---------------------------------------------------------------------------
+
+
+def _step_byos_server(project_root: Path) -> tuple[str, str, str]:
+    """Prompt for server IP, SSH user, and SSH key path.
+
+    Returns:
+        Tuple of (server_ip, ssh_user, ssh_key_path).
+    """
+    console.print("\n[bold]Step 1: Server Connection[/bold]\n")
+
+    server_ip = click.prompt("  Server IP or hostname")
+
+    ssh_user = click.prompt("  SSH user", default="root", show_default=True)
+
+    console.print("\n  SSH key options:")
+    console.print("    1. Use an existing SSH key")
+    console.print("    2. Generate a new key pair\n")
+
+    key_choice = click.prompt("  Choice", default="1", show_default=True)
+
+    if key_choice == "2":
+        from dango.platform.cloud.ssh import SSHManager
+
+        key_path = project_root / ".dango" / "cloud_key"
+        ssh = SSHManager(key_path=key_path)
+        public_key = ssh.generate_key_pair()
+
+        console.print(f"\n  [green]Generated key pair at:[/green] {key_path}")
+        console.print("\n  [bold]Public key (add to server's ~/.ssh/authorized_keys):[/bold]")
+        console.print(f"  {public_key}\n")
+        click.prompt(
+            "  Press Enter once the key is added to your server", default="", show_default=False
+        )
+        return server_ip, ssh_user, str(key_path)
+
+    # Existing key
+    default_key = str(Path.home() / ".ssh" / "id_ed25519")
+    key_path_str = click.prompt("  Path to SSH private key", default=default_key, show_default=True)
+    key_path = Path(key_path_str).expanduser()
+
+    if not key_path.exists():
+        console.print(f"  [red]Error:[/red] SSH key not found: {key_path}")
+        raise SystemExit(1)
+
+    return server_ip, ssh_user, str(key_path)
+
+
+def _validate_ssh_connectivity(
+    server_ip: str,
+    ssh_user: str,
+    ssh_key_path: str,
+) -> None:
+    """Test SSH connectivity and warn if not Ubuntu.
+
+    Raises:
+        SystemExit: If SSH connection fails.
+    """
+    from dango.platform.cloud.ssh import SSHManager
+
+    console.print("\n  Testing SSH connection...")
+    ssh = SSHManager(key_path=Path(ssh_key_path))
+    try:
+        ssh.connect(server_ip, username=ssh_user)
+    except Exception as exc:
+        console.print(f"  [red]Error:[/red] SSH connection failed: {exc}")
+        console.print(
+            "\n  Troubleshooting:"
+            "\n  - Verify the server IP and SSH user are correct"
+            "\n  - Ensure your SSH key is in the server's authorized_keys"
+            "\n  - Check that port 22 is open on the server"
+        )
+        raise SystemExit(1) from exc
+
+    try:
+        # Check if Ubuntu
+        result = ssh.exec_command("cat /etc/os-release 2>/dev/null")
+        if result.success and "ubuntu" not in result.stdout.lower():
+            console.print(
+                "  [yellow]Warning:[/yellow] Server does not appear to be running Ubuntu. "
+                "Dango is tested on Ubuntu 22.04+. Proceed with caution."
+            )
+        else:
+            console.print("  [green]SSH connection successful.[/green]")
+    finally:
+        ssh.disconnect()
+
+
+def run_byos_wizard(project_root: Path) -> BYOSConfig:
+    """Run the BYOS interactive wizard.
+
+    Args:
+        project_root: Path to the Dango project root.
+
+    Returns:
+        Completed ``BYOSConfig`` ready for server setup.
+    """
+    console.print("\n[bold blue]Dango BYOS Deployment Wizard[/bold blue]")
+    console.print("[dim]Deploy to your own server (any cloud provider)[/dim]\n")
+
+    # Check sources.yml exists (skip DO token check)
+    sources_yml = project_root / ".dango" / "sources.yml"
+    if not sources_yml.exists():
+        console.print(
+            "[red]Error:[/red] No sources.yml found. "
+            "Run [bold]dango source add[/bold] to configure data sources first."
+        )
+        raise SystemExit(1)
+    console.print("  [green]Prerequisites OK.[/green]")
+
+    # Step 1: Server connection
+    server_ip, ssh_user, ssh_key_path = _step_byos_server(project_root)
+
+    # Step 2: Validate SSH
+    _validate_ssh_connectivity(server_ip, ssh_user, ssh_key_path)
+
+    # Step 3: Domain
+    domain = _step_domain()
+
+    # Step 4: Admin credentials
+    admin_email, admin_password = _step_admin()
+
+    # Step 5: Sources
+    _step_sources(project_root)
+
+    # Step 6: OAuth
+    skip_oauth = _step_oauth()
+
+    # Confirmation
+    console.print("\n[bold]Deployment Summary[/bold]\n")
+    console.print(f"  Server:    {server_ip} (SSH user: {ssh_user})")
+    console.print(f"  SSH key:   {ssh_key_path}")
+    if domain:
+        console.print(f"  Domain:    {domain}")
+    console.print(f"  Admin:     {admin_email}")
+    console.print()
+
+    if not click.confirm("  Proceed with deployment?", default=True):
+        console.print("[yellow]Aborted.[/yellow]")
+        raise SystemExit(0)
+
+    return BYOSConfig(
+        server_ip=server_ip,
+        ssh_user=ssh_user,
+        ssh_key_path=ssh_key_path,
+        domain=domain,
+        admin_email=admin_email,
+        admin_password=admin_password,
+        skip_oauth=skip_oauth,
+        skip_initial_sync=False,
+    )
+
+
+def run_byos_non_interactive(
+    project_root: Path,
+    *,
+    server_ip: str | None = None,
+    ssh_user: str = "root",
+    ssh_key_path: str | None = None,
+    domain: str | None = None,
+    admin_email: str | None = None,
+    admin_password: str | None = None,
+    skip_initial_sync: bool = False,
+) -> BYOSConfig:
+    """Validate params for non-interactive BYOS deployment.
+
+    Args:
+        project_root: Path to the Dango project root.
+        server_ip: Required server IP or hostname.
+        ssh_user: SSH user. Defaults to root.
+        ssh_key_path: Path to SSH key. Defaults to .dango/cloud_key.
+        domain: Optional custom domain.
+        admin_email: Required admin email.
+        admin_password: Required admin password (or from DANGO_ADMIN_PASSWORD env).
+        skip_initial_sync: Skip initial data sync.
+
+    Returns:
+        Validated ``BYOSConfig``.
+
+    Raises:
+        SystemExit: If required params are missing or invalid.
+    """
+    from dango.auth.security import check_password_strength
+
+    # Check sources.yml exists
+    sources_yml = project_root / ".dango" / "sources.yml"
+    if not sources_yml.exists():
+        console.print(
+            "[red]Error:[/red] No sources.yml found. "
+            "Run [bold]dango source add[/bold] to configure data sources first."
+        )
+        raise SystemExit(1)
+
+    # Server IP
+    if not server_ip:
+        console.print("[red]Error:[/red] --server-ip is required for --byos.")
+        raise SystemExit(1)
+
+    # SSH key path
+    if ssh_key_path is None:
+        ssh_key_path = str(project_root / ".dango" / "cloud_key")
+    if not Path(ssh_key_path).expanduser().exists():
+        console.print(f"[red]Error:[/red] SSH key not found: {ssh_key_path}")
+        raise SystemExit(1)
+
+    # Admin email
+    if not admin_email:
+        console.print("[red]Error:[/red] --admin-email is required for --byos.")
+        raise SystemExit(1)
+    if not _EMAIL_RE.match(admin_email):
+        console.print(f"[red]Error:[/red] Invalid email format: {admin_email}")
+        raise SystemExit(1)
+
+    # Admin password
+    if not admin_password:
+        admin_password = os.environ.get("DANGO_ADMIN_PASSWORD")
+    if not admin_password:
+        console.print(
+            "[red]Error:[/red] --admin-password or DANGO_ADMIN_PASSWORD env required for --byos."
+        )
+        raise SystemExit(1)
+    issues = check_password_strength(admin_password)
+    if issues:
+        console.print(f"[red]Error:[/red] Weak password: {'; '.join(issues)}")
+        raise SystemExit(1)
+
+    # Validate SSH connectivity
+    _validate_ssh_connectivity(server_ip, ssh_user, ssh_key_path)
+
+    return BYOSConfig(
+        server_ip=server_ip,
+        ssh_user=ssh_user,
+        ssh_key_path=ssh_key_path,
+        domain=domain,
+        admin_email=admin_email,
+        admin_password=admin_password,
+        skip_oauth=True,
+        skip_initial_sync=skip_initial_sync,
     )

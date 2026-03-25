@@ -28,9 +28,9 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/remote.py` (652 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
 | `commands/serve.py` (~152 lines) | `serve` production foreground server | `serve()` |
-| `commands/deploy.py` (~460 lines) | `deploy` group (wizard default, destroy) | `deploy`, `deploy_destroy()` |
-| `commands/deploy_wizard.py` (~579 lines) | Interactive wizard steps 1-9 + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig` |
-| `commands/deploy_provision.py` (~543 lines) | Provisioning orchestration + cleanup | `run_provisioning()`, `ProvisionResult`, `_ResourceTracker` |
+| `commands/deploy.py` (689 lines) | `deploy` group (wizard default, --byos, destroy) | `deploy`, `deploy_destroy()` |
+| `commands/deploy_wizard.py` (839 lines) | Interactive wizard steps 1-9 + BYOS wizard + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig`, `run_byos_wizard()`, `run_byos_non_interactive()`, `BYOSConfig` |
+| `commands/deploy_provision.py` (704 lines) | Provisioning orchestration (DO + BYOS) + cleanup | `run_provisioning()`, `run_byos_setup()`, `ProvisionResult`, `BYOSResult`, `_ResourceTracker` |
 | `commands/remote_env.py` | `remote env` subgroup (set, get, list, delete) | `env` (Click group) |
 | `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
 | `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore) | `backup_group` |
@@ -105,8 +105,9 @@ dango (top-level group)
 ├── schedule (group)            ← commands/schedule.py
 │   ├── add, list, remove, status, enable, disable, webhook
 ├── deploy (group)              ← commands/deploy.py
-│   ├── (default)  interactive wizard → commands/deploy_wizard.py + deploy_provision.py
-│   └── destroy    tear down cloud infrastructure
+│   ├── (default)  interactive wizard (DO or BYOS) → deploy_wizard.py + deploy_provision.py
+│   ├── --byos     deploy to existing server (any provider)
+│   └── destroy    tear down cloud infrastructure (DO resources or BYOS config)
 ├── analyze                     ← commands/analyze.py
 ├── snapshot                    ← commands/notebook.py
 ├── governance (group)          ← commands/governance.py

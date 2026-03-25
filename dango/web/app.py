@@ -213,7 +213,7 @@ def _load_rate_limit_config(project_root: Path | None) -> RateLimitConfig | None
         if not rl.trusted_proxies:
             loader = ConfigLoader(root)
             cloud_cfg = loader.load_cloud_config()
-            if cloud_cfg is not None and cloud_cfg.droplet_id is not None:
+            if cloud_cfg is not None and cloud_cfg.droplet_ip is not None:
                 rl = rl.model_copy(update={"trusted_proxies": ["127.0.0.1"]})
 
         return rl

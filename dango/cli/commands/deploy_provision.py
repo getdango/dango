@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from dango.cli import console
-from dango.cli.commands.deploy_wizard import _EMAIL_RE, WizardConfig
+from dango.cli.commands.deploy_wizard import _EMAIL_RE, BYOSConfig, WizardConfig
 from dango.exceptions import CloudProvisioningError
 
 
@@ -79,6 +79,16 @@ class ProvisionResult:
     droplet_id: int
     firewall_id: str
     ssh_key_id: int
+    domain: str | None = None
+    url: str = ""
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
+class BYOSResult:
+    """Result of a successful BYOS setup run."""
+
+    server_ip: str
     domain: str | None = None
     url: str = ""
     warnings: list[str] = field(default_factory=list)
@@ -273,6 +283,135 @@ def run_provisioning(
                 console.print(f"  - {err}")
         else:
             console.print("[green]All resources cleaned up.[/green]")
+        raise CloudProvisioningError(str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# BYOS setup function
+# ---------------------------------------------------------------------------
+
+
+def run_byos_setup(
+    project_root: Path,
+    config: BYOSConfig,
+) -> BYOSResult:
+    """Execute server setup for BYOS deployments (no cloud provisioning).
+
+    Reuses the same server setup, file sync, secrets push, and admin
+    creation logic as DO provisioning — the server setup is cloud-agnostic.
+
+    Args:
+        project_root: Path to the local Dango project root.
+        config: BYOS configuration from the wizard.
+
+    Returns:
+        ``BYOSResult`` with deployment details.
+
+    Raises:
+        CloudProvisioningError: On unrecoverable failure.
+    """
+    from dango.platform.cloud.file_sync import sync_project_files
+    from dango.platform.cloud.server_setup import setup_server
+    from dango.platform.cloud.ssh import SSHManager
+
+    warnings: list[str] = []
+    key_path = Path(config.ssh_key_path).expanduser()
+    ssh = SSHManager(key_path=key_path)
+
+    try:
+        # --- Sub-step 1: Server setup (16 steps + UFW) ---
+        _status("Setting up server (installs Docker, Caddy, Python, etc.)...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            setup_result = setup_server(
+                ssh,
+                on_progress=_setup_progress,
+                domain=config.domain,
+                setup_ufw=True,
+            )
+            if setup_result.warnings:
+                for w in setup_result.warnings:
+                    console.print(f"  [yellow]Warning:[/yellow] {w}")
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 2: Sync project files ---
+        _status("Syncing project files...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            sync_project_files(
+                ssh,
+                project_root,
+                remote_host=config.server_ip,
+                on_progress=_setup_progress,
+            )
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 3: Push secrets ---
+        _status("Pushing secrets to server...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            _push_secrets(ssh, project_root, warnings)
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 4: Create admin + enable auth ---
+        _status("Creating admin account and enabling auth...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            deploy_token = _create_admin_and_enable_auth(
+                ssh, config.admin_email, config.admin_password
+            )
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 5: Save cloud.yml ---
+        _status("Saving deployment configuration...")
+        from dango.config.loader import ConfigLoader
+        from dango.config.models import CloudConfig
+
+        loader = ConfigLoader(project_root)
+        cloud_cfg = CloudConfig(
+            provider="byos",
+            droplet_ip=config.server_ip,
+            ssh_key_path=str(key_path),
+            domain=config.domain,
+        )
+        loader.save_cloud_config(cloud_cfg)
+
+        # --- Sub-step 6: Start services + health check ---
+        _status("Starting services...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            _start_services(ssh)
+        finally:
+            ssh.disconnect()
+
+        url = f"https://{config.domain}" if config.domain else f"http://{config.server_ip}"
+        health_ok = _health_check(url)
+        if not health_ok:
+            warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
+
+        # Trigger initial sync
+        if not config.skip_initial_sync and health_ok:
+            _trigger_initial_sync(url, deploy_token)
+
+        return BYOSResult(
+            server_ip=config.server_ip,
+            domain=config.domain,
+            url=url,
+            warnings=warnings,
+        )
+
+    except CloudProvisioningError:
+        raise
+    except Exception as exc:
+        console.print(f"\n[red]BYOS setup failed:[/red] {exc}")
+        console.print(
+            "[dim]Server setup steps are idempotent — "
+            "run 'dango deploy destroy' then 'dango deploy' to retry.[/dim]"
+        )
         raise CloudProvisioningError(str(exc)) from exc
 
 

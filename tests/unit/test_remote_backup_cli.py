@@ -25,6 +25,7 @@ from dango.cli.commands.remote import remote
 def _make_cloud_config(*, has_spaces: bool = True) -> MagicMock:
     """Return a mock CloudConfig."""
     cfg = MagicMock()
+    cfg.provider = "digitalocean"
     cfg.droplet_id = 42
     cfg.droplet_ip = "1.2.3.4"
     cfg.firewall_id = "fw-abc"

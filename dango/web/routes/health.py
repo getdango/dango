@@ -249,13 +249,13 @@ async def _get_cloud_health_data() -> dict[str, Any] | None:
     if not cloud_yml.exists():
         return None
 
-    # Check if it has a droplet_id (actual deployment vs empty config)
+    # Check if it has a droplet_ip (actual deployment vs empty config)
     try:
         from dango.config.loader import ConfigLoader
 
         loader = ConfigLoader(project_root)
         cloud_cfg = loader.load_cloud_config()
-        if cloud_cfg is None or cloud_cfg.droplet_id is None:
+        if cloud_cfg is None or cloud_cfg.droplet_ip is None:
             return None
     except Exception:  # noqa: BLE001
         return None

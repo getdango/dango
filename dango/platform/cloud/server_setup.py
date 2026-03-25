@@ -436,6 +436,38 @@ def _setup_unattended_upgrades(
     _mark(result, on_progress, step, changed)
 
 
+def _setup_ufw(
+    ssh: SSHManager,
+    result: SetupResult,
+    on_progress: Callable[[str, str], None] | None,
+) -> None:
+    """Step 17 (BYOS only): Install and configure UFW firewall."""
+    step = "ufw"
+    _notify(on_progress, step, "running")
+
+    # Idempotent check: if UFW active with our rules, skip
+    check = ssh.exec_command("ufw status 2>/dev/null | grep -q 'Status: active'")
+    if check.success:
+        rules = ssh.exec_command("ufw status | grep '80/tcp' && ufw status | grep '443/tcp'")
+        if rules.success:
+            _mark(result, on_progress, step, changed=False)
+            return
+
+    _run_checked(
+        ssh,
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ufw"
+        " && ufw default deny incoming"
+        " && ufw default allow outgoing"
+        " && ufw allow ssh"
+        " && ufw allow 80/tcp"
+        " && ufw allow 443/tcp"
+        " && echo 'y' | ufw enable",
+        step=step,
+        timeout=60,
+    )
+    _mark(result, on_progress, step, changed=True)
+
+
 # ---------------------------------------------------------------------------
 # Public orchestrator
 # ---------------------------------------------------------------------------
@@ -471,8 +503,9 @@ def setup_server(
     *,
     on_progress: Callable[[str, str], None] | None = None,
     domain: str | None = None,
+    setup_ufw: bool = False,
 ) -> SetupResult:
-    """Run all server setup steps on a connected droplet.
+    """Run all server setup steps on a connected server.
 
     SSH must be established as **root**.  Each step is idempotent.
 
@@ -480,6 +513,8 @@ def setup_server(
         ssh: A connected ``SSHManager`` (as root).
         on_progress: ``(step_name, status)`` callback.
         domain: FQDN for HTTPS (Caddy auto-TLS). ``None`` → HTTP-only.
+        setup_ufw: If ``True``, install and configure UFW firewall
+            (used for BYOS deployments that lack a cloud-managed firewall).
 
     Raises:
         CloudProvisioningError: If any step fails.
@@ -491,5 +526,8 @@ def setup_server(
             _setup_caddyfile(ssh, result, on_progress, domain=domain)
         else:
             step_fn(ssh, result, on_progress)
+
+    if setup_ufw:
+        _setup_ufw(ssh, result, on_progress)
 
     return result

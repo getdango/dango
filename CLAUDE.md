@@ -89,9 +89,9 @@ dango/                          # Python package source
 │   │   ├── upgrade.py          # local Dango upgrade via pip + migrations
 │   │   ├── web.py              # web dev server
 │   │   ├── serve.py            # serve production foreground server
-│   │   ├── deploy.py           # deploy group (wizard default, destroy)
-│   │   ├── deploy_wizard.py    # Interactive deploy wizard (579 lines)
-│   │   ├── deploy_provision.py # Provisioning orchestration (543 lines)
+│   │   ├── deploy.py           # deploy group (wizard default, --byos, destroy)
+│   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (839 lines)
+│   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (704 lines)
 │   │   ├── migrate.py          # migrate group (status, run)
 │   │   ├── remote.py           # remote group + push/rollback/firewall/domain (652 lines)
 │   │   ├── remote_env.py       # remote env subgroup (set/get/list/delete)
@@ -349,11 +349,11 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/remote.py` | 652 | — (remote group + push/rollback/firewall/domain) |
 | `cli/validate.py` | 651 | — |
 | `config/models.py` | 594 | — (Pydantic config models) |
-| `cli/commands/deploy_wizard.py` | 579 | — (interactive deploy wizard) |
+| `cli/commands/deploy_wizard.py` | 839 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 577 | — |
 | `web/routes/catalog.py` | 566 | — (data catalog: columns, profiling, lineage, impact) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
-| `cli/commands/deploy_provision.py` | 543 | — (provisioning orchestration) |
+| `cli/commands/deploy_provision.py` | 704 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 542 | — (DO REST API v2 client) |
 | `cli/commands/auth.py` | 538 | — (12 auth subcommands) |
 | `auth/database.py` | 529 | — (SQLite CRUD) |

@@ -165,7 +165,7 @@ class TestNonInteractive:
 class TestDeploymentGuard:
     @patch("dango.cli.utils.find_project_root")
     def test_cloud_yml_exists_blocks(self, mock_find, project_root):
-        """Existing cloud.yml with droplet_id blocks new deployment."""
+        """Existing cloud.yml with droplet_ip blocks new deployment."""
         from click.testing import CliRunner
 
         from dango.cli.commands.deploy import deploy
@@ -173,7 +173,7 @@ class TestDeploymentGuard:
         mock_find.return_value = project_root
 
         cloud_yml = project_root / ".dango" / "cloud.yml"
-        cloud_yml.write_text("droplet_id: 12345\ndroplet_ip: 1.2.3.4\n")
+        cloud_yml.write_text("droplet_ip: 1.2.3.4\n")
 
         runner = CliRunner()
         result = runner.invoke(deploy, [], obj={"project_root": project_root})

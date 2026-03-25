@@ -384,7 +384,7 @@ def log_startup_checks(
 
         loader = ConfigLoader(project_root)
         cloud_cfg = loader.load_cloud_config()
-        if cloud_cfg is not None and cloud_cfg.droplet_id is not None:
+        if cloud_cfg is not None and cloud_cfg.droplet_ip is not None:
             logger.warning(
                 "cloud_schedule_conflict",
                 message=(

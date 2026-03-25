@@ -417,11 +417,11 @@ class TestSchedulerServiceCloudWarning:
     """Test dual-scheduler cloud detection."""
 
     def test_cloud_warning_logged(self, tmp_path):
-        """Warning should be logged if cloud config has a droplet_id."""
+        """Warning should be logged if cloud config has a droplet_ip."""
         svc = _make_service(tmp_path)
 
         cloud_cfg = MagicMock()
-        cloud_cfg.droplet_id = 12345
+        cloud_cfg.droplet_ip = "1.2.3.4"
 
         mock_loader = MagicMock()
         mock_loader.return_value.load_cloud_config.return_value = cloud_cfg
@@ -437,11 +437,11 @@ class TestSchedulerServiceCloudWarning:
         assert call_args[0][0] == "dual_scheduler_warning"
 
     def test_no_cloud_warning_when_no_deployment(self, tmp_path):
-        """No warning when cloud config has no droplet_id."""
+        """No warning when cloud config has no droplet_ip."""
         svc = _make_service(tmp_path)
 
         cloud_cfg = MagicMock()
-        cloud_cfg.droplet_id = None
+        cloud_cfg.droplet_ip = None
 
         mock_loader = MagicMock()
         mock_loader.return_value.load_cloud_config.return_value = cloud_cfg

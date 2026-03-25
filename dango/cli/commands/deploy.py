@@ -4,9 +4,10 @@ Deploy group and destroy command for Dango cloud deployments.
 
 Command hierarchy::
 
-    dango deploy             — Interactive deployment wizard (default)
-    dango deploy --reconnect — Reconnect to existing server
-    dango deploy destroy     — Tear down cloud infrastructure
+    dango deploy                        — Interactive deployment wizard (default)
+    dango deploy --reconnect            — Reconnect to existing server
+    dango deploy --byos --server-ip X   — Deploy to your own server
+    dango deploy destroy                — Tear down cloud infrastructure
 """
 
 from __future__ import annotations
@@ -37,6 +38,10 @@ from dango.cli import console
 )
 @click.option("--skip-backups", is_flag=True, help="Skip automated backup setup.")
 @click.option("--skip-initial-sync", is_flag=True, help="Skip initial data sync.")
+@click.option("--byos", is_flag=True, help="Deploy to an existing server (any provider).")
+@click.option("--server-ip", type=str, default=None, help="Server IP/hostname for --byos.")
+@click.option("--ssh-user", type=str, default="root", help="SSH user for --byos.")
+@click.option("--ssh-key", type=str, default=None, help="SSH key path for --byos.")
 @click.pass_context
 def deploy(  # noqa: PLR0913
     ctx: click.Context,
@@ -50,6 +55,10 @@ def deploy(  # noqa: PLR0913
     admin_password: str | None,
     skip_backups: bool,
     skip_initial_sync: bool,
+    byos: bool,
+    server_ip: str | None,
+    ssh_user: str,
+    ssh_key: str | None,
 ) -> None:
     """Deploy and manage Dango cloud infrastructure.
 
@@ -57,10 +66,11 @@ def deploy(  # noqa: PLR0913
 
     \b
     Examples:
-      dango deploy                     Interactive wizard
-      dango deploy --non-interactive   All params via flags/env
-      dango deploy --reconnect --ip X  Reconnect to existing server
-      dango deploy destroy             Tear down cloud infrastructure
+      dango deploy                              Interactive wizard
+      dango deploy --non-interactive            All params via flags/env (DO)
+      dango deploy --reconnect --ip X           Reconnect to existing server
+      dango deploy --byos --server-ip X         Deploy to your own server
+      dango deploy destroy                      Tear down cloud infrastructure
     """
     ctx.ensure_object(dict)
 
@@ -77,7 +87,7 @@ def deploy(  # noqa: PLR0913
 
         loader = ConfigLoader(project_root)
         cloud_cfg = loader.load_cloud_config()
-        if cloud_cfg is not None and cloud_cfg.droplet_id is not None:
+        if cloud_cfg is not None and cloud_cfg.droplet_ip is not None:
             console.print(
                 "[yellow]A cloud deployment already exists.[/yellow] "
                 "Did you mean [bold]dango remote push[/bold]?"
@@ -90,12 +100,23 @@ def deploy(  # noqa: PLR0913
         _handle_reconnect(project_root, ip)
         return
 
-    # --- Wizard or non-interactive ---
-    from dango.cli.commands.deploy_provision import run_provisioning
-    from dango.cli.commands.deploy_wizard import run_non_interactive, run_wizard
+    # --- BYOS non-interactive mode ---
+    if byos:
+        _handle_byos(
+            project_root,
+            server_ip=server_ip,
+            ssh_user=ssh_user,
+            ssh_key=ssh_key,
+            domain=domain,
+            admin_email=admin_email,
+            admin_password=admin_password,
+            skip_initial_sync=skip_initial_sync,
+        )
+        return
 
+    # --- Non-interactive DO mode ---
     if non_interactive:
-        config = run_non_interactive(
+        _handle_do_deploy(
             project_root,
             region=region,
             size=size,
@@ -105,26 +126,31 @@ def deploy(  # noqa: PLR0913
             skip_backups=skip_backups,
             skip_initial_sync=skip_initial_sync,
         )
+        return
+
+    # --- Interactive mode: provider selection ---
+    console.print("\n[bold]Select deployment provider:[/bold]\n")
+    console.print("  1. DigitalOcean (automated provisioning)")
+    console.print("  2. I already have a server (any cloud provider)\n")
+
+    choice = click.prompt("  Choice", default="1", show_default=True)
+
+    if choice == "2":
+        from dango.cli.commands.deploy_provision import run_byos_setup
+        from dango.cli.commands.deploy_wizard import run_byos_wizard
+
+        byos_config = run_byos_wizard(project_root)
+        try:
+            byos_result = run_byos_setup(project_root, byos_config)
+        except Exception:
+            raise SystemExit(1) from None
+
+        _print_byos_success(byos_result, byos_config)
     else:
-        config = run_wizard(project_root)
+        from dango.cli.commands.deploy_wizard import run_wizard
 
-    try:
-        result = run_provisioning(project_root, config)
-    except Exception:
-        # run_provisioning already prints error details and cleans up resources
-        raise SystemExit(1) from None
-
-    # --- Success output ---
-    console.print("\n[bold green]Deployment complete![/bold green]")
-    console.print(f"  URL:    {result.url}")
-    console.print(f"  IP:     {result.droplet_ip}")
-    console.print(f"  Admin:  {config.admin_email}")
-    if result.warnings:
-        for w in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {w}")
-    console.print("\n  Next: Visit the URL above and log in with your admin credentials.")
-    if not config.skip_initial_sync:
-        console.print("  Initial data sync is running in the background.")
+        wizard_config = run_wizard(project_root)
+        _handle_do_deploy_with_config(project_root, wizard_config)
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +198,117 @@ def _handle_reconnect(project_root: Path, ip: str | None) -> None:
     console.print("  Run [bold]dango remote status[/bold] for details.")
 
 
+def _handle_byos(
+    project_root: Path,
+    *,
+    server_ip: str | None,
+    ssh_user: str,
+    ssh_key: str | None,
+    domain: str | None,
+    admin_email: str | None,
+    admin_password: str | None,
+    skip_initial_sync: bool,
+) -> None:
+    """Run BYOS deployment (non-interactive via --byos flag)."""
+    from dango.cli.commands.deploy_provision import run_byos_setup
+    from dango.cli.commands.deploy_wizard import run_byos_non_interactive
+
+    config = run_byos_non_interactive(
+        project_root,
+        server_ip=server_ip,
+        ssh_user=ssh_user,
+        ssh_key_path=ssh_key,
+        domain=domain,
+        admin_email=admin_email,
+        admin_password=admin_password,
+        skip_initial_sync=skip_initial_sync,
+    )
+
+    try:
+        result = run_byos_setup(project_root, config)
+    except Exception:
+        raise SystemExit(1) from None
+
+    _print_byos_success(result, config)
+
+
+def _handle_do_deploy(
+    project_root: Path,
+    *,
+    region: str | None,
+    size: str | None,
+    domain: str | None,
+    admin_email: str | None,
+    admin_password: str | None,
+    skip_backups: bool,
+    skip_initial_sync: bool,
+) -> None:
+    """Run DO deployment (non-interactive mode)."""
+    from dango.cli.commands.deploy_wizard import run_non_interactive
+
+    config = run_non_interactive(
+        project_root,
+        region=region,
+        size=size,
+        domain=domain,
+        admin_email=admin_email,
+        admin_password=admin_password,
+        skip_backups=skip_backups,
+        skip_initial_sync=skip_initial_sync,
+    )
+    _handle_do_deploy_with_config(project_root, config)
+
+
+def _handle_do_deploy_with_config(project_root: Path, config: Any) -> None:
+    """Execute DO provisioning with a completed WizardConfig."""
+    from dango.cli.commands.deploy_provision import run_provisioning
+
+    try:
+        result = run_provisioning(project_root, config)
+    except Exception:
+        raise SystemExit(1) from None
+
+    _print_deploy_success(
+        url=result.url,
+        ip=result.droplet_ip,
+        admin_email=config.admin_email,
+        warnings=result.warnings,
+        skip_initial_sync=config.skip_initial_sync,
+    )
+
+
+def _print_byos_success(result: Any, config: Any) -> None:
+    """Print BYOS deployment success output."""
+    _print_deploy_success(
+        url=result.url,
+        ip=result.server_ip,
+        admin_email=config.admin_email,
+        warnings=result.warnings,
+        skip_initial_sync=config.skip_initial_sync,
+    )
+
+
+def _print_deploy_success(
+    *,
+    url: str,
+    ip: str,
+    admin_email: str,
+    warnings: list[str],
+    skip_initial_sync: bool,
+) -> None:
+    """Print deployment success output (shared by DO and BYOS paths)."""
+    console.print("\n[bold green]Deployment complete![/bold green]")
+    console.print(f"  URL:    {url}")
+    console.print(f"  IP:     {ip}")
+    console.print(f"  Admin:  {admin_email}")
+    if warnings:
+        for w in warnings:
+            console.print(f"  [yellow]Warning:[/yellow] {w}")
+    console.print("\n  Next: Visit the URL above and log in with your admin credentials.")
+    if not skip_initial_sync:
+        console.print("  Initial data sync is running in the background.")
+
+
 def _load_deploy_config(ctx: click.Context) -> tuple[Any, Path]:
     """Load CloudConfig for deploy commands, return (config, project_root).
 
@@ -185,7 +322,7 @@ def _load_deploy_config(ctx: click.Context) -> tuple[Any, Path]:
     loader = ConfigLoader(project_root)
     cloud_cfg = loader.load_cloud_config()
 
-    if cloud_cfg is None or cloud_cfg.droplet_id is None:
+    if cloud_cfg is None or cloud_cfg.droplet_ip is None:
         console.print("[red]Error:[/red] No cloud deployment found. Nothing to destroy.")
         raise SystemExit(1)
 
@@ -229,7 +366,8 @@ def deploy_destroy(
 ) -> None:
     """Tear down all cloud infrastructure for this project.
 
-    Deletes the Droplet, firewall, SSH key (from DO), and Spaces bucket.
+    For DigitalOcean: deletes the Droplet, firewall, SSH key (from DO), and Spaces bucket.
+    For BYOS: optionally stops remote services and removes local cloud.yml.
     Local SSH keys and project files are never deleted.
 
     Use --force to skip confirmation prompts.  Use --keep-spaces or
@@ -240,9 +378,99 @@ def deploy_destroy(
       dango deploy destroy --force
       dango deploy destroy --keep-spaces --keep-ssh-key
     """
+    cloud_cfg, project_root = _load_deploy_config(ctx)
+
+    if cloud_cfg.provider == "byos":
+        if keep_spaces or keep_ssh_key:
+            console.print(
+                "[yellow]Note:[/yellow] --keep-spaces and --keep-ssh-key are "
+                "DigitalOcean-only options and have no effect for BYOS deployments."
+            )
+        _destroy_byos(cloud_cfg, project_root, force)
+    else:
+        _destroy_do(cloud_cfg, project_root, force, keep_spaces, keep_ssh_key)
+
+
+def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
+    """Tear down a BYOS deployment (stop services, remove local config)."""
     from rich.panel import Panel
 
-    cloud_cfg, project_root = _load_deploy_config(ctx)
+    summary_lines = [
+        f"  Server: [bold]{cloud_cfg.droplet_ip}[/bold]",
+        "  Provider: BYOS",
+        "  [dim]The server itself will NOT be deleted.[/dim]",
+    ]
+    if cloud_cfg.domain:
+        summary_lines.append(f"  Domain: {cloud_cfg.domain}")
+
+    console.print(
+        Panel(
+            "\n".join(summary_lines),
+            title="[red]BYOS Destroy Summary[/red]",
+            border_style="red",
+        )
+    )
+
+    # Offer backup download
+    if not force and cloud_cfg.droplet_ip:
+        _offer_backup_download(cloud_cfg, project_root)
+
+    # Confirm
+    if not force:
+        confirm = click.prompt(
+            f"\nType the server IP ({cloud_cfg.droplet_ip}) to confirm",
+            default="",
+            show_default=False,
+        )
+        if confirm != cloud_cfg.droplet_ip:
+            console.print("[yellow]Aborted.[/yellow] Input did not match.")
+            raise SystemExit(1)
+
+    # Optionally stop remote services
+    if force or click.confirm("\n  Stop Dango services on the remote server?", default=True):
+        from dango.platform.cloud.ssh import SSHManager
+
+        key_path = _resolve_key_path(cloud_cfg, project_root)
+        if key_path.exists():
+            ssh = SSHManager(
+                key_path=key_path,
+                known_hosts_path=key_path.parent / "known_hosts",
+            )
+            try:
+                ssh.connect(cloud_cfg.droplet_ip)
+                ssh.exec_command("systemctl stop dango-web 2>/dev/null || true", timeout=15)
+                ssh.exec_command(
+                    "cd /srv/dango/project && sudo -u dango docker compose down 2>/dev/null || true",
+                    timeout=60,
+                )
+                console.print("[green]Stopped[/green] remote services.")
+            except Exception as exc:
+                console.print(f"[yellow]Warning:[/yellow] Could not stop remote services: {exc}")
+            finally:
+                ssh.disconnect()
+
+    # Remove local config
+    cloud_yml = project_root / ".dango" / "cloud.yml"
+    if cloud_yml.exists():
+        try:
+            cloud_yml.unlink()
+            console.print("[green]Removed[/green] .dango/cloud.yml")
+        except OSError as exc:
+            console.print(f"[yellow]Warning:[/yellow] Could not remove cloud.yml: {exc}")
+
+    console.print("\n[green]BYOS deployment removed.[/green]")
+    console.print("[dim]The server and its data are still intact.[/dim]")
+
+
+def _destroy_do(
+    cloud_cfg: Any,
+    project_root: Path,
+    force: bool,
+    keep_spaces: bool,
+    keep_ssh_key: bool,
+) -> None:
+    """Tear down a DigitalOcean deployment (delete cloud resources)."""
+    from rich.panel import Panel
 
     # --- Show destruction summary ---
     summary_lines = [
@@ -275,7 +503,7 @@ def deploy_destroy(
     if not force:
         ip = cloud_cfg.droplet_ip or str(cloud_cfg.droplet_id)
         confirm = click.prompt(
-            f"\nType the droplet IP ({ip}) to confirm destruction",
+            f"\nType the server IP ({ip}) to confirm destruction",
             default="",
             show_default=False,
         )
@@ -290,12 +518,13 @@ def deploy_destroy(
     errors: list[str] = []
 
     # 1. Delete droplet
-    try:
-        client.delete_droplet(cloud_cfg.droplet_id)
-        console.print("[green]Deleted[/green] droplet.")
-    except Exception as exc:
-        errors.append(f"Droplet: {exc}")
-        console.print(f"[red]Failed[/red] to delete droplet: {exc}")
+    if cloud_cfg.droplet_id:
+        try:
+            client.delete_droplet(cloud_cfg.droplet_id)
+            console.print("[green]Deleted[/green] droplet.")
+        except Exception as exc:
+            errors.append(f"Droplet: {exc}")
+            console.print(f"[red]Failed[/red] to delete droplet: {exc}")
 
     # 2. Delete firewall
     if cloud_cfg.firewall_id:

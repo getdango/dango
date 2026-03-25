@@ -54,7 +54,7 @@ def _load_spaces_client_or_fail(ctx: click.Context) -> tuple[Any, Any]:
     loader = ConfigLoader(project_root)
     cloud_cfg = loader.load_cloud_config()
 
-    if cloud_cfg is None or cloud_cfg.droplet_id is None:
+    if cloud_cfg is None or cloud_cfg.droplet_ip is None:
         console.print(
             "[red]Error:[/red] No cloud deployment found. "
             "Run [bold]dango deploy[/bold] to provision a server first."
@@ -62,10 +62,17 @@ def _load_spaces_client_or_fail(ctx: click.Context) -> tuple[Any, Any]:
         raise SystemExit(1)
 
     if cloud_cfg.spaces is None:
-        console.print(
-            "[red]Error:[/red] Spaces not configured. "
-            "Set [bold]spaces.bucket[/bold] in [bold].dango/cloud.yml[/bold]."
-        )
+        if cloud_cfg.provider == "byos":
+            console.print(
+                "[red]Error:[/red] Spaces backups require DigitalOcean. "
+                "Use [bold]dango remote backup[/bold] (on-demand via SSH) or "
+                "[bold]dango remote backup download[/bold] for BYOS deployments."
+            )
+        else:
+            console.print(
+                "[red]Error:[/red] Spaces not configured. "
+                "Set [bold]spaces.bucket[/bold] in [bold].dango/cloud.yml[/bold]."
+            )
         raise SystemExit(1)
 
     region = cloud_cfg.spaces.region or cloud_cfg.region
