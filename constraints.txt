@@ -1,0 +1,4 @@
+# Transitive dependency constraints for CI reproducibility.
+# Use: pip install -c constraints.txt -e ".[dev]"
+starlette>=1.0.0
+pydantic-core>=2.20.0

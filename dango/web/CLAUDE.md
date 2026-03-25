@@ -8,7 +8,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| `app.py` | Entry point: `create_app()`, middleware, router registration, lifecycle events (incl. first-run admin creation), global exception handlers (`DangoError` → structured JSON, generic `Exception` → 500) | `create_app()`, `app` (global FastAPI instance), `startup_event()`, `dango_error_handler()`, `unhandled_error_handler()` |
+| `app.py` | Entry point: `create_app()`, middleware, router registration, lifespan context manager (incl. first-run admin creation), global exception handlers (`DangoError` → structured JSON, generic `Exception` → 500) | `create_app()`, `app` (global FastAPI instance), `lifespan()`, `dango_error_handler()`, `unhandled_error_handler()` |
 | `models.py` | Pydantic request/response DTOs | `TableInfo`, `SourceStatus`, `ServiceHealth`, `SyncRequest`, `SyncResponse`, `LogEntry`, `WatcherStatus`, `LoginRequest`, `AcceptInviteRequest`, `TwoFAVerifyRequest` |
 | `helpers.py` | Shared helpers: DuckDB queries, config loading, service health, logging | `get_project_root()`, `load_sources_config()`, `get_duckdb_path()`, `get_dbt_models()`, `mask_sensitive_config()`, `get_source_freshness()`, `append_log_entry()`, `load_all_logs()`, `check_service_status_async()`, `get_platform_health_data()`, `get_source_status_data()` |
 | `__init__.py` | Public exports | `app` module |
@@ -134,10 +134,10 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
    @router.get("/my-page")
    async def my_page(request: Request):
        """Serve the my page UI."""
-       return templates.TemplateResponse(
+       return _render_template(
+           request,
            "my_page.html",
            {
-               "request": request,
                "version": dango.__version__,
                "current_page": "my-page",
                "subtitle": "My Page",

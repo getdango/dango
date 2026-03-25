@@ -32,10 +32,10 @@ _FALLBACK_HTML = """
 """
 
 
-def _render_template(template_name: str, context: dict) -> HTMLResponse:
+def _render_template(request: Request, template_name: str, context: dict) -> HTMLResponse:
     """Render a Jinja2 template with fallback for broken installations."""
     try:
-        return templates.TemplateResponse(template_name, context)
+        return templates.TemplateResponse(request, template_name, context=context)
     except TemplateNotFound:
         return HTMLResponse(content=_FALLBACK_HTML)
 
@@ -44,9 +44,9 @@ def _render_template(template_name: str, context: dict) -> HTMLResponse:
 async def root(request: Request) -> HTMLResponse:
     """Serve the dashboard UI."""
     return _render_template(
+        request,
         "dashboard.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "overview",
             "subtitle": "Data Platform Dashboard",
@@ -58,9 +58,9 @@ async def root(request: Request) -> HTMLResponse:
 async def health_page(request: Request) -> HTMLResponse:
     """Serve the platform health page."""
     return _render_template(
+        request,
         "health.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "health",
             "subtitle": "Health",
@@ -72,9 +72,9 @@ async def health_page(request: Request) -> HTMLResponse:
 async def logs_page(request: Request) -> HTMLResponse:
     """Serve the logs page."""
     return _render_template(
+        request,
         "logs.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "logs",
             "subtitle": "Activity Logs",
@@ -94,9 +94,9 @@ async def catalog_page(
         email=user.email,
     )
     return _render_template(
+        request,
         "catalog.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "catalog",
             "subtitle": "Data Catalog",
@@ -116,9 +116,9 @@ async def insights_page(
         email=user.email,
     )
     return _render_template(
+        request,
         "insights.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "insights",
             "subtitle": "Insights",
@@ -165,9 +165,9 @@ async def login_page(request: Request) -> HTMLResponse:
     except Exception:
         pass
     return _render_template(
+        request,
         "login.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "login",
             "subtitle": "Login",
@@ -180,9 +180,9 @@ async def login_page(request: Request) -> HTMLResponse:
 async def setup_page(request: Request) -> HTMLResponse:
     """Render the change-password page (first-login setup)."""
     return _render_template(
+        request,
         "change_password.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "setup",
             "subtitle": "Change Password",
@@ -217,9 +217,9 @@ async def invite_page(token: str, request: Request) -> HTMLResponse:
         error = "Unable to process invite. Please try again later."
 
     return _render_template(
+        request,
         "invite.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "invite",
             "subtitle": "Accept Invite",

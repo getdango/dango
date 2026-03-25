@@ -204,9 +204,9 @@ async def notebooks_page(
 ) -> HTMLResponse:
     """Render the notebook management UI page."""
     return _render_template(
+        request,
         "notebooks.html",
         {
-            "request": request,
             "version": dango.__version__,
             "current_page": "notebooks",
             "subtitle": "Notebooks",
