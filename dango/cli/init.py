@@ -107,6 +107,12 @@ class ProjectInitializer:
                 console.print("  3. Retry: dango init")
                 raise SystemExit(1)
 
+            # Setup authentication (admin user + auth.yml)
+            # NON-CRITICAL: Can set up later via 'dango auth enable'
+            auth_success = self._setup_auth(skip_wizard=skip_wizard, force=force)
+            if not auth_success:
+                warnings.append("Auth setup skipped (run 'dango auth enable' to set up later)")
+
         except KeyboardInterrupt:
             # User cancelled - rollback
             print_error("\n\n✗ Initialization cancelled by user")
@@ -1002,6 +1008,125 @@ on-run-end:
             console.print("    You can generate docs later with: cd dbt && dbt docs generate")
             return False
 
+    def _setup_auth(self, *, skip_wizard: bool = False, force: bool = False) -> bool:
+        """Set up authentication: create admin user and enable auth.
+
+        Runs database migrations to create auth.db, then either prompts for
+        admin credentials (interactive) or generates a random admin
+        (skip-wizard mode).
+
+        Args:
+            skip_wizard: If True, generate random admin credentials.
+            force: If True, skip admin creation when admins already exist.
+
+        Returns:
+            True if auth was set up successfully, False otherwise.
+        """
+        import os
+        import re
+
+        import click
+
+        from dango.auth.admin import (
+            ensure_admin,
+            format_credentials_panel,
+            get_auth_db_path,
+            set_auth_enabled,
+        )
+        from dango.auth.database import create_user, list_users
+        from dango.auth.models import Role, User
+        from dango.auth.security import check_password_strength, hash_password
+        from dango.migrations import apply_all_pending
+
+        console.print("\nSetting up authentication...")
+
+        try:
+            # Create auth.db via migrations framework
+            apply_all_pending(self.project_dir)
+
+            db_path = get_auth_db_path(self.project_dir)
+
+            # On --force re-init, skip admin creation if admins already exist
+            if force:
+                existing_users = list_users(db_path, active_only=True)
+                existing_admins = [u for u in existing_users if u.role == Role.ADMIN]
+                if existing_admins:
+                    # Just ensure auth.yml is written
+                    set_auth_enabled(self.project_dir, enabled=True)
+                    console.print("[green]✓[/green] Auth already configured (admin exists)")
+                    return True
+
+            if skip_wizard:
+                # Non-interactive: generate random admin
+                result = ensure_admin(db_path)
+                if result is not None:
+                    user, password = result
+                    set_auth_enabled(self.project_dir, enabled=True)
+                    console.print()
+                    console.print(format_credentials_panel(user.email, password))
+                    console.print()
+                else:
+                    set_auth_enabled(self.project_dir, enabled=True)
+                    console.print("[green]✓[/green] Auth enabled (admin already exists)")
+                return True
+
+            # Interactive: prompt for admin credentials
+            email_re = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+            console.print("  Create the admin account for your project.\n")
+
+            # Email
+            while True:
+                email = click.prompt("  Admin email", default="admin@localhost")
+                if email_re.match(email):
+                    break
+                console.print("  [red]Invalid email format.[/red]")
+
+            # Password (from env or prompt)
+            env_password = os.environ.get("DANGO_ADMIN_PASSWORD")
+            if env_password:
+                issues = check_password_strength(env_password)
+                if issues:
+                    console.print(f"  [red]DANGO_ADMIN_PASSWORD is weak:[/red] {'; '.join(issues)}")
+                    console.print("  [yellow]Skipping auth setup.[/yellow]")
+                    return False
+                password = env_password
+                console.print("  [dim]Using password from DANGO_ADMIN_PASSWORD env var.[/dim]")
+            else:
+                while True:
+                    password = click.prompt("  Admin password", hide_input=True)
+                    issues = check_password_strength(password)
+                    if issues:
+                        console.print(f"  [red]Weak password:[/red] {'; '.join(issues)}")
+                        continue
+                    confirm = click.prompt("  Confirm password", hide_input=True)
+                    if password != confirm:
+                        console.print("  [red]Passwords don't match.[/red]")
+                        continue
+                    break
+
+            # Create admin user
+            user = User(
+                email=email,
+                password_hash=hash_password(password),
+                role=Role.ADMIN,
+                must_change_password=False,
+            )
+            create_user(db_path, user)
+
+            # Enable auth
+            set_auth_enabled(self.project_dir, enabled=True)
+
+            console.print()
+            console.print(format_credentials_panel(email, password, title="Admin account created"))
+            console.print()
+            return True
+
+        except Exception as e:
+            print_error(f"Auth setup failed: {e}")
+            console.print("  [yellow]You can set up auth later with:[/yellow] dango auth enable")
+            return False
+
     def _rollback_initialization(self):
         """
         Rollback project initialization by removing created files/directories.
@@ -1089,6 +1214,7 @@ on-run-end:
 
         # Add next steps (only if not failed)
         if not failures:
+            message += "[dim]Auth is enabled — log in with your admin credentials on first visit.[/dim]\n\n"
             message += "[bold]Next steps:[/bold]\n\n"
 
             # Check if user is already in the project directory

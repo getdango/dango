@@ -24,11 +24,11 @@ from dango.auth.models import APIKey, Session, User
 # Default timeout constants (overridable per-call)
 # ---------------------------------------------------------------------------
 
-DEFAULT_IDLE_TIMEOUT_MINUTES: int = 60
-"""Idle timeout — invalidate session after this many minutes of inactivity."""
+DEFAULT_IDLE_TIMEOUT_MINUTES: int = 1440
+"""Idle timeout — invalidate session after this many minutes of inactivity (24h for local)."""
 
-DEFAULT_SESSION_MAX_DAYS: int = 30
-"""Absolute timeout — session expires this many days after creation."""
+DEFAULT_SESSION_MAX_DAYS: int = 365
+"""Absolute timeout — session expires this many days after creation (1 year for local)."""
 
 DEFAULT_PARTIAL_SESSION_TIMEOUT_MINUTES: int = 5
 """Partial session timeout — for 2FA intermediate state."""

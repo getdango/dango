@@ -392,6 +392,28 @@ def _create_admin_and_enable_auth(
     ssh.write_remote_file("/srv/dango/project/.dango/auth.yml", "enabled: true\n", mode=0o644)
     ssh.exec_command("chown dango:dango /srv/dango/project/.dango/auth.yml")
 
+    # Write cloud-specific auth timeouts (30-day session, 60-min idle)
+    timeout_script = (
+        "import sys, os\n"
+        "sys.path.insert(0, '/srv/dango/project')\n"
+        "os.chdir('/srv/dango/project')\n"
+        "from pathlib import Path\n"
+        "import yaml\n"
+        "config_path = Path('.dango/project.yml')\n"
+        "if config_path.exists():\n"
+        "    config_data = yaml.safe_load(config_path.read_text()) or {}\n"
+        "    config_data.setdefault('auth', {})\n"
+        "    config_data['auth']['session_max_days'] = 30\n"
+        "    config_data['auth']['idle_timeout_minutes'] = 60\n"
+        "    config_path.write_text(yaml.dump(config_data, default_flow_style=False, sort_keys=False))\n"
+    )
+    encoded_timeout = base64.b64encode(timeout_script.encode()).decode()
+    ssh.exec_command(
+        f"sudo -u dango /srv/dango/venv/bin/python -c "
+        f"\"import base64; exec(base64.b64decode('{encoded_timeout}'))\"",
+        timeout=15,
+    )
+
     return deploy_token
 
 

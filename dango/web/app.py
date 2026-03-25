@@ -76,7 +76,9 @@ def create_app(project_root: Path | None = None) -> FastAPI:
 
     # Auth middleware (innermost — executes after rate limit in request flow)
     auth_config = _load_auth_config(project_root)
-    idle_timeout = auth_config.idle_timeout_minutes if auth_config else 60
+    idle_timeout = (
+        auth_config.idle_timeout_minutes if auth_config else AuthConfig().idle_timeout_minutes
+    )
     application.add_middleware(
         AuthMiddleware, project_root=project_root, idle_timeout_minutes=idle_timeout
     )
@@ -299,6 +301,17 @@ async def startup_event() -> None:
     """Run on application startup."""
     project_root = get_project_root()
     logger.info("api_starting", project_root=str(project_root))
+
+    # Write auth.yml if missing (migration path for pre-075d projects)
+    try:
+        from dango.auth.admin import get_auth_config_path, set_auth_enabled
+
+        auth_config_path = get_auth_config_path(project_root)
+        if not auth_config_path.exists():
+            set_auth_enabled(project_root, enabled=True)
+            logger.info("auth_auto_enabled", reason="auth.yml missing")
+    except Exception:
+        logger.warning("auth_yml_migration_failed", exc_info=True)
 
     # First-run admin creation (non-interactive)
     try:

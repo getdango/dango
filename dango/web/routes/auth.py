@@ -44,6 +44,7 @@ from dango.auth.security import (
     verify_password,
 )
 from dango.auth.sessions import (
+    DEFAULT_SESSION_MAX_DAYS,
     create_api_key,
     create_session,
     invalidate_all_sessions,
@@ -202,7 +203,7 @@ async def login(request: Request) -> JSONResponse:
     auth_config = _get_auth_config(request)
     max_attempts = 5
     lockout_minutes = 15
-    session_max_days = 30
+    session_max_days = DEFAULT_SESSION_MAX_DAYS
     if auth_config is not None:
         max_attempts = auth_config.lockout.max_attempts
         lockout_minutes = auth_config.lockout.lockout_minutes
@@ -389,7 +390,7 @@ async def change_password(request: Request) -> JSONResponse:
     invalidate_all_sessions(db_path, user.id)
 
     auth_config = _get_auth_config(request)
-    session_max_days = auth_config.session_max_days if auth_config else 30
+    session_max_days = auth_config.session_max_days if auth_config else DEFAULT_SESSION_MAX_DAYS
 
     raw_token, _session = create_session(
         db_path,
@@ -769,7 +770,7 @@ async def _resolve_oauth_user(
     # Success — create session
     reset_failed_logins(db_path, user.email)
     auth_config = _get_auth_config(request)
-    session_max_days = auth_config.session_max_days if auth_config else 30
+    session_max_days = auth_config.session_max_days if auth_config else DEFAULT_SESSION_MAX_DAYS
 
     # 2FA required — create partial session (mirrors password login)
     if user.totp_enabled:

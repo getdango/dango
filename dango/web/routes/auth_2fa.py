@@ -22,7 +22,12 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.database import get_session_by_token, get_user_by_id, update_user
 from dango.auth.models import User, UserResponse, UserUpdate
 from dango.auth.security import generate_recovery_codes, hash_token, verify_password
-from dango.auth.sessions import create_session, invalidate_session, validate_partial_session
+from dango.auth.sessions import (
+    DEFAULT_SESSION_MAX_DAYS,
+    create_session,
+    invalidate_session,
+    validate_partial_session,
+)
 from dango.auth.totp import (
     consume_recovery_code,
     disable_totp,
@@ -239,7 +244,7 @@ async def verify_2fa(request: Request) -> JSONResponse:
 
     # Create full session
     auth_config = _get_auth_config(request)
-    session_max_days = auth_config.session_max_days if auth_config else 30
+    session_max_days = auth_config.session_max_days if auth_config else DEFAULT_SESSION_MAX_DAYS
 
     raw_token, _session = create_session(
         db_path,
