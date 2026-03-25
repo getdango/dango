@@ -25,7 +25,7 @@ Command hierarchy::
     │   └── remove          — Revert to IP-only HTTP
     └── backup (subgroup)   — See remote_backup.py
 
-All commands require an active cloud deployment (``droplet_id`` set in
+All commands require an active cloud deployment (``droplet_ip`` set in
 ``.dango/cloud.yml``).  Firewall commands additionally require ``firewall_id``.
 
 Management commands (status, logs, ssh, query) are defined in

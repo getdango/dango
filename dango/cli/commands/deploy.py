@@ -381,6 +381,11 @@ def deploy_destroy(
     cloud_cfg, project_root = _load_deploy_config(ctx)
 
     if cloud_cfg.provider == "byos":
+        if keep_spaces or keep_ssh_key:
+            console.print(
+                "[yellow]Note:[/yellow] --keep-spaces and --keep-ssh-key are "
+                "DigitalOcean-only options and have no effect for BYOS deployments."
+            )
         _destroy_byos(cloud_cfg, project_root, force)
     else:
         _destroy_do(cloud_cfg, project_root, force, keep_spaces, keep_ssh_key)

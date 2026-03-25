@@ -409,7 +409,8 @@ def run_byos_setup(
     except Exception as exc:
         console.print(f"\n[red]BYOS setup failed:[/red] {exc}")
         console.print(
-            "[dim]Server setup steps are idempotent — re-run 'dango deploy' to retry.[/dim]"
+            "[dim]Server setup steps are idempotent — "
+            "run 'dango deploy destroy' then 'dango deploy' to retry.[/dim]"
         )
         raise CloudProvisioningError(str(exc)) from exc
 
