@@ -6,7 +6,7 @@ Pydantic models for configuration validation.
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
@@ -559,7 +559,7 @@ class DbtOverrides(BaseModel):
 class CloudConfig(BaseModel):
     """Cloud deployment configuration stored in .dango/cloud.yml."""
 
-    provider: str = Field(
+    provider: Literal["digitalocean", "byos"] = Field(
         default="digitalocean",
         description="Deployment provider: 'digitalocean' or 'byos'",
     )

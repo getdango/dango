@@ -268,29 +268,44 @@ def _handle_do_deploy_with_config(project_root: Path, config: Any) -> None:
     except Exception:
         raise SystemExit(1) from None
 
-    console.print("\n[bold green]Deployment complete![/bold green]")
-    console.print(f"  URL:    {result.url}")
-    console.print(f"  IP:     {result.droplet_ip}")
-    console.print(f"  Admin:  {config.admin_email}")
-    if result.warnings:
-        for w in result.warnings:
-            console.print(f"  [yellow]Warning:[/yellow] {w}")
-    console.print("\n  Next: Visit the URL above and log in with your admin credentials.")
-    if not config.skip_initial_sync:
-        console.print("  Initial data sync is running in the background.")
+    _print_deploy_success(
+        url=result.url,
+        ip=result.droplet_ip,
+        admin_email=config.admin_email,
+        warnings=result.warnings,
+        skip_initial_sync=config.skip_initial_sync,
+    )
 
 
 def _print_byos_success(result: Any, config: Any) -> None:
     """Print BYOS deployment success output."""
+    _print_deploy_success(
+        url=result.url,
+        ip=result.server_ip,
+        admin_email=config.admin_email,
+        warnings=result.warnings,
+        skip_initial_sync=config.skip_initial_sync,
+    )
+
+
+def _print_deploy_success(
+    *,
+    url: str,
+    ip: str,
+    admin_email: str,
+    warnings: list[str],
+    skip_initial_sync: bool,
+) -> None:
+    """Print deployment success output (shared by DO and BYOS paths)."""
     console.print("\n[bold green]Deployment complete![/bold green]")
-    console.print(f"  URL:    {result.url}")
-    console.print(f"  IP:     {result.server_ip}")
-    console.print(f"  Admin:  {config.admin_email}")
-    if result.warnings:
-        for w in result.warnings:
+    console.print(f"  URL:    {url}")
+    console.print(f"  IP:     {ip}")
+    console.print(f"  Admin:  {admin_email}")
+    if warnings:
+        for w in warnings:
             console.print(f"  [yellow]Warning:[/yellow] {w}")
     console.print("\n  Next: Visit the URL above and log in with your admin credentials.")
-    if not config.skip_initial_sync:
+    if not skip_initial_sync:
         console.print("  Initial data sync is running in the background.")
 
 
@@ -407,7 +422,7 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
             raise SystemExit(1)
 
     # Optionally stop remote services
-    if click.confirm("\n  Stop Dango services on the remote server?", default=True):
+    if force or click.confirm("\n  Stop Dango services on the remote server?", default=True):
         from dango.platform.cloud.ssh import SSHManager
 
         key_path = _resolve_key_path(cloud_cfg, project_root)
