@@ -50,19 +50,19 @@ exemptions:
 
   # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
   - file: dango/cli/commands/deploy_wizard.py
-    lines: 838
+    lines: 839
     category: exempt
     reason: "TASK-029+075e: Interactive wizard steps 1-9 + BYOS wizard + non-interactive modes. Sequential prompt flow — splitting would scatter closely coupled wizard steps."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy_provision.py
-    lines: 703
+    lines: 704
     category: exempt
     reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy.py
-    lines: 669
+    lines: 689
     category: exempt
     reason: "TASK-029+075e: Deploy group with DO + BYOS routing, destroy command for both providers. Splitting would scatter the provider selection and destroy dispatch logic."
     review_by: "v1.1"
