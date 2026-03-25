@@ -17,6 +17,7 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import has_permission, require_permission
 from dango.logging import get_logger
+from dango.validation import validate_identifier, validate_source_name
 from dango.web.helpers import (
     get_dbt_models,
     get_duckdb_path,
@@ -24,7 +25,6 @@ from dango.web.helpers import (
     get_source_freshness,
     get_source_tables_info,
     load_sources_config,
-    load_sync_history,
 )
 
 logger = get_logger(__name__)
@@ -137,23 +137,21 @@ class ToolsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _get_column_schema(
-    db_path: str,
-    source: str,
-    table: str,
-) -> list[dict[str, Any]]:
+def _get_column_schema(db_path: str, source: str, table: str) -> list[dict[str, Any]]:
     """Query DuckDB information_schema for column metadata.
 
-    Uses read-only connection. Returns empty list on any error.
+    Validates source/table names, uses read-only connection.
+    Returns empty list on any error.
     """
-    schema = f"raw_{source}"
     try:
+        schema = f"raw_{validate_source_name(source)}"
+        safe_table = validate_identifier(table)
         conn = duckdb.connect(db_path, read_only=True)
         try:
             rows = conn.execute(
                 "SELECT column_name, data_type, is_nullable "
                 "FROM information_schema.columns "
-                f"WHERE table_schema = '{schema}' AND table_name = '{table}' "
+                f"WHERE table_schema = '{schema}' AND table_name = '{safe_table}' "
                 "ORDER BY ordinal_position"
             ).fetchall()
             return [{"name": r[0], "type": r[1], "nullable": r[2] == "YES"} for r in rows]
@@ -165,23 +163,22 @@ def _get_column_schema(
 
 async def _build_source_summary(
     source_cfg: dict[str, Any],
-    db_path_str: str,
+    db_path_str: str | None,
     has_governance: bool,
     project_root: Any,
 ) -> SourceSummary:
     """Build a SourceSummary for a single source.
 
-    Fetches freshness, tables, sync history, and optionally quality signals
-    concurrently via asyncio.to_thread.
+    Fetches freshness, tables, and optionally quality signals concurrently
+    via asyncio.to_thread.
     """
     name = source_cfg.get("name", "")
     source_type = source_cfg.get("type", "unknown")
     enabled = source_cfg.get("enabled", True)
 
-    freshness_data, tables_info, sync_history = await asyncio.gather(
+    freshness_data, tables_info = await asyncio.gather(
         asyncio.to_thread(get_source_freshness, name),
         asyncio.to_thread(get_source_tables_info, name),
-        asyncio.to_thread(load_sync_history, name, 1),
     )
 
     status = freshness_data.get("status", "unknown") if freshness_data else "unknown"
@@ -193,12 +190,14 @@ async def _build_source_summary(
     if tables_info is not None:
         total_rows = tables_info.get("total_rows")
         for tbl in tables_info.get("tables", []):
-            cols = await asyncio.to_thread(
-                _get_column_schema,
-                db_path_str,
-                name,
-                tbl["name"],
-            )
+            cols: list[dict[str, Any]] = []
+            if db_path_str is not None:
+                cols = await asyncio.to_thread(
+                    _get_column_schema,
+                    db_path_str,
+                    name,
+                    tbl["name"],
+                )
             table_summaries.append(
                 TableSummary(
                     name=tbl["name"],
@@ -226,7 +225,7 @@ async def _build_source_summary(
             drift_events = await asyncio.to_thread(get_drift_history, project_root, source=name)
             quality.drift_event_count = len(drift_events)
         except Exception:
-            pass
+            logger.debug("Failed to fetch drift history for %s", name, exc_info=True)
 
         try:
             from dango.governance.pii_detector import get_pii_findings
@@ -234,7 +233,7 @@ async def _build_source_summary(
             pii_findings = await asyncio.to_thread(get_pii_findings, project_root, source=name)
             quality.pii_column_count = len(pii_findings)
         except Exception:
-            pass
+            logger.debug("Failed to fetch PII findings for %s", name, exc_info=True)
 
     return SourceSummary(
         name=name,
@@ -281,7 +280,7 @@ async def get_catalog_summary(
 
     # Build source summaries concurrently
     db_path = get_duckdb_path()
-    db_path_str = str(db_path) if db_path.exists() else ""
+    db_path_str: str | None = str(db_path) if db_path.exists() else None
 
     source_summaries = await asyncio.gather(
         *[

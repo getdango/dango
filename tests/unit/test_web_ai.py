@@ -180,7 +180,6 @@ class TestGetCatalogSummary:
 
     @patch("dango.web.routes.ai._get_column_schema")
     @patch("dango.web.routes.ai.get_duckdb_path")
-    @patch("dango.web.routes.ai.load_sync_history")
     @patch("dango.web.routes.ai.get_source_tables_info")
     @patch("dango.web.routes.ai.get_source_freshness")
     @patch("dango.web.routes.ai.get_dbt_models")
@@ -195,7 +194,6 @@ class TestGetCatalogSummary:
         mock_dbt: MagicMock,
         mock_freshness: MagicMock,
         mock_tables: MagicMock,
-        mock_history: MagicMock,
         mock_db_path: MagicMock,
         mock_col_schema: MagicMock,
         tmp_path: Path,
@@ -207,7 +205,6 @@ class TestGetCatalogSummary:
         mock_dbt.return_value = []
         mock_freshness.return_value = _mock_freshness()
         mock_tables.return_value = _mock_tables_info()
-        mock_history.return_value = []
         db_path = tmp_path / "data" / "warehouse.duckdb"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         db_path.touch()
@@ -269,7 +266,6 @@ class TestGetCatalogSummary:
     @patch("dango.governance.pii_detector.get_pii_findings")
     @patch("dango.governance.schema_drift.get_drift_history")
     @patch("dango.web.routes.ai.get_duckdb_path")
-    @patch("dango.web.routes.ai.load_sync_history")
     @patch("dango.web.routes.ai.get_source_tables_info")
     @patch("dango.web.routes.ai.get_source_freshness")
     @patch("dango.web.routes.ai.get_dbt_models")
@@ -284,7 +280,6 @@ class TestGetCatalogSummary:
         mock_dbt: MagicMock,
         mock_freshness: MagicMock,
         mock_tables: MagicMock,
-        mock_history: MagicMock,
         mock_db_path: MagicMock,
         mock_drift: MagicMock,
         mock_pii: MagicMock,
@@ -297,7 +292,6 @@ class TestGetCatalogSummary:
         mock_dbt.return_value = []
         mock_freshness.return_value = _mock_freshness()
         mock_tables.return_value = {"total_rows": 100, "tables": [], "has_multiple_tables": False}
-        mock_history.return_value = []
         mock_db_path.return_value = tmp_path / "data" / "warehouse.duckdb"
         mock_drift.return_value = [{"id": 1}, {"id": 2}]
         mock_pii.return_value = [{"id": 1}]
@@ -309,7 +303,6 @@ class TestGetCatalogSummary:
         assert quality["pii_column_count"] == 1
 
     @patch("dango.web.routes.ai.get_duckdb_path")
-    @patch("dango.web.routes.ai.load_sync_history")
     @patch("dango.web.routes.ai.get_source_tables_info")
     @patch("dango.web.routes.ai.get_source_freshness")
     @patch("dango.web.routes.ai.get_dbt_models")
@@ -324,7 +317,6 @@ class TestGetCatalogSummary:
         mock_dbt: MagicMock,
         mock_freshness: MagicMock,
         mock_tables: MagicMock,
-        mock_history: MagicMock,
         mock_db_path: MagicMock,
         tmp_path: Path,
     ) -> None:
@@ -335,7 +327,6 @@ class TestGetCatalogSummary:
         mock_dbt.return_value = []
         mock_freshness.return_value = _mock_freshness()
         mock_tables.return_value = {"total_rows": 100, "tables": [], "has_multiple_tables": False}
-        mock_history.return_value = []
         mock_db_path.return_value = tmp_path / "data" / "warehouse.duckdb"
 
         resp = client.get("/api/catalog/summary")
