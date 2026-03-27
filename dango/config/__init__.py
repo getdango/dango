@@ -22,6 +22,7 @@ from .models import (
     GoogleSheetsSourceConfig,
     LocalFilesSourceConfig,
     ProjectContext,
+    ShopifySourceConfig,
     SourcesConfig,
     SourceType,
     SpacesConfig,
@@ -49,6 +50,7 @@ __all__ = [
     "CSVSourceConfig",
     "LocalFilesSourceConfig",
     "GoogleSheetsSourceConfig",
+    "ShopifySourceConfig",
     "StripeSourceConfig",
     # Cloud config models
     "CloudConfig",

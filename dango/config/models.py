@@ -192,6 +192,27 @@ class StripeSourceConfig(BaseModel):
     end_date: datetime | None = None
 
 
+class ShopifySourceConfig(BaseModel):
+    """Shopify API source configuration"""
+
+    private_app_password_env: str = Field(
+        default="SHOPIFY_ACCESS_TOKEN",
+        description="Environment variable containing Shopify Admin API access token",
+    )
+    shop_url: str = Field(default="", description="Shopify store URL (e.g., mystore.myshopify.com)")
+    api_version: str = Field(default="2023-10", description="Shopify API version")
+    start_date: str | None = Field(
+        default=None, description="Start date for data loading (YYYY-MM-DD)"
+    )
+    end_date: str | None = Field(default=None, description="End date for data loading (YYYY-MM-DD)")
+    order_status: str = Field(
+        default="any", description="Order status filter: any, open, closed, cancelled"
+    )
+    resources: list[str] | None = Field(
+        default=None, description="Resources to sync (orders, customers, products)"
+    )
+
+
 class FacebookAdsSourceConfig(BaseModel):
     """Facebook Ads API source configuration"""
 
@@ -389,6 +410,7 @@ class DataSource(BaseModel):
 
     # E-commerce & Payment
     stripe: StripeSourceConfig | None = None
+    shopify: ShopifySourceConfig | None = None
 
     # Development
     github: GitHubSourceConfig | None = None

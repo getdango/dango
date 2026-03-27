@@ -100,9 +100,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/ingestion/sources/registry.py
-    lines: 2030
+    lines: 2063
     category: exempt
-    reason: "Source metadata registry. Declarative data (no logic), naturally grows with each new source type. P5-011 added capability metadata (+313 lines). 5c-007 added local_files entry (+70 lines)."
+    reason: "Source metadata registry. Declarative data (no logic), naturally grows with each new source type. P5-011 added capability metadata (+313 lines). 5c-007 added local_files entry (+70 lines). P8-002 enabled Shopify (+33 lines)."
     review_by: "v1.1"
 
   - file: dango/cli/source_wizard.py
@@ -207,9 +207,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/config/models.py
-    lines: 594
+    lines: 620
     category: exempt
-    reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
+    reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). P8-002 added ShopifySourceConfig (+25 lines). Config models are data-only with no refactoring path."
     review_by: "v1.1"
 
   - file: dango/platform/scheduling/jobs.py

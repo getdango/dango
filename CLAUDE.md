@@ -35,7 +35,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | `dango/ingestion/dlt_sources/` | Vendored third-party dlt connectors (127 files). Rarely modified. |
 | `dango/web/static/` | Frontend HTML/CSS/JS assets. |
 | `tests/` | Read source module first, then find its tests. |
-| `dango/ingestion/sources/registry.py` | 2030-line metadata registry. Only when adding a new source. |
+| `dango/ingestion/sources/registry.py` | 2063-line metadata registry. Only when adding a new source. |
 | `dango/templates/` | Jinja2 templates. Only when modifying project init or model generation. |
 
 ## Decision Tree
@@ -330,7 +330,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
 | `ingestion/dlt_runner.py` | 2276 | — (exempt, too risky) |
-| `ingestion/sources/registry.py` | 2030 | — (metadata-only) |
+| `ingestion/sources/registry.py` | 2063 | — (metadata-only) |
 | `cli/source_wizard.py` | 2148 | — |
 | `visualization/metabase.py` | 1149 | — |
 | `cli/init.py` | 1282 | — |
@@ -348,7 +348,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/source.py` | 658 | — (extracted from main.py by TASK-005) |
 | `cli/commands/remote.py` | 652 | — (remote group + push/rollback/firewall/domain) |
 | `cli/validate.py` | 651 | — |
-| `config/models.py` | 594 | — (Pydantic config models) |
+| `config/models.py` | 620 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 839 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 577 | — |
 | `web/routes/catalog.py` | 566 | — (data catalog: columns, profiling, lineage, impact) |

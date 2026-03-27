@@ -9,8 +9,7 @@ Loads data into DuckDB from external sources via dlt pipelines and local files, 
 Registry contains 33 sources: 27 dlt verified (vendored in `dlt_sources/`) + CSV
 (custom, hidden) + Local Files (unified, primary wizard entry) + dlt_native
 (passthrough) + filesystem (hidden, cloud storage) + rest_api (dlt core built-in) +
-PostgreSQL (dlt sql_database wrapper). Excluded: generic `sql_database` (too complex
-for wizard — use dlt_native) and Shopify (`wizard_enabled=False`, see P5-006).
+PostgreSQL (dlt sql_database wrapper). Excluded: generic `sql_database` (too complex for wizard — use dlt_native).
 
 ## Files
 

@@ -40,8 +40,6 @@ class AuthType(str, Enum):
 #   - sql_database (generic): Too complex for wizard UI (arbitrary table selectors,
 #     multiple DB dialects). Use dlt_native with dlt's sql_database for advanced
 #     multi-database setups.
-#   - Shopify: wizard_enabled=False pending P5-006 investigation — dlt's shopify_dlt
-#     connector may be incompatible with Shopify's Jan 2026 API deprecation.
 
 # ============================================================================
 # SOURCE REGISTRY
@@ -719,10 +717,24 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "display_name": "Shopify",
         "category": "E-commerce & Payment",
         "description": "Load e-commerce data from Shopify (orders, customers, products, etc.)",
-        "auth_type": AuthType.OAUTH,
-        "dlt_package": "shopify_dlt",  # Note: source name is shopify_dlt
+        "auth_type": AuthType.API_KEY,
+        "dlt_package": "shopify_dlt",
         "dlt_function": "shopify_source",
-        "required_params": [],
+        "required_params": [
+            {
+                "name": "shop_url",
+                "type": "string",
+                "prompt": "Shop URL (e.g., mystore.myshopify.com)",
+                "help": "Your Shopify store domain without https://",
+            },
+            {
+                "name": "private_app_password_env",
+                "type": "secret",
+                "env_var": "SHOPIFY_ACCESS_TOKEN",
+                "prompt": "Shopify Admin API access token",
+                "help": "Find in Shopify Admin > Apps > Develop apps > your app > API credentials",
+            },
+        ],
         "optional_params": [
             {
                 "name": "resources",
@@ -736,20 +748,41 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "type": "date",
                 "prompt": "Start date (YYYY-MM-DD)",
                 "default": None,
+                "help": "How far back to load data on first sync. Default: all available data.",
+            },
+            {
+                "name": "end_date",
+                "type": "date",
+                "prompt": "End date (YYYY-MM-DD)",
+                "default": None,
+                "help": "Optional end date to limit data range.",
+            },
+            {
+                "name": "api_version",
+                "type": "string",
+                "prompt": "Shopify API version",
+                "default": "2023-10",
+                "help": "Shopify API version. Default: 2023-10",
+            },
+            {
+                "name": "order_status",
+                "type": "choice",
+                "prompt": "Order status filter",
+                "choices": ["any", "open", "closed", "cancelled"],
+                "default": "any",
+                "help": "Filter orders by status. Default: all statuses.",
             },
         ],
         "setup_guide": [
-            "1. OAuth setup runs automatically during 'dango source add' — follow the prompts",
-            "2. OR manually run: dango oauth shopify",
-            "3. Either way: create a custom app in Shopify Admin > Apps > Develop apps",
-            "4. Configure Admin API scopes (read permissions needed)",
-            "5. Install app and reveal Admin API access token",
-            "6. Enter shop URL (e.g., mystore.myshopify.com) and access token when prompted",
-            "7. Credentials are permanent (stored in .dlt/secrets.toml)",
+            "1. Go to Shopify Admin > Settings > Apps and sales channels > Develop apps",
+            "2. Create a custom app (or use an existing one)",
+            "3. Configure Admin API scopes: read_orders, read_customers, read_products",
+            "4. Install the app and reveal the Admin API access token",
+            "5. Copy the access token (starts with shpat_)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/shopify",
         "cost_warning": "Included with Shopify plan",
-        "wizard_enabled": False,  # Disabled: OAuth 2.0 rewrite needed
+        "wizard_enabled": True,
         "popularity": 9,
         "capabilities": {
             "performance_metrics": False,
