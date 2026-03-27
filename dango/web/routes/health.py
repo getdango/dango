@@ -4,7 +4,6 @@ Health check and platform status endpoints.
 """
 
 import asyncio
-import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -330,32 +329,48 @@ def _check_backup_health() -> dict[str, Any]:
 
 def _get_local_deployment_info(project_root: Path) -> dict[str, Any] | None:
     """Read latest deployment from local journal (runs ON the cloud server)."""
-    journal_path = project_root / ".dango" / "state" / "deployments.jsonl"
-    if not journal_path.exists():
+    from dango.platform.cloud.deploy_journal import read_local_journal
+
+    entries = read_local_journal(project_root, limit=1)
+    if not entries:
         return None
-    try:
-        lines = journal_path.read_text().strip().splitlines()
-        if not lines:
-            return None
-        entry: dict[str, Any] = json.loads(lines[-1])
-        return {
-            "git_commit": entry.get("git_commit"),
-            "git_branch": entry.get("git_branch"),
-            "deployed_by": entry.get("deployer"),
-            "deployed_at": entry.get("timestamp"),
-            "success": entry.get("success"),
-        }
-    except Exception:  # noqa: BLE001
-        return None
+    entry = entries[0]
+    return {
+        "git_commit": entry.get("git_commit"),
+        "git_branch": entry.get("git_branch"),
+        "deployed_by": entry.get("deployer"),
+        "deployed_at": entry.get("timestamp"),
+        "success": entry.get("success"),
+    }
+
+
+_DEPLOYMENT_ALLOWED_FIELDS = {
+    "timestamp",
+    "deployer",
+    "success",
+    "git_commit",
+    "git_branch",
+    "git_clean",
+    "dango_version",
+    "files_synced",
+    "models_changed",
+    "models_added",
+    "models_removed",
+    "duration_seconds",
+    "dry_run",
+    "error",
+}
 
 
 @router.get("/api/deployments/history")
 async def get_deployment_history(
     request: Request,
+    limit: int = 20,
 ) -> JSONResponse:
     """Return deployment history from local journal (admin-only)."""
     from dango.auth.audit import AuditEvent, log_auth_event
     from dango.auth.permissions import require_permission
+    from dango.platform.cloud.deploy_journal import read_local_journal
 
     perm_dep = require_permission("platform.manage")
     user = await perm_dep(request)
@@ -367,22 +382,9 @@ async def get_deployment_history(
     )
 
     project_root = Path(get_project_root())
-    journal_path = project_root / ".dango" / "state" / "deployments.jsonl"
+    limit = max(1, min(limit, 100))
+    entries = read_local_journal(project_root, limit=limit)
 
-    entries: list[dict[str, Any]] = []
-    if journal_path.exists():
-        try:
-            lines = journal_path.read_text().strip().splitlines()
-            for line in lines:
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-        except OSError:
-            pass
+    filtered = [{k: v for k, v in e.items() if k in _DEPLOYMENT_ALLOWED_FIELDS} for e in entries]
 
-    # Newest first, limit 20
-    entries.reverse()
-    entries = entries[:20]
-
-    return JSONResponse(content={"deployments": entries})
+    return JSONResponse(content={"deployments": filtered})

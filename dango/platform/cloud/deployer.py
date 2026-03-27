@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from dango.platform.cloud.backup import BackupResult
     from dango.platform.cloud.file_sync import SyncResult
     from dango.platform.cloud.ssh import SSHManager
+    from dango.utils.git_info import GitInfo
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -67,7 +68,7 @@ class DeployResult:
     duration_seconds: float = 0.0
     warnings: list[str] = field(default_factory=list)
     dry_run: bool = False
-    git_info: Any = None
+    git_info: GitInfo | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +308,7 @@ def _run_remote_dbt(
 def _write_deploy_journal(
     ssh: SSHManager,
     local_project_root: Path,
-    git_info: Any,
+    git_info: GitInfo | None,
     *,
     sync_result: Any,
     deploy_succeeded: bool,
@@ -368,7 +369,7 @@ def push_deploy(
     dry_run: bool = False,
     force: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
-    git_info: Any = None,
+    git_info: GitInfo | None = None,
 ) -> DeployResult:
     """Execute full push deployment workflow.
 
@@ -550,16 +551,19 @@ def push_deploy(
 
     finally:
         # Write deployment journal (never-fail)
-        if not dry_run and git_info is not None:
-            _write_deploy_journal(
-                ssh,
-                local_project_root,
-                git_info,
-                sync_result=sync_result,
-                deploy_succeeded=deploy_succeeded,
-                deploy_error=deploy_error,
-                duration_seconds=round(time.monotonic() - start_time, 1),
-            )
+        if not dry_run:
+            try:
+                _write_deploy_journal(
+                    ssh,
+                    local_project_root,
+                    git_info,
+                    sync_result=sync_result,
+                    deploy_succeeded=deploy_succeeded,
+                    deploy_error=deploy_error,
+                    duration_seconds=round(time.monotonic() - start_time, 1),
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
     return DeployResult(
         sync_result=sync_result,

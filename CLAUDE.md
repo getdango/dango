@@ -93,7 +93,7 @@ dango/                          # Python package source
 │   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (839 lines)
 │   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (704 lines)
 │   │   ├── migrate.py          # migrate group (status, run)
-│   │   ├── remote.py           # remote group + push/rollback/firewall/domain (652 lines)
+│   │   ├── remote.py           # remote group + push/rollback/firewall/domain (698 lines)
 │   │   ├── remote_env.py       # remote env subgroup (set/get/list/delete)
 │   │   ├── remote_ops.py       # remote upgrade/resize/migrate
 │   │   ├── remote_backup.py    # remote backup subgroup
@@ -234,7 +234,7 @@ dango/                          # Python package source
 │   │   ├── domain.py           # DNS check, domain set/remove
 │   │   ├── backup.py           # Backup + rollback + service lifecycle
 │   │   ├── file_sync.py        # Project file sync (SFTP + rsync)
-│   │   ├── deployer.py         # Push deploy workflow + deploy lock (574 lines)
+│   │   ├── deployer.py         # Push deploy workflow + deploy lock (578 lines)
 │   │   ├── deploy_journal.py   # Append-only JSONL deployment history
 │   │   ├── scheduled_backup.py # Server-side scheduled backup (505 lines)
 │   │   ├── resize.py           # In-place droplet resize
@@ -348,9 +348,9 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `oauth/providers.py` | 670 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
 | `cli/commands/source.py` | 658 | — (extracted from main.py by TASK-005) |
-| `cli/commands/remote.py` | 693 | — (remote group + push/rollback/firewall/domain) |
-| `cli/commands/remote_mgmt.py` | 502 | — (remote status/logs/ssh/query + deployment history) |
-| `platform/cloud/deployer.py` | 574 | — (push deploy workflow + deploy lock + journal) |
+| `cli/commands/remote.py` | 698 | — (remote group + push/rollback/firewall/domain) |
+| `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
+| `platform/cloud/deployer.py` | 578 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 651 | — |
 | `config/models.py` | 594 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 839 | — (interactive deploy wizard + BYOS) |

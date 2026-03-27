@@ -520,12 +520,15 @@
 
                 const badge = document.getElementById('deploy-status-badge');
                 badge.className = 'px-2 py-1 text-xs rounded-full ';
-                if (dep.success) {
+                if (dep.success === true) {
                     badge.className += 'bg-green-100 text-green-800';
                     badge.textContent = 'Success';
-                } else {
+                } else if (dep.success === false) {
                     badge.className += 'bg-red-100 text-red-800';
                     badge.textContent = 'Failed';
+                } else {
+                    badge.className += 'bg-gray-100 text-gray-800';
+                    badge.textContent = 'Unknown';
                 }
             }
 

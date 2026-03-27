@@ -15,8 +15,12 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from dango.logging import get_logger
+
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
+
+logger = get_logger(__name__)
 
 
 _REMOTE_JOURNAL = "/srv/dango/project/.dango/state/deployments.jsonl"
@@ -72,7 +76,7 @@ def write_remote_journal(ssh: SSHManager, record: DeploymentRecord) -> None:
         cmd = f"mkdir -p {parent} && echo {shlex.quote(json_str)} >> {_REMOTE_JOURNAL}"
         ssh.exec_command(cmd)
     except Exception:  # noqa: BLE001
-        pass
+        logger.warning("Failed to write remote deployment journal", exc_info=True)
 
 
 def read_local_journal(project_root: Path, limit: int = 20) -> list[dict[str, Any]]:
@@ -80,6 +84,8 @@ def read_local_journal(project_root: Path, limit: int = 20) -> list[dict[str, An
 
     Returns entries newest-first.  Empty list on missing file or errors.
     """
+    if limit <= 0:
+        return []
     journal_path = project_root / ".dango" / "state" / "deployments.jsonl"
     if not journal_path.exists():
         return []
@@ -97,11 +103,20 @@ def read_local_journal(project_root: Path, limit: int = 20) -> list[dict[str, An
         return []
 
 
-def read_remote_journal(ssh: SSHManager, limit: int = 20) -> list[dict[str, Any]]:
+def read_remote_journal(
+    ssh: SSHManager,
+    limit: int = 20,
+    *,
+    raise_on_error: bool = False,
+) -> list[dict[str, Any]]:
     """Read the last *limit* entries from the remote deployment journal.
 
     Returns entries newest-first.  Empty list on missing file or errors.
+    When *raise_on_error* is True, SSH/connection exceptions are re-raised
+    instead of being silently swallowed.
     """
+    if limit <= 0:
+        return []
     try:
         result = ssh.exec_command(f"tail -{limit} {_REMOTE_JOURNAL} 2>/dev/null")
         if not result.success or not result.stdout.strip():
@@ -115,6 +130,8 @@ def read_remote_journal(ssh: SSHManager, limit: int = 20) -> list[dict[str, Any]
         entries.reverse()
         return entries
     except Exception:  # noqa: BLE001
+        if raise_on_error:
+            raise
         return []
 
 
@@ -129,5 +146,5 @@ def get_latest_deployment(ssh: SSHManager) -> dict[str, Any] | None:
             return None
         entry: dict[str, Any] = json.loads(result.stdout.strip())
         return entry
-    except (json.JSONDecodeError, Exception):  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None

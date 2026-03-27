@@ -221,6 +221,20 @@ class TestRemoteJournal:
         assert len(result) == 1
         assert result[0]["deployer"] == "good"
 
+    def test_read_returns_empty_on_ssh_exception(self) -> None:
+        """SSH exception should return empty list (default behavior)."""
+        ssh = _make_ssh_mock()
+        ssh.exec_command.side_effect = Exception("connection lost")
+        result = read_remote_journal(ssh)
+        assert result == []
+
+    def test_read_raises_on_ssh_exception_when_requested(self) -> None:
+        """SSH exception should re-raise when raise_on_error=True."""
+        ssh = _make_ssh_mock()
+        ssh.exec_command.side_effect = Exception("connection lost")
+        with pytest.raises(Exception, match="connection lost"):
+            read_remote_journal(ssh, raise_on_error=True)
+
 
 # ---------------------------------------------------------------------------
 # get_latest_deployment
@@ -253,5 +267,12 @@ class TestGetLatestDeployment:
         ssh = _make_ssh_mock()
         ssh.exec_command.return_value = CommandResult(stdout="not json", stderr="", exit_code=0)
 
+        result = get_latest_deployment(ssh)
+        assert result is None
+
+    def test_returns_none_on_ssh_exception(self) -> None:
+        """SSH exception should return None."""
+        ssh = _make_ssh_mock()
+        ssh.exec_command.side_effect = Exception("connection lost")
         result = get_latest_deployment(ssh)
         assert result is None

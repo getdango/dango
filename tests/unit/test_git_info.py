@@ -155,8 +155,8 @@ class TestCheckGitGuardrails:
         )
         result = check_git_guardrails(info, expected_branch="main")
         assert result.passed is True
-        assert result.errors == []
-        assert result.warnings == []
+        assert result.errors == ()
+        assert result.warnings == ()
 
     def test_wrong_branch_blocked(self) -> None:
         """Wrong branch should fail."""
@@ -234,3 +234,31 @@ class TestCheckGitGuardrails:
         result = check_git_guardrails(info, expected_branch="main", allow_branch=True)
         assert result.passed is True
         assert any("Detached HEAD" in w for w in result.warnings)
+
+    def test_is_clean_none_warning(self) -> None:
+        """is_clean=None should produce a warning about indeterminate status."""
+        info = GitInfo(is_git_repo=True, branch="main", is_clean=None)
+        result = check_git_guardrails(info, expected_branch="main")
+        assert result.passed is True
+        assert any("status" in w.lower() for w in result.warnings)
+
+    def test_detached_head_no_branch_error(self) -> None:
+        """Detached HEAD should NOT also fire branch mismatch error."""
+        info = GitInfo(is_git_repo=True, branch="HEAD", is_clean=True)
+        result = check_git_guardrails(info, expected_branch="main")
+        assert result.passed is True
+        assert any("detached" in w.lower() for w in result.warnings)
+        assert len(result.errors) == 0
+
+    def test_both_allows(self) -> None:
+        """Both allow_dirty and allow_branch should produce 2 warnings, 0 errors."""
+        info = GitInfo(is_git_repo=True, branch="develop", is_clean=False)
+        result = check_git_guardrails(
+            info,
+            expected_branch="main",
+            allow_dirty=True,
+            allow_branch=True,
+        )
+        assert result.passed is True
+        assert len(result.warnings) == 2
+        assert len(result.errors) == 0

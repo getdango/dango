@@ -322,10 +322,6 @@ def remote_push(
 
     cloud_cfg, project_root = _require_cloud_deployment(ctx)
 
-    if cloud_cfg.droplet_ip is None:
-        console.print("[red]Error:[/red] No droplet IP found in cloud.yml.")
-        raise SystemExit(1)
-
     # Git guard rails
     git_info = collect_git_info(project_root)
     if git_info.is_git_repo:
@@ -336,15 +332,24 @@ def remote_push(
             allow_branch=allow_branch,
         )
         for w in guardrails.warnings:
-            console.print(f"  [dim]{w}[/dim]")
+            console.print(f"  [yellow]Warning:[/yellow] {w}")
         if not guardrails.passed:
             for e in guardrails.errors:
                 console.print(f"  [red]Error:[/red] {e}")
-            console.print("\n[dim]Use --allow-dirty or --allow-branch to override.[/dim]")
+            hints: list[str] = []
+            for e in guardrails.errors:
+                if "dirty" in e.lower() or "uncommitted" in e.lower():
+                    hints.append("--allow-dirty")
+                elif "branch" in e.lower():
+                    hints.append("--allow-branch")
+            override_msg = " or ".join(dict.fromkeys(hints))
+            if override_msg:
+                console.print(f"\n[dim]Use {override_msg} to override.[/dim]")
             raise SystemExit(1)
     else:
         console.print("[dim]Not a git repo — skipping git guard rails.[/dim]")
-        git_info = None  # type: ignore[assignment]
+
+    git_info_param = git_info if git_info.is_git_repo else None
 
     if not dry_run and not yes:
         if not click.confirm(
@@ -384,7 +389,7 @@ def remote_push(
                 dry_run=dry_run,
                 force=force,
                 on_progress=_on_progress,
-                git_info=git_info,
+                git_info=git_info_param,
             )
 
         # --- Summary ---

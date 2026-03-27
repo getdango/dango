@@ -7,8 +7,9 @@ Pure utility — subprocess calls to git, no dango dependencies.
 
 from __future__ import annotations
 
+import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -28,8 +29,13 @@ class GitGuardrailResult:
     """Result of pre-deployment git checks."""
 
     passed: bool = True
-    warnings: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
+    warnings: tuple[str, ...] = ()
+    errors: tuple[str, ...] = ()
+
+
+def _strip_credentials(url: str) -> str:
+    """Remove embedded credentials from git remote URLs."""
+    return re.sub(r"://[^@]+@", "://", url)
 
 
 def _run_git(args: list[str], cwd: Path) -> str | None:
@@ -62,7 +68,8 @@ def collect_git_info(project_root: Path) -> GitInfo:
 
     commit_sha = _run_git(["rev-parse", "HEAD"], project_root)
     branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], project_root)
-    remote_url = _run_git(["config", "--get", "remote.origin.url"], project_root)
+    raw_url = _run_git(["config", "--get", "remote.origin.url"], project_root)
+    remote_url = _strip_credentials(raw_url) if raw_url else None
 
     # Check for uncommitted changes (staged + unstaged + untracked)
     status = _run_git(["status", "--porcelain"], project_root)
@@ -94,10 +101,12 @@ def check_git_guardrails(
 
     if not git_info.is_git_repo:
         warnings.append("Not a git repository — skipping git checks.")
-        return GitGuardrailResult(passed=True, warnings=warnings)
+        return GitGuardrailResult(passed=True, warnings=tuple(warnings))
 
-    # Branch check
-    if git_info.branch and git_info.branch != expected_branch:
+    # Detached HEAD check (before branch comparison to avoid dual-error)
+    if git_info.branch == "HEAD":
+        warnings.append("Detached HEAD — no branch tracking.")
+    elif git_info.branch and git_info.branch != expected_branch:
         if allow_branch:
             warnings.append(f"Deploying from '{git_info.branch}' (expected '{expected_branch}').")
         else:
@@ -109,12 +118,12 @@ def check_git_guardrails(
             warnings.append("Working tree has uncommitted changes.")
         else:
             errors.append("Working tree has uncommitted changes.")
-
-    # No upstream warning (non-blocking)
-    if git_info.commit_sha and git_info.branch:
-        # A detached HEAD or missing remote isn't an error
-        if git_info.branch == "HEAD":
-            warnings.append("Detached HEAD — no branch tracking.")
+    elif git_info.is_clean is None:
+        warnings.append("Could not determine working tree status.")
 
     passed = len(errors) == 0
-    return GitGuardrailResult(passed=passed, warnings=warnings, errors=errors)
+    return GitGuardrailResult(
+        passed=passed,
+        warnings=tuple(warnings),
+        errors=tuple(errors),
+    )

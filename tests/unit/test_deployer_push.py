@@ -332,14 +332,56 @@ class TestPushDeploy:
     @patch("dango.platform.cloud.deployer._write_deploy_journal")
     @patch("dango.platform.cloud.backup.create_backup")
     @patch("dango.platform.cloud.file_sync.sync_project_files")
-    def test_journal_not_written_without_git_info(
-        self, mock_sync, mock_backup, mock_journal, tmp_path
-    ):
-        """Journal should NOT be written when git_info is None."""
+    def test_journal_written_without_git_info(self, mock_sync, mock_backup, mock_journal, tmp_path):
+        """Journal should be written even when git_info is None."""
         mock_sync.return_value = _make_sync_result()
         mock_backup.return_value = _make_backup_result()
         ssh = _make_ssh_mock()
 
         push_deploy(ssh, tmp_path, "10.0.0.1")
 
-        mock_journal.assert_not_called()
+        mock_journal.assert_called_once()
+        call_args = mock_journal.call_args
+        assert call_args[0][2] is None  # git_info positional arg
+
+    @patch(
+        "dango.platform.cloud.deployer._write_deploy_journal", side_effect=Exception("journal boom")
+    )
+    @patch("dango.platform.cloud.backup.create_backup")
+    @patch("dango.platform.cloud.file_sync.sync_project_files")
+    def test_journal_failure_does_not_break_deploy(
+        self, mock_sync, mock_backup, mock_journal, tmp_path
+    ):
+        """Deploy should succeed even if journal write raises."""
+        mock_sync.return_value = _make_sync_result()
+        mock_backup.return_value = _make_backup_result()
+        ssh = _make_ssh_mock()
+
+        result = push_deploy(ssh, tmp_path, "10.0.0.1")
+
+        assert result.sync_result is not None
+        assert result.dry_run is False
+
+    @patch("dango.platform.cloud.deployer._write_deploy_journal")
+    @patch("dango.platform.cloud.backup.create_backup")
+    @patch("dango.platform.cloud.file_sync.sync_project_files")
+    def test_journal_written_on_failed_deploy(self, mock_sync, mock_backup, mock_journal, tmp_path):
+        """Journal should be written with deploy_succeeded=False on failure."""
+        mock_sync.return_value = _make_sync_result()
+        mock_backup.return_value = _make_backup_result()
+        ssh = _make_ssh_mock()
+
+        def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
+            if "dbt compile" in cmd:
+                return CommandResult(stdout="", stderr="fail", exit_code=1)
+            return CommandResult(stdout="", stderr="", exit_code=0)
+
+        ssh.exec_command.side_effect = _side_effect
+
+        with pytest.raises(CloudProvisioningError):
+            push_deploy(ssh, tmp_path, "10.0.0.1")
+
+        mock_journal.assert_called_once()
+        call_kwargs = mock_journal.call_args[1]
+        assert call_kwargs["deploy_succeeded"] is False
+        assert call_kwargs["deploy_error"] is not None

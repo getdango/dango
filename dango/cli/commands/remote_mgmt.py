@@ -237,6 +237,10 @@ def remote_history(ctx: click.Context, limit: int) -> None:
 
     from dango.platform.cloud.deploy_journal import read_remote_journal
 
+    if limit <= 0:
+        console.print("[red]Error:[/red] --limit must be a positive integer.")
+        raise SystemExit(1)
+
     cloud_cfg, project_root = _load_cloud_config_with_ip(ctx)
     ssh = _make_ssh_manager(cloud_cfg, project_root)
 
@@ -247,7 +251,10 @@ def remote_history(ctx: click.Context, limit: int) -> None:
         raise SystemExit(1) from exc
 
     try:
-        entries = read_remote_journal(ssh, limit=limit)
+        entries = read_remote_journal(ssh, limit=limit, raise_on_error=True)
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] Failed to read deployment journal: {exc}")
+        raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
 
@@ -256,24 +263,24 @@ def remote_history(ctx: click.Context, limit: int) -> None:
         return
 
     table = Table(show_header=True, header_style="bold cyan", box=None)
-    table.add_column("Time", width=20)
-    table.add_column("Commit", width=10)
+    table.add_column("Time", width=19)
+    table.add_column("Commit", width=8)
     table.add_column("Branch", width=15)
-    table.add_column("Deployer", width=20)
-    table.add_column("Duration", width=10)
-    table.add_column("Status", width=10)
+    table.add_column("Deployer", width=25)
+    table.add_column("Duration", width=8, justify="right")
+    table.add_column("Status", width=8)
 
     for entry in entries:
         commit = entry.get("git_commit", "")
         short_commit = commit[:8] if commit else "-"
         branch = entry.get("git_branch") or "-"
         deployer = entry.get("deployer") or "-"
-        duration = f"{entry.get('duration_seconds', 0)}s"
+        dur = entry.get("duration_seconds", 0)
+        duration = f"{dur:.0f}s" if dur < 60 else f"{dur / 60:.1f}m"
         success = entry.get("success", False)
         status_str = "[green]OK[/green]" if success else "[red]FAIL[/red]"
-        timestamp = entry.get("timestamp", "-")
-        # Truncate timestamp for display
-        if len(timestamp) > 19:
+        timestamp = entry.get("timestamp") or "-"
+        if timestamp != "-" and len(timestamp) > 19:
             timestamp = timestamp[:19]
 
         table.add_row(timestamp, short_commit, branch, deployer, duration, status_str)
