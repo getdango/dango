@@ -71,6 +71,9 @@ class ProjectInitializer:
             # Create default .gitignore
             self._create_gitignore()
 
+            # Create CI workflow
+            self._create_ci_workflow()
+
             # Create README
             self._create_readme(config)
 
@@ -284,6 +287,34 @@ secrets/
             with open(gitignore_path, "w", encoding="utf-8") as f:
                 f.write(gitignore_content)
             print_success("Created .gitignore")
+
+    def _create_ci_workflow(self):
+        """Create GitHub Actions CI workflow for PR validation."""
+        workflow_content = """\
+name: Dango Validate
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install getdango
+      - run: dango config validate
+      - run: cd dbt && dbt parse --profiles-dir .
+"""
+        workflow_dir = self.project_dir / ".github" / "workflows"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+
+        workflow_path = workflow_dir / "dango-validate.yml"
+        with open(workflow_path, "w", encoding="utf-8") as f:
+            f.write(workflow_content)
+
+        print_success("Created .github/workflows/dango-validate.yml")
 
     def _create_readme(self, config: DangoConfig):
         """Create README.md"""
