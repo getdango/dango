@@ -18,6 +18,14 @@ from .backup import (
     stop_services,
     verify_health,
 )
+from .deploy_journal import (
+    DeploymentRecord,
+    get_latest_deployment,
+    read_local_journal,
+    read_remote_journal,
+    write_local_journal,
+    write_remote_journal,
+)
 from .deployer import DeployLock, DeployResult, push_deploy
 from .digitalocean import DigitalOceanClient
 from .domain import check_dns, remove_domain, set_domain
@@ -129,6 +137,13 @@ __all__ = [
     "DeployLock",
     "DeployResult",
     "push_deploy",
+    # Deploy journal (P8-004)
+    "DeploymentRecord",
+    "get_latest_deployment",
+    "read_local_journal",
+    "read_remote_journal",
+    "write_local_journal",
+    "write_remote_journal",
     # Resize (TASK-104)
     "ResizeResult",
     "resize_droplet",

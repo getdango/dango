@@ -81,6 +81,16 @@
                 <div id="dbt-info" class="text-sm text-gray-500 mt-1">-</div>
             </div>
 
+            <!-- Deployment - Cloud only, hidden by default -->
+            <div id="deploy-card" class="bg-white rounded-lg shadow p-6 hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-sm font-medium text-gray-600">🚀 Deployment</h3>
+                    <span id="deploy-status-badge" class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">-</span>
+                </div>
+                <div id="deploy-commit" class="text-2xl font-bold text-gray-900 font-mono">-</div>
+                <div id="deploy-detail" class="text-sm text-gray-500 mt-1">-</div>
+            </div>
+
             <!-- Backup Health - Cloud only, hidden by default -->
             <div id="backup-card" class="bg-white rounded-lg shadow p-6 hidden">
                 <div class="flex items-center justify-between mb-2">
@@ -493,6 +503,29 @@
                         `Last: ${dt.toLocaleString()}`;
                 } else {
                     document.getElementById('backup-detail').textContent = 'Not configured';
+                }
+            }
+
+            // Deployment info
+            if (health.deployment) {
+                const dep = health.deployment;
+                document.getElementById('deploy-card').classList.remove('hidden');
+                document.getElementById('deploy-commit').textContent =
+                    dep.git_commit ? dep.git_commit.substring(0, 8) : 'N/A';
+                const details = [];
+                if (dep.git_branch) details.push(dep.git_branch);
+                if (dep.deployed_by) details.push('by ' + escapeHtml(dep.deployed_by));
+                if (dep.deployed_at) details.push(new Date(dep.deployed_at).toLocaleString());
+                document.getElementById('deploy-detail').textContent = details.join(' · ');
+
+                const badge = document.getElementById('deploy-status-badge');
+                badge.className = 'px-2 py-1 text-xs rounded-full ';
+                if (dep.success) {
+                    badge.className += 'bg-green-100 text-green-800';
+                    badge.textContent = 'Success';
+                } else {
+                    badge.className += 'bg-red-100 text-red-800';
+                    badge.textContent = 'Failed';
                 }
             }
 

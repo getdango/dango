@@ -275,3 +275,71 @@ class TestPushDeploy:
 
         result = push_deploy(ssh, tmp_path, "10.0.0.1")
         assert any("missing_source" in w for w in result.warnings)
+
+    @patch("dango.platform.cloud.backup.create_backup")
+    @patch("dango.platform.cloud.file_sync.sync_project_files")
+    def test_git_info_passthrough(self, mock_sync, mock_backup, tmp_path):
+        """git_info should be stored in DeployResult."""
+        mock_sync.return_value = _make_sync_result(dry_run=True)
+        ssh = _make_ssh_mock()
+
+        git_info = MagicMock()
+        git_info.commit_sha = "abc12345" * 5
+        git_info.branch = "main"
+
+        result = push_deploy(ssh, tmp_path, "10.0.0.1", dry_run=True, git_info=git_info)
+        assert result.git_info is git_info
+        assert result.git_info.commit_sha == "abc12345" * 5
+
+    @patch("dango.platform.cloud.deployer._write_deploy_journal")
+    @patch("dango.platform.cloud.backup.create_backup")
+    @patch("dango.platform.cloud.file_sync.sync_project_files")
+    def test_journal_written_on_success(self, mock_sync, mock_backup, mock_journal, tmp_path):
+        """Journal should be written on successful deploy with git_info."""
+        mock_sync.return_value = _make_sync_result()
+        mock_backup.return_value = _make_backup_result()
+        ssh = _make_ssh_mock()
+
+        git_info = MagicMock()
+        git_info.commit_sha = "a" * 40
+        git_info.branch = "main"
+        git_info.is_clean = True
+        git_info.remote_url = "git@github.com:test/test.git"
+
+        push_deploy(ssh, tmp_path, "10.0.0.1", git_info=git_info)
+
+        mock_journal.assert_called_once()
+        call_kwargs = mock_journal.call_args[1]
+        assert call_kwargs["deploy_succeeded"] is True
+        assert call_kwargs["deploy_error"] is None
+
+    @patch("dango.platform.cloud.deployer._write_deploy_journal")
+    @patch("dango.platform.cloud.backup.create_backup")
+    @patch("dango.platform.cloud.file_sync.sync_project_files")
+    def test_journal_not_written_on_dry_run(self, mock_sync, mock_backup, mock_journal, tmp_path):
+        """Journal should NOT be written on dry-run."""
+        mock_sync.return_value = _make_sync_result(dry_run=True)
+        ssh = _make_ssh_mock()
+
+        git_info = MagicMock()
+        git_info.commit_sha = "a" * 40
+        git_info.branch = "main"
+
+        push_deploy(ssh, tmp_path, "10.0.0.1", dry_run=True, git_info=git_info)
+
+        mock_journal.assert_not_called()
+
+    @patch("dango.platform.cloud.deployer._write_deploy_journal")
+    @patch("dango.platform.cloud.backup.create_backup")
+    @patch("dango.platform.cloud.file_sync.sync_project_files")
+    def test_journal_not_written_without_git_info(
+        self, mock_sync, mock_backup, mock_journal, tmp_path
+    ):
+        """Journal should NOT be written when git_info is None."""
+        mock_sync.return_value = _make_sync_result()
+        mock_backup.return_value = _make_backup_result()
+        ssh = _make_ssh_mock()
+
+        push_deploy(ssh, tmp_path, "10.0.0.1")
+
+        mock_journal.assert_not_called()

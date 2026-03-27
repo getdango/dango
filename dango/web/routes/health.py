@@ -4,12 +4,14 @@ Health check and platform status endpoints.
 """
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from starlette.responses import JSONResponse
 
 from dango.oauth.storage import OAuthStorage
 from dango.web.helpers import (
@@ -184,6 +186,12 @@ async def get_platform_health() -> dict[str, Any]:
         elif cloud_data["backup_health"]["status"] == "none":
             warnings.append("No backups configured")
 
+    # Deployment info (cloud only — journal written on the cloud server)
+    if is_cloud:
+        deploy_info = _get_local_deployment_info(project_root)
+        if deploy_info:
+            result["deployment"] = deploy_info
+
     # OAuth token health
     oauth_health: list[dict[str, Any]] = []
     try:
@@ -318,3 +326,63 @@ def _check_backup_health() -> dict[str, Any]:
         "age_hours": round(age_hours, 1),
         "file": latest_name,
     }
+
+
+def _get_local_deployment_info(project_root: Path) -> dict[str, Any] | None:
+    """Read latest deployment from local journal (runs ON the cloud server)."""
+    journal_path = project_root / ".dango" / "state" / "deployments.jsonl"
+    if not journal_path.exists():
+        return None
+    try:
+        lines = journal_path.read_text().strip().splitlines()
+        if not lines:
+            return None
+        entry: dict[str, Any] = json.loads(lines[-1])
+        return {
+            "git_commit": entry.get("git_commit"),
+            "git_branch": entry.get("git_branch"),
+            "deployed_by": entry.get("deployer"),
+            "deployed_at": entry.get("timestamp"),
+            "success": entry.get("success"),
+        }
+    except Exception:  # noqa: BLE001
+        return None
+
+
+@router.get("/api/deployments/history")
+async def get_deployment_history(
+    request: Request,
+) -> JSONResponse:
+    """Return deployment history from local journal (admin-only)."""
+    from dango.auth.audit import AuditEvent, log_auth_event
+    from dango.auth.permissions import require_permission
+
+    perm_dep = require_permission("platform.manage")
+    user = await perm_dep(request)
+
+    log_auth_event(
+        AuditEvent.DEPLOYMENT_HISTORY_VIEWED,
+        user_id=user.id,
+        email=user.email,
+    )
+
+    project_root = Path(get_project_root())
+    journal_path = project_root / ".dango" / "state" / "deployments.jsonl"
+
+    entries: list[dict[str, Any]] = []
+    if journal_path.exists():
+        try:
+            lines = journal_path.read_text().strip().splitlines()
+            for line in lines:
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        except OSError:
+            pass
+
+    # Newest first, limit 20
+    entries.reverse()
+    entries = entries[:20]
+
+    return JSONResponse(content={"deployments": entries})

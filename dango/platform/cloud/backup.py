@@ -51,6 +51,8 @@ class BackupManifest:
     dango_version: str
     files: list[dict[str, Any]] = field(default_factory=list)
     total_size_bytes: int = 0
+    git_commit: str | None = None
+    git_branch: str | None = None
 
 
 @dataclass
@@ -168,7 +170,13 @@ def _get_metabase_volume_path(ssh: SSHManager) -> str | None:
 
 
 def _create_archive(
-    ssh: SSHManager, timestamp: str, metabase_vol_path: str | None, backup_type: str
+    ssh: SSHManager,
+    timestamp: str,
+    metabase_vol_path: str | None,
+    backup_type: str,
+    *,
+    git_commit: str | None = None,
+    git_branch: str | None = None,
 ) -> tuple[str, BackupManifest]:
     """Create a tar.gz archive in BACKUP_DIR.  Returns (archive_path, manifest)."""
     archive_name = f"backup-{timestamp}"
@@ -221,6 +229,8 @@ def _create_archive(
             dango_version=dango_version,
             files=files,
             total_size_bytes=total_size,
+            git_commit=git_commit,
+            git_branch=git_branch,
         )
         manifest_json = json.dumps(asdict(manifest), indent=2)
         _run_checked(
@@ -261,6 +271,8 @@ def create_backup(
     backup_type: str = "pre-deploy",
     restart_services: bool = True,
     on_progress: Callable[[str, str], None] | None = None,
+    git_commit: str | None = None,
+    git_branch: str | None = None,
 ) -> BackupResult:
     """Create a backup of all project data on the remote server.
 
@@ -302,7 +314,14 @@ def create_backup(
         _notify(on_progress, "get_metabase_volume", "done")
 
         _notify(on_progress, "create_archive", "running")
-        archive_path, manifest = _create_archive(ssh, timestamp, metabase_vol, backup_type)
+        archive_path, manifest = _create_archive(
+            ssh,
+            timestamp,
+            metabase_vol,
+            backup_type,
+            git_commit=git_commit,
+            git_branch=git_branch,
+        )
         _notify(on_progress, "create_archive", "done")
     finally:
         if restart_services:

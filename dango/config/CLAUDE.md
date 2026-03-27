@@ -9,7 +9,7 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
 | `__init__.py` | Public exports, `__all__` | Re-exports all public symbols |
-| `models.py` | Pydantic models for config data | `DangoConfig`, `ProjectContext`, `SourcesConfig`, `DataSource`, `SourceType`, `DeduplicationStrategy`, `PlatformSettings`, `Stakeholder`, `CSVSourceConfig`, `LocalFilesSourceConfig`, `GoogleSheetsSourceConfig`, `StripeSourceConfig`, `CloudConfig` (incl. `provider`, `firewall_id`) |
+| `models.py` | Pydantic models for config data | `DangoConfig`, `ProjectContext`, `SourcesConfig`, `DataSource`, `SourceType`, `DeduplicationStrategy`, `PlatformSettings`, `Stakeholder`, `CSVSourceConfig`, `LocalFilesSourceConfig`, `GoogleSheetsSourceConfig`, `StripeSourceConfig`, `CloudConfig` (incl. `provider`, `firewall_id`, `deploy_branch`) |
 | `loader.py` | Load/save YAML config files | `ConfigLoader` |
 | `helpers.py` | Config convenience functions | `find_project_root`, `get_config`, `load_config`, `save_config`, `check_unreferenced_custom_sources`, `format_unreferenced_sources_warning` |
 | `schedules.py` | Schedule config models, validation, reload | `ScheduleConfig`, `SchedulesConfig`, `ScheduleType`, `ReloadResult`, `CRON_PRESETS`, `load_schedules_config`, `validate_schedules`, `reload_schedules`, `log_startup_checks` |

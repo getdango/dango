@@ -292,8 +292,17 @@ def remote_rollback(ctx: click.Context, backup: str | None, yes: bool) -> None:
 @click.option("--dry-run", is_flag=True, help="Show changes without applying.")
 @click.option("--force", is_flag=True, help="Override an existing deploy lock.")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
+@click.option("--allow-dirty", is_flag=True, help="Allow deployment with uncommitted changes.")
+@click.option("--allow-branch", is_flag=True, help="Allow deployment from any branch.")
 @click.pass_context
-def remote_push(ctx: click.Context, dry_run: bool, force: bool, yes: bool) -> None:
+def remote_push(
+    ctx: click.Context,
+    dry_run: bool,
+    force: bool,
+    yes: bool,
+    allow_dirty: bool,
+    allow_branch: bool,
+) -> None:
     """Push local project files to the remote server and rebuild.
 
     Syncs config and dbt files, creates a pre-deploy backup, runs
@@ -309,12 +318,33 @@ def remote_push(ctx: click.Context, dry_run: bool, force: bool, yes: bool) -> No
     from rich.status import Status
 
     from dango.platform.cloud.deployer import push_deploy
+    from dango.utils.git_info import check_git_guardrails, collect_git_info
 
     cloud_cfg, project_root = _require_cloud_deployment(ctx)
 
     if cloud_cfg.droplet_ip is None:
         console.print("[red]Error:[/red] No droplet IP found in cloud.yml.")
         raise SystemExit(1)
+
+    # Git guard rails
+    git_info = collect_git_info(project_root)
+    if git_info.is_git_repo:
+        guardrails = check_git_guardrails(
+            git_info,
+            expected_branch=cloud_cfg.deploy_branch,
+            allow_dirty=allow_dirty,
+            allow_branch=allow_branch,
+        )
+        for w in guardrails.warnings:
+            console.print(f"  [dim]{w}[/dim]")
+        if not guardrails.passed:
+            for e in guardrails.errors:
+                console.print(f"  [red]Error:[/red] {e}")
+            console.print("\n[dim]Use --allow-dirty or --allow-branch to override.[/dim]")
+            raise SystemExit(1)
+    else:
+        console.print("[dim]Not a git repo — skipping git guard rails.[/dim]")
+        git_info = None  # type: ignore[assignment]
 
     if not dry_run and not yes:
         if not click.confirm(
@@ -354,6 +384,7 @@ def remote_push(ctx: click.Context, dry_run: bool, force: bool, yes: bool) -> No
                 dry_run=dry_run,
                 force=force,
                 on_progress=_on_progress,
+                git_info=git_info,
             )
 
         # --- Summary ---
@@ -374,6 +405,9 @@ def remote_push(ctx: click.Context, dry_run: bool, force: bool, yes: bool) -> No
             console.print("  packages.yml: [yellow]changed[/yellow]")
 
         if not dry_run:
+            if result.git_info and result.git_info.commit_sha:
+                short_sha = result.git_info.commit_sha[:8]
+                console.print(f"  Git: {short_sha} ({result.git_info.branch})")
             if result.dbt_deps_run:
                 console.print("  dbt deps: [green]ran[/green]")
             if result.dbt_compile_success:

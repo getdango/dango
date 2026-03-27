@@ -56,6 +56,12 @@ class ServerStatus:
     last_backup: str | None = None
     last_sync_per_source: dict[str, str] = field(default_factory=dict)
 
+    # Deployment version info (from deployments.jsonl)
+    deployed_git_commit: str | None = None
+    deployed_git_branch: str | None = None
+    deployed_at: str | None = None
+    deployed_by: str | None = None
+
 
 # ---------------------------------------------------------------------------
 # SSH-based collection
@@ -65,6 +71,7 @@ _DUCKDB_PATH = "/srv/dango/project/data/warehouse.duckdb"
 _VENV_PYTHON = "/srv/dango/venv/bin/python3"
 _SYNC_HISTORY = "/srv/dango/project/.dango/state/sync_history.jsonl"
 _DEPLOY_TIMESTAMP = "/srv/dango/project/.dango/state/deploy_timestamp"
+_DEPLOY_JOURNAL = "/srv/dango/project/.dango/state/deployments.jsonl"
 _BACKUP_DIR = "/srv/dango/backups/deploy"
 _SYNC_HISTORY_TAIL = 50  # Recent lines to read — sufficient for per-source latest timestamps
 
@@ -82,6 +89,7 @@ def collect_server_status(ssh: Any, cloud_config: Any) -> ServerStatus:
     Returns:
         ``ServerStatus`` snapshot with available metrics.
     """
+    deploy_info = _get_deployment_info(ssh)
     return ServerStatus(
         cpu_usage_pct=_get_cpu_usage(ssh),
         ram_total_mb=_get_ram(ssh, "total"),
@@ -95,7 +103,28 @@ def collect_server_status(ssh: Any, cloud_config: Any) -> ServerStatus:
         last_deploy=_get_last_deploy(ssh),
         last_backup=_get_last_backup(ssh),
         last_sync_per_source=_get_sync_history(ssh),
+        deployed_git_commit=deploy_info.get("git_commit"),
+        deployed_git_branch=deploy_info.get("git_branch"),
+        deployed_at=deploy_info.get("deployed_at"),
+        deployed_by=deploy_info.get("deployed_by"),
     )
+
+
+def _get_deployment_info(ssh: Any) -> dict[str, str | None]:
+    """Read last entry from remote deployments.jsonl for version info."""
+    result = ssh.exec_command(f"tail -1 {_DEPLOY_JOURNAL} 2>/dev/null")
+    if not result.success or not result.stdout.strip():
+        return {}
+    try:
+        entry: dict[str, Any] = json.loads(result.stdout.strip())
+        return {
+            "git_commit": entry.get("git_commit"),
+            "git_branch": entry.get("git_branch"),
+            "deployed_at": entry.get("timestamp"),
+            "deployed_by": entry.get("deployer"),
+        }
+    except (json.JSONDecodeError, TypeError):
+        return {}
 
 
 def _get_cpu_usage(ssh: Any) -> float | None:

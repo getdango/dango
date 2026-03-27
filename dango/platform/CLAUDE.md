@@ -42,7 +42,7 @@ platform/
 │   └── slack.py         # Slack Block Kit formatter
 │
 ├── cloud/               # Cloud-only components (TASK-022+)
-│   ├── __init__.py      # Re-exports 63 symbols (clients, provisioning, firewall, backup, deploy, etc.)
+│   ├── __init__.py      # Re-exports 69 symbols (clients, provisioning, firewall, backup, deploy, journal, etc.)
 │   ├── digitalocean.py  # DO REST API v2 client (Droplets, SSH Keys, Firewalls)
 │   ├── provisioning.py  # Size tiers, regions, provision_droplet() orchestration (TASK-023)
 │   ├── firewall.py      # Firewall lifecycle, IP allowlisting (TASK-025)
@@ -54,6 +54,7 @@ platform/
 │   ├── backup.py        # SSH-based backup + rollback (TASK-035)
 │   ├── file_sync.py     # Project file sync: SFTP + rsync (TASK-028)
 │   ├── deployer.py      # Push deployment workflow + deploy lock (TASK-030)
+│   ├── deploy_journal.py # Append-only JSONL deployment history (P8-004)
 │   ├── scheduled_backup.py  # Server-side scheduled backup (TASK-103)
 │   ├── resize.py        # In-place resize (power off → resize → power on) (TASK-104)
 │   ├── migrate.py       # Server migration (new droplet via Spaces) (TASK-105)
@@ -95,6 +96,7 @@ platform/
 | `cloud/backup.py` | SSH-based backup and rollback | `create_backup`, `rollback`, `list_local_backups`, `rotate_local_backups`, `BackupManifest`, `BackupResult`, `RestoreResult` |
 | `cloud/file_sync.py` | Project file sync (SFTP + rsync) with change detection | `sync_project_files`, `SyncResult` |
 | `cloud/deployer.py` | Push deployment workflow with deploy lock | `push_deploy`, `DeployLock`, `DeployResult` |
+| `cloud/deploy_journal.py` | Append-only JSONL deployment history | `DeploymentRecord`, `write_local_journal`, `write_remote_journal`, `read_local_journal`, `read_remote_journal`, `get_latest_deployment` |
 | `cloud/scheduled_backup.py` | Server-side scheduled backup to Spaces | `run_scheduled_backup`, `list_spaces_backups`, `restore_from_spaces`, `enable_scheduled_backup`, `disable_scheduled_backup` |
 | `cloud/resize.py` | In-place droplet resize (power off → resize → power on, regenerate dbt profiles) | `resize_droplet`, `ResizeResult`, `validate_size_slug`, `generate_dbt_profiles_yml`, `regenerate_dbt_profiles`, `get_disk_warning` |
 | `cloud/migrate.py` | Server migration via Spaces (new droplet, transfer data, destroy old) | `migrate_server`, `MigrateResult` |
@@ -149,6 +151,10 @@ from dango.platform.cloud.file_sync import SyncResult, sync_project_files  # als
 # Push deploy (TASK-030)
 from dango.platform.cloud import DeployLock, DeployResult, push_deploy
 from dango.platform.cloud.deployer import DeployLock, DeployResult, push_deploy  # also valid
+
+# Deployment journal (P8-004)
+from dango.platform.cloud import DeploymentRecord, write_local_journal, read_remote_journal
+from dango.platform.cloud.deploy_journal import get_latest_deployment  # also valid
 
 # Scheduled backup (TASK-103, runs on server)
 from dango.platform.cloud.scheduled_backup import run_scheduled_backup, list_spaces_backups
@@ -206,7 +212,8 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 | Create pre-deploy backup | `cloud/backup.py` → `create_backup()` | `pytest tests/unit/test_backup.py` |
 | Rollback from backup | `cloud/backup.py` → `rollback()` | `pytest tests/unit/test_backup.py` |
 | Sync files to remote | `cloud/file_sync.py` → `sync_project_files()` | `pytest tests/unit/test_file_sync.py` |
-| Push deploy to remote | `cloud/deployer.py` → `push_deploy()` | `pytest tests/unit/test_deployer.py` |
+| Push deploy to remote | `cloud/deployer.py` → `push_deploy()` | `pytest tests/unit/test_deployer.py tests/unit/test_deployer_push.py` |
+| View deployment history | `cloud/deploy_journal.py` → `read_local_journal()` / `read_remote_journal()` | `pytest tests/unit/test_deploy_journal.py` |
 | Scheduled backup (server-side) | `cloud/scheduled_backup.py` → `run_scheduled_backup()` | `pytest tests/unit/test_scheduled_backup.py` |
 | Resize droplet | `cloud/resize.py` → `resize_droplet()` | `pytest tests/unit/test_resize.py` |
 | Migrate to new server | `cloud/migrate.py` → `migrate_server()` | `pytest tests/unit/test_migrate.py` |
@@ -341,7 +348,7 @@ Post-deployment hardening (not automated by Dango):
 - **Scheduling:** `pytest tests/unit/test_scheduler.py tests/unit/test_scheduler_resilience.py tests/unit/test_execution_history.py tests/unit/test_sync_jobs.py tests/unit/test_sync_trigger.py`
 - **Notifications:** `pytest tests/unit/test_webhook.py tests/unit/test_slack_formatter.py`
 - **Local platform:** `pytest tests/unit/test_platform_startup.py tests/unit/test_watcher_lifecycle.py`
-- **Cloud modules:** `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py tests/unit/test_provisioning.py tests/unit/test_firewall.py tests/unit/test_server_setup.py tests/unit/test_domain.py tests/unit/test_backup.py tests/unit/test_file_sync.py tests/unit/test_deployer.py tests/unit/test_scheduled_backup.py tests/unit/test_resize.py tests/unit/test_migrate.py tests/unit/test_upgrade.py`
+- **Cloud modules:** `pytest tests/unit/test_digitalocean_client.py tests/unit/test_spaces_client.py tests/unit/test_ssh_manager.py tests/unit/test_ssh_sftp.py tests/unit/test_provisioning.py tests/unit/test_firewall.py tests/unit/test_server_setup.py tests/unit/test_domain.py tests/unit/test_backup.py tests/unit/test_file_sync.py tests/unit/test_deployer.py tests/unit/test_deployer_push.py tests/unit/test_deploy_journal.py tests/unit/test_scheduled_backup.py tests/unit/test_resize.py tests/unit/test_migrate.py tests/unit/test_upgrade.py`
 - **Manual:** `dango start` (local platform), `dango deploy` (cloud provisioning)
 
 ## Don't Modify
@@ -349,5 +356,6 @@ Post-deployment hardening (not automated by Dango):
 | File | Reason |
 |------|--------|
 | `cloud/__init__.py` export list | Other modules depend on re-exported symbols; changes break downstream imports |
+| `cloud/deploy_journal.py` JSONL format | CLI (`remote history`) and web UI (`/api/deployments/history`) both parse this format |
 | `cloud/_server_templates.py` systemd unit structure | Running servers depend on the exact systemd unit format |
 | `local/` watcher event format | Web UI parses watcher status responses |
