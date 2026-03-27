@@ -1215,6 +1215,7 @@ def {module_name}_resource(api_key: str):
             data_suggestion: str | None = None
             pk_suggestion: str | None = None
             body: Any = None
+            test_ok = False
             if Confirm.ask("Test this endpoint?", default=True):
                 status_code, body, error = self._test_rest_api_endpoint(
                     base_url=params["base_url"],
@@ -1232,7 +1233,9 @@ def {module_name}_resource(api_key: str):
                     if body is not None and not isinstance(body, str):
                         import json
 
-                        data_suggestion = _suggest_data_path(body)
+                        if 200 <= status_code < 300:
+                            test_ok = True
+                            data_suggestion = _suggest_data_path(body)
                         preview = json.dumps(body, indent=2, default=str)
                         if len(preview) > 500:
                             preview = preview[:500] + "\n  ..."
@@ -1250,8 +1253,8 @@ def {module_name}_resource(api_key: str):
                 return None
             data_selector_val = data_selector_val.strip()
 
-            # 4d. Primary key — derive suggestion from test response
-            if body is not None and not isinstance(body, str):
+            # 4d. Primary key — derive suggestion from test response (2xx only)
+            if test_ok and body is not None and not isinstance(body, str):
                 pk_suggestion = _suggest_primary_key(body, data_selector_val or data_suggestion)
             pk_default = pk_suggestion or "id"
             pk_val = inquirer.text(
