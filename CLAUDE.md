@@ -333,7 +333,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `ingestion/sources/registry.py` | 2030 | — (metadata-only) |
 | `cli/source_wizard.py` | 2148 | — |
 | `visualization/metabase.py` | 1149 | — |
-| `cli/init.py` | 1125 | — |
+| `cli/init.py` | 1282 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
 | `cli/commands/platform.py` | 979 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
