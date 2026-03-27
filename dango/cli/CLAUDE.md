@@ -43,7 +43,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | **Wizards** | | |
 | `init.py` (1125 lines) | Project initialization wizard | `ProjectInitializer` |
 | `wizard.py` (296 lines) | Interactive setup wizards | `ProjectWizard` |
-| `source_wizard.py` (2145 lines) | Source configuration wizard | `add_source()` |
+| `source_wizard.py` (2148 lines) | Source configuration wizard | `add_source()` |
 | `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |
 | **Helpers** | | |
 | `utils.py` (129 lines) | Display helpers + project context | `require_project_context()` |

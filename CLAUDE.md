@@ -331,7 +331,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 |------|-------|-----------------|
 | `ingestion/dlt_runner.py` | 2276 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2030 | — (metadata-only) |
-| `cli/source_wizard.py` | 2145 | — |
+| `cli/source_wizard.py` | 2148 | — |
 | `visualization/metabase.py` | 1149 | — |
 | `cli/init.py` | 1125 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
