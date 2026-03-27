@@ -33,6 +33,65 @@ from dango.oauth.storage import OAuthStorage
 console = Console()
 
 
+def _suggest_data_path(response: Any) -> str | None:
+    """Suggest a data_selector path by scanning the response for list values.
+
+    Args:
+        response: Parsed JSON response from API endpoint
+
+    Returns:
+        Dotted path to the data array (e.g., "data.items"), or None
+    """
+    if isinstance(response, list):
+        return None  # Top-level array, no selector needed
+    if not isinstance(response, dict):
+        return None
+    # Depth 1: look for list values
+    for key, val in response.items():
+        if isinstance(val, list) and val:
+            return key
+    # Depth 2: look for nested list values
+    for key, val in response.items():
+        if isinstance(val, dict):
+            for subkey, subval in val.items():
+                if isinstance(subval, list) and subval:
+                    return f"{key}.{subkey}"
+    return None
+
+
+def _suggest_primary_key(response: Any, data_selector: str | None) -> str | None:
+    """Suggest a primary key field from the first record in the response.
+
+    Args:
+        response: Parsed JSON response from API endpoint
+        data_selector: Dotted path to data array (e.g., "data.items")
+
+    Returns:
+        Suggested primary key field name, or None
+    """
+    data = response
+    if data_selector:
+        for part in data_selector.split("."):
+            if isinstance(data, dict) and part in data:
+                data = data[part]
+            else:
+                return None
+    if not isinstance(data, list) or not data:
+        return None
+    record = data[0]
+    if not isinstance(record, dict):
+        return None
+    # Check common ID field names in priority order
+    for candidate in ("id", "ID", "uuid", "key"):
+        if candidate in record:
+            return candidate
+    # Check *_id pattern
+    for field in record:
+        if isinstance(field, str) and field.endswith("_id"):
+            return field
+    return None
+
+
 class SourceWizard:
     """Generic wizard for adding data sources"""
 
@@ -1085,12 +1144,36 @@ def {module_name}_resource(api_key: str):
                 ]
             )
 
+        # 3b. Source-level custom headers (optional)
+        console.print(
+            "\n[bold]Custom Headers[/bold] [dim](optional — e.g., User-Agent, API-Version)[/dim]"
+        )
+        if Confirm.ask("Add custom headers?", default=False):
+            headers_dict: dict[str, str] = {}
+            while True:
+                hdr_questions = [
+                    inquirer.Text("header_name", message="Header name"),
+                    inquirer.Text("header_value", message="Header value"),
+                ]
+                hdr_answers = inquirer.prompt(hdr_questions, theme=themes.GreenPassion())
+                if not hdr_answers:  # Ctrl+C → stop collecting headers
+                    break
+                h_name = hdr_answers["header_name"].strip()
+                h_value = hdr_answers["header_value"].strip()
+                if h_name and h_value:
+                    headers_dict[h_name] = h_value
+                    console.print(f"  [green]✓[/green] {h_name}: {h_value}")
+                if not Confirm.ask("Add another header?", default=False):
+                    break
+            if headers_dict:
+                params["headers"] = headers_dict
+
         # 4. Endpoint collection
         console.print("\n[bold]API Endpoints[/bold]")
         console.print("[dim]Add one or more endpoints to sync[/dim]")
-        endpoints: list[dict[str, str]] = []
+        endpoints: list[dict[str, Any]] = []
         while True:
-            questions = [
+            ep_questions = [
                 inquirer.Text(
                     "path",
                     message="Endpoint path (e.g., /users, /orders)",
@@ -1100,12 +1183,98 @@ def {module_name}_resource(api_key: str):
                     message="Resource name (table name in DuckDB)",
                 ),
             ]
-            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            answers = inquirer.prompt(ep_questions, theme=themes.GreenPassion())
             if not answers:
                 return None
             path = answers["path"].strip()
             name = answers["name"].strip() or path.strip("/").replace("/", "_")
-            endpoints.append({"path": path, "name": name})
+
+            # 4a. Query parameters (optional)
+            query_params: dict[str, str] | None = None
+            if Confirm.ask("Add query parameters?", default=False):
+                query_params = {}
+                while True:
+                    qp_questions = [
+                        inquirer.Text("param_name", message="Parameter name"),
+                        inquirer.Text("param_value", message="Parameter value"),
+                    ]
+                    qp_answers = inquirer.prompt(qp_questions, theme=themes.GreenPassion())
+                    if not qp_answers:  # Ctrl+C → stop collecting params
+                        break
+                    p_name = qp_answers["param_name"].strip()
+                    p_value = qp_answers["param_value"].strip()
+                    if p_name and p_value:
+                        query_params[p_name] = p_value
+                        console.print(f"  [green]✓[/green] {p_name}={p_value}")
+                    if not Confirm.ask("Add another parameter?", default=False):
+                        break
+                if not query_params:
+                    query_params = None
+
+            # 4b. Endpoint test (optional)
+            data_suggestion: str | None = None
+            pk_suggestion: str | None = None
+            body: Any = None
+            test_ok = False
+            if Confirm.ask("Test this endpoint?", default=True):
+                status_code, body, error = self._test_rest_api_endpoint(
+                    base_url=params["base_url"],
+                    path=path,
+                    auth_type=auth_type,
+                    params_dict=params,
+                    query_params=query_params,
+                    source_headers=params.get("headers"),
+                )
+                if error:
+                    console.print(f"  [yellow]⚠ Test failed: {error}[/yellow]")
+                elif status_code is not None:
+                    color = "green" if 200 <= status_code < 300 else "yellow"
+                    console.print(f"  [{color}]Status: {status_code}[/{color}]")
+                    if body is not None and not isinstance(body, str):
+                        import json
+
+                        if 200 <= status_code < 300:
+                            test_ok = True
+                            data_suggestion = _suggest_data_path(body)
+                        preview = json.dumps(body, indent=2, default=str)
+                        if len(preview) > 500:
+                            preview = preview[:500] + "\n  ..."
+                        console.print(f"  [dim]Response preview:[/dim]\n{preview}")
+                    elif isinstance(body, str):
+                        console.print(f"  [dim]Response (non-JSON):[/dim] {body[:200]}")
+
+            # 4c. Data selector
+            ds_default = data_suggestion or ""
+            data_selector_val = inquirer.text(
+                message=f"Response data path (e.g., data.items){' [suggested: ' + ds_default + ']' if ds_default else ''}, leave blank for auto-detect",
+                default=ds_default,
+            )
+            if data_selector_val is None:  # Ctrl+C
+                return None
+            data_selector_val = data_selector_val.strip()
+
+            # 4d. Primary key — derive suggestion from test response (2xx only)
+            if test_ok and body is not None and not isinstance(body, str):
+                pk_suggestion = _suggest_primary_key(body, data_selector_val or data_suggestion)
+            pk_default = pk_suggestion or "id"
+            pk_val = inquirer.text(
+                message=f"Primary key field (default: {pk_default})",
+                default=pk_default,
+            )
+            if pk_val is None:  # Ctrl+C
+                return None
+            pk_val = pk_val.strip() or pk_default
+
+            # Build endpoint dict — only include non-empty fields
+            endpoint: dict[str, Any] = {"path": path, "name": name}
+            if data_selector_val:
+                endpoint["data_selector"] = data_selector_val
+            if pk_val and pk_val != "id":
+                endpoint["primary_key"] = pk_val
+            if query_params:
+                endpoint["params"] = query_params
+
+            endpoints.append(endpoint)
             console.print(f"  [green]✓[/green] Added: {path} → {name}")
 
             if not Confirm.ask("Add another endpoint?", default=False):
@@ -1113,6 +1282,107 @@ def {module_name}_resource(api_key: str):
 
         params["endpoints"] = endpoints
         return params
+
+    def _test_rest_api_endpoint(
+        self,
+        base_url: str,
+        path: str,
+        auth_type: str,
+        params_dict: dict[str, Any],
+        query_params: dict[str, str] | None = None,
+        source_headers: dict[str, str] | None = None,
+    ) -> tuple[int | None, Any, str | None]:
+        """Test a REST API endpoint and return (status_code, body, error).
+
+        Args:
+            base_url: API base URL
+            path: Endpoint path
+            auth_type: Authentication type (bearer, api_key, basic, etc.)
+            params_dict: Wizard params dict with env var names
+            query_params: Optional query parameters
+            source_headers: Optional source-level headers
+
+        Returns:
+            Tuple of (status_code, response_body, error_message)
+        """
+        import os
+
+        import requests
+
+        # Build auth
+        auth_headers: dict[str, str] = {}
+        request_auth: tuple[str, str] | None = None
+
+        if auth_type == "bearer":
+            env_name = params_dict.get("auth_token_env", "")
+            token = os.getenv(env_name) if env_name else None
+            if not token:
+                console.print(
+                    f"  [dim]{env_name} not set — enter temporarily for testing (not saved)[/dim]"
+                )
+                token = inquirer.text(message="Bearer token for test")
+                if token is None:  # Ctrl+C
+                    return (None, None, "Cancelled")
+            if token:
+                auth_headers["Authorization"] = f"Bearer {token}"
+
+        elif auth_type == "api_key":
+            env_name = params_dict.get("auth_token_env", "")
+            key_name = params_dict.get("api_key_name", "X-API-Key")
+            key_location = params_dict.get("api_key_location", "header")
+            key_val = os.getenv(env_name) if env_name else None
+            if not key_val:
+                console.print(
+                    f"  [dim]{env_name} not set — enter temporarily for testing (not saved)[/dim]"
+                )
+                key_val = inquirer.text(message="API key for test")
+                if key_val is None:
+                    return (None, None, "Cancelled")
+            if key_val:
+                if key_location == "header":
+                    auth_headers[key_name] = key_val
+                else:
+                    query_params = {**(query_params or {}), key_name: key_val}
+
+        elif auth_type == "basic":
+            u_env = params_dict.get("basic_username_env", "")
+            p_env = params_dict.get("basic_password_env", "")
+            u_val = os.getenv(u_env) if u_env else None
+            p_val = os.getenv(p_env) if p_env else None
+            if not u_val:
+                console.print(
+                    f"  [dim]{u_env} not set — enter temporarily for testing (not saved)[/dim]"
+                )
+                u_val = inquirer.text(message="Username for test")
+                if u_val is None:
+                    return (None, None, "Cancelled")
+            if not p_val:
+                p_val = inquirer.text(message="Password for test")
+                if p_val is None:
+                    return (None, None, "Cancelled")
+            request_auth = (u_val or "", p_val or "")
+
+        elif auth_type == "oauth2_client_credentials":
+            console.print(
+                "  [dim]OAuth2 client credentials — skipping (requires token exchange)[/dim]"
+            )
+            return (None, None, "OAuth2 not testable in wizard")
+
+        # Merge headers
+        all_headers = {**(source_headers or {}), **auth_headers}
+
+        # Make request
+        url = base_url.rstrip("/") + "/" + path.lstrip("/")
+        try:
+            resp = requests.get(
+                url, headers=all_headers, params=query_params, auth=request_auth, timeout=10
+            )
+            content_type = resp.headers.get("content-type", "")
+            if "json" in content_type:
+                return (resp.status_code, resp.json(), None)
+            return (resp.status_code, resp.text[:500], None)
+        except Exception as e:
+            return (None, None, str(e))
 
     def _collect_parameters(
         self, source_type_key: str, metadata: dict[str, Any], source_name: str
