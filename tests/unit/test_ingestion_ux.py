@@ -240,3 +240,147 @@ class TestCronToDisplay:
         from dango.web.routes.sources import _cron_to_display
 
         assert _cron_to_display("0 6 * * 1") == "Weekly (Monday at 6 AM)"
+
+
+# ---------------------------------------------------------------------------
+# _suggest_data_path (module-level helper in source_wizard.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSuggestDataPath:
+    """Tests for _suggest_data_path helper."""
+
+    def _suggest(self, response: object) -> str | None:
+        from dango.cli.source_wizard import _suggest_data_path
+
+        return _suggest_data_path(response)
+
+    def test_top_level_list(self) -> None:
+        assert self._suggest([{"id": 1}, {"id": 2}]) is None
+
+    def test_depth_one_list(self) -> None:
+        assert self._suggest({"data": [{"id": 1}]}) == "data"
+
+    def test_depth_two_list(self) -> None:
+        assert self._suggest({"response": {"items": [{"id": 1}]}}) == "response.items"
+
+    def test_non_dict(self) -> None:
+        assert self._suggest("not json") is None
+
+    def test_empty_dict(self) -> None:
+        assert self._suggest({}) is None
+
+    def test_dict_no_lists(self) -> None:
+        assert self._suggest({"count": 10, "status": "ok"}) is None
+
+
+# ---------------------------------------------------------------------------
+# _suggest_primary_key (module-level helper in source_wizard.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSuggestPrimaryKey:
+    """Tests for _suggest_primary_key helper."""
+
+    def _suggest(self, response: object, data_selector: str | None) -> str | None:
+        from dango.cli.source_wizard import _suggest_primary_key
+
+        return _suggest_primary_key(response, data_selector)
+
+    def test_id_field(self) -> None:
+        assert self._suggest([{"id": 1, "name": "a"}], None) == "id"
+
+    def test_underscore_id_field(self) -> None:
+        assert self._suggest([{"user_id": 1, "name": "a"}], None) == "user_id"
+
+    def test_no_matching_fields(self) -> None:
+        assert self._suggest([{"name": "a", "value": 1}], None) is None
+
+    def test_with_data_selector(self) -> None:
+        resp = {"data": {"items": [{"uuid": "abc", "title": "x"}]}}
+        assert self._suggest(resp, "data.items") == "uuid"
+
+    def test_empty_list(self) -> None:
+        assert self._suggest([], None) is None
+
+
+# ---------------------------------------------------------------------------
+# _build_rest_api_config — new fields (data_selector, params, headers)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestBuildRestApiConfig:
+    """Tests for DltPipelineRunner._build_rest_api_config with new fields."""
+
+    def _build(self, source_kwargs: dict) -> dict:
+        from dango.ingestion.dlt_runner import DltPipelineRunner
+
+        runner = DltPipelineRunner.__new__(DltPipelineRunner)
+        return runner._build_rest_api_config(source_kwargs)
+
+    def test_backward_compat_simple(self) -> None:
+        """Old-format endpoints (path + name only) still work."""
+        result = self._build(
+            {
+                "base_url": "https://api.example.com",
+                "endpoints": [{"path": "/users", "name": "users"}],
+            }
+        )
+        resources = result["config"]["resources"]
+        assert len(resources) == 1
+        assert resources[0]["name"] == "users"
+        assert resources[0]["endpoint"] == {"path": "/users"}
+        assert resources[0]["primary_key"] == "id"
+
+    def test_data_selector_passthrough(self) -> None:
+        result = self._build(
+            {
+                "base_url": "https://api.example.com",
+                "endpoints": [{"path": "/users", "name": "users", "data_selector": "data.items"}],
+            }
+        )
+        ep = result["config"]["resources"][0]["endpoint"]
+        assert ep["data_selector"] == "data.items"
+
+    def test_params_passthrough(self) -> None:
+        result = self._build(
+            {
+                "base_url": "https://api.example.com",
+                "endpoints": [{"path": "/users", "name": "users", "params": {"limit": "100"}}],
+            }
+        )
+        ep = result["config"]["resources"][0]["endpoint"]
+        assert ep["params"] == {"limit": "100"}
+
+    def test_headers_applied_to_client(self) -> None:
+        result = self._build(
+            {
+                "base_url": "https://api.example.com",
+                "headers": {"User-Agent": "Dango/1.0"},
+                "endpoints": [{"path": "/users", "name": "users"}],
+            }
+        )
+        assert result["config"]["client"]["headers"] == {"User-Agent": "Dango/1.0"}
+
+    def test_primary_key_override(self) -> None:
+        result = self._build(
+            {
+                "base_url": "https://api.example.com",
+                "endpoints": [{"path": "/users", "name": "users", "primary_key": "user_id"}],
+            }
+        )
+        assert result["config"]["resources"][0]["primary_key"] == "user_id"
+
+    def test_empty_data_selector_omitted(self) -> None:
+        """Empty string data_selector is not included (falsy check)."""
+        result = self._build(
+            {
+                "base_url": "https://api.example.com",
+                "endpoints": [{"path": "/users", "name": "users", "data_selector": ""}],
+            }
+        )
+        ep = result["config"]["resources"][0]["endpoint"]
+        assert "data_selector" not in ep

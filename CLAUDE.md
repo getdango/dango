@@ -247,7 +247,7 @@ dango/                          # Python package source
 │   └── watcher_runner.py       # → local/watcher_runner.py
 │
 ├── ingestion/                  # Level 1 — Data loading
-│   ├── dlt_runner.py           # ⚠ 2276 lines — orchestrates full sync pipeline
+│   ├── dlt_runner.py           # ⚠ 2284 lines — orchestrates full sync pipeline
 │   ├── csv_loader.py           # Multi-format file loading with dedup (773 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (33 source types)
@@ -331,7 +331,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 |------|-------|-----------------|
 | `ingestion/dlt_runner.py` | 2276 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2030 | — (metadata-only) |
-| `cli/source_wizard.py` | 1878 | — |
+| `cli/source_wizard.py` | 2145 | — |
 | `visualization/metabase.py` | 1149 | — |
 | `cli/init.py` | 1125 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |

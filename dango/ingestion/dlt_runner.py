@@ -1340,9 +1340,12 @@ class DltPipelineRunner:
         access_token_url = source_kwargs.pop("access_token_url", None)
         client_id = source_kwargs.pop("client_id", None)
         client_secret = source_kwargs.pop("client_secret", None)
+        headers = source_kwargs.pop("headers", None)
 
         # Build client config
         client: dict[str, Any] = {"base_url": base_url}
+        if headers:
+            client["headers"] = headers
 
         # Build auth config based on type
         if auth_type == "bearer" and auth_token:
@@ -1385,10 +1388,15 @@ class DltPipelineRunner:
                 # rest_api_source format {"name": ..., "endpoint": {"path": ...}}
                 if "endpoint" not in ep and "path" in ep:
                     name = ep.get("name", ep["path"].strip("/").replace("/", "_"))
+                    endpoint_config: dict[str, Any] = {"path": ep["path"]}
+                    if ep.get("data_selector"):
+                        endpoint_config["data_selector"] = ep["data_selector"]
+                    if ep.get("params"):
+                        endpoint_config["params"] = ep["params"]
                     resources.append(
                         {
                             "name": name,
-                            "endpoint": {"path": ep["path"]},
+                            "endpoint": endpoint_config,
                             "write_disposition": ep.get("write_disposition", "merge"),
                             "primary_key": ep.get("primary_key", "id"),
                         }
