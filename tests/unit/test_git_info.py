@@ -13,6 +13,7 @@ import pytest
 
 from dango.utils.git_info import (
     GitInfo,
+    _strip_credentials,
     check_git_guardrails,
     collect_git_info,
 )
@@ -262,3 +263,26 @@ class TestCheckGitGuardrails:
         assert result.passed is True
         assert len(result.warnings) == 2
         assert len(result.errors) == 0
+
+
+# ---------------------------------------------------------------------------
+# _strip_credentials
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestStripCredentials:
+    """Test credential stripping from git remote URLs."""
+
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("https://user:pass@github.com/org/repo.git", "https://github.com/org/repo.git"),
+            ("https://token@github.com/org/repo.git", "https://github.com/org/repo.git"),
+            ("https://github.com/org/repo.git", "https://github.com/org/repo.git"),
+            ("git@github.com:org/repo.git", "git@github.com:org/repo.git"),
+        ],
+    )
+    def test_strip_credentials(self, url: str, expected: str) -> None:
+        """Credentials should be removed from HTTPS URLs; SSH URLs left intact."""
+        assert _strip_credentials(url) == expected

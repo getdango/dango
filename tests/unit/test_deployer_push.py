@@ -385,3 +385,4 @@ class TestPushDeploy:
         call_kwargs = mock_journal.call_args[1]
         assert call_kwargs["deploy_succeeded"] is False
         assert call_kwargs["deploy_error"] is not None
+        assert "dbt compile failed" in call_kwargs["deploy_error"]

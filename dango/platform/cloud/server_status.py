@@ -112,19 +112,17 @@ def collect_server_status(ssh: Any, cloud_config: Any) -> ServerStatus:
 
 def _get_deployment_info(ssh: Any) -> dict[str, str | None]:
     """Read last entry from remote deployments.jsonl for version info."""
-    result = ssh.exec_command(f"tail -1 {_DEPLOY_JOURNAL} 2>/dev/null")
-    if not result.success or not result.stdout.strip():
+    from dango.platform.cloud.deploy_journal import get_latest_deployment
+
+    entry = get_latest_deployment(ssh)
+    if not entry:
         return {}
-    try:
-        entry: dict[str, Any] = json.loads(result.stdout.strip())
-        return {
-            "git_commit": entry.get("git_commit"),
-            "git_branch": entry.get("git_branch"),
-            "deployed_at": entry.get("timestamp"),
-            "deployed_by": entry.get("deployer"),
-        }
-    except (json.JSONDecodeError, TypeError):
-        return {}
+    return {
+        "git_commit": entry.get("git_commit"),
+        "git_branch": entry.get("git_branch"),
+        "deployed_at": entry.get("timestamp"),
+        "deployed_by": entry.get("deployer"),
+    }
 
 
 def _get_cpu_usage(ssh: Any) -> float | None:

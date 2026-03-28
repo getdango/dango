@@ -164,6 +164,16 @@ class TestLocalJournal:
         assert result[0]["deployer"] == "also-good"
         assert result[1]["deployer"] == "good"
 
+    def test_read_zero_limit(self, tmp_path: Path) -> None:
+        """limit=0 should return empty list."""
+        write_local_journal(tmp_path, _make_record())
+        assert read_local_journal(tmp_path, limit=0) == []
+
+    def test_read_negative_limit(self, tmp_path: Path) -> None:
+        """Negative limit should return empty list."""
+        write_local_journal(tmp_path, _make_record())
+        assert read_local_journal(tmp_path, limit=-1) == []
+
 
 # ---------------------------------------------------------------------------
 # Remote journal
