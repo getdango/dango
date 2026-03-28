@@ -583,6 +583,10 @@ class CloudConfig(BaseModel):
     dbt_overrides: DbtOverrides | None = Field(
         default=None, description="Cloud dbt configuration overrides"
     )
+    deploy_branch: str = Field(
+        default="main",
+        description="Expected git branch for deployments (guard rail check)",
+    )
 
 
 class DangoConfig(BaseModel):

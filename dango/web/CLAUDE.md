@@ -28,7 +28,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~854 lines) | `_bridge_metabase_session()`, `_set_session_cookie()` |
 | `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery (~328 lines) | — |
 | `routes/users.py` | Admin user CRUD: create, edit, deactivate, delete, unlock, invite (525 lines) | — |
-| `routes/health.py` | `/api/status`, `/api/watcher/status`, `/api/health/platform` (incl. OAuth token health, component disk breakdown, cloud resource metrics, backup staleness) | — |
+| `routes/health.py` | `/api/status`, `/api/watcher/status`, `/api/health/platform` (incl. OAuth token health, component disk breakdown, cloud resource metrics, backup staleness, deployment info), `/api/deployments/history` (admin-only) | — |
 | `routes/config.py` | `/api/config`, `/api/metabase-config` | — |
 | `routes/sources.py` | `/api/sources`, `/api/sources/{name}/details` | — |
 | `routes/sync.py` | `/api/sources/{name}/sync`, `/api/sync/trigger` (remote), `/api/sync/status/{id}` + background `run_sync_task()` (~558 lines) | `run_sync_task()` |

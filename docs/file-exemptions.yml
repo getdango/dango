@@ -87,9 +87,21 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/remote.py
-    lines: 652
+    lines: 698
     category: exempt
-    reason: "Remote server management: push + rollback + firewall subgroup + domain subgroup + registration of management and backup subgroups. Each subgroup is a thin CLI layer delegating to platform/cloud modules."
+    reason: "Remote server management: push + rollback + firewall subgroup + domain subgroup + registration of management and backup subgroups. P8-004 added git guard rails (--allow-dirty/--allow-branch) to push command."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/remote_mgmt.py
+    lines: 509
+    category: exempt
+    reason: "P8-004: Added deployment panel to remote status + remote history command. Marginally over limit."
+    review_by: "v1.1"
+
+  - file: dango/platform/cloud/deployer.py
+    lines: 578
+    category: exempt
+    reason: "P8-004: Push deployment workflow with deploy lock and journal writing. Added git_info passthrough, nested try/finally for journal write, _write_deploy_journal helper."
     review_by: "v1.1"
 
   # --- Exempt (stable, not modified in v1) ---

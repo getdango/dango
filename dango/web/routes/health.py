@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from starlette.responses import JSONResponse
 
 from dango.oauth.storage import OAuthStorage
 from dango.web.helpers import (
@@ -184,6 +185,12 @@ async def get_platform_health() -> dict[str, Any]:
         elif cloud_data["backup_health"]["status"] == "none":
             warnings.append("No backups configured")
 
+    # Deployment info (cloud only — journal written on the cloud server)
+    if is_cloud:
+        deploy_info = _get_local_deployment_info(project_root)
+        if deploy_info:
+            result["deployment"] = deploy_info
+
     # OAuth token health
     oauth_health: list[dict[str, Any]] = []
     try:
@@ -318,3 +325,66 @@ def _check_backup_health() -> dict[str, Any]:
         "age_hours": round(age_hours, 1),
         "file": latest_name,
     }
+
+
+def _get_local_deployment_info(project_root: Path) -> dict[str, Any] | None:
+    """Read latest deployment from local journal (runs ON the cloud server)."""
+    from dango.platform.cloud.deploy_journal import read_local_journal
+
+    entries = read_local_journal(project_root, limit=1)
+    if not entries:
+        return None
+    entry = entries[0]
+    return {
+        "git_commit": entry.get("git_commit"),
+        "git_branch": entry.get("git_branch"),
+        "deployed_by": entry.get("deployer"),
+        "deployed_at": entry.get("timestamp"),
+        "success": entry.get("success"),
+    }
+
+
+_DEPLOYMENT_ALLOWED_FIELDS = {
+    "timestamp",
+    "deployer",
+    "success",
+    "git_commit",
+    "git_branch",
+    "git_clean",
+    "dango_version",
+    "files_synced",
+    "models_changed",
+    "models_added",
+    "models_removed",
+    "duration_seconds",
+    "dry_run",
+    "error",
+}
+
+
+@router.get("/api/deployments/history")
+async def get_deployment_history(
+    request: Request,
+    limit: int = 20,
+) -> JSONResponse:
+    """Return deployment history from local journal (admin-only)."""
+    from dango.auth.audit import AuditEvent, log_auth_event
+    from dango.auth.permissions import require_permission
+    from dango.platform.cloud.deploy_journal import read_local_journal
+
+    perm_dep = require_permission("platform.manage")
+    user = await perm_dep(request)
+
+    log_auth_event(
+        AuditEvent.DEPLOYMENT_HISTORY_VIEWED,
+        user_id=user.id,
+        email=user.email,
+    )
+
+    project_root = Path(get_project_root())
+    limit = max(1, min(limit, 100))
+    entries = read_local_journal(project_root, limit=limit)
+
+    filtered = [{k: v for k, v in e.items() if k in _DEPLOYMENT_ALLOWED_FIELDS} for e in entries]
+
+    return JSONResponse(content={"deployments": filtered})
