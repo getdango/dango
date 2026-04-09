@@ -71,7 +71,7 @@ dango/                          # Python package source
 ├── logging.py                  # Level 0 — Structured logging (structlog + stdlib)
 ├── cli/                        # Level 3 — Click CLI (primary user interface)
 │   ├── __init__.py             # Shared Console instance
-│   ├── main.py                 # Slim entry point (~109 lines) — registers commands
+│   ├── main.py                 # Slim entry point (~121 lines) — registers commands
 │   ├── commands/               # Command modules (extracted from main.py by TASK-005)
 │   │   ├── __init__.py         # Package marker
 │   │   ├── auth.py             # auth group (12 subcommands, 538 lines)
@@ -335,7 +335,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `ingestion/sources/registry.py` | 2030 | — (metadata-only) |
 | `cli/source_wizard.py` | 2148 | — |
 | `visualization/metabase.py` | 1149 | — |
-| `cli/init.py` | 1282 | — |
+| `cli/init.py` | 1288 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
 | `cli/commands/platform.py` | 979 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
