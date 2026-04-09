@@ -4,10 +4,10 @@
 # Note: Standard Metabase images use Alpine Linux which lacks glibc/libstdc++
 # that DuckDB requires. This Dockerfile uses Eclipse Temurin (Debian-based) as base.
 
-FROM eclipse-temurin:11-jre-jammy
+FROM eclipse-temurin:21-jre-jammy
 
-# Metabase version
-ENV MB_VERSION=v0.50.26
+# Metabase version (requires Java 21 as of v0.52+)
+ENV MB_VERSION=v0.59.1
 
 # Install Metabase
 USER root

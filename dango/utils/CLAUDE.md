@@ -22,6 +22,7 @@ Shared utilities for process management, activity logging, sync history tracking
 | `dango_db.py` (~179 lines) | SQLite context manager for `.dango/dango.db` + schema init | `connect()`, `get_connection()` |
 | `post_sync.py` (~486 lines) | Post-sync hook dispatcher | `dispatch_post_sync_hooks()`, `_run_profiling()`, `_run_drift_detection()`, `_run_pii_scan()`, `_run_analysis()` |
 | `git_info.py` | Git repository info and deployment guardrails | `GitInfo`, `GitGuardrailResult`, `collect_git_info()`, `check_git_guardrails()` |
+| `driver.py` | Metabase DuckDB driver version management | `get_duckdb_driver_url()`, `get_duckdb_version()`, `read_driver_version()`, `write_driver_version()`, `driver_needs_update()` |
 
 ## Common Tasks
 
@@ -40,7 +41,7 @@ Shared utilities for process management, activity logging, sync history tracking
 ## Dependencies
 
 **Imports from:**
-- `duckdb` — database operations in database.py, db_health.py, data_validation.py
+- `duckdb` — database operations in database.py, db_health.py, data_validation.py; version detection in driver.py
 - `psutil` — process existence checks in dbt_lock.py
 - `rich` — console output in db_health.py, data_validation.py
 - `shutil` — disk usage in db_health.py
@@ -53,7 +54,8 @@ Shared utilities for process management, activity logging, sync history tracking
 - `dango/cli/commands/platform.py` — process (kill_process)
 - `dango/cli/commands/cleanup.py` — db_health, log_rotation
 - `dango/platform/local/watcher_runner.py` — dbt_lock, dbt_status
-- `dango/platform/common/startup.py` — log_rotation
+- `dango/platform/common/startup.py` — log_rotation, driver (ensure_duckdb_driver)
+- `dango/cli/init.py` — driver (DuckDB driver download during init)
 - `dango/transformation/__init__.py` — dbt_status
 - `dango/governance/` — dango_db (connect)
 - `dango/notebooks/` — dango_db (connect)
@@ -63,7 +65,7 @@ Shared utilities for process management, activity logging, sync history tracking
 
 ## Testing
 
-- **Unit:** `pytest tests/unit/test_db_health_disk.py tests/unit/test_log_rotation.py`
+- **Unit:** `pytest tests/unit/test_db_health_disk.py tests/unit/test_log_rotation.py tests/unit/test_driver_utils.py`
 - **Integration:** None yet
 - **Manual:** `dango start` exercises database.py; `dango sync` exercises activity_log, sync_history, db_health, dbt_lock; `dango cleanup` exercises log_rotation, db_health
 

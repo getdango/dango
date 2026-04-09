@@ -470,10 +470,10 @@ Latest 2 versions of:
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| DuckDB | ~1.4.0 | Embedded analytical database |
-| dbt-core | ~1.10.0 | Data transformation framework |
-| dlt | >=1.17.0, <2.0 | Data ingestion toolkit |
-| Metabase | v0.50.26 | Business intelligence / dashboards |
+| DuckDB | 1.4.4 | Embedded analytical database |
+| dbt-core | 1.10.20 | Data transformation framework |
+| dlt | 1.24.0 | Data ingestion toolkit |
+| Metabase | v0.59.1 | Business intelligence / dashboards |
 
 ## spaCy (Data Governance)
 
@@ -810,8 +810,14 @@ custom_sources/
         plugins_dir = self.project_dir / "metabase-plugins"
         plugins_dir.mkdir(exist_ok=True)
 
-        # Download DuckDB driver (MotherDuck official driver)
-        driver_url = "https://github.com/motherduckdb/metabase_duckdb_driver/releases/download/1.4.1.0/duckdb.metabase-driver.jar"
+        # Download DuckDB driver (MotherDuck official driver, version-matched)
+        from dango.utils.driver import (
+            get_duckdb_driver_url,
+            get_duckdb_version,
+            write_driver_version,
+        )
+
+        driver_url = get_duckdb_driver_url()
         duckdb_driver_path = plugins_dir / "duckdb.metabase-driver.jar"
 
         if not duckdb_driver_path.exists():
@@ -827,6 +833,7 @@ custom_sources/
                         console.print(f"    Retry {attempt}/2...")
                         time.sleep(2)  # Wait before retry
                     urllib.request.urlretrieve(driver_url, duckdb_driver_path)
+                    write_driver_version(plugins_dir, get_duckdb_version())
                     console.print(
                         f"[green]✓[/green] Downloaded DuckDB driver ({duckdb_driver_path.stat().st_size // 1024 // 1024}MB)"
                     )
