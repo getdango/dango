@@ -133,6 +133,8 @@ packages = [
     "dango.oauth",      # OAuth management
     "dango.security",   # Token encryption
     "dango.migrations",
+    "dango.migrations.auth",
+    "dango.migrations.scheduler",
     "dango.cli.commands",
     "dango.cli.helpers",
     "dango.governance",

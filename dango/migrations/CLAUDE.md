@@ -54,7 +54,7 @@ Rules:
 - `upgrade(conn)` receives an active connection inside a runner-managed transaction
 - No `downgrade()` function
 - `__init__.py` files are ignored during discovery
-- Subdirectories are NOT Python packages
+- Subdirectories have `__init__.py` for packaging (so setuptools includes them); the runner skips these files
 
 ## Common Tasks
 
