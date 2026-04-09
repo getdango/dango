@@ -66,7 +66,14 @@ def auth_enable(ctx: click.Context) -> None:
         # enabled with no admin user.
         db_path = get_auth_db_path(project_root)
         if db_path.exists():
-            email = click.prompt("Admin email", default="admin@localhost")
+            import re
+
+            email_re = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+            while True:
+                email = click.prompt("Admin email")
+                if email_re.match(email):
+                    break
+                console.print("[red]Invalid email format.[/red]")
             result = ensure_admin(db_path, email=email)
             if result is not None:
                 user, password = result

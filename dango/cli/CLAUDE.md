@@ -8,7 +8,7 @@ Click-based command-line interface for all Dango operations — project init, so
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| `main.py` (109 lines) | CLI entry point, registers all commands | `cli` (Click group), `main()` |
+| `main.py` (121 lines) | CLI entry point, registers all commands | `cli` (Click group), `main()` |
 | `__init__.py` (12 lines) | Shared `console` (Rich Console) instance | `console` |
 | **commands/** | | |
 | `commands/__init__.py` (4 lines) | Package marker | — |
@@ -41,7 +41,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/analyze.py` (81 lines) | `analyze` top-level command | `analyze()` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
-| `init.py` (1282 lines) | Project initialization wizard | `ProjectInitializer` |
+| `init.py` (1288 lines) | Project initialization wizard | `ProjectInitializer` |
 | `wizard.py` (296 lines) | Interactive setup wizards | `ProjectWizard` |
 | `source_wizard.py` (2148 lines) | Source configuration wizard | `add_source()` |
 | `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |

@@ -152,7 +152,7 @@ class TestEnsureAdmin:
         result = ensure_admin(db_path)
         assert result is not None
         user, _ = result
-        assert user.email == "admin@localhost"
+        assert user.email == "admin@dango.local"
 
     def test_email_normalized(self, tmp_path: Path) -> None:
         db_path = _make_db(tmp_path)

@@ -131,7 +131,7 @@ class ProjectInitializer:
             raise
 
         # Print success message
-        self._print_success_message(warnings=warnings, failures=failures)
+        self._print_success_message(warnings=warnings, failures=failures, auth_success=auth_success)
 
         # Exit with error if critical failures
         if failures:
@@ -1108,10 +1108,15 @@ on-run-end:
 
             # Email
             while True:
-                email = click.prompt("  Admin email", default="admin@localhost")
-                if email_re.match(email):
-                    break
-                console.print("  [red]Invalid email format.[/red]")
+                email = click.prompt("  Admin email")
+                if not email_re.match(email):
+                    console.print("  [red]Invalid email format.[/red]")
+                    continue
+                confirm_email = click.prompt("  Confirm email")
+                if email.lower() != confirm_email.lower():
+                    console.print("  [red]Emails don't match.[/red]")
+                    continue
+                break
 
             # Password (from env or prompt)
             env_password = os.environ.get("DANGO_ADMIN_PASSWORD")
@@ -1205,7 +1210,7 @@ on-run-end:
 
         return __version__
 
-    def _print_success_message(self, warnings=None, failures=None):
+    def _print_success_message(self, warnings=None, failures=None, auth_success=True):
         """Print success message with next steps"""
         warnings = warnings or []
         failures = failures or []
@@ -1245,7 +1250,8 @@ on-run-end:
 
         # Add next steps (only if not failed)
         if not failures:
-            message += "[dim]Auth is enabled — log in with your admin credentials on first visit.[/dim]\n\n"
+            if auth_success:
+                message += "[dim]Auth is enabled — log in with your admin credentials on first visit.[/dim]\n\n"
             message += "[bold]Next steps:[/bold]\n\n"
 
             # Check if user is already in the project directory

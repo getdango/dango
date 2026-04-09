@@ -83,7 +83,7 @@ class TestAuthEnable:
         project_root = _setup_project(tmp_path)
         runner = CliRunner()
         with patch("dango.cli.utils.find_project_root", return_value=project_root):
-            result = runner.invoke(cli, ["auth", "enable"], input="admin@localhost\n")
+            result = runner.invoke(cli, ["auth", "enable"], input="admin@test.com\n")
         assert result.exit_code == 0
         assert "enabled" in result.output.lower()
 
@@ -110,7 +110,7 @@ class TestAuthEnable:
         _add_user(project_root, email="admin@test.com", role=Role.ADMIN)
         runner = CliRunner()
         with patch("dango.cli.utils.find_project_root", return_value=project_root):
-            result = runner.invoke(cli, ["auth", "enable"], input="admin@localhost\n")
+            result = runner.invoke(cli, ["auth", "enable"], input="admin@test.com\n")
         assert result.exit_code == 0
         assert "already exists" in result.output.lower()
 

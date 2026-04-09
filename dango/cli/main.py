@@ -53,6 +53,18 @@ def cli(ctx: click.Context) -> None:
     """
     ctx.ensure_object(dict)
 
+    # Warn if the dango binary doesn't match the active venv
+    import os
+    import sys
+
+    venv_prefix = os.environ.get("VIRTUAL_ENV")
+    if venv_prefix and not sys.executable.startswith(venv_prefix):
+        click.echo(
+            "Warning: Running 'dango' from outside the active venv. "
+            "Run 'hash -r' or restart your terminal.",
+            err=True,
+        )
+
     # Try to find project root for commands that need it
     # (init command doesn't need it, but most others do)
     try:

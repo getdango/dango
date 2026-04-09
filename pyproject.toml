@@ -128,10 +128,12 @@ packages = [
     "dango.visualization",
     "dango.web",
     "dango.web.routes",
-    "dango.auth",       # Authentication & authorization
-    "dango.oauth",      # OAuth management
-    "dango.security",   # Token encryption
+    "dango.web.middleware",
+    "dango.oauth",
+    "dango.security",
     "dango.migrations",
+    "dango.migrations.auth",
+    "dango.migrations.scheduler",
     "dango.cli.commands",
     "dango.cli.helpers",
     "dango.governance",
