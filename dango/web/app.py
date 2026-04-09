@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         db_path = get_auth_db_path(project_root)
         if db_path.exists():
-            email = os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
+            email = os.environ.get("DANGO_ADMIN_EMAIL", "admin@dango.local")
             result = ensure_admin(db_path, email=email)
             if result is not None:
                 user, password = result

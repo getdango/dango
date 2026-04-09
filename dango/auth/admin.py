@@ -75,7 +75,7 @@ def set_auth_enabled(project_root: Path, *, enabled: bool) -> None:
 
 def ensure_admin(
     db_path: Path,
-    email: str = "admin@localhost",
+    email: str = "admin@dango.local",
 ) -> tuple[User, str] | None:
     """Create an admin user if none exists.
 

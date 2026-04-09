@@ -1108,10 +1108,15 @@ on-run-end:
 
             # Email
             while True:
-                email = click.prompt("  Admin email", default="admin@localhost")
-                if email_re.match(email):
-                    break
-                console.print("  [red]Invalid email format.[/red]")
+                email = click.prompt("  Admin email")
+                if not email_re.match(email):
+                    console.print("  [red]Invalid email format.[/red]")
+                    continue
+                confirm_email = click.prompt("  Confirm email")
+                if email != confirm_email:
+                    console.print("  [red]Emails don't match.[/red]")
+                    continue
+                break
 
             # Password (from env or prompt)
             env_password = os.environ.get("DANGO_ADMIN_PASSWORD")
