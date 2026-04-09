@@ -131,7 +131,7 @@ class ProjectInitializer:
             raise
 
         # Print success message
-        self._print_success_message(warnings=warnings, failures=failures)
+        self._print_success_message(warnings=warnings, failures=failures, auth_success=auth_success)
 
         # Exit with error if critical failures
         if failures:
@@ -1210,7 +1210,7 @@ on-run-end:
 
         return __version__
 
-    def _print_success_message(self, warnings=None, failures=None):
+    def _print_success_message(self, warnings=None, failures=None, auth_success=True):
         """Print success message with next steps"""
         warnings = warnings or []
         failures = failures or []
@@ -1250,7 +1250,8 @@ on-run-end:
 
         # Add next steps (only if not failed)
         if not failures:
-            message += "[dim]Auth is enabled — log in with your admin credentials on first visit.[/dim]\n\n"
+            if auth_success:
+                message += "[dim]Auth is enabled — log in with your admin credentials on first visit.[/dim]\n\n"
             message += "[bold]Next steps:[/bold]\n\n"
 
             # Check if user is already in the project directory
