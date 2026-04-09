@@ -87,11 +87,10 @@ def ensure_dbt_schemas(project_root: Path) -> None:
 
 
 def ensure_duckdb_driver(project_root: Path) -> None:
-    """
-    Ensure Metabase DuckDB driver is downloaded.
+    """Ensure Metabase DuckDB driver is downloaded and version-matched.
 
-    Downloads the driver if not present. Retries 3 times on network failure.
-    No-op if driver already exists.
+    Downloads the driver if not present or if the installed DuckDB version
+    has changed since the last download.  Retries 3 times on network failure.
 
     Args:
         project_root: Project root directory
@@ -102,21 +101,32 @@ def ensure_duckdb_driver(project_root: Path) -> None:
     import time
     import urllib.request
 
-    driver_path = project_root / "metabase-plugins" / "duckdb.metabase-driver.jar"
-    if driver_path.exists():
+    from dango.utils.driver import (
+        driver_needs_update,
+        get_duckdb_driver_url,
+        get_duckdb_version,
+        write_driver_version,
+    )
+
+    plugins_dir = project_root / "metabase-plugins"
+    driver_path = plugins_dir / "duckdb.metabase-driver.jar"
+
+    if driver_path.exists() and not driver_needs_update(plugins_dir):
         return
 
-    driver_url = (
-        "https://github.com/motherduckdb/metabase_duckdb_driver/releases/"
-        "download/1.4.1.0/duckdb.metabase-driver.jar"
-    )
-    driver_path.parent.mkdir(exist_ok=True)
+    # Delete stale driver if version mismatch
+    if driver_path.exists():
+        driver_path.unlink()
+
+    driver_url = get_duckdb_driver_url()
+    plugins_dir.mkdir(exist_ok=True)
 
     for attempt in range(3):
         try:
             if attempt > 0:
                 time.sleep(2)
             urllib.request.urlretrieve(driver_url, driver_path)
+            write_driver_version(plugins_dir, get_duckdb_version())
             return
         except Exception:
             if attempt == 2:
@@ -128,9 +138,10 @@ def ensure_duckdb_driver(project_root: Path) -> None:
                     pass
 
     raise RuntimeError(
-        "Failed to download DuckDB driver after 3 attempts. "
-        "Check your internet connection and try again, or download manually from: "
-        "https://github.com/motherduckdb/metabase_duckdb_driver/releases"
+        f"Failed to download DuckDB driver after 3 attempts. "
+        f"URL: {driver_url} — "
+        f"Check your internet connection and try again, or download manually from: "
+        f"https://github.com/motherduckdb/metabase_duckdb_driver/releases"
     )
 
 

@@ -242,6 +242,7 @@ class ProjectInitializer:
 .dango/metabase.yml
 data/warehouse/
 data/uploads/
+metabase-plugins/
 dashboards/  # Old export location (deprecated, use 'dango metabase save' instead)
 *.db
 *.db-shm
@@ -470,10 +471,10 @@ Latest 2 versions of:
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| DuckDB | ~1.4.0 | Embedded analytical database |
-| dbt-core | ~1.10.0 | Data transformation framework |
-| dlt | >=1.17.0, <2.0 | Data ingestion toolkit |
-| Metabase | v0.50.26 | Business intelligence / dashboards |
+| DuckDB | 1.4.4 | Embedded analytical database |
+| dbt-core | 1.10.20 | Data transformation framework |
+| dlt | 1.24.0 | Data ingestion toolkit |
+| Metabase | v0.59.1 | Business intelligence / dashboards |
 
 ## spaCy (Data Governance)
 
@@ -810,11 +811,23 @@ custom_sources/
         plugins_dir = self.project_dir / "metabase-plugins"
         plugins_dir.mkdir(exist_ok=True)
 
-        # Download DuckDB driver (MotherDuck official driver)
-        driver_url = "https://github.com/motherduckdb/metabase_duckdb_driver/releases/download/1.4.1.0/duckdb.metabase-driver.jar"
-        duckdb_driver_path = plugins_dir / "duckdb.metabase-driver.jar"
+        # Download DuckDB driver (MotherDuck official driver, version-matched)
+        from dango.utils.driver import (
+            driver_needs_update,
+            get_duckdb_driver_url,
+            get_duckdb_version,
+            write_driver_version,
+        )
 
-        if not duckdb_driver_path.exists():
+        duckdb_driver_path = plugins_dir / "duckdb.metabase-driver.jar"
+        needs_download = not duckdb_driver_path.exists() or driver_needs_update(plugins_dir)
+
+        if needs_download:
+            # Delete stale driver if version mismatch
+            if duckdb_driver_path.exists():
+                duckdb_driver_path.unlink()
+
+            driver_url = get_duckdb_driver_url()
             console.print("⏳ Downloading DuckDB driver (70MB, this may take a moment)...")
             driver_downloaded = False
 
@@ -827,6 +840,7 @@ custom_sources/
                         console.print(f"    Retry {attempt}/2...")
                         time.sleep(2)  # Wait before retry
                     urllib.request.urlretrieve(driver_url, duckdb_driver_path)
+                    write_driver_version(plugins_dir, get_duckdb_version())
                     console.print(
                         f"[green]✓[/green] Downloaded DuckDB driver ({duckdb_driver_path.stat().st_size // 1024 // 1024}MB)"
                     )
