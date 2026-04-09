@@ -1113,7 +1113,7 @@ on-run-end:
                     console.print("  [red]Invalid email format.[/red]")
                     continue
                 confirm_email = click.prompt("  Confirm email")
-                if email != confirm_email:
+                if email.lower() != confirm_email.lower():
                     console.print("  [red]Emails don't match.[/red]")
                     continue
                 break

@@ -129,9 +129,8 @@ packages = [
     "dango.web",
     "dango.web.routes",
     "dango.web.middleware",
-    "dango.auth",       # Authentication & authorization
-    "dango.oauth",      # OAuth management
-    "dango.security",   # Token encryption
+    "dango.oauth",
+    "dango.security",
     "dango.migrations",
     "dango.migrations.auth",
     "dango.migrations.scheduler",
