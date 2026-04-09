@@ -73,7 +73,7 @@ platform/
 | File | Purpose | Key Symbols |
 |------|---------|-------------|
 | `docker.py` | Docker Compose lifecycle | `DockerManager`, `ServiceStatus` |
-| `common/startup.py` | Shared startup helpers | `run_pending_migrations`, `ensure_dbt_schemas`, `ensure_duckdb_driver`, `start_docker_services`, `setup_metabase_if_needed`, `import_dashboards` |
+| `common/startup.py` | Shared startup helpers | `run_pending_migrations`, `ensure_icu_extension`, `ensure_dbt_schemas`, `ensure_duckdb_driver`, `start_docker_services`, `setup_metabase_if_needed`, `import_dashboards` |
 | `local/network.py` | Shared nginx routing (local dev) | `NetworkConfig`, `NginxManager`, `HostsManager` |
 | `local/watcher.py` | File change detection | `DebouncedFileHandler`, `FileWatcher`, `MultiTargetWatcher`, `SyncTrigger` |
 | `local/watcher_lifecycle.py` | Watcher subprocess lifecycle | `start_file_watcher`, `stop_file_watcher`, `get_watcher_status`, `get_watcher_pid_file_path` |

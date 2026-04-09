@@ -52,6 +52,27 @@ def run_pending_migrations(project_root: Path) -> dict[str, Any]:
     return apply_all_pending(project_root)
 
 
+def ensure_icu_extension(project_root: Path) -> None:
+    """Install ICU extension in DuckDB if not already present.
+
+    ICU is required for Metabase timezone support. No-op if the
+    warehouse database does not exist yet.
+    """
+    import duckdb
+
+    duckdb_path = project_root / "data" / "warehouse.duckdb"
+    if not duckdb_path.exists():
+        return
+    conn = duckdb.connect(str(duckdb_path))
+    try:
+        conn.execute("INSTALL icu")
+        conn.execute("LOAD icu")
+    except Exception:
+        pass  # Already installed
+    finally:
+        conn.close()
+
+
 def ensure_dbt_schemas(project_root: Path) -> None:
     """
     Create DuckDB schemas required for Metabase visibility.

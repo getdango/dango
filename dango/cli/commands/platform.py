@@ -139,6 +139,7 @@ def start(ctx: click.Context) -> None:
     from dango.platform.common.startup import (
         ensure_dbt_schemas,
         ensure_duckdb_driver,
+        ensure_icu_extension,
         import_dashboards,
         rotate_logs,
         run_pending_migrations,
@@ -179,6 +180,9 @@ def start(ctx: click.Context) -> None:
                 console.print(f"[red]Migration error:[/red] {migration_exc}")
                 raise click.Abort() from migration_exc
             raise
+
+        # Ensure ICU extension is installed (Metabase timezone support)
+        ensure_icu_extension(project_root)
 
         # Ensure all dbt schemas exist (for Metabase visibility)
         ensure_dbt_schemas(project_root)
