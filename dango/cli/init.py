@@ -242,6 +242,7 @@ class ProjectInitializer:
 .dango/metabase.yml
 data/warehouse/
 data/uploads/
+metabase-plugins/
 dashboards/  # Old export location (deprecated, use 'dango metabase save' instead)
 *.db
 *.db-shm
@@ -812,15 +813,21 @@ custom_sources/
 
         # Download DuckDB driver (MotherDuck official driver, version-matched)
         from dango.utils.driver import (
+            driver_needs_update,
             get_duckdb_driver_url,
             get_duckdb_version,
             write_driver_version,
         )
 
-        driver_url = get_duckdb_driver_url()
         duckdb_driver_path = plugins_dir / "duckdb.metabase-driver.jar"
+        needs_download = not duckdb_driver_path.exists() or driver_needs_update(plugins_dir)
 
-        if not duckdb_driver_path.exists():
+        if needs_download:
+            # Delete stale driver if version mismatch
+            if duckdb_driver_path.exists():
+                duckdb_driver_path.unlink()
+
+            driver_url = get_duckdb_driver_url()
             console.print("⏳ Downloading DuckDB driver (70MB, this may take a moment)...")
             driver_downloaded = False
 

@@ -13,6 +13,10 @@ from pathlib import Path
 DRIVER_VERSION_FILE = ".driver-version"
 """Filename written to ``metabase-plugins/`` after a successful driver download."""
 
+# NOTE: Always appends ".0" to the DuckDB version. The MotherDuck repo also has
+# patch releases (e.g. 1.4.1.1, 1.4.3.1) but we pin DuckDB to an exact version
+# whose .0 driver is verified to exist. When bumping DuckDB, verify the .0
+# release exists at https://github.com/motherduckdb/metabase_duckdb_driver/releases
 _DRIVER_URL_TEMPLATE = (
     "https://github.com/motherduckdb/metabase_duckdb_driver/"
     "releases/download/{version}.0/duckdb.metabase-driver.jar"
