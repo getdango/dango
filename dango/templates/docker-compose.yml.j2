@@ -10,7 +10,7 @@ services:
       - "{{ metabase_port }}:3000"
     volumes:
       - metabase-data:/metabase-data
-      - ./data:/data:ro
+      - ./data:/data
       - ./metabase-plugins:/app/plugins
     environment:
       MB_DB_TYPE: h2

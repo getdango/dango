@@ -11,12 +11,12 @@ import pytest
 from dango.platform.common.startup import (
     ensure_dbt_schemas,
     ensure_duckdb_driver,
-    ensure_icu_extension,
     import_dashboards,
     run_pending_migrations,
     setup_metabase_if_needed,
     start_docker_services,
 )
+from dango.utils.driver import METABASE_DUCKDB_DRIVER_VERSION
 
 
 @pytest.mark.unit
@@ -53,11 +53,10 @@ class TestEnsureDuckdbDriver:
         plugins_dir = tmp_path / "metabase-plugins"
         plugins_dir.mkdir(parents=True)
         (plugins_dir / "duckdb.metabase-driver.jar").touch()
-        (plugins_dir / ".driver-version").write_text("1.4.4\n")
+        (plugins_dir / ".driver-version").write_text(f"{METABASE_DUCKDB_DRIVER_VERSION}\n")
 
         with patch("urllib.request.urlretrieve") as mock_retrieve:
-            with patch("dango.utils.driver.get_duckdb_version", return_value="1.4.4"):
-                ensure_duckdb_driver(tmp_path)
+            ensure_duckdb_driver(tmp_path)
 
         mock_retrieve.assert_not_called()
 
@@ -69,21 +68,21 @@ class TestEnsureDuckdbDriver:
             Path(dest).touch()
 
         with patch("urllib.request.urlretrieve", side_effect=fake_retrieve):
-            with patch("dango.utils.driver.get_duckdb_version", return_value="1.4.4"):
-                ensure_duckdb_driver(tmp_path)
+            ensure_duckdb_driver(tmp_path)
 
         plugins_dir = tmp_path / "metabase-plugins"
         driver_path = plugins_dir / "duckdb.metabase-driver.jar"
         assert driver_path.exists()
-        assert (plugins_dir / ".driver-version").read_text().strip() == "1.4.4"
+        assert (
+            plugins_dir / ".driver-version"
+        ).read_text().strip() == METABASE_DUCKDB_DRIVER_VERSION
 
     def test_raises_runtime_error_after_3_failures(self, tmp_path):
         """ensure_duckdb_driver raises RuntimeError when all 3 attempts fail."""
         with patch("urllib.request.urlretrieve", side_effect=OSError("network error")):
             with patch("time.sleep"):  # Skip retry delays
-                with patch("dango.utils.driver.get_duckdb_version", return_value="1.4.4"):
-                    with pytest.raises(RuntimeError, match="3 attempts"):
-                        ensure_duckdb_driver(tmp_path)
+                with pytest.raises(RuntimeError, match="3 attempts"):
+                    ensure_duckdb_driver(tmp_path)
 
     def test_retries_on_failure(self, tmp_path):
         """ensure_duckdb_driver retries up to 3 times before giving up."""
@@ -97,9 +96,8 @@ class TestEnsureDuckdbDriver:
 
         with patch("urllib.request.urlretrieve", side_effect=failing_retrieve):
             with patch("time.sleep"):
-                with patch("dango.utils.driver.get_duckdb_version", return_value="1.4.4"):
-                    with pytest.raises(RuntimeError):
-                        ensure_duckdb_driver(tmp_path)
+                with pytest.raises(RuntimeError):
+                    ensure_duckdb_driver(tmp_path)
 
         assert call_count == 3
 
@@ -114,11 +112,12 @@ class TestEnsureDuckdbDriver:
             Path(dest).touch()
 
         with patch("urllib.request.urlretrieve", side_effect=fake_retrieve) as mock_ret:
-            with patch("dango.utils.driver.get_duckdb_version", return_value="1.4.4"):
-                ensure_duckdb_driver(tmp_path)
+            ensure_duckdb_driver(tmp_path)
 
         mock_ret.assert_called_once()
-        assert (plugins_dir / ".driver-version").read_text().strip() == "1.4.4"
+        assert (
+            plugins_dir / ".driver-version"
+        ).read_text().strip() == METABASE_DUCKDB_DRIVER_VERSION
 
     def test_redownloads_when_version_file_missing(self, tmp_path):
         """ensure_duckdb_driver re-downloads when version file is absent."""
@@ -130,11 +129,12 @@ class TestEnsureDuckdbDriver:
             Path(dest).touch()
 
         with patch("urllib.request.urlretrieve", side_effect=fake_retrieve) as mock_ret:
-            with patch("dango.utils.driver.get_duckdb_version", return_value="1.4.4"):
-                ensure_duckdb_driver(tmp_path)
+            ensure_duckdb_driver(tmp_path)
 
         mock_ret.assert_called_once()
-        assert (plugins_dir / ".driver-version").read_text().strip() == "1.4.4"
+        assert (
+            plugins_dir / ".driver-version"
+        ).read_text().strip() == METABASE_DUCKDB_DRIVER_VERSION
 
 
 @pytest.mark.unit
@@ -262,41 +262,3 @@ class TestImportDashboards:
 
         assert result == expected
         mock_import.assert_called_once_with(tmp_path)
-
-
-@pytest.mark.unit
-class TestEnsureIcuExtension:
-    def test_no_op_when_db_does_not_exist(self, tmp_path):
-        """ensure_icu_extension does nothing when warehouse.duckdb is absent."""
-        with patch("duckdb.connect") as mock_connect:
-            ensure_icu_extension(tmp_path)
-        mock_connect.assert_not_called()
-
-    def test_installs_icu_when_db_exists(self, tmp_path):
-        """ensure_icu_extension runs INSTALL/LOAD icu on existing warehouse."""
-        db_path = tmp_path / "data" / "warehouse.duckdb"
-        db_path.parent.mkdir(parents=True)
-        db_path.touch()
-
-        mock_conn = MagicMock()
-        with patch("duckdb.connect", return_value=mock_conn) as mock_connect:
-            ensure_icu_extension(tmp_path)
-
-        mock_connect.assert_called_once_with(str(db_path))
-        assert mock_conn.execute.call_count == 2
-        mock_conn.execute.assert_any_call("INSTALL icu")
-        mock_conn.execute.assert_any_call("LOAD icu")
-        mock_conn.close.assert_called_once()
-
-    def test_ignores_already_installed_error(self, tmp_path):
-        """ensure_icu_extension swallows exceptions (e.g., already installed)."""
-        db_path = tmp_path / "data" / "warehouse.duckdb"
-        db_path.parent.mkdir(parents=True)
-        db_path.touch()
-
-        mock_conn = MagicMock()
-        mock_conn.execute.side_effect = Exception("already installed")
-        with patch("duckdb.connect", return_value=mock_conn):
-            ensure_icu_extension(tmp_path)  # Should not raise
-
-        mock_conn.close.assert_called_once()

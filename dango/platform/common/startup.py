@@ -52,27 +52,6 @@ def run_pending_migrations(project_root: Path) -> dict[str, Any]:
     return apply_all_pending(project_root)
 
 
-def ensure_icu_extension(project_root: Path) -> None:
-    """Install ICU extension in DuckDB if not already present.
-
-    ICU is required for Metabase timezone support. No-op if the
-    warehouse database does not exist yet.
-    """
-    import duckdb
-
-    duckdb_path = project_root / "data" / "warehouse.duckdb"
-    if not duckdb_path.exists():
-        return
-    conn = duckdb.connect(str(duckdb_path))
-    try:
-        conn.execute("INSTALL icu")
-        conn.execute("LOAD icu")
-    except Exception:
-        pass  # Already installed
-    finally:
-        conn.close()
-
-
 def ensure_dbt_schemas(project_root: Path) -> None:
     """
     Create DuckDB schemas required for Metabase visibility.
@@ -102,9 +81,9 @@ def ensure_duckdb_driver(project_root: Path) -> None:
     import urllib.request
 
     from dango.utils.driver import (
+        METABASE_DUCKDB_DRIVER_VERSION,
         driver_needs_update,
         get_duckdb_driver_url,
-        get_duckdb_version,
         write_driver_version,
     )
 
@@ -126,7 +105,7 @@ def ensure_duckdb_driver(project_root: Path) -> None:
             if attempt > 0:
                 time.sleep(2)
             urllib.request.urlretrieve(driver_url, driver_path)
-            write_driver_version(plugins_dir, get_duckdb_version())
+            write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
             return
         except Exception:
             if attempt == 2:

@@ -22,7 +22,7 @@ Shared utilities for process management, activity logging, sync history tracking
 | `dango_db.py` (~179 lines) | SQLite context manager for `.dango/dango.db` + schema init | `connect()`, `get_connection()` |
 | `post_sync.py` (~486 lines) | Post-sync hook dispatcher | `dispatch_post_sync_hooks()`, `_run_profiling()`, `_run_drift_detection()`, `_run_pii_scan()`, `_run_analysis()` |
 | `git_info.py` | Git repository info and deployment guardrails | `GitInfo`, `GitGuardrailResult`, `collect_git_info()`, `check_git_guardrails()` |
-| `driver.py` | Metabase DuckDB driver version management | `get_duckdb_driver_url()`, `get_duckdb_version()`, `read_driver_version()`, `write_driver_version()`, `driver_needs_update()` |
+| `driver.py` | Metabase DuckDB driver version management (pinned to match Metabase, not DuckDB Python) | `METABASE_DUCKDB_DRIVER_VERSION`, `METABASE_DUCKDB_DRIVER_URL`, `get_duckdb_driver_url()`, `get_duckdb_version()`, `read_driver_version()`, `write_driver_version()`, `driver_needs_update()` |
 
 ## Common Tasks
 

@@ -206,12 +206,6 @@ class ProjectInitializer:
 
         # Always ensure schemas exist (CREATE IF NOT EXISTS is idempotent)
         conn = duckdb.connect(str(duckdb_path))
-        # Install ICU extension for Metabase timezone compatibility
-        try:
-            conn.execute("INSTALL icu")
-            conn.execute("LOAD icu")
-        except Exception:
-            pass  # Already installed
         conn.execute("CREATE SCHEMA IF NOT EXISTS raw")
         conn.execute("CREATE SCHEMA IF NOT EXISTS staging")
         conn.execute("CREATE SCHEMA IF NOT EXISTS intermediate")
@@ -813,9 +807,9 @@ custom_sources/
 
         # Download DuckDB driver (MotherDuck official driver, version-matched)
         from dango.utils.driver import (
+            METABASE_DUCKDB_DRIVER_VERSION,
             driver_needs_update,
             get_duckdb_driver_url,
-            get_duckdb_version,
             write_driver_version,
         )
 
@@ -840,7 +834,7 @@ custom_sources/
                         console.print(f"    Retry {attempt}/2...")
                         time.sleep(2)  # Wait before retry
                     urllib.request.urlretrieve(driver_url, duckdb_driver_path)
-                    write_driver_version(plugins_dir, get_duckdb_version())
+                    write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
                     console.print(
                         f"[green]✓[/green] Downloaded DuckDB driver ({duckdb_driver_path.stat().st_size // 1024 // 1024}MB)"
                     )

@@ -40,7 +40,6 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
     from dango.platform.common.startup import (
         ensure_dbt_schemas,
         ensure_duckdb_driver,
-        ensure_icu_extension,
         import_dashboards,
         rotate_logs,
         run_pending_migrations,
@@ -77,24 +76,21 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
         print(f"Migration failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
-    # 2. ICU extension (Metabase timezone support)
-    ensure_icu_extension(project_root)
-
-    # 3. dbt schemas
+    # 2. dbt schemas
     try:
         ensure_dbt_schemas(project_root)
     except Exception as exc:
         print(f"Schema setup failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
-    # 4. DuckDB driver
+    # 3. DuckDB driver
     try:
         ensure_duckdb_driver(project_root)
     except Exception as exc:
         print(f"DuckDB driver download failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
-    # 5. Docker services
+    # 4. Docker services
     try:
         start_docker_services(project_root)
     except Exception as exc:
@@ -102,7 +98,7 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
         _stop_docker_quiet(project_root)
         raise SystemExit(1) from exc
 
-    # 6. Metabase setup
+    # 5. Metabase setup
     try:
         setup_metabase_if_needed(project_root, project_name, organization)
     except Exception as exc:
@@ -110,7 +106,7 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
         _stop_docker_quiet(project_root)
         raise SystemExit(1) from exc
 
-    # 7. Dashboard import (non-critical)
+    # 6. Dashboard import (non-critical)
     try:
         import_dashboards(project_root)
     except Exception:
