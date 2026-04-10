@@ -722,7 +722,7 @@ def setup_metabase(
             "details": {
                 "database_file": docker_duckdb_path,
                 "old_implicit_casting": True,
-                "read_only": False,
+                "read_only": True,
                 # Note: DuckDB driver doesn't support schema-filters-type/patterns
                 # Users will see all schemas (raw_*, main, staging)
                 # This is a limitation of the DuckDB Metabase driver
