@@ -2,8 +2,8 @@
 
 Metabase DuckDB driver version management.
 
-Provides dynamic driver URL generation based on the installed DuckDB version
-and version tracking to detect when the driver needs re-downloading.
+Provides pinned driver URL and version tracking to detect when the
+driver needs re-downloading.
 """
 
 from __future__ import annotations
@@ -26,13 +26,6 @@ METABASE_DUCKDB_DRIVER_URL = (
     "https://github.com/motherduckdb/metabase_duckdb_driver/"
     f"releases/download/{METABASE_DUCKDB_DRIVER_VERSION}/duckdb.metabase-driver.jar"
 )
-
-
-def get_duckdb_version() -> str:
-    """Return the installed DuckDB version string (e.g. ``"1.4.4"``)."""
-    import duckdb
-
-    return duckdb.__version__
 
 
 def get_duckdb_driver_url() -> str:
@@ -64,7 +57,7 @@ def driver_needs_update(plugins_dir: Path) -> bool:
     Checks:
     1. Driver jar file does not exist → needs update.
     2. Version tracking file is missing → needs update (legacy install).
-    3. Recorded version differs from ``duckdb.__version__`` → needs update.
+    3. Recorded version differs from ``METABASE_DUCKDB_DRIVER_VERSION`` → needs update.
     """
     driver_jar = plugins_dir / "duckdb.metabase-driver.jar"
     if not driver_jar.exists():

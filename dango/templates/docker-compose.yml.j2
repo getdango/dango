@@ -10,6 +10,8 @@ services:
       - "{{ metabase_port }}:3000"
     volumes:
       - metabase-data:/metabase-data
+      # No :ro — DuckDB needs to create temp files during reads.
+      # Write protection is handled by read_only: True in the Metabase DB config.
       - ./data:/data
       - ./metabase-plugins:/app/plugins
     environment:
