@@ -64,17 +64,21 @@ def _get_user_mb_session(request: Request) -> str | None:
 async def _rebridge_if_needed(request: Request, metabase_url: str) -> str | None:
     """Create a fresh Metabase session for the current user.
 
-    Called when a proxied request gets a 401 from Metabase.  Returns the
-    new Metabase session ID, or ``None`` if re-bridging fails.
+    Called when a proxied request has no session cookie or gets a 401/403
+    from Metabase.  Returns the new Metabase session ID, or ``None`` if
+    re-bridging fails.  Passes ``db_path`` so that the bridge can
+    lazy-sync users who were never synced to Metabase.
     """
     user = getattr(request.state, "user", None)
     if user is None:
         return None
     try:
+        from dango.auth.admin import get_auth_db_path
         from dango.auth.metabase_bridge import bridge_metabase_login
 
         project_root = _get_project_root(request)
-        return await bridge_metabase_login(user, project_root, metabase_url)
+        db_path = get_auth_db_path(project_root)
+        return await bridge_metabase_login(user, project_root, metabase_url, db_path=db_path)
     except Exception:
         logger.warning("metabase_rebridge_failed", exc_info=True)
         return None
@@ -126,12 +130,12 @@ async def proxy_to_metabase(
     try:
         response = await _do_proxy(target_url, request.method, headers, body, session_id)
 
-        # Re-bridge on 401 (session expired)
-        if response.status_code == 401 and session_id is not None:
+        # Re-bridge on 401 (session expired) or 403 (stale/mismatched session)
+        if response.status_code in (401, 403) and session_id is not None:
             new_session = await _rebridge_if_needed(request, metabase_url)
             if new_session is not None:
                 response = await _do_proxy(target_url, request.method, headers, body, new_session)
-                if response.status_code != 401:
+                if response.status_code not in (401, 403):
                     # Attach the new session cookie to the response
                     final = _build_response(response)
                     final.set_cookie(
@@ -181,17 +185,37 @@ async def _do_proxy(
         return await client.request(method=method, url=url, headers=proxy_headers, content=body)
 
 
+_SKIP_HEADERS = frozenset(("content-encoding", "transfer-encoding", "content-length"))
+
+
 def _build_response(proxy_response: httpx.Response) -> Response:
-    """Build a FastAPI Response from an httpx response."""
+    """Build a FastAPI Response from an httpx response.
+
+    Uses ``multi_items()`` so that multiple ``Set-Cookie`` headers from
+    Metabase are preserved (a plain dict would keep only the last one).
+    """
     response_headers: dict[str, str] = {}
-    for key, value in proxy_response.headers.items():
-        if key.lower() not in ("content-encoding", "transfer-encoding", "content-length"):
+    set_cookie_values: list[str] = []
+
+    for key, value in proxy_response.headers.multi_items():
+        lower = key.lower()
+        if lower in _SKIP_HEADERS:
+            continue
+        if lower == "set-cookie":
+            set_cookie_values.append(value)
+        else:
             response_headers[key] = value
-    return Response(
+
+    response = Response(
         content=proxy_response.content,
         status_code=proxy_response.status_code,
         headers=response_headers,
     )
+
+    for cookie_value in set_cookie_values:
+        response.headers.append("set-cookie", cookie_value)
+
+    return response
 
 
 # ==============================================================================
@@ -256,13 +280,35 @@ async def metabase_proxy(request: Request, path: str = "") -> Response:
     """Reverse proxy for Metabase with per-user session bridging.
 
     Routes all requests to the configured Metabase URL and uses the
-    user's ``metabase.SESSION`` cookie for authentication.  On 401,
+    user's ``metabase.SESSION`` cookie for authentication.  On 401/403,
     attempts to re-bridge the session transparently.
+
+    When the user is authenticated to Dango but has no ``metabase.SESSION``
+    cookie, auto-bridges before proxying (instead of waiting for a 401
+    that may never come — Metabase returns its login page as 200).
     """
     project_root = _get_project_root(request)
     metabase_url = _get_metabase_url(project_root)
 
     target_path = f"/{path}" if path else "/"
     session_id = _get_user_mb_session(request)
+
+    # Auto-bridge: user is authenticated but has no Metabase session cookie
+    if session_id is None:
+        user = getattr(request.state, "user", None)
+        if user is not None:
+            new_session = await _rebridge_if_needed(request, metabase_url)
+            if new_session is not None:
+                session_id = new_session
+                response = await proxy_to_metabase(request, target_path, session_id, metabase_url)
+                response.set_cookie(
+                    key=_MB_SESSION_COOKIE,
+                    value=new_session,
+                    path="/",
+                    httponly=True,
+                    samesite="lax",
+                    secure=is_secure_request(request.scope),
+                )
+                return response
 
     return await proxy_to_metabase(request, target_path, session_id, metabase_url)

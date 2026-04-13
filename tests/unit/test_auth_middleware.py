@@ -323,6 +323,20 @@ class TestCsrfProtection:
         mw = AuthMiddleware(_noop_app, project_root=_PROJECT_ROOT)
         assert asyncio.run(_collect_response(mw, _make_scope(cookie="v")))["status"] == 200
 
+    @patch(f"{_M}.is_auth_enabled", return_value=True)
+    @patch(f"{_M}.get_auth_db_path")
+    @patch(f"{_M}.sessions.validate_session")
+    def test_metabase_proxy_post_exempt_from_csrf(
+        self, mock_val: Any, mock_db: Any, _m: Any
+    ) -> None:
+        """Cookie auth + POST to /metabase/... without CSRF header: passes (exempt)."""
+        mock_val.return_value = _make_user()
+        mock_db.return_value = _db_exists()
+        mw = AuthMiddleware(_noop_app, project_root=_PROJECT_ROOT)
+        scope = _make_scope(path="/metabase/api/card", method="POST", cookie="v")
+        result = asyncio.run(_collect_response(mw, scope))
+        assert result["status"] == 200
+
 
 # ---------------------------------------------------------------------------
 # Auth precedence
