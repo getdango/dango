@@ -315,3 +315,11 @@ class TestBridgeLazySync:
         ):
             result = self._run(bridge_metabase_login(user, root, db_path=db_path))
             assert result is None
+
+    def test_lazy_sync_no_metabase_url(self, tmp_path: Path) -> None:
+        """When no metabase.yml exists, lazy sync returns None (no URL)."""
+        user = _make_user(metabase_password_enc=None, metabase_user_id=None)
+        db_path = tmp_path / ".dango" / "auth.db"
+        # No _mb_yml() call — metabase.yml does not exist
+        result = self._run(bridge_metabase_login(user, tmp_path, db_path=db_path))
+        assert result is None

@@ -337,6 +337,20 @@ class TestCsrfProtection:
         result = asyncio.run(_collect_response(mw, scope))
         assert result["status"] == 200
 
+    @patch(f"{_M}.is_auth_enabled", return_value=True)
+    @patch(f"{_M}.get_auth_db_path")
+    @patch(f"{_M}.sessions.validate_session")
+    def test_non_metabase_path_still_requires_csrf(
+        self, mock_val: Any, mock_db: Any, _m: Any
+    ) -> None:
+        """POST to /metabase_other/... (similar prefix) still requires CSRF."""
+        mock_val.return_value = _make_user()
+        mock_db.return_value = _db_exists()
+        mw = AuthMiddleware(_noop_app, project_root=_PROJECT_ROOT)
+        scope = _make_scope(path="/metabase_other/api", method="POST", cookie="v")
+        result = asyncio.run(_collect_response(mw, scope))
+        assert result["status"] == 403
+
 
 # ---------------------------------------------------------------------------
 # Auth precedence

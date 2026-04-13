@@ -61,6 +61,23 @@ def _get_user_mb_session(request: Request) -> str | None:
     return request.cookies.get(_MB_SESSION_COOKIE)
 
 
+def _set_mb_session_cookie(response: Response, session_id: str, request: Request) -> None:
+    """Set the ``metabase.SESSION`` cookie on *response*."""
+    response.set_cookie(
+        key=_MB_SESSION_COOKIE,
+        value=session_id,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=is_secure_request(request.scope),
+    )
+
+
+def _clear_mb_session_cookie(response: Response) -> None:
+    """Delete the ``metabase.SESSION`` cookie (stale session)."""
+    response.delete_cookie(key=_MB_SESSION_COOKIE, path="/")
+
+
 async def _rebridge_if_needed(request: Request, metabase_url: str) -> str | None:
     """Create a fresh Metabase session for the current user.
 
@@ -136,17 +153,14 @@ async def proxy_to_metabase(
             if new_session is not None:
                 response = await _do_proxy(target_url, request.method, headers, body, new_session)
                 if response.status_code not in (401, 403):
-                    # Attach the new session cookie to the response
                     final = _build_response(response)
-                    final.set_cookie(
-                        key=_MB_SESSION_COOKIE,
-                        value=new_session,
-                        path="/",
-                        httponly=True,
-                        samesite="lax",
-                        secure=is_secure_request(request.scope),
-                    )
+                    _set_mb_session_cookie(final, new_session, request)
                     return final
+            # Re-bridge failed or retry still 401/403 — clear stale cookie so
+            # the next request hits the auto-bridge path instead of looping.
+            final = _build_response(response)
+            _clear_mb_session_cookie(final)
+            return final
 
         return _build_response(response)
 
@@ -301,14 +315,7 @@ async def metabase_proxy(request: Request, path: str = "") -> Response:
             if new_session is not None:
                 session_id = new_session
                 response = await proxy_to_metabase(request, target_path, session_id, metabase_url)
-                response.set_cookie(
-                    key=_MB_SESSION_COOKIE,
-                    value=new_session,
-                    path="/",
-                    httponly=True,
-                    samesite="lax",
-                    secure=is_secure_request(request.scope),
-                )
+                _set_mb_session_cookie(response, new_session, request)
                 return response
 
     return await proxy_to_metabase(request, target_path, session_id, metabase_url)
