@@ -448,16 +448,10 @@ def _build_model_detail(
     if db_columns:
         for col in db_columns:
             manifest_col = manifest_columns.get(col["name"], {})
-            # Map tests to this column by name pattern
-            col_tests = [
-                t
-                for t in model_tests
-                if t["name"]
-                and (
-                    t["name"].endswith(f"_{model_name}_{col['name']}")
-                    or t["name"].endswith(f"_{col['name']}")
-                )
-            ]
+            # Map tests to this column by dbt naming convention:
+            # test names follow {test_type}_{model}_{column} pattern
+            col_suffix = f"_{model_name}_{col['name']}"
+            col_tests = [t for t in model_tests if t["name"] and t["name"].endswith(col_suffix)]
             columns.append(
                 {
                     "name": col["name"],
@@ -697,15 +691,15 @@ async def get_table_columns(
     project_root = get_project_root()
     db_path = await _validate_and_resolve(source, table, project_root)
 
-    columns, cached_stats, row_count, profiled_at = await asyncio.gather(
+    columns, cached_stats, row_count, profiled_at, manifest = await asyncio.gather(
         asyncio.to_thread(_get_column_schema, db_path, source, table),
         asyncio.to_thread(_get_cached_stats, project_root, source, table),
         asyncio.to_thread(_get_row_count, db_path, source, table),
         asyncio.to_thread(_get_profiled_at, project_root, source, table),
+        asyncio.to_thread(get_dbt_manifest),
     )
 
     # Merge column descriptions from manifest if available
-    manifest = await asyncio.to_thread(get_dbt_manifest)
     col_descriptions: dict[str, str] = {}
     if manifest:
         for src in manifest.get("sources", {}).values():
@@ -871,15 +865,21 @@ async def get_catalog_model(
 
     # Get row count if DuckDB is available and table exists
     if db_path.exists() and schema and table and db_columns:
-        try:
-            conn = duckdb.connect(str(db_path), read_only=True)
+
+        def _count_rows() -> int | None:
             try:
-                count = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()
-                result["row_count"] = count[0] if count else 0
-            finally:
-                conn.close()
-        except Exception:
-            pass
+                conn = duckdb.connect(str(db_path), read_only=True)
+                try:
+                    row = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()
+                    return row[0] if row else 0
+                finally:
+                    conn.close()
+            except Exception:
+                return None
+
+        row_count = await asyncio.to_thread(_count_rows)
+        if row_count is not None:
+            result["row_count"] = row_count
 
     return result
 
