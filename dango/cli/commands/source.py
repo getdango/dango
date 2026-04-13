@@ -167,7 +167,7 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
         # Get last sync times from multiple sources:
         # 1. _dlt_loads table in each raw_{source_name} schema (for dlt-based sources)
         # 2. _dango_file_metadata table in main schema (for CSV sources)
-        last_sync_times: dict[str, object] = {}
+        last_sync_times: dict[str, datetime] = {}
         row_counts: dict[str, int] = {}
         duckdb_path = project_root / "data" / "warehouse.duckdb"
         if duckdb_path.exists():

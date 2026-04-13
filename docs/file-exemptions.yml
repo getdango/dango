@@ -124,7 +124,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/visualization/metabase.py
-    lines: 1150
+    lines: 1152
     category: exempt
     reason: "Metabase REST API wrapper. Methods map 1:1 to API endpoints — splitting would scatter related operations."
     review_by: "v1.1"
@@ -162,7 +162,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/transformation/generator.py
-    lines: 581
+    lines: 593
     category: exempt
     reason: "DbtModelGenerator — generates dbt models from source configs. Stable, rarely modified."
     review_by: "v1.1"

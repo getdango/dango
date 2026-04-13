@@ -550,6 +550,8 @@ def setup_metabase(
         cloud_mode: When True, generate a random admin password instead
             of the default local password. SSO session bridging handles
             user-facing access, so the random password is invisible.
+        admin_email: Email address for the Metabase admin user.
+            Resolved by caller from DANGO_ADMIN_EMAIL env var or auth DB.
 
     Returns:
         Setup summary with credentials

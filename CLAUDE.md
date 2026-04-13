@@ -199,7 +199,7 @@ dango/                          # Python package source
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
-│   ├── metabase.py             # Metabase API (1150 lines)
+│   ├── metabase.py             # Metabase API (1152 lines)
 │   └── dashboard_manager.py    # Dashboard export/import (1113 lines)
 │
 ├── platform/                   # Level 2 — Docker, network, file watcher, scheduling
@@ -256,7 +256,7 @@ dango/                          # Python package source
 │
 ├── transformation/             # Level 1 — dbt model generation & execution
 │   ├── __init__.py             # run_dbt_models(), generate_dbt_docs()
-│   └── generator.py            # DbtModelGenerator (581 lines)
+│   └── generator.py            # DbtModelGenerator (593 lines)
 │
 ├── oauth/                      # Level 1 — OAuth flows
 │   ├── __init__.py             # OAuthManager
@@ -334,7 +334,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `ingestion/dlt_runner.py` | 2276 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2008 | — (metadata-only) |
 | `cli/source_wizard.py` | 2097 | — |
-| `visualization/metabase.py` | 1150 | — |
+| `visualization/metabase.py` | 1152 | — |
 | `cli/init.py` | 1301 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
 | `cli/commands/platform.py` | 983 | — (extracted from main.py by TASK-005) |
@@ -354,7 +354,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/validate.py` | 651 | — |
 | `config/models.py` | 594 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 839 | — (interactive deploy wizard + BYOS) |
-| `transformation/generator.py` | 581 | — |
+| `transformation/generator.py` | 593 | — |
 | `web/routes/catalog.py` | 566 | — (data catalog: columns, profiling, lineage, impact) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/deploy_provision.py` | 704 | — (provisioning orchestration + BYOS) |
