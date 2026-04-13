@@ -22,11 +22,8 @@ SCAN_ENTITIES = [
     "CREDIT_CARD",
     "US_SSN",
     "IP_ADDRESS",
-    "PERSON",
     "IBAN_CODE",
-    "US_PASSPORT",
-    "US_DRIVER_LICENSE",
-    "CRYPTO",
+    "PERSON",
 ]
 
 SCORE_THRESHOLD = 0.5

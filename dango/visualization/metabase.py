@@ -535,6 +535,7 @@ def setup_metabase(
     organization: str | None = None,
     metabase_url: str = "http://localhost:3000",
     cloud_mode: bool = False,
+    admin_email: str = "admin@dango.local",
 ) -> dict[str, Any]:
     """
     Auto-setup Metabase on first start
@@ -589,7 +590,6 @@ def setup_metabase(
         properties = response.json()
         setup_token = properties.get("setup-token")
 
-        admin_email = "admin@dango.local"
         if cloud_mode:
             import secrets as _secrets
 
@@ -1057,6 +1057,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
                         )
                     elif schema == "main" and table_name.startswith("_dango"):
                         description = "⚙️ **INTERNAL** - Dango metadata (do not use)"
+                        visibility_type = "hidden"
                     else:
                         continue  # Skip tables without clear guidance
 

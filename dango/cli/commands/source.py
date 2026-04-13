@@ -167,7 +167,8 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
         # Get last sync times from multiple sources:
         # 1. _dlt_loads table in each raw_{source_name} schema (for dlt-based sources)
         # 2. _dango_file_metadata table in main schema (for CSV sources)
-        last_sync_times = {}
+        last_sync_times: dict[str, object] = {}
+        row_counts: dict[str, int] = {}
         duckdb_path = project_root / "data" / "warehouse.duckdb"
         if duckdb_path.exists():
             try:
@@ -216,6 +217,31 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
                         ):
                             last_sync_times[source_name] = last_sync
 
+                # Get row counts per source
+                for src in sources:
+                    raw_schema = f"raw_{src.name}"
+                    try:
+                        schema_tables = conn.execute(
+                            """
+                            SELECT table_name FROM information_schema.tables
+                            WHERE table_schema = ?
+                              AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'
+                              AND table_name NOT LIKE '\\_dango\\_%' ESCAPE '\\'
+                            """,
+                            [raw_schema],
+                        ).fetchall()
+                        total = 0
+                        for (tbl,) in schema_tables:
+                            cnt = conn.execute(
+                                f'SELECT COUNT(*) FROM "{raw_schema}"."{tbl}"'
+                            ).fetchone()
+                            if cnt:
+                                total += cnt[0]
+                        if total > 0:
+                            row_counts[src.name] = total
+                    except Exception:
+                        pass
+
                 conn.close()
             except Exception:
                 # If we can't read metadata, just skip - last_sync will show "never"
@@ -227,6 +253,7 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
         table.add_column("Type", style="dim")
         table.add_column("Status", style="white")
         table.add_column("Last Sync", style="dim")
+        table.add_column("Rows", style="dim", justify="right")
 
         for src in sources:
             # Status indicator
@@ -258,7 +285,8 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
             else:
                 last_sync = "[dim]never[/dim]"
 
-            table.add_row(src.name, src.type.value, status, last_sync)
+            rows_str = f"{row_counts[src.name]:,}" if src.name in row_counts else "[dim]-[/dim]"
+            table.add_row(src.name, src.type.value, status, last_sync, rows_str)
 
         console.print(table)
         console.print()

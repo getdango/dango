@@ -35,7 +35,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | `dango/ingestion/dlt_sources/` | Vendored third-party dlt connectors (127 files). Rarely modified. |
 | `dango/web/static/` | Frontend HTML/CSS/JS assets. |
 | `tests/` | Read source module first, then find its tests. |
-| `dango/ingestion/sources/registry.py` | 2030-line metadata registry. Only when adding a new source. |
+| `dango/ingestion/sources/registry.py` | 2008-line metadata registry. Only when adding a new source. |
 | `dango/templates/` | Jinja2 templates. Only when modifying project init or model generation. |
 
 ## Decision Tree
@@ -84,7 +84,7 @@ dango/                          # Python package source
 │   │   ├── model.py            # model group (add/remove)
 │   │   ├── platform.py         # start/stop/status + port helpers (979 lines)
 │   │   ├── project.py          # init/rename/info
-│   │   ├── source.py           # source group (add/list/remove) + sync (658 lines)
+│   │   ├── source.py           # source group (add/list/remove) + sync (686 lines)
 │   │   ├── transform.py        # run/docs/generate
 │   │   ├── upgrade.py          # local Dango upgrade via pip + migrations
 │   │   ├── web.py              # web dev server
@@ -199,7 +199,7 @@ dango/                          # Python package source
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
-│   ├── metabase.py             # Metabase API (1149 lines)
+│   ├── metabase.py             # Metabase API (1150 lines)
 │   └── dashboard_manager.py    # Dashboard export/import (1113 lines)
 │
 ├── platform/                   # Level 2 — Docker, network, file watcher, scheduling
@@ -249,14 +249,14 @@ dango/                          # Python package source
 │
 ├── ingestion/                  # Level 1 — Data loading
 │   ├── dlt_runner.py           # ⚠ 2284 lines — orchestrates full sync pipeline
-│   ├── csv_loader.py           # Multi-format file loading with dedup (773 lines)
+│   ├── csv_loader.py           # Multi-format file loading with dedup (766 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (33 source types)
 │   └── dlt_sources/            # ⚠ DO NOT MODIFY — vendored connectors (127 files)
 │
 ├── transformation/             # Level 1 — dbt model generation & execution
 │   ├── __init__.py             # run_dbt_models(), generate_dbt_docs()
-│   └── generator.py            # DbtModelGenerator (577 lines)
+│   └── generator.py            # DbtModelGenerator (581 lines)
 │
 ├── oauth/                      # Level 1 — OAuth flows
 │   ├── __init__.py             # OAuthManager
@@ -332,29 +332,29 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
 | `ingestion/dlt_runner.py` | 2276 | — (exempt, too risky) |
-| `ingestion/sources/registry.py` | 2030 | — (metadata-only) |
-| `cli/source_wizard.py` | 2148 | — |
-| `visualization/metabase.py` | 1149 | — |
+| `ingestion/sources/registry.py` | 2008 | — (metadata-only) |
+| `cli/source_wizard.py` | 2097 | — |
+| `visualization/metabase.py` | 1150 | — |
 | `cli/init.py` | 1301 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
 | `cli/commands/platform.py` | 983 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 812 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 810 | — (extracted from app.py by TASK-085) |
-| `ingestion/csv_loader.py` | 773 | — |
+| `ingestion/csv_loader.py` | 766 | — |
 | `platform/scheduling/jobs.py` | 732 | — (module-level job functions) |
 | `web/routes/schedules.py` | 720 | — (schedule CRUD, history, notifications) |
 | `web/routes/upload.py` | 699 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 670 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
-| `cli/commands/source.py` | 658 | — (extracted from main.py by TASK-005) |
+| `cli/commands/source.py` | 686 | — (extracted from main.py by TASK-005) |
 | `cli/commands/remote.py` | 698 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 578 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 651 | — |
 | `config/models.py` | 594 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 839 | — (interactive deploy wizard + BYOS) |
-| `transformation/generator.py` | 577 | — |
+| `transformation/generator.py` | 581 | — |
 | `web/routes/catalog.py` | 566 | — (data catalog: columns, profiling, lineage, impact) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/deploy_provision.py` | 704 | — (provisioning orchestration + BYOS) |

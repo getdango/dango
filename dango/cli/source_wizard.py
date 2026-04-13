@@ -192,10 +192,6 @@ class SourceWizard:
                     if selected is not None:
                         params["resources"] = selected
 
-                    # Step 4c: Dedup options for local_files
-                    if source_type == "local_files":
-                        params = self._collect_dedup_options(params)
-
                     # All inputs collected, break out of state machine
                     break
 
@@ -1453,53 +1449,6 @@ def {module_name}_resource(api_key: str):
                     return "← Back"
                 if value is not None:
                     params[param["name"]] = value
-
-        return params
-
-    def _collect_dedup_options(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Collect deduplication options for local_files sources."""
-        console.print("\n[bold]Deduplication settings[/bold]")
-
-        choices = [
-            ("Keep latest version (recommended)", "latest_only"),
-            ("Append all records", "append_only"),
-            ("Track history (SCD Type 2)", "scd_type2"),
-            ("No deduplication", "none"),
-        ]
-
-        questions = [
-            inquirer.List(
-                "dedup",
-                message="How should duplicate/updated records be handled?",
-                choices=[(label, val) for label, val in choices],
-                default="latest_only",
-            )
-        ]
-        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
-        if answers:
-            strategy = answers["dedup"]
-            params["deduplication_strategy"] = strategy
-
-            # For strategies that benefit from keys, optionally prompt
-            if strategy in ("latest_only", "scd_type2"):
-                console.print(
-                    "\n[dim]Optional: specify a primary key and timestamp column for smarter dedup.[/dim]"
-                )
-                console.print("[dim]Press Enter to skip (Dango will use file-level dedup).[/dim]")
-
-                pk = inquirer.text(
-                    message="Primary key column (optional)",
-                    default="",
-                )
-                if pk is not None and pk.strip():
-                    params["primary_key"] = pk.strip()
-
-                ts = inquirer.text(
-                    message="Timestamp column (optional)",
-                    default="",
-                )
-                if ts is not None and ts.strip():
-                    params["timestamp_column"] = ts.strip()
 
         return params
 

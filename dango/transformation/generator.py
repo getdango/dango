@@ -115,6 +115,10 @@ class DbtModelGenerator:
             for row in result:
                 column_name, data_type, is_nullable = row
 
+                # Skip internal metadata columns (dlt and dango)
+                if column_name.startswith("_dlt_") or column_name.startswith("_dango_"):
+                    continue
+
                 # Generate tests based on column properties
                 tests = []
                 if is_nullable == "NO":
