@@ -1,5 +1,146 @@
 /* catalog.css — Catalog page styles that can't be achieved with Tailwind */
 
+/* Model type badges */
+.model-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 9999px;
+    line-height: 1.25rem;
+}
+.model-badge-source { background-color: #dbeafe; color: #1e40af; }
+.model-badge-staging { background-color: #d1fae5; color: #065f46; }
+.model-badge-intermediate { background-color: #fef3c7; color: #92400e; }
+.model-badge-marts { background-color: #ede9fe; color: #5b21b6; }
+
+/* Catalog tabs */
+.catalog-tabs {
+    display: flex;
+    gap: 0.25rem;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 1rem;
+}
+.catalog-tab {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #6b7280;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+}
+.catalog-tab:hover { color: #374151; }
+.catalog-tab.active { color: #4f46e5; border-bottom-color: #4f46e5; }
+
+/* Detail sub-tabs */
+.detail-tabs {
+    display: flex;
+    gap: 0.25rem;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 1rem;
+}
+.detail-tab {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #6b7280;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+}
+.detail-tab:hover { color: #374151; }
+.detail-tab.active { color: #4f46e5; border-bottom-color: #4f46e5; }
+
+/* Code view */
+.code-block {
+    background: #1e293b;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    overflow-x: auto;
+    margin-bottom: 1rem;
+}
+.code-block code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: #e2e8f0;
+    white-space: pre;
+}
+.code-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+/* Search bar */
+.catalog-search {
+    width: 100%;
+    padding: 0.5rem 0.75rem 0.5rem 2.25rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.catalog-search:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+.catalog-search-wrapper {
+    position: relative;
+}
+.catalog-search-icon {
+    position: absolute;
+    left: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #9ca3af;
+    pointer-events: none;
+}
+
+/* Description truncation */
+.desc-truncate {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Test status indicators */
+.test-pass { color: #059669; }
+.test-fail { color: #dc2626; }
+
+/* Tag badges */
+.tag-badge {
+    display: inline-flex;
+    padding: 0.0625rem 0.375rem;
+    font-size: 0.6875rem;
+    border-radius: 0.25rem;
+    background: #f3f4f6;
+    color: #4b5563;
+    margin-right: 0.25rem;
+}
+
+/* Dep links */
+.dep-link {
+    color: #4f46e5;
+    cursor: pointer;
+    font-size: 0.875rem;
+}
+.dep-link:hover { text-decoration: underline; }
+
 .sparkline-container {
     display: inline-flex;
     align-items: center;

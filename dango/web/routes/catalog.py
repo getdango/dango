@@ -1,17 +1,18 @@
 """dango/web/routes/catalog.py
 
 Data catalog API endpoints for column schema introspection, profiling,
-lineage, and impact analysis.
+lineage, impact analysis, and unified model browsing.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
 import duckdb
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
@@ -183,6 +184,442 @@ def _table_exists(db_path: Path, source: str, table: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Manifest / model helpers (called via asyncio.to_thread)
+# ---------------------------------------------------------------------------
+
+
+def _get_run_results() -> dict[str, Any] | None:
+    """Load ``dbt/target/run_results.json``.
+
+    Returns:
+        Parsed dict or ``None`` if the file does not exist.
+    """
+    path = get_project_root() / "dbt" / "target" / "run_results.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            result: dict[str, Any] = json.load(f)
+            return result
+    except Exception:
+        logger.warning("Failed to parse run_results.json")
+        return None
+
+
+def _build_test_status_map(
+    manifest: dict[str, Any],
+    run_results: dict[str, Any] | None,
+) -> dict[str, list[dict[str, str | None]]]:
+    """Map model/source unique_ids to their test results.
+
+    Args:
+        manifest: Parsed dbt manifest.
+        run_results: Parsed ``run_results.json`` or ``None``.
+
+    Returns:
+        ``{model_unique_id: [{"name": ..., "status": "pass"|"fail"|"error"|None}]}``.
+    """
+    # Build status lookup from run_results
+    result_status: dict[str, str] = {}
+    if run_results:
+        for r in run_results.get("results", []):
+            uid = r.get("unique_id", "")
+            status = r.get("status", "")
+            if uid and status:
+                result_status[uid] = status
+
+    test_map: dict[str, list[dict[str, str | None]]] = {}
+    for uid, node in manifest.get("nodes", {}).items():
+        if node.get("resource_type") != "test":
+            continue
+        test_name = node.get("name", uid)
+        status = result_status.get(uid)
+        for dep in node.get("depends_on", {}).get("nodes", []):
+            test_map.setdefault(dep, []).append({"name": test_name, "status": status})
+
+    return test_map
+
+
+def _classify_model_type(node: dict[str, Any]) -> str:
+    """Classify a dbt model as ``staging``, ``intermediate``, or ``marts``.
+
+    Classification priority:
+    1. Schema name: ``staging`` / ``intermediate`` / ``marts``.
+    2. Name prefix: ``stg_`` → staging, ``fct_`` / ``dim_`` → marts,
+       ``int_`` → intermediate.
+    3. Fallback: ``intermediate``.
+
+    Args:
+        node: A manifest model node dict.
+
+    Returns:
+        One of ``"staging"``, ``"intermediate"``, ``"marts"``.
+    """
+    schema = (node.get("schema") or "").lower()
+    if schema == "staging":
+        return "staging"
+    if schema == "intermediate":
+        return "intermediate"
+    if schema == "marts":
+        return "marts"
+
+    name = (node.get("name") or "").lower()
+    if name.startswith("stg_"):
+        return "staging"
+    if name.startswith(("fct_", "dim_")):
+        return "marts"
+    if name.startswith("int_"):
+        return "intermediate"
+
+    return "intermediate"
+
+
+def _get_model_column_schema(
+    db_path: Path,
+    schema: str,
+    table: str,
+) -> list[dict[str, Any]]:
+    """Query DuckDB ``information_schema.columns`` for any schema.
+
+    Unlike :func:`_get_column_schema`, this is not restricted to
+    ``raw_*`` schemas — it works for staging, intermediate, and marts.
+
+    Args:
+        db_path: Path to the DuckDB warehouse file.
+        schema: Schema name (e.g. ``staging``, ``marts``).
+        table: Table/view name.
+
+    Returns:
+        List of ``{"name": ..., "type": ..., "nullable": bool}``,
+        or empty list if the table does not exist.
+    """
+    conn = duckdb.connect(str(db_path), read_only=True)
+    try:
+        rows = conn.execute(
+            "SELECT column_name, data_type, is_nullable "
+            "FROM information_schema.columns "
+            f"WHERE table_schema = '{schema}' AND table_name = '{table}' "
+            "ORDER BY ordinal_position"
+        ).fetchall()
+    except Exception:
+        rows = []
+    finally:
+        conn.close()
+
+    return [{"name": r[0], "type": r[1], "nullable": r[2] == "YES"} for r in rows]
+
+
+def _build_catalog_models(
+    manifest: dict[str, Any],
+    run_results: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build the full catalog models + sources response from manifest.
+
+    Args:
+        manifest: Parsed dbt manifest.
+        run_results: Parsed run_results or ``None``.
+
+    Returns:
+        Dict with ``models`` and ``sources`` lists.
+    """
+    test_map = _build_test_status_map(manifest, run_results)
+
+    models: list[dict[str, Any]] = []
+    for uid, node in manifest.get("nodes", {}).items():
+        if node.get("resource_type") != "model":
+            continue
+        columns = node.get("columns", {})
+        cols_documented = sum(1 for c in columns.values() if c.get("description"))
+        tests = test_map.get(uid, [])
+        tests_passing = sum(1 for t in tests if t["status"] == "pass")
+        tests_failing = sum(1 for t in tests if t["status"] in ("fail", "error"))
+
+        models.append(
+            {
+                "unique_id": uid,
+                "name": node.get("name", ""),
+                "type": _classify_model_type(node),
+                "schema": node.get("schema", ""),
+                "materialization": node.get("config", {}).get("materialized", "view"),
+                "description": node.get("description", ""),
+                "test_count": len(tests),
+                "tests_passing": tests_passing,
+                "tests_failing": tests_failing,
+                "columns_total": len(columns),
+                "columns_documented": cols_documented,
+                "tags": node.get("tags", []),
+            }
+        )
+
+    # Sort: type order (staging → intermediate → marts), then name
+    type_order = {"staging": 0, "intermediate": 1, "marts": 2}
+    models.sort(key=lambda m: (type_order.get(m["type"], 1), m["name"].lower()))
+
+    sources: list[dict[str, Any]] = []
+    for uid, src in manifest.get("sources", {}).items():
+        columns = src.get("columns", {})
+        cols_documented = sum(1 for c in columns.values() if c.get("description"))
+        tests = test_map.get(uid, [])
+
+        sources.append(
+            {
+                "unique_id": uid,
+                "name": src.get("name", ""),
+                "type": "source",
+                "schema": src.get("schema", ""),
+                "description": src.get("description", ""),
+                "source_name": src.get("source_name", ""),
+                "test_count": len(tests),
+                "columns_total": len(columns),
+                "columns_documented": cols_documented,
+            }
+        )
+
+    sources.sort(key=lambda s: s["name"].lower())
+
+    return {"models": models, "sources": sources}
+
+
+def _find_model_in_manifest(
+    manifest: dict[str, Any],
+    model_name: str,
+) -> tuple[str | None, dict[str, Any] | None, str]:
+    """Find a model or source by name in the manifest.
+
+    Models are preferred over sources when names collide.
+
+    Args:
+        manifest: Parsed dbt manifest.
+        model_name: Name to search for.
+
+    Returns:
+        Tuple of ``(unique_id, node_dict, kind)`` where *kind* is
+        ``"model"`` or ``"source"``.  Returns ``(None, None, "")``
+        if not found.
+    """
+    # Search models first
+    for uid, node in manifest.get("nodes", {}).items():
+        if node.get("resource_type") == "model" and node.get("name") == model_name:
+            return uid, node, "model"
+    # Then sources
+    for uid, src in manifest.get("sources", {}).items():
+        if src.get("name") == model_name:
+            return uid, src, "source"
+    return None, None, ""
+
+
+def _build_model_detail(
+    manifest: dict[str, Any],
+    run_results: dict[str, Any] | None,
+    target_uid: str,
+    target_node: dict[str, Any],
+    kind: str,
+    db_columns: list[dict[str, Any]],
+    profiled_at: str | None,
+) -> dict[str, Any]:
+    """Build the detail response for a single model or source.
+
+    Args:
+        manifest: Full dbt manifest.
+        run_results: Parsed run_results or ``None``.
+        target_uid: The unique_id of the target.
+        target_node: The manifest node dict.
+        kind: ``"model"`` or ``"source"``.
+        db_columns: Column schema from DuckDB (may be empty).
+        profiled_at: Last profiling timestamp or ``None``.
+
+    Returns:
+        Full detail response dict.
+    """
+    test_map = _build_test_status_map(manifest, run_results)
+    model_tests = test_map.get(target_uid, [])
+    manifest_columns = target_node.get("columns", {})
+
+    # Build reverse dependency map
+    reverse_map: dict[str, list[str]] = {}
+    for uid, node in manifest.get("nodes", {}).items():
+        if node.get("resource_type") == "model":
+            for dep in node.get("depends_on", {}).get("nodes", []):
+                reverse_map.setdefault(dep, []).append(uid)
+
+    # Merge DuckDB columns with manifest column descriptions
+    model_name = target_node.get("name", "")
+    columns: list[dict[str, Any]] = []
+    if db_columns:
+        for col in db_columns:
+            manifest_col = manifest_columns.get(col["name"], {})
+            # Map tests to this column by dbt naming convention:
+            # test names follow {test_type}_{model}_{column} pattern
+            col_suffix = f"_{model_name}_{col['name']}"
+            col_tests = [t for t in model_tests if t["name"] and t["name"].endswith(col_suffix)]
+            columns.append(
+                {
+                    "name": col["name"],
+                    "type": col["type"],
+                    "nullable": col["nullable"],
+                    "description": manifest_col.get("description") or None,
+                    "tests": col_tests if col_tests else None,
+                    "stats": None,
+                }
+            )
+    else:
+        # Model not materialised — show manifest columns without type info
+        for col_name, col_info in manifest_columns.items():
+            columns.append(
+                {
+                    "name": col_name,
+                    "type": None,
+                    "nullable": None,
+                    "description": col_info.get("description") or None,
+                    "tests": None,
+                    "stats": None,
+                }
+            )
+
+    result: dict[str, Any] = {
+        "unique_id": target_uid,
+        "name": model_name,
+        "schema": target_node.get("schema", ""),
+        "description": target_node.get("description", ""),
+        "tags": target_node.get("tags", []),
+        "meta": target_node.get("meta", {}),
+        "columns": columns,
+        "depends_on": target_node.get("depends_on", {}).get("nodes", []),
+        "depended_on_by": reverse_map.get(target_uid, []),
+        "tests": model_tests if model_tests else None,
+        "row_count": None,
+        "profiled_at": profiled_at,
+    }
+
+    if kind == "model":
+        result["type"] = _classify_model_type(target_node)
+        result["materialization"] = target_node.get("config", {}).get("materialized", "view")
+        result["raw_code"] = target_node.get("raw_code") or target_node.get("raw_sql")
+        result["compiled_code"] = target_node.get("compiled_code") or target_node.get(
+            "compiled_sql"
+        )
+    else:
+        result["type"] = "source"
+        result["materialization"] = None
+        result["raw_code"] = None
+        result["compiled_code"] = None
+        result["source_name"] = target_node.get("source_name", "")
+
+    return result
+
+
+def _search_manifest(
+    manifest: dict[str, Any],
+    query: str,
+) -> list[dict[str, Any]]:
+    """Search manifest models and sources by name, description, column names.
+
+    Args:
+        manifest: Parsed dbt manifest.
+        query: Case-insensitive search string.
+
+    Returns:
+        List of search result dicts (max 50).
+    """
+    q = query.lower()
+    name_matches: list[dict[str, Any]] = []
+    desc_matches: list[dict[str, Any]] = []
+    col_matches: list[dict[str, Any]] = []
+
+    # Search models
+    for uid, node in manifest.get("nodes", {}).items():
+        if node.get("resource_type") != "model":
+            continue
+        name = node.get("name", "")
+        desc = node.get("description", "")
+        model_type = _classify_model_type(node)
+
+        if q in name.lower():
+            name_matches.append(
+                {
+                    "unique_id": uid,
+                    "name": name,
+                    "type": model_type,
+                    "description": desc,
+                    "match_type": "name",
+                }
+            )
+            continue
+
+        if desc and q in desc.lower():
+            desc_matches.append(
+                {
+                    "unique_id": uid,
+                    "name": name,
+                    "type": model_type,
+                    "description": desc,
+                    "match_type": "description",
+                }
+            )
+            continue
+
+        for col_name in node.get("columns", {}):
+            if q in col_name.lower():
+                col_matches.append(
+                    {
+                        "unique_id": uid,
+                        "name": name,
+                        "type": model_type,
+                        "description": desc,
+                        "match_type": "column",
+                        "matched_column": col_name,
+                    }
+                )
+                break
+
+    # Search sources
+    for uid, src in manifest.get("sources", {}).items():
+        name = src.get("name", "")
+        desc = src.get("description", "")
+
+        if q in name.lower():
+            name_matches.append(
+                {
+                    "unique_id": uid,
+                    "name": name,
+                    "type": "source",
+                    "description": desc,
+                    "match_type": "name",
+                }
+            )
+            continue
+
+        if desc and q in desc.lower():
+            desc_matches.append(
+                {
+                    "unique_id": uid,
+                    "name": name,
+                    "type": "source",
+                    "description": desc,
+                    "match_type": "description",
+                }
+            )
+            continue
+
+        for col_name in src.get("columns", {}):
+            if q in col_name.lower():
+                col_matches.append(
+                    {
+                        "unique_id": uid,
+                        "name": name,
+                        "type": "source",
+                        "description": desc,
+                        "match_type": "column",
+                        "matched_column": col_name,
+                    }
+                )
+                break
+
+    results = name_matches + desc_matches + col_matches
+    return results[:50]
+
+
+# ---------------------------------------------------------------------------
 # Shared validation
 # ---------------------------------------------------------------------------
 
@@ -254,15 +691,30 @@ async def get_table_columns(
     project_root = get_project_root()
     db_path = await _validate_and_resolve(source, table, project_root)
 
-    columns, cached_stats, row_count, profiled_at = await asyncio.gather(
+    columns, cached_stats, row_count, profiled_at, manifest = await asyncio.gather(
         asyncio.to_thread(_get_column_schema, db_path, source, table),
         asyncio.to_thread(_get_cached_stats, project_root, source, table),
         asyncio.to_thread(_get_row_count, db_path, source, table),
         asyncio.to_thread(_get_profiled_at, project_root, source, table),
+        asyncio.to_thread(get_dbt_manifest),
     )
+
+    # Merge column descriptions from manifest if available
+    col_descriptions: dict[str, str] = {}
+    if manifest:
+        for src in manifest.get("sources", {}).values():
+            if src.get("name") == table:
+                src_schema = src.get("schema", "")
+                if src_schema == f"raw_{source}" or src_schema == source:
+                    for cname, cinfo in src.get("columns", {}).items():
+                        desc = cinfo.get("description", "")
+                        if desc:
+                            col_descriptions[cname] = desc
+                    break
 
     for col in columns:
         col["stats"] = cached_stats.get(col["name"])
+        col["description"] = col_descriptions.get(col["name"])
 
     return {
         "source": source,
@@ -317,6 +769,145 @@ async def refresh_table_profile(
         "profiled_at": profiled_at,
         "columns": columns,
     }
+
+
+# ---------------------------------------------------------------------------
+# Catalog model endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/catalog/models")
+async def list_catalog_models(
+    user: User = Depends(require_permission("governance.view")),  # noqa: ARG001
+) -> dict[str, Any]:
+    """List all models and sources from the dbt manifest.
+
+    Returns models categorized by type (staging/intermediate/marts) and
+    sources.  Degrades gracefully when no manifest exists.
+
+    Args:
+        user: Authenticated user with ``governance.view`` permission.
+
+    Returns:
+        Dict with ``models`` and ``sources`` lists.
+    """
+    manifest, run_results = await asyncio.gather(
+        asyncio.to_thread(get_dbt_manifest),
+        asyncio.to_thread(_get_run_results),
+    )
+
+    if manifest is None:
+        return {"models": [], "sources": []}
+
+    return await asyncio.to_thread(_build_catalog_models, manifest, run_results)
+
+
+@router.get("/api/catalog/models/{model_name}")
+async def get_catalog_model(
+    model_name: str,
+    user: User = Depends(require_permission("governance.view")),  # noqa: ARG001
+) -> dict[str, Any]:
+    """Return detailed information for a single model or source.
+
+    Includes column schema (merged with manifest descriptions), SQL code,
+    test results, tags, and dependency information.
+
+    Args:
+        model_name: Model or source name (URL path parameter).
+        user: Authenticated user with ``governance.view`` permission.
+
+    Returns:
+        Full model/source detail response.
+    """
+    model_name = validate_identifier(model_name)
+    project_root = get_project_root()
+
+    manifest, run_results = await asyncio.gather(
+        asyncio.to_thread(get_dbt_manifest),
+        asyncio.to_thread(_get_run_results),
+    )
+
+    if manifest is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No dbt manifest found. Run dbt first.",
+        )
+
+    target_uid, target_node, kind = _find_model_in_manifest(manifest, model_name)
+    if target_uid is None or target_node is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model or source '{model_name}' not found in manifest.",
+        )
+
+    # Determine schema + table for DuckDB column lookup
+    db_path = project_root / "data" / "warehouse.duckdb"
+    schema = target_node.get("schema", "")
+    table = target_node.get("name", "")
+
+    db_columns: list[dict[str, Any]] = []
+    profiled_at: str | None = None
+
+    if db_path.exists() and schema and table:
+        db_columns = await asyncio.to_thread(_get_model_column_schema, db_path, schema, table)
+
+    # For source tables, try to get profiled_at
+    if kind == "source":
+        source_name = target_node.get("source_name", "")
+        if source_name:
+            profiled_at = await asyncio.to_thread(
+                _get_profiled_at, project_root, source_name, table
+            )
+
+    result = _build_model_detail(
+        manifest, run_results, target_uid, target_node, kind, db_columns, profiled_at
+    )
+
+    # Get row count if DuckDB is available and table exists
+    if db_path.exists() and schema and table and db_columns:
+
+        def _count_rows() -> int | None:
+            try:
+                conn = duckdb.connect(str(db_path), read_only=True)
+                try:
+                    row = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()
+                    return row[0] if row else 0
+                finally:
+                    conn.close()
+            except Exception:
+                return None
+
+        row_count = await asyncio.to_thread(_count_rows)
+        if row_count is not None:
+            result["row_count"] = row_count
+
+    return result
+
+
+@router.get("/api/catalog/search")
+async def search_catalog(
+    q: str = Query(..., min_length=2, max_length=100),
+    user: User = Depends(require_permission("governance.view")),  # noqa: ARG001
+) -> dict[str, Any]:
+    """Search across model names, descriptions, and column names.
+
+    Args:
+        q: Search query (2–100 characters).
+        user: Authenticated user with ``governance.view`` permission.
+
+    Returns:
+        Dict with ``query`` and ``results`` list.
+    """
+    query = q.strip()
+    if len(query) < 2:
+        raise HTTPException(status_code=400, detail="Query must be at least 2 characters.")
+
+    manifest = await asyncio.to_thread(get_dbt_manifest)
+    if manifest is None:
+        return {"query": query, "results": []}
+
+    results = await asyncio.to_thread(_search_manifest, manifest, query)
+    return {"query": query, "results": results}
 
 
 # ---------------------------------------------------------------------------

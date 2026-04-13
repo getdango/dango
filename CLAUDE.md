@@ -180,7 +180,7 @@ dango/                          # Python package source
 │   │   ├── metabase_proxy.py   # Metabase reverse proxy + SSO session
 │   │   ├── secrets.py          # Secrets + OAuth credential management (admin-only)
 │   │   ├── oauth_connect.py    # Web-based OAuth connect/callback
-│   │   ├── catalog.py          # Data catalog: columns, profiling, lineage, impact (566 lines)
+│   │   ├── catalog.py          # Data catalog: columns, profiling, lineage, impact, models, search (1157 lines)
 │   │   ├── governance.py       # Schema drift + PII results API
 │   │   ├── insights.py         # Metric results, run trigger, history
 │   │   ├── notebooks.py        # Notebook management API + page route
@@ -355,7 +355,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `config/models.py` | 594 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 839 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 593 | — |
-| `web/routes/catalog.py` | 566 | — (data catalog: columns, profiling, lineage, impact) |
+| `web/routes/catalog.py` | 1157 | — (data catalog: columns, profiling, lineage, impact, models, search) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/deploy_provision.py` | 704 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 542 | — (DO REST API v2 client) |
