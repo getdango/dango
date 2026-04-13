@@ -125,28 +125,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "optional_params": [
             {
-                "name": "deduplication_strategy",
-                "type": "choice",
-                "prompt": "Deduplication strategy",
-                "choices": ["latest_only", "append_only", "scd_type2", "none"],
-                "default": "latest_only",
-                "help": "How to handle duplicate/updated records",
-            },
-            {
-                "name": "primary_key",
-                "type": "string",
-                "prompt": "Primary key column",
-                "default": None,
-                "help": "Column to use as primary key for deduplication (optional)",
-            },
-            {
-                "name": "timestamp_column",
-                "type": "string",
-                "prompt": "Timestamp column",
-                "default": None,
-                "help": "Column to use for ordering in latest_only/scd_type2 strategies (optional)",
-            },
-            {
                 "name": "notes",
                 "type": "text",
                 "prompt": "Notes on how to refresh this data",

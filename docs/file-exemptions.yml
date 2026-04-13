@@ -81,7 +81,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 658
+    lines: 686
     category: exempt
     reason: "Source management commands (add/list/remove) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation."
     review_by: "v1.1"
@@ -112,19 +112,19 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/ingestion/sources/registry.py
-    lines: 2030
+    lines: 2008
     category: exempt
     reason: "Source metadata registry. Declarative data (no logic), naturally grows with each new source type. P5-011 added capability metadata (+313 lines). 5c-007 added local_files entry (+70 lines)."
     review_by: "v1.1"
 
   - file: dango/cli/source_wizard.py
-    lines: 2148
+    lines: 2097
     category: exempt
     reason: "Interactive source configuration wizard. Sequential prompting logic doesn't benefit from splitting. P7-011 added metrics generation. P5c grew +529 lines (credential unification, resource selection, dedup collection). P8-001 added REST API wizard enhancements: headers, query params, endpoint testing, data_selector/primary_key suggestions (+267 lines)."
     review_by: "v1.1"
 
   - file: dango/visualization/metabase.py
-    lines: 1149
+    lines: 1152
     category: exempt
     reason: "Metabase REST API wrapper. Methods map 1:1 to API endpoints — splitting would scatter related operations."
     review_by: "v1.1"
@@ -150,7 +150,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/ingestion/csv_loader.py
-    lines: 773
+    lines: 766
     category: exempt
     reason: "Multi-format file loading (CSV, JSON, JSONL, Parquet) with deduplication. Single-purpose module, stable."
     review_by: "v1.1"
@@ -162,7 +162,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/transformation/generator.py
-    lines: 577
+    lines: 593
     category: exempt
     reason: "DbtModelGenerator — generates dbt models from source configs. Stable, rarely modified."
     review_by: "v1.1"

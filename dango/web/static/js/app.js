@@ -640,6 +640,7 @@ async function apiCall(endpoint, method = 'GET', body = null, timeoutMs = 5000) 
         method,
         headers: {
             'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
         },
         signal: controller.signal,
     };
@@ -1569,7 +1570,10 @@ async function handleFileDelete(sourceName, filePath, filename, safeFilename) {
     try {
         // Call DELETE endpoint
         const response = await fetch(`/api/sources/${sourceName}/csv-files?file_path=${encodeURIComponent(filePath)}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+            }
         });
 
         const result = await response.json();
@@ -1664,6 +1668,9 @@ async function handleCsvUpload() {
             try {
                 const response = await fetch(`/api/sources/${sourceName}/upload-csv`, {
                     method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
                     body: formData
                 });
 

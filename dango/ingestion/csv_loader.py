@@ -103,13 +103,6 @@ class CSVLoader:
         # Connect to DuckDB (needed even if no files exist, to process deletions)
         conn = duckdb.connect(str(self.duckdb_path))
 
-        # Setup ICU extension for Metabase compatibility
-        try:
-            conn.execute("INSTALL icu")
-            conn.execute("LOAD icu")
-        except Exception:
-            pass  # Already installed
-
         # Create schema
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {target_schema}")
 

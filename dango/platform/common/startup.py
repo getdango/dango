@@ -217,6 +217,8 @@ def setup_metabase_if_needed(
     Raises:
         RuntimeError: If DuckDB connection fails (critical — services must stop)
     """
+    import os
+
     from dango.config.helpers import is_cloud_mode
     from dango.visualization.metabase import setup_metabase
 
@@ -224,8 +226,31 @@ def setup_metabase_if_needed(
     if credentials_file.exists():
         return {"already_configured": True, "success": True}
 
+    # Resolve admin email: env var > auth DB > fallback
+    admin_email = os.environ.get("DANGO_ADMIN_EMAIL", "")
+    if not admin_email:
+        try:
+            from dango.auth.admin import get_auth_db_path
+            from dango.auth.database import list_users
+            from dango.auth.models import Role
+
+            db_path = get_auth_db_path(project_root)
+            if db_path.exists():
+                users = list_users(db_path, active_only=True)
+                admins = [u for u in users if u.role == Role.ADMIN]
+                if admins and admins[0].email != "admin@dango.local":
+                    admin_email = admins[0].email
+        except Exception:
+            pass
+    if not admin_email:
+        admin_email = "admin@dango.local"
+
     setup_result = setup_metabase(
-        project_root, project_name, organization, cloud_mode=is_cloud_mode(project_root)
+        project_root,
+        project_name,
+        organization,
+        cloud_mode=is_cloud_mode(project_root),
+        admin_email=admin_email,
     )
 
     # DuckDB connection failure is critical — caller must roll back Docker

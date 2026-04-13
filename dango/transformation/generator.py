@@ -483,8 +483,17 @@ class DbtModelGenerator:
                         )
                         continue
 
+                    # Filter internal metadata columns for staging context
+                    staging_columns = [
+                        c
+                        for c in columns
+                        if not c["name"].startswith("_dlt_") and not c["name"].startswith("_dango_")
+                    ]
+
                     # Infer deduplication strategy
-                    dedup_strategy, dedup_columns = self.infer_dedup_strategy(source, columns)
+                    dedup_strategy, dedup_columns = self.infer_dedup_strategy(
+                        source, staging_columns
+                    )
 
                     # Generate staging model SQL
                     model_sql = self.generate_staging_model(
@@ -503,13 +512,19 @@ class DbtModelGenerator:
                         {
                             "endpoint": endpoint,
                             "model": str(model_file),
-                            "columns": len(columns),
+                            "columns": len(staging_columns),
                             "dedup_strategy": dedup_strategy or "none",
                         }
                     )
 
-                    # Add to sources.yml tables list
-                    tables_for_yml.append({"name": table_name, "columns": columns})
+                    # Add to sources.yml tables list (all columns including internal)
+                    tables_for_yml.append(
+                        {
+                            "name": table_name,
+                            "columns": columns,
+                            "staging_columns": staging_columns,
+                        }
+                    )
 
                 # Generate sources.yml for all tables (documents raw tables)
                 sources_file = None
@@ -521,6 +536,7 @@ class DbtModelGenerator:
                         f.write(sources_yml)
 
                     # Generate staging schema.yml (documents staging models)
+                    # Uses staging_columns (excludes _dlt_*/_dango_* internal columns)
                     staging_models_for_yml = []
                     for table in tables_for_yml:
                         staging_models_for_yml.append(
@@ -528,7 +544,7 @@ class DbtModelGenerator:
                                 "name": f"stg_{source.name}__{table['name']}",
                                 "table_name": table["name"],
                                 "schema_name": schema_name,
-                                "columns": table["columns"],
+                                "columns": table.get("staging_columns", table["columns"]),
                             }
                         )
 

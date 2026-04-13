@@ -54,6 +54,11 @@ def build_schema_table_mapping(config: DangoConfig) -> tuple[dict[str, set[str]]
                 # No explicit endpoints - schema will be discovered from DB
                 if schema_name not in schema_to_tables:
                     schema_to_tables[schema_name] = set()
+        else:
+            # Source uses generic_config (no typed config model)
+            # Still register the schema so its tables aren't flagged as orphaned
+            if schema_name not in schema_to_tables:
+                schema_to_tables[schema_name] = set()
 
     return schema_to_tables, source_to_schema
 
