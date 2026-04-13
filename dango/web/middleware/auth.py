@@ -174,9 +174,12 @@ class AuthMiddleware:
             return
 
         # CSRF check (cookie-auth only, state-changing methods)
+        # Metabase proxy routes are exempt: Metabase's own frontend sends
+        # POSTs without Dango CSRF headers, and Metabase has its own CSRF
+        # protection.  Dango auth is still required (not a public route).
         method: str = scope.get("method", "GET")
         if auth_method == "session" and method not in _SAFE_METHODS:
-            if not _has_csrf_header(headers):
+            if not path.startswith("/metabase/") and not _has_csrf_header(headers):
                 response = _make_403_json("CSRF validation failed")
                 await response(scope, receive, send)
                 return

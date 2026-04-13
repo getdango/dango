@@ -56,21 +56,56 @@ async def bridge_metabase_login(
     user: User,
     project_root: Path,
     metabase_url: str | None = None,
+    *,
+    db_path: Path | None = None,
 ) -> str | None:
     """Create a Metabase session for *user* using their encrypted password.
 
     Returns the Metabase session ID on success, or ``None`` if bridging
     cannot proceed (no credentials, Metabase down, etc.).
+
+    When *db_path* is provided and the user has no Metabase credentials,
+    attempts a lazy sync (creating the Metabase account on the fly) before
+    giving up.  This handles the case where Metabase was not ready at
+    startup and the initial sync silently failed.
     """
     try:
         if user.metabase_password_enc is None or user.metabase_user_id is None:
-            logger.debug("Metabase bridge skip: no credentials for %s", user.email)
-            return None
+            if db_path is None:
+                logger.debug("Metabase bridge skip: no credentials for %s", user.email)
+                return None
+
+            # Lazy sync: user was never synced to Metabase
+            logger.info("Metabase bridge: attempting lazy sync for %s", user.email)
+            if metabase_url is None:
+                metabase_url = await get_metabase_url(project_root)
+            if metabase_url is None:
+                return None
+
+            from dango.auth.metabase_sync import sync_user_to_metabase
+
+            mb_id = await asyncio.to_thread(
+                sync_user_to_metabase, db_path, user.id, project_root, metabase_url
+            )
+            if mb_id is None:
+                logger.warning("Metabase bridge: lazy sync failed for %s", user.email)
+                return None
+
+            # Reload user to get fresh metabase_password_enc
+            from dango.auth.database import get_user_by_id
+
+            refreshed = await asyncio.to_thread(get_user_by_id, db_path, user.id)
+            if refreshed is None or refreshed.metabase_password_enc is None:
+                return None
+            user = refreshed
 
         if metabase_url is None:
             metabase_url = await get_metabase_url(project_root)
         if metabase_url is None:
             logger.debug("Metabase bridge skip: no URL configured")
+            return None
+
+        if user.metabase_password_enc is None:
             return None
 
         from dango.auth.metabase_sync import decrypt_metabase_password

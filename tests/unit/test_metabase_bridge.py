@@ -259,3 +259,67 @@ class TestEnsureMetabaseSynced:
             self._run(
                 ensure_metabase_synced(tmp_path / "auth.db", "user-1", tmp_path, "http://mb:3000")
             )
+
+
+# ---------------------------------------------------------------------------
+# bridge_metabase_login — lazy sync fallback
+# ---------------------------------------------------------------------------
+
+_GET_USER_TARGET = "dango.auth.database.get_user_by_id"
+
+
+@pytest.mark.unit
+class TestBridgeLazySync:
+    """Tests for lazy sync fallback when user has no Metabase credentials."""
+
+    def _run(self, coro: Any) -> Any:
+        return asyncio.run(coro)
+
+    def test_lazy_sync_on_missing_credentials(self, tmp_path: Path) -> None:
+        """When db_path provided and user has no credentials, lazy sync + bridge."""
+        root = _mb_yml(tmp_path)
+        user_no_creds = _make_user(metabase_password_enc=None, metabase_user_id=None)
+        user_with_creds = _make_user()  # has metabase_password_enc + metabase_user_id
+        db_path = root / ".dango" / "auth.db"
+
+        mock_client = _mock_httpx_client("post", _resp(200, {"id": "lazy-sess-123"}))
+
+        with (
+            patch(_SYNC_TARGET, return_value=42),
+            patch(_GET_USER_TARGET, return_value=user_with_creds),
+            patch(_DECRYPT_TARGET, return_value="mb_pw"),
+            patch(_HTTPX_CLIENT, return_value=mock_client),
+        ):
+            result = self._run(bridge_metabase_login(user_no_creds, root, db_path=db_path))
+            assert result == "lazy-sess-123"
+
+    def test_lazy_sync_failure(self, tmp_path: Path) -> None:
+        """When lazy sync returns None, bridge returns None."""
+        root = _mb_yml(tmp_path)
+        user = _make_user(metabase_password_enc=None, metabase_user_id=None)
+        db_path = root / ".dango" / "auth.db"
+
+        with patch(_SYNC_TARGET, return_value=None):
+            result = self._run(bridge_metabase_login(user, root, db_path=db_path))
+            assert result is None
+
+    def test_lazy_sync_user_reload_fails(self, tmp_path: Path) -> None:
+        """When sync succeeds but user reload returns None, bridge returns None."""
+        root = _mb_yml(tmp_path)
+        user = _make_user(metabase_password_enc=None, metabase_user_id=None)
+        db_path = root / ".dango" / "auth.db"
+
+        with (
+            patch(_SYNC_TARGET, return_value=42),
+            patch(_GET_USER_TARGET, return_value=None),
+        ):
+            result = self._run(bridge_metabase_login(user, root, db_path=db_path))
+            assert result is None
+
+    def test_lazy_sync_no_metabase_url(self, tmp_path: Path) -> None:
+        """When no metabase.yml exists, lazy sync returns None (no URL)."""
+        user = _make_user(metabase_password_enc=None, metabase_user_id=None)
+        db_path = tmp_path / ".dango" / "auth.db"
+        # No _mb_yml() call — metabase.yml does not exist
+        result = self._run(bridge_metabase_login(user, tmp_path, db_path=db_path))
+        assert result is None

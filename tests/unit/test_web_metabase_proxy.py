@@ -294,3 +294,132 @@ class TestProxyRebridge:
         assert resp.status_code == 200
         mock_proxy.assert_called_once()
         mock_rebridge.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Auto-bridge on missing session (BUG-011)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestAutobridge:
+    """Tests for auto-bridging when user has no metabase.SESSION cookie."""
+
+    def test_auto_bridge_on_missing_session(self, tmp_path: Path) -> None:
+        """Authenticated user without cookie gets auto-bridged session."""
+        app = _make_proxy_app(tmp_path)
+        client = TestClient(app, raise_server_exceptions=False)
+        # No metabase.SESSION cookie set
+
+        ok_resp = _httpx_response(200, b"dashboard html")
+
+        with (
+            patch(_DO_PROXY, new_callable=AsyncMock, return_value=ok_resp),
+            patch(_REBRIDGE, new_callable=AsyncMock, return_value="auto-sess-new"),
+            patch(_GET_MB_URL, return_value="http://mb:3000"),
+        ):
+            resp = client.get("/metabase/")
+
+        assert resp.status_code == 200
+        assert resp.text == "dashboard html"
+        assert "metabase.SESSION" in resp.cookies
+        assert resp.cookies["metabase.SESSION"] == "auto-sess-new"
+
+    def test_auto_bridge_failure_passes_through(self, tmp_path: Path) -> None:
+        """If auto-bridge fails, request is proxied without session (Metabase login page)."""
+        app = _make_proxy_app(tmp_path)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        login_page = _httpx_response(200, b"<html>Metabase Login</html>")
+
+        with (
+            patch(_DO_PROXY, new_callable=AsyncMock, return_value=login_page),
+            patch(_REBRIDGE, new_callable=AsyncMock, return_value=None),
+            patch(_GET_MB_URL, return_value="http://mb:3000"),
+        ):
+            resp = client.get("/metabase/")
+
+        assert resp.status_code == 200
+        assert b"Metabase Login" in resp.content
+        assert "metabase.SESSION" not in resp.cookies
+
+
+# ---------------------------------------------------------------------------
+# 403 re-bridge (BUG-015)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestProxy403Rebridge:
+    """Tests for re-bridging on 403 responses from Metabase."""
+
+    def test_403_rebridge_retry_succeeds(self, tmp_path: Path) -> None:
+        """On 403, proxy re-bridges and retries; new cookie is set."""
+        app = _make_proxy_app(tmp_path)
+        client = TestClient(app, raise_server_exceptions=False)
+        client.cookies.set("metabase.SESSION", "stale-sess")
+
+        first_resp = _httpx_response(403, b"Forbidden")
+        retry_resp = _httpx_response(200, b"dashboard data")
+
+        with (
+            patch(_DO_PROXY, new_callable=AsyncMock, side_effect=[first_resp, retry_resp]),
+            patch(_REBRIDGE, new_callable=AsyncMock, return_value="fresh-sess"),
+            patch(_GET_MB_URL, return_value="http://mb:3000"),
+        ):
+            resp = client.get("/metabase/api/card")
+
+        assert resp.status_code == 200
+        assert resp.text == "dashboard data"
+        assert "metabase.SESSION" in resp.cookies
+        assert resp.cookies["metabase.SESSION"] == "fresh-sess"
+
+    def test_403_rebridge_fails_returns_403(self, tmp_path: Path) -> None:
+        """On 403, if re-bridge fails, original 403 is returned."""
+        app = _make_proxy_app(tmp_path)
+        client = TestClient(app, raise_server_exceptions=False)
+        client.cookies.set("metabase.SESSION", "stale-sess")
+
+        first_resp = _httpx_response(403, b"Forbidden")
+
+        with (
+            patch(_DO_PROXY, new_callable=AsyncMock, return_value=first_resp),
+            patch(_REBRIDGE, new_callable=AsyncMock, return_value=None),
+            patch(_GET_MB_URL, return_value="http://mb:3000"),
+        ):
+            resp = client.get("/metabase/api/card")
+
+        assert resp.status_code == 403
+        assert "metabase.SESSION" not in resp.cookies
+
+
+# ---------------------------------------------------------------------------
+# _build_response multi-header preservation (BUG-014)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestBuildResponse:
+    """Tests for _build_response preserving multi-valued headers."""
+
+    def test_preserves_multi_set_cookie(self) -> None:
+        """Multiple Set-Cookie headers from Metabase are all forwarded."""
+        from dango.web.routes.metabase_proxy import _build_response
+
+        raw_response = httpx.Response(
+            status_code=200,
+            content=b"ok",
+            headers=[
+                ("content-type", "text/html"),
+                ("set-cookie", "cookie1=val1; Path=/"),
+                ("set-cookie", "cookie2=val2; Path=/; HttpOnly"),
+            ],
+        )
+        result = _build_response(raw_response)
+
+        assert result.status_code == 200
+        # Collect all set-cookie headers from the response
+        set_cookies = [v for k, v in result.headers.items() if k.lower() == "set-cookie"]
+        assert len(set_cookies) == 2
+        assert "cookie1=val1" in set_cookies[0]
+        assert "cookie2=val2" in set_cookies[1]
