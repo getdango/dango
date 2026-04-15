@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "scripts": {
+    "css": "tailwindcss -i dango/web/static/css/input.css -o dango/web/static/css/tailwind.min.css --watch",
+    "css:build": "tailwindcss -i dango/web/static/css/input.css -o dango/web/static/css/tailwind.min.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4"
+  }
+}

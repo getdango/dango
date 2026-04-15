@@ -140,5 +140,8 @@ build/
 *.pem
 *.key
 
+# Node.js (Tailwind CSS build only — compiled CSS is committed)
+node_modules/
+
 # Dango runtime data
 .dango/
