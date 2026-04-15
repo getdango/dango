@@ -337,13 +337,13 @@ exemptions:
   - file: dango/governance/pii_detector.py
     lines: 515
     category: exempt
-    reason: "BUG-027: grew from 488 to 515 lines adding 3-level spaCy download fallback chain and None-return error handling. Single-responsibility module, not worth splitting."
+    reason: "BUG-027: grew to 515 lines adding 3-level spaCy download fallback chain and None-return error handling. Single-responsibility module, not worth splitting."
     review_by: "v1.1"
 
   - file: tests/unit/test_pii_detection.py
-    lines: 503
+    lines: 522
     category: exempt
-    reason: "BUG-027: 3 new tests for download fallback and None-analyzer handling. Marginally over limit."
+    reason: "BUG-027: 4 new tests for download fallback, None-analyzer handling, and AnalyzerEngine init failure. Marginally over limit."
     review_by: "v1.1"
 
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)

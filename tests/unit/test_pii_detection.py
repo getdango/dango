@@ -159,6 +159,25 @@ class TestGetAnalyzer:
         finally:
             del sys.modules["spacy"]
 
+    def test_returns_none_on_analyzer_engine_failure(self) -> None:
+        import sys
+
+        mock_spacy = MagicMock()
+        sys.modules["spacy"] = mock_spacy
+        try:
+            with (
+                patch(f"{_PII}._analyzer", None),
+                patch(
+                    "presidio_analyzer.AnalyzerEngine",
+                    side_effect=RuntimeError("engine init failed"),
+                ),
+                patch("presidio_analyzer.nlp_engine.NlpEngineProvider"),
+            ):
+                result = _get_analyzer()
+                assert result is None
+        finally:
+            del sys.modules["spacy"]
+
 
 @pytest.mark.unit
 class TestScanColumn:
