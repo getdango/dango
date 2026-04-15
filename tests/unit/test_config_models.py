@@ -135,26 +135,15 @@ class TestCSVSourceConfig:
     def test_defaults(self) -> None:
         cfg = make_csv_source_config()
         assert cfg.file_pattern == "*.csv"
-        assert cfg.deduplication_strategy == DeduplicationStrategy.LATEST_ONLY
-        assert cfg.primary_key is None
-        assert cfg.timestamp_column is None
+        assert cfg.notes is None
 
     def test_custom_pattern(self) -> None:
         cfg = make_csv_source_config(file_pattern="*.tsv")
         assert cfg.file_pattern == "*.tsv"
 
-    def test_all_dedup_strategies(self) -> None:
-        for strategy in DeduplicationStrategy:
-            cfg = make_csv_source_config(deduplication_strategy=strategy)
-            assert cfg.deduplication_strategy == strategy
-
-    def test_primary_key_and_timestamp(self) -> None:
-        cfg = make_csv_source_config(
-            primary_key="id",
-            timestamp_column="updated_at",
-        )
-        assert cfg.primary_key == "id"
-        assert cfg.timestamp_column == "updated_at"
+    def test_notes_field(self) -> None:
+        cfg = make_csv_source_config(notes="Export from Salesforce")
+        assert cfg.notes == "Export from Salesforce"
 
 
 @pytest.mark.unit
@@ -167,27 +156,16 @@ class TestLocalFilesSourceConfig:
         cfg = LocalFilesSourceConfig(directory="data/uploads")
         assert cfg.file_pattern == "*"
 
-    def test_inherits_dedup_defaults(self) -> None:
-        cfg = LocalFilesSourceConfig(directory="data/uploads")
-        assert cfg.deduplication_strategy == DeduplicationStrategy.LATEST_ONLY
-        assert cfg.primary_key is None
-        assert cfg.timestamp_column is None
-
     def test_custom_file_pattern(self) -> None:
         cfg = LocalFilesSourceConfig(directory="data/uploads", file_pattern="*.json")
         assert cfg.file_pattern == "*.json"
 
-    def test_all_csv_fields_available(self) -> None:
+    def test_notes_field(self) -> None:
         cfg = LocalFilesSourceConfig(
             directory="data/uploads",
             file_pattern="*.parquet",
-            deduplication_strategy=DeduplicationStrategy.SCD_TYPE2,
-            primary_key="id",
-            timestamp_column="updated_at",
             notes="Test notes",
         )
-        assert cfg.primary_key == "id"
-        assert cfg.timestamp_column == "updated_at"
         assert cfg.notes == "Test notes"
 
     def test_data_source_local_files_field(self) -> None:

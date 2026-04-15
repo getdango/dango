@@ -35,7 +35,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
 | `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore) | `backup_group` |
 | `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query` | `remote_status()`, `remote_logs()` |
-| `commands/schedule.py` (499 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
+| `commands/schedule.py` (743 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
 | `commands/governance.py` (125 lines) | `governance` group (drift-report, pii-report) | `governance`, `drift_report()`, `pii_report()` |
 | `commands/notebook.py` (179 lines) | `notebook` group (new, open) + `snapshot` top-level | `notebook`, `notebook_new()`, `notebook_open()`, `snapshot()` |
 | `commands/analyze.py` (81 lines) | `analyze` top-level command | `analyze()` |
