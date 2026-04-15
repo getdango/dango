@@ -363,7 +363,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `auth/database.py` | 529 | — (SQLite CRUD) |
 | `web/routes/users.py` | 527 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 518 | — |
-| `cli/commands/schedule.py` | 729 | — (schedule wizard + time customization) |
+| `cli/commands/schedule.py` | 743 | — (schedule wizard + time customization) |
 | `cli/model_wizard.py` | 507 | — |
 | `platform/cloud/scheduled_backup.py` | 505 | — (server-side scheduled backup) |
 

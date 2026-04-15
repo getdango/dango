@@ -28,6 +28,7 @@ logger = get_logger(__name__)
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 _FREQUENCY_CHOICES = [
+    ("Every hour", "1h"),
     ("Every 2 hours", "2h"),
     ("Every 3 hours", "3h"),
     ("Every 4 hours", "4h"),
@@ -113,20 +114,7 @@ def _get_local_timezone() -> str:
 
 def _build_hourly_hours(interval: int, start_hour: int) -> list[int]:
     """Compute run hours for an interval starting at *start_hour*."""
-    hours: list[int] = []
-    h = start_hour
-    while h < 24:
-        hours.append(h)
-        h += interval
-    # Wrap around if start_hour > 0
-    if start_hour > 0:
-        h = start_hour - (24 - (24 // interval) * interval)
-        if h < 0:
-            h += interval
-        while h < start_hour:
-            hours.append(h)
-            h += interval
-    return sorted(set(hours))
+    return sorted(h % 24 for h in range(start_hour, start_hour + 24, interval))
 
 
 def _build_cron_interactive(selection: str) -> str | None:
@@ -153,28 +141,8 @@ def _build_cron_interactive(selection: str) -> str | None:
         cron_val: str = answers["cron"]
         return cron_val
 
-    if selection in ("daily", "weekly"):
-        hour_default = "6"
-    else:
-        hour_default = "0"
-
-    # Prompt minute
-    answers = inquirer.prompt(
-        [
-            inquirer.Text(
-                "minute",
-                message="Minute (0-59)",
-                default="0",
-                validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 59,
-            )
-        ]
-    )
-    if answers is None:
-        return None
-    minute = int(answers["minute"])
-
     if selection == "weekly":
-        # Prompt day of week
+        # Day → hour → minute (coarse to fine)
         answers = inquirer.prompt(
             [
                 inquirer.List(
@@ -189,13 +157,12 @@ def _build_cron_interactive(selection: str) -> str | None:
             return None
         day_num = dict(_DAY_CHOICES)[answers["day"]]
 
-        # Prompt hour
         answers = inquirer.prompt(
             [
                 inquirer.Text(
                     "hour",
                     message="Hour (0-23)",
-                    default=hour_default,
+                    default="6",
                     validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 23,
                 )
             ]
@@ -203,16 +170,30 @@ def _build_cron_interactive(selection: str) -> str | None:
         if answers is None:
             return None
         hour = int(answers["hour"])
+
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "minute",
+                    message="Minute (0-59)",
+                    default="0",
+                    validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 59,
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        minute = int(answers["minute"])
         return f"{minute} {hour} * * {day_num}"
 
     if selection == "daily":
-        # Prompt hour
+        # Hour → minute
         answers = inquirer.prompt(
             [
                 inquirer.Text(
                     "hour",
                     message="Hour (0-23)",
-                    default=hour_default,
+                    default="6",
                     validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 23,
                 )
             ]
@@ -220,10 +201,43 @@ def _build_cron_interactive(selection: str) -> str | None:
         if answers is None:
             return None
         hour = int(answers["hour"])
+
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "minute",
+                    message="Minute (0-59)",
+                    default="0",
+                    validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 59,
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        minute = int(answers["minute"])
         return f"{minute} {hour} * * *"
 
-    # Hourly intervals: 2h, 3h, 4h, 6h, 8h, 12h
+    # Hourly intervals: 1h, 2h, 3h, 4h, 6h, 8h, 12h
     interval = int(selection.rstrip("h"))
+
+    # Minute → start_hour (minute first since it applies to every run)
+    answers = inquirer.prompt(
+        [
+            inquirer.Text(
+                "minute",
+                message="Minute (0-59)",
+                default="0",
+                validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 59,
+            )
+        ]
+    )
+    if answers is None:
+        return None
+    minute = int(answers["minute"])
+
+    # Every hour: just minute, no start_hour needed
+    if interval == 1:
+        return f"{minute} * * * *"
 
     # Prompt start hour
     answers = inquirer.prompt(
@@ -390,8 +404,8 @@ def _show_schedule_detail(project_root: Path, schedules: list[dict[str, Any]], n
             for run in runs:
                 status = run.get("status", "?")
                 started = run.get("started_at", "?")
-                style = "[green]" if status == "success" else "[red]"
-                console.print(f"  {started} — {style}{status}[/{style[1:]}")
+                color = "green" if status == "success" else "red"
+                console.print(f"  {started} — [{color}]{status}[/{color}]")
         else:
             console.print("\n[dim]No run history yet.[/dim]")
     else:

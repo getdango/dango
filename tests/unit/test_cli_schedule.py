@@ -467,12 +467,13 @@ class TestScheduleAdd:
 
         # Single source → auto-selected (no Checkbox prompt).
         # No webhooks → notification prompt skipped.
+        # Daily prompts: hour → minute (coarse to fine)
         mock_prompt.side_effect = [
             {"name": "daily_sync"},
             {"type": "Sync & Transform (recommended)"},
             {"frequency": "Daily"},
-            {"minute": "0"},
             {"hour": "6"},
+            {"minute": "0"},
             {"timezone": "UTC"},
         ]
 
@@ -497,13 +498,14 @@ class TestScheduleAdd:
         _write_schedules_yaml(project_root, {"schedules": []})
 
         # No webhooks → notification prompt skipped.
+        # Daily prompts: hour → minute (coarse to fine)
         mock_prompt.side_effect = [
             {"name": "daily_dbt"},
             {"type": "Transform only (dbt)"},
             {"dbt_command": "run"},
             {"frequency": "Daily"},
-            {"minute": "0"},
             {"hour": "6"},
+            {"minute": "0"},
             {"timezone": "UTC"},
         ]
 
@@ -544,6 +546,133 @@ class TestScheduleAdd:
 
         data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
         assert data["schedules"][0]["cron"] == "*/15 * * * *"
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_hourly_interval(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path
+    ) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+        _write_sources_yaml(
+            project_root,
+            [{"name": "stripe", "type": "stripe", "enabled": True}],
+        )
+
+        # Hourly interval prompts: minute → start_hour
+        mock_prompt.side_effect = [
+            {"name": "every6h"},
+            {"type": "Sync & Transform (recommended)"},
+            {"frequency": "Every 6 hours"},
+            {"minute": "30"},
+            {"start_hour": "2"},
+            {"timezone": "UTC"},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "added" in plain
+
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        assert data["schedules"][0]["cron"] == "30 2,8,14,20 * * *"
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_every_hour(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path
+    ) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+        _write_sources_yaml(
+            project_root,
+            [{"name": "stripe", "type": "stripe", "enabled": True}],
+        )
+
+        # Every hour: only minute prompt (no start_hour)
+        mock_prompt.side_effect = [
+            {"name": "hourly"},
+            {"type": "Sync & Transform (recommended)"},
+            {"frequency": "Every hour"},
+            {"minute": "15"},
+            {"timezone": "UTC"},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "added" in plain
+
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        assert data["schedules"][0]["cron"] == "15 * * * *"
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_weekly(self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+        _write_sources_yaml(
+            project_root,
+            [{"name": "stripe", "type": "stripe", "enabled": True}],
+        )
+
+        # Weekly prompts: day → hour → minute
+        mock_prompt.side_effect = [
+            {"name": "weekly_sync"},
+            {"type": "Sync & Transform (recommended)"},
+            {"frequency": "Weekly"},
+            {"day": "Wednesday"},
+            {"hour": "9"},
+            {"minute": "30"},
+            {"timezone": "UTC"},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "added" in plain
+
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        # Wednesday = 3
+        assert data["schedules"][0]["cron"] == "30 9 * * 3"
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_multi_source(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path
+    ) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+        _write_sources_yaml(
+            project_root,
+            [
+                {"name": "stripe", "type": "stripe", "enabled": True},
+                {"name": "hubspot", "type": "hubspot", "enabled": True},
+            ],
+        )
+
+        # Multiple sources → Checkbox prompt shown
+        mock_prompt.side_effect = [
+            {"name": "multi"},
+            {"type": "Sync & Transform (recommended)"},
+            {"sources": ["stripe", "hubspot"]},
+            {"frequency": "Every hour"},
+            {"minute": "0"},
+            {"timezone": "UTC"},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "added" in plain
+        assert "Auto-selected" not in plain
+
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        assert set(data["schedules"][0]["sources"]) == {"stripe", "hubspot"}
 
     @patch("inquirer.prompt")
     @patch("dango.cli.utils.find_project_root")
