@@ -33,9 +33,19 @@ _STRING_TYPES = frozenset({"VARCHAR", "TEXT", "STRING", "CHAR", "BPCHAR"})
 
 _analyzer: Any = None
 
+_SPACY_MODEL = "en_core_web_sm"
+_SPACY_MODEL_URL = (
+    "https://github.com/explosion/spacy-models/releases/download/"
+    "en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"
+)
 
-def _get_analyzer() -> Any:
-    """Return a cached Presidio ``AnalyzerEngine``, downloading spaCy model if needed."""
+
+def _get_analyzer() -> Any | None:
+    """Return a cached Presidio ``AnalyzerEngine``, downloading spaCy model if needed.
+
+    Returns ``None`` if the spaCy model cannot be loaded or downloaded,
+    allowing callers to gracefully skip PII scanning.
+    """
     global _analyzer  # noqa: PLW0603
     if _analyzer is not None:
         return _analyzer
@@ -43,16 +53,29 @@ def _get_analyzer() -> Any:
     import spacy  # lazy import
 
     try:
-        spacy.load("en_core_web_sm")
+        spacy.load(_SPACY_MODEL)
     except OSError:
+        # Fallback 1: spacy.cli.download
         try:
-            spacy.cli.download("en_core_web_sm")  # type: ignore[attr-defined]
+            spacy.cli.download(_SPACY_MODEL)  # type: ignore[attr-defined]
         except Exception:
-            msg = (
-                "Failed to download spaCy model 'en_core_web_sm'. "
-                "Install manually: python -m spacy download en_core_web_sm"
-            )
-            raise RuntimeError(msg) from None
+            # Fallback 2: direct pip install from GitHub release URL
+            import subprocess
+            import sys
+
+            try:
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", _SPACY_MODEL_URL],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                logger.warning(
+                    "pii_spacy_download_failed",
+                    model=_SPACY_MODEL,
+                    hint="Install manually: python -m spacy download en_core_web_sm",
+                )
+                return None
 
     # Suppress verbose Presidio + spaCy loggers during init (use alias to
     # avoid shadowing structlog).  Temporarily raise root logger to ERROR so
@@ -85,10 +108,13 @@ def _get_analyzer() -> Any:
         provider = NlpEngineProvider(
             nlp_configuration={
                 "nlp_engine_name": "spacy",
-                "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+                "models": [{"lang_code": "en", "model_name": _SPACY_MODEL}],
             }
         )
         _analyzer = AnalyzerEngine(nlp_engine=provider.create_engine())
+    except Exception:
+        logger.warning("pii_analyzer_init_failed", exc_info=True)
+        return None
     finally:
         root_logger.setLevel(saved_root_level)
         for _name, _lvl in saved_levels.items():
@@ -341,6 +367,8 @@ def _is_string_type(data_type: str) -> bool:
 def _scan_column(values: list[str]) -> dict[str, dict[str, Any]]:
     """Run Presidio analyzer on sampled values, aggregating by entity type."""
     analyzer = _get_analyzer()
+    if analyzer is None:
+        return {}
     detections: dict[str, dict[str, Any]] = {}
 
     for val in values:

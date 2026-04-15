@@ -308,22 +308,23 @@ def metabase_load(ctx: click.Context, overwrite: bool, dry_run: bool) -> None:
 @click.pass_context
 def metabase_refresh(ctx: click.Context) -> None:
     """
-    Refresh Metabase database connection to discover new schemas.
+    Refresh Metabase schema to discover new tables and schemas.
 
     Use this when you've created new schemas (e.g., marts) and want
-    Metabase to discover them. This recreates the database connection.
+    Metabase to discover them. This triggers a non-destructive schema
+    sync that preserves all existing questions and dashboards.
 
     Examples:
       dango metabase refresh    # Refresh to discover new schemas
     """
-    import time
-
     import requests
     import yaml
 
+    from dango.visualization.metabase import sync_metabase_schema
+
     from ..utils import require_project_context
 
-    console.print("\n🍡 [bold]Refreshing Metabase Connection[/bold]\n")
+    console.print("\n🍡 [bold]Refreshing Metabase Schema[/bold]\n")
 
     try:
         project_root = require_project_context(ctx)
@@ -333,13 +334,12 @@ def metabase_refresh(ctx: click.Context) -> None:
             console.print("[red]✗[/red] Metabase not configured. Run 'dango start' first.")
             raise click.Abort()
 
-        # Load credentials
+        # Load credentials for health check and display
         with open(credentials_file) as f:
             credentials = yaml.safe_load(f)
 
-        admin = credentials.get("admin", {})
-        old_db = credentials.get("database", {})
         metabase_url = credentials.get("metabase_url", "http://localhost:3000")
+        db_id = credentials.get("database", {}).get("id")
 
         # Check if Metabase is running
         try:
@@ -351,93 +351,55 @@ def metabase_refresh(ctx: click.Context) -> None:
             console.print("[red]✗[/red] Cannot connect to Metabase. Start with 'dango start'.")
             raise click.Abort() from None
 
-        console.print("[cyan]Step 1:[/cyan] Logging in to Metabase...")
-        login_response = requests.post(
-            f"{metabase_url}/api/session",
-            json={"username": admin.get("email"), "password": admin.get("password")},
-            timeout=10,
-        )
+        console.print("[green]✓[/green] Metabase is running")
 
-        if login_response.status_code != 200:
-            console.print("[red]✗[/red] Failed to login to Metabase")
+        # Trigger non-destructive schema sync (handles login, sync, polling,
+        # and visibility rules internally)
+        console.print("[cyan]Syncing schema...[/cyan]")
+        success = sync_metabase_schema(project_root, metabase_url)
+
+        if not success:
+            console.print("[red]✗[/red] Schema sync failed. Check Metabase logs for details.")
             raise click.Abort()
 
-        session_id = login_response.json().get("id")
-        headers = {"X-Metabase-Session": session_id}
+        console.print("[green]✓[/green] Schema sync complete")
 
-        console.print("[green]✓[/green] Logged in")
-
-        # Delete old database connection
-        console.print(
-            f"[cyan]Step 2:[/cyan] Removing old database connection (ID: {old_db.get('id')})..."
-        )
-        delete_response = requests.delete(
-            f"{metabase_url}/api/database/{old_db.get('id')}", headers=headers, timeout=10
-        )
-
-        if delete_response.status_code == 204:
-            console.print("[green]✓[/green] Old connection removed")
-        else:
-            console.print(
-                f"[yellow]⚠[/yellow] Could not remove old connection (status: {delete_response.status_code})"
+        # Show discovered schemas/tables for user feedback
+        if db_id:
+            admin = credentials.get("admin", {})
+            login_response = requests.post(
+                f"{metabase_url}/api/session",
+                json={"username": admin.get("email"), "password": admin.get("password")},
+                timeout=10,
             )
 
-        # Create new database connection
-        console.print("[cyan]Step 3:[/cyan] Creating new database connection...")
-        create_response = requests.post(
-            f"{metabase_url}/api/database",
-            headers=headers,
-            json={
-                "name": old_db.get("name", "DuckDB Analytics"),
-                "engine": "duckdb",
-                "details": {
-                    "database_file": "/data/warehouse.duckdb",
-                    "old_implicit_casting": True,
-                    "read_only": False,
-                },
-            },
-            timeout=10,
-        )
+            if login_response.status_code == 200:
+                session_id = login_response.json().get("id")
+                headers = {"X-Metabase-Session": session_id}
 
-        if create_response.status_code != 200:
-            console.print(f"[red]✗[/red] Failed to create new connection: {create_response.text}")
-            raise click.Abort()
+                metadata_response = requests.get(
+                    f"{metabase_url}/api/database/{db_id}/metadata",
+                    headers=headers,
+                    timeout=10,
+                )
 
-        new_db_id = create_response.json().get("id")
-        console.print(f"[green]✓[/green] New connection created (ID: {new_db_id})")
+                if metadata_response.status_code == 200:
+                    tables = metadata_response.json().get("tables", [])
+                    schemas = {t.get("schema") for t in tables}
 
-        # Update credentials file
-        console.print("[cyan]Step 4:[/cyan] Updating configuration...")
-        credentials["database"]["id"] = new_db_id
+                    console.print(
+                        f"\n[bold]Discovered schemas:[/bold] {', '.join(sorted(schemas))}"
+                    )
+                    console.print(f"[bold]Total tables:[/bold] {len(tables)}\n")
 
-        with open(credentials_file, "w") as f:
-            yaml.dump(credentials, f, default_flow_style=False)
+                    for schema in sorted(schemas):
+                        schema_tables = [t.get("name") for t in tables if t.get("schema") == schema]
+                        console.print(f"  [cyan]{schema}[/cyan]: {', '.join(schema_tables)}")
 
-        console.print("[green]✓[/green] Configuration updated")
+        console.print("\n[green]✨ Metabase schema refreshed successfully![/green]\n")
 
-        # Wait for sync
-        console.print("[cyan]Step 5:[/cyan] Waiting for schema sync...")
-        time.sleep(3)
-
-        # Check discovered tables
-        metadata_response = requests.get(
-            f"{metabase_url}/api/database/{new_db_id}/metadata", headers=headers, timeout=10
-        )
-
-        if metadata_response.status_code == 200:
-            tables = metadata_response.json().get("tables", [])
-            schemas = {t.get("schema") for t in tables}
-
-            console.print("[green]✓[/green] Discovery complete")
-            console.print(f"\n[bold]Discovered schemas:[/bold] {', '.join(sorted(schemas))}")
-            console.print(f"[bold]Total tables:[/bold] {len(tables)}\n")
-
-            for schema in sorted(schemas):
-                schema_tables = [t.get("name") for t in tables if t.get("schema") == schema]
-                console.print(f"  [cyan]{schema}[/cyan]: {', '.join(schema_tables)}")
-
-        console.print("\n[green]✨ Metabase connection refreshed successfully![/green]\n")
-
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode
