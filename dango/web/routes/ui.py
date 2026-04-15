@@ -54,6 +54,34 @@ async def root(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/sources")
+async def sources_page(request: Request) -> HTMLResponse:
+    """Serve the data sources page."""
+    return _render_template(
+        request,
+        "sources.html",
+        {
+            "version": dango.__version__,
+            "current_page": "sources",
+            "subtitle": "Data Sources",
+        },
+    )
+
+
+@router.get("/models")
+async def models_page(request: Request) -> HTMLResponse:
+    """Serve the dbt models page."""
+    return _render_template(
+        request,
+        "models.html",
+        {
+            "version": dango.__version__,
+            "current_page": "models",
+            "subtitle": "dbt Models",
+        },
+    )
+
+
 @router.get("/health")
 async def health_page(request: Request) -> HTMLResponse:
     """Serve the platform health page."""
