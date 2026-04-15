@@ -154,6 +154,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
    - `title` — page title in `<title>` tag
    - `subtitle_attrs` — HTML attributes for subtitle `<p>` tag (override to add `id` etc.)
    - `header_right` — content in header right side (e.g., connection status indicator)
+   - `nav` — full nav bar (override with empty block to suppress nav, e.g. login/invite pages)
    - `content` — main page body
    - `footer` — override to customize footer (default shows version + links)
    - `scripts` — page-specific JavaScript (loaded at end of `<body>`)

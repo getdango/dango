@@ -173,39 +173,66 @@ function formatRelativeTime(timestamp) {
     return `<span title="${fullTimestamp}" class="cursor-help">Just now</span>`;
 }
 
-// Initialize dashboard on page load
+// Initialize on page load — conditionally based on which page elements exist
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('Dango Dashboard initializing...');
+    console.log('Dango initializing...');
 
-    // Initialize tab from URL hash or default to sources (without updating URL)
-    const hash = window.location.hash.slice(1) || 'sources';
-    switchTab(hash, false); // Don't add hash to URL on initial load
+    const hasSources = !!document.getElementById('sources-table-body');
+    const hasModels = !!document.getElementById('dbt-models-table-body');
+    const hasActivityLog = !!document.getElementById('activity-log');
+    const hasHealthWidget = !!document.getElementById('health-widget');
+    const hasServiceCards = !!document.getElementById('service-dbt');
+    const hasTabNav = !!document.getElementById('tab-navigation');
 
-    // Load config and update dynamic URLs
+    // Load config and update dynamic URLs (needed on any page with Metabase links)
     loadConfig();
 
-    // Load initial data
-    loadServiceStatus();
-    loadSources();
-    loadDbtModels();
-    loadActivityLogs(); // Load persistent activity logs
-    fetchPlatformHealth(); // Load platform health status
+    // Sources page or legacy dashboard with tabs
+    if (hasSources) {
+        loadSources();
+    }
 
-    // Connect WebSocket
-    connectWebSocket();
+    // Models page or legacy dashboard with tabs
+    if (hasModels) {
+        loadDbtModels();
+    }
 
-    // Set up periodic refresh (every 30 seconds)
-    setInterval(loadServiceStatus, 30000);
-    setInterval(fetchPlatformHealth, 30000); // Also refresh health widget
+    // Activity log (dashboard overview)
+    if (hasActivityLog) {
+        loadActivityLogs();
+    }
 
-    // Update sync counter periodically
-    setInterval(updateSyncCounter, 1000);
+    // Service status cards (dashboard overview)
+    if (hasServiceCards) {
+        loadServiceStatus();
+        setInterval(loadServiceStatus, 30000);
+    }
 
-    // Handle hash changes (browser back/forward)
-    window.addEventListener('hashchange', () => {
-        const newTab = window.location.hash.slice(1) || 'sources';
-        switchTab(newTab, false); // false = don't update hash again
-    });
+    // Health widget (dashboard overview)
+    if (hasHealthWidget) {
+        fetchPlatformHealth();
+        setInterval(fetchPlatformHealth, 30000);
+    }
+
+    // Tab navigation (legacy — only if tab structure exists on page)
+    if (hasTabNav) {
+        const hash = window.location.hash.slice(1) || 'sources';
+        switchTab(hash, false);
+        window.addEventListener('hashchange', () => {
+            const newTab = window.location.hash.slice(1) || 'sources';
+            switchTab(newTab, false);
+        });
+    }
+
+    // Connect WebSocket (needed on pages with real-time updates)
+    if (hasSources || hasActivityLog) {
+        connectWebSocket();
+    }
+
+    // Update sync counter periodically (only if sources table exists)
+    if (hasSources) {
+        setInterval(updateSyncCounter, 1000);
+    }
 });
 
 // ============================================================================
