@@ -14,8 +14,10 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `__init__.py` | Public exports | `app` module |
 | `middleware/auth.py` | Session/API key auth + CSRF check on every request (~325 lines) | `AuthMiddleware`, `is_secure_request()`, `COOKIE_NAME` |
 | `middleware/rate_limit.py` | Rate limiting (login 10/min, API 200/min, localhost exempt, ~212 lines) | `RateLimitMiddleware` |
-| `templates/base.html` | Shared Jinja2 layout: head, header, nav bar, footer, script blocks | Blocks: `title`, `subtitle_attrs`, `header_right`, `content`, `footer`, `scripts` |
-| `templates/dashboard.html` | Dashboard page (extends `base.html`) — service cards, tabs, modals | Loads `app.js` |
+| `templates/base.html` | Shared Jinja2 layout: head (compiled Tailwind CSS), header, nav bar (Overview/Sources/Models/Schedules/Catalog/Metabase + More dropdown + gear dropdown), responsive hamburger menu, footer, script blocks | Blocks: `title`, `subtitle_attrs`, `header_right`, `nav`, `content`, `footer`, `scripts` |
+| `templates/dashboard.html` | Overview page (extends `base.html`) — health widget, service cards, activity log | Loads `app.js` |
+| `templates/sources.html` | Sources page (extends `base.html`) — source table, sync controls, upload/detail modals | Loads `app.js` |
+| `templates/models.html` | Models page (extends `base.html`) — dbt models table with run controls | Loads `app.js` |
 | `templates/health.html` | Health page (extends `base.html`) — platform metrics, issues | Inline JS for health polling |
 | `templates/logs.html` | Logs page (extends `base.html`) — filterable log table | Loads `logs.js` |
 | `templates/login.html` | Login page — Alpine.js two-step state machine (`credentials` → `totp`) | Lockout display, recovery code toggle |
@@ -36,7 +38,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/dbt.py` | `/api/dbt/models`, `/api/dbt/models/{name}/run` + dbt docs proxy (`/manifest.json`, `/catalog.json`, `/dbt-docs/*`) | `run_dbt_model_task()` |
 | `routes/upload.py` | CSV upload/list/delete + background `run_dbt_after_delete()` | `run_dbt_after_delete()` |
 | `routes/websocket.py` | `ConnectionManager`, `ws_manager` singleton, `/ws` endpoint | `ConnectionManager`, `ws_manager` |
-| `routes/ui.py` | `/`, `/health`, `/logs`, `/api`, `/api/docs`, `/api/redoc`, `/login`, `/account`, `/admin/users`, `/invite/{token}` | `templates`, `_render_template()` |
+| `routes/ui.py` | `/`, `/sources`, `/models`, `/health`, `/logs`, `/api`, `/api/docs`, `/api/redoc`, `/login`, `/account`, `/admin/users`, `/invite/{token}` | `templates`, `_render_template()` |
 | `routes/metabase_proxy.py` | All Metabase proxy routes + SSO session state | `proxy_to_metabase()`, `get_metabase_session()` |
 | `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
@@ -51,7 +53,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `templates/notebooks.html` | Notebook management page (extends `base.html`) — table, create/delete modals, locking | Alpine.js `notebooksPage()` component |
 | `templates/catalog.html` | Data catalog page (extends `base.html`) — model browser, search, detail view, code view, profiling, lineage (618 lines) | Alpine.js `catalogPage()` component |
 | `templates/insights.html` | Insights/analysis page (extends `base.html`) — metric results, trends (~153 lines) | Alpine.js `insightsPage()` component |
-| `static/` | CSS and JS assets (`css/main.css`, `css/catalog.css`, `js/app.js`, `js/logs.js`, `js/lineage.js`, `js/catalog.js`) | — |
+| `static/` | CSS and JS assets (`css/tailwind.min.css` (compiled), `css/main.css`, `css/catalog.css`, `css/input.css` (Tailwind source), `js/app.js`, `js/logs.js`, `js/lineage.js`, `js/catalog.js`) | — |
 
 ## Architecture
 
@@ -168,6 +170,8 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | Modify WebSocket broadcast format | `routes/websocket.py` (`ConnectionManager.broadcast()`) | Manual: observe WebSocket messages in browser |
 | Add new dbt docs proxy paths | `routes/dbt.py` (bottom section) | Manual: open `/dbt-docs` in browser |
 | Change shared layout (header, nav, footer) | `templates/base.html` | Manual: check all pages |
+| Rebuild Tailwind CSS after template changes | Run `make css-build` from repo root | Check `static/css/tailwind.min.css` is updated |
+| Watch Tailwind during development | Run `make css` from repo root | Auto-rebuilds on template/JS changes |
 
 ## Dependencies
 
