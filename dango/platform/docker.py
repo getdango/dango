@@ -347,7 +347,7 @@ class DockerManager:
 
         # Service URL mappings
         urls = {
-            "nginx": "http://dango.local or http://localhost",
+            "nginx": "http://localhost:8800",
             "metabase": "http://localhost:3001 (or via nginx)",
             "dbt-docs": "http://localhost:8081 (or via nginx)",
             "prefect-server": "http://localhost:4200 (or via nginx)",

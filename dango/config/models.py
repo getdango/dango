@@ -125,7 +125,7 @@ class ProjectContext(BaseModel):
                 ],
                 "sla": "Daily by 9am SGT",
                 "limitations": "Shopify data has 24h delay. Stripe doesn't include refunds.",
-                "getting_started": "Run 'dango sync' to refresh data, then open http://dango.local",
+                "getting_started": "Run 'dango sync' to refresh data, then open http://localhost:8800",
             }
         }
     )

@@ -532,10 +532,10 @@ def hide_internal_tables(metabase_url: str, headers: dict[str, str], db_id: int)
 def setup_metabase(
     project_root: Path,
     project_name: str,
+    admin_email: str,
     organization: str | None = None,
     metabase_url: str = "http://localhost:3000",
     cloud_mode: bool = False,
-    admin_email: str = "admin@dango.local",
 ) -> dict[str, Any]:
     """
     Auto-setup Metabase on first start
@@ -592,12 +592,9 @@ def setup_metabase(
         properties = response.json()
         setup_token = properties.get("setup-token")
 
-        if cloud_mode:
-            import secrets as _secrets
+        import secrets as _secrets
 
-            admin_password = _secrets.token_urlsafe(32)
-        else:
-            admin_password = "dangolocal123"
+        admin_password = _secrets.token_urlsafe(32)
         org_name = organization or project_name
 
         if not setup_token:

@@ -210,16 +210,18 @@ class TestSetupMetabaseIfNeeded:
         assert result["already_configured"] is True
         assert result["success"] is True
 
-    def test_raises_when_duckdb_not_connected(self, tmp_path):
+    def test_raises_when_duckdb_not_connected(self, tmp_path, monkeypatch):
         """setup_metabase_if_needed raises RuntimeError when DuckDB cannot connect."""
+        monkeypatch.setenv("DANGO_ADMIN_EMAIL", "admin@test.com")
         setup_result = {"success": False, "duckdb_connected": False}
 
         with patch("dango.visualization.metabase.setup_metabase", return_value=setup_result):
             with pytest.raises(RuntimeError, match="connect Metabase"):
                 setup_metabase_if_needed(tmp_path, "MyProject", None)
 
-    def test_success(self, tmp_path):
+    def test_success(self, tmp_path, monkeypatch):
         """setup_metabase_if_needed returns result dict on successful first-run setup."""
+        monkeypatch.setenv("DANGO_ADMIN_EMAIL", "admin@test.com")
         setup_result = {
             "success": True,
             "duckdb_connected": True,
@@ -233,6 +235,13 @@ class TestSetupMetabaseIfNeeded:
         assert result["already_configured"] is False
         assert result["success"] is True
         assert result["duckdb_connected"] is True
+
+    def test_skips_when_no_admin_email(self, tmp_path, monkeypatch):
+        """setup_metabase_if_needed skips when no admin email is available."""
+        monkeypatch.delenv("DANGO_ADMIN_EMAIL", raising=False)
+        result = setup_metabase_if_needed(tmp_path, "MyProject", None)
+        assert result["skipped"] is True
+        assert result["success"] is True
 
 
 @pytest.mark.unit

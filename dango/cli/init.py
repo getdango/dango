@@ -352,7 +352,7 @@ jobs:
 1. Add data sources: `dango source add`
 2. Sync data: `dango sync`
 3. Start platform: `dango start`
-4. Open dashboards: http://dango.local or http://localhost
+4. Open dashboards: http://localhost:8800
 '''
         }
 
@@ -408,7 +408,7 @@ When creating dashboards and reports in Metabase, use tables in this priority or
 
 - **Project details**: `.dango/project.yml`
 - **Data sources**: `.dango/sources.yml`
-- **dbt documentation**: Run `dango start` and visit http://dango.local/docs
+- **dbt documentation**: Run `dango start` and visit http://localhost:8800/docs
 
 ## Limitations
 
@@ -1116,7 +1116,10 @@ on-run-end:
 
             if skip_wizard:
                 # Non-interactive: generate random admin
-                result = ensure_admin(db_path)
+                import os as _os
+
+                _email = _os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
+                result = ensure_admin(db_path, email=_email)
                 if result is not None:
                     user, password = result
                     set_auth_enabled(self.project_dir, enabled=True)

@@ -132,12 +132,7 @@ class TestPublicRoutes:
             "/login",
             "/setup",
             "/api/health",
-            "/",
-            "/health",
-            "/logs",
-            "/api",
-            "/api/docs",
-            "/api/redoc",
+            "/favicon.ico",
             "/api/auth/oauth/callback",
         ]:
             result = asyncio.run(_collect_response(mw, _make_scope(path=path)))
@@ -151,6 +146,33 @@ class TestPublicRoutes:
         for path in ["/api/auth/oauth/google", "/static/css/main.css"]:
             result = asyncio.run(_collect_response(mw, _make_scope(path=path)))
             assert result["status"] == 200, f"{path} was blocked"
+
+    @patch(f"{_M}.is_auth_enabled", return_value=True)
+    @patch(f"{_M}.get_auth_db_path")
+    @patch(f"{_M}.sessions.validate_session", return_value=None)
+    def test_page_routes_require_auth(self, _v: Any, mock_db: Any, _m: Any) -> None:
+        """Page routes (/, /health, /logs) redirect to /login when unauthenticated."""
+        mock_db.return_value = _db_exists()
+        mw = AuthMiddleware(_noop_app, project_root=_PROJECT_ROOT)
+        for path in ["/", "/health", "/logs"]:
+            scope = _make_scope(
+                path=path,
+                headers=[(b"accept", b"text/html,application/xhtml+xml")],
+            )
+            result = asyncio.run(_collect_response(mw, scope))
+            assert result["status"] == 302, f"{path} did not redirect"
+            assert result["headers"].get("location") == "/login", f"{path} wrong redirect"
+
+    @patch(f"{_M}.is_auth_enabled", return_value=True)
+    @patch(f"{_M}.get_auth_db_path")
+    @patch(f"{_M}.sessions.validate_session", return_value=None)
+    def test_api_docs_require_auth(self, _v: Any, mock_db: Any, _m: Any) -> None:
+        """API doc routes (/api, /api/docs, /api/redoc) return 401 for API clients."""
+        mock_db.return_value = _db_exists()
+        mw = AuthMiddleware(_noop_app, project_root=_PROJECT_ROOT)
+        for path in ["/api", "/api/docs", "/api/redoc"]:
+            result = asyncio.run(_collect_response(mw, _make_scope(path=path)))
+            assert result["status"] == 401, f"{path} did not return 401"
 
 
 # ---------------------------------------------------------------------------
