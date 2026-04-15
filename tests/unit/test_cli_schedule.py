@@ -202,6 +202,57 @@ class TestScheduleStatus:
         assert "Unscheduled sources:" in plain
         assert "hubspot" in plain
 
+    @patch("dango.cli.utils.find_project_root")
+    def test_status_named_schedule(self, mock_root: MagicMock, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(
+            project_root,
+            {
+                "schedules": [
+                    {
+                        "name": "hourly",
+                        "type": "sync",
+                        "cron": "0 * * * *",
+                        "sources": ["stripe"],
+                        "enabled": True,
+                        "timezone": "UTC",
+                    }
+                ]
+            },
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "status", "hourly"])
+        plain = _strip_ansi(result.output)
+        assert "Schedule:" in plain
+        assert "hourly" in plain
+        assert "Cron:" in plain
+        assert "stripe" in plain
+
+    @patch("dango.cli.utils.find_project_root")
+    def test_status_named_not_found(self, mock_root: MagicMock, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(
+            project_root,
+            {
+                "schedules": [
+                    {
+                        "name": "hourly",
+                        "type": "sync",
+                        "cron": "0 * * * *",
+                        "sources": ["stripe"],
+                        "enabled": True,
+                    }
+                ]
+            },
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "status", "nope"])
+        assert result.exit_code != 0
+        plain = _strip_ansi(result.output)
+        assert "not found" in plain
+
 
 @pytest.mark.unit
 class TestScheduleRemove:
@@ -414,24 +465,28 @@ class TestScheduleAdd:
             [{"name": "stripe", "type": "stripe", "enabled": True}],
         )
 
+        # Single source → auto-selected (no Checkbox prompt).
+        # No webhooks → notification prompt skipped.
+        # Daily prompts: hour → minute (coarse to fine)
         mock_prompt.side_effect = [
-            {"name": "hourly_sync"},
-            {"type": "sync"},
-            {"sources": ["stripe"]},
-            {"frequency": "Every hour"},
+            {"name": "daily_sync"},
+            {"type": "Sync & Transform (recommended)"},
+            {"frequency": "Daily"},
+            {"hour": "6"},
+            {"minute": "0"},
             {"timezone": "UTC"},
-            {"notify_on": ["failure"]},
         ]
 
         runner = CliRunner()
         result = runner.invoke(cli, ["schedule", "add"])
         plain = _strip_ansi(result.output)
         assert "added" in plain
+        assert "Auto-selected source: stripe" in plain
 
         data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
         assert len(data["schedules"]) == 1
-        assert data["schedules"][0]["name"] == "hourly_sync"
-        assert data["schedules"][0]["cron"] == "0 * * * *"
+        assert data["schedules"][0]["name"] == "daily_sync"
+        assert data["schedules"][0]["cron"] == "0 6 * * *"
 
     @patch("inquirer.prompt")
     @patch("dango.cli.utils.find_project_root")
@@ -442,13 +497,16 @@ class TestScheduleAdd:
         mock_root.return_value = project_root
         _write_schedules_yaml(project_root, {"schedules": []})
 
+        # No webhooks → notification prompt skipped.
+        # Daily prompts: hour → minute (coarse to fine)
         mock_prompt.side_effect = [
             {"name": "daily_dbt"},
-            {"type": "dbt"},
+            {"type": "Transform only (dbt)"},
             {"dbt_command": "run"},
-            {"frequency": "Daily (6 AM)"},
+            {"frequency": "Daily"},
+            {"hour": "6"},
+            {"minute": "0"},
             {"timezone": "UTC"},
-            {"notify_on": []},
         ]
 
         runner = CliRunner()
@@ -475,12 +533,10 @@ class TestScheduleAdd:
 
         mock_prompt.side_effect = [
             {"name": "custom_sched"},
-            {"type": "sync"},
-            {"sources": ["stripe"]},
+            {"type": "Sync & Transform (recommended)"},
             {"frequency": "Custom cron"},
             {"cron": "*/15 * * * *"},
             {"timezone": "UTC"},
-            {"notify_on": []},
         ]
 
         runner = CliRunner()
@@ -490,6 +546,133 @@ class TestScheduleAdd:
 
         data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
         assert data["schedules"][0]["cron"] == "*/15 * * * *"
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_hourly_interval(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path
+    ) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+        _write_sources_yaml(
+            project_root,
+            [{"name": "stripe", "type": "stripe", "enabled": True}],
+        )
+
+        # Hourly interval prompts: minute → start_hour
+        mock_prompt.side_effect = [
+            {"name": "every6h"},
+            {"type": "Sync & Transform (recommended)"},
+            {"frequency": "Every 6 hours"},
+            {"minute": "30"},
+            {"start_hour": "2"},
+            {"timezone": "UTC"},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "added" in plain
+
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        assert data["schedules"][0]["cron"] == "30 2,8,14,20 * * *"
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_every_hour(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path
+    ) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+        _write_sources_yaml(
+            project_root,
+            [{"name": "stripe", "type": "stripe", "enabled": True}],
+        )
+
+        # Every hour: only minute prompt (no start_hour)
+        mock_prompt.side_effect = [
+            {"name": "hourly"},
+            {"type": "Sync & Transform (recommended)"},
+            {"frequency": "Every hour"},
+            {"minute": "15"},
+            {"timezone": "UTC"},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "added" in plain
+
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        assert data["schedules"][0]["cron"] == "15 * * * *"
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_weekly(self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+        _write_sources_yaml(
+            project_root,
+            [{"name": "stripe", "type": "stripe", "enabled": True}],
+        )
+
+        # Weekly prompts: day → hour → minute
+        mock_prompt.side_effect = [
+            {"name": "weekly_sync"},
+            {"type": "Sync & Transform (recommended)"},
+            {"frequency": "Weekly"},
+            {"day": "Wednesday"},
+            {"hour": "9"},
+            {"minute": "30"},
+            {"timezone": "UTC"},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "added" in plain
+
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        # Wednesday = 3
+        assert data["schedules"][0]["cron"] == "30 9 * * 3"
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_multi_source(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path
+    ) -> None:
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+        _write_sources_yaml(
+            project_root,
+            [
+                {"name": "stripe", "type": "stripe", "enabled": True},
+                {"name": "hubspot", "type": "hubspot", "enabled": True},
+            ],
+        )
+
+        # Multiple sources → Checkbox prompt shown
+        mock_prompt.side_effect = [
+            {"name": "multi"},
+            {"type": "Sync & Transform (recommended)"},
+            {"sources": ["stripe", "hubspot"]},
+            {"frequency": "Every hour"},
+            {"minute": "0"},
+            {"timezone": "UTC"},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "added" in plain
+        assert "Auto-selected" not in plain
+
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        assert set(data["schedules"][0]["sources"]) == {"stripe", "hubspot"}
 
     @patch("inquirer.prompt")
     @patch("dango.cli.utils.find_project_root")

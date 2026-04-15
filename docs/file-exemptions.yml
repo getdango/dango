@@ -104,6 +104,12 @@ exemptions:
     reason: "P8-004: Added deployment panel to remote status + remote history command. Marginally over limit."
     review_by: "v1.1"
 
+  - file: dango/cli/commands/schedule.py
+    lines: 743
+    category: exempt
+    reason: "R6F: Schedule wizard expanded with time customization (BUG-039), per-schedule status (BUG-041), type labels (BUG-037), auto-select (BUG-038), webhook check (BUG-040). Sequential wizard flow doesn't benefit from splitting."
+    review_by: "v1.1"
+
   - file: dango/platform/cloud/deployer.py
     lines: 578
     category: exempt
@@ -124,7 +130,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/source_wizard.py
-    lines: 2097
+    lines: 2108
     category: exempt
     reason: "Interactive source configuration wizard. Sequential prompting logic doesn't benefit from splitting. P7-011 added metrics generation. P5c grew +529 lines (credential unification, resource selection, dedup collection). P8-001 added REST API wizard enhancements: headers, query params, endpoint testing, data_selector/primary_key suggestions (+267 lines)."
     review_by: "v1.1"
@@ -136,7 +142,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/visualization/dashboard_manager.py
-    lines: 1113
+    lines: 1117
     category: exempt
     reason: "Dashboard export/import operations. Tightly coupled to metabase.py API surface."
     review_by: "v1.1"
@@ -156,7 +162,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/ingestion/csv_loader.py
-    lines: 766
+    lines: 765
     category: exempt
     reason: "Multi-format file loading (CSV, JSON, JSONL, Parquet) with deduplication. Single-purpose module, stable."
     review_by: "v1.1"
@@ -168,7 +174,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/transformation/generator.py
-    lines: 593
+    lines: 548
     category: exempt
     reason: "DbtModelGenerator — generates dbt models from source configs. Stable, rarely modified."
     review_by: "v1.1"
@@ -225,7 +231,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/config/models.py
-    lines: 594
+    lines: 588
     category: exempt
     reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
     review_by: "v1.1"
@@ -329,7 +335,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_cli_schedule.py
-    lines: 509
+    lines: 692
     category: exempt
     reason: "TASK-045a: 8 test classes covering schedule help, list, status, remove, enable, disable, add wizard (sync, dbt, custom cron, cancelled). Marginally over limit."
     review_by: "v1.1"
@@ -338,6 +344,18 @@ exemptions:
     lines: 506
     category: exempt
     reason: "TEST-030: 7 test classes covering page, list, create, delete, lock, heartbeat, release, force-release, copy. Marginally over limit after locked_at test addition."
+    review_by: "v1.1"
+
+  - file: dango/governance/pii_detector.py
+    lines: 515
+    category: exempt
+    reason: "BUG-027: grew to 515 lines adding 3-level spaCy download fallback chain and None-return error handling. Single-responsibility module, not worth splitting."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_pii_detection.py
+    lines: 522
+    category: exempt
+    reason: "BUG-027: 4 new tests for download fallback, None-analyzer handling, and AnalyzerEngine init failure. Marginally over limit."
     review_by: "v1.1"
 
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)

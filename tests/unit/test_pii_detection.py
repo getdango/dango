@@ -116,7 +116,7 @@ class TestGetAnalyzer:
         finally:
             del sys.modules["spacy"]
 
-    def test_runtime_error_on_download_failure(self) -> None:
+    def test_returns_none_on_download_failure(self) -> None:
         import sys
 
         mock_spacy = MagicMock()
@@ -124,9 +124,57 @@ class TestGetAnalyzer:
         mock_spacy.cli.download.side_effect = RuntimeError("download failed")
         sys.modules["spacy"] = mock_spacy
         try:
-            with patch(f"{_PII}._analyzer", None):
-                with pytest.raises(RuntimeError, match="spaCy model"):
-                    _get_analyzer()
+            with (
+                patch(f"{_PII}._analyzer", None),
+                patch("subprocess.check_call", side_effect=RuntimeError("pip failed")),
+            ):
+                result = _get_analyzer()
+                assert result is None
+        finally:
+            del sys.modules["spacy"]
+
+    def test_url_fallback_on_cli_download_failure(self) -> None:
+        import sys
+
+        mock_spacy = MagicMock()
+        mock_spacy.load.side_effect = OSError("Model not found")
+        mock_spacy.cli.download.side_effect = RuntimeError("cli download failed")
+        mock_analyzer = MagicMock()
+        mock_provider = MagicMock()
+        mock_provider.create_engine.return_value = MagicMock()
+        sys.modules["spacy"] = mock_spacy
+        try:
+            with (
+                patch(f"{_PII}._analyzer", None),
+                patch("subprocess.check_call") as mock_pip,
+                patch("presidio_analyzer.AnalyzerEngine", return_value=mock_analyzer),
+                patch(
+                    "presidio_analyzer.nlp_engine.NlpEngineProvider",
+                    return_value=mock_provider,
+                ),
+            ):
+                result = _get_analyzer()
+                mock_pip.assert_called_once()
+                assert result is mock_analyzer
+        finally:
+            del sys.modules["spacy"]
+
+    def test_returns_none_on_analyzer_engine_failure(self) -> None:
+        import sys
+
+        mock_spacy = MagicMock()
+        sys.modules["spacy"] = mock_spacy
+        try:
+            with (
+                patch(f"{_PII}._analyzer", None),
+                patch(
+                    "presidio_analyzer.AnalyzerEngine",
+                    side_effect=RuntimeError("engine init failed"),
+                ),
+                patch("presidio_analyzer.nlp_engine.NlpEngineProvider"),
+            ):
+                result = _get_analyzer()
+                assert result is None
         finally:
             del sys.modules["spacy"]
 
@@ -134,6 +182,11 @@ class TestGetAnalyzer:
 @pytest.mark.unit
 class TestScanColumn:
     """Unit tests for _scan_column."""
+
+    def test_returns_empty_dict_when_analyzer_is_none(self) -> None:
+        with patch(f"{_PII}._get_analyzer", return_value=None):
+            result = _scan_column(["test@example.com"])
+        assert result == {}
 
     def test_detects_entities(self) -> None:
         r = MagicMock(entity_type="EMAIL_ADDRESS", score=0.85)

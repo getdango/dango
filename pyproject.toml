@@ -56,7 +56,7 @@ dependencies = [
     # Data governance and notebooks
     "marimo>=0.9.0",
     "presidio-analyzer>=2.2.0",
-    "spacy>=3.7.0",
+    "spacy>=3.7.0,<3.8.12",
 
     # Security and encryption
     "keyring>=24.0.0",    # Secure credential storage in OS keychain

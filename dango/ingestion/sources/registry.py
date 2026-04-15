@@ -100,7 +100,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         },
     },
     "local_files": {
-        "display_name": "Local Files",
+        "display_name": "File Import (CSV, JSON, Parquet)",
         "category": "Local & Custom",
         "description": "Load CSV, JSON, JSONL, or Parquet files from a local directory with deduplication and incremental loading",
         "auth_type": AuthType.NONE,

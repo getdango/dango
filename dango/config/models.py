@@ -136,20 +136,6 @@ class CSVSourceConfig(BaseModel):
 
     directory: Path = Field(description="Directory containing CSV files")
     file_pattern: str = Field(default="*.csv", description="Glob pattern for CSV files")
-    deduplication_strategy: DeduplicationStrategy = Field(
-        default=DeduplicationStrategy.LATEST_ONLY,
-        description="Deduplication strategy: none, latest_only, append_only, scd_type2",
-    )
-    primary_key: str | None = Field(
-        default=None, description="Primary key column for deduplication"
-    )
-    timestamp_column: str | None = Field(
-        default=None, description="Timestamp column for latest_only/scd_type2 deduplication"
-    )
-    timestamp_sort: str | None = Field(
-        default="desc",
-        description="Sort order for timestamp: 'desc' (latest first) or 'asc' (oldest first)",
-    )
     notes: str | None = Field(
         default=None,
         description="Optional notes about how to regenerate this CSV data (e.g., script to run, export steps)",

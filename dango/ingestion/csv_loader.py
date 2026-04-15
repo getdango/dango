@@ -1,6 +1,6 @@
 """dango/ingestion/csv_loader.py
 
-Incremental file loading with metadata tracking and deduplication strategies.
+Incremental file loading with metadata tracking.
 
 Supports CSV, JSON, JSONL, and Parquet formats via DuckDB's native readers.
 """
@@ -38,7 +38,6 @@ class CSVLoader:
     - File classification (new/updated/unchanged/deleted)
     - Transactional safety (load-first-then-delete pattern)
     - Metadata tracking (which files loaded when)
-    - Four deduplication strategies
     """
 
     def __init__(self, project_root: Path, duckdb_path: Path):

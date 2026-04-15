@@ -626,10 +626,14 @@ class DashboardManager:
             # Export specific collections
             collections_to_export = [c for c in all_collections if c.get("name") in collections]
         else:
-            # Export all non-personal collections
+            # Export all non-personal, non-root collections
             collections_to_export = []
             for c in all_collections:
                 name = c.get("name", "")
+                cid = c.get("id")
+                # Skip root collection (Metabase virtual container)
+                if cid == "root" or name == "Our analytics":
+                    continue
                 # Skip personal collections unless explicitly requested
                 if not include_personal and (
                     "personal" in name.lower() or "private" in name.lower()
