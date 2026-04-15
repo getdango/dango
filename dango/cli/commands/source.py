@@ -385,6 +385,27 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
             with open(sources_file, "w") as f:
                 yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
+            # Clean up dbt staging files for this source
+            # Naming: stg_{name}__*.sql, sources_{name}.yml, stg_{name}.yml
+            staging_dir = project_root / "dbt" / "models" / "staging"
+            if staging_dir.exists():
+                removed_files = []
+                for sql_file in staging_dir.glob(f"stg_{source_name}__*.sql"):
+                    sql_file.unlink()
+                    removed_files.append(sql_file.name)
+                for yml_name in [
+                    f"sources_{source_name}.yml",
+                    f"stg_{source_name}.yml",
+                ]:
+                    yml_file = staging_dir / yml_name
+                    if yml_file.exists():
+                        yml_file.unlink()
+                        removed_files.append(yml_name)
+                if removed_files:
+                    console.print(
+                        f"[green]✓[/green] Removed {len(removed_files)} dbt staging file(s)"
+                    )
+
             console.print(f"[green]✅ Source '{source_name}' removed successfully[/green]")
             console.print()
             console.print("[yellow]⚠️  Important:[/yellow]")

@@ -154,12 +154,165 @@
         <!-- Two-Factor Authentication Section -->
         <div class="bg-white shadow rounded-lg p-6">
             <h3 class="text-lg font-medium text-gray-900 mb-4">Two-Factor Authentication</h3>
-            <div class="flex items-center space-x-3">
+            <div class="flex items-center space-x-3 mb-4">
                 <span class="px-2 py-0.5 text-xs font-semibold rounded-full"
                       :class="user.totp_enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
                       x-text="user.totp_enabled ? 'Enabled' : 'Disabled'"></span>
-                <span class="text-sm text-gray-500">2FA setup is not yet available.</span>
             </div>
+
+            <!-- Error display -->
+            <div x-show="twoFaError" class="mb-3 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700" x-text="twoFaError"></div>
+
+            <!-- 2FA NOT enabled: setup flow -->
+            <template x-if="!user.totp_enabled">
+                <div>
+                    <!-- Step: idle -->
+                    <div x-show="twoFaStep === 'idle'">
+                        <p class="text-sm text-gray-500 mb-3">Add an extra layer of security to your account using a TOTP authenticator app.</p>
+                        <button @click="twoFaStep = 'password'; twoFaError = ''"
+                                class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700">Enable 2FA</button>
+                    </div>
+
+                    <!-- Step: enter password -->
+                    <div x-show="twoFaStep === 'password'">
+                        <form @submit.prevent="setup2FA()" class="max-w-sm">
+                            <p class="text-sm text-gray-500 mb-3">Enter your password to begin setup.</p>
+                            <div class="mb-3">
+                                <input type="password" x-model="twoFaPassword" required placeholder="Current password" autocomplete="current-password"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 text-sm">
+                            </div>
+                            <div class="flex space-x-2">
+                                <button type="submit" :disabled="twoFaLoading"
+                                        class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700 disabled:opacity-50">Continue</button>
+                                <button type="button" @click="reset2FA()"
+                                        class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Step: show secret + verify code -->
+                    <div x-show="twoFaStep === 'qr'">
+                        <p class="text-sm text-gray-500 mb-3">Add this key to your authenticator app (Google Authenticator, Authy, etc.):</p>
+                        <div class="mb-3 p-3 bg-gray-50 rounded-md border">
+                            <p class="text-xs text-gray-500 mb-1">Secret key (manual entry)</p>
+                            <div class="flex items-center space-x-2">
+                                <code class="text-sm font-mono break-all" x-text="twoFaSecret"></code>
+                                <button @click="navigator.clipboard.writeText(twoFaSecret)"
+                                        class="shrink-0 px-2 py-1 text-xs bg-gray-200 rounded hover:bg-gray-300">Copy</button>
+                            </div>
+                        </div>
+                        <form @submit.prevent="verify2FASetup()" class="max-w-sm">
+                            <p class="text-sm text-gray-500 mb-2">Enter the 6-digit code from your authenticator app to verify:</p>
+                            <div class="mb-3">
+                                <input type="text" x-model="twoFaCode" required placeholder="000000" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 text-sm font-mono tracking-widest">
+                            </div>
+                            <div class="flex space-x-2">
+                                <button type="submit" :disabled="twoFaLoading"
+                                        class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700 disabled:opacity-50">Verify & Enable</button>
+                                <button type="button" @click="reset2FA()"
+                                        class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Step: recovery codes -->
+                    <div x-show="twoFaStep === 'recovery'">
+                        <div class="p-3 bg-yellow-50 border border-yellow-200 rounded-md mb-3">
+                            <p class="text-sm font-medium text-yellow-800 mb-1">Save your recovery codes</p>
+                            <p class="text-xs text-yellow-700">Store these codes safely. Each can be used once if you lose access to your authenticator.</p>
+                        </div>
+                        <div class="mb-3 p-3 bg-gray-50 rounded-md border font-mono text-sm grid grid-cols-2 gap-1">
+                            <template x-for="code in twoFaRecoveryCodes" :key="code">
+                                <span x-text="code"></span>
+                            </template>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button @click="copyRecoveryCodes()"
+                                    class="px-3 py-2 text-sm bg-gray-100 rounded-md hover:bg-gray-200">Copy</button>
+                            <button @click="downloadRecoveryCodes()"
+                                    class="px-3 py-2 text-sm bg-gray-100 rounded-md hover:bg-gray-200">Download</button>
+                            <button @click="reset2FA()"
+                                    class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700">Done</button>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <!-- 2FA IS enabled: disable / regenerate -->
+            <template x-if="user.totp_enabled">
+                <div>
+                    <!-- Step: idle (enabled state) -->
+                    <div x-show="twoFaStep === 'idle'">
+                        <p class="text-sm text-gray-500 mb-3">Two-factor authentication is active on your account.</p>
+                        <div class="flex space-x-2">
+                            <button @click="twoFaStep = 'disable'; twoFaError = ''"
+                                    class="px-4 py-2 text-sm text-red-700 bg-red-50 rounded-md hover:bg-red-100 border border-red-200">Disable 2FA</button>
+                            <button @click="twoFaStep = 'regenerate'; twoFaError = ''"
+                                    class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Regenerate Recovery Codes</button>
+                        </div>
+                    </div>
+
+                    <!-- Step: disable -->
+                    <div x-show="twoFaStep === 'disable'">
+                        <form @submit.prevent="disable2FA()" class="max-w-sm">
+                            <p class="text-sm text-gray-500 mb-3">Enter your password to disable 2FA.</p>
+                            <div class="mb-3">
+                                <input type="password" x-model="twoFaPassword" required placeholder="Current password" autocomplete="current-password"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 text-sm">
+                            </div>
+                            <div class="flex space-x-2">
+                                <button type="submit" :disabled="twoFaLoading"
+                                        class="px-4 py-2 text-sm text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50">Disable 2FA</button>
+                                <button type="button" @click="reset2FA()"
+                                        class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Step: regenerate recovery codes -->
+                    <div x-show="twoFaStep === 'regenerate'">
+                        <form @submit.prevent="regenerateRecoveryCodes()" class="max-w-sm">
+                            <p class="text-sm text-gray-500 mb-3">Enter your password and a TOTP code to regenerate recovery codes.</p>
+                            <div class="mb-3">
+                                <input type="password" x-model="twoFaPassword" required placeholder="Current password" autocomplete="current-password"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 text-sm">
+                            </div>
+                            <div class="mb-3">
+                                <input type="text" x-model="twoFaCode" required placeholder="TOTP code" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 text-sm font-mono tracking-widest">
+                            </div>
+                            <div class="flex space-x-2">
+                                <button type="submit" :disabled="twoFaLoading"
+                                        class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700 disabled:opacity-50">Regenerate</button>
+                                <button type="button" @click="reset2FA()"
+                                        class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Step: recovery codes (after regeneration) -->
+                    <div x-show="twoFaStep === 'recovery'">
+                        <div class="p-3 bg-yellow-50 border border-yellow-200 rounded-md mb-3">
+                            <p class="text-sm font-medium text-yellow-800 mb-1">New recovery codes</p>
+                            <p class="text-xs text-yellow-700">Your old recovery codes are no longer valid. Save these new codes safely.</p>
+                        </div>
+                        <div class="mb-3 p-3 bg-gray-50 rounded-md border font-mono text-sm grid grid-cols-2 gap-1">
+                            <template x-for="code in twoFaRecoveryCodes" :key="code">
+                                <span x-text="code"></span>
+                            </template>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button @click="copyRecoveryCodes()"
+                                    class="px-3 py-2 text-sm bg-gray-100 rounded-md hover:bg-gray-200">Copy</button>
+                            <button @click="downloadRecoveryCodes()"
+                                    class="px-3 py-2 text-sm bg-gray-100 rounded-md hover:bg-gray-200">Download</button>
+                            <button @click="reset2FA()"
+                                    class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700">Done</button>
+                        </div>
+                    </div>
+                </div>
+            </template>
         </div>
 
         <!-- Create API Key Modal -->
@@ -221,6 +374,10 @@ function accountPage() {
         apiKeys: [], keyError: '', keyLoading: false,
         showKeyModal: false, newKeyName: '',
         showNewKey: false, newKeyValue: '',
+        // 2FA state
+        twoFaStep: 'idle', twoFaPassword: '', twoFaCode: '',
+        twoFaSecret: '', twoFaUri: '', twoFaRecoveryCodes: [],
+        twoFaError: '', twoFaLoading: false,
 
         async init() {
             await Promise.all([this.loadSessions(), this.loadKeys()]);
@@ -304,6 +461,83 @@ function accountPage() {
                 if (!res.ok) { const d = await res.json(); this.keyError = d.message; return; }
                 await this.loadKeys();
             } catch (e) { this.keyError = 'Failed to revoke key'; }
+        },
+
+        // --- 2FA methods ---
+        async setup2FA() {
+            this.twoFaLoading = true; this.twoFaError = '';
+            try {
+                const res = await fetch('/api/auth/2fa/setup', {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ password: this.twoFaPassword })
+                });
+                const data = await res.json();
+                if (!res.ok) { this.twoFaError = data.message || 'Setup failed'; this.twoFaLoading = false; return; }
+                this.twoFaPassword = '';
+                this.twoFaSecret = data.secret;
+                this.twoFaUri = data.provisioning_uri;
+                this.twoFaRecoveryCodes = data.recovery_codes;
+                this.twoFaStep = 'qr';
+            } catch (e) { this.twoFaError = 'Unable to connect'; }
+            this.twoFaLoading = false;
+        },
+        async verify2FASetup() {
+            this.twoFaLoading = true; this.twoFaError = '';
+            try {
+                const res = await fetch('/api/auth/2fa/verify-setup', {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ code: this.twoFaCode })
+                });
+                const data = await res.json();
+                if (!res.ok) { this.twoFaError = data.message || 'Verification failed'; this.twoFaLoading = false; return; }
+                this.twoFaCode = '';
+                this.twoFaStep = 'recovery';
+                this.user = {...this.user, totp_enabled: true};
+            } catch (e) { this.twoFaError = 'Unable to connect'; }
+            this.twoFaLoading = false;
+        },
+        async disable2FA() {
+            this.twoFaLoading = true; this.twoFaError = '';
+            try {
+                const res = await fetch('/api/auth/2fa/disable', {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ password: this.twoFaPassword })
+                });
+                const data = await res.json();
+                if (!res.ok) { this.twoFaError = data.message || 'Failed to disable'; this.twoFaLoading = false; return; }
+                this.user = {...this.user, totp_enabled: false};
+                this.reset2FA();
+            } catch (e) { this.twoFaError = 'Unable to connect'; }
+            this.twoFaLoading = false;
+        },
+        async regenerateRecoveryCodes() {
+            this.twoFaLoading = true; this.twoFaError = '';
+            try {
+                const res = await fetch('/api/auth/2fa/regenerate-recovery', {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ password: this.twoFaPassword, code: this.twoFaCode })
+                });
+                const data = await res.json();
+                if (!res.ok) { this.twoFaError = data.message || 'Regeneration failed'; this.twoFaLoading = false; return; }
+                this.twoFaPassword = ''; this.twoFaCode = '';
+                this.twoFaRecoveryCodes = data.recovery_codes;
+                this.twoFaStep = 'recovery';
+            } catch (e) { this.twoFaError = 'Unable to connect'; }
+            this.twoFaLoading = false;
+        },
+        reset2FA() {
+            this.twoFaStep = 'idle'; this.twoFaPassword = ''; this.twoFaCode = '';
+            this.twoFaError = ''; this.twoFaSecret = ''; this.twoFaUri = '';
+            this.twoFaRecoveryCodes = [];
+        },
+        copyRecoveryCodes() {
+            navigator.clipboard.writeText(this.twoFaRecoveryCodes.join('\n'));
+        },
+        downloadRecoveryCodes() {
+            const text = 'Dango Recovery Codes\n' + '='.repeat(30) + '\n\n' + this.twoFaRecoveryCodes.join('\n') + '\n\nStore these codes safely. Each code can only be used once.\n';
+            const blob = new Blob([text], { type: 'text/plain' });
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+            a.download = 'dango-recovery-codes.txt'; a.click();
         }
     }
 }

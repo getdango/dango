@@ -2087,6 +2087,7 @@ def run_sync(
     end_date: datetime | None = None,
     full_refresh: bool = False,
     limit: int | None = None,
+    skip_dbt: bool = False,
 ) -> dict[str, Any]:
     """
     Sync multiple sources and return summary
@@ -2098,6 +2099,7 @@ def run_sync(
         end_date: Override end date
         full_refresh: Full refresh mode
         limit: Max rows per source (dev testing)
+        skip_dbt: If True, skip dbt run/docs/Metabase refresh (caller handles separately)
 
     Returns:
         Summary dictionary with success/failed counts
@@ -2207,58 +2209,63 @@ def run_sync(
 
         console.print()
 
-        # Run dbt to create staging/marts tables
-        # Use selective runs to only process models dependent on synced sources
-        console.print("🔄 [bold]Running dbt models...[/bold]\n")
-        from dango.transformation import run_dbt_models
+        # Run dbt to create staging/marts tables (unless caller handles dbt separately)
+        if not skip_dbt:
+            # Use selective runs to only process models dependent on synced sources
+            console.print("🔄 [bold]Running dbt models...[/bold]\n")
+            from dango.transformation import run_dbt_models
 
-        # Build source-based selection criteria
-        # Format: "source:source1+ source:source2+" (runs models dependent on these sources)
-        if success_sources:
-            select_criteria = " ".join([f"source:{source}+" for source in success_sources])
-            console.print(f"[dim]Targeting models for sources: {', '.join(success_sources)}[/dim]")
-            dbt_success, dbt_output = run_dbt_models(project_root, select=select_criteria)
-        else:
-            # No sources synced, run all models (backward compatibility)
-            dbt_success, dbt_output = run_dbt_models(project_root)
-
-        if dbt_success:
-            # Parse and display dbt model execution details
-            _display_dbt_output(dbt_output)
-            console.print("[green]✓ dbt models executed successfully[/green]")
-
-            # Generate dbt docs
-            console.print("[dim]Generating dbt documentation...[/dim]")
-            from dango.transformation import generate_dbt_docs
-
-            docs_success, docs_output = generate_dbt_docs(project_root)
-            if docs_success:
-                console.print("[green]✓ dbt docs generated[/green]")
+            # Build source-based selection criteria
+            # Format: "source:source1+ source:source2+" (runs models dependent on these sources)
+            if success_sources:
+                select_criteria = " ".join([f"source:{source}+" for source in success_sources])
+                console.print(
+                    f"[dim]Targeting models for sources: {', '.join(success_sources)}[/dim]"
+                )
+                dbt_success, dbt_output = run_dbt_models(project_root, select=select_criteria)
             else:
-                console.print("[yellow]⚠️  dbt docs generation failed (non-critical)[/yellow]")
+                # No sources synced, run all models (backward compatibility)
+                dbt_success, dbt_output = run_dbt_models(project_root)
 
-            # Refresh Metabase connection to see new data
-            console.print("[dim]Refreshing Metabase connection...[/dim]")
-            from dango.visualization.metabase import (
-                refresh_metabase_connection,
-                sync_metabase_schema,
-            )
+            if dbt_success:
+                # Parse and display dbt model execution details
+                _display_dbt_output(dbt_output)
+                console.print("[green]✓ dbt models executed successfully[/green]")
 
-            if refresh_metabase_connection(project_root):
-                console.print("[green]✓ Metabase connection refreshed[/green]")
+                # Generate dbt docs
+                console.print("[dim]Generating dbt documentation...[/dim]")
+                from dango.transformation import generate_dbt_docs
 
-                # Sync schema metadata to ensure all tables are discovered and descriptions updated
-                console.print("[dim]Syncing Metabase schema metadata...[/dim]")
-                if sync_metabase_schema(project_root):
-                    console.print("[green]✓ Metabase schema synced[/green]")
+                docs_success, docs_output = generate_dbt_docs(project_root)
+                if docs_success:
+                    console.print("[green]✓ dbt docs generated[/green]")
+                else:
+                    console.print("[yellow]⚠️  dbt docs generation failed (non-critical)[/yellow]")
+
+                # Refresh Metabase connection to see new data
+                console.print("[dim]Refreshing Metabase connection...[/dim]")
+                from dango.visualization.metabase import (
+                    refresh_metabase_connection,
+                    sync_metabase_schema,
+                )
+
+                if refresh_metabase_connection(project_root):
+                    console.print("[green]✓ Metabase connection refreshed[/green]")
+
+                    # Sync schema metadata to ensure all tables are discovered
+                    console.print("[dim]Syncing Metabase schema metadata...[/dim]")
+                    if sync_metabase_schema(project_root):
+                        console.print("[green]✓ Metabase schema synced[/green]")
+                else:
+                    console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
             else:
-                console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
-        else:
-            console.print("[red]✗ dbt run failed[/red]")
-            console.print(f"[dim]{dbt_output}[/dim]")
-            console.print("[yellow]⚠️  Staging/marts tables were not created[/yellow]")
+                console.print("[red]✗ dbt run failed[/red]")
+                console.print(f"[dim]{dbt_output}[/dim]")
+                console.print("[yellow]⚠️  Staging/marts tables were not created[/yellow]")
 
-        console.print()
+            console.print()
+        else:
+            console.print("[dim]⏭  Skipping dbt run (will be coalesced)[/dim]\n")
 
     # Post-sync hooks (profiling, drift detection, PII scanning, analysis)
     if success_sources:

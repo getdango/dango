@@ -475,8 +475,8 @@ class TestGetFastapiStatus:
         assert status["running"] is False
         assert status["pid"] is None
         assert status["url"] is None
-        # Default port and log file path
-        assert status["port"] == 8080
+        # Default port (8800 from PlatformSettings) and log file path
+        assert status["port"] == 8800
         assert status["log_file"] == tmp_path / ".dango" / "web.log"
 
     @patch("dango.cli.helpers.process_manager.is_process_running", return_value=True)
@@ -486,7 +486,7 @@ class TestGetFastapiStatus:
         status = get_fastapi_status(tmp_path)
         assert status["running"] is True
         assert status["pid"] == 7777
-        assert status["url"] == "http://localhost:8080"
+        assert status["url"] == "http://localhost:8800"
 
     @patch("dango.cli.helpers.process_manager.is_process_running", return_value=False)
     def test_stale_pid(self, _mock_running, tmp_path):

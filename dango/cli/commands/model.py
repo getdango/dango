@@ -188,6 +188,37 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool) -> None:
             f"[green]✓[/green] Deleted model file: {model_file.relative_to(project_root)}"
         )
 
+        # Remove model entry from schema.yml
+        assert layer is not None  # guaranteed by model_file check above
+        schema_path = dbt_dir / layer / "schema.yml"
+        if schema_path.exists():
+            import yaml
+
+            try:
+                with open(schema_path) as f:
+                    schema_data = yaml.safe_load(f) or {}
+                if "models" in schema_data and isinstance(schema_data["models"], list):
+                    before = len(schema_data["models"])
+                    schema_data["models"] = [
+                        m for m in schema_data["models"] if m.get("name") != model_name
+                    ]
+                    if len(schema_data["models"]) < before:
+                        if schema_data["models"]:
+                            with open(schema_path, "w") as f:
+                                yaml.dump(
+                                    schema_data,
+                                    f,
+                                    default_flow_style=False,
+                                    sort_keys=False,
+                                )
+                        else:
+                            schema_path.unlink()
+                        console.print(
+                            f"[green]✓[/green] Removed from {schema_path.relative_to(project_root)}"
+                        )
+            except Exception:
+                pass  # Non-critical — don't block removal
+
         # Handle table deletion if it exists
         if table_exists:
             console.print()
