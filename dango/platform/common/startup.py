@@ -302,9 +302,13 @@ def _link_metabase_admin(project_root: Path, admin_email: str) -> None:
         admin_creds = mb_creds.get("admin", {})
 
         # Get Metabase admin session
+        mb_email = admin_creds.get("email")
+        mb_password = admin_creds.get("password")
+        if not mb_email or not mb_password:
+            return
         resp = requests.post(
             f"{mb_url}/api/session",
-            json={"username": admin_creds["email"], "password": admin_creds["password"]},
+            json={"username": mb_email, "password": mb_password},
             timeout=10,
         )
         if resp.status_code != 200:
@@ -328,12 +332,19 @@ def _link_metabase_admin(project_root: Path, admin_email: str) -> None:
 
         # Generate new password, update Metabase user, store in Dango
         password = generate_metabase_password()
-        requests.put(
+        pw_resp = requests.put(
             f"{mb_url}/api/user/{mb_user['id']}",
             headers={"X-Metabase-Session": session_token},
             json={"password": password},
             timeout=10,
         )
+        if pw_resp.status_code != 200:
+            _logger.warning(
+                "metabase_password_update_failed",
+                status=pw_resp.status_code,
+                metabase_user_id=mb_user["id"],
+            )
+            return
         encrypted_pw = encrypt_metabase_password(password, project_root)
         update_user(
             db_path,

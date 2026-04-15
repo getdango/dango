@@ -1116,10 +1116,10 @@ on-run-end:
 
             if skip_wizard:
                 # Non-interactive: generate random admin
-                import os as _os
+                import os
 
-                _email = _os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
-                result = ensure_admin(db_path, email=_email)
+                email = os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
+                result = ensure_admin(db_path, email=email)
                 if result is not None:
                     user, password = result
                     set_auth_enabled(self.project_dir, enabled=True)

@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dango.platform.common.startup import (
+    _link_metabase_admin,
     ensure_dbt_schemas,
     ensure_duckdb_driver,
     import_dashboards,
@@ -271,3 +272,134 @@ class TestImportDashboards:
 
         assert result == expected
         mock_import.assert_called_once_with(tmp_path)
+
+
+@pytest.mark.unit
+class TestLinkMetabaseAdmin:
+    """Tests for _link_metabase_admin() SSO linking helper."""
+
+    def _setup_metabase_yml(self, tmp_path: Path, email: str = "admin@test.com") -> None:
+        """Write a minimal metabase.yml fixture."""
+        import yaml
+
+        d = tmp_path / ".dango"
+        d.mkdir(exist_ok=True)
+        (d / "metabase.yml").write_text(
+            yaml.safe_dump(
+                {
+                    "metabase_url": "http://localhost:3000",
+                    "admin": {"email": email, "password": "testpw"},
+                    "database": {"id": 1, "name": "Test"},
+                }
+            )
+        )
+
+    def _setup_auth_db(self, tmp_path: Path, email: str = "admin@test.com") -> None:
+        """Create auth.db with an admin user that has no metabase_user_id."""
+        from dango.auth.admin import get_auth_db_path
+        from dango.auth.database import create_user
+        from dango.auth.models import Role, User
+        from dango.migrations.runner import MigrationRunner
+
+        db_path = get_auth_db_path(tmp_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        migrations_dir = Path(__file__).resolve().parents[2] / "dango" / "migrations" / "auth"
+        MigrationRunner(
+            db_path=db_path, db_name="auth", migrations_dir=migrations_dir
+        ).apply_pending()
+        user = User(email=email, password_hash="$2b$12$fakehash", role=Role.ADMIN)
+        create_user(db_path, user)
+
+    @patch("requests.put")
+    @patch("requests.post")
+    @patch("requests.get")
+    @patch("dango.auth.metabase_sync.SecureTokenStorage")
+    def test_happy_path_links_admin(
+        self,
+        mock_sts: MagicMock,
+        mock_get: MagicMock,
+        mock_post: MagicMock,
+        mock_put: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Links Metabase admin to Dango admin when both exist and not yet linked."""
+        self._setup_metabase_yml(tmp_path)
+        self._setup_auth_db(tmp_path)
+        mock_sts.return_value.encrypt_token.return_value = "encrypted_pw"
+
+        # Mock Metabase API responses
+        session_resp = MagicMock(status_code=200)
+        session_resp.json.return_value = {"id": "session123"}
+        mock_post.return_value = session_resp
+
+        user_list_resp = MagicMock(status_code=200)
+        user_list_resp.json.return_value = [{"id": 42, "email": "admin@test.com"}]
+        mock_get.return_value = user_list_resp
+
+        mock_put.return_value = MagicMock(status_code=200)
+
+        _link_metabase_admin(tmp_path, "admin@test.com")
+
+        # Verify user was updated in auth.db
+        from dango.auth.admin import get_auth_db_path
+        from dango.auth.database import get_user_by_email
+
+        user = get_user_by_email(get_auth_db_path(tmp_path), "admin@test.com")
+        assert user is not None
+        assert user.metabase_user_id == 42
+        assert user.metabase_password_enc == "encrypted_pw"
+
+    @patch("requests.post")
+    def test_skips_when_no_metabase_yml(self, mock_post: MagicMock, tmp_path: Path) -> None:
+        """Returns silently when metabase.yml doesn't exist."""
+        (tmp_path / ".dango").mkdir(exist_ok=True)
+        _link_metabase_admin(tmp_path, "admin@test.com")
+        mock_post.assert_not_called()
+
+    @patch("requests.put")
+    @patch("requests.get")
+    @patch("requests.post")
+    @patch("dango.auth.metabase_sync.SecureTokenStorage")
+    def test_skips_when_already_linked(
+        self,
+        mock_sts: MagicMock,
+        mock_post: MagicMock,
+        mock_get: MagicMock,
+        mock_put: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Returns silently when Dango admin already has metabase_user_id."""
+        self._setup_metabase_yml(tmp_path)
+        self._setup_auth_db(tmp_path)
+
+        # Set metabase_user_id on the admin user
+        from dango.auth.admin import get_auth_db_path
+        from dango.auth.database import get_user_by_email, update_user
+        from dango.auth.models import UserUpdate
+
+        db_path = get_auth_db_path(tmp_path)
+        user = get_user_by_email(db_path, "admin@test.com")
+        assert user is not None
+        update_user(db_path, user.id, UserUpdate(metabase_user_id=99))
+
+        session_resp = MagicMock(status_code=200)
+        session_resp.json.return_value = {"id": "session123"}
+        mock_post.return_value = session_resp
+
+        _link_metabase_admin(tmp_path, "admin@test.com")
+
+        # Should not attempt to find or update Metabase user
+        mock_get.assert_not_called()
+        mock_put.assert_not_called()
+
+    @patch("requests.post")
+    def test_skips_when_metabase_yml_malformed(self, mock_post: MagicMock, tmp_path: Path) -> None:
+        """Returns silently when metabase.yml has no admin credentials."""
+        import yaml
+
+        d = tmp_path / ".dango"
+        d.mkdir(exist_ok=True)
+        (d / "metabase.yml").write_text(yaml.safe_dump({"metabase_url": "http://localhost:3000"}))
+
+        _link_metabase_admin(tmp_path, "admin@test.com")
+        mock_post.assert_not_called()
