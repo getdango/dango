@@ -857,6 +857,15 @@ def status(ctx: click.Context) -> None:
             else:
                 table.add_row("File Watcher (auto-sync)", "[dim]● Disabled[/dim]")
 
+        # Add Web UI / FastAPI
+        if fastapi_status["running"]:
+            table.add_row(
+                f"Web UI (port {fastapi_status['port']})",
+                f"[green]● Running[/green] (PID {fastapi_status['pid']})",
+            )
+        else:
+            table.add_row(f"Web UI (port {fastapi_status['port']})", "[red]● Stopped[/red]")
+
         # Add Metabase
         if docker_statuses and "metabase" in docker_statuses:
             svc_status = docker_statuses["metabase"]

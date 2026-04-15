@@ -465,6 +465,13 @@ class PlatformSettings(BaseModel):
     # Watch directories (relative to project root)
     watch_directories: list[str] = Field(default_factory=lambda: ["data/uploads"])
 
+    # dbt coalesce window — seconds to wait before dbt run to allow
+    # multiple syncs to finish and merge into a single dbt invocation
+    dbt_coalesce_seconds: int = Field(
+        default=10,
+        description="Seconds to wait before dbt run to coalesce multiple syncs",
+    )
+
 
 class RateLimitGroupConfig(BaseModel):
     """Rate limit settings for a single route group."""

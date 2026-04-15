@@ -157,6 +157,8 @@ class TestRunScheduledSync:
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._notify"),
             patch(f"{_JOBS_MOD}._check_freshness"),
+            patch(f"{_JOBS_MOD}._add_pending_dbt_source"),
+            patch(f"{_JOBS_MOD}._run_coalesced_dbt"),
         ):
             from dango.platform.scheduling.jobs import run_scheduled_sync
 
@@ -171,6 +173,13 @@ class TestRunScheduledSync:
         mock_lock = MagicMock()
         mock_lock.acquire.side_effect = DbtLockError("busy")
 
+        # Simulate time passing beyond max_wait to exit the retry loop quickly
+        elapsed = [0.0]
+
+        def fake_monotonic():
+            elapsed[0] += 301  # Jump past 300s max_wait
+            return elapsed[0]
+
         with (
             patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
@@ -178,13 +187,14 @@ class TestRunScheduledSync:
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._notify") as mock_notify,
             patch(f"{_JOBS_MOD}._log_execution_event") as mock_record,
+            patch(f"{_JOBS_MOD}.time.sleep"),
+            patch(f"{_JOBS_MOD}.time.monotonic", side_effect=fake_monotonic),
         ):
             from dango.platform.scheduling.jobs import run_scheduled_sync
 
             run_scheduled_sync("daily", ["src1"], project_root=str(tmp_path))
 
         events = [c.args[0]["event"] for c in mock_bc.call_args_list]
-        assert "job_queued" in events
         assert "sync_failed" in events
         mock_notify.assert_called_once()
         mock_record.assert_called_once()
@@ -204,6 +214,8 @@ class TestRunScheduledSync:
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._notify"),
             patch(f"{_JOBS_MOD}._check_freshness"),
+            patch(f"{_JOBS_MOD}._add_pending_dbt_source"),
+            patch(f"{_JOBS_MOD}._run_coalesced_dbt"),
         ):
             from dango.platform.scheduling.jobs import run_scheduled_sync
 
@@ -225,6 +237,7 @@ class TestRunScheduledSync:
             patch(f"{_SYNC_MOD}.run_sync", side_effect=RuntimeError("boom")),
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._notify"),
+            patch(f"{_JOBS_MOD}._add_pending_dbt_source"),
         ):
             from dango.platform.scheduling.jobs import run_scheduled_sync
 
@@ -248,6 +261,8 @@ class TestRunScheduledSync:
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._notify"),
             patch(f"{_JOBS_MOD}._check_freshness"),
+            patch(f"{_JOBS_MOD}._add_pending_dbt_source"),
+            patch(f"{_JOBS_MOD}._run_coalesced_dbt"),
         ):
             from dango.platform.scheduling.jobs import run_scheduled_sync
 
@@ -270,6 +285,8 @@ class TestRunScheduledSync:
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._notify") as mock_notify,
             patch(f"{_JOBS_MOD}._check_freshness"),
+            patch(f"{_JOBS_MOD}._add_pending_dbt_source"),
+            patch(f"{_JOBS_MOD}._run_coalesced_dbt"),
         ):
             from dango.platform.scheduling.jobs import run_scheduled_sync
 

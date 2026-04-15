@@ -15,6 +15,8 @@ Public API:
 from __future__ import annotations
 
 import asyncio
+import fcntl
+import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -258,6 +260,90 @@ def _check_freshness(
 
 
 # ---------------------------------------------------------------------------
+# Pending dbt sources — shared state for coalescing
+# ---------------------------------------------------------------------------
+
+_PENDING_DBT_FILE = ".dango/state/pending_dbt_sources.json"
+
+
+def _add_pending_dbt_source(project_root: Path, source_name: str) -> None:
+    """Atomically add a source to the pending dbt list."""
+    path = project_root / _PENDING_DBT_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        try:
+            data = json.load(f)
+        except (json.JSONDecodeError, ValueError):
+            data = []
+        if source_name not in data:
+            data.append(source_name)
+        f.seek(0)
+        f.truncate()
+        json.dump(data, f)
+
+
+def _consume_pending_dbt_sources(project_root: Path) -> list[str]:
+    """Atomically read and clear the pending dbt sources list."""
+    path = project_root / _PENDING_DBT_FILE
+    if not path.exists():
+        return []
+    with open(path, "r+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            data = json.load(f)
+        except (json.JSONDecodeError, ValueError):
+            data = []
+        f.seek(0)
+        f.truncate()
+        json.dump([], f)
+    return list(data)
+
+
+def _get_coalesce_seconds(project_root: Path) -> int:
+    """Read dbt_coalesce_seconds from config."""
+    try:
+        from dango.config import ConfigLoader
+
+        config = ConfigLoader(project_root).load_config()
+        return config.platform.dbt_coalesce_seconds
+    except Exception:
+        return 10
+
+
+def _run_coalesced_dbt(project_root: Path) -> None:
+    """Run dbt for all pending sources, plus dbt docs and Metabase refresh."""
+    coalesce_seconds = _get_coalesce_seconds(project_root)
+    if coalesce_seconds > 0:
+        time.sleep(coalesce_seconds)
+
+    pending = _consume_pending_dbt_sources(project_root)
+    if not pending:
+        return
+
+    from dango.transformation import generate_dbt_docs, run_dbt_models
+
+    select_criteria = " ".join(f"source:{s}+" for s in pending)
+    logger.info("coalesced_dbt_run", sources=pending, select=select_criteria)
+    dbt_success, _dbt_output = run_dbt_models(project_root, select=select_criteria)
+
+    if dbt_success:
+        # Generate docs and refresh Metabase (mirrors run_sync post-dbt steps)
+        generate_dbt_docs(project_root)
+        try:
+            from dango.visualization.metabase import (
+                refresh_metabase_connection,
+                sync_metabase_schema,
+            )
+
+            if refresh_metabase_connection(project_root):
+                sync_metabase_schema(project_root)
+        except Exception:
+            logger.debug("metabase_refresh_after_coalesced_dbt_failed", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # Main job functions
 # ---------------------------------------------------------------------------
 
@@ -295,48 +381,64 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
     record_id: int | None = None
 
     try:
-        try:
-            lock.acquire()
-        except DbtLockError:
-            elapsed = time.monotonic() - t0
-            logger.warning(
-                "scheduler_lock_contention", schedule=schedule_name, sources=source_names
-            )
-            _broadcast(
-                {
-                    "event": "job_queued",
-                    "schedule": schedule_name,
-                    "sources": source_names,
-                    "message": "Lock contention",
-                    "timestamp": _ts(),
-                }
-            )
-            _broadcast(
-                {
-                    "event": "sync_failed",
-                    "schedule": schedule_name,
-                    "sources": source_names,
-                    "error": "Could not acquire lock",
-                    "timestamp": _ts(),
-                }
-            )
-            _notify(
-                sender,
-                event_type=EventType.SYNC_FAILED,
-                schedule_name=schedule_name,
-                sources=source_names,
-                error="Could not acquire lock",
-                duration_seconds=elapsed,
-            )
-            _log_execution_event(
-                schedule_name=schedule_name,
-                job_type="sync",
-                status="lock_failed",
-                duration_seconds=elapsed,
-                error="Lock contention",
-                sources=source_names,
-            )
-            return
+        # Acquire lock with retry (wait up to 5 minutes, retry every 5 seconds)
+        max_wait = 300
+        retry_interval = 5
+        acquired = False
+        wait_start = time.monotonic()
+        queued_broadcast = False
+
+        while not acquired:
+            try:
+                lock.acquire()
+                acquired = True
+            except DbtLockError:
+                elapsed_wait = time.monotonic() - wait_start
+                if elapsed_wait >= max_wait:
+                    elapsed = time.monotonic() - t0
+                    logger.warning(
+                        "scheduler_lock_timeout",
+                        schedule=schedule_name,
+                        sources=source_names,
+                    )
+                    _broadcast(
+                        {
+                            "event": "sync_failed",
+                            "schedule": schedule_name,
+                            "sources": source_names,
+                            "error": "Could not acquire lock after 5 minutes",
+                            "timestamp": _ts(),
+                        }
+                    )
+                    _notify(
+                        sender,
+                        event_type=EventType.SYNC_FAILED,
+                        schedule_name=schedule_name,
+                        sources=source_names,
+                        error="Could not acquire lock after 5 minutes",
+                        duration_seconds=elapsed,
+                    )
+                    _log_execution_event(
+                        schedule_name=schedule_name,
+                        job_type="sync",
+                        status="lock_failed",
+                        duration_seconds=elapsed,
+                        error="Lock timeout after 5 minutes",
+                        sources=source_names,
+                    )
+                    return
+                if not queued_broadcast:
+                    _broadcast(
+                        {
+                            "event": "job_queued",
+                            "schedule": schedule_name,
+                            "sources": source_names,
+                            "message": "Waiting for lock...",
+                            "timestamp": _ts(),
+                        }
+                    )
+                    queued_broadcast = True
+                time.sleep(retry_interval)
 
         resolved = _resolve_sources(project_root, source_names)
         if not resolved:
@@ -366,11 +468,12 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         from dango.utils.sync_history import save_sync_history_entry
 
         job_id = f"schedule:{schedule_name}"
+        # Sync each source with skip_dbt=True (dbt coalesced after all sources)
         for src in resolved:
             if _scheduler_service is not None and _scheduler_service.is_cancelled(job_id):
                 raise JobCancelledError(f"Sync cancelled between sources for {schedule_name}")
             src_t0 = time.monotonic()
-            run_sync(project_root, [src], full_refresh=full_refresh)
+            run_sync(project_root, [src], full_refresh=full_refresh, skip_dbt=True)
             save_sync_history_entry(
                 project_root,
                 src.name,
@@ -382,6 +485,10 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                     "duration_seconds": round(time.monotonic() - src_t0, 2),
                 },
             )
+            _add_pending_dbt_source(project_root, src.name)
+
+        # Run coalesced dbt (waits for coalesce window, merges pending sources)
+        _run_coalesced_dbt(project_root)
 
         elapsed = time.monotonic() - t0
 

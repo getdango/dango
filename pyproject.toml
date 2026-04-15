@@ -329,6 +329,7 @@ module = [
     "tests.unit.test_web_imports",
     "tests.unit.test_byos",
     "tests.unit.test_driver_utils",
+    "tests.unit.test_process_manager",
 ]
 ignore_errors = true
 

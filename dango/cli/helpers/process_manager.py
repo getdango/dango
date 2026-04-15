@@ -324,7 +324,16 @@ def get_fastapi_status(project_root: Path) -> dict:
     """
     pid = read_pid_file(project_root)
     log_file = project_root / ".dango" / "web.log"
-    port = 8080  # Default port
+
+    # Read port from project config (default 8800)
+    port = 8800
+    try:
+        from dango.config import ConfigLoader
+
+        config = ConfigLoader(project_root).load_config()
+        port = config.platform.port
+    except Exception:
+        pass
 
     status: dict = {"running": False, "pid": None, "port": port, "url": None, "log_file": log_file}
 

@@ -477,6 +477,7 @@ class TestStatusVersionCheck:
         mock_fastapi.return_value = {
             "running": False,
             "pid": None,
+            "port": 8800,
             "url": "http://localhost:8800",
             "log_file": tmp_path / "x.log",
         }

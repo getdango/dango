@@ -38,7 +38,11 @@ def _get_dbt_executable() -> str:
     return "dbt"
 
 
-def run_dbt_models(project_root: Path, select: str | None = None) -> tuple[bool, str]:
+def run_dbt_models(
+    project_root: Path,
+    select: str | None = None,
+    full_refresh: bool = False,
+) -> tuple[bool, str]:
     """
     Run dbt models to create staging/marts tables in DuckDB.
 
@@ -46,6 +50,7 @@ def run_dbt_models(project_root: Path, select: str | None = None) -> tuple[bool,
         project_root: Path to project root
         select: Optional dbt selection criteria (e.g., "source:test_csv+", "model_name+")
                 If None, runs all models. Use source-based selection for targeted runs.
+        full_refresh: If True, pass --full-refresh to rebuild models from scratch.
 
     Returns:
         Tuple of (success, output)
@@ -61,6 +66,8 @@ def run_dbt_models(project_root: Path, select: str | None = None) -> tuple[bool,
     cmd = [dbt_cmd, "run", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)]
     if select:
         cmd.extend(["--select", select])
+    if full_refresh:
+        cmd.append("--full-refresh")
 
     try:
         result = subprocess.run(

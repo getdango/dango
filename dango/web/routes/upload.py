@@ -597,7 +597,9 @@ async def run_dbt_after_delete(source_name: str):
         # Run dbt for this source and downstream models
         # Use source:source_name+ to run all models dependent on this source
         select_criteria = f"source:{source_name}+"
-        dbt_success, dbt_output = run_dbt_models(get_project_root(), select=select_criteria)
+        dbt_success, dbt_output = run_dbt_models(
+            get_project_root(), select=select_criteria, full_refresh=True
+        )
 
         # Calculate duration
         duration = time.time() - start_time
