@@ -205,6 +205,14 @@ class SourceWizard:
                 if not directory_path.exists():
                     directory_path.mkdir(parents=True, exist_ok=True)
                     console.print(f"[green]✅ Created directory: {params['directory']}[/green]")
+                # Warn about .gitignore for non-default directories
+                default_dir = f"data/uploads/{source_name}"
+                if params["directory"] != default_dir and not params["directory"].startswith(
+                    "data/uploads"
+                ):
+                    console.print(
+                        f"[yellow]⚠️  Remember to add '{params['directory']}' to .gitignore[/yellow]"
+                    )
 
             # Step 7: Create source config
             source_config = self._create_source_config(source_name, source_type, params, metadata)
@@ -353,7 +361,10 @@ class SourceWizard:
                 console.print(f"  Copy data files to: [cyan]{params['directory']}[/cyan]")
                 if source_type == "local_files":
                     console.print("  Supported formats: CSV, JSON, JSONL, Parquet")
-                console.print("  All files must have same columns (first row = headers for CSV)")
+                console.print(
+                    "  All files matching the pattern must have the same columns"
+                    " and will be loaded into a single table."
+                )
 
             # Unified next steps
             console.print("\n[cyan]Next steps:[/cyan]")

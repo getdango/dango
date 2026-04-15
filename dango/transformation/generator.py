@@ -10,7 +10,7 @@ from typing import Any
 import duckdb
 import jinja2
 
-from dango.config.models import DataSource, DeduplicationStrategy, SourceType
+from dango.config.models import DataSource
 
 
 class DbtModelGenerator:
@@ -30,15 +30,6 @@ class DbtModelGenerator:
         "first_seen": "Keep oldest record (first occurrence)",
         "composite_key": "Deduplicate using multiple columns as composite key",
         "row_number": "Keep first row when sorted by specified columns",
-    }
-
-    # Map CSV dedup strategies to dbt template strategies
-    # Based on CSV_LOADING_DESIGN_SUMMARY.md Phase 1 design
-    CSV_TO_DBT_STRATEGY_MAP = {
-        DeduplicationStrategy.NONE: None,  # No dedup - keep all rows
-        DeduplicationStrategy.LATEST_ONLY: "last_modified",  # Keep latest by timestamp (PARTITION BY pk, ORDER BY ts DESC)
-        DeduplicationStrategy.APPEND_ONLY: None,  # No dedup in staging (already deduped per-file during load)
-        DeduplicationStrategy.SCD_TYPE2: "scd_type2",  # SCD Type 2 with valid_from/valid_to/is_current
     }
 
     def __init__(self, project_root: Path):
@@ -157,43 +148,7 @@ class DbtModelGenerator:
         """
         column_names = [col["name"].lower() for col in columns]
 
-        # CSV sources: Map from CSV config strategy to dbt template strategy
-        if source.type == SourceType.CSV and source.csv:
-            csv_strategy = source.csv.deduplication_strategy
-
-            # Map CSV strategy to dbt template strategy
-            dbt_strategy = self.CSV_TO_DBT_STRATEGY_MAP.get(csv_strategy)
-
-            # Build dedup_columns based on strategy
-            if dbt_strategy == "last_modified":
-                # latest_only: Use primary_key + timestamp_column
-                if source.csv.primary_key and source.csv.timestamp_column:
-                    return (dbt_strategy, [source.csv.primary_key, source.csv.timestamp_column])
-                else:
-                    # Fallback: Try to infer from column names
-                    id_cols = [
-                        col
-                        for col in column_names
-                        if any(id_field in col for id_field in ["id", "uuid", "key"])
-                    ]
-                    timestamp_cols = [
-                        col
-                        for col in column_names
-                        if any(ts in col for ts in ["updated_at", "modified_at", "timestamp"])
-                    ]
-                    if id_cols and timestamp_cols:
-                        return (dbt_strategy, [id_cols[0], timestamp_cols[0]])
-
-            elif dbt_strategy == "scd_type2":
-                # SCD Type 2: Use primary_key + timestamp_column
-                if source.csv.primary_key and source.csv.timestamp_column:
-                    return (dbt_strategy, [source.csv.primary_key, source.csv.timestamp_column])
-
-            elif dbt_strategy is None:
-                # none or append_only: No deduplication
-                return (None, None)
-
-        # API sources: Usually have updated_at + id
+        # Infer dedup from column names (works for all source types)
         if any(col in column_names for col in ["updated_at", "modified_at"]):
             id_col = next((col for col in column_names if "id" in col), None)
             updated_col = next(

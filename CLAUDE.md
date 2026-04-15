@@ -333,15 +333,15 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 |------|-------|-----------------|
 | `ingestion/dlt_runner.py` | 2276 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2008 | — (metadata-only) |
-| `cli/source_wizard.py` | 2097 | — |
+| `cli/source_wizard.py` | 2108 | — |
 | `visualization/metabase.py` | 1152 | — |
 | `cli/init.py` | 1301 | — |
-| `visualization/dashboard_manager.py` | 1113 | — |
+| `visualization/dashboard_manager.py` | 1117 | — |
 | `cli/commands/platform.py` | 983 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 812 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 810 | — (extracted from app.py by TASK-085) |
-| `ingestion/csv_loader.py` | 766 | — |
+| `ingestion/csv_loader.py` | 765 | — |
 | `platform/scheduling/jobs.py` | 732 | — (module-level job functions) |
 | `web/routes/schedules.py` | 720 | — (schedule CRUD, history, notifications) |
 | `web/routes/upload.py` | 699 | — (extracted from app.py by TASK-085) |
@@ -352,9 +352,9 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 578 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 651 | — |
-| `config/models.py` | 594 | — (Pydantic config models) |
+| `config/models.py` | 588 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 839 | — (interactive deploy wizard + BYOS) |
-| `transformation/generator.py` | 593 | — |
+| `transformation/generator.py` | 548 | — |
 | `web/routes/catalog.py` | 1157 | — (data catalog: columns, profiling, lineage, impact, models, search) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/deploy_provision.py` | 704 | — (provisioning orchestration + BYOS) |
@@ -363,6 +363,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `auth/database.py` | 529 | — (SQLite CRUD) |
 | `web/routes/users.py` | 527 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 518 | — |
+| `cli/commands/schedule.py` | 729 | — (schedule wizard + time customization) |
 | `cli/model_wizard.py` | 507 | — |
 | `platform/cloud/scheduled_backup.py` | 505 | — (server-side scheduled backup) |
 

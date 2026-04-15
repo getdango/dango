@@ -28,11 +28,30 @@ logger = get_logger(__name__)
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 _FREQUENCY_CHOICES = [
-    ("Every hour", "0 * * * *"),
-    ("Every 6 hours", "0 */6 * * *"),
-    ("Daily (6 AM)", "0 6 * * *"),
-    ("Weekly (Monday 6 AM)", "0 6 * * 1"),
+    ("Every 2 hours", "2h"),
+    ("Every 3 hours", "3h"),
+    ("Every 4 hours", "4h"),
+    ("Every 6 hours", "6h"),
+    ("Every 8 hours", "8h"),
+    ("Every 12 hours", "12h"),
+    ("Daily", "daily"),
+    ("Weekly", "weekly"),
     ("Custom cron", "custom"),
+]
+
+_TYPE_CHOICES = [
+    ("Sync & Transform (recommended)", "sync"),
+    ("Transform only (dbt)", "dbt"),
+]
+
+_DAY_CHOICES = [
+    ("Monday", 1),
+    ("Tuesday", 2),
+    ("Wednesday", 3),
+    ("Thursday", 4),
+    ("Friday", 5),
+    ("Saturday", 6),
+    ("Sunday", 0),
 ]
 
 
@@ -74,11 +93,166 @@ def _get_next_run(cron_expr: str) -> str:
         return "—"
 
 
+def _get_next_runs(cron_expr: str, count: int = 3) -> list[str]:
+    """Return next *count* run times as formatted strings."""
+    try:
+        from croniter import croniter
+
+        it = croniter(cron_expr, datetime.now())
+        return [it.get_next(datetime).strftime("%Y-%m-%d %H:%M") for _ in range(count)]
+    except Exception:
+        return []
+
+
 def _get_local_timezone() -> str:
     """Return the local timezone name."""
     if time.daylight and time.localtime().tm_isdst > 0:
         return time.tzname[1]
     return time.tzname[0]
+
+
+def _build_hourly_hours(interval: int, start_hour: int) -> list[int]:
+    """Compute run hours for an interval starting at *start_hour*."""
+    hours: list[int] = []
+    h = start_hour
+    while h < 24:
+        hours.append(h)
+        h += interval
+    # Wrap around if start_hour > 0
+    if start_hour > 0:
+        h = start_hour - (24 - (24 // interval) * interval)
+        if h < 0:
+            h += interval
+        while h < start_hour:
+            hours.append(h)
+            h += interval
+    return sorted(set(hours))
+
+
+def _build_cron_interactive(selection: str) -> str | None:
+    """Prompt for time specifics based on frequency *selection* and return cron.
+
+    Returns ``None`` if the user cancels a prompt.
+    """
+    import inquirer
+
+    if selection == "custom":
+        from croniter import croniter
+
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "cron",
+                    message="Cron expression (5-part)",
+                    validate=lambda _, x: croniter.is_valid(x),
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        cron_val: str = answers["cron"]
+        return cron_val
+
+    if selection in ("daily", "weekly"):
+        hour_default = "6"
+    else:
+        hour_default = "0"
+
+    # Prompt minute
+    answers = inquirer.prompt(
+        [
+            inquirer.Text(
+                "minute",
+                message="Minute (0-59)",
+                default="0",
+                validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 59,
+            )
+        ]
+    )
+    if answers is None:
+        return None
+    minute = int(answers["minute"])
+
+    if selection == "weekly":
+        # Prompt day of week
+        answers = inquirer.prompt(
+            [
+                inquirer.List(
+                    "day",
+                    message="Day of week",
+                    choices=[label for label, _ in _DAY_CHOICES],
+                    default="Monday",
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        day_num = dict(_DAY_CHOICES)[answers["day"]]
+
+        # Prompt hour
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "hour",
+                    message="Hour (0-23)",
+                    default=hour_default,
+                    validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 23,
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        hour = int(answers["hour"])
+        return f"{minute} {hour} * * {day_num}"
+
+    if selection == "daily":
+        # Prompt hour
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "hour",
+                    message="Hour (0-23)",
+                    default=hour_default,
+                    validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 23,
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        hour = int(answers["hour"])
+        return f"{minute} {hour} * * *"
+
+    # Hourly intervals: 2h, 3h, 4h, 6h, 8h, 12h
+    interval = int(selection.rstrip("h"))
+
+    # Prompt start hour
+    answers = inquirer.prompt(
+        [
+            inquirer.Text(
+                "start_hour",
+                message=f"Start hour (0-23, runs every {interval}h from this hour)",
+                default="0",
+                validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 23,
+            )
+        ]
+    )
+    if answers is None:
+        return None
+    start_hour = int(answers["start_hour"])
+
+    hours = _build_hourly_hours(interval, start_hour)
+    hours_csv = ",".join(str(h) for h in hours)
+    console.print(f"  Runs at hours: {hours_csv}")
+    return f"{minute} {hours_csv} * * *"
+
+
+def _show_next_runs(cron_expr: str) -> None:
+    """Print next 3 scheduled run times."""
+    runs = _get_next_runs(cron_expr, 3)
+    if runs:
+        console.print("[dim]Next run times:[/dim]")
+        for i, r in enumerate(runs, 1):
+            console.print(f"  {i}. {r}")
 
 
 def _toggle_schedule(ctx: click.Context, name: str, *, enable: bool) -> None:
@@ -176,10 +350,59 @@ def schedule_list(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _show_schedule_detail(project_root: Path, schedules: list[dict[str, Any]], name: str) -> None:
+    """Show detailed status for a single schedule (BUG-041)."""
+    result = _find_schedule(schedules, name)
+    if result is None:
+        console.print(f"[red]Error:[/red] Schedule '{name}' not found.")
+        raise SystemExit(1)
+
+    _, sched = result
+    enabled = sched.get("enabled", True)
+
+    console.print(f"[bold]Schedule:[/bold] {name}")
+    console.print(f"  Type:     {sched.get('type', 'sync')}")
+    console.print(f"  Cron:     {sched.get('cron', '?')}")
+    console.print(f"  Enabled:  {'yes' if enabled else 'no'}")
+    if sched.get("timezone"):
+        console.print(f"  Timezone: {sched['timezone']}")
+    if sched.get("sources"):
+        console.print(f"  Sources:  {', '.join(sched['sources'])}")
+    if sched.get("dbt_command"):
+        console.print(f"  dbt cmd:  {sched['dbt_command']}")
+    if sched.get("notify_on"):
+        console.print(f"  Notify:   {', '.join(sched['notify_on'])}")
+
+    # Next run
+    if enabled:
+        console.print(f"  Next run: {_get_next_run(sched.get('cron', ''))}")
+
+    # Recent history from scheduler.db
+    from dango.platform.scheduling.history import get_scheduler_db_path
+
+    db_path = get_scheduler_db_path(project_root)
+    if db_path.exists():
+        from dango.platform.scheduling.history import get_schedule_history
+
+        runs, _total = get_schedule_history(db_path, name, limit=5)
+        if runs:
+            console.print("\n[bold]Recent runs:[/bold]")
+            for run in runs:
+                status = run.get("status", "?")
+                started = run.get("started_at", "?")
+                style = "[green]" if status == "success" else "[red]"
+                console.print(f"  {started} — {style}{status}[/{style[1:]}")
+        else:
+            console.print("\n[dim]No run history yet.[/dim]")
+    else:
+        console.print("\n[dim]No run history yet.[/dim]")
+
+
 @schedule.command("status")
+@click.argument("name", required=False, default=None)
 @click.pass_context
-def schedule_status(ctx: click.Context) -> None:
-    """Show scheduler status overview."""
+def schedule_status(ctx: click.Context, name: str | None = None) -> None:
+    """Show scheduler status overview, or details for a single schedule."""
     from dango.cli.utils import require_project_context
 
     project_root = require_project_context(ctx)
@@ -190,6 +413,11 @@ def schedule_status(ctx: click.Context) -> None:
         console.print(
             "[dim]No schedules configured.[/dim] Run [bold]dango schedule add[/bold] to create one."
         )
+        return
+
+    # Per-schedule detail mode (BUG-041)
+    if name is not None:
+        _show_schedule_detail(project_root, schedules, name)
         return
 
     # 1. Next scheduled run (earliest across enabled schedules)
@@ -302,13 +530,12 @@ def schedule_add(ctx: click.Context) -> None:
         return
     name: str = answers["name"]
 
-    # 2. Type
-    answers = inquirer.prompt(
-        [inquirer.List("type", message="Schedule type", choices=["sync", "dbt"])]
-    )
+    # 2. Type (BUG-037: friendly labels, default to sync)
+    type_labels = [label for label, _ in _TYPE_CHOICES]
+    answers = inquirer.prompt([inquirer.List("type", message="Schedule type", choices=type_labels)])
     if answers is None:
         return
-    sched_type: str = answers["type"]
+    sched_type: str = dict(_TYPE_CHOICES)[answers["type"]]
 
     # 3a. Sources (sync only) / 3b. dbt command
     sources: list[str] = []
@@ -322,7 +549,11 @@ def schedule_add(ctx: click.Context) -> None:
             available = [s.name for s in sources_cfg.sources if s.enabled]
         except Exception:
             available = []
-        if available:
+        # BUG-038: auto-select if only one source
+        if len(available) == 1:
+            sources = [available[0]]
+            console.print(f"[green]Auto-selected source: {available[0]}[/green]")
+        elif available:
             answers = inquirer.prompt(
                 [inquirer.Checkbox("sources", message="Select sources to sync", choices=available)]
             )
@@ -340,35 +571,20 @@ def schedule_add(ctx: click.Context) -> None:
             return
         dbt_command = answers["dbt_command"]
 
-    # 4. Frequency
+    # 4. Frequency (BUG-039: time customization with preview)
+    freq_labels = [label for label, _ in _FREQUENCY_CHOICES]
     answers = inquirer.prompt(
-        [
-            inquirer.List(
-                "frequency",
-                message="Run frequency",
-                choices=[label for label, _ in _FREQUENCY_CHOICES],
-            )
-        ]
+        [inquirer.List("frequency", message="Run frequency", choices=freq_labels)]
     )
     if answers is None:
         return
-    cron: str = dict(_FREQUENCY_CHOICES)[answers["frequency"]]
+    selection: str = dict(_FREQUENCY_CHOICES)[answers["frequency"]]
 
-    if cron == "custom":
-        from croniter import croniter
+    cron = _build_cron_interactive(selection)
+    if cron is None:
+        return
 
-        answers = inquirer.prompt(
-            [
-                inquirer.Text(
-                    "cron",
-                    message="Cron expression (5-part)",
-                    validate=lambda _, x: croniter.is_valid(x),
-                )
-            ]
-        )
-        if answers is None:
-            return
-        cron = answers["cron"]
+    _show_next_runs(cron)
 
     # 5. Timezone
     answers = inquirer.prompt(
@@ -378,20 +594,34 @@ def schedule_add(ctx: click.Context) -> None:
         return
     timezone_str: str = answers["timezone"]
 
-    # 6. Notify on
-    answers = inquirer.prompt(
-        [
-            inquirer.Checkbox(
-                "notify_on",
-                message="Notify on (select events)",
-                choices=["failure", "success", "stale"],
-                default=["failure"],
-            )
-        ]
-    )
-    if answers is None:
-        return
-    notify_on: list[str] = answers["notify_on"]
+    # 6. Notify on (BUG-040: skip if no webhooks configured)
+    notify_on: list[str] = []
+    try:
+        from dango.platform.notifications.webhook import load_notification_config
+
+        notif_cfg = load_notification_config(project_root)
+        has_webhooks = notif_cfg is not None and len(notif_cfg.webhooks) > 0
+    except Exception:
+        has_webhooks = False
+
+    if has_webhooks:
+        answers = inquirer.prompt(
+            [
+                inquirer.Checkbox(
+                    "notify_on",
+                    message="Notify on (select events)",
+                    choices=["failure", "success", "stale"],
+                    default=["failure"],
+                )
+            ]
+        )
+        if answers is None:
+            return
+        notify_on = answers["notify_on"]
+    else:
+        console.print(
+            "[dim]Tip: Configure webhooks in .dango/schedules.yml to receive schedule alerts[/dim]"
+        )
 
     # Build + save
     entry: dict[str, Any] = {
