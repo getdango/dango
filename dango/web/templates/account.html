@@ -473,6 +473,7 @@ function accountPage() {
                 });
                 const data = await res.json();
                 if (!res.ok) { this.twoFaError = data.message || 'Setup failed'; this.twoFaLoading = false; return; }
+                this.twoFaPassword = '';
                 this.twoFaSecret = data.secret;
                 this.twoFaUri = data.provisioning_uri;
                 this.twoFaRecoveryCodes = data.recovery_codes;
@@ -489,6 +490,7 @@ function accountPage() {
                 });
                 const data = await res.json();
                 if (!res.ok) { this.twoFaError = data.message || 'Verification failed'; this.twoFaLoading = false; return; }
+                this.twoFaCode = '';
                 this.twoFaStep = 'recovery';
                 this.user = {...this.user, totp_enabled: true};
             } catch (e) { this.twoFaError = 'Unable to connect'; }
@@ -517,6 +519,7 @@ function accountPage() {
                 });
                 const data = await res.json();
                 if (!res.ok) { this.twoFaError = data.message || 'Regeneration failed'; this.twoFaLoading = false; return; }
+                this.twoFaPassword = ''; this.twoFaCode = '';
                 this.twoFaRecoveryCodes = data.recovery_codes;
                 this.twoFaStep = 'recovery';
             } catch (e) { this.twoFaError = 'Unable to connect'; }

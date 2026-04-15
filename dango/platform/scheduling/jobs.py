@@ -312,15 +312,18 @@ def _get_coalesce_seconds(project_root: Path) -> int:
         return 10
 
 
-def _run_coalesced_dbt(project_root: Path) -> None:
-    """Run dbt for all pending sources, plus dbt docs and Metabase refresh."""
+def _run_coalesced_dbt(project_root: Path) -> bool:
+    """Run dbt for all pending sources, plus dbt docs and Metabase refresh.
+
+    Returns True if dbt succeeded (or no pending sources), False on failure.
+    """
     coalesce_seconds = _get_coalesce_seconds(project_root)
     if coalesce_seconds > 0:
         time.sleep(coalesce_seconds)
 
     pending = _consume_pending_dbt_sources(project_root)
     if not pending:
-        return
+        return True
 
     from dango.transformation import generate_dbt_docs, run_dbt_models
 
@@ -341,6 +344,10 @@ def _run_coalesced_dbt(project_root: Path) -> None:
                 sync_metabase_schema(project_root)
         except Exception:
             logger.debug("metabase_refresh_after_coalesced_dbt_failed", exc_info=True)
+    else:
+        logger.warning("coalesced_dbt_run_failed", sources=pending, select=select_criteria)
+
+    return dbt_success
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +495,18 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             _add_pending_dbt_source(project_root, src.name)
 
         # Run coalesced dbt (waits for coalesce window, merges pending sources)
-        _run_coalesced_dbt(project_root)
+        dbt_ok = _run_coalesced_dbt(project_root)
+
+        if not dbt_ok:
+            _broadcast(
+                {
+                    "event": "dbt_run_all_failed",
+                    "schedule": schedule_name,
+                    "sources": source_names,
+                    "message": "Coalesced dbt run failed after sync",
+                    "timestamp": _ts(),
+                }
+            )
 
         elapsed = time.monotonic() - t0
 
