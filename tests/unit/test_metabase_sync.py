@@ -46,7 +46,7 @@ def _mb_yml(tmp_path: Path, db_id: int = 1) -> Path:
         yaml.safe_dump(
             {
                 "metabase_url": MB_URL,
-                "admin": {"email": "admin@dango.local", "password": "dangolocal123"},
+                "admin": {"email": "admin@test.com", "password": "testpassword123"},
                 "database": {"id": db_id, "name": "Test Analytics"},
             }
         )

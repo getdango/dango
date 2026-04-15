@@ -142,6 +142,23 @@ def decrypt_metabase_password(encrypted: str, project_root: Path) -> str:
     ]
 
 
+def find_metabase_user_by_email(
+    metabase_url: str, session: str, email: str
+) -> dict[str, Any] | None:
+    """Find a Metabase user by email. Returns user dict or ``None``."""
+    users = _mb_get(metabase_url, session, "/api/user?limit=2000")
+    if isinstance(users, list):
+        user_list = users
+    elif isinstance(users, dict):
+        user_list = users.get("data", [])
+    else:
+        return None
+    for u in user_list:
+        if isinstance(u, dict) and u.get("email") == email:
+            return u  # type: ignore[return-value]
+    return None
+
+
 def ensure_metabase_groups(
     metabase_url: str,
     project_root: Path,
@@ -302,9 +319,21 @@ def sync_user_to_metabase(
             },
         )
         if mb_user is None:
-            return None
-
-        mb_user_id: int = mb_user["id"]
+            # User creation failed — may already exist in Metabase.
+            # Try to find existing Metabase user by email and link them.
+            existing = find_metabase_user_by_email(metabase_url, session, user.email)
+            if existing is None:
+                return None
+            mb_user_id: int = existing["id"]
+            # Update password on existing Metabase user so we can bridge SSO
+            password = generate_metabase_password()
+            if (
+                _mb_put(metabase_url, session, f"/api/user/{mb_user_id}", {"password": password})
+                is None
+            ):
+                logger.warning("Failed to update Metabase password for user %s", mb_user_id)
+        else:
+            mb_user_id = mb_user["id"]
         encrypted_pw = encrypt_metabase_password(password, project_root)
         update_user(
             db_path,

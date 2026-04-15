@@ -243,14 +243,21 @@ def setup_metabase_if_needed(
         except Exception:
             pass
     if not admin_email:
-        admin_email = "admin@dango.local"
+        from dango.logging import get_logger as _get_logger
+
+        _logger = _get_logger(__name__)
+        _logger.warning(
+            "metabase_setup_skipped",
+            reason="No admin email found. Metabase setup will complete on next restart.",
+        )
+        return {"already_configured": False, "success": True, "skipped": True}
 
     setup_result = setup_metabase(
         project_root,
         project_name,
-        organization,
+        admin_email,
+        organization=organization,
         cloud_mode=is_cloud_mode(project_root),
-        admin_email=admin_email,
     )
 
     # DuckDB connection failure is critical — caller must roll back Docker
@@ -261,7 +268,93 @@ def setup_metabase_if_needed(
             "metabase-plugins/duckdb.metabase-driver.jar is present."
         )
 
+    # Link Metabase admin to Dango admin for SSO bridging
+    _link_metabase_admin(project_root, admin_email)
+
     return {"already_configured": False, **setup_result}
+
+
+def _link_metabase_admin(project_root: Path, admin_email: str) -> None:
+    """Link the Metabase admin account to the Dango admin user for SSO."""
+    try:
+        import requests
+        import yaml
+
+        from dango.auth.admin import get_auth_db_path
+        from dango.auth.database import get_user_by_email, update_user
+        from dango.auth.metabase_sync import (
+            encrypt_metabase_password,
+            find_metabase_user_by_email,
+            generate_metabase_password,
+        )
+        from dango.auth.models import UserUpdate
+        from dango.logging import get_logger
+
+        _logger = get_logger(__name__)
+
+        # Read Metabase credentials
+        mb_yml_path = project_root / ".dango" / "metabase.yml"
+        if not mb_yml_path.exists():
+            return
+        with open(mb_yml_path) as f:
+            mb_creds = yaml.safe_load(f)
+        mb_url = mb_creds.get("metabase_url", "http://localhost:3000").rstrip("/")
+        admin_creds = mb_creds.get("admin", {})
+
+        # Get Metabase admin session
+        mb_email = admin_creds.get("email")
+        mb_password = admin_creds.get("password")
+        if not mb_email or not mb_password:
+            return
+        resp = requests.post(
+            f"{mb_url}/api/session",
+            json={"username": mb_email, "password": mb_password},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return
+        session_token = resp.json().get("id")
+        if not session_token:
+            return
+
+        # Find Dango admin user
+        db_path = get_auth_db_path(project_root)
+        if not db_path.exists():
+            return
+        dango_user = get_user_by_email(db_path, admin_email)
+        if dango_user is None or dango_user.metabase_user_id is not None:
+            return  # Already linked or user doesn't exist
+
+        # Find Metabase user by email
+        mb_user = find_metabase_user_by_email(mb_url, session_token, admin_email)
+        if mb_user is None:
+            return
+
+        # Generate new password, update Metabase user, store in Dango
+        password = generate_metabase_password()
+        pw_resp = requests.put(
+            f"{mb_url}/api/user/{mb_user['id']}",
+            headers={"X-Metabase-Session": session_token},
+            json={"password": password},
+            timeout=10,
+        )
+        if pw_resp.status_code != 200:
+            _logger.warning(
+                "metabase_password_update_failed",
+                status=pw_resp.status_code,
+                metabase_user_id=mb_user["id"],
+            )
+            return
+        encrypted_pw = encrypt_metabase_password(password, project_root)
+        update_user(
+            db_path,
+            dango_user.id,
+            UserUpdate(metabase_user_id=mb_user["id"], metabase_password_enc=encrypted_pw),
+        )
+        _logger.info("metabase_admin_linked", email=admin_email, metabase_user_id=mb_user["id"])
+    except Exception:
+        # Non-critical — SSO bridge will lazy-sync on next login
+        pass
 
 
 def import_dashboards(project_root: Path) -> dict[str, Any] | None:

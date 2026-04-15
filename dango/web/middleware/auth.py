@@ -65,12 +65,7 @@ _PUBLIC_EXACT: frozenset[str] = frozenset({
     "/login",
     "/setup",
     "/api/health",
-    "/",
-    "/health",
-    "/logs",
-    "/api",
-    "/api/docs",
-    "/api/redoc",
+    "/favicon.ico",
 })
 # fmt: on
 

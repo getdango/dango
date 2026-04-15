@@ -36,6 +36,12 @@ exemptions:
     reason: "TASK-100 added invite token lookup (+25 lines over TASK-095 base)."
     review_by: "v1.1"
 
+  - file: dango/auth/metabase_sync.py
+    lines: 521
+    category: exempt
+    reason: "BUG-011 added find_metabase_user_by_email() and email-exists fallback in sync_user_to_metabase() (+23 lines). Planned split in TASK-075b."
+    review_by: "v1.1"
+
   - file: dango/web/routes/users.py
     lines: 527
     category: exempt
