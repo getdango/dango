@@ -6,22 +6,9 @@
 <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
     <div x-data="schedulesPage()" x-init="init()">
         <!-- Header -->
-        <div class="flex items-center justify-between mb-6">
+        <div class="mb-6">
             <h2 class="text-xl font-bold text-gray-900">Schedules</h2>
-            <div class="flex items-center space-x-3">
-                {% if request.state.user.role.value == 'admin' %}
-                <button @click="reloadFromYaml()"
-                        :disabled="reloadLoading"
-                        class="px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm font-medium transition-colors disabled:opacity-50">
-                    <span x-show="!reloadLoading">Reload from YAML</span>
-                    <span x-show="reloadLoading" x-cloak>Reloading...</span>
-                </button>
-                <button @click="showCreateModal = true"
-                        class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors">
-                    Create Schedule
-                </button>
-                {% endif %}
-            </div>
+            <p class="text-sm text-gray-500 mt-1">Schedules are managed via CLI. Use <code class="bg-gray-100 px-1 rounded">dango schedule add</code> to create or modify schedules.</p>
         </div>
 
         <!-- Error banner -->
@@ -83,26 +70,14 @@
                                 </template>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap hidden sm:table-cell">
-                                {% if request.state.user.role.value == 'admin' %}
-                                <input type="checkbox" :checked="sched.enabled"
-                                       @change="toggleEnabled(sched)"
-                                       class="h-4 w-4 text-dango-600 focus:ring-dango-500 border-gray-300 rounded">
-                                {% else %}
                                 <span class="text-sm" :class="sched.enabled ? 'text-green-600' : 'text-gray-400'"
                                       x-text="sched.enabled ? 'Yes' : 'No'"></span>
-                                {% endif %}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
-                                <div class="flex items-center justify-end space-x-2">
-                                    <template x-if="isEditorPlus">
-                                        <button @click="openTriggerModal(sched)"
-                                                class="text-blue-600 hover:text-blue-800 text-xs font-medium">Trigger</button>
-                                    </template>
-                                    {% if request.state.user.role.value == 'admin' %}
-                                    <button @click="openDeleteModal(sched)"
-                                            class="text-red-600 hover:text-red-800 text-xs font-medium">Delete</button>
-                                    {% endif %}
-                                </div>
+                                <template x-if="isEditorPlus">
+                                    <button @click="openTriggerModal(sched)"
+                                            class="text-blue-600 hover:text-blue-800 text-xs font-medium">Trigger</button>
+                                </template>
                             </td>
                         </tr>
                         <tr x-show="expandedSchedule === sched.name" x-cloak class="bg-gray-50">
@@ -180,14 +155,8 @@
                         <template x-for="src in unscheduledSources" :key="src">
                             <li class="px-6 py-3 flex items-center justify-between">
                                 <span class="text-sm text-gray-700" x-text="src"></span>
-                                <div class="flex items-center space-x-2">
-                                    <button @click="syncSource(src)"
-                                            class="text-blue-600 hover:text-blue-800 text-xs font-medium">Sync Now</button>
-                                    {% if request.state.user.role.value == 'admin' %}
-                                    <button @click="prefillCreateFromSource(src)"
-                                            class="text-dango-600 hover:text-dango-800 text-xs font-medium">Create Schedule</button>
-                                    {% endif %}
-                                </div>
+                                <button @click="syncSource(src)"
+                                        class="text-blue-600 hover:text-blue-800 text-xs font-medium">Sync Now</button>
                             </li>
                         </template>
                     </ul>
@@ -198,17 +167,7 @@
         <!-- Notifications summary -->
         <div class="bg-white shadow rounded-lg overflow-hidden mb-6">
             <div class="px-6 py-4 border-b border-gray-200">
-                <div class="flex items-center justify-between">
-                    <h3 class="text-sm font-medium text-gray-700">Notifications</h3>
-                    {% if request.state.user.role.value == 'admin' %}
-                    <button @click="testNotification()"
-                            :disabled="testLoading || notifConfig.webhooks.length === 0"
-                            class="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
-                        <span x-show="!testLoading">Test</span>
-                        <span x-show="testLoading" x-cloak>Sending...</span>
-                    </button>
-                    {% endif %}
-                </div>
+                <h3 class="text-sm font-medium text-gray-700">Notifications</h3>
             </div>
             <div class="px-6 py-4">
                 <template x-if="notifConfig.webhooks.length === 0">
@@ -242,90 +201,6 @@
                 </template>
             </div>
         </div>
-
-        <!-- Create Schedule Modal -->
-        {% if request.state.user.role.value == 'admin' %}
-        <div x-show="showCreateModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
-            <div class="flex items-center justify-center min-h-screen px-4">
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showCreateModal = false"></div>
-                <div class="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 relative z-10">
-                    <h3 class="text-lg font-medium text-gray-900 mb-4">Create Schedule</h3>
-                    <form @submit.prevent="createSchedule()">
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                            <input type="text" x-model="newSchedule.name" required pattern="[a-z0-9_]+"
-                                   placeholder="daily_sync"
-                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500">
-                            <p class="text-xs text-gray-400 mt-1">Lowercase letters, numbers, underscores only.</p>
-                        </div>
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                            <select x-model="newSchedule.type"
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500">
-                                <option value="sync">Sync</option>
-                                <option value="dbt">dbt</option>
-                            </select>
-                        </div>
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Cron Schedule</label>
-                            <select x-model="cronPreset" @change="applyCronPreset()"
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 mb-2">
-                                <option value="">Select preset...</option>
-                                <option value="*/15 * * * *">Every 15 minutes</option>
-                                <option value="0 * * * *">Every hour</option>
-                                <option value="0 */6 * * *">Every 6 hours</option>
-                                <option value="0 6 * * *">Daily at 6 AM</option>
-                                <option value="0 6 * * 1">Weekly (Monday 6 AM)</option>
-                                <option value="custom">Custom</option>
-                            </select>
-                            <div x-show="cronPreset === 'custom'" x-cloak>
-                                <input type="text" x-model="newSchedule.cron" placeholder="0 6 * * *"
-                                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500">
-                            </div>
-                        </div>
-                        <div class="mb-4" x-show="newSchedule.type === 'sync'">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Sources</label>
-                            <div class="border border-gray-300 rounded-md p-2 max-h-40 overflow-y-auto">
-                                <template x-for="src in allSources" :key="src">
-                                    <label class="flex items-center py-1">
-                                        <input type="checkbox" :value="src"
-                                               :checked="newSchedule.sources.includes(src)"
-                                               @change="toggleSource(src)"
-                                               class="h-4 w-4 text-dango-600 focus:ring-dango-500 border-gray-300 rounded mr-2">
-                                        <span class="text-sm text-gray-700" x-text="src"></span>
-                                    </label>
-                                </template>
-                                <template x-if="allSources.length === 0">
-                                    <p class="text-xs text-gray-400">No sources configured.</p>
-                                </template>
-                            </div>
-                        </div>
-                        <div class="mb-4" x-show="newSchedule.type === 'dbt'" x-cloak>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">dbt Command</label>
-                            <input type="text" x-model="newSchedule.dbt_command" placeholder="run"
-                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500">
-                        </div>
-                        <div class="mb-4">
-                            <label class="flex items-center">
-                                <input type="checkbox" x-model="newSchedule.enabled"
-                                       class="h-4 w-4 text-dango-600 focus:ring-dango-500 border-gray-300 rounded mr-2">
-                                <span class="text-sm text-gray-700">Enabled</span>
-                            </label>
-                        </div>
-                        <div class="flex justify-end space-x-3">
-                            <button type="button" @click="showCreateModal = false"
-                                    class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
-                            <button type="submit" :disabled="createLoading"
-                                    class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700 disabled:opacity-50">
-                                <span x-show="!createLoading">Create</span>
-                                <span x-show="createLoading" x-cloak>Creating...</span>
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-        {% endif %}
 
         <!-- Trigger / Re-run Modal -->
         <div x-show="showTriggerModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
@@ -366,32 +241,6 @@
                 </div>
             </div>
         </div>
-
-        <!-- Delete Confirmation Modal -->
-        {% if request.state.user.role.value == 'admin' %}
-        <div x-show="showDeleteModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
-            <div class="flex items-center justify-center min-h-screen px-4">
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showDeleteModal = false"></div>
-                <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative z-10">
-                    <h3 class="text-lg font-medium text-red-600 mb-2">Delete Schedule</h3>
-                    <p class="text-sm text-gray-500 mb-4">
-                        This will permanently delete the schedule and its configuration.
-                        Type the schedule name
-                        (<span class="font-mono font-medium" x-text="deleteTarget?.name"></span>)
-                        to confirm.
-                    </p>
-                    <input type="text" x-model="deleteConfirmName" placeholder="Type name to confirm"
-                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 mb-4">
-                    <div class="flex justify-end space-x-3">
-                        <button @click="showDeleteModal = false; deleteConfirmName = ''"
-                                class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
-                        <button @click="deleteSchedule()" :disabled="deleteLoading || deleteConfirmName !== deleteTarget?.name"
-                                class="px-4 py-2 text-sm text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">Delete</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        {% endif %}
     </div>
 </main>
 {% endblock %}
@@ -405,11 +254,9 @@ function schedulesPage() {
     return {
         schedules: [],
         unscheduledSources: [],
-        allSources: [],
         notifConfig: { webhooks: [], on_failure: true, on_success: false, on_stale: true, stale_threshold_hours: 24 },
         runningJobs: {},
         error: '', success: '',
-        isAdmin: userRole === 'admin',
         isEditorPlus: userRole === 'admin' || userRole === 'editor',
 
         // UI state
@@ -418,27 +265,11 @@ function schedulesPage() {
         historyItems: [],
         historyLoading: false,
 
-        // Create modal
-        showCreateModal: false,
-        cronPreset: '',
-        newSchedule: { name: '', type: 'sync', cron: '', sources: [], enabled: true, dbt_command: 'run' },
-        createLoading: false,
-
         // Trigger modal
         showTriggerModal: false,
         triggerTarget: null,
         triggerOpts: { full_refresh: false, start_date: '', end_date: '' },
         triggerLoading: false,
-
-        // Delete modal
-        showDeleteModal: false,
-        deleteTarget: null,
-        deleteConfirmName: '',
-        deleteLoading: false,
-
-        // Other loading
-        reloadLoading: false,
-        testLoading: false,
 
         // WebSocket
         ws: null,
@@ -448,8 +279,7 @@ function schedulesPage() {
             await Promise.all([
                 this.loadSchedules(),
                 this.loadUnscheduled(),
-                this.loadNotifConfig(),
-                this.loadAllSources()
+                this.loadNotifConfig()
             ]);
             this.connectWebSocket();
         },
@@ -475,69 +305,6 @@ function schedulesPage() {
                 const res = await fetch('/api/notifications/config', { headers });
                 if (res.ok) this.notifConfig = await res.json();
             } catch (e) { /* ignore */ }
-        },
-        async loadAllSources() {
-            try {
-                const res = await fetch('/api/sources', { headers });
-                if (res.ok) {
-                    const data = await res.json();
-                    this.allSources = (data.sources || data || []).map(s => s.name || s).filter(Boolean);
-                }
-            } catch (e) { /* ignore */ }
-        },
-
-        // --- Schedule CRUD ---
-        async createSchedule() {
-            this.createLoading = true; this.error = '';
-            try {
-                const body = { ...this.newSchedule };
-                if (body.type !== 'dbt') delete body.dbt_command;
-                const res = await fetch('/api/schedules', {
-                    method: 'POST', headers, body: JSON.stringify(body)
-                });
-                const data = await res.json();
-                if (!res.ok) { this.error = data.message || 'Failed to create schedule'; this.createLoading = false; return; }
-                this.showCreateModal = false;
-                this.newSchedule = { name: '', type: 'sync', cron: '', sources: [], enabled: true, dbt_command: 'run' };
-                this.cronPreset = '';
-                this.success = 'Schedule created.';
-                setTimeout(() => this.success = '', 3000);
-                await Promise.all([this.loadSchedules(), this.loadUnscheduled()]);
-            } catch (e) { this.error = 'Failed to create schedule'; }
-            this.createLoading = false;
-        },
-        async toggleEnabled(sched) {
-            this.error = '';
-            try {
-                const body = {
-                    name: sched.name, type: sched.type, cron: sched.cron,
-                    sources: sched.sources, enabled: !sched.enabled
-                };
-                const res = await fetch(`/api/schedules/${sched.name}`, {
-                    method: 'PUT', headers, body: JSON.stringify(body)
-                });
-                if (!res.ok) {
-                    const data = await res.json();
-                    this.error = data.message || 'Failed to update schedule';
-                }
-                await this.loadSchedules();
-            } catch (e) { this.error = 'Failed to update schedule'; await this.loadSchedules(); }
-        },
-        async deleteSchedule() {
-            this.deleteLoading = true; this.error = '';
-            try {
-                const res = await fetch(`/api/schedules/${this.deleteTarget.name}`, {
-                    method: 'DELETE', headers
-                });
-                const data = await res.json();
-                if (!res.ok) { this.error = data.message || 'Failed to delete schedule'; this.deleteLoading = false; return; }
-                this.showDeleteModal = false;
-                this.deleteConfirmName = '';
-                this.success = 'Schedule deleted.';
-                setTimeout(() => this.success = '', 3000);
-                await Promise.all([this.loadSchedules(), this.loadUnscheduled()]);
-            } catch (e) { this.error = 'Failed to delete schedule'; }
-            this.deleteLoading = false;
         },
 
         // --- Trigger ---
@@ -585,33 +352,6 @@ function schedulesPage() {
             this.historyLoading = false;
         },
 
-        // --- Reload ---
-        async reloadFromYaml() {
-            this.reloadLoading = true; this.error = '';
-            try {
-                const res = await fetch('/api/schedules/reload', { method: 'POST', headers });
-                const data = await res.json();
-                if (!res.ok) { this.error = data.message || 'Failed to reload'; this.reloadLoading = false; return; }
-                this.success = `Reload complete: ${data.added?.length || 0} added, ${data.removed?.length || 0} removed, ${data.updated?.length || 0} updated.`;
-                setTimeout(() => this.success = '', 5000);
-                await this.loadSchedules();
-            } catch (e) { this.error = 'Failed to reload schedules'; }
-            this.reloadLoading = false;
-        },
-
-        // --- Notifications ---
-        async testNotification() {
-            this.testLoading = true; this.error = '';
-            try {
-                const res = await fetch('/api/notifications/test', { method: 'POST', headers });
-                const data = await res.json();
-                if (!res.ok) { this.error = data.message || 'Failed to send test'; this.testLoading = false; return; }
-                this.success = 'Test notification sent.';
-                setTimeout(() => this.success = '', 3000);
-            } catch (e) { this.error = 'Failed to send test notification'; }
-            this.testLoading = false;
-        },
-
         // --- Source sync ---
         async syncSource(name) {
             this.error = '';
@@ -627,28 +367,6 @@ function schedulesPage() {
                 this.success = `Sync started for "${name}".`;
                 setTimeout(() => this.success = '', 3000);
             } catch (e) { this.error = 'Failed to start sync'; }
-        },
-
-        // --- Helpers ---
-        openDeleteModal(sched) {
-            this.deleteTarget = sched;
-            this.deleteConfirmName = '';
-            this.showDeleteModal = true;
-        },
-        prefillCreateFromSource(src) {
-            this.newSchedule = { name: src + '_daily', type: 'sync', cron: '0 6 * * *', sources: [src], enabled: true, dbt_command: 'run' };
-            this.cronPreset = '0 6 * * *';
-            this.showCreateModal = true;
-        },
-        applyCronPreset() {
-            if (this.cronPreset && this.cronPreset !== 'custom') {
-                this.newSchedule.cron = this.cronPreset;
-            }
-        },
-        toggleSource(src) {
-            const idx = this.newSchedule.sources.indexOf(src);
-            if (idx >= 0) this.newSchedule.sources.splice(idx, 1);
-            else this.newSchedule.sources.push(src);
         },
 
         // --- JS helpers ---
@@ -734,7 +452,6 @@ function schedulesPage() {
             if (ev === 'sync_started' || ev === 'dbt_started') {
                 const updated = {...this.runningJobs};
                 for (const sched of this.schedules) {
-                    // sync events: match by source name; dbt events: match dbt-type schedules only
                     const match = ev === 'sync_started'
                         ? sched.sources.includes(source)
                         : sched.type === 'dbt';

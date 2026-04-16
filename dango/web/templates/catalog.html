@@ -224,7 +224,11 @@
                                 <tbody class="bg-white divide-y divide-gray-200">
                                     <template x-for="col in selectedModel.columns" :key="col.name">
                                         <tr>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900" x-text="col.name"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                <span x-text="col.name"></span>
+                                                <span x-show="col._pii" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800" :title="'PII: ' + (col._pii || '')">PII</span>
+                                                <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800" x-text="col._drift" :title="'Schema drift: ' + (col._drift || '')"></span>
+                                            </td>
                                             <td class="px-6 py-4 whitespace-nowrap"><span class="col-type text-gray-600" x-text="col.type || '--'"></span></td>
                                             <td class="px-6 py-4 text-sm text-gray-500 hidden sm:table-cell" x-text="col.description || '--'"></td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell" x-text="col.nullable != null ? (col.nullable ? 'Yes' : 'No') : '--'"></td>
@@ -335,6 +339,12 @@
                             </template>
                         </div>
                     </div>
+                    <div x-show="hasLineage">
+                        <button @click="viewInLineage(selectedModel.name)"
+                                class="px-3 py-1.5 text-sm font-medium bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition-colors">
+                            View in Lineage
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -428,6 +438,8 @@ function catalogPage() {
         // Lineage state
         lineageNodes: [], lineageEdges: [],
         selectedNode: null, impactHighlighted: false, impactCount: 0, _lineage: null,
+        // Governance state
+        piiFindings: [], driftEvents: [],
         // Shared state
         loading: true, profilingLoading: false, error: null, hasLineage: false,
         // Tab config
@@ -441,8 +453,9 @@ function catalogPage() {
 
         async init() {
             try {
-                const [modelsRes, lineageRes] = await Promise.allSettled([
+                const [modelsRes, lineageRes, piiRes, driftRes] = await Promise.allSettled([
                     fetch('/api/catalog/models'), fetch('/api/catalog/lineage'),
+                    fetch('/api/governance/pii?limit=1000'), fetch('/api/governance/schema-drift?limit=1000'),
                 ]);
                 if (modelsRes.status === 'fulfilled' && modelsRes.value.ok) {
                     const data = await modelsRes.value.json();
@@ -454,6 +467,14 @@ function catalogPage() {
                     this.lineageNodes = dag.nodes || [];
                     this.lineageEdges = dag.edges || [];
                     this.hasLineage = true;
+                }
+                if (piiRes.status === 'fulfilled' && piiRes.value.ok) {
+                    const data = await piiRes.value.json();
+                    this.piiFindings = data.findings || [];
+                }
+                if (driftRes.status === 'fulfilled' && driftRes.value.ok) {
+                    const data = await driftRes.value.json();
+                    this.driftEvents = data.events || [];
                 }
             } catch (e) { this.error = 'Failed to load catalog data.'; }
             finally { this.loading = false; }
@@ -483,7 +504,21 @@ function catalogPage() {
             try {
                 const res = await fetch('/api/catalog/models/' + encodeURIComponent(name));
                 if (res.ok) {
-                    this.selectedModel = await res.json();
+                    const model = await res.json();
+                    // Attach PII and drift indicators to columns
+                    if (model.columns) {
+                        const srcName = model.source_name || model.name;
+                        const tblName = model.name;
+                        for (const col of model.columns) {
+                            const pii = this.piiFindings.find(f =>
+                                (f.source === srcName || f.table_name === tblName) && f.column_name === col.name);
+                            col._pii = pii ? pii.entity_type : null;
+                            const drift = this.driftEvents.find(d =>
+                                (d.source === srcName || d.table_name === tblName) && d.column_name === col.name);
+                            col._drift = drift ? drift.event_type : null;
+                        }
+                    }
+                    this.selectedModel = model;
                 } else {
                     const err = await res.json().catch(() => ({}));
                     this.error = err.detail || 'Failed to load model details.';
@@ -547,6 +582,14 @@ function catalogPage() {
                 } else { this.error = 'Failed to refresh profile.'; }
             } catch (e) { this.error = 'Failed to refresh profile.'; }
             finally { this.profilingLoading = false; }
+        },
+
+        viewInLineage(name) {
+            this.view = 'lineage'; this.impactHighlighted = false; this.impactCount = 0;
+            // Pre-select the node so detail panel opens
+            const node = this.lineageNodes.find(n => n.name === name);
+            this.selectedNode = node || null;
+            this.$nextTick(() => this.renderLineage());
         },
 
         timeAgo(dateStr) {
