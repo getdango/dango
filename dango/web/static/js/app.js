@@ -880,9 +880,22 @@ function toggleSyncMenu(sourceName) {
     });
     const dropdown = document.getElementById(`sync-dropdown-${sourceName}`);
     if (dropdown) {
+        const wasHidden = dropdown.classList.contains('hidden');
         dropdown.classList.toggle('hidden');
+        // Position the fixed dropdown relative to its trigger button
+        if (wasHidden) {
+            const btn = document.getElementById(`sync-btn-${sourceName}`);
+            if (btn) {
+                const rect = btn.getBoundingClientRect();
+                dropdown.style.top = (rect.bottom + 4) + 'px';
+                dropdown.style.left = Math.max(0, rect.right - dropdown.offsetWidth) + 'px';
+            }
+        }
     }
 }
+
+// Close sync dropdowns on scroll since they use fixed positioning
+window.addEventListener('scroll', closeSyncMenus, { passive: true });
 
 function closeSyncMenus() {
     document.querySelectorAll('[id^="sync-dropdown-"]').forEach(el => {
@@ -1179,7 +1192,7 @@ function renderSourcesTable() {
                     >
                         ${buttonText} ▾
                     </button>
-                    <div id="sync-dropdown-${source.name}" class="hidden origin-top-right absolute right-0 mt-1 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
+                    <div id="sync-dropdown-${source.name}" class="hidden fixed w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
                         <div class="py-1">
                             <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerSync('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">${isFileSource ? 'Sync Now' : 'Incremental Sync'}</a>
                             ${isFileSource ? '' : `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerFullRefresh('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Full Refresh</a>
@@ -1744,7 +1757,9 @@ async function handleCsvUpload() {
         }
 
         if (failCount > 0) {
-            const details = failedDetails.join('; ');
+            const maxShown = 3;
+            const shown = failedDetails.slice(0, maxShown).join('; ');
+            const details = failCount > maxShown ? `${shown}; ...and ${failCount - maxShown} more` : shown;
             if (successCount > 0) {
                 showToast(`Uploaded ${successCount} file(s), ${failCount} failed: ${details}`, 'warning');
             } else {

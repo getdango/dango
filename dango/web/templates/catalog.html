@@ -507,14 +507,17 @@ function catalogPage() {
                     const model = await res.json();
                     // Attach PII and drift indicators to columns
                     if (model.columns) {
-                        const srcName = model.source_name || model.name;
                         const tblName = model.name;
                         for (const col of model.columns) {
-                            const pii = this.piiFindings.find(f =>
-                                (f.source === srcName || f.table_name === tblName) && f.column_name === col.name);
+                            const pii = this.piiFindings.find(f => {
+                                const sourceMatch = model.source_name ? f.source === model.source_name : true;
+                                return sourceMatch && f.table_name === tblName && f.column_name === col.name;
+                            });
                             col._pii = pii ? pii.entity_type : null;
-                            const drift = this.driftEvents.find(d =>
-                                (d.source === srcName || d.table_name === tblName) && d.column_name === col.name);
+                            const drift = this.driftEvents.find(d => {
+                                const sourceMatch = model.source_name ? d.source === model.source_name : true;
+                                return sourceMatch && d.table_name === tblName && d.column_name === col.name;
+                            });
                             col._drift = drift ? drift.event_type : null;
                         }
                     }
