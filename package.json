@@ -1,4 +1,5 @@
 {
+  "name": "dango",
   "private": true,
   "scripts": {
     "css": "tailwindcss -i dango/web/static/css/input.css -o dango/web/static/css/tailwind.min.css --watch",
