@@ -296,27 +296,31 @@ category_end "5" "JS Null Guards"
 
 category_start 1
 
-nav_html=$(curl -s -b "$COOKIE_JAR" "${BASE_URL}/")
-nav_ok=true
+if $LOGIN_OK; then
+    nav_html=$(curl -s -b "$COOKIE_JAR" "${BASE_URL}/")
+    nav_ok=true
 
-# Check for 9 pipeline nav items (target state after R7-C)
-for item in "Overview" "Sources" "Models" "Schedules" "Catalog" "Query" "Dashboards" "Notebooks" "Insights"; do
-    if ! echo "$nav_html" | grep -q "$item"; then
-        fail_test "Nav structure" "Missing nav item: $item"
+    # Check for 9 pipeline nav items (target state after R7-C)
+    for item in "Overview" "Sources" "Models" "Schedules" "Catalog" "Query" "Dashboards" "Notebooks" "Insights"; do
+        if ! echo "$nav_html" | grep -q "$item"; then
+            fail_test "Nav structure" "Missing nav item: $item"
+            nav_ok=false
+            break
+        fi
+    done
+
+    # Check "More" dropdown is gone (target state after R7-C)
+    # Match the specific dropdown comment/button, not incidental "More" text
+    if $nav_ok && echo "$nav_html" | grep -q "More dropdown"; then
+        fail_test "Nav structure" "Found 'More' dropdown — should be removed after R7-C"
         nav_ok=false
-        break
     fi
-done
 
-# Check "More" dropdown is gone (target state after R7-C)
-# Match the specific dropdown comment/button, not incidental "More" text
-if $nav_ok && echo "$nav_html" | grep -q "More dropdown"; then
-    fail_test "Nav structure" "Found 'More' dropdown — should be removed after R7-C"
-    nav_ok=false
-fi
-
-if $nav_ok; then
-    pass_test
+    if $nav_ok; then
+        pass_test
+    fi
+else
+    skip_test "Nav structure" "login failed"
 fi
 
 category_end "6" "Nav Structure"
