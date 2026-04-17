@@ -12,6 +12,8 @@
 #   DANGO_ADMIN_EMAIL   — Admin email (default: admin@localhost)
 #   DANGO_ADMIN_PASSWORD — Admin password (required, no default)
 
+# Note: -e is intentionally omitted — test commands are expected to return
+# non-zero on failure; the script handles each result individually.
 set -uo pipefail
 
 # ---------------------------------------------------------------------------
@@ -169,9 +171,10 @@ echo "Server: $BASE_URL"
 echo "Date: $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
-# Check server is reachable
-if ! curl -s -o /dev/null -w "" --connect-timeout 5 "${BASE_URL}/api/health" 2>/dev/null; then
-    echo "ERROR: Dango server not reachable at $BASE_URL"
+# Check server is reachable and healthy
+HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "${BASE_URL}/api/health" 2>/dev/null || echo "000")
+if [ "$HEALTH_STATUS" != "200" ]; then
+    echo "ERROR: Dango server not reachable at $BASE_URL (HTTP $HEALTH_STATUS)"
     echo "Make sure 'dango start' is running in your test project."
     exit 1
 fi
@@ -217,6 +220,7 @@ category_end "2" "CLI Operations"
 category_start 9
 
 # Login to get session cookie
+LOGIN_OK=false
 login_status=$(curl -s -c "$COOKIE_JAR" -o /dev/null -w "%{http_code}" \
     -X POST "${BASE_URL}/api/auth/login" \
     -H "Content-Type: application/json" \
@@ -225,18 +229,24 @@ login_status=$(curl -s -c "$COOKIE_JAR" -o /dev/null -w "%{http_code}" \
 
 if [ "$login_status" = "200" ]; then
     pass_test
+    LOGIN_OK=true
 else
     fail_test "POST /api/auth/login" "Expected HTTP 200, got $login_status"
 fi
 
-curl_api_test "GET /api/status" GET "/api/status"
-curl_api_test "GET /api/sources" GET "/api/sources"
-curl_api_test "GET /api/config" GET "/api/config"
-curl_api_test "GET /api/health/platform" GET "/api/health/platform"
-curl_api_test "GET /api/dbt/models" GET "/api/dbt/models"
-curl_api_test "GET /api/governance/schema-drift" GET "/api/governance/schema-drift"
-curl_api_test "GET /api/governance/pii" GET "/api/governance/pii"
-curl_api_test "GET /api/logs?limit=5" GET "/api/logs?limit=5"
+if $LOGIN_OK; then
+    curl_api_test "GET /api/status" GET "/api/status"
+    curl_api_test "GET /api/sources" GET "/api/sources"
+    curl_api_test "GET /api/config" GET "/api/config"
+    curl_api_test "GET /api/health/platform" GET "/api/health/platform"
+    curl_api_test "GET /api/dbt/models" GET "/api/dbt/models"
+    curl_api_test "GET /api/governance/schema-drift" GET "/api/governance/schema-drift"
+    curl_api_test "GET /api/governance/pii" GET "/api/governance/pii"
+    curl_api_test "GET /api/logs?limit=5" GET "/api/logs?limit=5"
+else
+    echo "    BLOCKED: Skipping 8 API tests — login failed"
+    for _ in $(seq 8); do skip_test "API endpoint" "login failed"; done
+fi
 
 category_end "3" "API Endpoints"
 
@@ -246,18 +256,23 @@ category_end "3" "API Endpoints"
 
 category_start 12
 
-curl_page_test "/ (Overview)" "/" "Overview"
-curl_page_test "/sources" "/sources" "Sources"
-curl_page_test "/models" "/models" "Models"
-curl_page_test "/schedules" "/schedules" "Schedules"
-curl_page_test "/catalog" "/catalog" "Catalog"
-curl_page_test "/insights" "/insights" "Insights"
-curl_page_test "/notebooks" "/notebooks" "Notebooks"
-curl_page_test "/health" "/health" "Health"
-curl_page_test "/logs" "/logs" "Logs"
-curl_page_test "/settings/account" "/settings/account" "Account"
-curl_page_test "/settings/users" "/settings/users" "User"
-curl_page_test "/settings/secrets" "/settings/secrets" "Secrets"
+if $LOGIN_OK; then
+    curl_page_test "/ (Overview)" "/" "Overview"
+    curl_page_test "/sources" "/sources" "Sources"
+    curl_page_test "/models" "/models" "Models"
+    curl_page_test "/schedules" "/schedules" "Schedules"
+    curl_page_test "/catalog" "/catalog" "Catalog"
+    curl_page_test "/insights" "/insights" "Insights"
+    curl_page_test "/notebooks" "/notebooks" "Notebooks"
+    curl_page_test "/health" "/health" "Health"
+    curl_page_test "/logs" "/logs" "Logs"
+    curl_page_test "/settings/account" "/settings/account" "Account"
+    curl_page_test "/settings/users" "/settings/users" "User"
+    curl_page_test "/settings/secrets" "/settings/secrets" "Secrets"
+else
+    echo "    BLOCKED: Skipping 12 page tests — login failed"
+    for _ in $(seq 12); do skip_test "Page load" "login failed"; done
+fi
 
 category_end "4" "Page Loads"
 
@@ -294,7 +309,8 @@ for item in "Overview" "Sources" "Models" "Schedules" "Catalog" "Query" "Dashboa
 done
 
 # Check "More" dropdown is gone (target state after R7-C)
-if $nav_ok && echo "$nav_html" | grep -q "More"; then
+# Match the specific dropdown comment/button, not incidental "More" text
+if $nav_ok && echo "$nav_html" | grep -q "More dropdown"; then
     fail_test "Nav structure" "Found 'More' dropdown — should be removed after R7-C"
     nav_ok=false
 fi

@@ -5,7 +5,7 @@ calls whose results are used without null guards.
 
 Detects two patterns:
   1. Direct chaining: document.getElementById('x').property
-  2. Unguarded variable: assigned from getElementById(), used within 5 lines
+  2. Unguarded variable: assigned from getElementById(), used within 10 lines
      without an if (var)/if (!var) guard within 3 lines of assignment.
 
 Exit codes: 0 = no unguarded lookups, 1 = violations found.
@@ -120,12 +120,12 @@ def _is_used_unguarded(
     var_name: str,
     assign_idx: int,
 ) -> int | None:
-    """Check if var_name is used (property access) within 5 lines without guard.
+    """Check if var_name is used (property access) within 10 lines without guard.
 
     Returns the line index of first unguarded use, or None if safe.
     """
     use_re = re.compile(rf"\b{re.escape(var_name)}\s*\.")
-    end = min(assign_idx + 6, len(lines))  # 5 lines after
+    end = min(assign_idx + 11, len(lines))  # 10 lines after
     for i in range(assign_idx + 1, end):
         if use_re.search(lines[i]):
             # Found a use — was there a guard before this use?
