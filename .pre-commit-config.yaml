@@ -62,3 +62,10 @@ repos:
         pass_filenames: true
         verbose: true
         exclude: dango/ingestion/dlt_sources/
+
+      - id: js-null-guards
+        name: JS null guard check
+        entry: python3 scripts/check_js_null_guards.py
+        language: system
+        files: \.js$
+        pass_filenames: false
