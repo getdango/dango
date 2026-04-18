@@ -466,7 +466,13 @@ function nextPage() {
 // ============================================================================
 
 function showToast(message, type = 'info') {
-    const container = document.getElementById('toast-container');
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'fixed bottom-4 right-4 space-y-2 z-50';
+        document.body.appendChild(container);
+    }
 
     const bgColors = {
         'info': 'bg-blue-500',

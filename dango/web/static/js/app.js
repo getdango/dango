@@ -1424,7 +1424,7 @@ function showToast(message, type = 'info') {
     if (!container) {
         container = document.createElement('div');
         container.id = 'toast-container';
-        container.className = 'fixed top-4 right-4 z-50 space-y-2';
+        container.className = 'fixed bottom-4 right-4 space-y-2 z-50';
         document.body.appendChild(container);
     }
 
@@ -1955,9 +1955,9 @@ async function openSourceDetail(sourceName) {
 
         // Display configuration with custom rendering for different source types
         const configElement = document.getElementById('detail-config');
-        if (configElement) {
-
-        if (details.config.type === 'stripe' && details.config.stripe) {
+        if (!configElement) {
+            // Config element not on this page
+        } else if (details.config.type === 'stripe' && details.config.stripe) {
             // Clean rendering for Stripe sources - only show user-relevant info
             const stripeConfig = details.config.stripe;
             const endpoints = stripeConfig.endpoints || [];
@@ -1983,7 +1983,6 @@ ${details.config.description ? `<div><span class="font-semibold text-gray-700">N
             // Fallback: formatted JSON for other source types
             configElement.textContent = JSON.stringify(details.config, null, 2);
         }
-        } // end if (configElement)
 
         // Render history table
         renderSourceHistory(history);

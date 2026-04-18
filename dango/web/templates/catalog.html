@@ -173,7 +173,7 @@
 
         <!-- View 2: Model detail -->
         <div x-show="!loading && view === 'detail'">
-        <template x-if="selectedModel">
+            <template x-if="selectedModel">
             <div>
             <div class="flex items-center justify-between mb-4">
                 <div>
@@ -350,7 +350,7 @@
                 </div>
             </div>
             </div>
-        </template>
+            </template>
         </div>
         <div x-show="!loading && view === 'detail' && !selectedModel && detailLoading" x-cloak
              class="flex items-center justify-center py-12">
