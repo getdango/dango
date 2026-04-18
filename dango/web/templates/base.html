@@ -170,6 +170,10 @@
     </footer>
     {% endblock %}
 
+    {% if request.state.user %}
+    <script>window.DANGO_USER_ROLE = {{ request.state.user.role.value | tojson }};</script>
+    {% endif %}
+
     {% block scripts %}{% endblock %}
 </body>
 </html>

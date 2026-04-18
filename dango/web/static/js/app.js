@@ -571,6 +571,11 @@ async function handleWebSocketMessage(data) {
         case 'dbt_run_failed':
             console.log('❌ [WS] dbt_run_failed - Individual model:', source);
             addLogEntry('error', message, source);
+            // Clear running state for this specific model
+            if (source && source.startsWith('dbt:')) {
+                const modelName = source.substring(4);
+                updateDbtModelStatus(modelName, false);
+            }
             // Don't show toast - reduces spam, error visible in activity log
             // Refresh to show error status (only if no active file operations)
             const totalFileOpsRunFailed = getTotalFileOperations();
@@ -1148,6 +1153,8 @@ function renderSourcesTable() {
         return;
     }
 
+    const canSync = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
+
     tbody.innerHTML = sources.map(source => {
         const isSyncing = activeSyncs.has(source.name);
         const hasFileOps = activeFileOperations.has(source.name);
@@ -1166,8 +1173,28 @@ function renderSourcesTable() {
             : `openSourceDetail('${source.name}')`;
 
         const rowClickHelp = isFileSource
-            ? 'Click to upload files'
+            ? (canSync ? 'Click to upload files' : 'Click to view files')
             : 'Click to view details';
+
+        // Action column: sync button for editors/admins, dash for viewers
+        const actionColumn = canSync ? `
+                <div class="relative inline-block text-left" id="sync-menu-${source.name}">
+                    <button
+                        onclick="event.stopPropagation(); toggleSyncMenu('${source.name}')"
+                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150"
+                        id="sync-btn-${source.name}"
+                        ${buttonDisabled}
+                    >
+                        ${buttonText} ▾
+                    </button>
+                    <div id="sync-dropdown-${source.name}" class="hidden fixed w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
+                        <div class="py-1">
+                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerSync('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">${isFileSource ? 'Sync Now' : 'Incremental Sync'}</a>
+                            ${isFileSource ? '' : `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerFullRefresh('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Full Refresh</a>
+                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); openDateRangeModal('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Custom Date Range...</a>`}
+                        </div>
+                    </div>
+                </div>` : '<span class="text-gray-300">—</span>';
 
         return `
         <tr id="source-${source.name}" class="hover:bg-gray-50 transition-colors duration-150 cursor-pointer"
@@ -1195,23 +1222,7 @@ function renderSourcesTable() {
                 ${source.has_schedule ? `<span title="${source.schedule_display || ''}">${source.schedule_display || 'Scheduled'}</span>` : '<span class="text-gray-300">—</span>'}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                <div class="relative inline-block text-left" id="sync-menu-${source.name}">
-                    <button
-                        onclick="event.stopPropagation(); toggleSyncMenu('${source.name}')"
-                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150"
-                        id="sync-btn-${source.name}"
-                        ${buttonDisabled}
-                    >
-                        ${buttonText} ▾
-                    </button>
-                    <div id="sync-dropdown-${source.name}" class="hidden fixed w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
-                        <div class="py-1">
-                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerSync('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">${isFileSource ? 'Sync Now' : 'Incremental Sync'}</a>
-                            ${isFileSource ? '' : `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerFullRefresh('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Full Refresh</a>
-                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); openDateRangeModal('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Custom Date Range...</a>`}
-                        </div>
-                    </div>
-                </div>
+                ${actionColumn}
             </td>
         </tr>
         `;
@@ -1485,8 +1496,15 @@ async function openCsvUploadModal(sourceName) {
     const sourceNameEl = document.getElementById('upload-source-name');
     if (sourceNameEl) sourceNameEl.textContent = sourceName;
 
-    // Reset form
+    // Reset form and clear previous error/progress state
     document.getElementById('csv-upload-form')?.reset();
+    document.getElementById('upload-error')?.classList.add('hidden');
+    document.getElementById('upload-progress')?.classList.add('hidden');
+
+    // Hide upload form for viewers (read-only modal)
+    const canEdit = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
+    const uploadForm = document.getElementById('csv-upload-form');
+    if (uploadForm) uploadForm.style.display = canEdit ? '' : 'none';
 
     // Update file input accept attribute for local_files sources
     const fileInput = document.getElementById('csv-file-input');
@@ -1568,9 +1586,10 @@ async function loadCsvFilesList(sourceName) {
             const sizeDisplay = formatFileSize(file.size);
             const rowsDisplay = file.rows_loaded ? `${file.rows_loaded.toLocaleString()} rows` : '';
 
-            // Add delete button for files on disk
+            // Add delete button for files on disk (editors/admins only)
+            const canDelete = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
             const safeFilename = file.filename.replace(/[^a-zA-Z0-9]/g, '_');
-            const deleteButton = file.on_disk ?
+            const deleteButton = (file.on_disk && canDelete) ?
                 `<button
                     id="delete-btn-${safeFilename}"
                     onclick="handleFileDelete('${sourceName}', '${file.path}', '${file.filename}', '${safeFilename}')"
@@ -1678,6 +1697,7 @@ window.handleFileDelete = handleFileDelete;
 function closeUploadModal() {
     document.getElementById('upload-modal')?.classList.add('hidden');
     document.getElementById('upload-progress')?.classList.add('hidden');
+    document.getElementById('upload-error')?.classList.add('hidden');
 
     // Clear selected files display
     const filesList = document.getElementById('selected-files');
@@ -1722,9 +1742,15 @@ async function handleCsvUpload() {
     addFileOperation(sourceName, operationId);
     console.log(`📤 [Upload] Tracking batch of ${fileCount} files under operation ${operationId}`);
 
-    // Close modal immediately to prevent user from clicking other actions
-    showToast(`Uploading ${files.length} file(s) to disk...`, 'info');
-    closeUploadModal();
+    // Show progress, hide previous errors, disable buttons during upload
+    const progressEl = document.getElementById('upload-progress');
+    if (progressEl) progressEl.classList.remove('hidden');
+    const errorEl = document.getElementById('upload-error');
+    if (errorEl) errorEl.classList.add('hidden');
+    const submitBtn = document.querySelector('#csv-upload-form button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+    const syncBtn = document.getElementById('modal-sync-btn');
+    if (syncBtn) syncBtn.disabled = true;
 
     // Declare at function scope so setTimeout can access it
     let successCount = 0;
@@ -1765,51 +1791,77 @@ async function handleCsvUpload() {
             }
         }
 
-        // Show result summary
-        if (successCount > 0) {
+        // Handle results based on success/failure
+        if (successCount > 0 && failCount === 0) {
+            // All files succeeded — close modal and show success toast
+            closeUploadModal();
             const fileWord = successCount === 1 ? 'file' : 'files';
             showToast(`Successfully uploaded ${successCount} ${fileWord} to disk. Syncing...`, 'success');
 
             // Now trigger ONE sync for ALL uploaded files
             console.log(`📤 [Upload] Triggering single sync for ${successCount} uploaded files`);
             try {
-                // Call the sync endpoint to process all uploaded files in one batch
-                // Use longer timeout (30s) as sync may take time to respond even though it runs in background
                 const syncResponse = await apiCall(`/api/sources/${sourceName}/sync`, 'POST', {
                     full_refresh: false
                 }, 30000);
                 console.log('📤 [Upload] Sync triggered successfully, WebSocket events will track progress');
-                // WebSocket events will handle activeSyncs state and UI updates
             } catch (syncError) {
                 console.error('Error triggering sync:', syncError);
                 showToast(`Files uploaded but sync failed: ${syncError.message}`, 'error');
-                // Clean up operation tracking on sync failure
                 removeFileOperation(sourceName, operationId);
             }
-        }
-
-        if (failCount > 0) {
+        } else if (successCount > 0 && failCount > 0) {
+            // Mixed results — keep modal open with error, trigger sync for successful files
             const maxShown = 3;
-            const shown = failedDetails.slice(0, maxShown).join('; ');
-            const details = failCount > maxShown ? `${shown}; ...and ${failCount - maxShown} more` : shown;
-            if (successCount > 0) {
-                showToast(`Uploaded ${successCount} file(s), ${failCount} failed: ${details}`, 'warning');
-            } else {
-                showToast(`${failCount} file(s) failed: ${details}`, 'error');
-                // Clean up operation tracking if all failed
+            const shown = failedDetails.slice(0, maxShown).join('\n');
+            const extra = failCount > maxShown ? `\n...and ${failCount - maxShown} more` : '';
+            if (errorEl) {
+                errorEl.innerHTML = `<strong>${failCount} file(s) failed:</strong><br>${shown.replace(/\n/g, '<br>')}${extra.replace(/\n/g, '<br>')}`;
+                errorEl.classList.remove('hidden');
+            }
+
+            // Still trigger sync for the files that succeeded
+            console.log(`📤 [Upload] Triggering sync for ${successCount} successful files (${failCount} failed)`);
+            try {
+                const syncResponse = await apiCall(`/api/sources/${sourceName}/sync`, 'POST', {
+                    full_refresh: false
+                }, 30000);
+                console.log('📤 [Upload] Sync triggered successfully');
+            } catch (syncError) {
+                console.error('Error triggering sync:', syncError);
                 removeFileOperation(sourceName, operationId);
             }
+        } else {
+            // All files failed — keep modal open with error details
+            const maxShown = 3;
+            const shown = failedDetails.slice(0, maxShown).join('\n');
+            const extra = failCount > maxShown ? `\n...and ${failCount - maxShown} more` : '';
+            if (errorEl) {
+                errorEl.innerHTML = `<strong>Upload failed:</strong><br>${shown.replace(/\n/g, '<br>')}${extra.replace(/\n/g, '<br>')}`;
+                errorEl.classList.remove('hidden');
+            }
+            // Clean up operation tracking if all failed
+            removeFileOperation(sourceName, operationId);
         }
 
         // Mark upload as complete so finally block knows state
         uploadComplete = true;
     } catch (error) {
         console.error('Error uploading file:', error);
-        showToast(`Upload failed: ${error.message}`, 'error');
+        // Show error in modal instead of toast
+        if (errorEl) {
+            errorEl.innerHTML = `<strong>Upload failed:</strong> ${error.message}`;
+            errorEl.classList.remove('hidden');
+        }
         addLogEntry('error', `Upload failed: ${error.message}`, sourceName);
         // Clear operation on error
         removeFileOperation(sourceName, operationId);
     } finally {
+        // Hide progress, re-enable buttons
+        if (progressEl) progressEl.classList.add('hidden');
+        if (submitBtn) submitBtn.disabled = false;
+        if (syncBtn) syncBtn.disabled = false;
+
         // Clean up file input
         fileInput.value = '';
 
@@ -2113,6 +2165,8 @@ function renderDbtModelsTable() {
         return;
     }
 
+    const canRun = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
+
     tbody.innerHTML = dbtModels.map(model => {
         // Disable ALL buttons if ANY model is running (prevents concurrent runs and DuckDB locking)
         const anyModelRunning = runningModels.size > 0 || dbtRunStartTime !== null;
@@ -2173,6 +2227,25 @@ function renderDbtModelsTable() {
             statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-600">Not Run</span>';
         }
 
+        // Action buttons: Run/Run+ for editors/admins, docs link for all
+        const actionButtons = canRun ? `
+                    <button
+                        onclick="runDbtModel('${model.name}', false)"
+                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed mr-3"
+                        id="dbt-btn-${model.name}"
+                        ${buttonDisabled}
+                    >
+                        ${buttonText}
+                    </button>
+                    <button
+                        onclick="runDbtModel('${model.name}', true)"
+                        class="text-green-600 hover:text-green-900 disabled:text-gray-400 disabled:cursor-not-allowed mr-3"
+                        ${buttonDisabled}
+                        title="Run with downstream models"
+                    >
+                        Run+
+                    </button>` : '';
+
         return `
             <tr class="hover:bg-gray-50 transition-colors duration-150">
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -2196,22 +2269,7 @@ function renderDbtModelsTable() {
                     ${lastRun}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                        onclick="runDbtModel('${model.name}', false)"
-                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed mr-3"
-                        id="dbt-btn-${model.name}"
-                        ${buttonDisabled}
-                    >
-                        ${buttonText}
-                    </button>
-                    <button
-                        onclick="runDbtModel('${model.name}', true)"
-                        class="text-green-600 hover:text-green-900 disabled:text-gray-400 disabled:cursor-not-allowed mr-3"
-                        ${buttonDisabled}
-                        title="Run with downstream models"
-                    >
-                        Run+
-                    </button>
+                    ${actionButtons}
                     <a
                         href="/dbt-docs#!/model/${model.unique_id}"
                         target="_blank"
