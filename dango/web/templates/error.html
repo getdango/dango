@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}{{ error_title }} - Dango{% endblock %}
+
+{% block content %}
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
+    <div class="text-center">
+        <p class="text-5xl font-bold text-gray-300 mb-4">{{ status_code }}</p>
+        <h1 class="text-2xl font-semibold text-gray-900 mb-2">{{ error_title }}</h1>
+        <p class="text-gray-600 mb-8">{{ error_message }}</p>
+        <a href="javascript:history.back()" class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 mr-3">
+            &larr; Go Back
+        </a>
+        <a href="/" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gray-800 hover:bg-gray-700">
+            Go to Overview
+        </a>
+    </div>
+</main>
+{% endblock %}

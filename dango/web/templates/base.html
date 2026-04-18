@@ -39,53 +39,47 @@
 
     {% block nav %}
     <!-- Navigation Bar -->
-    <nav class="bg-gray-800 shadow-lg sticky top-0 z-50" x-data="{ moreOpen: false, settingsOpen: false, mobileOpen: false }">
+    <nav class="bg-gray-800 shadow-lg sticky top-0 z-50" x-data="{ settingsOpen: false, mobileOpen: false }">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-12">
-                <!-- Desktop nav links -->
-                <div class="hidden md:flex items-center space-x-1">
-                    <a href="/" class="px-3 py-2 rounded-md text-sm font-medium {% if current_page == 'overview' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                <!-- Desktop nav links: 9-item pipeline layout -->
+                <div class="hidden md:flex items-center space-x-0.5">
+                    <a href="/" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'overview' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
                         Overview
                     </a>
-                    <a href="/sources" class="px-3 py-2 rounded-md text-sm font-medium {% if current_page == 'sources' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                    <a href="/sources" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'sources' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
                         Sources
                     </a>
-                    <a href="/models" class="px-3 py-2 rounded-md text-sm font-medium {% if current_page == 'models' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                    <a href="/models" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'models' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
                         Models
                     </a>
-                    <a href="/schedules" class="px-3 py-2 rounded-md text-sm font-medium {% if current_page == 'schedules' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                    <a href="/schedules" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'schedules' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
                         Schedules
                     </a>
-                    <a href="/catalog" class="px-3 py-2 rounded-md text-sm font-medium {% if current_page == 'catalog' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                    <a href="/catalog" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'catalog' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
                         Catalog
                     </a>
-                    <a href="/metabase" target="_blank" class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
-                        Metabase
+                    <a href="/metabase/question/new" target="_blank" class="px-2 py-2 rounded-md text-xs font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
+                        Query
                     </a>
-
-                    <!-- More dropdown -->
-                    <div class="relative">
-                        <button @click="moreOpen = !moreOpen; settingsOpen = false"
-                                class="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center {% if current_page in ['notebooks', 'insights'] %}text-white bg-gray-900{% endif %}">
-                            More
-                            <svg class="ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                            </svg>
-                        </button>
-                        <div x-show="moreOpen" @click.away="moreOpen = false" x-cloak
-                             class="absolute left-0 mt-1 w-44 bg-white rounded-md shadow-lg py-1 z-50">
-                            <a href="/notebooks" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100{% if current_page == 'notebooks' %} font-semibold{% endif %}">Notebooks</a>
-                            <a href="/insights" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100{% if current_page == 'insights' %} font-semibold{% endif %}">Insights</a>
-                        </div>
-                    </div>
+                    <a href="/metabase" target="_blank" class="px-2 py-2 rounded-md text-xs font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
+                        Dashboards
+                    </a>
+                    <a href="/notebooks" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'notebooks' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                        Notebooks
+                    </a>
+                    <a href="/insights" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'insights' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                        Insights
+                    </a>
                 </div>
 
-                <!-- Right side: settings gear + hamburger (mobile) -->
+                <!-- Right side: user email + settings gear + hamburger (mobile) -->
                 <div class="flex items-center space-x-2 ml-auto">
                     {% if request.state.user %}
+                    <span class="text-xs text-gray-400 hidden lg:inline mr-2">{{ request.state.user.email }}</span>
                     <!-- Settings gear dropdown -->
                     <div class="relative">
-                        <button @click="settingsOpen = !settingsOpen; moreOpen = false"
+                        <button @click="settingsOpen = !settingsOpen"
                                 class="p-2 rounded-md text-gray-300 hover:bg-gray-700 hover:text-white transition-colors {% if current_page == 'settings' %}text-white bg-gray-900{% endif %}">
                             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
@@ -131,11 +125,10 @@
                 <a href="/models" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'models' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Models</a>
                 <a href="/schedules" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'schedules' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Schedules</a>
                 <a href="/catalog" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'catalog' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Catalog</a>
-                <a href="/metabase" target="_blank" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Metabase</a>
+                <a href="/metabase/question/new" target="_blank" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Query</a>
+                <a href="/metabase" target="_blank" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Dashboards</a>
                 <a href="/notebooks" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'notebooks' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Notebooks</a>
                 <a href="/insights" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'insights' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Insights</a>
-                <a href="/logs" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'logs' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Activity Logs</a>
-                <a href="/health" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'health' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Health</a>
             </div>
             {% if request.state.user %}
             <div class="border-t border-gray-700 px-2 pt-2 pb-3 space-y-1">

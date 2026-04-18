@@ -179,6 +179,10 @@ async def custom_redoc_html() -> HTMLResponse:
 @router.get("/login")
 async def login_page(request: Request) -> HTMLResponse:
     """Render the login page."""
+    if getattr(request.state, "user", None):
+        from starlette.responses import RedirectResponse
+
+        return RedirectResponse(url="/", status_code=302)  # type: ignore[return-value]
     oauth_providers: list[dict[str, str]] = []
     try:
         from dango.auth.oauth_login import get_configured_providers

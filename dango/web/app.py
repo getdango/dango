@@ -283,15 +283,40 @@ _STATUS_MAP: dict[type[DangoError], int] = {
 }
 
 
+def _is_browser_request(request: Request) -> bool:
+    """Return True if the request likely comes from a browser (not API/XHR)."""
+    accept = request.headers.get("accept", "")
+    xhr = request.headers.get("x-requested-with", "")
+    return "text/html" in accept and not xhr and not request.url.path.startswith("/api/")
+
+
 @app.exception_handler(DangoError)
-async def dango_error_handler(request: Request, exc: DangoError) -> JSONResponse:
-    """Return structured JSON for all DangoError subclasses."""
+async def dango_error_handler(request: Request, exc: DangoError) -> Response:
+    """Return structured JSON for API requests; HTML error page for browser page requests."""
     # Walk the MRO to find the most specific status code
     status_code = 500
     for cls in type(exc).__mro__:
         if cls in _STATUS_MAP:
             status_code = _STATUS_MAP[cls]
             break
+
+    # Render a friendly HTML error page for browser navigation to page routes
+    if status_code in (401, 403) and _is_browser_request(request):
+        from dango.web.routes.ui import _render_template
+
+        titles = {401: "Authentication Required", 403: "Access Denied"}
+        return _render_template(
+            request,
+            "error.html",
+            {
+                "status_code": status_code,
+                "error_title": titles.get(status_code, "Error"),
+                "error_message": exc.user_message,
+                "current_page": "",
+                "subtitle": titles.get(status_code, "Error"),
+                "version": "",
+            },
+        )
 
     body: dict = {
         "error_code": exc.error_code,

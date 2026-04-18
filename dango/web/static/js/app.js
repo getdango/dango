@@ -272,51 +272,6 @@ async function loadConfig() {
             subtitleElement.textContent = subtitle;
         }
 
-        // Update DuckDB link to point to SQL query editor with database pre-selected
-        try {
-            const metabaseConfigResponse = await fetch('/api/metabase-config');
-            if (metabaseConfigResponse.ok) {
-                const metabaseConfig = await metabaseConfigResponse.json();
-                const databaseId = metabaseConfig.database_id;
-
-                if (databaseId) {
-                    // Create Metabase SQL query state object
-                    const queryState = {
-                        "dataset_query": {
-                            "database": databaseId,
-                            "type": "native",
-                            "native": {
-                                "query": "",
-                                "template-tags": {}
-                            }
-                        },
-                        "display": "table",
-                        "visualization_settings": {},
-                        "type": "question"
-                    };
-
-                    // Base64 encode the state
-                    const encodedState = btoa(JSON.stringify(queryState));
-                    // Use proxied path to get auto-login
-                    const sqlQueryUrl = `/metabase/question#${encodedState}`;
-
-                    // Update both the dashboard card and navbar link
-                    const duckdbLink = document.getElementById('duckdb-sql-link');
-                    if (duckdbLink) {
-                        duckdbLink.href = sqlQueryUrl;
-                    }
-
-                    const navQueryLink = document.getElementById('nav-query-database');
-                    if (navQueryLink) {
-                        navQueryLink.href = sqlQueryUrl;
-                    }
-                }
-            }
-        } catch (error) {
-            console.log('Could not load Metabase config for SQL link:', error);
-            // Links will use default /metabase/question/new
-        }
-
         console.log('Config loaded:', config);
     } catch (error) {
         console.error('Failed to load config:', error);
