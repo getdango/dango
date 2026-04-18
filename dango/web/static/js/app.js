@@ -624,6 +624,7 @@ async function handleWebSocketMessage(data) {
 function updateConnectionStatus(connected) {
     const indicator = document.getElementById('status-indicator');
     const text = document.getElementById('status-text');
+    if (!indicator || !text) return;
 
     if (connected) {
         indicator.className = 'h-2 w-2 bg-green-500 rounded-full';
@@ -757,6 +758,7 @@ async function loadSources() {
         // If timeout (database busy), show a helpful message and retry
         if (error.message.includes('timed out')) {
             const tbody = document.getElementById('sources-table-body');
+            if (!tbody) return;
 
             // Only show loading message if we actually have active operations
             // This prevents flickering when timeout happens at the tail end
@@ -939,20 +941,29 @@ async function triggerFullRefresh(sourceName) {
 }
 
 function openDateRangeModal(sourceName) {
-    document.getElementById('date-range-source').value = sourceName;
-    document.getElementById('sync-start-date').value = '';
-    document.getElementById('sync-end-date').value = '';
-    document.getElementById('date-range-modal').classList.remove('hidden');
+    const modal = document.getElementById('date-range-modal');
+    if (!modal) return;
+    const srcEl = document.getElementById('date-range-source');
+    const startEl = document.getElementById('sync-start-date');
+    const endEl = document.getElementById('sync-end-date');
+    if (srcEl) srcEl.value = sourceName;
+    if (startEl) startEl.value = '';
+    if (endEl) endEl.value = '';
+    modal.classList.remove('hidden');
 }
 
 function closeDateRangeModal() {
-    document.getElementById('date-range-modal').classList.add('hidden');
+    document.getElementById('date-range-modal')?.classList.add('hidden');
 }
 
 async function syncWithDateRange() {
-    const sourceName = document.getElementById('date-range-source').value;
-    const startDate = document.getElementById('sync-start-date').value;
-    const endDate = document.getElementById('sync-end-date').value;
+    const srcEl = document.getElementById('date-range-source');
+    const startEl = document.getElementById('sync-start-date');
+    const endEl = document.getElementById('sync-end-date');
+    if (!srcEl || !startEl || !endEl) return;
+    const sourceName = srcEl.value;
+    const startDate = startEl.value;
+    const endDate = endEl.value;
 
     if (!startDate) {
         showToast('Please select a start date', 'warning');
@@ -1051,7 +1062,6 @@ function updateHealthWidget(health) {
     const widget = document.getElementById('health-widget');
     const icon = document.getElementById('health-icon');
     const statusText = document.getElementById('health-status-text');
-
     if (!widget || !icon || !statusText) return;
 
     // Remove existing border colors
@@ -1101,6 +1111,7 @@ function updateHealthWidget(health) {
 
 function showSourcesLoading() {
     const tbody = document.getElementById('sources-table-body');
+    if (!tbody) return;
     tbody.innerHTML = `
         <tr>
             <td colspan="7" class="px-6 py-8 text-center text-gray-500">
@@ -1116,6 +1127,7 @@ function showSourcesLoading() {
 function renderSourcesTable() {
     console.log('🎨 [renderSourcesTable] Called with sources:', sources.length, 'activeSyncs:', activeSyncs.size);
     const tbody = document.getElementById('sources-table-body');
+    if (!tbody) return;
 
     if (!sources || sources.length === 0) {
         console.log('🎨 [renderSourcesTable] No sources to render!');
@@ -1328,6 +1340,7 @@ function updateSourceStatus(sourceName, newStatus) {
 
 function showSourcesError() {
     const tbody = document.getElementById('sources-table-body');
+    if (!tbody) return;
     tbody.innerHTML = `
         <tr>
             <td colspan="7" class="px-6 py-8 text-center text-red-500">
@@ -1363,6 +1376,7 @@ function addLogEntry(level, message, source = 'system') {
 
 function renderActivityLog() {
     const logContainer = document.getElementById('activity-log');
+    if (!logContainer) return;
 
     if (activityLog.length === 0) {
         logContainer.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-gray-500 text-sm">No recent activity</td></tr>';
@@ -1406,7 +1420,13 @@ function clearLog() {
 // ============================================================================
 
 function showToast(message, type = 'info') {
-    const container = document.getElementById('toast-container');
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'fixed bottom-4 right-4 space-y-2 z-50';
+        document.body.appendChild(container);
+    }
 
     const bgColors = {
         'info': 'bg-blue-500',
@@ -1457,13 +1477,16 @@ async function openCsvUploadModal(sourceName) {
     }
 
     // Show modal
-    document.getElementById('upload-modal').classList.remove('hidden');
+    const modal = document.getElementById('upload-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
 
     // Set source name
-    document.getElementById('upload-source-name').textContent = sourceName;
+    const sourceNameEl = document.getElementById('upload-source-name');
+    if (sourceNameEl) sourceNameEl.textContent = sourceName;
 
     // Reset form
-    document.getElementById('csv-upload-form').reset();
+    document.getElementById('csv-upload-form')?.reset();
 
     // Update file input accept attribute for local_files sources
     const fileInput = document.getElementById('csv-file-input');
@@ -1480,15 +1503,19 @@ async function openCsvUploadModal(sourceName) {
         const fileConfig = details.config[configKey] || {};
 
         // Display directory
-        document.getElementById('upload-directory').textContent = fileConfig.directory || 'data';
+        const dirEl = document.getElementById('upload-directory');
+        if (dirEl) dirEl.textContent = fileConfig.directory || 'data';
 
         // Display file pattern
-        document.getElementById('upload-file-pattern').textContent = fileConfig.file_pattern || (source.type === 'local_files' ? '*' : '*.csv');
+        const patternEl = document.getElementById('upload-file-pattern');
+        if (patternEl) patternEl.textContent = fileConfig.file_pattern || (source.type === 'local_files' ? '*' : '*.csv');
 
         // Display regeneration notes (if present)
         const notesContainer = document.getElementById('upload-notes-container');
         const notesSpan = document.getElementById('upload-notes');
-        if (fileConfig.notes && fileConfig.notes.trim()) {
+        if (!notesContainer || !notesSpan) {
+            // Notes elements not on this page
+        } else if (fileConfig.notes && fileConfig.notes.trim()) {
             notesSpan.textContent = fileConfig.notes;
             notesContainer.style.display = 'block';
         } else {
@@ -1506,6 +1533,7 @@ async function openCsvUploadModal(sourceName) {
 
 async function loadCsvFilesList(sourceName) {
     const container = document.getElementById('csv-files-list');
+    if (!container) return;
 
     try {
         const data = await apiCall(`/api/sources/${sourceName}/csv-files`);
@@ -1648,8 +1676,8 @@ async function handleFileDelete(sourceName, filePath, filename, safeFilename) {
 window.handleFileDelete = handleFileDelete;
 
 function closeUploadModal() {
-    document.getElementById('upload-modal').classList.add('hidden');
-    document.getElementById('upload-progress').classList.add('hidden');
+    document.getElementById('upload-modal')?.classList.add('hidden');
+    document.getElementById('upload-progress')?.classList.add('hidden');
 
     // Clear selected files display
     const filesList = document.getElementById('selected-files');
@@ -1659,7 +1687,9 @@ function closeUploadModal() {
 }
 
 function syncSourceFromModal() {
-    const sourceName = document.getElementById('upload-source-name').textContent;
+    const sourceEl = document.getElementById('upload-source-name');
+    if (!sourceEl) return;
+    const sourceName = sourceEl.textContent;
     if (sourceName) {
         // Close modal first
         closeUploadModal();
@@ -1673,7 +1703,9 @@ window.syncSourceFromModal = syncSourceFromModal;
 
 async function handleCsvUpload() {
     const fileInput = document.getElementById('csv-file');
-    const sourceName = document.getElementById('upload-source-name').textContent;
+    const sourceEl = document.getElementById('upload-source-name');
+    if (!fileInput || !sourceEl) return;
+    const sourceName = sourceEl.textContent;
 
     if (!fileInput.files || fileInput.files.length === 0) {
         showToast('Please select at least one CSV file', 'error');
@@ -1806,6 +1838,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const files = e.target.files;
             const filesList = document.getElementById('selected-files');
             const filesListContainer = document.getElementById('selected-files-list');
+            if (!filesList || !filesListContainer) return;
 
             if (files.length > 0) {
                 // Clear previous list
@@ -1834,10 +1867,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function openSourceDetail(sourceName) {
     // Show modal and loading state
-    document.getElementById('source-detail-modal').classList.remove('hidden');
-    document.getElementById('detail-loading').classList.remove('hidden');
-    document.getElementById('detail-content').classList.add('hidden');
-    document.getElementById('detail-source-name').textContent = sourceName;
+    const modal = document.getElementById('source-detail-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    document.getElementById('detail-loading')?.classList.remove('hidden');
+    document.getElementById('detail-content')?.classList.add('hidden');
+    const nameEl = document.getElementById('detail-source-name');
+    if (nameEl) nameEl.textContent = sourceName;
 
     try {
         // Fetch source details
@@ -1845,23 +1881,25 @@ async function openSourceDetail(sourceName) {
 
         // Update stats with table breakdown if applicable
         const detailRowCountElement = document.getElementById('detail-row-count');
-        if (details.row_count === null) {
-            detailRowCountElement.textContent = '-';
-        } else if (details.tables && details.tables.length > 1) {
-            // Multi-resource source: show table breakdown
-            const tablesList = details.tables
-                .map(t => `<div class="text-xs text-gray-600 pl-4 py-0.5">• <span class="font-medium">${t.name}</span>: ${t.row_count.toLocaleString()} rows</div>`)
-                .join('');
+        if (detailRowCountElement) {
+            if (details.row_count === null) {
+                detailRowCountElement.textContent = '-';
+            } else if (details.tables && details.tables.length > 1) {
+                // Multi-resource source: show table breakdown
+                const tablesList = details.tables
+                    .map(t => `<div class="text-xs text-gray-600 pl-4 py-0.5">• <span class="font-medium">${t.name}</span>: ${t.row_count.toLocaleString()} rows</div>`)
+                    .join('');
 
-            detailRowCountElement.innerHTML = `
-                <div class="flex flex-col">
-                    <div class="font-medium text-sm">${details.tables.length} tables, ${details.row_count.toLocaleString()} total rows</div>
-                    <div class="mt-1">${tablesList}</div>
-                </div>
-            `;
-        } else {
-            // Single resource or no breakdown: show simple count
-            detailRowCountElement.textContent = details.row_count.toLocaleString();
+                detailRowCountElement.innerHTML = `
+                    <div class="flex flex-col">
+                        <div class="font-medium text-sm">${details.tables.length} tables, ${details.row_count.toLocaleString()} total rows</div>
+                        <div class="mt-1">${tablesList}</div>
+                    </div>
+                `;
+            } else {
+                // Single resource or no breakdown: show simple count
+                detailRowCountElement.textContent = details.row_count.toLocaleString();
+            }
         }
 
         // Display freshness information
@@ -1891,26 +1929,35 @@ async function openSourceDetail(sourceName) {
         }
 
         const history = details.history || [];
-        document.getElementById('detail-sync-count').textContent = history.length;
+        const syncCountEl = document.getElementById('detail-sync-count');
+        if (syncCountEl) syncCountEl.textContent = history.length;
 
         if (history.length > 0) {
             // Check if last sync failed and display error prominently
             if (history[0].status === 'failed' && history[0].error_message) {
                 const errorAlert = document.getElementById('detail-error-alert');
-                const errorMessage = document.getElementById('detail-error-message').querySelector('pre');
-                errorAlert.classList.remove('hidden');
-                errorMessage.textContent = history[0].error_message;
+                const errorMsgContainer = document.getElementById('detail-error-message');
+                if (!errorMsgContainer || !errorAlert) {
+                    // Error display elements not on this page
+                } else {
+                    const errorMessage = errorMsgContainer.querySelector('pre');
+                    if (errorMessage) {
+                        errorAlert.classList.remove('hidden');
+                        errorMessage.textContent = history[0].error_message;
+                    }
+                }
             } else {
-                document.getElementById('detail-error-alert').classList.add('hidden');
+                document.getElementById('detail-error-alert')?.classList.add('hidden');
             }
         } else {
-            document.getElementById('detail-error-alert').classList.add('hidden');
+            document.getElementById('detail-error-alert')?.classList.add('hidden');
         }
 
         // Display configuration with custom rendering for different source types
         const configElement = document.getElementById('detail-config');
-
-        if (details.config.type === 'stripe' && details.config.stripe) {
+        if (!configElement) {
+            // Config element not on this page
+        } else if (details.config.type === 'stripe' && details.config.stripe) {
             // Clean rendering for Stripe sources - only show user-relevant info
             const stripeConfig = details.config.stripe;
             const endpoints = stripeConfig.endpoints || [];
@@ -1941,8 +1988,8 @@ ${details.config.description ? `<div><span class="font-semibold text-gray-700">N
         renderSourceHistory(history);
 
         // Show content, hide loading
-        document.getElementById('detail-loading').classList.add('hidden');
-        document.getElementById('detail-content').classList.remove('hidden');
+        document.getElementById('detail-loading')?.classList.add('hidden');
+        document.getElementById('detail-content')?.classList.remove('hidden');
 
     } catch (error) {
         console.error('Error loading source details:', error);
@@ -1952,12 +1999,13 @@ ${details.config.description ? `<div><span class="font-semibold text-gray-700">N
 }
 
 function closeSourceDetail() {
-    document.getElementById('source-detail-modal').classList.add('hidden');
+    document.getElementById('source-detail-modal')?.classList.add('hidden');
 }
 
 function renderSourceHistory(history) {
     const tbody = document.getElementById('detail-history');
     const noHistory = document.getElementById('detail-no-history');
+    if (!tbody || !noHistory) return;
 
     if (!history || history.length === 0) {
         tbody.innerHTML = '';
@@ -2038,6 +2086,7 @@ async function loadDbtModels(retryCount = 0) {
 
 function renderDbtModelsTable() {
     const tbody = document.getElementById('dbt-models-table-body');
+    if (!tbody) return;
 
     // If dbt is running but we don't have models data yet, show running state
     if (dbtRunStartTime !== null && (!dbtModels || dbtModels.length === 0)) {
@@ -2234,6 +2283,7 @@ function updateDbtModelStatus(modelName, running) {
 
 function showDbtModelsError() {
     const tbody = document.getElementById('dbt-models-table-body');
+    if (!tbody) return;
     tbody.innerHTML = `
         <tr>
             <td colspan="5" class="px-6 py-8 text-center text-red-500">
@@ -2307,13 +2357,15 @@ async function loadMetabaseCredentials() {
     try {
         metabaseCredentials = await apiCall('/api/metabase/credentials');
 
-        document.getElementById('metabase-email').textContent = metabaseCredentials.email;
-        document.getElementById('metabase-password').textContent = metabaseCredentials.password;
+        const emailEl = document.getElementById('metabase-email');
+        const pwEl = document.getElementById('metabase-password');
+        if (emailEl) emailEl.textContent = metabaseCredentials.email;
+        if (pwEl) pwEl.textContent = metabaseCredentials.password;
 
         // Show banner if not previously dismissed
         const dismissed = localStorage.getItem('metabase-credentials-dismissed');
         if (!dismissed) {
-            document.getElementById('metabase-credentials-banner').classList.remove('hidden');
+            document.getElementById('metabase-credentials-banner')?.classList.remove('hidden');
         }
     } catch (error) {
         console.error('Failed to load Metabase credentials:', error);
@@ -2396,6 +2448,7 @@ function openMetabase() {
 
 function copyMetabaseField(field) {
     const element = document.getElementById(`metabase-${field}`);
+    if (!element) return;
     const text = element.textContent;
 
     navigator.clipboard.writeText(text).then(() => {
@@ -2411,7 +2464,7 @@ function copyMetabaseField(field) {
 }
 
 function dismissMetabaseBanner() {
-    document.getElementById('metabase-credentials-banner').classList.add('hidden');
+    document.getElementById('metabase-credentials-banner')?.classList.add('hidden');
     localStorage.setItem('metabase-credentials-dismissed', 'true');
 }
 

@@ -26,7 +26,9 @@ JS_DIR = os.path.join("dango", "web", "static", "js")
 # (function_name, element_id) tuples for page-specific functions where the
 # element is guaranteed by the calling context.  Start empty — populate as
 # needed.
-ALLOWLIST: list[tuple[str, str]] = []
+ALLOWLIST: list[tuple[str, str]] = [
+    ("openMetabase", "loginForm"),  # Inside HTML template literal written to new window
+]
 
 # ---------------------------------------------------------------------------
 # Regex patterns

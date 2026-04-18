@@ -155,6 +155,7 @@ function getLogLevelFromEvent(event) {
 function updateConnectionStatus(connected) {
     const indicator = document.getElementById('status-indicator');
     const text = document.getElementById('status-text');
+    if (!indicator || !text) return;
 
     if (connected) {
         indicator.className = 'h-2 w-2 bg-green-500 rounded-full';
@@ -213,6 +214,7 @@ async function loadSources() {
     try {
         const sources = await apiCall('/api/sources');
         const filterSource = document.getElementById('filter-source');
+        if (!filterSource) return;
 
         // Populate source filter dropdown
         sources.forEach(source => {
@@ -232,14 +234,20 @@ async function loadSources() {
 
 function setupFilterListeners() {
     // Real-time search filter
-    document.getElementById('filter-search').addEventListener('input', applyFilters);
+    document.getElementById('filter-search')?.addEventListener('input', applyFilters);
 }
 
 function applyFilters() {
-    const levelFilter = document.getElementById('filter-level').value;
-    const sourceFilter = document.getElementById('filter-source').value;
-    const timeFilter = document.getElementById('filter-time').value;
-    const searchFilter = document.getElementById('filter-search').value.toLowerCase();
+    const levelEl = document.getElementById('filter-level');
+    const sourceEl = document.getElementById('filter-source');
+    if (!levelEl || !sourceEl) return;
+    const timeEl = document.getElementById('filter-time');
+    const searchEl = document.getElementById('filter-search');
+    if (!timeEl || !searchEl) return;
+    const levelFilter = levelEl.value;
+    const sourceFilter = sourceEl.value;
+    const timeFilter = timeEl.value;
+    const searchFilter = searchEl.value.toLowerCase();
 
     filteredLogs = allLogs.filter(log => {
         // Level filter
@@ -290,10 +298,14 @@ function applyFilters() {
 }
 
 function clearFilters() {
-    document.getElementById('filter-level').value = '';
-    document.getElementById('filter-source').value = '';
-    document.getElementById('filter-time').value = 'all';
-    document.getElementById('filter-search').value = '';
+    const levelEl = document.getElementById('filter-level');
+    if (levelEl) levelEl.value = '';
+    const sourceEl = document.getElementById('filter-source');
+    if (sourceEl) sourceEl.value = '';
+    const timeEl = document.getElementById('filter-time');
+    if (timeEl) timeEl.value = 'all';
+    const searchEl = document.getElementById('filter-search');
+    if (searchEl) searchEl.value = '';
     applyFilters();
 }
 
@@ -336,6 +348,7 @@ function renderLogs() {
     const tbody = document.getElementById('logs-table-body');
     const loadingEl = document.getElementById('logs-loading');
     const emptyEl = document.getElementById('logs-empty');
+    if (!tbody || !loadingEl || !emptyEl) return;
 
     loadingEl.classList.add('hidden');
 
@@ -398,25 +411,33 @@ function updatePagination() {
     const endIndex = Math.min(currentPage * logsPerPage, totalLogs);
 
     // Update counts
-    document.getElementById('log-count').textContent = totalLogs.toLocaleString();
-    document.getElementById('showing-from').textContent = totalLogs > 0 ? startIndex : 0;
-    document.getElementById('showing-to').textContent = endIndex;
-    document.getElementById('total-logs').textContent = totalLogs.toLocaleString();
-    document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages || 1}`;
+    const logCountEl = document.getElementById('log-count');
+    if (!logCountEl) return;  // Not on logs page
+    logCountEl.textContent = totalLogs.toLocaleString();
+    const showFromEl = document.getElementById('showing-from');
+    if (showFromEl) showFromEl.textContent = totalLogs > 0 ? startIndex : 0;
+    const showToEl = document.getElementById('showing-to');
+    if (showToEl) showToEl.textContent = endIndex;
+    const totalEl = document.getElementById('total-logs');
+    if (totalEl) totalEl.textContent = totalLogs.toLocaleString();
+    const pageInfoEl = document.getElementById('page-info');
+    if (pageInfoEl) pageInfoEl.textContent = `Page ${currentPage} of ${totalPages || 1}`;
 
     // Update buttons
-    document.getElementById('prev-btn').disabled = currentPage === 1;
-    document.getElementById('next-btn').disabled = currentPage >= totalPages;
+    const prevBtn = document.getElementById('prev-btn');
+    if (prevBtn) prevBtn.disabled = currentPage === 1;
+    const nextBtn = document.getElementById('next-btn');
+    if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
 }
 
 function showLoading() {
-    document.getElementById('logs-loading').classList.remove('hidden');
-    document.getElementById('logs-empty').classList.add('hidden');
+    document.getElementById('logs-loading')?.classList.remove('hidden');
+    document.getElementById('logs-empty')?.classList.add('hidden');
 }
 
 function showEmpty() {
-    document.getElementById('logs-loading').classList.add('hidden');
-    document.getElementById('logs-empty').classList.remove('hidden');
+    document.getElementById('logs-loading')?.classList.add('hidden');
+    document.getElementById('logs-empty')?.classList.remove('hidden');
 }
 
 // ============================================================================
@@ -445,7 +466,13 @@ function nextPage() {
 // ============================================================================
 
 function showToast(message, type = 'info') {
-    const container = document.getElementById('toast-container');
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'fixed bottom-4 right-4 space-y-2 z-50';
+        document.body.appendChild(container);
+    }
 
     const bgColors = {
         'info': 'bg-blue-500',
