@@ -13,8 +13,10 @@ from pathlib import Path
 
 import duckdb
 import yaml
-from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 
+from dango.auth.models import User
+from dango.auth.permissions import require_permission
 from dango.validation import sanitize_path_component, validate_source_name
 from dango.web.helpers import (
     append_log_entry,
@@ -38,6 +40,7 @@ async def upload_csv_to_source(
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     trigger_sync: bool = False,  # Default to false - let frontend control when to sync
+    user: User = Depends(require_permission("csv.upload")),
 ):
     """Upload a CSV file to an existing pre-configured CSV source.
 
@@ -330,6 +333,7 @@ async def delete_csv_file(
     source_name: str,
     file_path: str = Query(..., description="Full path to file to delete"),
     background_tasks: BackgroundTasks = None,
+    user: User = Depends(require_permission("csv.delete")),
 ):
     """Delete a CSV file from filesystem and trigger sync to update database.
 

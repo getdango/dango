@@ -11,9 +11,11 @@ from datetime import datetime
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import Response
 
+from dango.auth.models import User
+from dango.auth.permissions import require_permission
 from dango.validation import validate_identifier
 from dango.web.helpers import get_dbt_manifest, get_dbt_models, get_project_root
 from dango.web.routes.websocket import ws_manager
@@ -40,7 +42,10 @@ async def list_dbt_models() -> dict[str, list]:
 
 @router.post("/api/dbt/models/{model_name}/run")
 async def run_dbt_model(
-    model_name: str, background_tasks: BackgroundTasks, cascade: bool = True
+    model_name: str,
+    background_tasks: BackgroundTasks,
+    cascade: bool = True,
+    user: User = Depends(require_permission("dbt.run")),
 ) -> dict[str, str | bool]:
     """Run a specific dbt model.
 

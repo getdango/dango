@@ -7,6 +7,13 @@
  * - UI updates and interactions
  */
 
+// HTML entity escaping for safe innerHTML usage
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 // Global state
 let ws = null;
 let reconnectInterval = null;
@@ -1564,6 +1571,7 @@ async function loadCsvFilesList(sourceName) {
         }
 
         // Group files by status
+        const canDelete = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
         const filesHtml = data.files.map(file => {
             let statusBadge = '';
             let statusColor = '';
@@ -1587,7 +1595,6 @@ async function loadCsvFilesList(sourceName) {
             const rowsDisplay = file.rows_loaded ? `${file.rows_loaded.toLocaleString()} rows` : '';
 
             // Add delete button for files on disk (editors/admins only)
-            const canDelete = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
             const safeFilename = file.filename.replace(/[^a-zA-Z0-9]/g, '_');
             const deleteButton = (file.on_disk && canDelete) ?
                 `<button
@@ -1752,10 +1759,8 @@ async function handleCsvUpload() {
     const syncBtn = document.getElementById('modal-sync-btn');
     if (syncBtn) syncBtn.disabled = true;
 
-    // Declare at function scope so setTimeout can access it
     let successCount = 0;
     let failCount = 0;
-    let uploadComplete = false;
     const failedDetails = [];
 
     try {
@@ -1791,15 +1796,32 @@ async function handleCsvUpload() {
             }
         }
 
+        // Show error details in modal (escaped to prevent XSS from filenames)
+        if (failCount > 0 && errorEl) {
+            const maxShown = 3;
+            const shown = failedDetails.slice(0, maxShown).map(d => escapeHtml(d));
+            const extra = failCount > maxShown ? `...and ${failCount - maxShown} more` : '';
+            const label = successCount > 0
+                ? `<strong>${failCount} file(s) failed:</strong>`
+                : '<strong>Upload failed:</strong>';
+            errorEl.innerHTML = label + '<br>' + shown.join('<br>') + (extra ? '<br>' + extra : '');
+            errorEl.classList.remove('hidden');
+        }
+
         // Handle results based on success/failure
         if (successCount > 0 && failCount === 0) {
             // All files succeeded — close modal and show success toast
             closeUploadModal();
             const fileWord = successCount === 1 ? 'file' : 'files';
             showToast(`Successfully uploaded ${successCount} ${fileWord} to disk. Syncing...`, 'success');
+        } else if (failCount > 0 && successCount === 0) {
+            // All files failed — clean up operation tracking
+            removeFileOperation(sourceName, operationId);
+        }
 
-            // Now trigger ONE sync for ALL uploaded files
-            console.log(`📤 [Upload] Triggering single sync for ${successCount} uploaded files`);
+        // Trigger sync if any files succeeded
+        if (successCount > 0) {
+            console.log(`📤 [Upload] Triggering sync for ${successCount} uploaded files`);
             try {
                 const syncResponse = await apiCall(`/api/sources/${sourceName}/sync`, 'POST', {
                     full_refresh: false
@@ -1807,50 +1829,17 @@ async function handleCsvUpload() {
                 console.log('📤 [Upload] Sync triggered successfully, WebSocket events will track progress');
             } catch (syncError) {
                 console.error('Error triggering sync:', syncError);
-                showToast(`Files uploaded but sync failed: ${syncError.message}`, 'error');
+                if (failCount === 0) {
+                    showToast(`Files uploaded but sync failed: ${syncError.message}`, 'error');
+                }
                 removeFileOperation(sourceName, operationId);
             }
-        } else if (successCount > 0 && failCount > 0) {
-            // Mixed results — keep modal open with error, trigger sync for successful files
-            const maxShown = 3;
-            const shown = failedDetails.slice(0, maxShown).join('\n');
-            const extra = failCount > maxShown ? `\n...and ${failCount - maxShown} more` : '';
-            if (errorEl) {
-                errorEl.innerHTML = `<strong>${failCount} file(s) failed:</strong><br>${shown.replace(/\n/g, '<br>')}${extra.replace(/\n/g, '<br>')}`;
-                errorEl.classList.remove('hidden');
-            }
-
-            // Still trigger sync for the files that succeeded
-            console.log(`📤 [Upload] Triggering sync for ${successCount} successful files (${failCount} failed)`);
-            try {
-                const syncResponse = await apiCall(`/api/sources/${sourceName}/sync`, 'POST', {
-                    full_refresh: false
-                }, 30000);
-                console.log('📤 [Upload] Sync triggered successfully');
-            } catch (syncError) {
-                console.error('Error triggering sync:', syncError);
-                removeFileOperation(sourceName, operationId);
-            }
-        } else {
-            // All files failed — keep modal open with error details
-            const maxShown = 3;
-            const shown = failedDetails.slice(0, maxShown).join('\n');
-            const extra = failCount > maxShown ? `\n...and ${failCount - maxShown} more` : '';
-            if (errorEl) {
-                errorEl.innerHTML = `<strong>Upload failed:</strong><br>${shown.replace(/\n/g, '<br>')}${extra.replace(/\n/g, '<br>')}`;
-                errorEl.classList.remove('hidden');
-            }
-            // Clean up operation tracking if all failed
-            removeFileOperation(sourceName, operationId);
         }
-
-        // Mark upload as complete so finally block knows state
-        uploadComplete = true;
     } catch (error) {
         console.error('Error uploading file:', error);
         // Show error in modal instead of toast
         if (errorEl) {
-            errorEl.innerHTML = `<strong>Upload failed:</strong> ${error.message}`;
+            errorEl.innerHTML = `<strong>Upload failed:</strong> ${escapeHtml(error.message)}`;
             errorEl.classList.remove('hidden');
         }
         addLogEntry('error', `Upload failed: ${error.message}`, sourceName);
