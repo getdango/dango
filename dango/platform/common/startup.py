@@ -286,6 +286,7 @@ def _link_metabase_admin(project_root: Path, admin_email: str) -> None:
             encrypt_metabase_password,
             find_metabase_user_by_email,
             generate_metabase_password,
+            update_metabase_user_password,
         )
         from dango.auth.models import UserUpdate
         from dango.logging import get_logger
@@ -330,18 +331,19 @@ def _link_metabase_admin(project_root: Path, admin_email: str) -> None:
         if mb_user is None:
             return
 
-        # Generate new password, update Metabase user, store in Dango
+        # Generate new password, update Metabase user, store in Dango.
+        # old_password is required by Metabase when the session user is the
+        # same as the target user (admin changing their own password).
         password = generate_metabase_password()
-        pw_resp = requests.put(
-            f"{mb_url}/api/user/{mb_user['id']}",
-            headers={"X-Metabase-Session": session_token},
-            json={"password": password},
-            timeout=10,
-        )
-        if pw_resp.status_code != 200:
+        if not update_metabase_user_password(
+            mb_url,
+            session_token,
+            mb_user["id"],
+            password,
+            old_password=mb_password,
+        ):
             _logger.warning(
                 "metabase_password_update_failed",
-                status=pw_resp.status_code,
                 metabase_user_id=mb_user["id"],
             )
             return
