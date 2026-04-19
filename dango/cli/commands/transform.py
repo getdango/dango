@@ -133,11 +133,11 @@ def docs(ctx: click.Context) -> None:
     Generate dbt documentation (wrapper for dbt docs generate).
 
     This command generates documentation for your dbt models, sources, and tests.
-    After generation, view docs at http://localhost:{port}/dbt-docs (if platform is running).
+    After generation, view docs at http://localhost:{port}/catalog (if platform is running).
 
     Examples:
       dango docs          Generate documentation
-      dango start         Then view at http://localhost:{port}/dbt-docs
+      dango start         Then view at http://localhost:{port}/catalog
     """
     import subprocess
 
@@ -184,7 +184,7 @@ def docs(ctx: click.Context) -> None:
         config_loader = ConfigLoader(project_root)
         config = config_loader.load_config()
         platform_port = config.platform.port
-        dbt_docs_url = f"http://localhost:{platform_port}/dbt-docs"
+        dbt_docs_url = f"http://localhost:{platform_port}/catalog"
 
         # Check if platform is running
         import socket
