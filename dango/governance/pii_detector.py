@@ -36,7 +36,7 @@ _analyzer: Any = None
 _SPACY_MODEL = "en_core_web_sm"
 _SPACY_MODEL_URL = (
     "https://github.com/explosion/spacy-models/releases/download/"
-    "en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"
+    "en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
 )
 
 
@@ -59,13 +59,20 @@ def _get_analyzer() -> Any | None:
         try:
             spacy.cli.download(_SPACY_MODEL)  # type: ignore[attr-defined]
         except Exception:
-            # Fallback 2: direct pip install from GitHub release URL
+            # Fallback 2: download .whl to temp file then pip install locally
+            # (pip 25.2+ can't download from GitHub Releases redirect URLs directly)
+            import os
             import subprocess
             import sys
+            import tempfile
+            import urllib.request
 
             try:
+                whl_name = _SPACY_MODEL_URL.rsplit("/", 1)[-1]
+                whl_path = os.path.join(tempfile.gettempdir(), whl_name)
+                urllib.request.urlretrieve(_SPACY_MODEL_URL, whl_path)
                 subprocess.check_call(
-                    [sys.executable, "-m", "pip", "install", _SPACY_MODEL_URL],
+                    [sys.executable, "-m", "pip", "install", whl_path],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )

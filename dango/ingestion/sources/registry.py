@@ -102,7 +102,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
     "local_files": {
         "display_name": "File Import (CSV, JSON, Parquet)",
         "category": "Local & Custom",
-        "description": "Load CSV, JSON, JSONL, or Parquet files from a local directory with deduplication and incremental loading",
+        "description": "Load CSV, JSON, JSONL, or Parquet files from a directory. All matching files are combined into a single raw table. On re-sync, new/modified files are loaded, deleted files are removed.",
         "auth_type": AuthType.NONE,
         "dlt_package": None,  # Custom implementation (extends CSVLoader)
         "dlt_function": None,
