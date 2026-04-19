@@ -627,7 +627,9 @@ class DashboardManager:
             collections_to_export = [c for c in all_collections if c.get("name") in collections]
         else:
             # Default: export from "Shared" collection only (team workflow)
-            collections_to_export = [c for c in all_collections if c.get("name") == "Shared"]
+            collections_to_export = [
+                c for c in all_collections if c.get("name", "").lower() == "shared"
+            ]
 
         if not collections_to_export:
             summary["errors"].append("No collections to export")

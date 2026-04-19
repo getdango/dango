@@ -407,13 +407,16 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
                     )
 
             # Regenerate dbt docs to reflect source removal
+            console.print("[dim]Regenerating dbt documentation...[/dim]")
             try:
                 from dango.transformation import generate_dbt_docs
 
                 generate_dbt_docs(project_root)
                 console.print("[green]✓[/green] dbt documentation regenerated")
             except Exception:
-                pass  # Non-critical — catalog will update on next sync
+                console.print(
+                    "[dim]Could not regenerate dbt documentation — catalog will update on next sync.[/dim]"
+                )
 
             console.print(f"[green]✅ Source '{source_name}' removed successfully[/green]")
             console.print()

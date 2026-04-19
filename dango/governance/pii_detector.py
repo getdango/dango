@@ -70,12 +70,18 @@ def _get_analyzer() -> Any | None:
             try:
                 whl_name = _SPACY_MODEL_URL.rsplit("/", 1)[-1]
                 whl_path = os.path.join(tempfile.gettempdir(), whl_name)
-                urllib.request.urlretrieve(_SPACY_MODEL_URL, whl_path)
-                subprocess.check_call(
-                    [sys.executable, "-m", "pip", "install", whl_path],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+                try:
+                    urllib.request.urlretrieve(_SPACY_MODEL_URL, whl_path)
+                    subprocess.check_call(
+                        [sys.executable, "-m", "pip", "install", whl_path],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                finally:
+                    try:
+                        os.unlink(whl_path)
+                    except OSError:
+                        pass
             except Exception:
                 logger.warning(
                     "pii_spacy_download_failed",
