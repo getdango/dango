@@ -142,7 +142,12 @@ def update_metabase_user_password(
     body: dict[str, Any] = {"password": new_password}
     if old_password is not None:
         body["old_password"] = old_password
-    return _mb_put(metabase_url, session, f"/api/user/{user_id}/password", body) is not None
+    result = _mb_put(metabase_url, session, f"/api/user/{user_id}/password", body)
+    if result is None:
+        # _mb_put returns None for non-200 responses (e.g. 400 if old_password is
+        # wrong or missing) and for network errors (already logged by _mb_put).
+        logger.warning("Metabase password update failed for user_id=%s", user_id)
+    return result is not None
 
 
 def _get_database_id(project_root: Path) -> int | None:
