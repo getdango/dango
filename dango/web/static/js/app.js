@@ -298,7 +298,8 @@ async function loadConfig() {
                 }
             }
         } catch (error) {
-            // Query link uses default /metabase/question/new if config unavailable
+            console.warn('Could not load Metabase config for Query link:', error);
+            // Query link uses default /metabase/question/new
         }
     } catch (error) {
         console.error('Failed to load config:', error);

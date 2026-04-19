@@ -320,8 +320,9 @@ async def dango_error_handler(request: Request, exc: DangoError) -> Response:
                 },
                 status_code=status_code,
             )
-        except Exception:
-            pass  # Fall through to JSON response
+        except Exception as e:
+            logger.warning("error_page_render_failed", path=request.url.path, error=str(e))
+            # Fall through to JSON response
 
     body: dict = {
         "error_code": exc.error_code,

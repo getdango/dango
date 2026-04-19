@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from jinja2 import TemplateNotFound
+from starlette.responses import RedirectResponse
 
 import dango
 from dango.auth.audit import AuditEvent, log_auth_event
@@ -44,7 +45,7 @@ def _render_template(
             request, template_name, context=context, status_code=status_code
         )
     except TemplateNotFound:
-        return HTMLResponse(content=_FALLBACK_HTML, status_code=status_code)
+        return HTMLResponse(content=_FALLBACK_HTML)  # always 200 — this is an install error
 
 
 @router.get("/")
@@ -187,8 +188,6 @@ async def custom_redoc_html() -> HTMLResponse:
 async def login_page(request: Request) -> Response:
     """Render the login page."""
     if getattr(request.state, "user", None):
-        from starlette.responses import RedirectResponse
-
         return RedirectResponse(url="/", status_code=302)
     oauth_providers: list[dict[str, str]] = []
     try:
