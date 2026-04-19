@@ -116,6 +116,40 @@ def _mb_delete(url: str, session: str, path: str) -> bool:
         return False
 
 
+def update_metabase_user_password(
+    metabase_url: str,
+    session: str,
+    user_id: int,
+    new_password: str,
+    *,
+    old_password: str | None = None,
+) -> bool:
+    """Update a Metabase user's password via ``PUT /api/user/{id}/password``.
+
+    Args:
+        metabase_url: Base URL of the Metabase instance.
+        session: Active Metabase session token.
+        user_id: Metabase user ID to update.
+        new_password: New password to set.
+        old_password: Current password. Required by Metabase when the
+            authenticated session belongs to the same user being updated
+            (i.e. self-change). Not required when an admin changes another
+            user's password.
+
+    Returns:
+        ``True`` on success, ``False`` otherwise.
+    """
+    body: dict[str, Any] = {"password": new_password}
+    if old_password is not None:
+        body["old_password"] = old_password
+    result = _mb_put(metabase_url, session, f"/api/user/{user_id}/password", body)
+    if result is None:
+        # _mb_put returns None for non-200 responses (e.g. 400 if old_password is
+        # wrong or missing) and for network errors (already logged by _mb_put).
+        logger.warning("Metabase password update failed for user_id=%s", user_id)
+    return result is not None
+
+
 def _get_database_id(project_root: Path) -> int | None:
     """Return the DuckDB database ID from ``metabase.yml``."""
     creds = _load_metabase_credentials(project_root)
@@ -327,10 +361,7 @@ def sync_user_to_metabase(
             mb_user_id: int = existing["id"]
             # Update password on existing Metabase user so we can bridge SSO
             password = generate_metabase_password()
-            if (
-                _mb_put(metabase_url, session, f"/api/user/{mb_user_id}", {"password": password})
-                is None
-            ):
+            if not update_metabase_user_password(metabase_url, session, mb_user_id, password):
                 logger.warning("Failed to update Metabase password for user %s", mb_user_id)
         else:
             mb_user_id = mb_user["id"]

@@ -340,6 +340,13 @@ class TestLinkMetabaseAdmin:
 
         _link_metabase_admin(tmp_path, "admin@test.com")
 
+        # Verify correct password endpoint was called with old_password
+        mock_put.assert_called_once()
+        put_url, put_kwargs = mock_put.call_args[0][0], mock_put.call_args[1]
+        assert "/api/user/42/password" in put_url
+        assert "old_password" in put_kwargs.get("json", {})
+        assert put_kwargs["json"]["old_password"] == "testpw"  # from metabase.yml fixture
+
         # Verify user was updated in auth.db
         from dango.auth.admin import get_auth_db_path
         from dango.auth.database import get_user_by_email
