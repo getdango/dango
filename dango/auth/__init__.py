@@ -64,6 +64,7 @@ from dango.auth.metabase_sync import (
     sync_all_users_to_metabase,
     sync_user_role,
     sync_user_to_metabase,
+    update_metabase_user_password,
 )
 from dango.auth.models import APIKey, Role, Session, User, UserCreate, UserResponse, UserUpdate
 from dango.auth.oauth_login import (
@@ -199,6 +200,7 @@ __all__ = [
     "sync_all_users_to_metabase",
     "sync_user_role",
     "sync_user_to_metabase",
+    "update_metabase_user_password",
     # Permissions
     "PERMISSIONS",
     "ROLE_PERMISSIONS",
