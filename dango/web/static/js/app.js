@@ -272,7 +272,34 @@ async function loadConfig() {
             subtitleElement.textContent = subtitle;
         }
 
-        console.log('Config loaded:', config);
+        // Update Query nav link with database pre-selected for deep-link into SQL editor
+        try {
+            const metabaseConfigResponse = await fetch('/api/metabase-config');
+            if (metabaseConfigResponse.ok) {
+                const metabaseConfig = await metabaseConfigResponse.json();
+                const databaseId = metabaseConfig.database_id;
+
+                if (databaseId) {
+                    const queryState = {
+                        "dataset_query": {
+                            "database": databaseId,
+                            "type": "native",
+                            "native": {"query": "", "template-tags": {}}
+                        },
+                        "display": "table",
+                        "visualization_settings": {},
+                        "type": "question"
+                    };
+                    const sqlQueryUrl = `/metabase/question#${btoa(JSON.stringify(queryState))}`;
+                    const navQueryLink = document.getElementById('nav-query-database');
+                    if (navQueryLink) {
+                        navQueryLink.href = sqlQueryUrl;
+                    }
+                }
+            }
+        } catch (error) {
+            // Query link uses default /metabase/question/new if config unavailable
+        }
     } catch (error) {
         console.error('Failed to load config:', error);
         // Links will use hardcoded defaults if config fails

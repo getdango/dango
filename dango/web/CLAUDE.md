@@ -14,7 +14,8 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `__init__.py` | Public exports | `app` module |
 | `middleware/auth.py` | Session/API key auth + CSRF check on every request (~325 lines) | `AuthMiddleware`, `is_secure_request()`, `COOKIE_NAME` |
 | `middleware/rate_limit.py` | Rate limiting (login 10/min, API 200/min, localhost exempt, ~212 lines) | `RateLimitMiddleware` |
-| `templates/base.html` | Shared Jinja2 layout: head (compiled Tailwind CSS), header, nav bar (Overview/Sources/Models/Schedules/Catalog/Metabase + More dropdown + gear dropdown), responsive hamburger menu, footer, script blocks | Blocks: `title`, `subtitle_attrs`, `header_right`, `nav`, `content`, `footer`, `scripts` |
+| `templates/base.html` | Shared Jinja2 layout: head (compiled Tailwind CSS), header, nav bar (9-item flat: Overview/Sources/Models/Schedules/Catalog/Query/Dashboards/Notebooks/Insights + gear dropdown), responsive hamburger menu, footer, script blocks | Blocks: `title`, `subtitle_attrs`, `header_right`, `nav`, `content`, `footer`, `scripts` |
+| `templates/error.html` | HTML error page (extends `base.html`) — status code, title, message, back/home links | Rendered by `dango_error_handler()` for browser 401/403 requests |
 | `templates/dashboard.html` | Overview page (extends `base.html`) — health widget, service cards, activity log | Loads `app.js` |
 | `templates/sources.html` | Sources page (extends `base.html`) — source table, sync controls, upload/detail modals | Loads `app.js` |
 | `templates/models.html` | Models page (extends `base.html`) — dbt models table with run controls | Loads `app.js` |

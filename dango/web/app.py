@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+import dango
 from dango.config.models import AuthConfig, RateLimitConfig
 from dango.exceptions import (
     AccountDeactivatedError,
@@ -302,21 +303,25 @@ async def dango_error_handler(request: Request, exc: DangoError) -> Response:
 
     # Render a friendly HTML error page for browser navigation to page routes
     if status_code in (401, 403) and _is_browser_request(request):
-        from dango.web.routes.ui import _render_template
+        try:
+            from dango.web.routes.ui import _render_template
 
-        titles = {401: "Authentication Required", 403: "Access Denied"}
-        return _render_template(
-            request,
-            "error.html",
-            {
-                "status_code": status_code,
-                "error_title": titles.get(status_code, "Error"),
-                "error_message": exc.user_message,
-                "current_page": "",
-                "subtitle": titles.get(status_code, "Error"),
-                "version": "",
-            },
-        )
+            titles = {401: "Authentication Required", 403: "Access Denied"}
+            return _render_template(
+                request,
+                "error.html",
+                {
+                    "status_code": status_code,
+                    "error_title": titles.get(status_code, "Error"),
+                    "error_message": exc.user_message,
+                    "current_page": "",
+                    "subtitle": titles.get(status_code, "Error"),
+                    "version": dango.__version__,
+                },
+                status_code=status_code,
+            )
+        except Exception:
+            pass  # Fall through to JSON response
 
     body: dict = {
         "error_code": exc.error_code,
