@@ -222,26 +222,6 @@
                         </form>
                     </div>
 
-                    <!-- Step: recovery codes -->
-                    <div x-show="twoFaStep === 'recovery'">
-                        <div class="p-3 bg-yellow-50 border border-yellow-200 rounded-md mb-3">
-                            <p class="text-sm font-medium text-yellow-800 mb-1">Save your recovery codes</p>
-                            <p class="text-xs text-yellow-700">Store these codes safely. Each can be used once if you lose access to your authenticator.</p>
-                        </div>
-                        <div class="mb-3 p-3 bg-gray-50 rounded-md border font-mono text-sm grid grid-cols-2 gap-1">
-                            <template x-for="code in twoFaRecoveryCodes" :key="code">
-                                <span x-text="code"></span>
-                            </template>
-                        </div>
-                        <div class="flex space-x-2">
-                            <button @click="copyRecoveryCodes()"
-                                    class="px-3 py-2 text-sm bg-gray-100 rounded-md hover:bg-gray-200">Copy</button>
-                            <button @click="downloadRecoveryCodes()"
-                                    class="px-3 py-2 text-sm bg-gray-100 rounded-md hover:bg-gray-200">Download</button>
-                            <button @click="reset2FA()"
-                                    class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700">Done</button>
-                        </div>
-                    </div>
                 </div>
             </template>
 
@@ -370,7 +350,8 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"
+        integrity="sha256-xUHvBjJ4hahBW8qN9gceFBibSFUzbe9PNttUvehITzY=" crossorigin="anonymous"></script>
 <script>
 function accountPage() {
     const headers = {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'};
@@ -428,6 +409,7 @@ function accountPage() {
             } catch (e) { this.sessionError = 'Failed to revoke session'; }
         },
         async revokeAllOtherSessions() {
+            if (!confirm('Revoke all other active sessions? You will remain logged in on this device only.')) return;
             this.sessionLoading = true; this.sessionError = '';
             try {
                 const others = this.sessions.filter(s => !s.is_current);
@@ -507,6 +489,8 @@ function accountPage() {
                 const data = await res.json();
                 if (!res.ok) { this.twoFaError = data.message || 'Verification failed'; this.twoFaLoading = false; return; }
                 this.twoFaCode = '';
+                // twoFaIsFirstSetup must be set before totp_enabled=true — Alpine swaps
+                // x-if templates on totp_enabled change and reads twoFaIsFirstSetup immediately.
                 this.twoFaIsFirstSetup = true;
                 this.twoFaStep = 'recovery';
                 this.user = {...this.user, totp_enabled: true};
