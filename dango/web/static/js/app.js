@@ -272,7 +272,7 @@ async function loadConfig() {
             subtitleElement.textContent = subtitle;
         }
 
-        // Update DuckDB link to point to SQL query editor with database pre-selected
+        // Update Query nav link with database pre-selected for deep-link into SQL editor
         try {
             const metabaseConfigResponse = await fetch('/api/metabase-config');
             if (metabaseConfigResponse.ok) {
@@ -280,32 +280,17 @@ async function loadConfig() {
                 const databaseId = metabaseConfig.database_id;
 
                 if (databaseId) {
-                    // Create Metabase SQL query state object
                     const queryState = {
                         "dataset_query": {
                             "database": databaseId,
                             "type": "native",
-                            "native": {
-                                "query": "",
-                                "template-tags": {}
-                            }
+                            "native": {"query": "", "template-tags": {}}
                         },
                         "display": "table",
                         "visualization_settings": {},
                         "type": "question"
                     };
-
-                    // Base64 encode the state
-                    const encodedState = btoa(JSON.stringify(queryState));
-                    // Use proxied path to get auto-login
-                    const sqlQueryUrl = `/metabase/question#${encodedState}`;
-
-                    // Update both the dashboard card and navbar link
-                    const duckdbLink = document.getElementById('duckdb-sql-link');
-                    if (duckdbLink) {
-                        duckdbLink.href = sqlQueryUrl;
-                    }
-
+                    const sqlQueryUrl = `/metabase/question#${btoa(JSON.stringify(queryState))}`;
                     const navQueryLink = document.getElementById('nav-query-database');
                     if (navQueryLink) {
                         navQueryLink.href = sqlQueryUrl;
@@ -313,11 +298,9 @@ async function loadConfig() {
                 }
             }
         } catch (error) {
-            console.log('Could not load Metabase config for SQL link:', error);
-            // Links will use default /metabase/question/new
+            console.warn('Could not load Metabase config for Query link:', error);
+            // Query link uses default /metabase/question/new
         }
-
-        console.log('Config loaded:', config);
     } catch (error) {
         console.error('Failed to load config:', error);
         // Links will use hardcoded defaults if config fails

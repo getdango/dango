@@ -7,9 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from jinja2 import TemplateNotFound
+from starlette.responses import RedirectResponse
 
 import dango
 from dango.auth.audit import AuditEvent, log_auth_event
@@ -32,12 +33,19 @@ _FALLBACK_HTML = """
 """
 
 
-def _render_template(request: Request, template_name: str, context: dict) -> HTMLResponse:
+def _render_template(
+    request: Request,
+    template_name: str,
+    context: dict,
+    status_code: int = 200,
+) -> HTMLResponse:
     """Render a Jinja2 template with fallback for broken installations."""
     try:
-        return templates.TemplateResponse(request, template_name, context=context)
+        return templates.TemplateResponse(
+            request, template_name, context=context, status_code=status_code
+        )
     except TemplateNotFound:
-        return HTMLResponse(content=_FALLBACK_HTML)
+        return HTMLResponse(content=_FALLBACK_HTML)  # always 200 — this is an install error
 
 
 @router.get("/")
@@ -177,8 +185,10 @@ async def custom_redoc_html() -> HTMLResponse:
 
 
 @router.get("/login")
-async def login_page(request: Request) -> HTMLResponse:
+async def login_page(request: Request) -> Response:
     """Render the login page."""
+    if getattr(request.state, "user", None):
+        return RedirectResponse(url="/", status_code=302)
     oauth_providers: list[dict[str, str]] = []
     try:
         from dango.auth.oauth_login import get_configured_providers
