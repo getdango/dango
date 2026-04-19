@@ -328,7 +328,12 @@ def sync_user_to_metabase(
             # Update password on existing Metabase user so we can bridge SSO
             password = generate_metabase_password()
             if (
-                _mb_put(metabase_url, session, f"/api/user/{mb_user_id}", {"password": password})
+                _mb_put(
+                    metabase_url,
+                    session,
+                    f"/api/user/{mb_user_id}/password",
+                    {"password": password},
+                )
                 is None
             ):
                 logger.warning("Failed to update Metabase password for user %s", mb_user_id)

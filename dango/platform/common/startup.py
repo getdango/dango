@@ -333,7 +333,7 @@ def _link_metabase_admin(project_root: Path, admin_email: str) -> None:
         # Generate new password, update Metabase user, store in Dango
         password = generate_metabase_password()
         pw_resp = requests.put(
-            f"{mb_url}/api/user/{mb_user['id']}",
+            f"{mb_url}/api/user/{mb_user['id']}/password",
             headers={"X-Metabase-Session": session_token},
             json={"password": password},
             timeout=10,
