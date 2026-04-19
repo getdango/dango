@@ -228,7 +228,11 @@ def check_password_strength(password: str, *, email: str | None = None) -> list[
     if email:
         if password.lower() == email.lower():
             issues.append("Password cannot be the same as your email address")
-        elif email.split("@")[0].lower() in password.lower():
+        elif (
+            (username := email.split("@")[0].lower())
+            and len(username) >= 3
+            and username in password.lower()
+        ):
             issues.append("Password should not contain your email username")
     return issues
 

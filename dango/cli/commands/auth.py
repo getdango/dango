@@ -403,6 +403,7 @@ def auth_delete_user(ctx: click.Context, email: str) -> None:
         log_auth_event(
             event_type=AuditEvent.USER_DELETED,
             email=user.email,
+            user_id=user.id,
             details={"via": "cli"},
             log_dir=project_root / ".dango" / "logs",
         )

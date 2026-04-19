@@ -126,8 +126,8 @@ class TestCheckPasswordStrength:
         assert issues == []
 
     def test_email_none_skips_check(self) -> None:
-        # Without email param, no email-based issues
-        issues = check_password_strength("strongpassword123")
+        # email-like string passed as password (no email= kwarg) — no email checks run
+        issues = check_password_strength("user@example.com")
         assert issues == []
 
     def test_password_equals_email_rejected(self) -> None:
@@ -140,6 +140,10 @@ class TestCheckPasswordStrength:
 
     def test_password_contains_email_username(self) -> None:
         issues = check_password_strength("myuser12345", email="myuser@example.com")
+        assert any("email username" in i for i in issues)
+
+    def test_password_contains_email_username_case_insensitive(self) -> None:
+        issues = check_password_strength("MYUSER12345", email="myuser@example.com")
         assert any("email username" in i for i in issues)
 
     def test_email_domain_not_flagged(self) -> None:

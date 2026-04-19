@@ -54,6 +54,12 @@ exemptions:
     reason: "R7-E added change-role command and audit logging to all user management commands (+122 lines)."
     review_by: "v1.1"
 
+  - file: tests/unit/test_cli_auth.py
+    lines: 532
+    category: exempt
+    reason: "R7-E review: added TestAuthChangeRole (4 tests) and change-role to TestAuthHelp. Test files track source file growth."
+    review_by: "v1.1"
+
   # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
   - file: dango/cli/commands/deploy_wizard.py
     lines: 839
