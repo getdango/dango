@@ -132,7 +132,7 @@ def auth_add_user(
     from dango.exceptions import UserExistsError
 
     try:
-        _, db_path = _get_db_path(ctx)
+        project_root, db_path = _get_db_path(ctx)
 
         if use_password:
             from dango.auth.admin import format_credentials_panel
@@ -165,6 +165,15 @@ def auth_add_user(
             console.print(f"\n[green]User created:[/green] {user.email}")
             console.print(f"[bold]Invite link:[/bold] {invite_url}")
             console.print("[dim]Link expires in 72 hours. Share it securely.[/dim]\n")
+        from dango.auth.audit import AuditEvent, log_auth_event
+
+        log_auth_event(
+            event_type=AuditEvent.USER_CREATED,
+            email=email,
+            user_id=user.id,
+            details={"via": "cli", "role": role},
+            log_dir=project_root / ".dango" / "logs",
+        )
     except click.Abort:
         raise
     except UserExistsError:
@@ -243,7 +252,7 @@ def auth_reset_password(ctx: click.Context, email: str) -> None:
     from dango.cli.utils import print_error
 
     try:
-        _, db_path = _get_db_path(ctx)
+        project_root, db_path = _get_db_path(ctx)
         user = get_user_by_email(db_path, email)
         if user is None:
             print_error(f"User '{email}' not found.")
@@ -257,6 +266,15 @@ def auth_reset_password(ctx: click.Context, email: str) -> None:
         )
         invalidate_all_user_sessions(db_path, user.id)
         console.print(format_credentials_panel(user.email, password, title="Password reset"))
+        from dango.auth.audit import AuditEvent, log_auth_event
+
+        log_auth_event(
+            event_type=AuditEvent.PASSWORD_RESET,
+            email=user.email,
+            user_id=user.id,
+            details={"via": "cli"},
+            log_dir=project_root / ".dango" / "logs",
+        )
     except click.Abort:
         raise
     except Exception as exc:
@@ -279,7 +297,7 @@ def auth_deactivate_user(ctx: click.Context, email: str) -> None:
     from dango.cli.utils import print_error, print_success
 
     try:
-        _, db_path = _get_db_path(ctx)
+        project_root, db_path = _get_db_path(ctx)
         user = get_user_by_email(db_path, email)
         if user is None:
             print_error(f"User '{email}' not found.")
@@ -294,6 +312,15 @@ def auth_deactivate_user(ctx: click.Context, email: str) -> None:
         deactivate_user(db_path, user.id)
         invalidate_all_user_sessions(db_path, user.id)
         print_success(f"User '{user.email}' deactivated.")
+        from dango.auth.audit import AuditEvent, log_auth_event
+
+        log_auth_event(
+            event_type=AuditEvent.USER_DEACTIVATED,
+            email=user.email,
+            user_id=user.id,
+            details={"via": "cli"},
+            log_dir=project_root / ".dango" / "logs",
+        )
     except click.Abort:
         raise
     except Exception as exc:
@@ -311,7 +338,7 @@ def auth_reactivate_user(ctx: click.Context, email: str) -> None:
     from dango.cli.utils import print_error, print_info, print_success
 
     try:
-        _, db_path = _get_db_path(ctx)
+        project_root, db_path = _get_db_path(ctx)
         user = get_user_by_email(db_path, email)
         if user is None:
             print_error(f"User '{email}' not found.")
@@ -321,6 +348,15 @@ def auth_reactivate_user(ctx: click.Context, email: str) -> None:
             return
         update_user(db_path, user.id, UserUpdate(is_active=True))
         print_success(f"User '{user.email}' reactivated.")
+        from dango.auth.audit import AuditEvent, log_auth_event
+
+        log_auth_event(
+            event_type=AuditEvent.USER_REACTIVATED,
+            email=user.email,
+            user_id=user.id,
+            details={"via": "cli"},
+            log_dir=project_root / ".dango" / "logs",
+        )
     except click.Abort:
         raise
     except Exception as exc:
@@ -362,6 +398,15 @@ def auth_delete_user(ctx: click.Context, email: str) -> None:
             print_warning("Metabase cleanup failed (user will still be deleted).")
         delete_user(db_path, user.id)
         print_success(f"User '{user.email}' deleted.")
+        from dango.auth.audit import AuditEvent, log_auth_event
+
+        log_auth_event(
+            event_type=AuditEvent.USER_DELETED,
+            email=user.email,
+            user_id=user.id,
+            details={"via": "cli"},
+            log_dir=project_root / ".dango" / "logs",
+        )
     except click.Abort:
         raise
     except Exception as exc:
@@ -429,7 +474,7 @@ def auth_unlock(ctx: click.Context, email: str) -> None:
     from dango.cli.utils import print_error, print_info, print_success
 
     try:
-        _, db_path = _get_db_path(ctx)
+        project_root, db_path = _get_db_path(ctx)
         user = get_user_by_email(db_path, email)
         if user is None:
             print_error(f"User '{email}' not found.")
@@ -443,6 +488,68 @@ def auth_unlock(ctx: click.Context, email: str) -> None:
             UserUpdate(failed_login_attempts=0, locked_until=None),
         )
         print_success(f"User '{user.email}' unlocked.")
+        from dango.auth.audit import AuditEvent, log_auth_event
+
+        log_auth_event(
+            event_type=AuditEvent.ACCOUNT_UNLOCKED,
+            email=user.email,
+            user_id=user.id,
+            details={"via": "cli"},
+            log_dir=project_root / ".dango" / "logs",
+        )
+    except click.Abort:
+        raise
+    except Exception as exc:
+        _handle_error(exc)
+        raise click.Abort() from None
+
+
+@auth.command("change-role")
+@click.argument("email")
+@click.argument("role", type=click.Choice(["admin", "editor", "viewer"]))
+@click.pass_context
+def auth_change_role(ctx: click.Context, email: str, role: str) -> None:
+    """Change a user's role (admin, editor, viewer)."""
+    from dango.auth.database import get_user_by_email, list_users, update_user
+    from dango.auth.models import Role, UserUpdate
+    from dango.cli.utils import print_error, print_info, print_success, print_warning
+
+    try:
+        project_root, db_path = _get_db_path(ctx)
+        user = get_user_by_email(db_path, email)
+        if user is None:
+            print_error(f"User '{email}' not found.")
+            raise click.Abort()
+        if user.role == Role(role):
+            print_info(f"User '{user.email}' already has role '{role}'.")
+            return
+        old_role = user.role.value
+        if user.role == Role.ADMIN:
+            active_admins = [
+                u for u in list_users(db_path, active_only=True) if u.role == Role.ADMIN
+            ]
+            if len(active_admins) <= 1:
+                print_error("Cannot demote the only active admin.")
+                raise click.Abort()
+        update_user(db_path, user.id, UserUpdate(role=Role(role)))
+        try:
+            from dango.auth.metabase_sync import _load_metabase_credentials, sync_user_role
+
+            creds = _load_metabase_credentials(project_root)
+            if creds and creds.get("metabase_url"):
+                sync_user_role(db_path, user.id, project_root, creds["metabase_url"])
+        except Exception:
+            print_warning("Metabase role sync failed (local role still updated).")
+        print_success(f"User '{user.email}' role changed to {role}.")
+        from dango.auth.audit import AuditEvent, log_auth_event
+
+        log_auth_event(
+            event_type=AuditEvent.ROLE_CHANGED,
+            email=user.email,
+            user_id=user.id,
+            details={"via": "cli", "old_role": old_role, "new_role": role},
+            log_dir=project_root / ".dango" / "logs",
+        )
     except click.Abort:
         raise
     except Exception as exc:
@@ -520,7 +627,7 @@ def auth_recover(ctx: click.Context) -> None:
     from dango.exceptions import UserExistsError
 
     try:
-        _, db_path = _get_db_path(ctx)
+        project_root, db_path = _get_db_path(ctx)
         email = click.prompt("Recovery admin email", default="recovery@localhost")
         password = generate_temp_password()
         user = User(
@@ -538,6 +645,15 @@ def auth_recover(ctx: click.Context) -> None:
             raise click.Abort() from None
         print_warning("Recovery admin created. Delete this account after regaining access.")
         console.print(format_credentials_panel(user.email, password, title="Recovery admin"))
+        from dango.auth.audit import AuditEvent, log_auth_event
+
+        log_auth_event(
+            event_type=AuditEvent.USER_CREATED,
+            email=user.email,
+            user_id=user.id,
+            details={"via": "cli", "role": "admin", "recovery": True},
+            log_dir=project_root / ".dango" / "logs",
+        )
     except click.Abort:
         raise
     except Exception as exc:

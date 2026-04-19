@@ -69,6 +69,7 @@ class TestAuthHelp:
             "delete-user",
             "status",
             "unlock",
+            "change-role",
             "audit",
             "recover",
         ]:
@@ -489,3 +490,43 @@ class TestAuthAudit:
         with patch("dango.cli.utils.find_project_root", return_value=project_root):
             result = runner.invoke(cli, ["auth", "audit", "--type", "bogus"])
         assert result.exit_code != 0
+
+
+@pytest.mark.unit
+class TestAuthChangeRole:
+    """Tests for 'dango auth change-role'."""
+
+    def test_change_role_happy_path(self, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        _add_user(project_root, email="user@test.com", role=Role.VIEWER)
+        runner = CliRunner()
+        with patch("dango.cli.utils.find_project_root", return_value=project_root):
+            result = runner.invoke(cli, ["auth", "change-role", "user@test.com", "editor"])
+        assert result.exit_code == 0
+        assert "editor" in result.output.lower()
+
+    def test_change_role_user_not_found(self, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        runner = CliRunner()
+        with patch("dango.cli.utils.find_project_root", return_value=project_root):
+            result = runner.invoke(cli, ["auth", "change-role", "ghost@test.com", "editor"])
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower()
+
+    def test_change_role_already_has_role(self, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        _add_user(project_root, email="user@test.com", role=Role.EDITOR)
+        runner = CliRunner()
+        with patch("dango.cli.utils.find_project_root", return_value=project_root):
+            result = runner.invoke(cli, ["auth", "change-role", "user@test.com", "editor"])
+        assert result.exit_code == 0
+        assert "already has role" in result.output.lower()
+
+    def test_change_role_last_admin_guard(self, tmp_path: Path) -> None:
+        project_root = _setup_project(tmp_path)
+        _add_user(project_root, email="admin@test.com", role=Role.ADMIN)
+        runner = CliRunner()
+        with patch("dango.cli.utils.find_project_root", return_value=project_root):
+            result = runner.invoke(cli, ["auth", "change-role", "admin@test.com", "viewer"])
+        assert result.exit_code != 0
+        assert "only active admin" in result.output.lower()
