@@ -365,7 +365,7 @@ async def change_password(request: Request) -> JSONResponse:
         return JSONResponse(status_code=400, content={"message": "Current password is incorrect"})
 
     # Check new password strength
-    issues = check_password_strength(data.new_password)
+    issues = check_password_strength(data.new_password, email=user.email)
     if issues:
         return JSONResponse(
             status_code=400, content={"message": "Password is too weak", "issues": issues}
@@ -588,7 +588,7 @@ async def accept_invite(request: Request) -> JSONResponse:
         return JSONResponse(status_code=400, content={"message": invalid_msg})
 
     # Validate password strength
-    issues = check_password_strength(data.password)
+    issues = check_password_strength(data.password, email=user.email)
     if issues:
         return JSONResponse(
             status_code=400,

@@ -251,7 +251,7 @@ def _step_admin() -> tuple[str, str]:
     # Password (from env or prompt)
     env_password = os.environ.get("DANGO_ADMIN_PASSWORD")
     if env_password:
-        issues = check_password_strength(env_password)
+        issues = check_password_strength(env_password, email=email)
         if issues:
             console.print(f"  [red]DANGO_ADMIN_PASSWORD is weak:[/red] {'; '.join(issues)}")
             raise SystemExit(1)
@@ -260,7 +260,7 @@ def _step_admin() -> tuple[str, str]:
 
     while True:
         password = click.prompt("  Admin password", hide_input=True)
-        issues = check_password_strength(password)
+        issues = check_password_strength(password, email=email)
         if issues:
             console.print(f"  [red]Weak password:[/red] {'; '.join(issues)}")
             continue
@@ -574,7 +574,7 @@ def run_non_interactive(
             "for --non-interactive."
         )
         raise SystemExit(1)
-    issues = check_password_strength(admin_password)
+    issues = check_password_strength(admin_password, email=admin_email)
     if issues:
         console.print(f"[red]Error:[/red] Weak password: {'; '.join(issues)}")
         raise SystemExit(1)
@@ -819,7 +819,7 @@ def run_byos_non_interactive(
             "[red]Error:[/red] --admin-password or DANGO_ADMIN_PASSWORD env required for --byos."
         )
         raise SystemExit(1)
-    issues = check_password_strength(admin_password)
+    issues = check_password_strength(admin_password, email=admin_email)
     if issues:
         console.print(f"[red]Error:[/red] Weak password: {'; '.join(issues)}")
         raise SystemExit(1)

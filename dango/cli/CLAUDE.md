@@ -15,7 +15,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/project.py` (292 lines) | `init`, `rename`, `info` | `init()`, `rename()`, `info()` |
 | `commands/source.py` (707 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
 | `commands/platform.py` (988 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
-| `commands/auth.py` (538 lines) | `auth` group (12 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_status()`, etc. |
+| `commands/auth.py` (660 lines) | `auth` group (13 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, change-role, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_change_role()`, `auth_status()`, etc. |
 | `commands/cleanup.py` (322 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
 | `commands/oauth.py` (812 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
 | `commands/transform.py` (326 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
@@ -80,7 +80,7 @@ dango (top-level group)
 ├── auth (group)                ← commands/auth.py
 │   ├── enable, disable, add-user, list-users, reset-password,
 │   │   deactivate-user, reactivate-user, delete-user, status,
-│   │   unlock, audit, recover
+│   │   unlock, change-role, audit, recover
 ├── oauth (group)               ← commands/oauth.py
 │   ├── status, setup, check, list, remove, refresh,
 │   │   facebook_ads, google_sheets, google_analytics, google_ads

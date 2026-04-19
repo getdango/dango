@@ -125,6 +125,32 @@ class TestCheckPasswordStrength:
         issues = check_password_strength("nospechars1234")
         assert issues == []
 
+    def test_email_none_skips_check(self) -> None:
+        # Without email param, no email-based issues
+        issues = check_password_strength("strongpassword123")
+        assert issues == []
+
+    def test_password_equals_email_rejected(self) -> None:
+        issues = check_password_strength("user@example.com", email="user@example.com")
+        assert any("same as your email" in i for i in issues)
+
+    def test_password_equals_email_case_insensitive(self) -> None:
+        issues = check_password_strength("USER@EXAMPLE.COM", email="user@example.com")
+        assert any("same as your email" in i for i in issues)
+
+    def test_password_contains_email_username(self) -> None:
+        issues = check_password_strength("myuser12345", email="myuser@example.com")
+        assert any("email username" in i for i in issues)
+
+    def test_email_domain_not_flagged(self) -> None:
+        # Domain part alone should not trigger the username check
+        issues = check_password_strength("example12345", email="user@example.com")
+        assert not any("email" in i for i in issues)
+
+    def test_strong_password_with_email_passes(self) -> None:
+        issues = check_password_strength("xK9!mQ2pL#nR", email="user@example.com")
+        assert issues == []
+
 
 @pytest.mark.unit
 class TestSessionTokens:

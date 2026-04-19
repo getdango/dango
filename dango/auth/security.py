@@ -205,14 +205,16 @@ def verify_password(password: str, password_hash: str) -> bool:
     return _hasher.verify(password, password_hash)
 
 
-def check_password_strength(password: str) -> list[str]:
+def check_password_strength(password: str, *, email: str | None = None) -> list[str]:
     """Check password strength per NIST SP 800-63B guidelines.
 
-    Checks minimum length (8 characters) and common password blocklist.
+    Checks minimum length (8 characters), common password blocklist, and
+    optionally whether the password is too similar to the user's email.
     Does **not** require digits, uppercase, or special characters.
 
     Args:
         password: Password to evaluate.
+        email: Optional email address to check against (keyword-only).
 
     Returns:
         List of issue descriptions.  Empty list means the password
@@ -223,6 +225,11 @@ def check_password_strength(password: str) -> list[str]:
         issues.append(f"Password must be at least {_MIN_PASSWORD_LENGTH} characters")
     if password.lower() in _COMMON_PASSWORDS:
         issues.append("Password is too common")
+    if email:
+        if password.lower() == email.lower():
+            issues.append("Password cannot be the same as your email address")
+        elif email.split("@")[0].lower() in password.lower():
+            issues.append("Password should not contain your email username")
     return issues
 
 

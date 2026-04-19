@@ -74,7 +74,7 @@ dango/                          # Python package source
 │   ├── main.py                 # Slim entry point (~121 lines) — registers commands
 │   ├── commands/               # Command modules (extracted from main.py by TASK-005)
 │   │   ├── __init__.py         # Package marker
-│   │   ├── auth.py             # auth group (12 subcommands, 538 lines)
+│   │   ├── auth.py             # auth group (13 subcommands, 660 lines)
 │   │   ├── cleanup.py          # cleanup old logs, dbt artifacts, Python cache
 │   │   ├── oauth.py            # oauth group + 10 subcommands (812 lines)
 │   │   ├── config_cmd.py       # config group (validate/show)
@@ -359,7 +359,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/deploy_provision.py` | 704 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 542 | — (DO REST API v2 client) |
-| `cli/commands/auth.py` | 538 | — (12 auth subcommands) |
+| `cli/commands/auth.py` | 660 | — (13 auth subcommands) |
 | `auth/database.py` | 529 | — (SQLite CRUD) |
 | `web/routes/users.py` | 527 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 518 | — |

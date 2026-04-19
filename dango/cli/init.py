@@ -1153,7 +1153,7 @@ on-run-end:
             # Password (from env or prompt)
             env_password = os.environ.get("DANGO_ADMIN_PASSWORD")
             if env_password:
-                issues = check_password_strength(env_password)
+                issues = check_password_strength(env_password, email=email)
                 if issues:
                     console.print(f"  [red]DANGO_ADMIN_PASSWORD is weak:[/red] {'; '.join(issues)}")
                     console.print("  [yellow]Skipping auth setup.[/yellow]")
