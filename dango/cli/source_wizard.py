@@ -1449,14 +1449,9 @@ def {module_name}_resource(api_key: str):
 
         # Write to .env file
         self.env_file.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            from dotenv import set_key
+        from dotenv import set_key
 
-            set_key(str(self.env_file), env_var_name, value)
-        except Exception:
-            # Fallback: append manually
-            with open(self.env_file, "a") as f:
-                f.write(f"\n{env_var_name}={value}\n")
+        set_key(str(self.env_file), env_var_name, value)
 
         console.print(f"  [green]✓[/green] Saved {env_var_name} to .env")
         return value
