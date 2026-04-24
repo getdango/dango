@@ -359,9 +359,11 @@ def oauth_google_sheets(ctx: click.Context) -> None:
             console.print("[red]Authentication failed[/red]")
             raise click.Abort()
 
-        console.print("\n[dim]Note: If your GCP OAuth consent screen is in 'Testing' mode,")
-        console.print("refresh tokens expire after 7 days. Publish your app for production use.")
-        console.print("See: https://console.cloud.google.com/apis/credentials/consent[/dim]")
+        console.print(
+            "\n[dim]Note: If your GCP OAuth consent screen is in 'Testing' mode,\n"
+            "refresh tokens expire after 7 days. Publish your app for production use.\n"
+            f"See: {escape('https://console.cloud.google.com/apis/credentials/consent')}[/dim]"
+        )
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
@@ -401,9 +403,11 @@ def oauth_google_analytics(ctx: click.Context) -> None:
             console.print("[red]Authentication failed[/red]")
             raise click.Abort()
 
-        console.print("\n[dim]Note: If your GCP OAuth consent screen is in 'Testing' mode,")
-        console.print("refresh tokens expire after 7 days. Publish your app for production use.")
-        console.print("See: https://console.cloud.google.com/apis/credentials/consent[/dim]")
+        console.print(
+            "\n[dim]Note: If your GCP OAuth consent screen is in 'Testing' mode,\n"
+            "refresh tokens expire after 7 days. Publish your app for production use.\n"
+            f"See: {escape('https://console.cloud.google.com/apis/credentials/consent')}[/dim]"
+        )
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
@@ -443,9 +447,11 @@ def oauth_google_ads(ctx: click.Context) -> None:
             console.print("[red]Authentication failed[/red]")
             raise click.Abort()
 
-        console.print("\n[dim]Note: If your GCP OAuth consent screen is in 'Testing' mode,")
-        console.print("refresh tokens expire after 7 days. Publish your app for production use.")
-        console.print("See: https://console.cloud.google.com/apis/credentials/consent[/dim]")
+        console.print(
+            "\n[dim]Note: If your GCP OAuth consent screen is in 'Testing' mode,\n"
+            "refresh tokens expire after 7 days. Publish your app for production use.\n"
+            f"See: {escape('https://console.cloud.google.com/apis/credentials/consent')}[/dim]"
+        )
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {escape(str(e))}")
@@ -584,11 +590,9 @@ def oauth_check(ctx: click.Context) -> None:
             # GCP Testing mode caveat
             if has_google:
                 console.print(
-                    "\n  [dim]Note: If your GCP OAuth app is in 'Testing' mode, refresh tokens"
-                )
-                console.print("  expire after 7 days. Publish your app for permanent tokens.")
-                console.print(
-                    "  See: https://console.cloud.google.com/apis/credentials/consent[/dim]"
+                    "\n  [dim]Note: If your GCP OAuth app is in 'Testing' mode, refresh tokens\n"
+                    "  expire after 7 days. Publish your app for permanent tokens.\n"
+                    f"  See: {escape('https://console.cloud.google.com/apis/credentials/consent')}[/dim]"
                 )
         else:
             console.print("  [dim]No tokens to validate[/dim]")
@@ -646,9 +650,7 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
     """
     import os
 
-    import inquirer
     from dotenv import load_dotenv, set_key
-    from inquirer import themes
     from rich.panel import Panel
     from rich.prompt import Confirm
 
@@ -679,7 +681,10 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
                     "3. Application type: 'Web application'",
                     "4. Name: 'Dango Local' (or any name)",
                     "5. Authorized redirect URIs: Add 'http://localhost:8080/callback'",
-                    "6. Click 'Create' and copy the Client ID and Client Secret",
+                    "   (Dango uses a temporary server on port 8080 for the OAuth callback —",
+                    "    this is separate from the Dango web UI on port 8800)",
+                    "6. Also add 'http://localhost:8800/api/oauth/callback' (for web UI OAuth flow)",
+                    "7. Click 'Create' and copy the Client ID and Client Secret",
                 ],
                 "services": ["Google Ads", "Google Analytics", "Google Sheets"],
             },
@@ -696,6 +701,9 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
                     "3. Add 'Marketing API' product",
                     "4. Go to Settings → Basic to get App ID and App Secret",
                     "5. Add 'http://localhost:8080/callback' to Valid OAuth Redirect URIs",
+                    "   (Dango uses a temporary server on port 8080 for the OAuth callback —",
+                    "    this is separate from the Dango web UI on port 8800)",
+                    "6. Also add 'http://localhost:8800/api/oauth/callback' (for web UI OAuth flow)",
                 ],
                 "services": ["Facebook Ads"],
             },
@@ -756,15 +764,8 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
                 masked = current_value[:8] + "..." if len(current_value) > 8 else "***"
                 console.print(f"  [dim]Current {display_name}: {masked}[/dim]")
 
-            questions = [
-                inquirer.Text(
-                    env_var,
-                    message=display_name,
-                    default="" if not current_value else None,
-                )
-            ]
-            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
-            if not answers or not answers[env_var]:
+            value = click.prompt(display_name, default="", show_default=False)
+            if not value:
                 if current_value:
                     console.print("  [dim]Keeping existing value[/dim]")
                     credentials[env_var] = current_value
@@ -772,7 +773,7 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
                     console.print(f"\n[red]✗ {display_name} is required[/red]")
                     raise click.Abort()
             else:
-                credentials[env_var] = answers[env_var]
+                credentials[env_var] = value
 
         # Save to .env
         console.print("\n[dim]Saving credentials to .env...[/dim]")

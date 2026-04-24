@@ -17,7 +17,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/platform.py` (988 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
 | `commands/auth.py` (660 lines) | `auth` group (13 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, change-role, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_change_role()`, `auth_status()`, etc. |
 | `commands/cleanup.py` (322 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
-| `commands/oauth.py` (812 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
+| `commands/oauth.py` (813 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
 | `commands/transform.py` (326 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
 | `commands/upgrade.py` (236 lines) | `upgrade` command — local Dango upgrade via pip + migrations | `upgrade()`, `get_latest_version_cached()` |
 | `commands/data.py` (360 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |

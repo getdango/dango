@@ -342,6 +342,16 @@ class GoogleOAuthHelper(OAuthHelper):
             # Additional info for Google Ads
             if service == "ads":
                 console.print("\n[bold]Google Ads requires additional credentials:[/bold]")
+                console.print(
+                    "[dim]  Developer Token: From Google Ads API Center (Tools → API Center)[/dim]"
+                )
+                console.print(
+                    "[dim]  Customer ID: Your Google Ads account number (XXX-XXX-XXXX)[/dim]"
+                )
+                console.print(
+                    "[dim]  Use a manager (MCC) account ID if managing multiple accounts,[/dim]"
+                )
+                console.print("[dim]  or a regular account ID for a single account.[/dim]\n")
                 dev_token = Prompt.ask("Developer Token (from Google Ads API Center)")
                 if dev_token:
                     self.save_to_env(
@@ -350,6 +360,7 @@ class GoogleOAuthHelper(OAuthHelper):
 
                 customer_id = Prompt.ask("Customer ID (optional, can add later)", default="")
                 if customer_id:
+                    customer_id = customer_id.replace("-", "")
                     self.save_to_env(
                         "GOOGLE_ADS_CUSTOMER_ID", customer_id, "Google Ads Customer ID"
                     )
