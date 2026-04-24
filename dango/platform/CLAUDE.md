@@ -228,7 +228,7 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 
 - **`docker.py` is shared** — both local and cloud use `DockerManager`. Cloud may add additional services but reuses the same Docker management abstraction.
 - **`local/` is local-only** — nginx routing and file watcher don't apply to cloud deployments (cloud uses Caddy, and `auto_sync=false`).
-- **`common/startup.py` raises, never displays** — no `console`, `click`, or `rich` imports. Callers (CLI, cloud serve) handle all user-facing output.
+- **`common/startup.py` raises, never displays** — no `console`, `click`, or `rich` imports. Callers (CLI, cloud serve) handle all user-facing output. Exception: `setup_metabase_if_needed()` swallows setup errors into the return dict rather than raising (callers decide severity).
 - **Shims for backwards compatibility** — existing code that imports from `dango.platform.watcher_lifecycle` continues to work without changes.
 - **`cloud/backup.py` is evolving beyond pure backup** — it also provides `stop_services()`, `start_services()`, and `verify_health()`, used by resize, migrate, and deployer as service lifecycle utilities. If more lifecycle functions accumulate, consider extracting a `service_lifecycle.py` module.
 
