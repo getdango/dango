@@ -142,6 +142,51 @@ class TestServeHappyPath:
     @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
     @patch(f"{_CONFIG}.ConfigLoader")
     @patch(f"{_UTILS}.require_project_context")
+    def test_docker_stopped_before_schema_setup(
+        self,
+        mock_ctx,
+        mock_loader_cls,
+        mock_migrate,
+        mock_schemas,
+        mock_driver,
+        mock_docker,
+        mock_metabase,
+        mock_dashboards,
+        mock_check_port,
+        mock_uvicorn_run,
+        tmp_path,
+    ):
+        """Leftover Docker containers are stopped before dbt schema setup (BUG-104)."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock()
+        call_order: list[str] = []
+        mock_schemas.side_effect = lambda *a, **kw: call_order.append("schemas")
+
+        with patch(f"{_SERVE}._stop_docker_quiet") as mock_stop:
+            mock_stop.side_effect = lambda *a, **kw: call_order.append("stop_docker")
+
+            runner = CliRunner()
+            result = runner.invoke(serve, [], obj={})
+
+            assert result.exit_code == 0, result.output
+            # _stop_docker_quiet must be called before ensure_dbt_schemas
+            first_stop = call_order.index("stop_docker")
+            schema_call = call_order.index("schemas")
+            assert first_stop < schema_call, (
+                f"_stop_docker_quiet (index {first_stop}) must precede "
+                f"ensure_dbt_schemas (index {schema_call})"
+            )
+
+    @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
+    @patch(f"{_STARTUP}.import_dashboards")
+    @patch(f"{_STARTUP}.setup_metabase_if_needed")
+    @patch(f"{_STARTUP}.start_docker_services")
+    @patch(f"{_STARTUP}.ensure_duckdb_driver")
+    @patch(f"{_STARTUP}.ensure_dbt_schemas")
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
     def test_host_option(
         self,
         mock_ctx,
@@ -277,8 +322,12 @@ class TestServeFailures:
 
             assert result.exit_code == 1
             assert "Docker services failed" in result.output
-            mock_stop.assert_called_once()
+            # Called at least once for Docker failure cleanup (BUG-104 also calls it early)
+            assert mock_stop.called
 
+    @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
+    @patch(f"{_STARTUP}.import_dashboards")
     @patch(f"{_STARTUP}.setup_metabase_if_needed", side_effect=RuntimeError("metabase err"))
     @patch(f"{_STARTUP}.start_docker_services")
     @patch(f"{_STARTUP}.ensure_duckdb_driver")
@@ -286,7 +335,7 @@ class TestServeFailures:
     @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
     @patch(f"{_CONFIG}.ConfigLoader")
     @patch(f"{_UTILS}.require_project_context")
-    def test_metabase_failure_stops_and_exits(
+    def test_metabase_failure_continues_to_uvicorn(
         self,
         mock_ctx,
         mock_loader_cls,
@@ -295,19 +344,21 @@ class TestServeFailures:
         mock_driver,
         mock_docker,
         mock_metabase,
+        mock_dashboards,
+        mock_check_port,
+        mock_uvicorn_run,
         tmp_path,
     ):
-        """Metabase failure stops Docker services and exits."""
+        """Metabase failure is non-fatal — server still starts (BUG-103)."""
         mock_ctx.return_value = tmp_path
         mock_loader_cls.return_value = _make_config_mock()
 
-        with patch(f"{_SERVE}._stop_docker_quiet") as mock_stop:
-            runner = CliRunner()
-            result = runner.invoke(serve, [], obj={})
+        runner = CliRunner()
+        result = runner.invoke(serve, [], obj={})
 
-            assert result.exit_code == 1
-            assert "Metabase setup failed" in result.output
-            mock_stop.assert_called_once()
+        assert result.exit_code == 0, result.output
+        mock_uvicorn_run.assert_called_once()
+        assert "Metabase setup failed" in result.output
 
     @patch("uvicorn.run")
     @patch(f"{_SERVE}._check_port")
@@ -407,4 +458,5 @@ class TestServeFailures:
             result = runner.invoke(serve, [], obj={})
 
             assert result.exit_code != 0
-            mock_stop.assert_called_once()
+            # Called at least once for uvicorn finally cleanup (BUG-104 also calls it early)
+            assert mock_stop.called
