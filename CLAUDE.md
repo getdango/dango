@@ -76,7 +76,7 @@ dango/                          # Python package source
 │   │   ├── __init__.py         # Package marker
 │   │   ├── auth.py             # auth group (13 subcommands, 660 lines)
 │   │   ├── cleanup.py          # cleanup old logs, dbt artifacts, Python cache
-│   │   ├── oauth.py            # oauth group + 10 subcommands (812 lines)
+│   │   ├── oauth.py            # oauth group + 10 subcommands (813 lines)
 │   │   ├── config_cmd.py       # config group (validate/show)
 │   │   ├── dashboard.py        # dashboard group (provision)
 │   │   ├── data.py             # db group (status/clean) + validate
@@ -339,7 +339,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `visualization/dashboard_manager.py` | 1113 | — |
 | `cli/commands/platform.py` | 988 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
-| `cli/commands/oauth.py` | 812 | — (renamed from auth.py by TASK-093) |
+| `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 810 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 766 | — |
 | `platform/scheduling/jobs.py` | 839 | — (module-level job functions) |

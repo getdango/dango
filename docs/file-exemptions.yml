@@ -87,7 +87,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/oauth.py
-    lines: 812
+    lines: 813
     category: exempt
     reason: "OAuth authentication commands (10 subcommands). Renamed from auth.py by TASK-093. One command per provider — file grows linearly with providers."
     review_by: "v1.1"
