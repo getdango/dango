@@ -239,6 +239,7 @@ module = [
     "tests.unit.test_cloud_config",
     "tests.unit.test_cloud_config_loader",
     "tests.unit.test_platform_startup",
+    "tests.unit.test_utils_database",
     "tests.unit.test_platform_imports",
     "tests.unit.test_digitalocean_client",
     "tests.unit.test_spaces_client",

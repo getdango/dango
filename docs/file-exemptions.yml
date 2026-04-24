@@ -364,6 +364,12 @@ exemptions:
     reason: "BUG-027: 4 new tests for download fallback, None-analyzer handling, and AnalyzerEngine init failure. Marginally over limit."
     review_by: "v1.1"
 
+  - file: tests/unit/test_serve_command.py
+    lines: 508
+    category: exempt
+    reason: "R8-A: BUG-103/104 fixes added call-order tracking test and two Metabase failure-path tests (exception + return-dict). Each test requires its own full decorator stack for startup helpers. Marginally over limit."
+    review_by: "v1.1"
+
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:
   - file: dango/ingestion/dlt_sources/mongodb/helpers.py
