@@ -111,7 +111,7 @@ class TestCollectServerStatus:
         responses = {
             "systemctl is-active dango-web": _make_result(stdout="active"),
             "systemctl is-active caddy": _make_result(stdout="active"),
-            "docker inspect": _make_result(stdout="running"),
+            "docker ps": _make_result(stdout="Up 2 hours"),
         }
         ssh = _make_ssh(responses)
         status = collect_server_status(ssh, _make_cloud_config())
