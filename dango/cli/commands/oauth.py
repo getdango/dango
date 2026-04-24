@@ -764,7 +764,7 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
                 masked = current_value[:8] + "..." if len(current_value) > 8 else "***"
                 console.print(f"  [dim]Current {display_name}: {masked}[/dim]")
 
-            value = click.prompt(display_name, default="", show_default=False)
+            value = click.prompt(display_name, default="", show_default=False).strip()
             if not value:
                 if current_value:
                     console.print("  [dim]Keeping existing value[/dim]")
