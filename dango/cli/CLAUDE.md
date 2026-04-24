@@ -41,7 +41,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/analyze.py` (81 lines) | `analyze` top-level command | `analyze()` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
-| `init.py` (1301 lines) | Project initialization wizard | `ProjectInitializer` |
+| `init.py` (1323 lines) | Project initialization wizard | `ProjectInitializer` |
 | `wizard.py` (296 lines) | Interactive setup wizards | `ProjectWizard` |
 | `source_wizard.py` (2097 lines) | Source configuration wizard | `add_source()` |
 | `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |
