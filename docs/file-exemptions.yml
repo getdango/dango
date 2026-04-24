@@ -154,7 +154,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/init.py
-    lines: 1323
+    lines: 1324
     category: exempt
     reason: "Project initialization wizard. Sequential setup flow — splitting adds indirection without benefit. P7-014 added COMPATIBILITY.md + SCALABILITY.md generation (+133 lines). P7-011 added metrics config generation. P8-003 added CI workflow generation. P8-round2 added ICU extension install, auth YAML write, password auto-gen."
     review_by: "v1.1"
