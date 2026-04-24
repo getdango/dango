@@ -81,14 +81,14 @@ class TestLoginRedirect:
 
 
 # ---------------------------------------------------------------------------
-# BUG-107: Sync endpoint uses asyncio.ensure_future
+# BUG-107: Sync endpoint uses asyncio.create_task
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestSyncAsyncio:
-    def test_trigger_sync_uses_ensure_future(self) -> None:
-        """trigger_sync should use asyncio.ensure_future, not BackgroundTasks."""
+    def test_trigger_sync_uses_create_task(self) -> None:
+        """trigger_sync should use asyncio.create_task, not BackgroundTasks."""
         # Verify that BackgroundTasks is not imported in the module
         import inspect
 
@@ -96,17 +96,17 @@ class TestSyncAsyncio:
 
         source = inspect.getsource(sync_module.trigger_sync)
         assert "background_tasks" not in source
-        assert "ensure_future" in source
+        assert "create_task" in source
 
-    def test_trigger_manual_sync_uses_ensure_future(self) -> None:
-        """trigger_manual_sync should use asyncio.ensure_future, not BackgroundTasks."""
+    def test_trigger_manual_sync_uses_create_task(self) -> None:
+        """trigger_manual_sync should use asyncio.create_task, not BackgroundTasks."""
         import inspect
 
         from dango.web.routes import sync as sync_module
 
         source = inspect.getsource(sync_module.trigger_manual_sync)
         assert "background_tasks" not in source
-        assert "ensure_future" in source
+        assert "create_task" in source
 
     def test_no_background_tasks_import(self) -> None:
         """sync.py should not import BackgroundTasks at all."""

@@ -70,9 +70,9 @@ async def trigger_sync(source_name: str, sync_request: SyncRequest) -> SyncRespo
     if not source_exists:
         raise HTTPException(status_code=404, detail=f"Source '{source_name}' not found")
 
-    # Start sync in background — use asyncio.ensure_future so the async
+    # Start sync in background — use asyncio.create_task so the async
     # coroutine runs on the event loop (WebSocket broadcasts work correctly).
-    asyncio.ensure_future(
+    asyncio.create_task(
         run_sync_task(
             source_name,
             sync_request.full_refresh,
@@ -442,9 +442,9 @@ async def trigger_manual_sync(
     db_path = get_scheduler_db_path(project_root)
     job_id = record_start(db_path, "manual", sources=body.sources)
 
-    # Launch background sync — use asyncio.ensure_future so the async
+    # Launch background sync — use asyncio.create_task so the async
     # coroutine runs on the event loop (WebSocket broadcasts work correctly).
-    asyncio.ensure_future(
+    asyncio.create_task(
         _run_manual_sync(
             project_root,
             body.sources,
