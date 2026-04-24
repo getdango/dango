@@ -801,6 +801,16 @@ custom_sources/
 
         console.print("[green]✓[/green] Created Dockerfile.metabase")
 
+        # Copy entrypoint.sh from templates (required by Dockerfile.metabase)
+        entrypoint_template = env.get_template("entrypoint.sh")
+        entrypoint_content = entrypoint_template.render()
+
+        entrypoint_path = self.project_dir / "entrypoint.sh"
+        with open(entrypoint_path, "w", encoding="utf-8") as f:
+            f.write(entrypoint_content)
+
+        console.print("[green]✓[/green] Created entrypoint.sh")
+
         # Create metabase-plugins directory
         plugins_dir = self.project_dir / "metabase-plugins"
         plugins_dir.mkdir(exist_ok=True)
@@ -1206,6 +1216,7 @@ on-run-end:
             "metabase-plugins",
             "docker-compose.yml",
             "Dockerfile.metabase",
+            "entrypoint.sh",
             "README.md",  # Only if created by us
             "COMPATIBILITY.md",
             "SCALABILITY.md",
