@@ -199,7 +199,7 @@ def _get_services(ssh: Any) -> list[ServiceInfo]:
     # Metabase runs as a Docker container — use docker ps with name filter
     # to match Compose v2 naming (e.g. dango-project-metabase-1)
     result = ssh.exec_command(
-        "docker ps --filter 'name=metabase' --format '{{.Status}}' 2>/dev/null"
+        "docker ps -a --filter 'name=metabase' --format '{{.Status}}' 2>/dev/null"
     )
     raw = result.stdout.strip() if result.success else ""
     if raw:

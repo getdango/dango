@@ -225,7 +225,7 @@ class TestSetupServer:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "apt-get": ("", "apt lock held", 100),
+                "apt-get -o DPkg": ("", "apt lock held", 100),
             }
         )
 
