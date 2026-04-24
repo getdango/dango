@@ -30,6 +30,8 @@ class SourceStatus(BaseModel):
     tables: list[TableInfo] | None = None  # Per-table breakdown for multi-resource sources
     has_schedule: bool = False
     schedule_display: str | None = None  # Human-readable schedule (e.g., "Every 6 hours")
+    supports_incremental: bool = True  # Whether source supports incremental sync
+    supports_date_range: bool = False  # Whether source supports custom date range sync
 
 
 class ServiceHealth(BaseModel):
