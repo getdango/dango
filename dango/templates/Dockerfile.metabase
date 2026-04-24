@@ -13,6 +13,9 @@ ENV MB_VERSION=v0.59.1
 USER root
 WORKDIR /app
 
+# Install curl (healthcheck) and gosu (entrypoint privilege dropping)
+RUN apt-get update && apt-get install -y --no-install-recommends curl gosu && rm -rf /var/lib/apt/lists/*
+
 # Download Metabase jar
 ADD https://downloads.metabase.com/${MB_VERSION}/metabase.jar /app/metabase.jar
 
@@ -30,11 +33,10 @@ RUN mkdir -p /home/metabase && chown -R metabase:metabase /home/metabase
 # Create and set permissions for metabase-data directory (H2 database location)
 RUN mkdir -p /metabase-data && chown -R metabase:metabase /metabase-data
 
-# Switch to metabase user
-USER metabase
-
 # Expose port
 EXPOSE 3000
 
-# Run Metabase
-CMD ["java", "-jar", "/app/metabase.jar"]
+# Entrypoint: fix bind-mounted plugin dir ownership, then drop to metabase user
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod 755 /app/entrypoint.sh
+ENTRYPOINT ["/app/entrypoint.sh"]
