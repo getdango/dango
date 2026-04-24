@@ -208,8 +208,23 @@ async def custom_redoc_html() -> HTMLResponse:
 @router.get("/login")
 async def login_page(request: Request) -> Response:
     """Render the login page."""
-    if getattr(request.state, "user", None):
-        return RedirectResponse(url="/", status_code=302)
+    # /login is a public route (skips auth middleware), so request.state.user
+    # is always None.  Validate the session cookie directly to redirect
+    # already-authenticated users back to the home page.
+    try:
+        from dango.auth.admin import get_auth_db_path, is_auth_enabled
+
+        project_root = request.app.state.project_root
+        if is_auth_enabled(project_root):
+            token = request.cookies.get("dango_session")
+            if token:
+                from dango.auth.sessions import validate_session
+
+                user = validate_session(get_auth_db_path(project_root), token)
+                if user is not None:
+                    return RedirectResponse(url="/", status_code=302)
+    except Exception:
+        pass  # Fall through to login page on any error
     oauth_providers: list[dict[str, str]] = []
     try:
         from dango.auth.oauth_login import get_configured_providers

@@ -39,11 +39,23 @@ def project_root(tmp_path):
 
 @pytest.mark.unit
 class TestPrereqCheck:
-    def test_missing_do_token(self, project_root, monkeypatch):
-        """Missing DIGITALOCEAN_TOKEN raises SystemExit."""
+    def test_missing_do_token_prompts_user(self, project_root, monkeypatch):
+        """Missing DIGITALOCEAN_TOKEN prompts interactively."""
         monkeypatch.delenv("DIGITALOCEAN_TOKEN", raising=False)
-        with pytest.raises(SystemExit):
+        with patch("dango.cli.commands.deploy_wizard.click.prompt", return_value="dop_test123"):
             _step_prereqs(project_root)
+        import os
+
+        assert os.environ.get("DIGITALOCEAN_TOKEN") == "dop_test123"
+        # Cleanup
+        monkeypatch.delenv("DIGITALOCEAN_TOKEN", raising=False)
+
+    def test_missing_do_token_empty_input_exits(self, project_root, monkeypatch):
+        """Empty token input raises SystemExit."""
+        monkeypatch.delenv("DIGITALOCEAN_TOKEN", raising=False)
+        with patch("dango.cli.commands.deploy_wizard.click.prompt", return_value=""):
+            with pytest.raises(SystemExit):
+                _step_prereqs(project_root)
 
     def test_missing_sources_yml(self, tmp_path, monkeypatch):
         """Missing sources.yml raises SystemExit."""

@@ -5,12 +5,13 @@ Source sync trigger endpoint, background sync task, and remote sync trigger API.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from dango.auth.audit import AuditEvent, log_auth_event
@@ -46,9 +47,7 @@ router = APIRouter(tags=["sync"])
 
 
 @router.post("/api/sources/{source_name}/sync", response_model=SyncResponse)
-async def trigger_sync(
-    source_name: str, sync_request: SyncRequest, background_tasks: BackgroundTasks
-) -> SyncResponse:
+async def trigger_sync(source_name: str, sync_request: SyncRequest) -> SyncResponse:
     """Trigger sync for a specific source.
 
     Args:
@@ -71,13 +70,15 @@ async def trigger_sync(
     if not source_exists:
         raise HTTPException(status_code=404, detail=f"Source '{source_name}' not found")
 
-    # Start sync in background
-    background_tasks.add_task(
-        run_sync_task,
-        source_name,
-        sync_request.full_refresh,
-        sync_request.start_date,
-        sync_request.end_date,
+    # Start sync in background — use asyncio.create_task so the async
+    # coroutine runs on the event loop (WebSocket broadcasts work correctly).
+    asyncio.create_task(
+        run_sync_task(
+            source_name,
+            sync_request.full_refresh,
+            sync_request.start_date,
+            sync_request.end_date,
+        )
     )
 
     # Broadcast sync started event via WebSocket
@@ -402,7 +403,6 @@ async def run_sync_task(
 async def trigger_manual_sync(
     request: Request,
     body: SyncTriggerRequest,
-    background_tasks: BackgroundTasks,
     user: User = Depends(require_permission("source.sync")),
 ) -> JSONResponse:
     """Trigger a manual sync for one or more sources with execution history tracking.
@@ -442,15 +442,17 @@ async def trigger_manual_sync(
     db_path = get_scheduler_db_path(project_root)
     job_id = record_start(db_path, "manual", sources=body.sources)
 
-    # Launch background sync
-    background_tasks.add_task(
-        _run_manual_sync,
-        project_root,
-        body.sources,
-        body.full_refresh,
-        backfill_days,
-        job_id,
-        db_path,
+    # Launch background sync — use asyncio.create_task so the async
+    # coroutine runs on the event loop (WebSocket broadcasts work correctly).
+    asyncio.create_task(
+        _run_manual_sync(
+            project_root,
+            body.sources,
+            body.full_refresh,
+            backfill_days,
+            job_id,
+            db_path,
+        )
     )
 
     # Audit log

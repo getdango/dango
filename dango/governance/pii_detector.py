@@ -55,40 +55,37 @@ def _get_analyzer() -> Any | None:
     try:
         spacy.load(_SPACY_MODEL)
     except OSError:
-        # Fallback 1: spacy.cli.download
-        try:
-            spacy.cli.download(_SPACY_MODEL)  # type: ignore[attr-defined]
-        except Exception:
-            # Fallback 2: download .whl to temp file then pip install locally
-            # (pip 25.2+ can't download from GitHub Releases redirect URLs directly)
-            import os
-            import subprocess
-            import sys
-            import tempfile
-            import urllib.request
+        # Download .whl to temp file then pip install locally.
+        # spacy.cli.download() is NOT used — it calls sys.exit() internally,
+        # which raises SystemExit (BaseException) and kills the process.
+        import os
+        import subprocess
+        import sys
+        import tempfile
+        import urllib.request
 
+        try:
+            whl_name = _SPACY_MODEL_URL.rsplit("/", 1)[-1]
+            whl_path = os.path.join(tempfile.gettempdir(), whl_name)
             try:
-                whl_name = _SPACY_MODEL_URL.rsplit("/", 1)[-1]
-                whl_path = os.path.join(tempfile.gettempdir(), whl_name)
-                try:
-                    urllib.request.urlretrieve(_SPACY_MODEL_URL, whl_path)
-                    subprocess.check_call(
-                        [sys.executable, "-m", "pip", "install", whl_path],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                finally:
-                    try:
-                        os.unlink(whl_path)
-                    except OSError:
-                        pass
-            except Exception:
-                logger.warning(
-                    "pii_spacy_download_failed",
-                    model=_SPACY_MODEL,
-                    hint="Install manually: python -m spacy download en_core_web_sm",
+                urllib.request.urlretrieve(_SPACY_MODEL_URL, whl_path)
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", whl_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
-                return None
+            finally:
+                try:
+                    os.unlink(whl_path)
+                except OSError:
+                    pass
+        except Exception:
+            logger.warning(
+                "pii_spacy_download_failed",
+                model=_SPACY_MODEL,
+                hint="Install manually: python -m spacy download en_core_web_sm",
+            )
+            return None
 
     # Suppress verbose Presidio + spaCy loggers during init (use alias to
     # avoid shadowing structlog).  Temporarily raise root logger to ERROR so

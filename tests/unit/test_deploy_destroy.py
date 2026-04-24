@@ -7,6 +7,7 @@ Uses Click's CliRunner with mocked DigitalOcean/SSH clients.
 
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -82,6 +83,7 @@ def _run(args, tmp_path, input_text=None, catch_exceptions=False):
 
 
 @pytest.mark.unit
+@patch.dict(os.environ, {"DIGITALOCEAN_TOKEN": "test-token"})
 class TestDestroyConfirmation:
     def test_must_type_ip_to_confirm(self, tmp_path):
         """Destroy requires typing the droplet IP to confirm."""
@@ -159,6 +161,7 @@ class TestDestroyConfirmation:
 
 
 @pytest.mark.unit
+@patch.dict(os.environ, {"DIGITALOCEAN_TOKEN": "test-token"})
 class TestDestroyResourceDeletion:
     def test_deletes_droplet(self, tmp_path):
         """Destroy deletes the droplet."""
@@ -278,6 +281,7 @@ class TestDestroyResourceDeletion:
 
 
 @pytest.mark.unit
+@patch.dict(os.environ, {"DIGITALOCEAN_TOKEN": "test-token"})
 class TestDestroyWithSpaces:
     def test_deletes_spaces_bucket(self, tmp_path):
         """Destroy empties and deletes the Spaces bucket."""
@@ -335,6 +339,7 @@ class TestDestroyWithSpaces:
 
 
 @pytest.mark.unit
+@patch.dict(os.environ, {"DIGITALOCEAN_TOKEN": "test-token"})
 class TestDestroySSHKeyFallback:
     def test_fallback_to_fingerprint_match(self, tmp_path):
         """When ssh_key_id is None, falls back to fingerprint matching."""
