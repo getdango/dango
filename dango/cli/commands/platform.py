@@ -438,7 +438,7 @@ def start(ctx: click.Context) -> None:
                 )
                 metabase_configured = True  # Allow platform to start
         except RuntimeError as e:
-            # DuckDB connection failed — critical, must roll back
+            # Metabase setup raised — stop Docker and show troubleshooting
             console.print()
             console.print("[red]❌ Critical error: Cannot connect Metabase to DuckDB[/red]")
             console.print()

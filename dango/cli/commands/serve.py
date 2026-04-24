@@ -76,6 +76,10 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
         print(f"Migration failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
+    # BUG-104: Stop leftover containers before DuckDB write operations.
+    # Containers from a previous crashed run may hold the DuckDB file lock.
+    _stop_docker_quiet(project_root)
+
     # 2. dbt schemas
     try:
         ensure_dbt_schemas(project_root)
@@ -98,13 +102,24 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
         _stop_docker_quiet(project_root)
         raise SystemExit(1) from exc
 
-    # 5. Metabase setup
+    # 5. Metabase setup (non-fatal — BUG-103: prevents systemd crash loop)
+    # setup_metabase_if_needed returns a dict even on failure — inspect the result.
     try:
-        setup_metabase_if_needed(project_root, project_name, organization)
+        setup_result = setup_metabase_if_needed(project_root, project_name, organization)
+        if not setup_result.get("success") and not setup_result.get("skipped"):
+            errors = setup_result.get("errors") or []
+            error_str = "; ".join(str(e) for e in errors) if errors else "unknown"
+            print(
+                f"WARNING: Metabase setup incomplete: {error_str}. "
+                "Continuing without Metabase — retry on next restart.",
+                file=sys.stderr,
+            )
     except Exception as exc:
-        print(f"Metabase setup failed: {exc}", file=sys.stderr)
-        _stop_docker_quiet(project_root)
-        raise SystemExit(1) from exc
+        print(
+            f"WARNING: Metabase setup failed: {exc}. "
+            "Continuing without Metabase — retry on next restart.",
+            file=sys.stderr,
+        )
 
     # 6. Dashboard import (non-critical)
     try:

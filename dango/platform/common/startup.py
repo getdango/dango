@@ -3,7 +3,7 @@
 Shared startup helpers for platform lifecycle.
 
 Contains logic extracted from cli/commands/platform.py for reuse by both
-`dango start` (local) and `dango serve` (cloud, TASK-026). All functions
+`dango start` (local) and `dango serve` (cloud, TASK-026). Most functions
 raise exceptions on failure; callers handle display and user interaction.
 
 Exception: ``rotate_logs()`` follows the never-fail contract — errors are
@@ -211,11 +211,8 @@ def setup_metabase_if_needed(
             - already_configured (bool): True if credentials file existed
             - success (bool): Whether setup succeeded
             - collections_created (list): Collection names created
-            - errors (list): Non-critical errors encountered
+            - errors (list): Errors encountered during setup
             - duckdb_connected (bool): Whether DuckDB connection succeeded
-
-    Raises:
-        RuntimeError: If DuckDB connection fails (critical — services must stop)
     """
     import os
 
@@ -259,14 +256,6 @@ def setup_metabase_if_needed(
         organization=organization,
         cloud_mode=is_cloud_mode(project_root),
     )
-
-    # DuckDB connection failure is critical — caller must roll back Docker
-    if not setup_result.get("success") and not setup_result.get("duckdb_connected"):
-        raise RuntimeError(
-            "Cannot connect Metabase to DuckDB. "
-            "Ensure data/warehouse.duckdb exists and "
-            "metabase-plugins/duckdb.metabase-driver.jar is present."
-        )
 
     # Link Metabase admin to Dango admin for SSO bridging
     _link_metabase_admin(project_root, admin_email)

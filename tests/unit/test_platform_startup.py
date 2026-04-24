@@ -211,14 +211,36 @@ class TestSetupMetabaseIfNeeded:
         assert result["already_configured"] is True
         assert result["success"] is True
 
-    def test_raises_when_duckdb_not_connected(self, tmp_path, monkeypatch):
-        """setup_metabase_if_needed raises RuntimeError when DuckDB cannot connect."""
+    def test_returns_failure_result_when_duckdb_not_connected(self, tmp_path, monkeypatch):
+        """setup_metabase_if_needed returns failure dict without raising (BUG-105)."""
         monkeypatch.setenv("DANGO_ADMIN_EMAIL", "admin@test.com")
-        setup_result = {"success": False, "duckdb_connected": False}
+        setup_result = {
+            "success": False,
+            "duckdb_connected": False,
+            "errors": ["connection refused"],
+        }
 
         with patch("dango.visualization.metabase.setup_metabase", return_value=setup_result):
-            with pytest.raises(RuntimeError, match="connect Metabase"):
-                setup_metabase_if_needed(tmp_path, "MyProject", None)
+            result = setup_metabase_if_needed(tmp_path, "MyProject", None)
+
+        assert result["success"] is False
+        assert result["duckdb_connected"] is False
+        assert result["already_configured"] is False
+
+    def test_returns_errors_when_setup_fails_before_duckdb(self, tmp_path, monkeypatch):
+        """Pre-DuckDB failures are returned in the result dict, not masked (BUG-105)."""
+        monkeypatch.setenv("DANGO_ADMIN_EMAIL", "bad@localhost")
+        setup_result = {
+            "success": False,
+            "duckdb_connected": False,
+            "errors": ["Invalid email domain: localhost"],
+        }
+
+        with patch("dango.visualization.metabase.setup_metabase", return_value=setup_result):
+            result = setup_metabase_if_needed(tmp_path, "MyProject", None)
+
+        assert result["success"] is False
+        assert "Invalid email domain" in result["errors"][0]
 
     def test_success(self, tmp_path, monkeypatch):
         """setup_metabase_if_needed returns result dict on successful first-run setup."""
