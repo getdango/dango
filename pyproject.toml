@@ -331,6 +331,7 @@ module = [
     "tests.unit.test_byos",
     "tests.unit.test_driver_utils",
     "tests.unit.test_process_manager",
+    "tests.unit.test_static_cache_busting",
 ]
 ignore_errors = true
 
