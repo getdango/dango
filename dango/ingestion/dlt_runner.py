@@ -1341,11 +1341,22 @@ class DltPipelineRunner:
         client_id = source_kwargs.pop("client_id", None)
         client_secret = source_kwargs.pop("client_secret", None)
         headers = source_kwargs.pop("headers", None)
+        auth_header_name = source_kwargs.pop("auth_header_name", None)
 
         # Build client config
         client: dict[str, Any] = {"base_url": base_url}
         if headers:
-            client["headers"] = headers
+            # BUG-079: Resolve ${VAR} env var references in header values
+            import re
+
+            resolved_headers: dict[str, str] = {}
+            for h_key, h_val in headers.items():
+                match = re.fullmatch(r"\$\{(\w+)\}", h_val)
+                if match:
+                    resolved_headers[h_key] = os.getenv(match.group(1), h_val)
+                else:
+                    resolved_headers[h_key] = h_val
+            client["headers"] = resolved_headers
 
         # Build auth config based on type
         if auth_type == "bearer" and auth_token:
@@ -1370,6 +1381,10 @@ class DltPipelineRunner:
                 "client_id": client_id or "",
                 "client_secret": client_secret or "",
             }
+        elif auth_type == "custom_header" and auth_token:
+            # BUG-088: Custom header token — add as client header, not dlt auth
+            client.setdefault("headers", {})
+            client["headers"][auth_header_name or "Authorization"] = auth_token
 
         # Build resources from endpoints with merge + primary_key defaults
         resources: list[dict[str, Any] | str] = []
@@ -1393,6 +1408,30 @@ class DltPipelineRunner:
                         endpoint_config["data_selector"] = ep["data_selector"]
                     if ep.get("params"):
                         endpoint_config["params"] = ep["params"]
+                    # BUG-080: Map paginator config to dlt format
+                    if ep.get("paginator"):
+                        pag = ep["paginator"]
+                        pag_type = pag.get("type", "auto") if isinstance(pag, dict) else pag
+                        if pag_type == "none":
+                            endpoint_config["paginator"] = "single_page"
+                        elif pag_type == "header_link":
+                            endpoint_config["paginator"] = "header_link"
+                        elif pag_type == "page_number":
+                            pag_cfg: dict[str, Any] = {"type": "page_number"}
+                            if isinstance(pag, dict) and pag.get("page_param"):
+                                pag_cfg["page_param"] = pag["page_param"]
+                            endpoint_config["paginator"] = pag_cfg
+                        elif pag_type == "cursor":
+                            pag_cfg = {"type": "cursor"}
+                            if isinstance(pag, dict) and pag.get("cursor_path"):
+                                pag_cfg["cursor_path"] = pag["cursor_path"]
+                            endpoint_config["paginator"] = pag_cfg
+                        elif pag_type == "offset":
+                            pag_cfg = {"type": "offset"}
+                            if isinstance(pag, dict) and pag.get("limit"):
+                                pag_cfg["limit"] = int(pag["limit"])
+                            endpoint_config["paginator"] = pag_cfg
+                        # "auto" → omit paginator, let dlt auto-detect
                     resources.append(
                         {
                             "name": name,
