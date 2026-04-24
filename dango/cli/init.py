@@ -808,6 +808,7 @@ custom_sources/
         entrypoint_path = self.project_dir / "entrypoint.sh"
         with open(entrypoint_path, "w", encoding="utf-8") as f:
             f.write(entrypoint_content)
+        entrypoint_path.chmod(0o755)
 
         console.print("[green]✓[/green] Created entrypoint.sh")
 

@@ -56,6 +56,10 @@ SYNC_CONFIG_FILES: list[tuple[str, str]] = [
     (".dango/schedules.yml", f"{REMOTE_PROJECT_DIR}/.dango/schedules.yml"),
     ("dbt/dbt_project.yml", f"{REMOTE_PROJECT_DIR}/dbt/dbt_project.yml"),
     ("dbt/packages.yml", f"{REMOTE_PROJECT_DIR}/dbt/packages.yml"),
+    # Docker build context files — both required to build the Metabase image on the server
+    ("docker-compose.yml", f"{REMOTE_PROJECT_DIR}/docker-compose.yml"),
+    ("Dockerfile.metabase", f"{REMOTE_PROJECT_DIR}/Dockerfile.metabase"),
+    ("entrypoint.sh", f"{REMOTE_PROJECT_DIR}/entrypoint.sh"),
 ]
 
 #: Directories to sync via rsync (with ``--delete``).

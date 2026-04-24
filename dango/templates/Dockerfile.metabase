@@ -37,5 +37,6 @@ RUN mkdir -p /metabase-data && chown -R metabase:metabase /metabase-data
 EXPOSE 3000
 
 # Entrypoint: fix bind-mounted plugin dir ownership, then drop to metabase user
-COPY --chmod=755 entrypoint.sh /app/entrypoint.sh
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod 755 /app/entrypoint.sh
 ENTRYPOINT ["/app/entrypoint.sh"]
