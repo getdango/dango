@@ -64,13 +64,19 @@ _PRECISION_RE = re.compile(r"\(.*\)$")
 
 
 def _is_numeric(data_type: str) -> bool:
-    """Check whether *data_type* is a numeric DuckDB type."""
+    """Check whether *data_type* is a numeric DuckDB type.
+
+    Strips precision/scale suffixes (e.g. ``DECIMAL(10,2)`` → ``DECIMAL``).
+    """
     base = _PRECISION_RE.sub("", data_type.strip()).upper()
     return base in _NUMERIC_TYPES
 
 
 def _is_string(data_type: str) -> bool:
-    """Check whether *data_type* is a string/text DuckDB type."""
+    """Check whether *data_type* is a string/text DuckDB type.
+
+    Strips length suffixes (e.g. ``VARCHAR(255)`` → ``VARCHAR``).
+    """
     base = _PRECISION_RE.sub("", data_type.strip()).upper()
     return base in _STRING_TYPES
 

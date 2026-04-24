@@ -285,7 +285,7 @@ dango/                          # Python package source
 │   ├── data_validation.py      # Data validation utilities
 │   ├── env_file.py             # .env file parsing and serialization
 │   ├── dango_db.py             # SQLite context manager for .dango/dango.db + schema init
-│   ├── post_sync.py            # Post-sync hook dispatcher (~491 lines)
+│   ├── post_sync.py            # Post-sync hook dispatcher (~497 lines)
 │   └── git_info.py             # Git repository info + deployment guardrails
 │
 ├── migrations/                 # Level 0 — Database migration framework

@@ -35,20 +35,15 @@ def generate_metrics_for_source(
         A list of ``MetricConfig`` objects.  Empty if the source type has no
         pre-built templates or if the warehouse hasn't been synced yet.
     """
-    generators: dict[str, str] = {
-        "stripe": "_stripe",
-        "google_analytics": "_ga",
-        "csv": "_csv",
+    generators = {
+        "stripe": lambda name: _stripe_metrics(name),
+        "google_analytics": lambda name: _google_analytics_metrics(name, project_root=project_root),
+        "csv": lambda name: _csv_metrics(name),
     }
-    gen_key = generators.get(source_type)
-    if gen_key is None:
+    generator = generators.get(source_type)
+    if generator is None:
         return []
-    if gen_key == "_stripe":
-        return _stripe_metrics(source_name)
-    if gen_key == "_ga":
-        return _google_analytics_metrics(source_name, project_root=project_root)
-    # csv
-    return _csv_metrics(source_name)
+    return generator(source_name)
 
 
 # ---------------------------------------------------------------------------
@@ -95,13 +90,11 @@ def _stripe_metrics(name: str) -> list[MetricConfig]:
 
 
 # GA4 metric definitions: (keyword_in_col, exclude_keyword, metric_name_suffix,
-#                          agg_func, compare_type, warn_threshold, drill_down_cols)
-_GA4_METRIC_DEFS: list[
-    tuple[str, str | None, str, str, ComparisonType, float, list[str] | None]
-] = [
-    ("sessions", "engaged", "daily_sessions", "SUM", ComparisonType.week_over_week, 20.0, None),
-    ("bounce_rate", None, "bounce_rate", "AVG", ComparisonType.rolling_7day_avg, 25.0, None),
-    ("duration", None, "avg_session_duration", "AVG", ComparisonType.rolling_7day_avg, 20.0, None),
+#                          agg_func, compare_type, warn_threshold)
+_GA4_METRIC_DEFS: list[tuple[str, str | None, str, str, ComparisonType, float]] = [
+    ("sessions", "engaged", "daily_sessions", "SUM", ComparisonType.week_over_week, 20.0),
+    ("bounce_rate", None, "bounce_rate", "AVG", ComparisonType.rolling_7day_avg, 25.0),
+    ("duration", None, "avg_session_duration", "AVG", ComparisonType.rolling_7day_avg, 20.0),
 ]
 
 
@@ -128,7 +121,7 @@ def _google_analytics_metrics(
     source_col = next((c for c in columns if "source" in c.lower()), None)
 
     metrics: list[MetricConfig] = []
-    for keyword, exclude, suffix, agg, compare, threshold, _ in _GA4_METRIC_DEFS:
+    for keyword, exclude, suffix, agg, compare, threshold in _GA4_METRIC_DEFS:
         col = _find_column(columns, keyword, exclude)
         if col is None:
             continue
