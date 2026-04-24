@@ -3,6 +3,7 @@
 UI page endpoints and API documentation.
 """
 
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,6 +21,26 @@ from dango.auth.permissions import require_permission
 router = APIRouter(tags=["ui"])
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+
+# Static asset cache busting (BUG-066): compute MD5 content hashes at import time.
+_static_dir = Path(__file__).parent.parent / "static"
+_static_hashes: dict[str, str] = {}
+if _static_dir.exists():
+    for _file in _static_dir.rglob("*"):
+        if _file.is_file():
+            _hash = hashlib.md5(_file.read_bytes()).hexdigest()[:8]
+            _static_hashes[_file.relative_to(_static_dir).as_posix()] = _hash
+
+
+def _static_url(path: str) -> str:
+    """Return versioned static URL for cache busting."""
+    h = _static_hashes.get(path)
+    if h:
+        return f"/static/{path}?v={h}"
+    return f"/static/{path}"
+
+
+templates.env.globals["static_url"] = _static_url
 
 _FALLBACK_HTML = """
 <html>
