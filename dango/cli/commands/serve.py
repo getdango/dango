@@ -103,8 +103,17 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
         raise SystemExit(1) from exc
 
     # 5. Metabase setup (non-fatal — BUG-103: prevents systemd crash loop)
+    # setup_metabase_if_needed returns a dict even on failure — inspect the result.
     try:
-        setup_metabase_if_needed(project_root, project_name, organization)
+        setup_result = setup_metabase_if_needed(project_root, project_name, organization)
+        if not setup_result.get("success") and not setup_result.get("skipped"):
+            errors = setup_result.get("errors") or []
+            error_str = "; ".join(str(e) for e in errors) if errors else "unknown"
+            print(
+                f"WARNING: Metabase setup incomplete: {error_str}. "
+                "Continuing without Metabase — retry on next restart.",
+                file=sys.stderr,
+            )
     except Exception as exc:
         print(
             f"WARNING: Metabase setup failed: {exc}. "

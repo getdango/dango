@@ -322,8 +322,8 @@ class TestServeFailures:
 
             assert result.exit_code == 1
             assert "Docker services failed" in result.output
-            # Called at least once for Docker failure cleanup (BUG-104 also calls it early)
-            assert mock_stop.called
+            # Called twice: once for BUG-104 pre-schema cleanup, once for Docker failure cleanup
+            assert mock_stop.call_count == 2
 
     @patch("uvicorn.run")
     @patch(f"{_SERVE}._check_port")
@@ -359,6 +359,52 @@ class TestServeFailures:
         assert result.exit_code == 0, result.output
         mock_uvicorn_run.assert_called_once()
         assert "Metabase setup failed" in result.output
+
+    @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
+    @patch(f"{_STARTUP}.import_dashboards")
+    @patch(f"{_STARTUP}.setup_metabase_if_needed")
+    @patch(f"{_STARTUP}.start_docker_services")
+    @patch(f"{_STARTUP}.ensure_duckdb_driver")
+    @patch(f"{_STARTUP}.ensure_dbt_schemas")
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_metabase_failure_dict_continues_to_uvicorn(
+        self,
+        mock_ctx,
+        mock_loader_cls,
+        mock_migrate,
+        mock_schemas,
+        mock_driver,
+        mock_docker,
+        mock_metabase,
+        mock_dashboards,
+        mock_check_port,
+        mock_uvicorn_run,
+        tmp_path,
+    ):
+        """Metabase returning success=False is non-fatal — server still starts (BUG-103).
+
+        setup_metabase_if_needed returns a dict rather than raising for normal
+        failures (DuckDB not connected, email rejection, etc.). serve.py must
+        inspect the return value, not rely solely on catching exceptions.
+        """
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock()
+        mock_metabase.return_value = {
+            "success": False,
+            "duckdb_connected": False,
+            "already_configured": False,
+            "errors": ["connection refused"],
+        }
+
+        runner = CliRunner()
+        result = runner.invoke(serve, [], obj={})
+
+        assert result.exit_code == 0, result.output
+        mock_uvicorn_run.assert_called_once()
+        assert "Metabase setup incomplete" in result.output
 
     @patch("uvicorn.run")
     @patch(f"{_SERVE}._check_port")
@@ -458,5 +504,5 @@ class TestServeFailures:
             result = runner.invoke(serve, [], obj={})
 
             assert result.exit_code != 0
-            # Called at least once for uvicorn finally cleanup (BUG-104 also calls it early)
-            assert mock_stop.called
+            # Called twice: once for BUG-104 pre-schema cleanup, once in uvicorn finally block
+            assert mock_stop.call_count == 2
