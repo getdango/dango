@@ -248,7 +248,7 @@ dango/                          # Python package source
 │   └── watcher_runner.py       # → local/watcher_runner.py
 │
 ├── ingestion/                  # Level 1 — Data loading
-│   ├── dlt_runner.py           # ⚠ 2284 lines — orchestrates full sync pipeline
+│   ├── dlt_runner.py           # ⚠ 2330 lines — orchestrates full sync pipeline
 │   ├── csv_loader.py           # Multi-format file loading with dedup (766 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (33 source types)
@@ -331,9 +331,9 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
-| `ingestion/dlt_runner.py` | 2291 | — (exempt, too risky) |
+| `ingestion/dlt_runner.py` | 2330 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2008 | — (metadata-only) |
-| `cli/source_wizard.py` | 2108 | — |
+| `cli/source_wizard.py` | 2288 | — |
 | `visualization/metabase.py` | 1152 | — |
 | `cli/init.py` | 1324 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
@@ -352,7 +352,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 578 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 651 | — |
-| `config/models.py` | 609 | — (Pydantic config models) |
+| `config/models.py` | 600 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 839 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 548 | — |
 | `web/routes/catalog.py` | 1157 | — (data catalog: columns, profiling, lineage, impact, models, search) |

@@ -219,27 +219,37 @@ class SourceWizard:
 
             # Step 8: If secrets required, validate credentials FIRST (before saving)
             if self.secret_params:
-                console.print("\n[bold]Setting up credentials...[/bold]")
+                import os
 
-                # Create .env template
-                create_env_template(self.env_file, self.secret_params)
-                console.print("[green]✅ Created .env template[/green]")
+                # Check if all credentials were already provided inline (REST API wizard)
+                all_set = all(os.getenv(sp["name"]) for sp in self.secret_params if "name" in sp)
 
-                # Guide user through credential setup with validation
-                # Pass setup_guide for detailed instructions
-                setup_guide = metadata.get("setup_guide", [])
-                validated = guide_env_setup(
-                    self.env_file, self.secret_params, source_name, setup_guide
-                )
+                if all_set:
+                    # Credentials already saved to .env inline — just ensure template exists
+                    create_env_template(self.env_file, self.secret_params)
+                    console.print("[green]✅ Credentials saved to .env[/green]")
+                else:
+                    console.print("\n[bold]Setting up credentials...[/bold]")
 
-                if not validated:
-                    # Credentials not validated - don't save source config
-                    console.print(
-                        "\n[yellow]⚠️  Setup cancelled - credentials not validated[/yellow]"
+                    # Create .env template
+                    create_env_template(self.env_file, self.secret_params)
+                    console.print("[green]✅ Created .env template[/green]")
+
+                    # Guide user through credential setup with validation
+                    # Pass setup_guide for detailed instructions
+                    setup_guide = metadata.get("setup_guide", [])
+                    validated = guide_env_setup(
+                        self.env_file, self.secret_params, source_name, setup_guide
                     )
-                    console.print("\n[cyan]To retry:[/cyan]")
-                    console.print("  dango source add")
-                    return False
+
+                    if not validated:
+                        # Credentials not validated - don't save source config
+                        console.print(
+                            "\n[yellow]⚠️  Setup cancelled - credentials not validated[/yellow]"
+                        )
+                        console.print("\n[cyan]To retry:[/cyan]")
+                        console.print("  dango source add")
+                        return False
 
             # Step 9: Only save source config if validation passed or no secrets required
             self._save_source(source_config)
@@ -1013,6 +1023,7 @@ def {module_name}_resource(api_key: str):
             ("API Key (header or query param)", "api_key"),
             ("HTTP Basic (username + password)", "basic"),
             ("OAuth2 Client Credentials", "oauth2_client_credentials"),
+            ("Custom Header Token (e.g., X-Shopify-Access-Token)", "custom_header"),
             ("No Authentication", "none"),
         ]
         questions = [
@@ -1050,6 +1061,7 @@ def {module_name}_resource(api_key: str):
             self.secret_params.append(
                 {"name": params["auth_token_env"], "description": f"Bearer token for {source_name}"}
             )
+            self._prompt_and_save_credential(params["auth_token_env"], "Bearer token value")
 
         elif auth_type == "api_key":
             default_env = f"{env_prefix}_API_KEY"
@@ -1079,6 +1091,7 @@ def {module_name}_resource(api_key: str):
             self.secret_params.append(
                 {"name": params["auth_token_env"], "description": f"API key for {source_name}"}
             )
+            self._prompt_and_save_credential(params["auth_token_env"], "API key value")
 
         elif auth_type == "basic":
             default_user_env = f"{env_prefix}_USERNAME"
@@ -1112,6 +1125,10 @@ def {module_name}_resource(api_key: str):
                     },
                 ]
             )
+            self._prompt_and_save_credential(
+                params["basic_username_env"], "Username", is_secret=False
+            )
+            self._prompt_and_save_credential(params["basic_password_env"], "Password")
 
         elif auth_type == "oauth2_client_credentials":
             default_id_env = f"{env_prefix}_CLIENT_ID"
@@ -1150,6 +1167,43 @@ def {module_name}_resource(api_key: str):
                     },
                 ]
             )
+            self._prompt_and_save_credential(params["client_id_env"], "Client ID", is_secret=False)
+            self._prompt_and_save_credential(params["client_secret_env"], "Client secret")
+
+            # BUG-077: Warn about APIs that require Authorization Code Grant
+            console.print(
+                "\n[yellow]Note:[/yellow] Some APIs (like Shopify) require Authorization Code "
+                "Grant, not Client Credentials.\nIf you get 'invalid_grant' errors, use "
+                "[bold]Bearer Token[/bold] or [bold]Custom Header Token[/bold] auth instead."
+            )
+
+        elif auth_type == "custom_header":
+            # BUG-088: Custom Header Token auth
+            default_env = f"{env_prefix}_API_TOKEN"
+            questions = [
+                inquirer.Text(
+                    "auth_header_name",
+                    message="Custom auth header name (e.g., X-Shopify-Access-Token)",
+                    default="X-API-Token",
+                ),
+                inquirer.Text(
+                    "auth_token_env",
+                    message="Environment variable for token value",
+                    default=default_env,
+                ),
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            params["auth_header_name"] = answers["auth_header_name"].strip()
+            params["auth_token_env"] = answers["auth_token_env"].strip()
+            self.secret_params.append(
+                {
+                    "name": params["auth_token_env"],
+                    "description": f"Custom header token for {source_name}",
+                }
+            )
+            self._prompt_and_save_credential(params["auth_token_env"], "Token value")
 
         # 3b. Source-level custom headers (optional)
         console.print(
@@ -1168,8 +1222,23 @@ def {module_name}_resource(api_key: str):
                 h_name = hdr_answers["header_name"].strip()
                 h_value = hdr_answers["header_value"].strip()
                 if h_name and h_value:
-                    headers_dict[h_name] = h_value
-                    console.print(f"  [green]✓[/green] {h_name}: {h_value}")
+                    # BUG-079: Support env var references in header values
+                    if Confirm.ask(
+                        f"  Is '{h_value}' an environment variable name?", default=False
+                    ):
+                        # Store as ${VAR} for resolution at runtime
+                        headers_dict[h_name] = f"${{{h_value}}}"
+                        self.secret_params.append(
+                            {
+                                "name": h_value,
+                                "description": f"Header '{h_name}' value for {source_name}",
+                            }
+                        )
+                        self._prompt_and_save_credential(h_value, f"Value for {h_name}")
+                        console.print(f"  [green]✓[/green] {h_name}: ${{{h_value}}} (from env)")
+                    else:
+                        headers_dict[h_name] = h_value
+                        console.print(f"  [green]✓[/green] {h_name}: {h_value}")
                 if not Confirm.ask("Add another header?", default=False):
                     break
             if headers_dict:
@@ -1183,7 +1252,7 @@ def {module_name}_resource(api_key: str):
             ep_questions = [
                 inquirer.Text(
                     "path",
-                    message="Endpoint path (e.g., /users, /orders)",
+                    message="Endpoint path (e.g., /orders)",
                 ),
                 inquirer.Text(
                     "name",
@@ -1217,6 +1286,56 @@ def {module_name}_resource(api_key: str):
                         break
                 if not query_params:
                     query_params = None
+
+            # 4a2. Pagination type (BUG-080)
+            paginator_choices = [
+                ("Auto-detect (recommended)", "auto"),
+                ("Link header (GitHub, Shopify)", "header_link"),
+                ("Page number", "page_number"),
+                ("Cursor-based (Stripe, GraphQL)", "cursor"),
+                ("Offset-based", "offset"),
+                ("None (single page)", "none"),
+            ]
+            pag_questions = [
+                inquirer.List(
+                    "paginator_type",
+                    message="Pagination type",
+                    choices=paginator_choices,
+                )
+            ]
+            pag_answers = inquirer.prompt(pag_questions, theme=themes.GreenPassion())
+            if not pag_answers:
+                return None
+            pag_type = pag_answers["paginator_type"]
+            paginator_config: dict[str, Any] | None = None
+            if pag_type != "auto":
+                paginator_config = {"type": pag_type}
+                if pag_type == "page_number":
+                    pp = inquirer.text(
+                        message="Page parameter name (default: page)", default="page"
+                    )
+                    if pp is None:
+                        return None
+                    paginator_config["page_param"] = pp.strip() or "page"
+                elif pag_type == "cursor":
+                    cp = inquirer.text(
+                        message="Cursor path in JSON response (default: next)",
+                        default="next",
+                    )
+                    if cp is None:
+                        return None
+                    paginator_config["cursor_path"] = cp.strip() or "next"
+                elif pag_type == "offset":
+                    lim = inquirer.text(
+                        message="Results per page / limit (default: 100)",
+                        default="100",
+                    )
+                    if lim is None:
+                        return None
+                    try:
+                        paginator_config["limit"] = int(lim.strip() or "100")
+                    except ValueError:
+                        paginator_config["limit"] = 100
 
             # 4b. Endpoint test (optional)
             data_suggestion: str | None = None
@@ -1280,6 +1399,8 @@ def {module_name}_resource(api_key: str):
                 endpoint["primary_key"] = pk_val
             if query_params:
                 endpoint["params"] = query_params
+            if paginator_config:
+                endpoint["paginator"] = paginator_config
 
             endpoints.append(endpoint)
             console.print(f"  [green]✓[/green] Added: {path} → {name}")
@@ -1289,6 +1410,51 @@ def {module_name}_resource(api_key: str):
 
         params["endpoints"] = endpoints
         return params
+
+    def _prompt_and_save_credential(
+        self, env_var_name: str, description: str, is_secret: bool = True
+    ) -> str | None:
+        """Prompt for a credential value and save it to .env + os.environ.
+
+        Args:
+            env_var_name: Environment variable name (e.g., MY_API_TOKEN)
+            description: Human-readable description for the prompt
+            is_secret: If True, mask input (use Password prompt)
+
+        Returns:
+            The credential value, or None if cancelled.
+        """
+        import os
+
+        if is_secret:
+            questions = [
+                inquirer.Password(
+                    "value",
+                    message=f"{description} (saved to .env as {env_var_name})",
+                )
+            ]
+        else:
+            questions = [
+                inquirer.Text(
+                    "value",
+                    message=f"{description} (saved to .env as {env_var_name})",
+                )
+            ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers or not answers["value"]:
+            return None
+
+        value = answers["value"].strip()
+        os.environ[env_var_name] = value
+
+        # Write to .env file
+        self.env_file.parent.mkdir(parents=True, exist_ok=True)
+        from dotenv import set_key
+
+        set_key(str(self.env_file), env_var_name, value)
+
+        console.print(f"  [green]✓[/green] Saved {env_var_name} to .env")
+        return value
 
     def _test_rest_api_endpoint(
         self,
@@ -1374,6 +1540,20 @@ def {module_name}_resource(api_key: str):
                 "  [dim]OAuth2 client credentials — skipping (requires token exchange)[/dim]"
             )
             return (None, None, "OAuth2 not testable in wizard")
+
+        elif auth_type == "custom_header":
+            header_name = params_dict.get("auth_header_name", "Authorization")
+            env_name = params_dict.get("auth_token_env", "")
+            token = os.getenv(env_name) if env_name else None
+            if not token:
+                console.print(
+                    f"  [dim]{env_name} not set — enter temporarily for testing (not saved)[/dim]"
+                )
+                token = inquirer.text(message=f"Value for {header_name} (test only)")
+                if token is None:
+                    return (None, None, "Cancelled")
+            if token:
+                auth_headers[header_name] = token
 
         # Merge headers
         all_headers = {**(source_headers or {}), **auth_headers}

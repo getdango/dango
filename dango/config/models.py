@@ -279,7 +279,8 @@ class RESTAPISourceConfig(BaseModel):
         description="List of endpoints to sync with their configurations"
     )
     auth_type: str | None = Field(
-        default="bearer", description="Authentication type: bearer, api_key, basic, or none"
+        default="bearer",
+        description="Authentication type: bearer, api_key, basic, oauth2_client_credentials, custom_header, or none",
     )
     auth_token_env: str | None = Field(
         default=None, description="Environment variable containing auth token/key"
@@ -304,6 +305,10 @@ class RESTAPISourceConfig(BaseModel):
     )
     client_secret_env: str | None = Field(
         default=None, description="Environment variable for OAuth2 client secret"
+    )
+    auth_header_name: str | None = Field(
+        default=None,
+        description="Custom auth header name for custom_header auth type (e.g., X-Shopify-Access-Token)",
     )
     headers: dict[str, str] | None = Field(
         default=None, description="Additional headers to include in requests"
