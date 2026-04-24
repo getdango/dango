@@ -83,6 +83,12 @@ def is_table_configured(
     Returns:
         True if table is configured, False if orphaned
     """
+    # dlt internal staging schemas (e.g. raw_gsheets_1_staging) — always
+    # considered configured if the base schema belongs to an active source.
+    if schema.endswith("_staging"):
+        base_schema = schema.removesuffix("_staging")
+        return base_schema in schema_to_tables
+
     # dlt internal tables are only configured if their schema belongs to an active source
     if table.startswith("_dlt_"):
         # For source-specific schemas (raw_{source_name}), check if schema is configured

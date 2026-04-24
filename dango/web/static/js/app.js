@@ -1179,9 +1179,9 @@ function renderSourcesTable() {
                     </button>
                     <div id="sync-dropdown-${source.name}" class="hidden fixed w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
                         <div class="py-1">
-                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerSync('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">${isFileSource ? 'Sync Now' : 'Incremental Sync'}</a>
+                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerSync('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">${isFileSource ? 'Sync Now' : (source.supports_incremental ? 'Incremental Sync' : 'Sync Now')}</a>
                             ${isFileSource ? '' : `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerFullRefresh('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Full Refresh</a>
-                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); openDateRangeModal('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Custom Date Range...</a>`}
+                            ${source.supports_date_range ? `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); openDateRangeModal('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Custom Date Range...</a>` : ''}`}
                         </div>
                     </div>
                 </div>` : '<span class="text-gray-300">—</span>';

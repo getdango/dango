@@ -798,6 +798,13 @@ async def get_source_status_data(source: dict) -> SourceStatus:
         # Edge case
         status = "not_synced"
 
+    # Look up source capabilities from registry
+    from dango.ingestion.sources.registry import get_source_capabilities
+
+    capabilities = get_source_capabilities(source_type)
+    supports_incremental = capabilities.get("incremental", True) if capabilities else True
+    supports_date_range = capabilities.get("date_range", False) if capabilities else False
+
     return SourceStatus(
         name=source_name,
         type=source_type,
@@ -807,4 +814,6 @@ async def get_source_status_data(source: dict) -> SourceStatus:
         status=status,
         freshness=freshness,
         tables=tables,
+        supports_incremental=supports_incremental,
+        supports_date_range=supports_date_range,
     )

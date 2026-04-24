@@ -12,7 +12,7 @@ limit: 500  # Informational — scripts/check_file_sizes.py owns the enforced th
 exemptions:
   # --- Post-TASK-085 split results (from web/app.py 3032 → web/routes/) ---
   - file: dango/web/helpers.py
-    lines: 810
+    lines: 819
     category: exempt
     reason: "Shared helper functions for web routes. Consolidates DuckDB queries, config loading, service health checks, and log management. Extracted from web/app.py by TASK-085. Mirrors cli/utils.py pattern."
     review_by: "v1.1"
@@ -124,7 +124,7 @@ exemptions:
 
   # --- Exempt (stable, not modified in v1) ---
   - file: dango/ingestion/dlt_runner.py
-    lines: 2330
+    lines: 2373
     category: exempt
     reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage. Post-sync hook dispatch added in P7-000. P5c grew +480 lines (credential unification, resource selection, local_files routing). P8-001 added headers/data_selector/params passthrough (+8 lines)."
     review_by: "v1.1"

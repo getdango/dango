@@ -4,6 +4,7 @@ Generic runner for all dlt verified sources + custom CSV/REST API sources.
 """
 
 import importlib
+import logging as _logging
 import os
 import platform
 import signal
@@ -28,6 +29,22 @@ from dango.ingestion.csv_loader import CSVLoader
 from dango.ingestion.sources.registry import get_source_metadata
 
 console = Console()
+
+# Suppress confusing dlt paginator warnings via logging filter.
+# dlt may emit "Fallback paginator used: SinglePagePaginator" through
+# the logging module rather than the warnings module.
+_dlt_logger = _logging.getLogger("dlt")
+
+
+class _PaginatorLogFilter(_logging.Filter):
+    """Filter out dlt paginator fallback warnings."""
+
+    def filter(self, record: _logging.LogRecord) -> bool:
+        """Suppress log records containing 'paginator'."""
+        return "paginator" not in record.getMessage().lower()
+
+
+_dlt_logger.addFilter(_PaginatorLogFilter())
 
 
 class DltPipelineRunner:
@@ -1109,6 +1126,22 @@ class DltPipelineRunner:
                         "users:read[/yellow]"
                     )
 
+            # Shopify-specific error guidance
+            if source_type == SourceType.SHOPIFY:
+                if "protected customer data" in error_str:
+                    console.print(
+                        "\n  [yellow]💡 Shopify requires Protected Customer Data access "
+                        "approval.[/yellow]"
+                    )
+                    console.print(
+                        "  [yellow]   Go to Shopify Partners > Apps > your app > "
+                        "API access > Protected customer data[/yellow]"
+                    )
+                    console.print(
+                        "  [yellow]   Request access to the data fields your app "
+                        "needs, then retry.[/yellow]"
+                    )
+
             # Per-resource error guidance
             if any(kw in error_str for kw in ("403", "forbidden", "not found", "404")):
                 console.print(
@@ -1878,7 +1911,17 @@ Need help? Visit: https://github.com/getdango/dango/issues
         for attempt in range(1, max_retries + 1):
             try:
                 console.print(f"  ⏳ Running pipeline... (attempt {attempt}/{max_retries})")
-                load_info = pipeline.run(source)
+                # Suppress dlt paginator warnings that confuse users
+                # (e.g. "Fallback paginator used: SinglePagePaginator")
+                import warnings
+
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message=r".*[Pp]aginator.*",
+                        category=UserWarning,
+                    )
+                    load_info = pipeline.run(source)
                 return load_info
 
             except Exception as e:

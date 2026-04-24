@@ -64,33 +64,13 @@ _PRECISION_RE = re.compile(r"\(.*\)$")
 
 
 def _is_numeric(data_type: str) -> bool:
-    """Check whether *data_type* is a numeric DuckDB type.
-
-    Strips any precision/scale suffix (e.g. ``DECIMAL(10,2)`` → ``DECIMAL``)
-    before checking.
-
-    Args:
-        data_type: DuckDB column data type string.
-
-    Returns:
-        ``True`` if the base type is numeric.
-    """
+    """Check whether *data_type* is a numeric DuckDB type."""
     base = _PRECISION_RE.sub("", data_type.strip()).upper()
     return base in _NUMERIC_TYPES
 
 
 def _is_string(data_type: str) -> bool:
-    """Check whether *data_type* is a string/text DuckDB type.
-
-    Strips any length suffix (e.g. ``VARCHAR(255)`` → ``VARCHAR``) before
-    checking.
-
-    Args:
-        data_type: DuckDB column data type string.
-
-    Returns:
-        ``True`` if the base type is string/text.
-    """
+    """Check whether *data_type* is a string/text DuckDB type."""
     base = _PRECISION_RE.sub("", data_type.strip()).upper()
     return base in _STRING_TYPES
 
@@ -404,14 +384,13 @@ def _run_pii_scan(project_root: Path, sources: list[str]) -> None:
 def _run_analysis(project_root: Path, sources: list[str]) -> None:
     """Run automated analysis on freshly synced sources.
 
-    Captures results and dispatches a webhook notification if any metrics
-    exceed their configured threshold.
-
-    Args:
-        project_root: Path to the Dango project root.
-        sources: Names of sources that synced successfully.
+    Also auto-generates GA4 metric templates after first sync (column names
+    are only known once DuckDB has data).
     """
     try:
+        # Auto-generate GA4 metric templates now that columns exist in DuckDB
+        _ensure_ga4_metrics(project_root, sources)
+
         from dango.analysis.metrics import run_analysis
 
         results = run_analysis(project_root, source_filter=[f"raw_{s}" for s in sources])
@@ -420,6 +399,32 @@ def _run_analysis(project_root: Path, sources: list[str]) -> None:
             _send_analysis_webhook(project_root, sources, results, flagged)
     except Exception:
         logger.warning("analysis_hook_error", sources=sources, exc_info=True)
+
+
+def _ensure_ga4_metrics(project_root: Path, sources: list[str]) -> None:
+    """Generate GA4 metric templates if not already present.  Never raises."""
+    try:
+        from dango.analysis.config import add_metrics_to_config, load_metrics_config
+        from dango.analysis.templates import generate_metrics_for_source
+        from dango.config import get_config
+
+        config = get_config(project_root)
+        existing_names = {m.name for m in load_metrics_config(project_root).metrics}
+        for source in config.sources.sources:
+            if source.type.value != "google_analytics" or source.name not in sources:
+                continue
+            new = [
+                m
+                for m in generate_metrics_for_source(
+                    "google_analytics", source.name, project_root=project_root
+                )
+                if m.name not in existing_names
+            ]
+            if new:
+                add_metrics_to_config(project_root, new)
+                logger.info("ga4_metrics_auto_generated", source=source.name, count=len(new))
+    except Exception:
+        logger.debug("ga4_metrics_auto_generate_skipped", exc_info=True)
 
 
 def _send_analysis_webhook(
