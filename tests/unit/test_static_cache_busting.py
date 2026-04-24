@@ -4,7 +4,6 @@ Unit tests for static asset cache busting (BUG-066).
 """
 
 import hashlib
-from pathlib import Path
 
 import pytest
 
@@ -31,30 +30,20 @@ class TestStaticCacheBusting:
         assert url == "/static/js/does-not-exist.js"
         assert "?v=" not in url
 
-    def test_different_content_different_hash(self, tmp_path: Path) -> None:
-        """Different file content produces different MD5 hashes."""
-        file_a = tmp_path / "a.js"
-        file_b = tmp_path / "b.js"
-        file_a.write_text("console.log('hello');")
-        file_b.write_text("console.log('world');")
+    def test_different_files_have_different_hashes(self) -> None:
+        """Different static files with different content produce different hashes."""
+        from dango.web.routes.ui import _static_hashes
 
-        hash_a = hashlib.md5(file_a.read_bytes()).hexdigest()[:8]
-        hash_b = hashlib.md5(file_b.read_bytes()).hexdigest()[:8]
+        # css/main.css and js/app.js have vastly different content
+        assert _static_hashes["css/main.css"] != _static_hashes["js/app.js"]
 
-        assert hash_a != hash_b
+    def test_static_url_uses_hash_from_map(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """static_url() returns the hash stored in _static_hashes, not a recomputed one."""
+        import dango.web.routes.ui as ui_module
 
-    def test_same_content_same_hash(self, tmp_path: Path) -> None:
-        """Identical content always produces the same MD5 hash."""
-        content = "console.log('identical');"
-        file_a = tmp_path / "a.js"
-        file_b = tmp_path / "b.js"
-        file_a.write_text(content)
-        file_b.write_text(content)
-
-        hash_a = hashlib.md5(file_a.read_bytes()).hexdigest()[:8]
-        hash_b = hashlib.md5(file_b.read_bytes()).hexdigest()[:8]
-
-        assert hash_a == hash_b
+        monkeypatch.setitem(ui_module._static_hashes, "js/test.js", "deadbeef")
+        url = ui_module._static_url("js/test.js")
+        assert url == "/static/js/test.js?v=deadbeef"
 
     def test_hash_matches_actual_file_content(self) -> None:
         """Stored hashes match re-computing MD5 directly from each file."""

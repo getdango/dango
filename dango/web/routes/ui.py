@@ -28,7 +28,7 @@ _static_hashes: dict[str, str] = {}
 if _static_dir.exists():
     for _file in _static_dir.rglob("*"):
         if _file.is_file():
-            _hash = hashlib.md5(_file.read_bytes()).hexdigest()[:8]
+            _hash = hashlib.md5(_file.read_bytes(), usedforsecurity=False).hexdigest()[:8]
             _static_hashes[_file.relative_to(_static_dir).as_posix()] = _hash
 
 
