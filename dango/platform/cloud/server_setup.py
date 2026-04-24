@@ -140,8 +140,9 @@ def _setup_apt_packages(
     _notify(on_progress, step, "running")
     _run_checked(
         ssh,
-        "DEBIAN_FRONTEND=noninteractive apt-get update -qq"
-        " && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq"
+        "add-apt-repository -y universe 2>/dev/null || true"
+        " && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 update -qq"
+        " && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y -qq"
         " python3-pip python3-venv fail2ban unattended-upgrades"
         " logrotate curl",
         step=step,

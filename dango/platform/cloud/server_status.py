@@ -196,9 +196,16 @@ def _get_services(ssh: Any) -> list[ServiceInfo]:
             status = "not-found"
         services.append(ServiceInfo(name=unit, status=status))
 
-    # Metabase runs as a Docker container
-    result = ssh.exec_command("docker inspect -f '{{.State.Status}}' metabase 2>/dev/null")
-    status = result.stdout.strip() if result.success and result.stdout.strip() else "not-found"
+    # Metabase runs as a Docker container — use docker ps with name filter
+    # to match Compose v2 naming (e.g. dango-project-metabase-1)
+    result = ssh.exec_command(
+        "docker ps -a --filter 'name=metabase' --format '{{.Status}}' 2>/dev/null"
+    )
+    raw = result.stdout.strip() if result.success else ""
+    if raw:
+        status = "running" if raw.lower().startswith("up") else "stopped"
+    else:
+        status = "not-found"
     services.append(ServiceInfo(name="metabase", status=status))
 
     return services

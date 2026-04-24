@@ -111,7 +111,7 @@ class TestCollectServerStatus:
         responses = {
             "systemctl is-active dango-web": _make_result(stdout="active"),
             "systemctl is-active caddy": _make_result(stdout="active"),
-            "docker inspect": _make_result(stdout="running"),
+            "docker ps": _make_result(stdout="Up 2 hours"),
         }
         ssh = _make_ssh(responses)
         status = collect_server_status(ssh, _make_cloud_config())
@@ -119,6 +119,16 @@ class TestCollectServerStatus:
         assert status.services[0] == ServiceInfo(name="dango-web", status="active")
         assert status.services[1] == ServiceInfo(name="caddy", status="active")
         assert status.services[2] == ServiceInfo(name="metabase", status="running")
+
+    def test_metabase_stopped_reports_stopped(self):
+        """Exited Metabase container is reported as stopped, not not-found."""
+        responses = {
+            "docker ps": _make_result(stdout="Exited (0) 5 minutes ago"),
+        }
+        ssh = _make_ssh(responses)
+        status = collect_server_status(ssh, _make_cloud_config())
+        metabase = [s for s in status.services if s.name == "metabase"][0]
+        assert metabase.status == "stopped"
 
     def test_parses_duckdb_size(self):
         """DuckDB size in bytes is parsed from stat output."""

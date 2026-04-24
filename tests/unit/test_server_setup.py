@@ -225,7 +225,7 @@ class TestSetupServer:
 
         ssh = _make_ssh_mock(
             exec_results={
-                "apt-get update": ("", "apt lock held", 100),
+                "apt-get -o DPkg": ("", "apt lock held", 100),
             }
         )
 
@@ -249,9 +249,12 @@ class TestSetupSteps:
         _setup_apt_packages(ssh, result, None)
 
         cmd = ssh.exec_command.call_args_list[0][0][0]
-        assert "apt-get update" in cmd
-        assert "apt-get install" in cmd
+        assert "apt-get" in cmd
+        assert "update" in cmd
+        assert "install" in cmd
         assert "fail2ban" in cmd
+        assert "universe" in cmd
+        assert "DPkg::Lock::Timeout=120" in cmd
         assert "apt_packages" in result.steps_completed
 
     def test_dango_user_created(self):
