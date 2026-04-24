@@ -75,14 +75,16 @@ def _step_prereqs(project_root: Path) -> None:
     # Check DIGITALOCEAN_TOKEN
     token = os.environ.get("DIGITALOCEAN_TOKEN")
     if not token:
-        console.print("[red]Error:[/red] DIGITALOCEAN_TOKEN environment variable not set.")
+        console.print("[yellow]DIGITALOCEAN_TOKEN environment variable not set.[/yellow]")
         console.print(
             "\n  Create an API token at: "
             "[link=https://cloud.digitalocean.com/account/api/tokens]"
-            "https://cloud.digitalocean.com/account/api/tokens[/link]"
+            "https://cloud.digitalocean.com/account/api/tokens[/link]\n"
         )
-        console.print("  Then: [bold]export DIGITALOCEAN_TOKEN=your_token[/bold]\n")
-        raise SystemExit(1)
+        token = click.prompt("Enter your DigitalOcean API token", hide_input=True)
+        if not token.strip():
+            raise SystemExit(1)
+        os.environ["DIGITALOCEAN_TOKEN"] = token.strip()
 
     # Check project has sources
     sources_yml = project_root / ".dango" / "sources.yml"

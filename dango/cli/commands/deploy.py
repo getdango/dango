@@ -512,6 +512,15 @@ def _destroy_do(
             raise SystemExit(1)
 
     # --- Delete resources ---
+    import os
+
+    if not os.environ.get("DIGITALOCEAN_TOKEN"):
+        console.print("[yellow]DIGITALOCEAN_TOKEN environment variable not set.[/yellow]")
+        token = click.prompt("Enter your DigitalOcean API token", hide_input=True)
+        if not token.strip():
+            raise SystemExit(1)
+        os.environ["DIGITALOCEAN_TOKEN"] = token.strip()
+
     from dango.platform.cloud.digitalocean import DigitalOceanClient
 
     client = DigitalOceanClient()

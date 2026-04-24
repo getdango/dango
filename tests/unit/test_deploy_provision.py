@@ -220,6 +220,20 @@ class TestAdminCreation:
                 found = True
         assert found, "auth.yml write not found"
 
+    def test_dango_dir_chowned_recursively(self):
+        """After admin creation, .dango/ is recursively chowned to dango user."""
+        ssh = _make_mock_ssh()
+        _create_admin_and_enable_auth(ssh, "admin@test.com", "password123")
+
+        chown_calls = [
+            str(c)
+            for c in ssh.exec_command.call_args_list
+            if "chown -R dango:dango /srv/dango/project/.dango" in str(c)
+        ]
+        assert len(chown_calls) >= 1, (
+            "Expected chown -R dango:dango /srv/dango/project/.dango in SSH calls"
+        )
+
 
 # ---------------------------------------------------------------------------
 # 5. Health check

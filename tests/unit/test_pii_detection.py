@@ -96,49 +96,11 @@ class TestGetAnalyzer:
                 del sys.modules["spacy"]
 
     def test_download_fallback(self) -> None:
+        """On OSError, downloads .whl via urllib and pip installs it."""
         import sys
 
         mock_spacy = MagicMock()
         mock_spacy.load.side_effect = OSError("Model not found")
-        mock_analyzer = MagicMock()
-        mock_provider = MagicMock()
-        mock_provider.create_engine.return_value = MagicMock()
-        sys.modules["spacy"] = mock_spacy
-        try:
-            with (
-                patch(f"{_PII}._analyzer", None),
-                patch("presidio_analyzer.AnalyzerEngine", return_value=mock_analyzer),
-                patch("presidio_analyzer.nlp_engine.NlpEngineProvider", return_value=mock_provider),
-            ):
-                result = _get_analyzer()
-                mock_spacy.cli.download.assert_called_once_with("en_core_web_sm")
-                assert result is mock_analyzer
-        finally:
-            del sys.modules["spacy"]
-
-    def test_returns_none_on_download_failure(self) -> None:
-        import sys
-
-        mock_spacy = MagicMock()
-        mock_spacy.load.side_effect = OSError("Model not found")
-        mock_spacy.cli.download.side_effect = RuntimeError("download failed")
-        sys.modules["spacy"] = mock_spacy
-        try:
-            with (
-                patch(f"{_PII}._analyzer", None),
-                patch("subprocess.check_call", side_effect=RuntimeError("pip failed")),
-            ):
-                result = _get_analyzer()
-                assert result is None
-        finally:
-            del sys.modules["spacy"]
-
-    def test_url_fallback_on_cli_download_failure(self) -> None:
-        import sys
-
-        mock_spacy = MagicMock()
-        mock_spacy.load.side_effect = OSError("Model not found")
-        mock_spacy.cli.download.side_effect = RuntimeError("cli download failed")
         mock_analyzer = MagicMock()
         mock_provider = MagicMock()
         mock_provider.create_engine.return_value = MagicMock()
@@ -154,8 +116,28 @@ class TestGetAnalyzer:
                 ),
             ):
                 result = _get_analyzer()
+                # spacy.cli.download is NOT called (removed: it calls sys.exit)
+                mock_spacy.cli.download.assert_not_called()
+                # urllib + pip install fallback used instead
                 mock_pip.assert_called_once()
                 assert result is mock_analyzer
+        finally:
+            del sys.modules["spacy"]
+
+    def test_returns_none_on_download_failure(self) -> None:
+        """Returns None when urllib/pip download also fails."""
+        import sys
+
+        mock_spacy = MagicMock()
+        mock_spacy.load.side_effect = OSError("Model not found")
+        sys.modules["spacy"] = mock_spacy
+        try:
+            with (
+                patch(f"{_PII}._analyzer", None),
+                patch("subprocess.check_call", side_effect=RuntimeError("pip failed")),
+            ):
+                result = _get_analyzer()
+                assert result is None
         finally:
             del sys.modules["spacy"]
 

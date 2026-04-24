@@ -137,6 +137,8 @@
                 <a href="/settings/users" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">User Management</a>
                 <a href="/settings/secrets" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Secrets & Credentials</a>
                 {% endif %}
+                <a href="/logs" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white{% if current_page == 'logs' %} font-semibold{% endif %}">Activity Logs</a>
+                <a href="/health" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white{% if current_page == 'health' %} font-semibold{% endif %}">Health</a>
                 <button @click="fetch('/api/auth/logout', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}}).then(() => window.location.href = '/login').catch(() => window.location.href = '/login')" class="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-red-400 hover:bg-gray-700 hover:text-red-300">Logout</button>
             </div>
             {% endif %}

@@ -553,6 +553,10 @@ def _create_admin_and_enable_auth(
         timeout=15,
     )
 
+    # Ensure the entire .dango/ directory is owned by the dango user so it can
+    # create files like dbt.lock in .dango/state/ at runtime.
+    ssh.exec_command("chown -R dango:dango /srv/dango/project/.dango")
+
     return deploy_token
 
 
