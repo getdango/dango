@@ -250,7 +250,7 @@ def _step_admin() -> tuple[str, str]:
             break
         console.print("  [red]Invalid email format.[/red]")
 
-    # Password (from env or prompt)
+    # Password (from env or auto-generated)
     env_password = os.environ.get("DANGO_ADMIN_PASSWORD")
     if env_password:
         issues = check_password_strength(env_password, email=email)
@@ -260,17 +260,19 @@ def _step_admin() -> tuple[str, str]:
         console.print("  [dim]Using password from DANGO_ADMIN_PASSWORD env var.[/dim]")
         return email, env_password
 
-    while True:
-        password = click.prompt("  Admin password", hide_input=True)
-        issues = check_password_strength(password, email=email)
-        if issues:
-            console.print(f"  [red]Weak password:[/red] {'; '.join(issues)}")
-            continue
-        confirm = click.prompt("  Confirm password", hide_input=True)
-        if password != confirm:
-            console.print("  [red]Passwords don't match.[/red]")
-            continue
-        break
+    import secrets
+
+    from rich.panel import Panel
+
+    password = secrets.token_urlsafe(16)
+    console.print(
+        Panel(
+            f"[bold]Admin password:[/bold] {password}\n\n"
+            "[yellow]Save this password now — it will not be shown again.[/yellow]",
+            title="Generated Admin Password",
+            border_style="green",
+        )
+    )
 
     return email, password
 
@@ -322,16 +324,16 @@ def _step_sources(project_root: Path) -> list[dict[str, str]]:
 
 
 def _step_oauth() -> bool:
-    """Step 7: Skip OAuth setup for now?
+    """Step 7: Skip OAuth setup (always skipped during deploy wizard).
 
     Returns:
-        True if OAuth should be skipped.
+        True (OAuth is always skipped — configured post-deployment).
     """
     console.print("\n[bold]Step 7: OAuth Sources[/bold]")
-    console.print("  Some sources (Google, Facebook) require OAuth tokens.")
-    console.print("  You can configure OAuth after deployment.\n")
+    console.print("  OAuth tokens will be configured after deployment.")
+    console.print("  Run [cyan]dango oauth setup[/cyan] on the server.\n")
 
-    return not click.confirm("  Configure OAuth now?", default=False)
+    return True
 
 
 # ---------------------------------------------------------------------------

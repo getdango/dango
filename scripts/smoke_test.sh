@@ -1,20 +1,40 @@
 #!/usr/bin/env bash
-# scripts/smoke_test.sh
+# scripts/smoke_test.sh — v1.1 (2026-04-25)
 #
 # Automated smoke test for a running Dango instance.
 # Requires: dango start running in a test project, venv activated.
 #
 # Usage:
 #   ./scripts/smoke_test.sh [BASE_URL]
+#   ./scripts/smoke_test.sh --help
 #
 # Environment variables:
-#   DANGO_BASE_URL      — Server URL (default: http://localhost:8800)
-#   DANGO_ADMIN_EMAIL   — Admin email (default: admin@localhost)
+#   DANGO_BASE_URL       — Server URL (default: http://localhost:8800)
+#   DANGO_ADMIN_EMAIL    — Admin email (default: admin@localhost)
 #   DANGO_ADMIN_PASSWORD — Admin password (required, no default)
 
 # Note: -e is intentionally omitted — test commands are expected to return
 # non-zero on failure; the script handles each result individually.
 set -uo pipefail
+
+# ---------------------------------------------------------------------------
+# Help
+# ---------------------------------------------------------------------------
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    echo "Usage: $0 [BASE_URL]"
+    echo ""
+    echo "Run automated smoke tests against a running Dango instance."
+    echo ""
+    echo "Arguments:"
+    echo "  BASE_URL    Server URL (default: \$DANGO_BASE_URL or http://localhost:8800)"
+    echo ""
+    echo "Environment variables:"
+    echo "  DANGO_BASE_URL       Server URL"
+    echo "  DANGO_ADMIN_EMAIL    Admin email (default: admin@localhost)"
+    echo "  DANGO_ADMIN_PASSWORD Admin password (required)"
+    exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -35,6 +55,19 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 trap 'rm -f "$COOKIE_JAR"' EXIT
+
+# Validate ADMIN_EMAIL format
+if ! echo "$ADMIN_EMAIL" | grep -qE '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'; then
+    echo "ERROR: DANGO_ADMIN_EMAIL ('$ADMIN_EMAIL') is not a valid email address."
+    exit 1
+fi
+
+# Check BASE_URL reachability
+if ! curl --head --silent --connect-timeout 5 "$BASE_URL" > /dev/null 2>&1; then
+    echo "ERROR: Cannot reach $BASE_URL — is Dango running?"
+    echo "       Start with: dango start"
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Counters and state

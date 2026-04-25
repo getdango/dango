@@ -418,6 +418,34 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
                     "[dim]Could not regenerate dbt documentation — catalog will update on next sync.[/dim]"
                 )
 
+            # Offer to clean up related .env variables
+            env_file = project_root / ".env"
+            if env_file.exists():
+                from dango.utils.env_file import parse_env_file, serialize_env_file
+
+                env_content = env_file.read_text()
+                env_vars = parse_env_file(env_content)
+                source_token = source_name.upper().replace("-", "_")
+                matching = {k: v for k, v in env_vars.items() if source_token in k}
+
+                if matching:
+                    console.print("[dim]Found related environment variables in .env:[/dim]")
+                    for k in matching:
+                        console.print(f"  [cyan]{k}[/cyan]")
+                    console.print()
+                    if Confirm.ask("Remove these environment variables?", default=False):
+                        for k in matching:
+                            del env_vars[k]
+                        env_file.write_text(serialize_env_file(env_vars))
+                        console.print(f"[green]✓[/green] Removed {len(matching)} env variable(s)")
+                    else:
+                        console.print("[dim]Environment variables left unchanged.[/dim]")
+                else:
+                    console.print("[dim]No related environment variables found in .env.[/dim]")
+            else:
+                console.print("[dim]No .env file found.[/dim]")
+
+            console.print()
             console.print(f"[green]✅ Source '{source_name}' removed successfully[/green]")
             console.print()
             console.print("[yellow]⚠️  Important:[/yellow]")
@@ -425,7 +453,6 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
             console.print("  • [bold]Data still exists[/bold] in DuckDB tables:")
             console.print(f"    - raw.{source_name}")
             console.print(f"    - staging.{source_name}")
-            console.print("  • Environment variables in .env are unchanged")
             console.print()
             console.print("[dim]To clean up orphaned tables:[/dim]")
             console.print(

@@ -62,7 +62,7 @@ exemptions:
 
   # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
   - file: dango/cli/commands/deploy_wizard.py
-    lines: 839
+    lines: 843
     category: exempt
     reason: "TASK-029+075e: Interactive wizard steps 1-9 + BYOS wizard + non-interactive modes. Sequential prompt flow — splitting would scatter closely coupled wizard steps."
     review_by: "v1.1"
@@ -81,7 +81,7 @@ exemptions:
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
-    lines: 988
+    lines: 970
     category: exempt
     reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic."
     review_by: "v1.1"
@@ -93,7 +93,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 707
+    lines: 748
     category: exempt
     reason: "Source management commands (add/list/remove) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation."
     review_by: "v1.1"

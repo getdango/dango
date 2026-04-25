@@ -3,6 +3,8 @@
 Handles Docker Compose operations for Dango services.
 """
 
+import hashlib
+import os
 import subprocess
 from enum import Enum
 from pathlib import Path
@@ -31,6 +33,20 @@ class DockerManager:
     def __init__(self, project_root: Path):
         self.project_root = project_root
         self.compose_file = project_root / "docker-compose.yml"
+
+    @property
+    def compose_project_name(self) -> str:
+        """Deterministic project name derived from path to avoid collisions."""
+        path_hash = hashlib.md5(str(self.project_root).encode(), usedforsecurity=False).hexdigest()[
+            :8
+        ]
+        return f"dango-{path_hash}"
+
+    def _compose_env(self) -> dict[str, str]:
+        """Return env dict with COMPOSE_PROJECT_NAME set."""
+        env = os.environ.copy()
+        env["COMPOSE_PROJECT_NAME"] = self.compose_project_name
+        return env
 
     def is_docker_available(self) -> bool:
         """Check if Docker is available"""
@@ -134,7 +150,12 @@ class DockerManager:
 
         try:
             result = subprocess.run(
-                cmd, cwd=self.project_root, capture_output=True, text=True, timeout=120
+                cmd,
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=self._compose_env(),
             )
 
             if result.returncode == 0:
@@ -200,7 +221,12 @@ class DockerManager:
 
         try:
             result = subprocess.run(
-                cmd, cwd=self.project_root, capture_output=True, text=True, timeout=60
+                cmd,
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env=self._compose_env(),
             )
 
             if result.returncode == 0:
@@ -285,7 +311,12 @@ class DockerManager:
 
         try:
             result = subprocess.run(
-                cmd, cwd=self.project_root, capture_output=True, text=True, timeout=10
+                cmd,
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=self._compose_env(),
             )
 
             if result.returncode != 0:

@@ -1184,7 +1184,7 @@ function renderSourcesTable() {
                             ${source.supports_date_range ? `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); openDateRangeModal('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Custom Date Range...</a>` : ''}`}
                         </div>
                     </div>
-                </div>` : '<span class="text-gray-300">—</span>';
+                </div>` : '<span class="inline-block w-full text-center text-gray-300">—</span>';
 
         return `
         <tr id="source-${source.name}" class="hover:bg-gray-50 transition-colors duration-150 cursor-pointer"
@@ -1209,7 +1209,7 @@ function renderSourcesTable() {
                 ${formatRelativeTime(source.last_sync)}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                ${source.has_schedule ? `<span title="${source.schedule_display || ''}">${source.schedule_display || 'Scheduled'}</span>` : '<span class="text-gray-300">—</span>'}
+                ${source.has_schedule ? `<span title="${source.schedule_display || ''}">${source.schedule_display || 'Scheduled'}</span>` : '<span class="inline-block w-full text-center text-gray-300">—</span>'}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                 ${actionColumn}
@@ -2243,8 +2243,7 @@ function renderDbtModelsTable() {
                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     ${actionButtons}
                     <a
-                        href="/dbt-docs#!/model/${model.unique_id}"
-                        target="_blank"
+                        href="/catalog"
                         class="text-blue-600 hover:text-blue-900"
                         title="View documentation"
                     >
