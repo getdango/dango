@@ -36,7 +36,12 @@ class DockerManager:
 
     @property
     def compose_project_name(self) -> str:
-        """Deterministic project name derived from path to avoid collisions."""
+        """Deterministic project name derived from path to avoid collisions.
+
+        NOTE: Containers started before this change used Docker's default
+        naming (directory-based) and will be orphaned.  ``dango stop --all``
+        cleans those up via ``docker ps --filter name=``.
+        """
         path_hash = hashlib.md5(str(self.project_root).encode(), usedforsecurity=False).hexdigest()[
             :8
         ]
@@ -231,6 +236,7 @@ class DockerManager:
 
             if result.returncode == 0:
                 console.print("[green]✓[/green] Services stopped")
+                self._warn_orphaned_containers()
                 return True
             else:
                 console.print("[red]Error:[/red] Failed to stop services")
@@ -243,6 +249,23 @@ class DockerManager:
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
             return False
+
+    def _warn_orphaned_containers(self) -> None:
+        """Warn if Dango containers from a previous naming scheme are still running."""
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "-q", "--filter", "name=metabase", "--filter", "name=dbt"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                console.print(
+                    "[yellow]⚠[/yellow]  Other Dango containers still running. "
+                    "Run [cyan]dango stop --all[/cyan] to stop them."
+                )
+        except Exception:
+            pass  # Best-effort, never block stop
 
     def stop_all_dango_containers(self) -> bool:
         """

@@ -67,18 +67,42 @@ class TestComposeProjectName:
 class TestEnvCleanupLogic:
     """BUG-086: source remove .env cleanup."""
 
+    @staticmethod
+    def _match(env_vars: dict[str, str], source_name: str) -> dict[str, str]:
+        """Replicate the matching logic from source_remove."""
+        source_token = source_name.upper().replace("-", "_")
+        return {
+            k: v
+            for k, v in env_vars.items()
+            if k.startswith(source_token + "_") or k == source_token
+        }
+
     def test_matching_vars_found(self) -> None:
-        """Variables containing the uppercased source name are matched."""
+        """Variables prefixed with the uppercased source name are matched."""
         from dango.utils.env_file import parse_env_file
 
         content = "STRIPE_API_KEY=sk_test_123\nOTHER_VAR=hello\nSTRIPE_WEBHOOK_SECRET=whsec_456"
         env_vars = parse_env_file(content)
-        source_token = "stripe".upper().replace("-", "_")
-        matching = {k: v for k, v in env_vars.items() if source_token in k}
+        matching = self._match(env_vars, "stripe")
         assert len(matching) == 2
         assert "STRIPE_API_KEY" in matching
         assert "STRIPE_WEBHOOK_SECRET" in matching
         assert "OTHER_VAR" not in matching
+
+    def test_no_false_positive_on_short_names(self) -> None:
+        """A source named 'db' must NOT match 'DB_HOST' or 'DUCKDB_PATH'."""
+        from dango.utils.env_file import parse_env_file
+
+        content = "DB_HOST=localhost\nDB_PORT=5432\nDUCKDB_PATH=/data\nDB=inline_val\n"
+        env_vars = parse_env_file(content)
+        matching = self._match(env_vars, "db")
+        # DB_HOST and DB_PORT start with "DB_" → matched
+        # DUCKDB_PATH does NOT start with "DB_" → excluded
+        # DB (exact match) → matched
+        assert "DB_HOST" in matching
+        assert "DB_PORT" in matching
+        assert "DB" in matching
+        assert "DUCKDB_PATH" not in matching
 
     def test_roundtrip_after_removal(self) -> None:
         """Removing matched vars and serializing produces valid .env."""
@@ -86,8 +110,7 @@ class TestEnvCleanupLogic:
 
         content = "STRIPE_KEY=abc\nDB_HOST=localhost\nSTRIPE_SECRET=xyz\n"
         env_vars = parse_env_file(content)
-        source_token = "STRIPE"
-        matching = {k for k in env_vars if source_token in k}
+        matching = self._match(env_vars, "stripe")
         for k in matching:
             del env_vars[k]
 
@@ -101,8 +124,7 @@ class TestEnvCleanupLogic:
 
         content = "DB_HOST=localhost\nDB_PORT=5432\n"
         env_vars = parse_env_file(content)
-        source_token = "STRIPE"
-        matching = {k: v for k, v in env_vars.items() if source_token in k}
+        matching = self._match(env_vars, "stripe")
         assert len(matching) == 0
 
     def test_hyphenated_source_name(self) -> None:
@@ -111,8 +133,7 @@ class TestEnvCleanupLogic:
 
         content = "MY_SOURCE_KEY=val1\nOTHER=val2\n"
         env_vars = parse_env_file(content)
-        source_token = "my-source".upper().replace("-", "_")
-        matching = {k: v for k, v in env_vars.items() if source_token in k}
+        matching = self._match(env_vars, "my-source")
         assert len(matching) == 1
         assert "MY_SOURCE_KEY" in matching
 
@@ -174,71 +195,58 @@ class TestAutoGeneratePassword:
 class TestStaleBinaryDetection:
     """UX-009: Warn when dango binary is outside active venv.
 
-    Tests the detection logic directly rather than going through CliRunner,
-    since Click's group callback + ``click.echo(err=True)`` interactions
-    with CliRunner make stderr assertion unreliable.
+    Calls the real ``cli`` group callback directly (bypassing CliRunner,
+    which swallows ``click.echo(err=True)`` output) to verify the stale
+    binary warning.  Patches ``click.echo`` globally since that's what
+    the callback calls at runtime.
     """
+
+    @staticmethod
+    def _invoke_cli_callback(**env_overrides: str) -> list:
+        """Call the cli group callback and return click.echo calls."""
+        import click
+
+        from dango.cli.main import cli
+
+        mock_ctx = click.Context(cli, info_name="dango")
+        mock_ctx.ensure_object(dict)
+        echo_calls: list = []
+
+        def capturing_echo(*args, **kwargs):  # type: ignore[no-untyped-def]
+            echo_calls.append((args, kwargs))
+
+        with (
+            patch.dict("os.environ", env_overrides, clear=False),
+            patch("click.echo", side_effect=capturing_echo),
+            patch("dango.config.helpers.find_project_root", side_effect=Exception("no project")),
+        ):
+            # pass_context injects ctx automatically — just invoke with no args
+            mock_ctx.invoke(cli.callback)  # type: ignore[arg-type]
+
+        return echo_calls
 
     def test_warns_outside_venv(self) -> None:
         """Warning emitted when sys.executable is outside VIRTUAL_ENV."""
-        with (
-            patch.dict("os.environ", {"VIRTUAL_ENV": "/home/user/project/venv"}, clear=False),
-            patch("sys.executable", "/usr/local/bin/python3"),
-            patch("click.echo") as mock_echo,
-        ):
-            import os
-            import sys
+        with patch("sys.executable", "/usr/local/bin/python3"):
+            calls = self._invoke_cli_callback(VIRTUAL_ENV="/home/user/project/venv")
 
-            venv_prefix = os.environ.get("VIRTUAL_ENV")
-            if venv_prefix and not sys.executable.startswith(venv_prefix):
-                import click
-
-                click.echo(
-                    "Warning: Running 'dango' from outside the active venv. "
-                    "Run 'hash -r' or restart your terminal.",
-                    err=True,
-                )
-
-        mock_echo.assert_called_once()
-        assert "outside the active venv" in mock_echo.call_args[0][0]
-        assert mock_echo.call_args[1]["err"] is True
+        warning_calls = [c for c in calls if c[0] and "outside the active venv" in c[0][0]]
+        assert len(warning_calls) == 1
+        assert warning_calls[0][1].get("err") is True
 
     def test_no_warn_inside_venv(self) -> None:
         """No warning when executable is inside the venv."""
-        with (
-            patch.dict(
-                "os.environ",
-                {"VIRTUAL_ENV": "/home/user/project/venv"},
-                clear=False,
-            ),
-            patch("sys.executable", "/home/user/project/venv/bin/python3"),
-            patch("click.echo") as mock_echo,
-        ):
-            import os
-            import sys
+        with patch("sys.executable", "/home/user/project/venv/bin/python3"):
+            calls = self._invoke_cli_callback(VIRTUAL_ENV="/home/user/project/venv")
 
-            venv_prefix = os.environ.get("VIRTUAL_ENV")
-            if venv_prefix and not sys.executable.startswith(venv_prefix):
-                import click
-
-                click.echo("should not fire", err=True)
-
-        mock_echo.assert_not_called()
+        warning_calls = [c for c in calls if c[0] and "outside the active venv" in c[0][0]]
+        assert len(warning_calls) == 0
 
     def test_no_warn_without_venv(self) -> None:
         """No warning when VIRTUAL_ENV is unset."""
         env_without_venv = {k: v for k, v in __import__("os").environ.items() if k != "VIRTUAL_ENV"}
-        with (
-            patch.dict("os.environ", env_without_venv, clear=True),
-            patch("click.echo") as mock_echo,
-        ):
-            import os
-            import sys
+        with patch.dict("os.environ", env_without_venv, clear=True):
+            calls = self._invoke_cli_callback()
 
-            venv_prefix = os.environ.get("VIRTUAL_ENV")
-            if venv_prefix and not sys.executable.startswith(venv_prefix):
-                import click
-
-                click.echo("should not fire", err=True)
-
-        mock_echo.assert_not_called()
+        warning_calls = [c for c in calls if c[0] and "outside the active venv" in c[0][0]]
+        assert len(warning_calls) == 0

@@ -426,7 +426,11 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
                 env_content = env_file.read_text()
                 env_vars = parse_env_file(env_content)
                 source_token = source_name.upper().replace("-", "_")
-                matching = {k: v for k, v in env_vars.items() if source_token in k}
+                matching = {
+                    k: v
+                    for k, v in env_vars.items()
+                    if k.startswith(source_token + "_") or k == source_token
+                }
 
                 if matching:
                     console.print("[dim]Found related environment variables in .env:[/dim]")
