@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import click
+
 from dango.cli import console
 from dango.cli.commands.deploy_wizard import _EMAIL_RE, BYOSConfig, WizardConfig
 from dango.exceptions import CloudProvisioningError
@@ -169,7 +171,14 @@ def run_provisioning(
 
         ssh.connect(droplet_ip, username="root")
         try:
-            setup_result = setup_server(ssh, on_progress=_setup_progress, domain=config.domain)
+            import dango
+
+            setup_result = setup_server(
+                ssh,
+                on_progress=_setup_progress,
+                domain=config.domain,
+                dango_version=dango.__version__,
+            )
             if setup_result.warnings:
                 for w in setup_result.warnings:
                     console.print(f"  [yellow]Warning:[/yellow] {w}")
@@ -323,11 +332,14 @@ def run_byos_setup(
         _status("Setting up server (installs Docker, Caddy, Python, etc.)...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
+            import dango
+
             setup_result = setup_server(
                 ssh,
                 on_progress=_setup_progress,
                 domain=config.domain,
                 setup_ufw=True,
+                dango_version=dango.__version__,
             )
             if setup_result.warnings:
                 for w in setup_result.warnings:
@@ -450,16 +462,35 @@ def _push_secrets(
     warnings: list[str],
 ) -> None:
     """Push .dlt/secrets.toml and .env to remote server."""
-    # .dlt/secrets.toml
     secrets_path = project_root / ".dlt" / "secrets.toml"
+    env_path = project_root / ".env"
+
+    # Identify files to push
+    files_to_push: list[str] = []
+    if secrets_path.exists():
+        files_to_push.append(".dlt/secrets.toml")
+    if env_path.exists():
+        files_to_push.append(".env")
+
+    if not files_to_push:
+        warnings.append("No .dlt/secrets.toml or .env found locally — skipped.")
+        return
+
+    console.print("\n[bold]Secrets to push:[/bold]")
+    for f in files_to_push:
+        console.print(f"  - {f}")
+    console.print()
+
+    if not click.confirm("Push these secrets to the server?", default=True):
+        console.print("[yellow]Skipped secrets push.[/yellow]")
+        warnings.append("Secrets push skipped by user.")
+        return
+
+    # Push files
     if secrets_path.exists():
         content = secrets_path.read_text()
         ssh.write_remote_file("/srv/dango/project/.dlt/secrets.toml", content, mode=0o600)
-    else:
-        warnings.append("No .dlt/secrets.toml found locally — skipped.")
 
-    # .env
-    env_path = project_root / ".env"
     if env_path.exists():
         content = env_path.read_text()
         ssh.write_remote_file("/srv/dango/project/.env", content, mode=0o600)

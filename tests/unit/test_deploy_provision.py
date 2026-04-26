@@ -154,33 +154,50 @@ class TestSecretsPush:
 
         ssh = _make_mock_ssh()
         warnings: list[str] = []
-        _push_secrets(ssh, project_root, warnings)
+        with patch("dango.cli.commands.deploy_provision.click.confirm", return_value=True):
+            _push_secrets(ssh, project_root, warnings)
 
         assert warnings == []
         assert ssh.write_remote_file.call_count == 2
 
     def test_env_missing_continues(self, project_root):
-        """Missing .env is silently skipped."""
+        """Missing .env is silently skipped — only secrets.toml pushed."""
         dlt_dir = project_root / ".dlt"
         dlt_dir.mkdir()
         (dlt_dir / "secrets.toml").write_text("[sources]\n")
 
         ssh = _make_mock_ssh()
         warnings: list[str] = []
-        _push_secrets(ssh, project_root, warnings)
+        with patch("dango.cli.commands.deploy_provision.click.confirm", return_value=True):
+            _push_secrets(ssh, project_root, warnings)
 
         assert warnings == []
         # Only secrets.toml written
         assert ssh.write_remote_file.call_count == 1
 
     def test_secrets_missing_warns(self, project_root):
-        """Missing .dlt/secrets.toml produces a warning."""
+        """Missing both .dlt/secrets.toml and .env produces a warning."""
         ssh = _make_mock_ssh()
         warnings: list[str] = []
         _push_secrets(ssh, project_root, warnings)
 
         assert len(warnings) == 1
-        assert "secrets.toml" in warnings[0]
+        assert "No .dlt/secrets.toml or .env found locally" in warnings[0]
+
+    def test_user_declines_push(self, project_root):
+        """User declining confirm skips write and adds warning."""
+        dlt_dir = project_root / ".dlt"
+        dlt_dir.mkdir()
+        (dlt_dir / "secrets.toml").write_text("[sources]\n")
+
+        ssh = _make_mock_ssh()
+        warnings: list[str] = []
+        with patch("dango.cli.commands.deploy_provision.click.confirm", return_value=False):
+            _push_secrets(ssh, project_root, warnings)
+
+        assert len(warnings) == 1
+        assert "skipped by user" in warnings[0]
+        ssh.write_remote_file.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +364,7 @@ class TestProvisionSequence:
             patch("dango.platform.cloud.server_setup.setup_server") as mock_setup,
             patch("dango.platform.cloud.file_sync.sync_project_files"),
             patch("dango.platform.cloud.provisioning.save_provisioning_metadata"),
+            patch("dango.cli.commands.deploy_provision.click.confirm", return_value=True),
         ):
             mock_setup.return_value = MagicMock(warnings=[])
             mock_ssh.generate_key_pair.return_value = "ssh-ed25519 AAAA..."

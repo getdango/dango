@@ -127,12 +127,37 @@ def _collect_pycache(project_root: Path) -> list[tuple[Path, int]]:
     return results
 
 
+def _collect_docker_volumes() -> list[str]:
+    """Find dangling Docker volumes.
+
+    Returns:
+        List of volume names. Empty if Docker is not available.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["docker", "volume", "ls", "--format", "{{.Name}}", "-f", "dangling=true"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return []
+        return [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
+    except FileNotFoundError:
+        return []
+    except subprocess.TimeoutExpired:
+        return []
+
+
 @click.command("cleanup")
 @click.option("--dry-run", is_flag=True, help="Show what would be deleted without deleting.")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
 @click.option("--logs-only", is_flag=True, help="Only clean log archives, skip dbt/cache.")
+@click.option("--docker", is_flag=True, help="Also prune dangling Docker volumes.")
 @click.pass_context
-def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool) -> None:
+def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docker: bool) -> None:
     """Remove old log archives, dbt artifacts, and Python cache.
 
     Cleans up disk space by removing:
@@ -141,6 +166,7 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool) -> No
       - Compressed log archives older than 90 days (.jsonl.gz)
       - dbt build artifacts (dbt/target/, dbt/logs/)
       - Python bytecode cache (__pycache__/ directories)
+      - Dangling Docker volumes (with --docker)
 
     Examples:
 
@@ -149,6 +175,7 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool) -> No
       dango cleanup --dry-run    Show what would be deleted
       dango cleanup --yes        Clean without confirmation
       dango cleanup --logs-only  Only clean old log archives
+      dango cleanup --docker     Also prune dangling Docker volumes
     """
     import shutil
 
@@ -177,13 +204,17 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool) -> No
             dbt_artifacts = _collect_dbt_artifacts(project_root)
             pycache_dirs = _collect_pycache(project_root)
 
+        docker_volumes: list[str] = []
+        if docker:
+            docker_volumes = _collect_docker_volumes()
+
         log_total = sum(size for _, size in log_archives)
         dbt_total = sum(size for _, size in dbt_artifacts)
         cache_total = sum(size for _, size in pycache_dirs)
         grand_total = log_total + dbt_total + cache_total
 
         # --- Nothing to clean ---
-        if grand_total == 0:
+        if grand_total == 0 and not docker_volumes:
             console.print("[green]Nothing to clean up.[/green]")
             return
 
@@ -208,6 +239,12 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool) -> No
             )
         if pycache_dirs:
             table.add_row("Python cache", str(len(pycache_dirs)), _format_size(cache_total))
+        if docker_volumes:
+            table.add_row(
+                "Docker volumes (dangling)",
+                str(len(docker_volumes)),
+                "[dim]varies[/dim]",
+            )
 
         table.add_section()
         table.add_row("[bold]Total[/bold]", "", f"[bold]{_format_size(grand_total)}[/bold]")
@@ -229,6 +266,10 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool) -> No
                 console.print("[dim]Python cache directories:[/dim]")
                 for path, size in pycache_dirs:
                     console.print(f"  {path.relative_to(project_root)}/  ({_format_size(size)})")
+            if docker_volumes:
+                console.print("[dim]Docker volumes:[/dim]")
+                for vol in docker_volumes:
+                    console.print(f"  {vol}")
             console.print()
             console.print("[yellow]Dry run — no files deleted.[/yellow]")
             return
@@ -288,6 +329,23 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool) -> No
                 f"[green]\u2713[/green] Removed {cache_removed} __pycache__ dir(s)"
                 f" ({_format_size(cache_freed)})"
             )
+
+        # Docker volumes
+        if docker_volumes:
+            import subprocess
+
+            try:
+                subprocess.run(
+                    ["docker", "volume", "prune", "-f"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                console.print(
+                    f"[green]\u2713[/green] Pruned {len(docker_volumes)} dangling Docker volume(s)"
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+                console.print(f"[red]\u2717[/red] Failed to prune Docker volumes: {exc}")
 
         # --- After summary ---
         console.print()

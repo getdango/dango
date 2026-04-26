@@ -2,7 +2,7 @@
 
 Interactive deployment wizard and non-interactive validation for ``dango deploy``.
 
-Steps 1-9 gather DigitalOcean configuration (region, size, domain, admin
+Steps 1-8 gather DigitalOcean configuration (region, size, admin
 credentials, etc.) before handing off to ``deploy_provision.py``.
 
 Also provides a BYOS (Bring Your Own Server) wizard path that skips
@@ -200,47 +200,19 @@ def _step_size() -> tuple[str, Any | None]:
 
 
 # ---------------------------------------------------------------------------
-# Domain
-# ---------------------------------------------------------------------------
-
-
-def _step_domain() -> str | None:
-    """Step 4: Optional custom domain.
-
-    Returns:
-        Domain string or None.
-    """
-    console.print("\n[bold]Step 4: Custom Domain (optional)[/bold]")
-    console.print("  Your server will be accessible by IP address.")
-    console.print("  Add a domain for HTTPS and a friendly URL.\n")
-
-    domain = click.prompt("  Domain (leave blank to skip)", default="", show_default=False)
-    domain = domain.strip().lower()
-
-    if not domain:
-        return None
-
-    console.print(
-        f"\n  [dim]Point a DNS A record for [bold]{domain}[/bold] to your server IP.[/dim]"
-    )
-    console.print("  [dim]Caddy will auto-provision an HTTPS certificate via Let's Encrypt.[/dim]")
-    return str(domain)
-
-
-# ---------------------------------------------------------------------------
 # Admin credentials
 # ---------------------------------------------------------------------------
 
 
 def _step_admin() -> tuple[str, str]:
-    """Step 5: Admin email and password.
+    """Step 4: Admin email and password.
 
     Returns:
         Tuple of (email, password).
     """
     from dango.auth.security import check_password_strength
 
-    console.print("\n[bold]Step 5: Admin Account[/bold]")
+    console.print("\n[bold]Step 4: Admin Account[/bold]")
     console.print("  Create the first admin user for your deployment.\n")
 
     # Email
@@ -283,14 +255,14 @@ def _step_admin() -> tuple[str, str]:
 
 
 def _step_sources(project_root: Path) -> list[dict[str, str]]:
-    """Step 6: List configured sources and check credentials.
+    """Step 5: List configured sources and check credentials.
 
     Returns:
         List of source dicts with 'name' and 'type' keys.
     """
     from dango.config.helpers import load_config
 
-    console.print("\n[bold]Step 6: Data Sources[/bold]\n")
+    console.print("\n[bold]Step 5: Data Sources[/bold]\n")
 
     config = load_config(project_root)
     sources: list[dict[str, str]] = []
@@ -324,12 +296,12 @@ def _step_sources(project_root: Path) -> list[dict[str, str]]:
 
 
 def _step_oauth() -> bool:
-    """Step 7: Skip OAuth setup (always skipped during deploy wizard).
+    """Step 6: Skip OAuth setup (always skipped during deploy wizard).
 
     Returns:
         True (OAuth is always skipped — configured post-deployment).
     """
-    console.print("\n[bold]Step 7: OAuth Sources[/bold]")
+    console.print("\n[bold]Step 6: OAuth Sources[/bold]")
     console.print("  OAuth tokens will be configured after deployment.")
     console.print("  Run [cyan]dango oauth setup[/cyan] on the server.\n")
 
@@ -342,12 +314,12 @@ def _step_oauth() -> bool:
 
 
 def _step_backups() -> tuple[bool, str | None, str | None]:
-    """Step 8: Enable automated backups?
+    """Step 7: Enable automated backups?
 
     Returns:
         Tuple of (enable_backups, access_key, secret_key).
     """
-    console.print("\n[bold]Step 8: Automated Backups[/bold]")
+    console.print("\n[bold]Step 7: Automated Backups[/bold]")
     console.print("  Daily backups to DigitalOcean Spaces ($5/mo for storage).\n")
 
     enable = click.confirm("  Enable automated backups?", default=True)
@@ -403,10 +375,9 @@ def _get_monthly_cost(size_slug: str, enable_backups: bool) -> int:
 def _step_cost_summary(
     region: str,
     size_slug: str,
-    domain: str | None,
     enable_backups: bool,
 ) -> int:
-    """Step 9: Show cost summary and confirm.
+    """Step 8: Show cost summary and confirm.
 
     Returns:
         Monthly cost in USD.
@@ -416,7 +387,7 @@ def _step_cost_summary(
     """
     from dango.platform.cloud.provisioning import get_region_info, get_size_tier
 
-    console.print("\n[bold]Step 9: Cost Summary[/bold]\n")
+    console.print("\n[bold]Step 8: Cost Summary[/bold]\n")
 
     tier = get_size_tier(size_slug)
     region_info = get_region_info(region)
@@ -427,13 +398,15 @@ def _step_cost_summary(
 
     console.print(f"  Region:    {region_display}")
     console.print(f"  Size:      {size_display} — ${droplet_cost}/mo")
-    if domain:
-        console.print(f"  Domain:    {domain}")
     if enable_backups:
         console.print("  Backups:   Enabled — ~$5/mo")
 
     total = _get_monthly_cost(size_slug, enable_backups)
-    console.print(f"\n  [bold]Estimated total: ${total}/mo[/bold]\n")
+    console.print(f"\n  [bold]Estimated total: ${total}/mo[/bold]")
+    console.print(
+        "  [dim]Costs are billed directly by DigitalOcean to your account,"
+        " not through Dango.[/dim]\n"
+    )
 
     if not click.confirm("  Proceed with deployment?", default=True):
         console.print("[yellow]Aborted.[/yellow]")
@@ -448,7 +421,7 @@ def _step_cost_summary(
 
 
 def run_wizard(project_root: Path) -> WizardConfig:
-    """Run the interactive deployment wizard (steps 1-9).
+    """Run the interactive deployment wizard (steps 1-8).
 
     Args:
         project_root: Path to the Dango project root.
@@ -468,29 +441,26 @@ def run_wizard(project_root: Path) -> WizardConfig:
     # Step 3: Size
     size_slug, size_tier = _step_size()
 
-    # Step 4: Domain
-    domain = _step_domain()
-
-    # Step 5: Admin credentials
+    # Step 4: Admin credentials
     admin_email, admin_password = _step_admin()
 
-    # Step 6: Sources
+    # Step 5: Sources
     _step_sources(project_root)
 
-    # Step 7: OAuth
+    # Step 6: OAuth
     skip_oauth = _step_oauth()
 
-    # Step 8: Backups
+    # Step 7: Backups
     enable_backups, spaces_access_key, spaces_secret_key = _step_backups()
 
-    # Step 9: Cost summary + confirm
-    monthly_cost = _step_cost_summary(region, size_slug, domain, enable_backups)
+    # Step 8: Cost summary + confirm
+    monthly_cost = _step_cost_summary(region, size_slug, enable_backups)
 
     return WizardConfig(
         region=region,
         size_slug=size_slug,
         size_tier=size_tier,
-        domain=domain,
+        domain=None,
         admin_email=admin_email,
         admin_password=admin_password,
         skip_oauth=skip_oauth,
@@ -718,24 +688,19 @@ def run_byos_wizard(project_root: Path) -> BYOSConfig:
     # Step 2: Validate SSH
     _validate_ssh_connectivity(server_ip, ssh_user, ssh_key_path)
 
-    # Step 3: Domain
-    domain = _step_domain()
-
-    # Step 4: Admin credentials
+    # Step 3: Admin credentials
     admin_email, admin_password = _step_admin()
 
-    # Step 5: Sources
+    # Step 4: Sources
     _step_sources(project_root)
 
-    # Step 6: OAuth
+    # Step 5: OAuth
     skip_oauth = _step_oauth()
 
     # Confirmation
     console.print("\n[bold]Deployment Summary[/bold]\n")
     console.print(f"  Server:    {server_ip} (SSH user: {ssh_user})")
     console.print(f"  SSH key:   {ssh_key_path}")
-    if domain:
-        console.print(f"  Domain:    {domain}")
     console.print(f"  Admin:     {admin_email}")
     console.print()
 
@@ -747,7 +712,7 @@ def run_byos_wizard(project_root: Path) -> BYOSConfig:
         server_ip=server_ip,
         ssh_user=ssh_user,
         ssh_key_path=ssh_key_path,
-        domain=domain,
+        domain=None,
         admin_email=admin_email,
         admin_password=admin_password,
         skip_oauth=skip_oauth,

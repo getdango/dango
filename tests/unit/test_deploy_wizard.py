@@ -314,3 +314,40 @@ class TestCostSummary:
     def test_standard_with_backups(self):
         """Standard tier with backups = $29."""
         assert _get_monthly_cost("s-2vcpu-4gb", True) == 29
+
+
+# ---------------------------------------------------------------------------
+# 6. Domain removal (UX-020)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestDomainRemoval:
+    def test_non_interactive_sets_domain_none_by_default(self, project_root, monkeypatch):
+        """Non-interactive without --domain gives domain=None."""
+        monkeypatch.setenv("DIGITALOCEAN_TOKEN", "test-token")
+        config = run_non_interactive(
+            project_root,
+            admin_email="admin@example.com",
+            admin_password="strongpassword123",
+        )
+        assert config.domain is None
+
+    def test_non_interactive_accepts_domain_flag(self, project_root, monkeypatch):
+        """Non-interactive with --domain passes it through."""
+        monkeypatch.setenv("DIGITALOCEAN_TOKEN", "test-token")
+        config = run_non_interactive(
+            project_root,
+            domain="example.com",
+            admin_email="admin@example.com",
+            admin_password="strongpassword123",
+        )
+        assert config.domain == "example.com"
+
+    def test_cost_summary_no_domain_param(self):
+        """_step_cost_summary works without domain parameter."""
+        from dango.cli.commands.deploy_wizard import _step_cost_summary
+
+        with patch("dango.cli.commands.deploy_wizard.click.confirm", return_value=True):
+            cost = _step_cost_summary("nyc1", "s-2vcpu-4gb", False)
+        assert cost == 24

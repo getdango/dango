@@ -43,7 +43,7 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-12">
                 <!-- Desktop nav links: 9-item pipeline layout -->
-                <div class="hidden md:flex items-center space-x-0.5">
+                <div class="hidden md:flex items-center space-x-1">
                     <a href="/" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'overview' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
                         Overview
                     </a>
@@ -145,6 +145,23 @@
         </div>
     </nav>
     {% endblock %}
+
+    {% if is_cloud is defined and is_cloud and request.state.user and not request.state.user.totp_enabled %}
+    <div x-data="{ dismissed: false }" x-show="!dismissed" x-cloak
+         class="bg-yellow-50 border-b border-yellow-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between">
+            <p class="text-sm text-yellow-800">
+                <span class="font-medium">Security recommendation:</span>
+                <a href="/settings/account" class="underline hover:text-yellow-900">Enable 2FA</a> for your account.
+            </p>
+            <button @click="dismissed = true" class="text-yellow-600 hover:text-yellow-800">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+    {% endif %}
 
     {% block content %}{% endblock %}
 
