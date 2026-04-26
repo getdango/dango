@@ -272,7 +272,14 @@ def _setup_venv(
         result.steps_skipped.append(step)
         _notify(on_progress, step, "skipped")
         return
-    pkg = f"getdango=={dango_version}" if dango_version else "getdango"
+    if dango_version:
+        import re
+
+        if not re.match(r"^[a-zA-Z0-9._-]+$", dango_version):
+            raise ValueError(f"Invalid version string: {dango_version!r}")
+        pkg = f"getdango=={dango_version}"
+    else:
+        pkg = "getdango"
     _run_checked(
         ssh,
         "python3 -m venv /srv/dango/venv"

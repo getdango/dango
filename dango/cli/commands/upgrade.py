@@ -164,7 +164,7 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
     # Confirmation prompts (unless --yes)
     if not yes:
         console.print("[dim]Tip: Run 'dango stop' first if services are running.[/dim]")
-        if click.confirm("Create a backup first?", default=True):
+        if click.confirm("Pause to create a manual backup first?", default=True):
             console.print(
                 "\n  Copy your [cyan].dango/[/cyan] directory or run your "
                 "backup procedure in another terminal, then continue.\n"

@@ -68,13 +68,13 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy_provision.py
-    lines: 739
+    lines: 737
     category: exempt
     reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy.py
-    lines: 704
+    lines: 705
     category: exempt
     reason: "TASK-029+075e: Deploy group with DO + BYOS routing, destroy command for both providers. Splitting would scatter the provider selection and destroy dispatch logic."
     review_by: "v1.1"
@@ -255,7 +255,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/cloud/server_setup.py
-    lines: 541
+    lines: 548
     category: exempt
     reason: "TASK-075e: Added optional UFW firewall step for BYOS deployments (+35 lines). 17 idempotent setup steps — splitting would scatter sequential orchestration."
     review_by: "v1.1"
@@ -285,7 +285,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_server_setup.py
-    lines: 575
+    lines: 584
     category: exempt
     reason: "TASK-026+027: Added domain parameter tests for setup_server(). Each test requires isolated mock setup with full exec_results map."
     review_by: "v1.1"

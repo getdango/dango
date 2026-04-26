@@ -486,22 +486,20 @@ def _push_secrets(
         warnings.append("Secrets push skipped by user.")
         return
 
-    # Push files
+    # Push files and fix ownership for each
+    pushed_paths: list[str] = []
     if secrets_path.exists():
         content = secrets_path.read_text()
         ssh.write_remote_file("/srv/dango/project/.dlt/secrets.toml", content, mode=0o600)
+        pushed_paths.append("/srv/dango/project/.dlt/secrets.toml")
 
     if env_path.exists():
         content = env_path.read_text()
         ssh.write_remote_file("/srv/dango/project/.env", content, mode=0o600)
+        pushed_paths.append("/srv/dango/project/.env")
 
-    # Fix ownership
-    ssh.exec_command(
-        "chown dango:dango "
-        "/srv/dango/project/.dlt/secrets.toml "
-        "/srv/dango/project/.env "
-        "2>/dev/null; true"
-    )
+    if pushed_paths:
+        ssh.exec_command(f"chown dango:dango {' '.join(pushed_paths)} 2>/dev/null; true")
 
 
 def _create_admin_and_enable_auth(

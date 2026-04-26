@@ -91,7 +91,7 @@ dango/                          # Python package source
 │   │   ├── serve.py            # serve production foreground server
 │   │   ├── deploy.py           # deploy group (wizard default, --byos, destroy)
 │   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (806 lines)
-│   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (739 lines)
+│   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (737 lines)
 │   │   ├── migrate.py          # migrate group (status, run)
 │   │   ├── remote.py           # remote group + push/rollback/firewall/domain (698 lines)
 │   │   ├── remote_env.py       # remote env subgroup (set/get/list/delete)
@@ -357,7 +357,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `transformation/generator.py` | 548 | — |
 | `web/routes/catalog.py` | 1157 | — (data catalog: columns, profiling, lineage, impact, models, search) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
-| `cli/commands/deploy_provision.py` | 739 | — (provisioning orchestration + BYOS) |
+| `cli/commands/deploy_provision.py` | 737 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 542 | — (DO REST API v2 client) |
 | `cli/commands/auth.py` | 660 | — (13 auth subcommands) |
 | `auth/database.py` | 529 | — (SQLite CRUD) |

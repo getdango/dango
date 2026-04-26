@@ -63,8 +63,10 @@ def _render_template(
     """Render a Jinja2 template with fallback for broken installations."""
     if "is_cloud" not in context:
         try:
+            from dango.web.helpers import is_cloud_deployment
+
             project_root = Path(request.app.state.project_root)
-            context["is_cloud"] = (project_root / ".dango" / "cloud.yml").exists()
+            context["is_cloud"] = is_cloud_deployment(project_root)
         except Exception:
             context["is_cloud"] = False
     try:

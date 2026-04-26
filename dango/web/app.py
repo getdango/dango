@@ -102,8 +102,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Cloud security warnings
     try:
-        is_cloud = (project_root / ".dango" / "cloud.yml").exists()
-        if is_cloud:
+        from dango.web.helpers import is_cloud_deployment
+
+        if is_cloud_deployment(project_root):
             auth_cfg = _load_auth_config(project_root)
             if auth_cfg is None:
                 auth_cfg = AuthConfig()

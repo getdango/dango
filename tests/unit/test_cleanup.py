@@ -477,4 +477,7 @@ class TestCleanupDockerFlag:
         assert result.exit_code == 0
         out = _strip(result.output)
         assert "Docker volumes" in out
-        assert "Pruned 2" in out
+        assert "Removed 2" in out
+        # Verify docker volume rm called for each volume, not prune
+        rm_calls = [c for c in mock_run.call_args_list if "volume" in str(c) and "rm" in str(c)]
+        assert len(rm_calls) == 2

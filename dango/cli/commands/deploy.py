@@ -312,7 +312,8 @@ def _print_deploy_success(
     console.print("\n  Next: Visit the URL above and log in with your admin credentials.")
     if not skip_initial_sync:
         console.print("  Initial data sync is running in the background.")
-    console.print("\n  To add a custom domain: [bold]dango remote domain set <domain>[/bold]")
+    if not domain:
+        console.print("\n  To add a custom domain: [bold]dango remote domain set <domain>[/bold]")
 
 
 def _load_deploy_config(ctx: click.Context) -> tuple[Any, Path]:

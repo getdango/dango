@@ -573,3 +573,12 @@ class TestSetupVenvVersionPinning:
         pip_cmds = [c for c in cmds if "pip install" in c and "getdango" in c]
         assert pip_cmds
         assert "getdango==2.0.0" in pip_cmds[0]
+
+    def test_setup_venv_rejects_malicious_version(self):
+        """Version string with shell metacharacters is rejected."""
+        from dango.platform.cloud.server_setup import SetupResult, _setup_venv
+
+        ssh = _make_ssh_mock(exec_results={"test -x": ("", "", 1)})
+        result = SetupResult()
+        with pytest.raises(ValueError, match="Invalid version string"):
+            _setup_venv(ssh, result, None, dango_version="1.0; rm -rf /")

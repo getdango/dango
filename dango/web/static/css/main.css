@@ -1,5 +1,8 @@
 /* Dango Dashboard Custom Styles */
 
+/* Hide Alpine.js x-cloak elements until Alpine initializes */
+[x-cloak] { display: none !important; }
+
 /* Smooth scrolling for activity log */
 #activity-log {
     scroll-behavior: smooth;

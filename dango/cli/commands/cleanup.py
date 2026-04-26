@@ -330,22 +330,29 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
                 f" ({_format_size(cache_freed)})"
             )
 
-        # Docker volumes
+        # Docker volumes — remove only the specific volumes that were listed
         if docker_volumes:
             import subprocess
 
-            try:
-                subprocess.run(
-                    ["docker", "volume", "prune", "-f"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
+            removed = 0
+            for vol in docker_volumes:
+                try:
+                    subprocess.run(
+                        ["docker", "volume", "rm", vol],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    removed += 1
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    pass
+            if removed:
+                console.print(f"[green]\u2713[/green] Removed {removed} dangling Docker volume(s)")
+            if removed < len(docker_volumes):
                 console.print(
-                    f"[green]\u2713[/green] Pruned {len(docker_volumes)} dangling Docker volume(s)"
+                    f"[yellow]![/yellow] {len(docker_volumes) - removed} volume(s)"
+                    " could not be removed"
                 )
-            except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-                console.print(f"[red]\u2717[/red] Failed to prune Docker volumes: {exc}")
 
         # --- After summary ---
         console.print()
