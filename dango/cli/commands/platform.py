@@ -107,7 +107,11 @@ def _check_docker_ports(platform_config: object) -> None:
                 console.print(f"    [dim]Used by: {process_info}[/dim]")
 
         console.print()
-        console.print("[bold]To fix, choose one option:[/bold]\n")
+        console.print(
+            "  [bold yellow]→ If you have a previous Dango instance running, "
+            "run [cyan]dango stop[/cyan] first.[/bold yellow]\n"
+        )
+        console.print("[bold]Other options:[/bold]\n")
         console.print("[bold]Option 1:[/bold] Stop the conflicting process(es)")
         console.print(f"  [cyan]lsof -ti :{conflicts[0][0]} | xargs kill -9[/cyan]\n")
 
@@ -685,56 +689,34 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
         config = config_loader.load_config()
         project_name = config.project.name
 
-        # Stop file watcher first
-        console.print("[cyan]Stopping file watcher...[/cyan]")
+        console.print("[cyan]Stopping services...[/cyan]")
+
+        # Stop file watcher
         from dango.platform.watcher_lifecycle import get_watcher_status, stop_file_watcher
 
         watcher_was_running = get_watcher_status(project_root)["running"]
         watcher_stopped = stop_file_watcher(project_root)
-
-        if watcher_stopped:
-            console.print("[green]✓[/green] File watcher stopped")
-        elif watcher_was_running:
+        if watcher_was_running and not watcher_stopped:
             console.print("[yellow]⚠[/yellow] Failed to stop file watcher")
-        else:
-            console.print("[dim]File watcher was not running[/dim]")
-
-        console.print()
 
         # Stop Marimo notebook server
-        console.print("[cyan]Stopping Marimo notebook server...[/cyan]")
         from dango.notebooks.manager import get_marimo_status, stop_marimo
 
         marimo_was_running = get_marimo_status(project_root)["running"]
         marimo_stopped = stop_marimo(project_root)
-        if marimo_stopped:
-            console.print("[green]✓[/green] Marimo notebook server stopped")
-        elif marimo_was_running:
+        if marimo_was_running and not marimo_stopped:
             console.print("[yellow]⚠[/yellow] Failed to stop Marimo")
-        else:
-            console.print("[dim]Marimo was not running[/dim]")
-
-        console.print()
 
         # Stop FastAPI backend
-        console.print("[cyan]Stopping Web UI backend...[/cyan]")
-        fastapi_stopped = stop_fastapi_server(project_root, verbose=True)
-
-        if not fastapi_stopped:
-            console.print("[dim]Web UI was not running[/dim]")
-
-        console.print()
+        stop_fastapi_server(project_root, verbose=False)
 
         # Stop Docker services
-        console.print("[cyan]Stopping Docker services...[/cyan]")
         manager = DockerManager(project_root)
         docker_success = manager.stop_services()
-
         if not docker_success:
             console.print(
                 "[yellow]Warning:[/yellow] Some Docker services may not have stopped cleanly"
             )
-            console.print()
 
         # Update project status in routing registry
         net_config = NetworkConfig()

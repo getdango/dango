@@ -3,6 +3,8 @@
 Handles Docker Compose operations for Dango services.
 """
 
+import hashlib
+import os
 import subprocess
 from enum import Enum
 from pathlib import Path
@@ -31,6 +33,25 @@ class DockerManager:
     def __init__(self, project_root: Path):
         self.project_root = project_root
         self.compose_file = project_root / "docker-compose.yml"
+
+    @property
+    def compose_project_name(self) -> str:
+        """Deterministic project name derived from path to avoid collisions.
+
+        NOTE: Containers started before this change used Docker's default
+        naming (directory-based) and will be orphaned.  ``dango stop --all``
+        cleans those up via ``docker ps --filter name=``.
+        """
+        path_hash = hashlib.md5(str(self.project_root).encode(), usedforsecurity=False).hexdigest()[
+            :8
+        ]
+        return f"dango-{path_hash}"
+
+    def _compose_env(self) -> dict[str, str]:
+        """Return env dict with COMPOSE_PROJECT_NAME set."""
+        env = os.environ.copy()
+        env["COMPOSE_PROJECT_NAME"] = self.compose_project_name
+        return env
 
     def is_docker_available(self) -> bool:
         """Check if Docker is available"""
@@ -134,7 +155,12 @@ class DockerManager:
 
         try:
             result = subprocess.run(
-                cmd, cwd=self.project_root, capture_output=True, text=True, timeout=120
+                cmd,
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=self._compose_env(),
             )
 
             if result.returncode == 0:
@@ -200,11 +226,17 @@ class DockerManager:
 
         try:
             result = subprocess.run(
-                cmd, cwd=self.project_root, capture_output=True, text=True, timeout=60
+                cmd,
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env=self._compose_env(),
             )
 
             if result.returncode == 0:
                 console.print("[green]✓[/green] Services stopped")
+                self._warn_orphaned_containers()
                 return True
             else:
                 console.print("[red]Error:[/red] Failed to stop services")
@@ -217,6 +249,23 @@ class DockerManager:
         except Exception as e:
             console.print(f"[red]Error:[/red] {e}")
             return False
+
+    def _warn_orphaned_containers(self) -> None:
+        """Warn if Dango containers from a previous naming scheme are still running."""
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "-q", "--filter", "name=metabase", "--filter", "name=dbt"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                console.print(
+                    "[yellow]⚠[/yellow]  Other Dango containers still running. "
+                    "Run [cyan]dango stop --all[/cyan] to stop them."
+                )
+        except Exception:
+            pass  # Best-effort, never block stop
 
     def stop_all_dango_containers(self) -> bool:
         """
@@ -285,7 +334,12 @@ class DockerManager:
 
         try:
             result = subprocess.run(
-                cmd, cwd=self.project_root, capture_output=True, text=True, timeout=10
+                cmd,
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=self._compose_env(),
             )
 
             if result.returncode != 0:
