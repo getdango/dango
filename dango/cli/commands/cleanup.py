@@ -337,13 +337,14 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
             removed = 0
             for vol in docker_volumes:
                 try:
-                    subprocess.run(
+                    result = subprocess.run(
                         ["docker", "volume", "rm", vol],
                         capture_output=True,
                         text=True,
                         timeout=30,
                     )
-                    removed += 1
+                    if result.returncode == 0:
+                        removed += 1
                 except (FileNotFoundError, subprocess.TimeoutExpired):
                     pass
             if removed:

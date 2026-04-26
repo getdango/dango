@@ -90,7 +90,7 @@ dango/                          # Python package source
 │   │   ├── web.py              # web dev server
 │   │   ├── serve.py            # serve production foreground server
 │   │   ├── deploy.py           # deploy group (wizard default, --byos, destroy)
-│   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (806 lines)
+│   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (808 lines)
 │   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (737 lines)
 │   │   ├── migrate.py          # migrate group (status, run)
 │   │   ├── remote.py           # remote group + push/rollback/firewall/domain (698 lines)
@@ -353,7 +353,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `platform/cloud/deployer.py` | 578 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 651 | — |
 | `config/models.py` | 600 | — (Pydantic config models) |
-| `cli/commands/deploy_wizard.py` | 806 | — (interactive deploy wizard + BYOS) |
+| `cli/commands/deploy_wizard.py` | 808 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 548 | — |
 | `web/routes/catalog.py` | 1157 | — (data catalog: columns, profiling, lineage, impact, models, search) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |

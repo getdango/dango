@@ -62,7 +62,7 @@ exemptions:
 
   # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
   - file: dango/cli/commands/deploy_wizard.py
-    lines: 806
+    lines: 808
     category: exempt
     reason: "TASK-029+075e: Interactive wizard steps 1-8 + BYOS wizard + non-interactive modes. Sequential prompt flow — splitting would scatter closely coupled wizard steps."
     review_by: "v1.1"
