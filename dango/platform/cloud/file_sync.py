@@ -51,9 +51,13 @@ REMOTE_PROJECT_DIR = "/srv/dango/project"
 
 #: Config files to upload via SFTP.  Tuples of (local_relative, remote_relative).
 #: Files that may not exist locally are skipped gracefully.
+#:
+#: Note: ``metabase-plugins/`` is intentionally NOT synced — the server's
+#: ``ensure_duckdb_driver()`` handles driver download independently.
 SYNC_CONFIG_FILES: list[tuple[str, str]] = [
     (".dango/sources.yml", f"{REMOTE_PROJECT_DIR}/.dango/sources.yml"),
     (".dango/schedules.yml", f"{REMOTE_PROJECT_DIR}/.dango/schedules.yml"),
+    (".dango/project.yml", f"{REMOTE_PROJECT_DIR}/.dango/project.yml"),
     ("dbt/dbt_project.yml", f"{REMOTE_PROJECT_DIR}/dbt/dbt_project.yml"),
     ("dbt/packages.yml", f"{REMOTE_PROJECT_DIR}/dbt/packages.yml"),
     # Docker build context files — both required to build the Metabase image on the server

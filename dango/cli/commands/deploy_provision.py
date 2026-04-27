@@ -200,6 +200,14 @@ def run_provisioning(
         finally:
             ssh.disconnect()
 
+        # --- Sub-step 6b: Generate dbt profiles.yml for cloud ---
+        _status("Generating dbt profiles...")
+        ssh.connect(droplet_ip, username="root")
+        try:
+            _generate_cloud_profiles(ssh, project_root, config.size_slug)
+        finally:
+            ssh.disconnect()
+
         # --- Sub-step 7: Push secrets ---
         warnings: list[str] = []
         _status("Pushing secrets to server...")
@@ -357,6 +365,14 @@ def run_byos_setup(
                 remote_host=config.server_ip,
                 on_progress=_setup_progress,
             )
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 2b: Generate dbt profiles.yml for cloud ---
+        _status("Generating dbt profiles...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            _generate_cloud_profiles(ssh, project_root)
         finally:
             ssh.disconnect()
 
@@ -556,6 +572,13 @@ def _create_admin_and_enable_auth(
         timeout=30,
     )
 
+    # Persist admin email for systemd service (BUG-100)
+    ssh.exec_command(
+        f"grep -q '^DANGO_ADMIN_EMAIL=' /srv/dango/project/.env 2>/dev/null "
+        f"|| echo 'DANGO_ADMIN_EMAIL={email}' >> /srv/dango/project/.env"
+    )
+    ssh.exec_command("chown dango:dango /srv/dango/project/.env 2>/dev/null; true")
+
     # Enable auth
     ssh.write_remote_file("/srv/dango/project/.dango/auth.yml", "enabled: true\n", mode=0o644)
     ssh.exec_command("chown dango:dango /srv/dango/project/.dango/auth.yml")
@@ -688,6 +711,59 @@ def _save_extra_metadata(
 
     updated = existing.model_copy(update=update)
     loader.save_cloud_config(updated)
+
+
+def _generate_cloud_profiles(
+    ssh: Any,
+    project_root: Path,
+    size_slug: str | None = None,
+) -> None:
+    """Generate ``dbt/profiles.yml`` on the remote server tuned for its hardware.
+
+    Args:
+        ssh: Connected SSHManager.
+        project_root: Local project root (to read dbt_project.yml).
+        size_slug: DO size slug (e.g. ``"s-2vcpu-4gb"``).  If ``None``
+            (BYOS), hardware is auto-detected via SSH.
+    """
+    import yaml
+
+    from dango.platform.cloud.resize import generate_dbt_profiles_yml
+
+    # Read project name from local dbt_project.yml
+    dbt_project_path = project_root / "dbt" / "dbt_project.yml"
+    project_name = "dango"
+    if dbt_project_path.is_file():
+        try:
+            dbt_cfg = yaml.safe_load(dbt_project_path.read_text()) or {}
+            project_name = dbt_cfg.get("name", "dango")
+        except Exception:
+            pass
+
+    if size_slug:
+        # Known DO size — look up tier specs
+        from dango.platform.cloud.provisioning import get_size_tier
+
+        tier = get_size_tier(size_slug)
+        vcpus = tier.vcpus if tier else 2
+        ram_gb = tier.ram_gb if tier else 4
+    else:
+        # BYOS — auto-detect hardware via SSH
+        nproc_result = ssh.exec_command("nproc")
+        try:
+            vcpus = int(nproc_result.stdout.strip())
+        except (ValueError, AttributeError):
+            vcpus = 2
+
+        mem_result = ssh.exec_command("free -g | awk '/Mem:/{print $2}'")
+        try:
+            ram_gb = int(mem_result.stdout.strip())
+        except (ValueError, AttributeError):
+            ram_gb = 4
+
+    content = generate_dbt_profiles_yml(project_name, vcpus, ram_gb)
+    ssh.write_remote_file("/srv/dango/project/dbt/profiles.yml", content, mode=0o644)
+    ssh.exec_command("chown dango:dango /srv/dango/project/dbt/profiles.yml")
 
 
 def _start_services(ssh: Any) -> None:

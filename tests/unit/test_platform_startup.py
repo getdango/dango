@@ -229,18 +229,18 @@ class TestSetupMetabaseIfNeeded:
 
     def test_returns_errors_when_setup_fails_before_duckdb(self, tmp_path, monkeypatch):
         """Pre-DuckDB failures are returned in the result dict, not masked (BUG-105)."""
-        monkeypatch.setenv("DANGO_ADMIN_EMAIL", "bad@localhost")
+        monkeypatch.setenv("DANGO_ADMIN_EMAIL", "bad@example.com")
         setup_result = {
             "success": False,
             "duckdb_connected": False,
-            "errors": ["Invalid email domain: localhost"],
+            "errors": ["Some setup error"],
         }
 
         with patch("dango.visualization.metabase.setup_metabase", return_value=setup_result):
             result = setup_metabase_if_needed(tmp_path, "MyProject", None)
 
         assert result["success"] is False
-        assert "Invalid email domain" in result["errors"][0]
+        assert "Some setup error" in result["errors"][0]
 
     def test_success(self, tmp_path, monkeypatch):
         """setup_metabase_if_needed returns result dict on successful first-run setup."""
@@ -265,6 +265,46 @@ class TestSetupMetabaseIfNeeded:
         result = setup_metabase_if_needed(tmp_path, "MyProject", None)
         assert result["skipped"] is True
         assert result["success"] is True
+
+    def test_skips_admin_at_localhost(self, tmp_path, monkeypatch):
+        """BUG-100: admin@localhost is filtered like admin@dango.local."""
+        monkeypatch.delenv("DANGO_ADMIN_EMAIL", raising=False)
+        # Create auth DB with admin@localhost
+        from dango.auth.admin import get_auth_db_path
+        from dango.auth.database import create_user
+        from dango.auth.models import Role, User
+        from dango.migrations.runner import MigrationRunner
+
+        db_path = get_auth_db_path(tmp_path)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        migrations_dir = Path(__file__).resolve().parents[2] / "dango" / "migrations" / "auth"
+        MigrationRunner(
+            db_path=db_path, db_name="auth", migrations_dir=migrations_dir
+        ).apply_pending()
+        create_user(
+            db_path,
+            User(email="admin@localhost", password_hash="$2b$12$fakehash", role=Role.ADMIN),
+        )
+
+        result = setup_metabase_if_needed(tmp_path, "MyProject", None)
+        assert result["skipped"] is True
+        assert result["success"] is True
+
+    def test_skips_dotless_email_domain(self, tmp_path, monkeypatch):
+        """BUG-100: Emails with dot-less domains (e.g. localhost) skip Metabase setup."""
+        monkeypatch.setenv("DANGO_ADMIN_EMAIL", "user@localhost")
+        result = setup_metabase_if_needed(tmp_path, "MyProject", None)
+        assert result["skipped"] is True
+        assert result["success"] is True
+
+    def test_valid_email_domain_proceeds(self, tmp_path, monkeypatch):
+        """Emails with proper domains (e.g. test.com) proceed to setup."""
+        monkeypatch.setenv("DANGO_ADMIN_EMAIL", "admin@test.com")
+        setup_result = {"success": True, "duckdb_connected": True, "errors": []}
+        with patch("dango.visualization.metabase.setup_metabase", return_value=setup_result):
+            result = setup_metabase_if_needed(tmp_path, "MyProject", None)
+        assert result["success"] is True
+        assert result.get("skipped") is None
 
 
 @pytest.mark.unit
