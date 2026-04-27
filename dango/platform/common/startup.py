@@ -235,7 +235,10 @@ def setup_metabase_if_needed(
             if db_path.exists():
                 users = list_users(db_path, active_only=True)
                 admins = [u for u in users if u.role == Role.ADMIN]
-                if admins and admins[0].email != "admin@dango.local":
+                if admins and admins[0].email not in (
+                    "admin@dango.local",
+                    "admin@localhost",
+                ):
                     admin_email = admins[0].email
         except Exception:
             pass
@@ -248,6 +251,19 @@ def setup_metabase_if_needed(
             reason="No admin email found. Metabase setup will complete on next restart.",
         )
         return {"already_configured": False, "success": True, "skipped": True}
+
+    # Validate email domain — Metabase rejects domains without a dot (e.g. localhost)
+    if "@" in admin_email:
+        domain = admin_email.split("@")[1]
+        if "." not in domain:
+            from dango.logging import get_logger as _get_logger2
+
+            _logger2 = _get_logger2(__name__)
+            _logger2.warning(
+                "metabase_setup_skipped",
+                reason=f"Admin email domain invalid for Metabase: {domain}",
+            )
+            return {"already_configured": False, "success": True, "skipped": True}
 
     setup_result = setup_metabase(
         project_root,

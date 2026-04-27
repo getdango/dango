@@ -14,6 +14,7 @@ import pytest
 from dango.cli.commands.deploy_provision import (
     _create_admin_and_enable_auth,
     _extract_ip,
+    _generate_cloud_profiles,
     _health_check,
     _push_secrets,
     _ResourceTracker,
@@ -560,3 +561,122 @@ class TestTriggerInitialSync:
         """Trigger does not raise on connection failure."""
         # Should not raise
         _trigger_initial_sync("http://1.2.3.4", "test-token-123")
+
+
+# ---------------------------------------------------------------------------
+# 10. Admin email persistence (BUG-100)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestAdminEmailPersistence:
+    def test_appends_admin_email_to_env(self):
+        """BUG-100: _create_admin_and_enable_auth appends DANGO_ADMIN_EMAIL to .env."""
+        ssh = _make_mock_ssh()
+        _create_admin_and_enable_auth(ssh, "admin@test.com", "password123")
+
+        # Find the grep/echo command that appends DANGO_ADMIN_EMAIL
+        email_cmds = [
+            str(c) for c in ssh.exec_command.call_args_list if "DANGO_ADMIN_EMAIL" in str(c)
+        ]
+        assert len(email_cmds) >= 1, "Expected DANGO_ADMIN_EMAIL append command"
+        assert "admin@test.com" in email_cmds[0]
+
+    def test_email_append_uses_grep_guard(self):
+        """DANGO_ADMIN_EMAIL append uses grep -q to avoid duplicates."""
+        ssh = _make_mock_ssh()
+        _create_admin_and_enable_auth(ssh, "admin@test.com", "password123")
+
+        email_cmds = [
+            str(c)
+            for c in ssh.exec_command.call_args_list
+            if "DANGO_ADMIN_EMAIL" in str(c) and "grep -q" in str(c)
+        ]
+        assert len(email_cmds) >= 1, "Expected grep -q guard for DANGO_ADMIN_EMAIL"
+
+
+# ---------------------------------------------------------------------------
+# 11. Cloud profiles generation (BUG-114)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestGenerateCloudProfiles:
+    def test_with_known_size_slug(self, project_root):
+        """BUG-114: Generates profiles.yml with known DO size tier specs."""
+        # Create dbt_project.yml
+        dbt_dir = project_root / "dbt"
+        dbt_dir.mkdir(exist_ok=True)
+        (dbt_dir / "dbt_project.yml").write_text("name: my_project\n")
+
+        ssh = _make_mock_ssh()
+        _generate_cloud_profiles(ssh, project_root, size_slug="s-2vcpu-4gb")
+
+        # Verify write_remote_file was called with profiles.yml
+        write_calls = [
+            c for c in ssh.write_remote_file.call_args_list if "profiles.yml" in str(c[0][0])
+        ]
+        assert len(write_calls) == 1
+        content = write_calls[0][0][1]
+        assert "my_project" in content
+        assert "threads: 2" in content  # s-2vcpu-4gb has 2 vcpus
+        assert "warehouse.duckdb" in content
+
+    def test_with_byos_auto_detect(self, project_root):
+        """BUG-114: BYOS auto-detects hardware via SSH when no size_slug."""
+        dbt_dir = project_root / "dbt"
+        dbt_dir.mkdir(exist_ok=True)
+        (dbt_dir / "dbt_project.yml").write_text("name: byos_project\n")
+
+        ssh = _make_mock_ssh()
+
+        def _exec_side_effect(cmd, **kwargs):
+            result = MagicMock()
+            result.success = True
+            result.stderr = ""
+            result.exit_code = 0
+            if cmd == "nproc":
+                result.stdout = "4"
+            elif "free -g" in cmd:
+                result.stdout = "8"
+            else:
+                result.stdout = ""
+            return result
+
+        ssh.exec_command.side_effect = _exec_side_effect
+
+        _generate_cloud_profiles(ssh, project_root)
+
+        write_calls = [
+            c for c in ssh.write_remote_file.call_args_list if "profiles.yml" in str(c[0][0])
+        ]
+        assert len(write_calls) == 1
+        content = write_calls[0][0][1]
+        assert "byos_project" in content
+        assert "threads: 4" in content  # auto-detected 4 vcpus
+
+    def test_falls_back_to_defaults(self, project_root):
+        """Falls back to project_name='dango' and 2/4 specs when dbt_project.yml missing."""
+        ssh = _make_mock_ssh()
+        _generate_cloud_profiles(ssh, project_root, size_slug="custom-size")
+
+        write_calls = [
+            c for c in ssh.write_remote_file.call_args_list if "profiles.yml" in str(c[0][0])
+        ]
+        assert len(write_calls) == 1
+        content = write_calls[0][0][1]
+        # Falls back to "dango" project name and 2 vcpus / 4gb ram defaults
+        assert "dango" in content
+        assert "threads: 2" in content
+
+    def test_chowns_profiles_to_dango(self, project_root):
+        """profiles.yml is chowned to dango:dango after creation."""
+        ssh = _make_mock_ssh()
+        _generate_cloud_profiles(ssh, project_root, size_slug="s-2vcpu-4gb")
+
+        chown_calls = [
+            str(c)
+            for c in ssh.exec_command.call_args_list
+            if "chown dango:dango" in str(c) and "profiles.yml" in str(c)
+        ]
+        assert len(chown_calls) >= 1

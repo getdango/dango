@@ -68,9 +68,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy_provision.py
-    lines: 737
+    lines: 813
     category: exempt
-    reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery."
+    reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery. R8-F added _generate_cloud_profiles + DANGO_ADMIN_EMAIL persistence."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy.py
@@ -117,9 +117,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/cloud/deployer.py
-    lines: 578
+    lines: 595
     category: exempt
-    reason: "P8-004: Push deployment workflow with deploy lock and journal writing. Added git_info passthrough, nested try/finally for journal write, _write_deploy_journal helper."
+    reason: "P8-004: Push deployment workflow with deploy lock and journal writing. Added git_info passthrough, nested try/finally for journal write, _write_deploy_journal helper. R8-F added Docker rebuild detection."
     review_by: "v1.1"
 
   # --- Exempt (stable, not modified in v1) ---
@@ -291,9 +291,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_deploy_provision.py
-    lines: 562
+    lines: 682
     category: exempt
-    reason: "TASK-029: 9 test classes covering ResourceTracker, IP extraction, secrets push, admin creation, health check, provisioning sequence, backup setup, metadata persistence, and sync trigger. Each requires isolated mock setup."
+    reason: "TASK-029+R8-F: 11 test classes covering ResourceTracker, IP extraction, secrets push, admin creation, health check, provisioning sequence, backup setup, metadata persistence, sync trigger, admin email persistence, and cloud profiles generation."
     review_by: "v1.1"
 
   - file: tests/unit/test_sync_jobs.py

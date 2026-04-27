@@ -41,6 +41,9 @@ DBT_PROJECT_DIR = "/srv/dango/project/dbt"
 #: Pattern for valid dbt model/macro names (shell-safe for SSH commands).
 _SAFE_DBT_NAME = re.compile(r"^[a-zA-Z0-9_]+$")
 
+#: Docker files that require ``docker compose up --build`` when changed.
+_DOCKER_FILES = {"docker-compose.yml", "Dockerfile.metabase", "entrypoint.sh"}
+
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -208,13 +211,26 @@ def _start_web_service(ssh: SSHManager) -> None:
     ssh.exec_command("systemctl start dango-web || true", timeout=60)
 
 
-def _start_all_services(ssh: SSHManager) -> None:
-    """Start Metabase then dango-web (same order as backup.start_services)."""
-    ssh.exec_command(
-        f"docker compose -f {REMOTE_PROJECT_DIR}/docker-compose.yml "
-        "start metabase 2>/dev/null || true",
-        timeout=120,
-    )
+def _start_all_services(ssh: SSHManager, *, rebuild_docker: bool = False) -> None:
+    """Start Metabase then dango-web (same order as backup.start_services).
+
+    Args:
+        ssh: Connected SSHManager.
+        rebuild_docker: If True, rebuild Docker images before starting
+            (used when Docker files changed during push deploy).
+    """
+    if rebuild_docker:
+        # Docker files changed — rebuild images before starting
+        ssh.exec_command(
+            f"cd {REMOTE_PROJECT_DIR} && sudo -u dango docker compose up --build -d",
+            timeout=300,
+        )
+    else:
+        ssh.exec_command(
+            f"docker compose -f {REMOTE_PROJECT_DIR}/docker-compose.yml "
+            "start metabase 2>/dev/null || true",
+            timeout=120,
+        )
     ssh.exec_command("systemctl start dango-web || true", timeout=60)
 
 
@@ -543,7 +559,8 @@ def push_deploy(
             # Always restart all services and release lock
             if services_stopped:
                 _notify(on_progress, "start_services", "running")
-                _start_all_services(ssh)
+                docker_files_changed = bool(set(sync_result.synced_files) & _DOCKER_FILES)
+                _start_all_services(ssh, rebuild_docker=docker_files_changed)
                 _notify(on_progress, "start_services", "done")
 
             if lock is not None:

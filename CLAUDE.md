@@ -91,7 +91,7 @@ dango/                          # Python package source
 │   │   ├── serve.py            # serve production foreground server
 │   │   ├── deploy.py           # deploy group (wizard default, --byos, destroy)
 │   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (808 lines)
-│   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (737 lines)
+│   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (813 lines)
 │   │   ├── migrate.py          # migrate group (status, run)
 │   │   ├── remote.py           # remote group + push/rollback/firewall/domain (698 lines)
 │   │   ├── remote_env.py       # remote env subgroup (set/get/list/delete)
@@ -234,7 +234,7 @@ dango/                          # Python package source
 │   │   ├── domain.py           # DNS check, domain set/remove
 │   │   ├── backup.py           # Backup + rollback + service lifecycle
 │   │   ├── file_sync.py        # Project file sync (SFTP + rsync)
-│   │   ├── deployer.py         # Push deploy workflow + deploy lock (578 lines)
+│   │   ├── deployer.py         # Push deploy workflow + deploy lock (595 lines)
 │   │   ├── deploy_journal.py   # Append-only JSONL deployment history
 │   │   ├── scheduled_backup.py # Server-side scheduled backup (505 lines)
 │   │   ├── resize.py           # In-place droplet resize
@@ -350,14 +350,14 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/source.py` | 748 | — (extracted from main.py by TASK-005) |
 | `cli/commands/remote.py` | 698 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
-| `platform/cloud/deployer.py` | 578 | — (push deploy workflow + deploy lock + journal) |
+| `platform/cloud/deployer.py` | 595 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 651 | — |
 | `config/models.py` | 600 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 808 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 548 | — |
 | `web/routes/catalog.py` | 1157 | — (data catalog: columns, profiling, lineage, impact, models, search) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
-| `cli/commands/deploy_provision.py` | 737 | — (provisioning orchestration + BYOS) |
+| `cli/commands/deploy_provision.py` | 813 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 542 | — (DO REST API v2 client) |
 | `cli/commands/auth.py` | 660 | — (13 auth subcommands) |
 | `auth/database.py` | 529 | — (SQLite CRUD) |

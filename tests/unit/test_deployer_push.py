@@ -15,7 +15,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dango.exceptions import CloudProvisioningError
-from dango.platform.cloud.deployer import DEPLOY_LOCK_PATH, push_deploy
+from dango.platform.cloud.deployer import (
+    _DOCKER_FILES,
+    DEPLOY_LOCK_PATH,
+    _start_all_services,
+    push_deploy,
+)
 from dango.platform.cloud.file_sync import SyncResult
 from dango.platform.cloud.ssh import CommandResult
 
@@ -386,3 +391,99 @@ class TestPushDeploy:
         assert call_kwargs["deploy_succeeded"] is False
         assert call_kwargs["deploy_error"] is not None
         assert "dbt compile failed" in call_kwargs["deploy_error"]
+
+
+# ---------------------------------------------------------------------------
+# Docker rebuild detection tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestDockerRebuild:
+    """Test Docker rebuild detection in _start_all_services and push_deploy."""
+
+    def test_docker_files_constant(self):
+        """_DOCKER_FILES contains the expected Docker filenames."""
+        assert "docker-compose.yml" in _DOCKER_FILES
+        assert "Dockerfile.metabase" in _DOCKER_FILES
+        assert "entrypoint.sh" in _DOCKER_FILES
+
+    def test_start_all_services_rebuild_true(self):
+        """With rebuild_docker=True, uses 'up --build -d'."""
+        ssh = _make_ssh_mock()
+        commands: list[str] = []
+
+        def _track(cmd: str, **kwargs: object) -> CommandResult:
+            commands.append(cmd)
+            return CommandResult(stdout="", stderr="", exit_code=0)
+
+        ssh.exec_command.side_effect = _track
+
+        _start_all_services(ssh, rebuild_docker=True)
+
+        assert any("up --build -d" in c for c in commands)
+        # Should NOT use 'start metabase' pattern
+        assert not any("start metabase 2>/dev/null" in c for c in commands)
+        # Should still start dango-web
+        assert any("systemctl start dango-web" in c for c in commands)
+
+    def test_start_all_services_rebuild_false(self):
+        """With rebuild_docker=False, uses 'start metabase' (no rebuild)."""
+        ssh = _make_ssh_mock()
+        commands: list[str] = []
+
+        def _track(cmd: str, **kwargs: object) -> CommandResult:
+            commands.append(cmd)
+            return CommandResult(stdout="", stderr="", exit_code=0)
+
+        ssh.exec_command.side_effect = _track
+
+        _start_all_services(ssh, rebuild_docker=False)
+
+        assert any("start metabase" in c for c in commands)
+        assert not any("up --build" in c for c in commands)
+
+    @patch("dango.platform.cloud.backup.create_backup")
+    @patch("dango.platform.cloud.file_sync.sync_project_files")
+    def test_push_deploy_detects_docker_changes(self, mock_sync, mock_backup, tmp_path):
+        """push_deploy triggers Docker rebuild when Docker files are in synced_files."""
+        mock_sync.return_value = _make_sync_result(
+            synced_files=["docker-compose.yml", "dbt/models/", ".dango/sources.yml"],
+        )
+        mock_backup.return_value = _make_backup_result()
+        ssh = _make_ssh_mock()
+
+        commands: list[str] = []
+
+        def _tracking_exec(cmd: str, **kwargs: object) -> CommandResult:
+            commands.append(cmd)
+            return CommandResult(stdout="", stderr="", exit_code=0)
+
+        ssh.exec_command.side_effect = _tracking_exec
+
+        push_deploy(ssh, tmp_path, "10.0.0.1")
+
+        assert any("up --build -d" in c for c in commands)
+
+    @patch("dango.platform.cloud.backup.create_backup")
+    @patch("dango.platform.cloud.file_sync.sync_project_files")
+    def test_push_deploy_no_docker_changes(self, mock_sync, mock_backup, tmp_path):
+        """push_deploy does NOT rebuild Docker when no Docker files changed."""
+        mock_sync.return_value = _make_sync_result(
+            synced_files=["dbt/models/", ".dango/sources.yml"],
+        )
+        mock_backup.return_value = _make_backup_result()
+        ssh = _make_ssh_mock()
+
+        commands: list[str] = []
+
+        def _tracking_exec(cmd: str, **kwargs: object) -> CommandResult:
+            commands.append(cmd)
+            return CommandResult(stdout="", stderr="", exit_code=0)
+
+        ssh.exec_command.side_effect = _tracking_exec
+
+        push_deploy(ssh, tmp_path, "10.0.0.1")
+
+        assert not any("up --build" in c for c in commands)
+        assert any("start metabase" in c for c in commands)

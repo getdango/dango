@@ -54,6 +54,11 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
     except (click.Abort, SystemExit):
         raise SystemExit(1) from None
 
+    # Load .env so DANGO_ADMIN_EMAIL and other env vars are available under systemd (BUG-100)
+    from dotenv import load_dotenv
+
+    load_dotenv(project_root / ".env")
+
     # Load config (M6: catch config errors cleanly)
     try:
         config_loader = ConfigLoader(project_root)

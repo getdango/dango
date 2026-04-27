@@ -15,6 +15,7 @@ import pytest
 
 from dango.platform.cloud.file_sync import (
     REMOTE_PROJECT_DIR,
+    SYNC_CONFIG_FILES,
     SyncResult,
     _build_rsync_ssh_arg,
     _compute_local_hashes,
@@ -77,6 +78,31 @@ def _make_project(tmp_path: Path, *, with_packages: bool = True) -> Path:
 # ---------------------------------------------------------------------------
 # SyncResult tests
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSyncConfigFiles:
+    """Test SYNC_CONFIG_FILES list contents."""
+
+    def test_project_yml_in_sync_list(self):
+        """BUG-098: .dango/project.yml must be synced to the server."""
+        local_paths = [local for local, _ in SYNC_CONFIG_FILES]
+        assert ".dango/project.yml" in local_paths
+
+    def test_project_yml_remote_path(self):
+        """project.yml remote path matches standard layout."""
+        for local, remote in SYNC_CONFIG_FILES:
+            if local == ".dango/project.yml":
+                assert remote == f"{REMOTE_PROJECT_DIR}/.dango/project.yml"
+                return
+        pytest.fail(".dango/project.yml not found in SYNC_CONFIG_FILES")
+
+    def test_docker_files_in_sync_list(self):
+        """Docker build context files are synced (R8-B)."""
+        local_paths = [local for local, _ in SYNC_CONFIG_FILES]
+        assert "docker-compose.yml" in local_paths
+        assert "Dockerfile.metabase" in local_paths
+        assert "entrypoint.sh" in local_paths
 
 
 @pytest.mark.unit
