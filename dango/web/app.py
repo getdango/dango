@@ -100,6 +100,37 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.warning("first_run_admin_check_failed", exc_info=True)
 
+    # Cloud security warnings
+    try:
+        from dango.web.helpers import is_cloud_deployment
+
+        if is_cloud_deployment(project_root):
+            auth_cfg = _load_auth_config(project_root)
+            if auth_cfg is None:
+                auth_cfg = AuthConfig()
+            if not auth_cfg.require_2fa:
+                logger.warning(
+                    "cloud_security_recommendation",
+                    setting="require_2fa",
+                    recommendation="Enable 2FA for cloud deployments",
+                )
+            if auth_cfg.idle_timeout_minutes > 60:
+                logger.warning(
+                    "cloud_security_recommendation",
+                    setting="idle_timeout_minutes",
+                    current=auth_cfg.idle_timeout_minutes,
+                    recommendation="Set idle timeout to 60 minutes or less",
+                )
+            if auth_cfg.session_max_days > 30:
+                logger.warning(
+                    "cloud_security_recommendation",
+                    setting="session_max_days",
+                    current=auth_cfg.session_max_days,
+                    recommendation="Set session max to 30 days or less",
+                )
+    except Exception:
+        logger.debug("cloud_security_check_skipped", exc_info=True)
+
     # Initialize APScheduler for job scheduling
     try:
         import asyncio

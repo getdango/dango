@@ -62,19 +62,19 @@ exemptions:
 
   # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
   - file: dango/cli/commands/deploy_wizard.py
-    lines: 843
+    lines: 808
     category: exempt
-    reason: "TASK-029+075e: Interactive wizard steps 1-9 + BYOS wizard + non-interactive modes. Sequential prompt flow — splitting would scatter closely coupled wizard steps."
+    reason: "TASK-029+075e: Interactive wizard steps 1-8 + BYOS wizard + non-interactive modes. Sequential prompt flow — splitting would scatter closely coupled wizard steps."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy_provision.py
-    lines: 704
+    lines: 737
     category: exempt
     reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy.py
-    lines: 689
+    lines: 705
     category: exempt
     reason: "TASK-029+075e: Deploy group with DO + BYOS routing, destroy command for both providers. Splitting would scatter the provider selection and destroy dispatch logic."
     review_by: "v1.1"
@@ -255,7 +255,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/cloud/server_setup.py
-    lines: 533
+    lines: 548
     category: exempt
     reason: "TASK-075e: Added optional UFW firewall step for BYOS deployments (+35 lines). 17 idempotent setup steps — splitting would scatter sequential orchestration."
     review_by: "v1.1"
@@ -285,13 +285,13 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_server_setup.py
-    lines: 525
+    lines: 584
     category: exempt
     reason: "TASK-026+027: Added domain parameter tests for setup_server(). Each test requires isolated mock setup with full exec_results map."
     review_by: "v1.1"
 
   - file: tests/unit/test_deploy_provision.py
-    lines: 530
+    lines: 562
     category: exempt
     reason: "TASK-029: 9 test classes covering ResourceTracker, IP extraction, secrets push, admin creation, health check, provisioning sequence, backup setup, metadata persistence, and sync trigger. Each requires isolated mock setup."
     review_by: "v1.1"

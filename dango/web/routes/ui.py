@@ -61,6 +61,14 @@ def _render_template(
     status_code: int = 200,
 ) -> HTMLResponse:
     """Render a Jinja2 template with fallback for broken installations."""
+    if "is_cloud" not in context:
+        try:
+            from dango.web.helpers import is_cloud_deployment
+
+            project_root = Path(request.app.state.project_root)
+            context["is_cloud"] = is_cloud_deployment(project_root)
+        except Exception:
+            context["is_cloud"] = False
     try:
         return templates.TemplateResponse(
             request, template_name, context=context, status_code=status_code

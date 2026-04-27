@@ -274,6 +274,7 @@ def _handle_do_deploy_with_config(project_root: Path, config: Any) -> None:
         admin_email=config.admin_email,
         warnings=result.warnings,
         skip_initial_sync=config.skip_initial_sync,
+        domain=config.domain,
     )
 
 
@@ -285,6 +286,7 @@ def _print_byos_success(result: Any, config: Any) -> None:
         admin_email=config.admin_email,
         warnings=result.warnings,
         skip_initial_sync=config.skip_initial_sync,
+        domain=config.domain,
     )
 
 
@@ -295,18 +297,23 @@ def _print_deploy_success(
     admin_email: str,
     warnings: list[str],
     skip_initial_sync: bool,
+    domain: str | None = None,
 ) -> None:
     """Print deployment success output (shared by DO and BYOS paths)."""
     console.print("\n[bold green]Deployment complete![/bold green]")
     console.print(f"  URL:    {url}")
     console.print(f"  IP:     {ip}")
     console.print(f"  Admin:  {admin_email}")
+    if domain:
+        console.print(f"\n  [bold]DNS setup:[/bold] Point an A record for {domain} to {ip}")
     if warnings:
         for w in warnings:
             console.print(f"  [yellow]Warning:[/yellow] {w}")
     console.print("\n  Next: Visit the URL above and log in with your admin credentials.")
     if not skip_initial_sync:
         console.print("  Initial data sync is running in the background.")
+    if not domain:
+        console.print("\n  To add a custom domain: [bold]dango remote domain set <domain>[/bold]")
 
 
 def _load_deploy_config(ctx: click.Context) -> tuple[Any, Path]:
@@ -427,7 +434,7 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
             raise SystemExit(1)
 
     # Optionally stop remote services
-    if force or click.confirm("\n  Stop Dango services on the remote server?", default=True):
+    if force or click.confirm("\n  Stop Dango services on the remote server?", default=False):
         from dango.platform.cloud.ssh import SSHManager
 
         key_path = _resolve_key_path(cloud_cfg, project_root)

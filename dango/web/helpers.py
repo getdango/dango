@@ -30,6 +30,11 @@ def get_project_root() -> Path:
     return app.state.project_root
 
 
+def is_cloud_deployment(project_root: Path) -> bool:
+    """Check if this is a cloud deployment (cloud.yml exists)."""
+    return (project_root / ".dango" / "cloud.yml").exists()
+
+
 def load_sources_config() -> list[dict[str, Any]]:
     """Load sources configuration from .dango/sources.yml."""
     sources_file = get_project_root() / ".dango" / "sources.yml"

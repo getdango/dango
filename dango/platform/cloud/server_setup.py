@@ -261,6 +261,8 @@ def _setup_venv(
     ssh: SSHManager,
     result: SetupResult,
     on_progress: Callable[[str, str], None] | None,
+    *,
+    dango_version: str | None = None,
 ) -> None:
     """Step 7: Create Python venv and install getdango."""
     step = "python_venv"
@@ -270,11 +272,19 @@ def _setup_venv(
         result.steps_skipped.append(step)
         _notify(on_progress, step, "skipped")
         return
+    if dango_version:
+        import re
+
+        if not re.match(r"^[a-zA-Z0-9._-]+$", dango_version):
+            raise ValueError(f"Invalid version string: {dango_version!r}")
+        pkg = f"getdango=={dango_version}"
+    else:
+        pkg = "getdango"
     _run_checked(
         ssh,
         "python3 -m venv /srv/dango/venv"
         " && /srv/dango/venv/bin/pip install --upgrade pip -q"
-        " && /srv/dango/venv/bin/pip install getdango -q",
+        f" && /srv/dango/venv/bin/pip install {pkg} -q",
         step=step,
         timeout=300,
     )
@@ -505,6 +515,7 @@ def setup_server(
     on_progress: Callable[[str, str], None] | None = None,
     domain: str | None = None,
     setup_ufw: bool = False,
+    dango_version: str | None = None,
 ) -> SetupResult:
     """Run all server setup steps on a connected server.
 
@@ -516,6 +527,7 @@ def setup_server(
         domain: FQDN for HTTPS (Caddy auto-TLS). ``None`` → HTTP-only.
         setup_ufw: If ``True``, install and configure UFW firewall
             (used for BYOS deployments that lack a cloud-managed firewall).
+        dango_version: Pin getdango to this version. ``None`` → latest.
 
     Raises:
         CloudProvisioningError: If any step fails.
@@ -525,6 +537,8 @@ def setup_server(
     for step_fn in _SETUP_STEPS:
         if step_fn is _setup_caddyfile:
             _setup_caddyfile(ssh, result, on_progress, domain=domain)
+        elif step_fn is _setup_venv:
+            _setup_venv(ssh, result, on_progress, dango_version=dango_version)
         else:
             step_fn(ssh, result, on_progress)
 

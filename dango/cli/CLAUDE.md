@@ -28,9 +28,9 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/remote.py` (698 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
 | `commands/serve.py` (~171 lines) | `serve` production foreground server. Metabase setup failure is non-fatal (prints warning, continues to uvicorn). | `serve()` |
-| `commands/deploy.py` (689 lines) | `deploy` group (wizard default, --byos, destroy) | `deploy`, `deploy_destroy()` |
-| `commands/deploy_wizard.py` (843 lines) | Interactive wizard steps 1-9 + BYOS wizard + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig`, `run_byos_wizard()`, `run_byos_non_interactive()`, `BYOSConfig` |
-| `commands/deploy_provision.py` (704 lines) | Provisioning orchestration (DO + BYOS) + cleanup | `run_provisioning()`, `run_byos_setup()`, `ProvisionResult`, `BYOSResult`, `_ResourceTracker` |
+| `commands/deploy.py` (705 lines) | `deploy` group (wizard default, --byos, destroy) | `deploy`, `deploy_destroy()` |
+| `commands/deploy_wizard.py` (808 lines) | Interactive wizard steps 1-8 + BYOS wizard + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig`, `run_byos_wizard()`, `run_byos_non_interactive()`, `BYOSConfig` |
+| `commands/deploy_provision.py` (737 lines) | Provisioning orchestration (DO + BYOS) + cleanup | `run_provisioning()`, `run_byos_setup()`, `ProvisionResult`, `BYOSResult`, `_ResourceTracker` |
 | `commands/remote_env.py` | `remote env` subgroup (set, get, list, delete) | `env` (Click group) |
 | `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
 | `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore) | `backup_group` |

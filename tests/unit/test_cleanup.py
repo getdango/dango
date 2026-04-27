@@ -12,11 +12,13 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import click
 import pytest
 from click.testing import CliRunner
 
 from dango.cli.commands.cleanup import (
     _collect_dbt_artifacts,
+    _collect_docker_volumes,
     _collect_log_archives,
     _collect_pycache,
     _format_size,
@@ -214,11 +216,11 @@ def _invoke_cleanup(
     log_archives: list[tuple[Path, int]] | None = None,
     dbt_artifacts: list[tuple[Path, int]] | None = None,
     pycache_dirs: list[tuple[Path, int]] | None = None,
-    disk_before: dict | None = None,
-    disk_after: dict | None = None,
+    disk_before: dict[str, object] | None = None,
+    disk_after: dict[str, object] | None = None,
     log_before: int = 5000,
     log_after: int = 0,
-):
+) -> click.testing.Result:
     """Invoke the cleanup command with standard mocks."""
     runner = CliRunner()
 
@@ -413,3 +415,69 @@ class TestCleanupCommand:
         assert result.exit_code == 0
         out = _strip(result.output)
         assert "Freed" in out
+
+
+# ---------------------------------------------------------------------------
+# _collect_docker_volumes
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+class TestCollectDockerVolumes:
+    def test_none_dangling(self) -> None:
+        """Empty stdout returns empty list."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="")
+            assert _collect_docker_volumes() == []
+
+    def test_with_results(self) -> None:
+        """Multiline stdout returns list of volume names."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="vol_a\nvol_b\nvol_c\n")
+            result = _collect_docker_volumes()
+            assert result == ["vol_a", "vol_b", "vol_c"]
+
+    def test_docker_not_found(self) -> None:
+        """FileNotFoundError returns empty list."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = FileNotFoundError("docker not found")
+            assert _collect_docker_volumes() == []
+
+    def test_timeout(self) -> None:
+        """TimeoutExpired returns empty list."""
+        import subprocess
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired("docker", 10)
+            assert _collect_docker_volumes() == []
+
+
+@pytest.mark.unit
+class TestCleanupDockerFlag:
+    def test_docker_flag_prunes(self, tmp_path: Path) -> None:
+        """--docker flag collects and prunes dangling volumes."""
+        runner = CliRunner()
+
+        log_side = [_log_usage(5000), _log_usage(0)] + [_log_usage(0)] * 5
+
+        with (
+            patch(f"{_UTILS}.require_project_context", return_value=tmp_path),
+            patch(f"{_DB_HEALTH}.get_disk_usage_summary", return_value=_disk_summary()),
+            patch(f"{_LOG_ROT}.get_log_disk_usage", side_effect=log_side),
+            patch(f"{_LOG_ROT}.cleanup_old_archives"),
+            patch(f"{_CMD}._collect_log_archives", return_value=[]),
+            patch(f"{_CMD}._collect_dbt_artifacts", return_value=[]),
+            patch(f"{_CMD}._collect_pycache", return_value=[]),
+            patch(f"{_CMD}._collect_docker_volumes", return_value=["vol1", "vol2"]),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="")
+            result = runner.invoke(
+                cleanup, ["--yes", "--docker"], obj={"project_root": str(tmp_path)}
+            )
+
+        assert result.exit_code == 0
+        out = _strip(result.output)
+        assert "Docker volumes" in out
+        assert "Removed 2" in out
+        # Verify docker volume rm called for each volume, not prune
+        rm_calls = [c for c in mock_run.call_args_list if "volume" in str(c) and "rm" in str(c)]
+        assert len(rm_calls) == 2
