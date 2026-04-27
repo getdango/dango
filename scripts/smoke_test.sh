@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/smoke_test.sh — v1.1 (2026-04-25)
+# scripts/smoke_test.sh — v1.2 (2026-04-27)
 #
 # Automated smoke test for a running Dango instance.
 # Requires: dango start running in a test project, venv activated.
@@ -128,7 +128,7 @@ category_end() {
     if [ "$CAT_SKIP" -gt 0 ]; then
         extra=" ($CAT_SKIP SKIP)"
     fi
-    printf "[%s/6] %-28s %d/%d %s%s\n" "$num" "$name" "$CAT_PASS" "$CAT_TOTAL" "$status" "$extra"
+    printf "[%s/7] %-28s %d/%d %s%s\n" "$num" "$name" "$CAT_PASS" "$CAT_TOTAL" "$status" "$extra"
 }
 
 # Run a command, pass if exit code is 0
@@ -357,6 +357,113 @@ else
 fi
 
 category_end "6" "Nav Structure"
+
+# ---------------------------------------------------------------------------
+# Category 7: R8 Regression Checks
+# ---------------------------------------------------------------------------
+
+category_start 8
+
+# --- Static/import checks (no server needed) ---
+
+# BUG-099: Metabase healthcheck start_period
+if grep -q "start_period: 300s" "$REPO_ROOT/dango/templates/docker-compose.yml.j2"; then
+    pass_test
+else
+    fail_test "Metabase start_period 300s (BUG-099)" "docker-compose template missing start_period: 300s"
+fi
+
+# BUG-083: Session idle timeout default
+if python3 -c "from dango.auth.sessions import DEFAULT_IDLE_TIMEOUT_MINUTES; assert DEFAULT_IDLE_TIMEOUT_MINUTES == 10080" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Idle timeout 10080m (BUG-083)" "DEFAULT_IDLE_TIMEOUT_MINUTES != 10080"
+fi
+
+# BUG-102: ensure_dbt_schemas creates DB with all 4 schemas
+if python3 -c "
+import tempfile, os
+from pathlib import Path
+from dango.utils.database import ensure_dbt_schemas
+import duckdb
+d = tempfile.mkdtemp()
+p = Path(d) / 'test.duckdb'
+ensure_dbt_schemas(p)
+assert p.exists(), 'DB not created'
+conn = duckdb.connect(str(p), read_only=True)
+schemas = [r[0] for r in conn.execute(\"SELECT schema_name FROM information_schema.schemata\").fetchall()]
+conn.close()
+os.unlink(p)
+os.rmdir(d)
+for s in ('raw', 'staging', 'intermediate', 'marts'):
+    assert s in schemas, f'Missing schema: {s}'
+" 2>/dev/null; then
+    pass_test
+else
+    fail_test "ensure_dbt_schemas (BUG-102)" "Failed to create DB with all 4 schemas"
+fi
+
+# BUG-027b: spaCy must not call cli.download (causes sys.exit)
+# Pass if no non-comment line calls spacy.cli.download
+if grep -v "^[[:space:]]*#" "$REPO_ROOT/dango/governance/pii_detector.py" | grep -q "spacy\.cli\.download("; then
+    fail_test "No spacy.cli.download (BUG-027b)" "Found spacy.cli.download() call in code"
+else
+    pass_test
+fi
+
+# --- Login-dependent checks ---
+
+if $LOGIN_OK; then
+    # BUG-066: Cache bust uses content hash (8-char hex), not timestamps
+    page_html=$(curl -s -b "$COOKIE_JAR" "${BASE_URL}/")
+    if echo "$page_html" | grep -qE '\?v=[0-9a-f]{8}'; then
+        # Also verify no timestamp-style params (10+ digits)
+        if echo "$page_html" | grep -qE '\?v=[0-9]{10,}'; then
+            fail_test "Cache bust hash (BUG-066)" "Found timestamp-style ?v= param (should be 8-char hex)"
+        else
+            pass_test
+        fi
+    else
+        fail_test "Cache bust hash (BUG-066)" "No ?v=<8-char-hex> found in page HTML"
+    fi
+
+    # BUG-054: Authenticated users get redirected away from /login
+    login_redir_status=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE_JAR" "${BASE_URL}/login")
+    if [ "$login_redir_status" = "302" ]; then
+        pass_test
+    else
+        fail_test "Login redirect (BUG-054)" "Expected HTTP 302, got $login_redir_status"
+    fi
+
+    # BUG-065: Mobile nav includes Activity Logs and Health links
+    # Reuse page_html from BUG-066 check (same page)
+    nav_065_ok=true
+    if ! echo "$page_html" | grep -q "Activity Logs"; then
+        fail_test "Mobile nav (BUG-065)" "Missing 'Activity Logs' link"
+        nav_065_ok=false
+    fi
+    if $nav_065_ok && ! echo "$page_html" | grep -q 'href="/health"'; then
+        fail_test "Mobile nav (BUG-065)" "Missing href=\"/health\" link"
+        nav_065_ok=false
+    fi
+    if $nav_065_ok; then
+        pass_test
+    fi
+
+    # BUG-082: /api/sources includes supports_date_range capability
+    # Note: requires at least one configured source in the test project
+    sources_body=$(curl -s -b "$COOKIE_JAR" -H "X-Requested-With: XMLHttpRequest" "${BASE_URL}/api/sources")
+    if echo "$sources_body" | grep -q "supports_date_range"; then
+        pass_test
+    else
+        fail_test "supports_date_range (BUG-082)" "Field not found in /api/sources response"
+    fi
+else
+    echo "    BLOCKED: Skipping 4 R8 checks — login failed"
+    for _ in $(seq 4); do skip_test "R8 regression" "login failed"; done
+fi
+
+category_end "7" "R8 Regression Checks"
 
 # ---------------------------------------------------------------------------
 # Summary
