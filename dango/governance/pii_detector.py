@@ -29,6 +29,13 @@ SCAN_ENTITIES = [
 SCORE_THRESHOLD = 0.5
 DEFAULT_SAMPLE_SIZE = 100
 
+# Minimum fraction of sampled values that must match before flagging.
+# PERSON set high (0.30) to reduce false positives from spaCy NER on
+# structured data (chess notation, UUIDs, codes).
+ENTITY_MIN_MATCH_RATIO: dict[str, float] = {
+    "PERSON": 0.30,
+}
+
 _STRING_TYPES = frozenset({"VARCHAR", "TEXT", "STRING", "CHAR", "BPCHAR"})
 
 _analyzer: Any = None
@@ -38,6 +45,34 @@ _SPACY_MODEL_URL = (
     "https://github.com/explosion/spacy-models/releases/download/"
     "en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
 )
+
+
+def _register_intl_phone_recognizer(analyzer: Any) -> None:
+    """Register a pattern-based international phone number recognizer.
+
+    The built-in Presidio phone recognizer is US-centric.  This adds two
+    patterns that catch international numbers with country codes (``+1-555-…``,
+    ``+44 20 7946…``, ``+61234567890``).
+    """
+    from presidio_analyzer import Pattern, PatternRecognizer
+
+    intl_phone = PatternRecognizer(
+        supported_entity="PHONE_NUMBER",
+        name="InternationalPhoneRecognizer",
+        patterns=[
+            Pattern(
+                name="intl_phone_separators",
+                regex=r"\+\d{1,3}[\s\-.]?\(?\d{1,4}\)?[\s\-.]?\d{1,4}[\s\-.]?\d{1,9}",
+                score=0.7,
+            ),
+            Pattern(
+                name="intl_phone_e164",
+                regex=r"\+\d{7,15}",
+                score=0.6,
+            ),
+        ],
+    )
+    analyzer.registry.add_recognizer(intl_phone)
 
 
 def _get_analyzer() -> Any | None:
@@ -122,6 +157,7 @@ def _get_analyzer() -> Any | None:
             }
         )
         _analyzer = AnalyzerEngine(nlp_engine=provider.create_engine())
+        _register_intl_phone_recognizer(_analyzer)
     except Exception:
         logger.warning("pii_analyzer_init_failed", exc_info=True)
         return None
@@ -273,7 +309,7 @@ def scan_table_for_pii(
             if not str_values:
                 continue
 
-            detected = _scan_column(str_values)
+            detected = _scan_column(str_values, total_values=len(str_values))
             for entity_type, info in detected.items():
                 findings.append(
                     {
@@ -293,6 +329,29 @@ def scan_table_for_pii(
                 table=table_name,
                 column=col_name,
             )
+
+    # Apply PII overrides (dismiss false positives / add manual marks)
+    from dango.governance.pii_overrides import get_overrides_for_table
+
+    overrides = get_overrides_for_table(project_root, source, table_name)
+    if overrides:
+        # Remove findings for columns marked 'not_pii'
+        findings = [f for f in findings if overrides.get(f["column_name"]) != "not_pii"]
+        # Add synthetic findings for columns marked 'pii' not auto-detected
+        detected_cols = {f["column_name"] for f in findings}
+        for col_name, status in overrides.items():
+            if status == "pii" and col_name not in detected_cols:
+                findings.append(
+                    {
+                        "source": source,
+                        "table_name": table_name,
+                        "column_name": col_name,
+                        "entity_type": "MANUAL_OVERRIDE",
+                        "confidence": 1.0,
+                        "sample_count": 0,
+                        "scanned_at": now,
+                    }
+                )
 
     # Resilient cache pattern: compute → try cache → return regardless
     try:
@@ -374,11 +433,19 @@ def _is_string_type(data_type: str) -> bool:
     return data_type.upper() in _STRING_TYPES
 
 
-def _scan_column(values: list[str]) -> dict[str, dict[str, Any]]:
-    """Run Presidio analyzer on sampled values, aggregating by entity type."""
+def _scan_column(values: list[str], total_values: int = 0) -> dict[str, dict[str, Any]]:
+    """Run Presidio analyzer on sampled values, aggregating by entity type.
+
+    Args:
+        values: Sampled string values from the column.
+        total_values: Total number of sampled values (used for match-ratio
+            filtering).  Defaults to ``len(values)`` when 0.
+    """
     analyzer = _get_analyzer()
     if analyzer is None:
         return {}
+    if total_values <= 0:
+        total_values = len(values)
     detections: dict[str, dict[str, Any]] = {}
 
     for val in values:
@@ -397,6 +464,16 @@ def _scan_column(values: list[str]) -> dict[str, dict[str, Any]]:
                 detections[entity]["count"] += 1
                 if result.score > detections[entity]["confidence"]:
                     detections[entity]["confidence"] = result.score
+
+    # Filter entities that don't meet the minimum match ratio
+    if total_values > 0:
+        filtered: dict[str, dict[str, Any]] = {}
+        for entity, info in detections.items():
+            min_ratio = ENTITY_MIN_MATCH_RATIO.get(entity)
+            if min_ratio is not None and info["count"] / total_values < min_ratio:
+                continue
+            filtered[entity] = info
+        return filtered
 
     return detections
 

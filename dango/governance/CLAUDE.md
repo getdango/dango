@@ -8,10 +8,11 @@ Data governance module: schema drift detection and PII scanning. Monitors DuckDB
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| `__init__.py` | Re-exports public API | `DriftEvent`, `DriftResponse`, `PiiFinding`, `PiiResponse`, `detect_drift_for_sources`, `detect_table_drift`, `get_drift_history`, `scan_sources_for_pii`, `scan_table_for_pii`, `get_pii_findings` |
-| `models.py` (~60 lines) | Pydantic V2 response models | `DriftEvent`, `DriftResponse`, `PiiFinding`, `PiiResponse` |
+| `__init__.py` | Re-exports public API | `DriftEvent`, `DriftResponse`, `PiiFinding`, `PiiOverride`, `PiiOverrideRequest`, `PiiOverridesResponse`, `PiiResponse`, `detect_drift_for_sources`, `detect_table_drift`, `get_drift_history`, `scan_sources_for_pii`, `scan_table_for_pii`, `get_pii_findings`, `get_pii_overrides`, `set_pii_override`, `delete_pii_override` |
+| `models.py` (~93 lines) | Pydantic V2 response models | `DriftEvent`, `DriftResponse`, `PiiFinding`, `PiiResponse`, `PiiOverride`, `PiiOverrideRequest`, `PiiOverridesResponse` |
 | `schema_drift.py` (~490 lines) | Schema drift detection engine | `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()`, `_send_drift_webhook()` |
-| `pii_detector.py` (~515 lines) | PII scanning engine (Presidio + spaCy) | `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()`, `_send_pii_webhook()` |
+| `pii_detector.py` (~602 lines) | PII scanning engine (Presidio + spaCy) | `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()`, `_send_pii_webhook()`, `_register_intl_phone_recognizer()` |
+| `pii_overrides.py` (~174 lines) | PII override CRUD | `get_overrides_for_table()`, `get_pii_overrides()`, `set_pii_override()`, `delete_pii_override()` |
 
 ## Common Tasks
 
@@ -27,6 +28,10 @@ Data governance module: schema drift detection and PII scanning. Monitors DuckDB
 | Query PII findings | `pii_detector.py` (`get_pii_findings()`) | `pytest tests/unit/test_pii_detection.py` |
 | Add PII CLI output columns | `dango/cli/commands/governance.py` | `dango governance pii-report` |
 | View PII via API | `dango/web/routes/governance.py` | `GET /api/governance/pii` |
+| Set/delete PII override | `pii_overrides.py` | `pytest tests/unit/test_pii_overrides.py` |
+| List PII overrides via CLI | `dango/cli/commands/governance.py` | `dango governance pii-list` |
+| Set PII override via CLI | `dango/cli/commands/governance.py` | `dango governance pii-set SOURCE TABLE COL --status pii` |
+| View PII overrides via API | `dango/web/routes/governance.py` | `GET /api/governance/pii/overrides` |
 
 ## Dependencies
 
@@ -50,6 +55,7 @@ Data governance module: schema drift detection and PII scanning. Monitors DuckDB
 
 - **Unit (drift):** `pytest tests/unit/test_drift_detection.py`
 - **Unit (PII):** `pytest tests/unit/test_pii_detection.py`
+- **Unit (PII overrides):** `pytest tests/unit/test_pii_overrides.py`
 - **Integration (drift):** `pytest tests/integration/test_drift_integration.py`
 - **Integration (PII):** `pytest tests/integration/test_pii_integration.py`
 - **Related:** `pytest tests/unit/test_post_sync.py tests/unit/test_webhook.py tests/unit/test_slack_formatter.py`
@@ -63,3 +69,5 @@ Data governance module: schema drift detection and PII scanning. Monitors DuckDB
 | `pii_findings` table schema | Cached findings depend on the column structure (defined in `dango/utils/dango_db.py`) |
 | `DriftEvent` field names | Web API consumers depend on the response shape |
 | `PiiFinding` field names | Web API consumers depend on the response shape |
+| `pii_overrides` table schema | Override CRUD depends on the column structure (defined in `dango/utils/dango_db.py`) |
+| `PiiOverride` field names | Web API consumers depend on the response shape |

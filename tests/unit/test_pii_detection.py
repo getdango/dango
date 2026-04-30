@@ -11,10 +11,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dango.governance.pii_detector import (
+    ENTITY_MIN_MATCH_RATIO,
     _cache_findings,
     _get_analyzer,
     _get_existing_keys,
     _is_string_type,
+    _register_intl_phone_recognizer,
     _scan_column,
     _send_pii_webhook,
     get_pii_findings,
@@ -502,3 +504,139 @@ class TestGetExistingKeys:
         with patch(f"{_PII}.connect", side_effect=OSError("db error")):
             result = _get_existing_keys(tmp_path, "shopify")
         assert result == set()
+
+
+@pytest.mark.unit
+class TestEntityMinMatchRatio:
+    """Tests for PERSON match ratio filtering in _scan_column."""
+
+    def test_person_below_threshold_filtered(self) -> None:
+        """PERSON detected in <30% of values should be filtered out."""
+        # 1 PERSON match out of 10 values = 10% < 30%
+        r = MagicMock(entity_type="PERSON", score=0.85)
+        mock_analyzer = MagicMock()
+        # Only the first value triggers PERSON, rest return nothing
+        mock_analyzer.analyze.side_effect = [[r]] + [[] for _ in range(9)]
+        with patch(f"{_PII}._get_analyzer", return_value=mock_analyzer):
+            result = _scan_column([f"val{i}" for i in range(10)], total_values=10)
+        assert "PERSON" not in result
+
+    def test_person_above_threshold_kept(self) -> None:
+        """PERSON detected in >=30% of values should be kept."""
+        r = MagicMock(entity_type="PERSON", score=0.85)
+        mock_analyzer = MagicMock()
+        # 4 PERSON matches out of 10 values = 40% >= 30%
+        mock_analyzer.analyze.side_effect = [[r]] * 4 + [[] for _ in range(6)]
+        with patch(f"{_PII}._get_analyzer", return_value=mock_analyzer):
+            result = _scan_column([f"val{i}" for i in range(10)], total_values=10)
+        assert "PERSON" in result
+
+    def test_person_at_exact_threshold_kept(self) -> None:
+        """PERSON detected in exactly 30% of values should be kept (>=, not >)."""
+        r = MagicMock(entity_type="PERSON", score=0.85)
+        mock_analyzer = MagicMock()
+        # 3 PERSON matches out of 10 values = 30% == threshold
+        mock_analyzer.analyze.side_effect = [[r]] * 3 + [[] for _ in range(7)]
+        with patch(f"{_PII}._get_analyzer", return_value=mock_analyzer):
+            result = _scan_column([f"val{i}" for i in range(10)], total_values=10)
+        assert "PERSON" in result
+
+    def test_non_person_entities_no_minimum(self) -> None:
+        """Non-PERSON entities should pass through even with 1 match."""
+        r = MagicMock(entity_type="EMAIL_ADDRESS", score=0.85)
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze.side_effect = [[r]] + [[] for _ in range(9)]
+        with patch(f"{_PII}._get_analyzer", return_value=mock_analyzer):
+            result = _scan_column([f"val{i}" for i in range(10)], total_values=10)
+        assert "EMAIL_ADDRESS" in result
+
+    def test_entity_min_match_ratio_has_person(self) -> None:
+        assert "PERSON" in ENTITY_MIN_MATCH_RATIO
+        assert ENTITY_MIN_MATCH_RATIO["PERSON"] == 0.30
+
+
+@pytest.mark.unit
+class TestIntlPhoneRecognizer:
+    """Tests for _register_intl_phone_recognizer."""
+
+    def test_registers_recognizer(self) -> None:
+        mock_analyzer = MagicMock()
+        mock_registry = MagicMock()
+        mock_analyzer.registry = mock_registry
+        _register_intl_phone_recognizer(mock_analyzer)
+        mock_registry.add_recognizer.assert_called_once()
+        recognizer = mock_registry.add_recognizer.call_args[0][0]
+        assert recognizer.supported_entities == ["PHONE_NUMBER"]
+
+
+@pytest.mark.unit
+class TestOverrideApplication:
+    """Tests for override application in scan_table_for_pii."""
+
+    def test_not_pii_override_removes_finding(self, tmp_path: Path) -> None:
+        """Columns marked 'not_pii' should be excluded from findings."""
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.side_effect = [
+            [("email", "VARCHAR")],
+            [("test@example.com",)],
+        ]
+        overrides = {"email": "not_pii"}
+        with (
+            patch("duckdb.connect", return_value=mock_conn),
+            patch(
+                f"{_PII}._scan_column",
+                return_value={"EMAIL_ADDRESS": {"confidence": 0.9, "count": 1}},
+            ),
+            patch(f"{_PII}._cache_findings"),
+            patch(
+                "dango.governance.pii_overrides.get_overrides_for_table",
+                return_value=overrides,
+            ),
+        ):
+            result = scan_table_for_pii(tmp_path, "shopify", "orders")
+        assert len(result) == 0
+
+    def test_pii_override_adds_manual_finding(self, tmp_path: Path) -> None:
+        """Columns marked 'pii' but not auto-detected should appear as MANUAL_OVERRIDE."""
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.side_effect = [
+            [("country", "VARCHAR")],
+            [("USA",)],
+        ]
+        overrides = {"country": "pii"}
+        with (
+            patch("duckdb.connect", return_value=mock_conn),
+            patch(f"{_PII}._scan_column", return_value={}),
+            patch(f"{_PII}._cache_findings"),
+            patch(
+                "dango.governance.pii_overrides.get_overrides_for_table",
+                return_value=overrides,
+            ),
+        ):
+            result = scan_table_for_pii(tmp_path, "shopify", "orders")
+        assert len(result) == 1
+        assert result[0]["entity_type"] == "MANUAL_OVERRIDE"
+        assert result[0]["confidence"] == 1.0
+
+    def test_no_overrides_passes_through(self, tmp_path: Path) -> None:
+        """No overrides should not change findings."""
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.side_effect = [
+            [("email", "VARCHAR")],
+            [("test@example.com",)],
+        ]
+        with (
+            patch("duckdb.connect", return_value=mock_conn),
+            patch(
+                f"{_PII}._scan_column",
+                return_value={"EMAIL_ADDRESS": {"confidence": 0.9, "count": 1}},
+            ),
+            patch(f"{_PII}._cache_findings"),
+            patch(
+                "dango.governance.pii_overrides.get_overrides_for_table",
+                return_value={},
+            ),
+        ):
+            result = scan_table_for_pii(tmp_path, "shopify", "orders")
+        assert len(result) == 1
+        assert result[0]["entity_type"] == "EMAIL_ADDRESS"

@@ -36,7 +36,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore) | `backup_group` |
 | `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query` | `remote_status()`, `remote_logs()` |
 | `commands/schedule.py` (743 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
-| `commands/governance.py` (125 lines) | `governance` group (drift-report, pii-report) | `governance`, `drift_report()`, `pii_report()` |
+| `commands/governance.py` (208 lines) | `governance` group (drift-report, pii-report, pii-set, pii-list) | `governance`, `drift_report()`, `pii_report()`, `pii_set()`, `pii_list()` |
 | `commands/notebook.py` (179 lines) | `notebook` group (new, open) + `snapshot` top-level | `notebook`, `notebook_new()`, `notebook_open()`, `snapshot()` |
 | `commands/analyze.py` (81 lines) | `analyze` top-level command | `analyze()` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
@@ -111,7 +111,7 @@ dango (top-level group)
 ├── analyze                     ← commands/analyze.py
 ├── snapshot                    ← commands/notebook.py
 ├── governance (group)          ← commands/governance.py
-│   ├── drift-report, pii-report
+│   ├── drift-report, pii-report, pii-set, pii-list
 ├── notebook (group)            ← commands/notebook.py
 │   ├── new, open              (default invocation lists notebooks)
 └── metabase (group)            ← commands/metabase_cmd.py

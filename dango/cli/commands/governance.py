@@ -123,3 +123,86 @@ def pii_report(
         )
 
     console.print(tbl)
+
+
+@governance.command("pii-set")
+@click.argument("source")
+@click.argument("table")
+@click.argument("column")
+@click.option(
+    "--status",
+    "pii_status",
+    required=True,
+    type=click.Choice(["pii", "not_pii"]),
+    help="PII status to set.",
+)
+@click.option("--reason", default=None, help="Reason for the override.")
+@click.pass_context
+def pii_set(
+    ctx: click.Context,
+    source: str,
+    table: str,
+    column: str,
+    pii_status: str,
+    reason: str | None,
+) -> None:
+    """Set a PII override for a column."""
+    from dango.cli.utils import require_project_context
+    from dango.governance.pii_overrides import set_pii_override
+
+    project_root = require_project_context(ctx)
+
+    set_pii_override(
+        project_root,
+        source,
+        table,
+        column,
+        pii_status,
+        "cli",
+        reason,
+    )
+    console.print(f"[green]Set PII override:[/green] {source}.{table}.{column} = {pii_status}")
+
+
+@governance.command("pii-list")
+@click.option("--source", default=None, help="Filter by source name.")
+@click.pass_context
+def pii_list(ctx: click.Context, source: str | None) -> None:
+    """List PII overrides."""
+    from rich.table import Table
+
+    from dango.cli.utils import require_project_context
+    from dango.governance.pii_overrides import get_pii_overrides
+
+    project_root = require_project_context(ctx)
+
+    overrides = get_pii_overrides(project_root, source=source)
+
+    if not overrides:
+        console.print("[dim]No PII overrides found.[/dim]")
+        return
+
+    tbl = Table(title="PII Overrides")
+    tbl.add_column("ID", style="dim")
+    tbl.add_column("Source", style="bold")
+    tbl.add_column("Table")
+    tbl.add_column("Column")
+    tbl.add_column("Status")
+    tbl.add_column("Set By")
+    tbl.add_column("Reason")
+    tbl.add_column("Updated At")
+
+    for o in overrides:
+        status_style = "green" if o["pii_status"] == "not_pii" else "red"
+        tbl.add_row(
+            str(o["id"]),
+            o["source"],
+            o["table_name"],
+            o["column_name"],
+            f"[{status_style}]{o['pii_status']}[/{status_style}]",
+            o["set_by"],
+            o.get("reason") or "-",
+            o["updated_at"],
+        )
+
+    console.print(tbl)
