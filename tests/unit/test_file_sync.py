@@ -444,3 +444,49 @@ class TestSyncProjectFiles:
 
         result = sync_project_files(ssh, project, remote_host="10.0.0.1")
         assert result.has_macro_changes is False
+
+
+# ---------------------------------------------------------------------------
+# BUG-124: Metabase plugins in SYNC_CONFIG_FILES
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestMetabasePluginsSync:
+    def test_sync_config_files_contains_driver(self):
+        """BUG-124: SYNC_CONFIG_FILES includes metabase-plugins entries."""
+        local_paths = [entry[0] for entry in SYNC_CONFIG_FILES]
+        assert "metabase-plugins/duckdb.metabase-driver.jar" in local_paths
+        assert "metabase-plugins/.driver-version" in local_paths
+
+    def test_driver_synced_when_local_exists(self, tmp_path):
+        """BUG-124: Driver JAR is synced from local when it exists."""
+        # Create local driver file
+        plugins_dir = tmp_path / "metabase-plugins"
+        plugins_dir.mkdir()
+        driver = plugins_dir / "duckdb.metabase-driver.jar"
+        driver.write_bytes(b"fake-jar-content")
+        version_file = plugins_dir / ".driver-version"
+        version_file.write_text("1.5.1.0")
+
+        ssh = _make_ssh_mock(first_deploy=True)
+
+        with patch("dango.platform.cloud.file_sync._rsync_directory"):
+            result = sync_project_files(ssh, tmp_path, remote_host="10.0.0.1")
+
+        assert "metabase-plugins/duckdb.metabase-driver.jar" in result.synced_files
+        assert "metabase-plugins/.driver-version" in result.synced_files
+
+    def test_chown_called_for_metabase_plugins(self, tmp_path):
+        """BUG-124: metabase-plugins directory is chowned to dango:dango."""
+        ssh = _make_ssh_mock(first_deploy=True)
+
+        with patch("dango.platform.cloud.file_sync._rsync_directory"):
+            sync_project_files(ssh, tmp_path, remote_host="10.0.0.1")
+
+        chown_calls = [
+            str(c)
+            for c in ssh.exec_command.call_args_list
+            if "chown -R dango:dango" in str(c) and "metabase-plugins" in str(c)
+        ]
+        assert len(chown_calls) >= 1

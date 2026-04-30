@@ -72,10 +72,12 @@ def _step_prereqs(project_root: Path) -> None:
     Raises:
         SystemExit: If a prerequisite is missing.
     """
-    # Check DIGITALOCEAN_TOKEN
-    token = os.environ.get("DIGITALOCEAN_TOKEN")
+    # Check DIGITALOCEAN_TOKEN — env var > stored credential > prompt
+    from dango.config.cloud_credentials import get_do_token, save_do_token
+
+    token = get_do_token()
     if not token:
-        console.print("[yellow]DIGITALOCEAN_TOKEN environment variable not set.[/yellow]")
+        console.print("[yellow]DigitalOcean API token not found.[/yellow]")
         console.print(
             "\n  Create an API token at: "
             "[link=https://cloud.digitalocean.com/account/api/tokens]"
@@ -84,7 +86,10 @@ def _step_prereqs(project_root: Path) -> None:
         token = click.prompt("Enter your DigitalOcean API token", hide_input=True)
         if not token.strip():
             raise SystemExit(1)
-        os.environ["DIGITALOCEAN_TOKEN"] = token.strip()
+        token = token.strip()
+        # BUG-127: Persist token so subsequent commands don't re-prompt
+        save_do_token(token)
+    os.environ["DIGITALOCEAN_TOKEN"] = token
 
     # Check project has sources
     sources_yml = project_root / ".dango" / "sources.yml"

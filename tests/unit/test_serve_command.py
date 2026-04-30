@@ -471,6 +471,47 @@ class TestServeFailures:
 
         assert result.exit_code == 1
 
+    @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
+    @patch(f"{_STARTUP}.import_dashboards")
+    @patch(f"{_STARTUP}.setup_metabase_if_needed")
+    @patch(f"{_STARTUP}.start_docker_services")
+    @patch(f"{_STARTUP}.ensure_duckdb_driver", side_effect=RuntimeError("download failed"))
+    @patch(f"{_STARTUP}.ensure_dbt_schemas")
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_duckdb_driver_failure_continues_if_jar_exists(
+        self,
+        mock_ctx,
+        mock_loader_cls,
+        mock_migrate,
+        mock_schemas,
+        mock_driver,
+        mock_docker,
+        mock_metabase,
+        mock_dashboards,
+        mock_check_port,
+        mock_uvicorn_run,
+        tmp_path,
+    ):
+        """BUG-124: Driver download failure is non-fatal if JAR exists (synced from local)."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock()
+
+        # Create the driver JAR file (simulating sync from local)
+        plugins_dir = tmp_path / "metabase-plugins"
+        plugins_dir.mkdir()
+        (plugins_dir / "duckdb.metabase-driver.jar").write_bytes(b"fake-jar")
+
+        runner = CliRunner()
+        result = runner.invoke(serve, [], obj={})
+
+        assert result.exit_code == 0, result.output
+        mock_uvicorn_run.assert_called_once()
+        assert "WARNING" in result.output
+        assert "driver JAR exists" in result.output
+
     @patch("uvicorn.run", side_effect=RuntimeError("bind failed"))
     @patch(f"{_SERVE}._check_port")
     @patch(f"{_STARTUP}.import_dashboards")
