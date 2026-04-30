@@ -531,6 +531,16 @@ class TestEntityMinMatchRatio:
             result = _scan_column([f"val{i}" for i in range(10)], total_values=10)
         assert "PERSON" in result
 
+    def test_person_at_exact_threshold_kept(self) -> None:
+        """PERSON detected in exactly 30% of values should be kept (>=, not >)."""
+        r = MagicMock(entity_type="PERSON", score=0.85)
+        mock_analyzer = MagicMock()
+        # 3 PERSON matches out of 10 values = 30% == threshold
+        mock_analyzer.analyze.side_effect = [[r]] * 3 + [[] for _ in range(7)]
+        with patch(f"{_PII}._get_analyzer", return_value=mock_analyzer):
+            result = _scan_column([f"val{i}" for i in range(10)], total_values=10)
+        assert "PERSON" in result
+
     def test_non_person_entities_no_minimum(self) -> None:
         """Non-PERSON entities should pass through even with 1 match."""
         r = MagicMock(entity_type="EMAIL_ADDRESS", score=0.85)
