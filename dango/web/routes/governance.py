@@ -148,6 +148,13 @@ async def list_pii_overrides(
         source=validated_source,
     )
 
+    log_auth_event(
+        AuditEvent.GOVERNANCE_PII_VIEWED,
+        user_id=user.id,
+        email=user.email,
+        details={"source": validated_source, "view": "overrides"},
+    )
+
     pii_overrides = [PiiOverride(**o) for o in overrides]
     return PiiOverridesResponse(overrides=pii_overrides, count=len(pii_overrides))
 
@@ -163,14 +170,6 @@ async def set_pii_override_endpoint(
     validated_source = validate_source_name(body.source)
     validated_table = validate_identifier(body.table_name)
     validated_column = validate_identifier(body.column_name)
-
-    if body.pii_status not in ("pii", "not_pii"):
-        from fastapi import HTTPException
-
-        raise HTTPException(
-            status_code=400,
-            detail="pii_status must be 'pii' or 'not_pii'",
-        )
 
     from dango.governance.pii_overrides import set_pii_override
 

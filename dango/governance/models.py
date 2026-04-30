@@ -5,7 +5,9 @@ Pydantic V2 response models for data governance endpoints.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DriftEvent(BaseModel):
@@ -80,8 +82,8 @@ class PiiOverrideRequest(BaseModel):
     source: str
     table_name: str
     column_name: str
-    pii_status: str
-    reason: str | None = None
+    pii_status: Literal["pii", "not_pii"]
+    reason: str | None = Field(None, max_length=1000)
 
 
 class PiiOverridesResponse(BaseModel):

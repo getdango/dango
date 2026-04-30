@@ -136,9 +136,12 @@ def set_pii_override(
 
     with connect(project_root) as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO pii_overrides "
+            "INSERT INTO pii_overrides "
             "(source, table_name, column_name, pii_status, set_by, reason, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(source, table_name, column_name) DO UPDATE SET "
+            "pii_status=excluded.pii_status, set_by=excluded.set_by, "
+            "reason=excluded.reason, updated_at=excluded.updated_at",
             (source, table_name, column_name, pii_status, set_by, reason, now),
         )
         conn.commit()
