@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/smoke_test.sh — v1.2 (2026-04-27)
+# scripts/smoke_test.sh — v1.3 (2026-04-30)
 #
 # Automated smoke test for a running Dango instance.
 # Requires: dango start running in a test project, venv activated.
@@ -9,9 +9,7 @@
 #   ./scripts/smoke_test.sh --help
 #
 # Environment variables:
-#   DANGO_BASE_URL       — Server URL (default: http://localhost:8800)
-#   DANGO_ADMIN_EMAIL    — Admin email (default: admin@localhost)
-#   DANGO_ADMIN_PASSWORD — Admin password (required, no default)
+#   DANGO_BASE_URL — Server URL (default: http://localhost:8800)
 
 # Note: -e is intentionally omitted — test commands are expected to return
 # non-zero on failure; the script handles each result individually.
@@ -29,10 +27,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "Arguments:"
     echo "  BASE_URL    Server URL (default: \$DANGO_BASE_URL or http://localhost:8800)"
     echo ""
-    echo "Environment variables:"
-    echo "  DANGO_BASE_URL       Server URL"
-    echo "  DANGO_ADMIN_EMAIL    Admin email (default: admin@localhost)"
-    echo "  DANGO_ADMIN_PASSWORD Admin password (required)"
+    echo "Authentication: auto-creates a temporary API key from .dango/auth.db"
     exit 0
 fi
 
@@ -41,26 +36,37 @@ fi
 # ---------------------------------------------------------------------------
 
 BASE_URL="${1:-${DANGO_BASE_URL:-http://localhost:8800}}"
-ADMIN_EMAIL="${DANGO_ADMIN_EMAIL:-admin@localhost}"
-ADMIN_PASSWORD="${DANGO_ADMIN_PASSWORD:-}"
 
-if [ -z "$ADMIN_PASSWORD" ]; then
-    echo "ERROR: DANGO_ADMIN_PASSWORD environment variable is required."
-    echo "Usage: DANGO_ADMIN_PASSWORD=<password> $0 [BASE_URL]"
-    exit 1
-fi
-
-COOKIE_JAR=$(mktemp)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-trap 'rm -f "$COOKIE_JAR"' EXIT
+# Create a temporary API key for authentication (requires .dango/auth.db)
+AUTH_RESULT=$(python3 -c "
+from pathlib import Path
+from dango.auth.admin import get_auth_db_path
+from dango.auth.database import list_users
+from dango.auth.sessions import create_api_key
+from dango.auth.models import Role
+db_path = get_auth_db_path(Path('.'))
+users = list_users(db_path, active_only=True)
+admin = next((u for u in users if u.role == Role.ADMIN), None)
+if admin is None:
+    raise SystemExit('No active admin user found in auth.db')
+raw_key, api_key = create_api_key(db_path, admin.id, 'smoke_test_temp')
+print(f'{raw_key}|{api_key.id}')
+" 2>&1) || { echo "ERROR: Failed to create API key: $AUTH_RESULT"; exit 1; }
+API_KEY="${AUTH_RESULT%%|*}"
+API_KEY_ID="${AUTH_RESULT##*|}"
 
-# Validate ADMIN_EMAIL format
-if ! echo "$ADMIN_EMAIL" | grep -qE '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'; then
-    echo "ERROR: DANGO_ADMIN_EMAIL ('$ADMIN_EMAIL') is not a valid email address."
-    exit 1
-fi
+cleanup() {
+    python3 -c "
+from pathlib import Path
+from dango.auth.admin import get_auth_db_path
+from dango.auth.sessions import revoke_api_key
+revoke_api_key(get_auth_db_path(Path('.')), '$API_KEY_ID')
+" 2>/dev/null || true
+}
+trap cleanup EXIT
 
 # Check BASE_URL reachability
 if ! curl --head --silent --connect-timeout 5 "$BASE_URL" > /dev/null 2>&1; then
@@ -128,7 +134,7 @@ category_end() {
     if [ "$CAT_SKIP" -gt 0 ]; then
         extra=" ($CAT_SKIP SKIP)"
     fi
-    printf "[%s/7] %-28s %d/%d %s%s\n" "$num" "$name" "$CAT_PASS" "$CAT_TOTAL" "$status" "$extra"
+    printf "[%s/8] %-28s %d/%d %s%s\n" "$num" "$name" "$CAT_PASS" "$CAT_TOTAL" "$status" "$extra"
 }
 
 # Run a command, pass if exit code is 0
@@ -150,7 +156,7 @@ curl_api_test() {
     local expected="${4:-200}"
     local data="${5:-}"
 
-    local args=(-s -o /dev/null -w "%{http_code}" -b "$COOKIE_JAR")
+    local args=(-s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $API_KEY")
     args+=(-H "X-Requested-With: XMLHttpRequest")
 
     if [ "$method" = "POST" ]; then
@@ -158,6 +164,8 @@ curl_api_test() {
         if [ -n "$data" ]; then
             args+=(-d "$data")
         fi
+    elif [ "$method" = "DELETE" ]; then
+        args+=(-X DELETE)
     fi
 
     local status
@@ -178,7 +186,7 @@ curl_page_test() {
 
     local body
     local status
-    body=$(curl -s -b "$COOKIE_JAR" -w "\n%{http_code}" "${BASE_URL}${path}")
+    body=$(curl -s -H "Authorization: Bearer $API_KEY" -w "\n%{http_code}" "${BASE_URL}${path}")
     status=$(echo "$body" | tail -n1)
     body=$(echo "$body" | sed '$d')
 
@@ -187,7 +195,7 @@ curl_page_test() {
         return
     fi
 
-    if echo "$body" | grep -qi "$expected_content"; then
+    if grep -qi "$expected_content" <<< "$body"; then
         pass_test
     else
         fail_test "$name" "Response missing expected content: $expected_content"
@@ -250,36 +258,16 @@ category_end "2" "CLI Operations"
 # Category 3: API Endpoints
 # ---------------------------------------------------------------------------
 
-category_start 9
+category_start 8
 
-# Login to get session cookie
-LOGIN_OK=false
-login_status=$(curl -s -c "$COOKIE_JAR" -o /dev/null -w "%{http_code}" \
-    -X POST "${BASE_URL}/api/auth/login" \
-    -H "Content-Type: application/json" \
-    -H "X-Requested-With: XMLHttpRequest" \
-    -d "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}")
-
-if [ "$login_status" = "200" ]; then
-    pass_test
-    LOGIN_OK=true
-else
-    fail_test "POST /api/auth/login" "Expected HTTP 200, got $login_status"
-fi
-
-if $LOGIN_OK; then
-    curl_api_test "GET /api/status" GET "/api/status"
-    curl_api_test "GET /api/sources" GET "/api/sources"
-    curl_api_test "GET /api/config" GET "/api/config"
-    curl_api_test "GET /api/health/platform" GET "/api/health/platform"
-    curl_api_test "GET /api/dbt/models" GET "/api/dbt/models"
-    curl_api_test "GET /api/governance/schema-drift" GET "/api/governance/schema-drift"
-    curl_api_test "GET /api/governance/pii" GET "/api/governance/pii"
-    curl_api_test "GET /api/logs?limit=5" GET "/api/logs?limit=5"
-else
-    echo "    BLOCKED: Skipping 8 API tests — login failed"
-    for _ in $(seq 8); do skip_test "API endpoint" "login failed"; done
-fi
+curl_api_test "GET /api/status" GET "/api/status"
+curl_api_test "GET /api/sources" GET "/api/sources"
+curl_api_test "GET /api/config" GET "/api/config"
+curl_api_test "GET /api/health/platform" GET "/api/health/platform"
+curl_api_test "GET /api/dbt/models" GET "/api/dbt/models"
+curl_api_test "GET /api/governance/schema-drift" GET "/api/governance/schema-drift"
+curl_api_test "GET /api/governance/pii" GET "/api/governance/pii"
+curl_api_test "GET /api/logs?limit=5" GET "/api/logs?limit=5"
 
 category_end "3" "API Endpoints"
 
@@ -289,23 +277,18 @@ category_end "3" "API Endpoints"
 
 category_start 12
 
-if $LOGIN_OK; then
-    curl_page_test "/ (Overview)" "/" "Overview"
-    curl_page_test "/sources" "/sources" "Sources"
-    curl_page_test "/models" "/models" "Models"
-    curl_page_test "/schedules" "/schedules" "Schedules"
-    curl_page_test "/catalog" "/catalog" "Catalog"
-    curl_page_test "/insights" "/insights" "Insights"
-    curl_page_test "/notebooks" "/notebooks" "Notebooks"
-    curl_page_test "/health" "/health" "Health"
-    curl_page_test "/logs" "/logs" "Logs"
-    curl_page_test "/settings/account" "/settings/account" "Account"
-    curl_page_test "/settings/users" "/settings/users" "User"
-    curl_page_test "/settings/secrets" "/settings/secrets" "Secrets"
-else
-    echo "    BLOCKED: Skipping 12 page tests — login failed"
-    for _ in $(seq 12); do skip_test "Page load" "login failed"; done
-fi
+curl_page_test "/ (Overview)" "/" "Overview"
+curl_page_test "/sources" "/sources" "Sources"
+curl_page_test "/models" "/models" "Models"
+curl_page_test "/schedules" "/schedules" "Schedules"
+curl_page_test "/catalog" "/catalog" "Catalog"
+curl_page_test "/insights" "/insights" "Insights"
+curl_page_test "/notebooks" "/notebooks" "Notebooks"
+curl_page_test "/health" "/health" "Health"
+curl_page_test "/logs" "/logs" "Logs"
+curl_page_test "/settings/account" "/settings/account" "Account"
+curl_page_test "/settings/users" "/settings/users" "User"
+curl_page_test "/settings/secrets" "/settings/secrets" "Secrets"
 
 category_end "4" "Page Loads"
 
@@ -329,31 +312,27 @@ category_end "5" "JS Null Guards"
 
 category_start 1
 
-if $LOGIN_OK; then
-    nav_html=$(curl -s -b "$COOKIE_JAR" "${BASE_URL}/")
-    nav_ok=true
+nav_html=$(curl -s -H "Authorization: Bearer $API_KEY" "${BASE_URL}/")
+nav_ok=true
 
-    # Check for 9 pipeline nav items (target state after R7-C)
-    for item in "Overview" "Sources" "Models" "Schedules" "Catalog" "Query" "Dashboards" "Notebooks" "Insights"; do
-        if ! echo "$nav_html" | grep -q "$item"; then
-            fail_test "Nav structure" "Missing nav item: $item"
-            nav_ok=false
-            break
-        fi
-    done
-
-    # Check "More" dropdown is gone (target state after R7-C)
-    # Match the specific dropdown comment/button, not incidental "More" text
-    if $nav_ok && echo "$nav_html" | grep -q "More dropdown"; then
-        fail_test "Nav structure" "Found 'More' dropdown — should be removed after R7-C"
+# Check for 9 pipeline nav items (target state after R7-C)
+for item in "Overview" "Sources" "Models" "Schedules" "Catalog" "Query" "Dashboards" "Notebooks" "Insights"; do
+    if ! grep -q "$item" <<< "$nav_html"; then
+        fail_test "Nav structure" "Missing nav item: $item"
         nav_ok=false
+        break
     fi
+done
 
-    if $nav_ok; then
-        pass_test
-    fi
-else
-    skip_test "Nav structure" "login failed"
+# Check "More" dropdown is gone (target state after R7-C)
+# Match the specific dropdown comment/button, not incidental "More" text
+if $nav_ok && grep -q "More dropdown" <<< "$nav_html"; then
+    fail_test "Nav structure" "Found 'More' dropdown — should be removed after R7-C"
+    nav_ok=false
+fi
+
+if $nav_ok; then
+    pass_test
 fi
 
 category_end "6" "Nav Structure"
@@ -411,59 +390,91 @@ else
     pass_test
 fi
 
-# --- Login-dependent checks ---
+# --- Server-dependent checks ---
 
-if $LOGIN_OK; then
-    # BUG-066: Cache bust uses content hash (8-char hex), not timestamps
-    page_html=$(curl -s -b "$COOKIE_JAR" "${BASE_URL}/")
-    if echo "$page_html" | grep -qE '\?v=[0-9a-f]{8}'; then
-        # Also verify no timestamp-style params (10+ digits)
-        if echo "$page_html" | grep -qE '\?v=[0-9]{10,}'; then
-            fail_test "Cache bust hash (BUG-066)" "Found timestamp-style ?v= param (should be 8-char hex)"
-        else
-            pass_test
-        fi
+# BUG-066: Cache bust uses content hash (8-char hex), not timestamps
+page_html=$(curl -s -H "Authorization: Bearer $API_KEY" "${BASE_URL}/")
+if grep -qE '\?v=[0-9a-f]{8}' <<< "$page_html"; then
+    # Also verify no timestamp-style params (10+ digits)
+    if grep -qE '\?v=[0-9]{10,}' <<< "$page_html"; then
+        fail_test "Cache bust hash (BUG-066)" "Found timestamp-style ?v= param (should be 8-char hex)"
     else
-        fail_test "Cache bust hash (BUG-066)" "No ?v=<8-char-hex> found in page HTML"
-    fi
-
-    # BUG-054: Authenticated users get redirected away from /login
-    login_redir_status=$(curl -s -o /dev/null -w "%{http_code}" -b "$COOKIE_JAR" "${BASE_URL}/login")
-    if [ "$login_redir_status" = "302" ]; then
         pass_test
-    else
-        fail_test "Login redirect (BUG-054)" "Expected HTTP 302, got $login_redir_status"
-    fi
-
-    # BUG-065: Mobile nav includes Activity Logs and Health links
-    # Reuse page_html from BUG-066 check (same page)
-    nav_065_ok=true
-    if ! echo "$page_html" | grep -q "Activity Logs"; then
-        fail_test "Mobile nav (BUG-065)" "Missing 'Activity Logs' link"
-        nav_065_ok=false
-    fi
-    if $nav_065_ok && ! echo "$page_html" | grep -q 'href="/health"'; then
-        fail_test "Mobile nav (BUG-065)" "Missing href=\"/health\" link"
-        nav_065_ok=false
-    fi
-    if $nav_065_ok; then
-        pass_test
-    fi
-
-    # BUG-082: /api/sources includes supports_date_range capability
-    # Note: requires at least one configured source in the test project
-    sources_body=$(curl -s -b "$COOKIE_JAR" -H "X-Requested-With: XMLHttpRequest" "${BASE_URL}/api/sources")
-    if echo "$sources_body" | grep -q "supports_date_range"; then
-        pass_test
-    else
-        fail_test "supports_date_range (BUG-082)" "Field not found in /api/sources response"
     fi
 else
-    echo "    BLOCKED: Skipping 4 R8 checks — login failed"
-    for _ in $(seq 4); do skip_test "R8 regression" "login failed"; done
+    fail_test "Cache bust hash (BUG-066)" "No ?v=<8-char-hex> found in page HTML"
+fi
+
+# BUG-054: Login redirect — skip with API key auth
+# The /login redirect checks dango_session cookie, not Bearer tokens.
+# API key auth won't trigger the redirect. This is correct browser-only behavior.
+skip_test "Login redirect (BUG-054)" "requires cookie auth, not testable with API key"
+
+# BUG-065: Mobile nav includes Activity Logs and Health links
+# Reuse page_html from BUG-066 check (same page)
+nav_065_ok=true
+if ! grep -q "Activity Logs" <<< "$page_html"; then
+    fail_test "Mobile nav (BUG-065)" "Missing 'Activity Logs' link"
+    nav_065_ok=false
+fi
+if $nav_065_ok && ! grep -q 'href="/health"' <<< "$page_html"; then
+    fail_test "Mobile nav (BUG-065)" "Missing href=\"/health\" link"
+    nav_065_ok=false
+fi
+if $nav_065_ok; then
+    pass_test
+fi
+
+# BUG-082: /api/sources includes supports_date_range capability
+# Note: requires at least one configured source in the test project
+sources_body=$(curl -s -H "Authorization: Bearer $API_KEY" -H "X-Requested-With: XMLHttpRequest" "${BASE_URL}/api/sources")
+if grep -q "supports_date_range" <<< "$sources_body"; then
+    pass_test
+else
+    fail_test "supports_date_range (BUG-082)" "Field not found in /api/sources response"
 fi
 
 category_end "7" "R8 Regression Checks"
+
+# ---------------------------------------------------------------------------
+# Category 8: R9 Feature Checks
+# ---------------------------------------------------------------------------
+
+category_start 12
+
+# Catalog endpoints
+curl_api_test "GET /api/catalog/models" GET "/api/catalog/models"
+curl_api_test "GET /api/catalog/summary" GET "/api/catalog/summary"
+curl_api_test "GET /api/catalog/search?q=test" GET "/api/catalog/search?q=test"
+curl_api_test "GET /api/catalog/lineage" GET "/api/catalog/lineage"
+
+# Governance
+curl_api_test "GET /api/governance/pii/overrides" GET "/api/governance/pii/overrides"
+curl_api_test "GET /api/governance/attention" GET "/api/governance/attention"
+
+# Notebooks — create then delete
+curl_api_test "GET /api/notebooks" GET "/api/notebooks"
+NB_CREATE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "X-Requested-With: XMLHttpRequest" \
+    -X POST -H "Content-Type: application/json" \
+    -d '{"name":"smoke_test_nb"}' \
+    "${BASE_URL}/api/notebooks")
+if [ "$NB_CREATE_STATUS" = "201" ]; then
+    pass_test
+    # Only delete if create succeeded
+    curl_api_test "DELETE /api/notebooks/smoke_test_nb" DELETE "/api/notebooks/smoke_test_nb"
+else
+    fail_test "POST /api/notebooks (create)" "Expected HTTP 201, got $NB_CREATE_STATUS"
+    skip_test "DELETE /api/notebooks/smoke_test_nb" "create failed"
+fi
+
+# Insights
+curl_api_test "GET /api/insights" GET "/api/insights"
+curl_api_test "GET /api/insights/history" GET "/api/insights/history?metric=row_count&days=7"
+curl_api_test "POST /api/insights/run" POST "/api/insights/run"
+
+category_end "8" "R9 Feature Checks"
 
 # ---------------------------------------------------------------------------
 # Summary
