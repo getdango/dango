@@ -82,9 +82,9 @@ dango/                          # Python package source
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
 │   │   ├── model.py            # model group (add/remove)
-│   │   ├── platform.py         # start/stop/status + port helpers (985 lines)
+│   │   ├── platform.py         # start/stop/status + port helpers (1011 lines)
 │   │   ├── project.py          # init/rename/info
-│   │   ├── source.py           # source group (add/list/remove) + sync (757 lines)
+│   │   ├── source.py           # source group (add/list/remove) + sync (785 lines)
 │   │   ├── transform.py        # run/docs/generate
 │   │   ├── upgrade.py          # local Dango upgrade via pip + migrations
 │   │   ├── web.py              # web dev server
@@ -338,7 +338,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `visualization/metabase.py` | 1151 | — |
 | `cli/init.py` | 1324 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
-| `cli/commands/platform.py` | 985 | — (extracted from main.py by TASK-005) |
+| `cli/commands/platform.py` | 1011 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 819 | — (extracted from app.py by TASK-085) |
@@ -349,7 +349,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/routes/upload.py` | 701 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 670 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
-| `cli/commands/source.py` | 757 | — (extracted from main.py by TASK-005) |
+| `cli/commands/source.py` | 785 | — (extracted from main.py by TASK-005) |
 | `cli/commands/remote.py` | 698 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 595 | — (push deploy workflow + deploy lock + journal) |

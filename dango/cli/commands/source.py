@@ -495,6 +495,7 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
     is_flag=True,
     help="Allow CSV schema changes (add columns, treat missing as NULL)",
 )
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
 @click.pass_context
 def sync(
     ctx: click.Context,
@@ -506,6 +507,7 @@ def sync(
     full_refresh: bool,
     dry_run: bool,
     allow_schema_changes: bool,
+    yes: bool,
 ) -> None:
     """
     Load data from all sources (or specific source).
@@ -539,6 +541,22 @@ def sync(
     try:
         # Get project context
         project_root = require_project_context(ctx)
+
+        # Guard rail: warn if project is deployed to cloud
+        if not yes:
+            from dango.config import ConfigLoader
+
+            cloud_cfg = ConfigLoader(project_root).load_cloud_config()
+            if cloud_cfg and cloud_cfg.droplet_ip:
+                target = cloud_cfg.domain or cloud_cfg.droplet_ip
+                console.print(f"[yellow]  This project is deployed to {target}.[/yellow]")
+                console.print(
+                    "[yellow]   `dango sync` syncs data LOCALLY, not on your cloud server.[/yellow]"
+                )
+                console.print("[yellow]   Use `dango remote sync` for cloud.[/yellow]")
+                if not click.confirm("Continue?", default=False):
+                    raise click.Abort()
+                console.print()
 
         # Try to acquire lock before running sync (which includes dbt)
         try:
@@ -627,6 +645,16 @@ def sync(
                 return
 
             console.print(f"Syncing {len(sources_to_sync)} enabled source(s)")
+
+        # Guard rail: on first sync, confirm scope
+        if not yes and not dry_run:
+            warehouse_path = project_root / "data" / "warehouse.duckdb"
+            if not warehouse_path.exists():
+                if not click.confirm(
+                    f"This will sync {len(sources_to_sync)} source(s). Continue?",
+                    default=True,
+                ):
+                    raise click.Abort()
 
         if full_refresh:
             console.print("[yellow]⚠️  Full refresh mode: existing data will be dropped[/yellow]")
