@@ -42,7 +42,11 @@ class TestPrereqCheck:
     def test_missing_do_token_prompts_user(self, project_root, monkeypatch):
         """Missing DIGITALOCEAN_TOKEN prompts interactively."""
         monkeypatch.delenv("DIGITALOCEAN_TOKEN", raising=False)
-        with patch("dango.cli.commands.deploy_wizard.click.prompt", return_value="dop_test123"):
+        with (
+            patch("dango.config.cloud_credentials.get_do_token", return_value=None),
+            patch("dango.config.cloud_credentials.save_do_token"),
+            patch("dango.cli.commands.deploy_wizard.click.prompt", return_value="dop_test123"),
+        ):
             _step_prereqs(project_root)
         import os
 
@@ -53,7 +57,10 @@ class TestPrereqCheck:
     def test_missing_do_token_empty_input_exits(self, project_root, monkeypatch):
         """Empty token input raises SystemExit."""
         monkeypatch.delenv("DIGITALOCEAN_TOKEN", raising=False)
-        with patch("dango.cli.commands.deploy_wizard.click.prompt", return_value=""):
+        with (
+            patch("dango.config.cloud_credentials.get_do_token", return_value=None),
+            patch("dango.cli.commands.deploy_wizard.click.prompt", return_value=""),
+        ):
             with pytest.raises(SystemExit):
                 _step_prereqs(project_root)
 
