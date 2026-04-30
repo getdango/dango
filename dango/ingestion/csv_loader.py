@@ -64,6 +64,7 @@ class CSVLoader:
         source_name: str,
         config: CSVSourceConfig,
         target_schema: str = "raw",
+        allow_schema_changes: bool = False,
     ) -> dict[str, Any]:
         """
         Load CSV files incrementally
@@ -72,6 +73,7 @@ class CSVLoader:
             source_name: Name of the source (used as table prefix)
             config: CSV source configuration
             target_schema: Target schema name (default: 'raw')
+            allow_schema_changes: If True, allow schema evolution (add cols, NULL missing)
 
         Returns:
             Dictionary with load statistics
@@ -145,10 +147,16 @@ class CSVLoader:
         # PRE-VALIDATE: Check ALL file schemas match before loading ANY data
         # This prevents partial data loading when schema mismatches exist
         files_to_validate = classified["new"] + classified["updated"]
+        evolution_columns: dict[str, str] = {}  # new columns to add if evolving
         if files_to_validate:
             try:
-                self._validate_all_files_schema_match(
-                    conn, files_to_validate, target_table, source_name, table_exists
+                evolution_columns = self._validate_all_files_schema_match(
+                    conn,
+                    files_to_validate,
+                    target_table,
+                    source_name,
+                    table_exists,
+                    allow_schema_changes=allow_schema_changes,
                 )
             except CSVSchemaMismatchError as e:
                 # Schema validation failed - exit immediately without loading anything
@@ -165,6 +173,14 @@ class CSVLoader:
                     "skipped": len(classified["unchanged"]),
                     "total_rows": 0,
                 }
+
+        # Apply schema evolution if needed (add new columns before loading)
+        if evolution_columns and table_exists:
+            self._evolve_table_schema(conn, target_table, evolution_columns)
+            console.print(
+                f"  [green]Schema evolved: added {len(evolution_columns)} column(s): "
+                f"{', '.join(evolution_columns.keys())}[/green]"
+            )
 
         # Note: We don't drop the table when all files are deleted
         # Instead, we let the file deletion logic below handle it by deleting rows
@@ -186,12 +202,24 @@ class CSVLoader:
         try:
             # Load new files
             for filepath, _metadata in classified["new"]:
-                if self._load_new_file(conn, filepath, target_table, source_name):
+                if self._load_new_file(
+                    conn,
+                    filepath,
+                    target_table,
+                    source_name,
+                    skip_schema_check=allow_schema_changes,
+                ):
                     stats["new"] += 1
 
             # Reload updated files
             for filepath, _metadata in classified["updated"]:
-                if self._reload_updated_file(conn, filepath, target_table, source_name):
+                if self._reload_updated_file(
+                    conn,
+                    filepath,
+                    target_table,
+                    source_name,
+                    skip_schema_check=allow_schema_changes,
+                ):
                     stats["updated"] += 1
 
             # Delete removed files
@@ -364,6 +392,52 @@ class CSVLoader:
         ]
         return columns
 
+    def _get_file_column_types(
+        self, conn: duckdb.DuckDBPyConnection, filepath: str
+    ) -> dict[str, str]:
+        """Get column names and types from a data file.
+
+        Args:
+            conn: DuckDB connection
+            filepath: Path to data file
+
+        Returns:
+            Mapping of {column_name: data_type}
+        """
+        read_fn = self._get_read_function(filepath)
+        temp_view = f"_temp_types_check_{int(datetime.now().timestamp())}"
+        try:
+            conn.execute(
+                f"CREATE TEMP VIEW {temp_view} AS SELECT * FROM {read_fn}('{filepath}') LIMIT 0"
+            )
+            rows = conn.execute(f"DESCRIBE {temp_view}").fetchall()
+            conn.execute(f"DROP VIEW {temp_view}")
+            return {row[0]: row[1] for row in rows}
+        except Exception:
+            try:
+                conn.execute(f"DROP VIEW IF EXISTS {temp_view}")
+            except Exception:
+                pass
+            return {}
+
+    def _evolve_table_schema(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        target_table: str,
+        new_columns: dict[str, str],
+    ) -> None:
+        """Add new columns to an existing table for schema evolution.
+
+        Args:
+            conn: DuckDB connection
+            target_table: Fully qualified table name (schema.table)
+            new_columns: Mapping of {column_name: column_type} to add.
+                Both col_name and col_type come from DuckDB's DESCRIBE output
+                (inferred from the data file), not from raw user input.
+        """
+        for col_name, col_type in new_columns.items():
+            conn.execute(f'ALTER TABLE {target_table} ADD COLUMN "{col_name}" {col_type}')
+
     def _validate_all_files_schema_match(
         self,
         conn: duckdb.DuckDBPyConnection,
@@ -371,14 +445,16 @@ class CSVLoader:
         target_table: str,
         source_name: str,
         table_exists: bool,
-    ) -> None:
+        allow_schema_changes: bool = False,
+    ) -> dict[str, str]:
         """
         Pre-validate ALL CSV files have matching schemas before loading ANY data.
 
         For first load (no table): Validates all files have identical schemas.
         For incremental (table exists): Validates all files match existing table schema.
 
-        This prevents partial data loading when schema mismatches exist.
+        When ``allow_schema_changes=True`` and table exists, extra columns in files
+        are collected for ALTER TABLE, and missing columns are allowed (NULLs).
 
         Args:
             conn: DuckDB connection
@@ -386,12 +462,16 @@ class CSVLoader:
             target_table: Target table name (schema.table)
             source_name: Source name (for error messages)
             table_exists: Whether target table already exists
+            allow_schema_changes: If True, tolerate schema differences
+
+        Returns:
+            Dict of {column_name: column_type} for new columns to add (empty if none).
 
         Raises:
-            CSVSchemaMismatchError: If any schema mismatch is found
+            CSVSchemaMismatchError: If any schema mismatch is found (strict mode)
         """
         if not files:
-            return  # No files to validate
+            return {}
 
         # Extract just file paths
         filepaths = [f[0] for f in files]
@@ -410,6 +490,8 @@ class CSVLoader:
 
         # Validate each file against reference schema
         mismatched_files = []
+        # Track all new columns across files (for schema evolution)
+        all_new_columns: dict[str, str] = {}
 
         for filepath in filepaths:
             filename = os.path.basename(filepath)
@@ -426,14 +508,24 @@ class CSVLoader:
                     new_columns = file_set - reference_set
                     missing_columns = reference_set - file_set
 
-                    mismatched_files.append(
-                        {
-                            "filename": filename,
-                            "columns": file_columns,
-                            "new_columns": new_columns,
-                            "missing_columns": missing_columns,
-                        }
-                    )
+                    if allow_schema_changes and table_exists:
+                        # Collect new columns with their types for evolution
+                        if new_columns:
+                            file_types = self._get_file_column_types(conn, filepath)
+                            for col in new_columns:
+                                if col in file_types:
+                                    all_new_columns[col] = file_types[col]
+                        # Missing columns are allowed (will be NULL)
+                        # Don't add to mismatched_files
+                    else:
+                        mismatched_files.append(
+                            {
+                                "filename": filename,
+                                "columns": file_columns,
+                                "new_columns": new_columns,
+                                "missing_columns": missing_columns,
+                            }
+                        )
             except Exception as e:
                 # If we can't read the file schema, treat as mismatch
                 mismatched_files.append({"filename": filename, "error": str(e)})
@@ -494,10 +586,14 @@ class CSVLoader:
                         "  2. dango db clean",
                         f"  3. dango source add  # Re-add '{source_name}'",
                         "  4. dango sync",
+                        "",
+                        "Or use --allow-schema-changes to accept schema evolution.",
                     ]
                 )
 
             raise CSVSchemaMismatchError("\n".join(error_lines))
+
+        return all_new_columns
 
     def _validate_schema_match(
         self, conn: duckdb.DuckDBPyConnection, filepath: str, target_table: str, source_name: str
@@ -597,6 +693,7 @@ class CSVLoader:
         filepath: str,
         target_table: str,
         source_name: str,
+        skip_schema_check: bool = False,
     ) -> bool:
         """Load a new file"""
         filename = os.path.basename(filepath)
@@ -604,7 +701,9 @@ class CSVLoader:
 
         try:
             # Validate schema matches table (strict mode - fail on any mismatch)
-            self._validate_schema_match(conn, filepath, target_table, source_name)
+            # Skipped when allow_schema_changes=True (pre-validation already handled)
+            if not skip_schema_check:
+                self._validate_schema_match(conn, filepath, target_table, source_name)
 
             metadata = self._get_file_metadata(filepath)
             read_fn = self._get_read_function(filepath)
@@ -665,6 +764,7 @@ class CSVLoader:
         filepath: str,
         target_table: str,
         source_name: str,
+        skip_schema_check: bool = False,
     ) -> bool:
         """Reload an updated file (transactional)"""
         filename = os.path.basename(filepath)
@@ -672,7 +772,9 @@ class CSVLoader:
 
         try:
             # Validate schema matches table (strict mode - fail on any mismatch)
-            self._validate_schema_match(conn, filepath, target_table, source_name)
+            # Skipped when allow_schema_changes=True (pre-validation already handled)
+            if not skip_schema_check:
+                self._validate_schema_match(conn, filepath, target_table, source_name)
 
             metadata = self._get_file_metadata(filepath)
             read_fn = self._get_read_function(filepath)

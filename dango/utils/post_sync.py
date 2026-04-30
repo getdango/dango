@@ -300,7 +300,6 @@ def dispatch_post_sync_hooks(
     logger.info("post_sync_hooks_start", sources=sources)
 
     _run_profiling(project_root, sources)
-    _run_drift_detection(project_root, sources)
     _run_pii_scan(project_root, sources)
     _run_analysis(project_root, sources)
 
@@ -355,21 +354,6 @@ def _run_profiling(project_root: Path, sources: list[str]) -> None:
             logger.debug("profiling_source_complete", source=source)
         except Exception:
             logger.warning("profiling_source_error", source=source)
-
-
-def _run_drift_detection(project_root: Path, sources: list[str]) -> None:
-    """Detect schema drift for freshly synced sources.
-
-    Args:
-        project_root: Path to the Dango project root.
-        sources: Names of sources that synced successfully.
-    """
-    try:
-        from dango.governance.schema_drift import detect_drift_for_sources
-
-        detect_drift_for_sources(project_root, sources)
-    except Exception:
-        logger.warning("drift_detection_error", sources=sources, exc_info=True)
 
 
 def _run_pii_scan(project_root: Path, sources: list[str]) -> None:

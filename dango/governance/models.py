@@ -5,7 +5,7 @@ Pydantic V2 response models for data governance endpoints.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,6 +20,7 @@ class DriftEvent(BaseModel):
     table_name: str
     column_name: str | None
     event_type: str
+    severity: str | None = None
     detail: str | None
     detected_at: str
 
@@ -33,6 +34,27 @@ class DriftResponse(BaseModel):
     count: int
     source: str | None
     table_name: str | None
+
+
+class SourceAttention(BaseModel):
+    """A source that needs user attention due to breaking drift."""
+
+    model_config = ConfigDict(frozen=True)
+
+    source: str
+    reason: str
+    drift_events: list[dict[str, Any]] = []
+    created_at: str
+
+
+class AcceptDriftResponse(BaseModel):
+    """Response from accepting schema drift for a source."""
+
+    model_config = ConfigDict(frozen=True)
+
+    source: str
+    accepted: bool
+    message: str
 
 
 class PiiFinding(BaseModel):

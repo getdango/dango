@@ -206,3 +206,17 @@ def pii_list(ctx: click.Context, source: str | None) -> None:
         )
 
     console.print(tbl)
+
+
+@governance.command("accept")
+@click.argument("source")
+@click.pass_context
+def accept(ctx: click.Context, source: str) -> None:
+    """Accept schema drift for a source and resume dbt."""
+    from dango.cli.utils import require_project_context
+    from dango.governance.schema_drift import accept_drift
+
+    project_root = require_project_context(ctx)
+    accept_drift(project_root, source)
+    console.print(f"[green]Schema changes accepted for '{source}'.[/green]")
+    console.print("[dim]dbt will run on next sync.[/dim]")

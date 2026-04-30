@@ -16,7 +16,6 @@ from dango.governance.schema_drift import (
     get_drift_history,
 )
 from dango.utils.dango_db import _schema_initialized, connect
-from dango.utils.post_sync import dispatch_post_sync_hooks
 
 
 def _create_test_warehouse(tmp_path: Path) -> Path:
@@ -184,21 +183,21 @@ class TestDriftDetectionIntegration:
 class TestHookBoundaryIntegration:
     """Integration tests for the full hook boundary path."""
 
-    def test_dispatch_to_drift_detection(self, tmp_path: Path) -> None:
-        """dispatch_post_sync_hooks → _run_drift_detection → drift engine."""
+    def test_drift_detection_direct(self, tmp_path: Path) -> None:
+        """detect_drift_for_sources detects drift (now called pre-dbt, not from post_sync)."""
         _clear_schema_cache()
         db_path = _create_test_warehouse(tmp_path)
 
-        # First sync via dispatcher — establishes baseline
-        dispatch_post_sync_hooks(tmp_path, ["testshop"])
+        # First call — establishes baseline
+        detect_drift_for_sources(tmp_path, ["testshop"])
 
         # Add a column
         conn = duckdb.connect(str(db_path))
         conn.execute("ALTER TABLE raw_testshop.orders ADD COLUMN status VARCHAR")
         conn.close()
 
-        # Second sync via dispatcher — detects drift
-        dispatch_post_sync_hooks(tmp_path, ["testshop"])
+        # Second call — detects drift
+        detect_drift_for_sources(tmp_path, ["testshop"])
 
         # Verify drift events were recorded
         with connect(tmp_path) as sqlite_conn:

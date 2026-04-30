@@ -579,6 +579,7 @@ class DltPipelineRunner:
             source_name=source_config.name,
             config=source_config.csv,
             target_schema=target_schema,
+            allow_schema_changes=getattr(self, "allow_schema_changes", False),
         )
 
         return {
@@ -632,6 +633,7 @@ class DltPipelineRunner:
             source_name=source_config.name,
             config=source_config.local_files,
             target_schema=target_schema,
+            allow_schema_changes=getattr(self, "allow_schema_changes", False),
         )
 
         return {
@@ -2170,6 +2172,7 @@ def run_sync(
     full_refresh: bool = False,
     limit: int | None = None,
     skip_dbt: bool = False,
+    allow_schema_changes: bool = False,
 ) -> dict[str, Any]:
     """
     Sync multiple sources and return summary
@@ -2182,11 +2185,13 @@ def run_sync(
         full_refresh: Full refresh mode
         limit: Max rows per source (dev testing)
         skip_dbt: If True, skip dbt run/docs/Metabase refresh (caller handles separately)
+        allow_schema_changes: If True, allow CSV schema evolution (add cols, NULL missing)
 
     Returns:
         Summary dictionary with success/failed counts
     """
     runner = DltPipelineRunner(project_root)
+    runner.allow_schema_changes = allow_schema_changes
 
     results = []
     success_sources = []
@@ -2290,6 +2295,34 @@ def run_sync(
                     console.print(f"  • {item['source']}: {item['reason']}")
 
         console.print()
+
+        # Check for breaking schema drift BEFORE running dbt
+        if success_sources and not skip_dbt:
+            try:
+                from dango.governance.schema_drift import detect_drift_for_sources
+
+                drift_events = detect_drift_for_sources(project_root, success_sources)
+                breaking_events = [e for e in drift_events if e.get("severity") == "breaking"]
+                if breaking_events:
+                    by_source: dict[str, list[dict[str, Any]]] = {}
+                    for ev in breaking_events:
+                        by_source.setdefault(ev["source"], []).append(ev)
+                    console.print("[yellow]Breaking schema drift detected:[/yellow]")
+                    for src, evts in by_source.items():
+                        console.print(f"  [bold]{src}[/bold]:")
+                        for ev in evts:
+                            console.print(
+                                f"    {ev['column_name']}: {ev['event_type']} ({ev['detail']})"
+                            )
+                    console.print("\n[yellow]dbt skipped to protect dashboards.[/yellow]")
+                    console.print(
+                        "[dim]Accept: dango governance accept <source> (or via web UI)[/dim]\n"
+                    )
+                    skip_dbt = True
+            except Exception:
+                import logging as _drift_log
+
+                _drift_log.getLogger(__name__).debug("pre_dbt_drift_check_failed", exc_info=True)
 
         # Run dbt to create staging/marts tables (unless caller handles dbt separately)
         if not skip_dbt:

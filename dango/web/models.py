@@ -32,6 +32,8 @@ class SourceStatus(BaseModel):
     schedule_display: str | None = None  # Human-readable schedule (e.g., "Every 6 hours")
     supports_incremental: bool = True  # Whether source supports incremental sync
     supports_date_range: bool = False  # Whether source supports custom date range sync
+    needs_attention: bool = False  # Whether source has unresolved breaking drift
+    attention_reason: str | None = None  # Why source needs attention
 
 
 class ServiceHealth(BaseModel):

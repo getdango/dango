@@ -73,12 +73,14 @@ class TestPostSyncChainIntegration:
         assert "testshop" in sources
 
     def test_drift_baseline_created(self, tmp_path: Path) -> None:
-        """First dispatch creates schema_baselines with no drift_events."""
+        """First detect_drift_for_sources call creates baselines with no events."""
+        from dango.governance.schema_drift import detect_drift_for_sources
+
         _clear_schema_cache()
         _create_test_warehouse(tmp_path)
 
-        with patch("dango.governance.pii_detector._get_analyzer", return_value=None):
-            dispatch_post_sync_hooks(tmp_path, ["testshop"])
+        # Drift now runs pre-dbt (not from post_sync), call directly
+        detect_drift_for_sources(tmp_path, ["testshop"])
 
         with connect(tmp_path) as sqlite_conn:
             baselines = sqlite_conn.execute(
@@ -92,22 +94,22 @@ class TestPostSyncChainIntegration:
         assert len(drift_events) == 0  # First run = baseline only, no drift
 
     def test_second_dispatch_detects_drift(self, tmp_path: Path) -> None:
-        """ALTER TABLE between dispatches produces drift_events."""
+        """ALTER TABLE between detect_drift_for_sources calls produces events."""
+        from dango.governance.schema_drift import detect_drift_for_sources
+
         _clear_schema_cache()
         db_path = _create_test_warehouse(tmp_path)
 
-        with patch("dango.governance.pii_detector._get_analyzer", return_value=None):
-            # First run — establishes baseline
-            dispatch_post_sync_hooks(tmp_path, ["testshop"])
+        # First run — establishes baseline
+        detect_drift_for_sources(tmp_path, ["testshop"])
 
         # ALTER TABLE — add a column
         conn = duckdb.connect(str(db_path))
         conn.execute("ALTER TABLE raw_testshop.orders ADD COLUMN notes VARCHAR")
         conn.close()
 
-        with patch("dango.governance.pii_detector._get_analyzer", return_value=None):
-            # Second run — should detect drift
-            dispatch_post_sync_hooks(tmp_path, ["testshop"])
+        # Second run — should detect drift
+        detect_drift_for_sources(tmp_path, ["testshop"])
 
         with connect(tmp_path) as sqlite_conn:
             drift_events = sqlite_conn.execute(
@@ -119,27 +121,27 @@ class TestPostSyncChainIntegration:
         assert "column_added" in event_types
 
     def test_hook_failure_does_not_block_chain(self, tmp_path: Path) -> None:
-        """Patch drift engine to raise — profiling still ran, analysis still ran."""
+        """PII failure doesn't block analysis — profiling + analysis still run."""
         _clear_schema_cache()
         _create_test_warehouse(tmp_path)
 
         with (
-            patch(
-                "dango.governance.schema_drift.detect_drift_for_sources",
-                side_effect=RuntimeError("drift engine boom"),
-            ),
             patch("dango.governance.pii_detector._get_analyzer", return_value=None),
+            patch(
+                "dango.governance.pii_detector.scan_sources_for_pii",
+                side_effect=RuntimeError("pii boom"),
+            ),
             patch("dango.analysis.metrics.run_analysis", return_value=[]) as mock_analysis,
         ):
             dispatch_post_sync_hooks(tmp_path, ["testshop"])
 
-        # Profiling ran before drift (check profiling_stats)
+        # Profiling ran (check profiling_stats)
         with connect(tmp_path) as sqlite_conn:
             rows = sqlite_conn.execute(
                 "SELECT source FROM profiling_stats WHERE source = 'testshop'"
             ).fetchall()
 
-        assert len(rows) > 0  # Profiling succeeded despite drift failure
+        assert len(rows) > 0  # Profiling succeeded despite PII failure
 
-        # Analysis ran after drift
+        # Analysis ran after PII failure
         mock_analysis.assert_called_once()

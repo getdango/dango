@@ -13,6 +13,7 @@ from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.governance.models import (
+    AcceptDriftResponse,
     DriftEvent,
     DriftResponse,
     PiiFinding,
@@ -20,6 +21,7 @@ from dango.governance.models import (
     PiiOverrideRequest,
     PiiOverridesResponse,
     PiiResponse,
+    SourceAttention,
 )
 from dango.logging import get_logger
 from dango.validation import validate_identifier, validate_source_name
@@ -236,3 +238,46 @@ async def delete_pii_override_endpoint(
         )
 
     return {"status": "ok" if deleted else "not_found"}
+
+
+@router.post("/api/governance/drift/{source}/accept")
+async def accept_source_drift(
+    source: str,
+    user: User = Depends(require_permission("governance.manage")),
+) -> AcceptDriftResponse:
+    """Accept schema drift for a source and clear attention flag."""
+    from fastapi import HTTPException
+
+    source = validate_source_name(source)
+    project_root = get_project_root()
+
+    from dango.governance.schema_drift import accept_drift, get_sources_needing_attention
+
+    # Verify the source actually has an attention flag
+    attention = await asyncio.to_thread(get_sources_needing_attention, project_root)
+    if not any(r["source"] == source for r in attention):
+        raise HTTPException(status_code=404, detail=f"No pending drift for '{source}'")
+
+    await asyncio.to_thread(accept_drift, project_root, source)
+
+    log_auth_event(
+        AuditEvent.GOVERNANCE_DRIFT_ACCEPTED,
+        user_id=user.id,
+        email=user.email,
+        details={"source": source},
+    )
+
+    return AcceptDriftResponse(source=source, accepted=True, message="Schema accepted")
+
+
+@router.get("/api/governance/attention")
+async def get_attention_sources(
+    user: User = Depends(require_permission("governance.view")),
+) -> list[SourceAttention]:
+    """Return sources with unresolved breaking drift."""
+    project_root = get_project_root()
+
+    from dango.governance.schema_drift import get_sources_needing_attention
+
+    rows = await asyncio.to_thread(get_sources_needing_attention, project_root)
+    return [SourceAttention(**r) for r in rows]

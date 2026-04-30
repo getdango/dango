@@ -89,6 +89,20 @@ async def get_sources() -> list[SourceStatus]:
             status.has_schedule = True
             status.schedule_display = sched
 
+    # Enrich with attention state (breaking drift)
+    try:
+        from dango.governance.schema_drift import get_sources_needing_attention
+        from dango.web.helpers import get_project_root
+
+        attention_rows = await asyncio.to_thread(get_sources_needing_attention, get_project_root())
+        attention_map = {r["source"]: r["reason"] for r in attention_rows}
+        for status in source_statuses:
+            if status.name in attention_map:
+                status.needs_attention = True
+                status.attention_reason = attention_map[status.name]
+    except Exception:
+        pass  # Non-critical enrichment
+
     # Sort sources alphabetically by name for consistent ordering
     source_statuses = sorted(source_statuses, key=lambda s: s.name.lower())
 
