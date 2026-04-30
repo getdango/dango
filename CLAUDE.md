@@ -357,7 +357,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `transformation/generator.py` | 548 | — |
 | `web/routes/catalog.py` | 1157 | — (data catalog: columns, profiling, lineage, impact, models, search) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
-| `cli/commands/deploy_provision.py` | 872 | — (provisioning orchestration + BYOS) |
+| `cli/commands/deploy_provision.py` | 846 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
 | `platform/cloud/server_setup.py` | 652 | — (server setup + install source detection) |
 | `cli/commands/auth.py` | 660 | — (13 auth subcommands) |

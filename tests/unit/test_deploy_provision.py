@@ -155,11 +155,8 @@ class TestSecretsPush:
         (project_root / ".env").write_text("DB_URL=postgres://...\n")
 
         ssh = _make_mock_ssh()
-        warnings: list[str] = []
-        with patch("dango.cli.commands.deploy_provision.click.confirm", return_value=True):
-            _push_secrets(ssh, project_root, warnings)
+        _push_secrets(ssh, project_root)
 
-        assert warnings == []
         assert ssh.write_remote_file.call_count == 2
 
     def test_env_missing_continues(self, project_root):
@@ -169,36 +166,16 @@ class TestSecretsPush:
         (dlt_dir / "secrets.toml").write_text("[sources]\n")
 
         ssh = _make_mock_ssh()
-        warnings: list[str] = []
-        with patch("dango.cli.commands.deploy_provision.click.confirm", return_value=True):
-            _push_secrets(ssh, project_root, warnings)
+        _push_secrets(ssh, project_root)
 
-        assert warnings == []
         # Only secrets.toml written
         assert ssh.write_remote_file.call_count == 1
 
-    def test_secrets_missing_warns(self, project_root):
-        """Missing both .dlt/secrets.toml and .env produces a warning."""
+    def test_no_files_pushes_nothing(self, project_root):
+        """No secret files means no writes."""
         ssh = _make_mock_ssh()
-        warnings: list[str] = []
-        _push_secrets(ssh, project_root, warnings)
+        _push_secrets(ssh, project_root)
 
-        assert len(warnings) == 1
-        assert "No .dlt/secrets.toml or .env found locally" in warnings[0]
-
-    def test_user_declines_push(self, project_root):
-        """User declining confirm skips write and adds warning."""
-        dlt_dir = project_root / ".dlt"
-        dlt_dir.mkdir()
-        (dlt_dir / "secrets.toml").write_text("[sources]\n")
-
-        ssh = _make_mock_ssh()
-        warnings: list[str] = []
-        with patch("dango.cli.commands.deploy_provision.click.confirm", return_value=False):
-            _push_secrets(ssh, project_root, warnings)
-
-        assert len(warnings) == 1
-        assert "skipped by user" in warnings[0]
         ssh.write_remote_file.assert_not_called()
 
 
@@ -724,22 +701,6 @@ class TestConfirmSecretsPush:
 
         assert result is False
         assert "No .dlt/secrets.toml or .env found locally" in warnings[0]
-
-
-@pytest.mark.unit
-class TestPushSecretsConfirmed:
-    def test_confirmed_skips_prompt(self, project_root):
-        """confirmed=True pushes without prompting."""
-        dlt_dir = project_root / ".dlt"
-        dlt_dir.mkdir()
-        (dlt_dir / "secrets.toml").write_text("[sources]\n")
-
-        ssh = _make_mock_ssh()
-        warnings: list[str] = []
-        # No click.confirm mock needed — should not be called
-        _push_secrets(ssh, project_root, warnings, confirmed=True)
-
-        assert ssh.write_remote_file.call_count == 1
 
 
 # ---------------------------------------------------------------------------

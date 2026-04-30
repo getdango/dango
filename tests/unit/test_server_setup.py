@@ -647,7 +647,7 @@ class TestAptLockTimeout:
 
 
 # ---------------------------------------------------------------------------
-# BUG-123: _resolve_install_source
+# BUG-123: resolve_install_source
 # ---------------------------------------------------------------------------
 
 
@@ -657,13 +657,13 @@ class TestResolveInstallSource:
         """PyPI install returns ('pypi', 'getdango==<version>')."""
         from unittest.mock import MagicMock, patch
 
-        from dango.platform.cloud.server_setup import _resolve_install_source
+        from dango.platform.cloud.server_setup import resolve_install_source
 
         mock_dist = MagicMock()
         mock_dist.read_text.return_value = None
 
         with patch("importlib.metadata.distribution", return_value=mock_dist):
-            source_type, pip_arg = _resolve_install_source()
+            source_type, pip_arg = resolve_install_source()
 
         assert source_type == "pypi"
         assert pip_arg.startswith("getdango==")
@@ -673,7 +673,7 @@ class TestResolveInstallSource:
         import json
         from unittest.mock import MagicMock, patch
 
-        from dango.platform.cloud.server_setup import _resolve_install_source
+        from dango.platform.cloud.server_setup import resolve_install_source
 
         direct_url = json.dumps(
             {
@@ -685,7 +685,7 @@ class TestResolveInstallSource:
         mock_dist.read_text.return_value = direct_url
 
         with patch("importlib.metadata.distribution", return_value=mock_dist):
-            source_type, pip_arg = _resolve_install_source()
+            source_type, pip_arg = resolve_install_source()
 
         assert source_type == "git"
         assert pip_arg == "git+https://github.com/getdango/dango@abc123#egg=getdango"
@@ -695,7 +695,7 @@ class TestResolveInstallSource:
         import json
         from unittest.mock import MagicMock, patch
 
-        from dango.platform.cloud.server_setup import _resolve_install_source
+        from dango.platform.cloud.server_setup import resolve_install_source
 
         direct_url = json.dumps(
             {
@@ -713,7 +713,7 @@ class TestResolveInstallSource:
             patch("importlib.metadata.distribution", return_value=mock_dist),
             patch("subprocess.run", side_effect=[mock_remote, mock_head]),
         ):
-            source_type, pip_arg = _resolve_install_source()
+            source_type, pip_arg = resolve_install_source()
 
         assert source_type == "git"
         assert pip_arg == "git+https://github.com/getdango/dango@def456#egg=getdango"
@@ -723,13 +723,13 @@ class TestResolveInstallSource:
         import importlib.metadata
         from unittest.mock import patch
 
-        from dango.platform.cloud.server_setup import _resolve_install_source
+        from dango.platform.cloud.server_setup import resolve_install_source
 
         with patch(
             "importlib.metadata.distribution",
             side_effect=importlib.metadata.PackageNotFoundError("getdango"),
         ):
-            source_type, pip_arg = _resolve_install_source()
+            source_type, pip_arg = resolve_install_source()
 
         assert source_type == "editable"
         assert pip_arg == "getdango"

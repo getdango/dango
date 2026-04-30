@@ -33,18 +33,15 @@ def _read_config() -> configparser.ConfigParser:
 def _write_config(config: configparser.ConfigParser) -> None:
     """Write *config* to the credentials file with secure permissions."""
     _CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
-    # Use os.open() for atomic secure file creation (0o600)
+    # Use os.open() for atomic secure file creation (0o600).
+    # os.fdopen() takes ownership of fd — the with block closes it.
     fd = os.open(
         str(_CREDENTIALS_FILE),
         os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
         0o600,
     )
-    try:
-        with os.fdopen(fd, "w") as f:
-            config.write(f)
-    except Exception:
-        os.close(fd)
-        raise
+    with os.fdopen(fd, "w") as f:
+        config.write(f)
 
 
 def get_do_token() -> str | None:

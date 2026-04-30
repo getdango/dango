@@ -496,7 +496,7 @@ def _setup_ufw(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_install_source() -> tuple[str, str]:
+def resolve_install_source() -> tuple[str, str]:
     """Determine how getdango should be installed on the remote server.
 
     Inspects the local installation's ``direct_url.json`` (PEP 610) to decide:
@@ -624,7 +624,7 @@ def setup_server(
         dango_version: Pin getdango to this version. ``None`` → latest.
             Ignored when *install_source* is provided.
         install_source: ``(source_type, pip_arg)`` from
-            :func:`_resolve_install_source`.  Takes precedence over
+            :func:`resolve_install_source`.  Takes precedence over
             *dango_version*.
 
     Raises:

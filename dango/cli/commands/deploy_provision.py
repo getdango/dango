@@ -168,11 +168,11 @@ def run_provisioning(
         # --- Sub-step 5: Server setup ---
         _status("Setting up server (installs Docker, Caddy, Python, etc.)...")
         from dango.platform.cloud.server_setup import (
-            _resolve_install_source,
+            resolve_install_source,
             setup_server,
         )
 
-        install_source = _resolve_install_source()
+        install_source = resolve_install_source()
         ssh.connect(droplet_ip, username="root")
         try:
             setup_result = setup_server(
@@ -218,7 +218,7 @@ def run_provisioning(
             _status("Pushing secrets to server...")
             ssh.connect(droplet_ip, username="root")
             try:
-                _push_secrets(ssh, project_root, warnings, confirmed=True)
+                _push_secrets(ssh, project_root)
             finally:
                 ssh.disconnect()
 
@@ -345,9 +345,9 @@ def run_byos_setup(
     try:
         # --- Sub-step 1: Server setup (16 steps + UFW) ---
         _status("Setting up server (installs Docker, Caddy, Python, etc.)...")
-        from dango.platform.cloud.server_setup import _resolve_install_source
+        from dango.platform.cloud.server_setup import resolve_install_source
 
-        install_source = _resolve_install_source()
+        install_source = resolve_install_source()
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
             setup_result = setup_server(
@@ -391,7 +391,7 @@ def run_byos_setup(
             _status("Pushing secrets to server...")
             ssh.connect(config.server_ip, username=config.ssh_user)
             try:
-                _push_secrets(ssh, project_root, warnings, confirmed=True)
+                _push_secrets(ssh, project_root)
             finally:
                 ssh.disconnect()
 
@@ -526,42 +526,16 @@ def _confirm_secrets_push(
 def _push_secrets(
     ssh: Any,
     project_root: Path,
-    warnings: list[str],
-    *,
-    confirmed: bool = False,
 ) -> None:
     """Push .dlt/secrets.toml and .env to remote server.
 
-    Args:
-        confirmed: If ``True``, skip listing/confirmation (already done
-            by :func:`_confirm_secrets_push` before SSH was opened).
+    Must be called only after :func:`_confirm_secrets_push` returns
+    ``True``.  Confirmation is handled separately to avoid SSH timeout
+    during interactive prompts (BUG-122).
     """
     secrets_path = project_root / ".dlt" / "secrets.toml"
     env_path = project_root / ".env"
 
-    if not confirmed:
-        # Legacy path: run confirmation inline (SSH already connected)
-        files_to_push: list[str] = []
-        if secrets_path.exists():
-            files_to_push.append(".dlt/secrets.toml")
-        if env_path.exists():
-            files_to_push.append(".env")
-
-        if not files_to_push:
-            warnings.append("No .dlt/secrets.toml or .env found locally — skipped.")
-            return
-
-        console.print("\n[bold]Secrets to push:[/bold]")
-        for f in files_to_push:
-            console.print(f"  - {f}")
-        console.print()
-
-        if not click.confirm("Push these secrets to the server?", default=True):
-            console.print("[yellow]Skipped secrets push.[/yellow]")
-            warnings.append("Secrets push skipped by user.")
-            return
-
-    # Push files and fix ownership for each
     pushed_paths: list[str] = []
     if secrets_path.exists():
         content = secrets_path.read_text()
