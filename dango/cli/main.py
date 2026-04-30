@@ -3350,7 +3350,7 @@ def dashboard(ctx):
 
 
 @dashboard.command("provision")
-@click.option("--url", default="http://localhost:3001", help="Metabase URL")
+@click.option("--url", default="http://localhost:3000", help="Metabase URL")
 @click.option("--username", default="admin@example.com", help="Metabase admin username")
 @click.option("--password", prompt=True, hide_input=True, help="Metabase admin password")
 @click.pass_context
@@ -3368,7 +3368,7 @@ def dashboard_provision(ctx, url, username, password):
     The dashboard provides instant visibility into your data pipeline.
 
     Examples:
-      dango dashboard provision                  # Use defaults (localhost:3001)
+      dango dashboard provision                  # Use defaults (localhost:3000)
       dango dashboard provision --url http://metabase.local
     """
     from rich.panel import Panel
