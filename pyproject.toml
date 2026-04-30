@@ -27,12 +27,14 @@ classifiers = [
 ]
 
 dependencies = [
-    # Critical dependencies - pinned exact for version alignment
-    # DuckDB + Metabase driver + Metabase must all match (see Dockerfile.metabase)
-    "duckdb==1.4.4",          # Pinned — Metabase driver must match
-    "dbt-core==1.10.20",      # Pinned — latest 1.10.x (1.11 is breaking)
-    "dbt-duckdb==1.10.1",     # Pinned — must match dbt-core
-    "dlt[duckdb]==1.24.0",    # Pinned — latest stable
+    # ── Tier 1: tightly coupled (change as a group, see VERSIONS.md) ──────
+    # DuckDB Python + Metabase JDBC driver must share the same DuckDB
+    # major.minor. Read-only mode CANNOT cross versions.
+    "duckdb>=1.5.0,<1.6",         # Tier 1 — must match driver (driver.py)
+    "dbt-duckdb>=1.10.0,<1.11",   # Tier 1 — must match dbt-core
+    # ── Tier 2: semi-coupled (patch safe, minor needs testing) ────────────
+    "dbt-core~=1.10.0",           # Tier 2 — 1.11 is breaking
+    "dlt[duckdb]~=1.24.0",        # Tier 2 — latest stable
 
     # Framework and utilities - flexible versions
     "click>=8.1.7",
@@ -325,6 +327,7 @@ module = [
     "tests.unit.test_ingestion_ux",
     "tests.integration.test_post_sync_chain_integration",
     "tests.integration.test_notebook_lifecycle",
+    "tests.integration.test_metabase_duckdb",
     "tests.unit.test_web_ai",
     "tests.unit.test_web_ai_tools",
     "tests.unit.test_web_imports",
