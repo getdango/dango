@@ -17,6 +17,7 @@ function escapeHtml(str) {
 // Global state
 let ws = null;
 let reconnectInterval = null;
+let wsDisconnectedLogged = false;
 let sources = [];
 let activityLog = [];
 const MAX_LOG_ENTRIES = 50; // Keep compact for quick scanning
@@ -324,7 +325,12 @@ function connectWebSocket() {
         console.log('🔌 [WebSocket] ReadyState:', ws.readyState, '(1 = OPEN)');
         console.log('🔌 [WebSocket] URL:', wsUrl);
         updateConnectionStatus(true);
-        addLogEntry('info', 'Connected to server', 'websocket');
+        if (wsDisconnectedLogged) {
+            addLogEntry('info', 'Reconnected to server', 'websocket');
+        } else {
+            addLogEntry('info', 'Connected to server', 'websocket');
+        }
+        wsDisconnectedLogged = false;
 
         // Clear reconnect interval if it exists
         if (reconnectInterval) {
@@ -348,7 +354,10 @@ function connectWebSocket() {
     ws.onclose = () => {
         console.log('WebSocket disconnected');
         updateConnectionStatus(false);
-        addLogEntry('warning', 'Disconnected from server', 'websocket');
+        if (!wsDisconnectedLogged) {
+            addLogEntry('warning', 'Disconnected from server', 'websocket');
+            wsDisconnectedLogged = true;
+        }
 
         // Attempt to reconnect every 5 seconds
         if (!reconnectInterval) {
