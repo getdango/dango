@@ -136,7 +136,8 @@ dango/                          # Python package source
 │   ├── __init__.py             # Re-exports public API
 │   ├── models.py               # Pydantic V2 response models
 │   ├── schema_drift.py         # Schema drift detection engine (490 lines)
-│   └── pii_detector.py         # PII scanning engine (515 lines)
+│   ├── pii_detector.py         # PII scanning engine (602 lines)
+│   └── pii_overrides.py        # PII override CRUD
 │
 ├── notebooks/                  # Level 1 — Marimo notebook management
 │   ├── __init__.py             # Re-exports public symbols
@@ -366,7 +367,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/schedule.py` | 743 | — (schedule wizard + time customization) |
 | `cli/model_wizard.py` | 507 | — |
 | `platform/cloud/scheduled_backup.py` | 505 | — (server-side scheduled backup) |
-| `governance/pii_detector.py` | 515 | — (BUG-027: 3-level spaCy download fallback) |
+| `governance/pii_detector.py` | 602 | — (BUG-027/BUG-133/BUG-139: spaCy fallback + PERSON threshold + override application) |
 
 ## Module Documentation Index
 

@@ -57,3 +57,37 @@ class PiiResponse(BaseModel):
     count: int
     source: str | None
     table_name: str | None
+
+
+class PiiOverride(BaseModel):
+    """A single PII override record."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    source: str
+    table_name: str
+    column_name: str
+    pii_status: str
+    set_by: str
+    reason: str | None
+    updated_at: str
+
+
+class PiiOverrideRequest(BaseModel):
+    """Request body for setting a PII override."""
+
+    source: str
+    table_name: str
+    column_name: str
+    pii_status: str
+    reason: str | None = None
+
+
+class PiiOverridesResponse(BaseModel):
+    """Response model for listing PII overrides."""
+
+    model_config = ConfigDict(frozen=True)
+
+    overrides: list[PiiOverride]
+    count: int

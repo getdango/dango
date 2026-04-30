@@ -228,7 +228,8 @@
                                         <tr>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                                 <span x-text="col.name"></span>
-                                                <span x-show="col._pii" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800" :title="'PII: ' + (col._pii || '')">PII</span>
+                                                <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800 cursor-pointer" :title="'PII: ' + (col._pii || '') + ' (click to dismiss)'" @click.stop="dismissPii(col)">PII &times;</span>
+                                                <span x-show="col._pii && col._piiProvenance === 'confirmed'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800" :title="'PII confirmed: ' + (col._pii || '')">PII</span>
                                                 <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800" x-text="col._drift" :title="'Schema drift: ' + (col._drift || '')"></span>
                                             </td>
                                             <td class="px-6 py-4 whitespace-nowrap"><span class="col-type text-gray-600" x-text="col.type || '--'"></span></td>
@@ -443,7 +444,7 @@ function catalogPage() {
         lineageNodes: [], lineageEdges: [],
         selectedNode: null, impactHighlighted: false, impactCount: 0, _lineage: null,
         // Governance state
-        piiFindings: [], driftEvents: [],
+        piiFindings: [], driftEvents: [], piiOverrides: [],
         // Shared state
         loading: true, profilingLoading: false, error: null, hasLineage: false,
         // Tab config
@@ -457,9 +458,10 @@ function catalogPage() {
 
         async init() {
             try {
-                const [modelsRes, lineageRes, piiRes, driftRes] = await Promise.allSettled([
+                const [modelsRes, lineageRes, piiRes, driftRes, overridesRes] = await Promise.allSettled([
                     fetch('/api/catalog/models'), fetch('/api/catalog/lineage'),
                     fetch('/api/governance/pii?limit=1000'), fetch('/api/governance/schema-drift?limit=1000'),
+                    fetch('/api/governance/pii/overrides'),
                 ]);
                 if (modelsRes.status === 'fulfilled' && modelsRes.value.ok) {
                     const data = await modelsRes.value.json();
@@ -479,6 +481,10 @@ function catalogPage() {
                 if (driftRes.status === 'fulfilled' && driftRes.value.ok) {
                     const data = await driftRes.value.json();
                     this.driftEvents = data.events || [];
+                }
+                if (overridesRes.status === 'fulfilled' && overridesRes.value.ok) {
+                    const data = await overridesRes.value.json();
+                    this.piiOverrides = data.overrides || [];
                 }
             } catch (e) { this.error = 'Failed to load catalog data.'; }
             finally { this.loading = false; }
@@ -518,6 +524,23 @@ function catalogPage() {
                                 return sourceMatch && f.table_name === tblName && f.column_name === col.name;
                             });
                             col._pii = pii ? pii.entity_type : null;
+                            const override = this.piiOverrides.find(o => {
+                                const sourceMatch = model.source_name ? o.source === model.source_name : true;
+                                return sourceMatch && o.table_name === tblName && o.column_name === col.name;
+                            });
+                            if (override) {
+                                if (override.pii_status === 'not_pii') {
+                                    col._pii = null;
+                                    col._piiProvenance = 'dismissed';
+                                } else if (override.pii_status === 'pii' && col._pii) {
+                                    col._piiProvenance = 'confirmed';
+                                } else if (override.pii_status === 'pii') {
+                                    col._pii = 'MANUAL_OVERRIDE';
+                                    col._piiProvenance = 'confirmed';
+                                }
+                            } else {
+                                col._piiProvenance = col._pii ? 'auto' : null;
+                            }
                             const drift = this.driftEvents.find(d => {
                                 const sourceMatch = model.source_name ? d.source === model.source_name : true;
                                 return sourceMatch && d.table_name === tblName && d.column_name === col.name;
@@ -572,6 +595,25 @@ function catalogPage() {
         clearSearch() {
             this.searchQuery = '';
             this.searchResults = null;
+        },
+
+        async dismissPii(col) {
+            if (!this.selectedModel) return;
+            const source = this.selectedModel.source_name;
+            const table = this.selectedModel.name;
+            if (!source || !table) return;
+            try {
+                const res = await fetch('/api/governance/pii/override', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ source: source, table_name: table, column_name: col.name, pii_status: 'not_pii' }),
+                });
+                if (res.ok) {
+                    col._pii = null;
+                    col._piiProvenance = 'dismissed';
+                    this.piiOverrides.push({ source: source, table_name: table, column_name: col.name, pii_status: 'not_pii' });
+                }
+            } catch (_) { /* silent */ }
         },
 
         async refreshProfile() {

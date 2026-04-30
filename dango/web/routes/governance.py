@@ -12,7 +12,15 @@ from fastapi import APIRouter, Depends, Query
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
-from dango.governance.models import DriftEvent, DriftResponse, PiiFinding, PiiResponse
+from dango.governance.models import (
+    DriftEvent,
+    DriftResponse,
+    PiiFinding,
+    PiiOverride,
+    PiiOverrideRequest,
+    PiiOverridesResponse,
+    PiiResponse,
+)
 from dango.logging import get_logger
 from dango.validation import validate_identifier, validate_source_name
 from dango.web.helpers import get_project_root
@@ -118,3 +126,114 @@ async def get_pii(
         source=validated_source,
         table_name=validated_table,
     )
+
+
+@router.get("/api/governance/pii/overrides")
+async def list_pii_overrides(
+    source: str | None = Query(None, description="Filter by source name"),
+    user: User = Depends(require_permission("governance.view")),
+) -> PiiOverridesResponse:
+    """List all PII overrides."""
+    project_root = get_project_root()
+
+    validated_source: str | None = None
+    if source is not None:
+        validated_source = validate_source_name(source)
+
+    from dango.governance.pii_overrides import get_pii_overrides
+
+    overrides = await asyncio.to_thread(
+        get_pii_overrides,
+        project_root,
+        source=validated_source,
+    )
+
+    pii_overrides = [PiiOverride(**o) for o in overrides]
+    return PiiOverridesResponse(overrides=pii_overrides, count=len(pii_overrides))
+
+
+@router.put("/api/governance/pii/override")
+async def set_pii_override_endpoint(
+    body: PiiOverrideRequest,
+    user: User = Depends(require_permission("governance.manage")),
+) -> dict[str, str]:
+    """Set a PII override for a column (create or update)."""
+    project_root = get_project_root()
+
+    validated_source = validate_source_name(body.source)
+    validated_table = validate_identifier(body.table_name)
+    validated_column = validate_identifier(body.column_name)
+
+    if body.pii_status not in ("pii", "not_pii"):
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=400,
+            detail="pii_status must be 'pii' or 'not_pii'",
+        )
+
+    from dango.governance.pii_overrides import set_pii_override
+
+    await asyncio.to_thread(
+        set_pii_override,
+        project_root,
+        validated_source,
+        validated_table,
+        validated_column,
+        body.pii_status,
+        user.email,
+        body.reason,
+    )
+
+    log_auth_event(
+        AuditEvent.GOVERNANCE_PII_OVERRIDE_SET,
+        user_id=user.id,
+        email=user.email,
+        details={
+            "source": validated_source,
+            "table": validated_table,
+            "column": validated_column,
+            "pii_status": body.pii_status,
+        },
+    )
+
+    return {"status": "ok"}
+
+
+@router.delete("/api/governance/pii/override")
+async def delete_pii_override_endpoint(
+    source: str = Query(..., description="Source name"),
+    table: str = Query(..., description="Table name"),
+    column: str = Query(..., description="Column name"),
+    user: User = Depends(require_permission("governance.manage")),
+) -> dict[str, str]:
+    """Delete a PII override for a column."""
+    project_root = get_project_root()
+
+    validated_source = validate_source_name(source)
+    validated_table = validate_identifier(table)
+    validated_column = validate_identifier(column)
+
+    from dango.governance.pii_overrides import delete_pii_override
+
+    deleted = await asyncio.to_thread(
+        delete_pii_override,
+        project_root,
+        validated_source,
+        validated_table,
+        validated_column,
+    )
+
+    if deleted:
+        log_auth_event(
+            AuditEvent.GOVERNANCE_PII_OVERRIDE_DELETED,
+            user_id=user.id,
+            email=user.email,
+            details={
+                "source": validated_source,
+                "table": validated_table,
+                "column": validated_column,
+            },
+        )
+
+    return {"status": "ok" if deleted else "not_found"}

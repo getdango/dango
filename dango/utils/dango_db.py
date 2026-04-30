@@ -167,6 +167,18 @@ CREATE TABLE IF NOT EXISTS metric_results (
     result_value TEXT,
     computed_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS pii_overrides (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    source       TEXT NOT NULL,
+    table_name   TEXT NOT NULL,
+    column_name  TEXT NOT NULL,
+    pii_status   TEXT NOT NULL CHECK (pii_status IN ('pii', 'not_pii')),
+    set_by       TEXT NOT NULL,
+    reason       TEXT,
+    updated_at   TEXT NOT NULL,
+    UNIQUE (source, table_name, column_name)
+);
 """
 
 
