@@ -38,6 +38,7 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
     """
     from dango.config import ConfigLoader
     from dango.platform.common.startup import (
+        check_duckdb_version_alignment,
         ensure_dbt_schemas,
         ensure_duckdb_driver,
         import_dashboards,
@@ -90,6 +91,13 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
         ensure_dbt_schemas(project_root)
     except Exception as exc:
         print(f"Schema setup failed: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+    # 2.5. Version alignment check
+    try:
+        check_duckdb_version_alignment()
+    except Exception as exc:
+        print(f"DuckDB version mismatch: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
     # 3. DuckDB driver

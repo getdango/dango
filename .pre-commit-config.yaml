@@ -69,3 +69,10 @@ repos:
         language: system
         files: \.js$
         pass_filenames: false
+
+      - id: version-alignment
+        name: DuckDB version alignment check
+        entry: python3 scripts/check_version_alignment.py
+        language: system
+        files: (pyproject\.toml|dango/utils/driver\.py|constraints\.txt)
+        pass_filenames: false

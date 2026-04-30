@@ -38,6 +38,7 @@ __all__ = [
     "SchedulerError",
     "JobTimeoutError",
     "JobCancelledError",
+    "VersionMismatchError",
     "MigrationError",
     "MigrationDiscoveryError",
     "MigrationApplicationError",
@@ -262,6 +263,12 @@ class JobCancelledError(SchedulerError):
     """Raised when a scheduled job is cancelled."""
 
     _default_error_code = "DANGO-U007"
+
+
+class VersionMismatchError(InfrastructureError):
+    """Python DuckDB and Metabase JDBC driver major.minor versions differ."""
+
+    _default_error_code = "DANGO-U008"
 
 
 # ---------------------------------------------------------------------------

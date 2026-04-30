@@ -141,6 +141,7 @@ def start(ctx: click.Context) -> None:
     """
     from dango.config import ConfigLoader
     from dango.platform.common.startup import (
+        check_duckdb_version_alignment,
         ensure_dbt_schemas,
         ensure_duckdb_driver,
         import_dashboards,
@@ -345,6 +346,17 @@ def start(ctx: click.Context) -> None:
 
         # Check Docker service ports (Metabase and dbt-docs)
         _check_docker_ports(platform_config)
+
+        # Version alignment check — abort early if Python DuckDB ≠ driver major.minor
+        try:
+            check_duckdb_version_alignment()
+        except Exception as version_exc:
+            from dango.exceptions import VersionMismatchError
+
+            if isinstance(version_exc, VersionMismatchError):
+                console.print(f"[red]❌ DuckDB version mismatch:[/red] {version_exc}")
+                raise click.Abort() from version_exc
+            raise
 
         # Ensure DuckDB driver is present (download if missing)
         driver_path = project_root / "metabase-plugins" / "duckdb.metabase-driver.jar"

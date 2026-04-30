@@ -1,4 +1,15 @@
-# Transitive dependency constraints for CI reproducibility.
-# Use: pip install -c constraints.txt -e ".[dev]"
+# Exact tested dependency stack for reproducible installs.
+# Use: pip install getdango -c constraints.txt
+# See VERSIONS.md for tier definitions and upgrade process.
+#
+# Tier 1 — tightly coupled (change as a group)
+duckdb==1.5.2
+dbt-duckdb==1.10.1
+#
+# Tier 2 — semi-coupled (patch safe, minor needs testing)
+dbt-core==1.10.20
+dlt==1.24.0
+#
+# Transitive — prevent known breakage
 starlette>=1.0.0
 pydantic-core>=2.20.0
