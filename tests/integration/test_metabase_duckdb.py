@@ -123,8 +123,8 @@ class TestMetabaseReadsPythonDuckdbData:
 
     @pytest.fixture(autouse=True)
     def _skip_if_no_docker(self) -> None:
-        if os.environ.get("DANGO_SKIP_DOCKER_TESTS") == "1":
-            pytest.skip("DANGO_SKIP_DOCKER_TESTS=1")
+        if os.environ.get("DANGO_RUN_DOCKER_TESTS") != "1":
+            pytest.skip("Set DANGO_RUN_DOCKER_TESTS=1 to run (heavyweight, needs Docker)")
         if shutil.which("docker") is None:
             pytest.skip("Docker not available")
 
