@@ -177,6 +177,11 @@ class TestFullPipelineEndToEnd:
         with patch("dango.governance.pii_detector._get_analyzer", return_value=None):
             dispatch_post_sync_hooks(tmp_path, ["testshop"])
 
+        # Drift detection now runs pre-dbt (not from post_sync), call directly
+        from dango.governance.schema_drift import detect_drift_for_sources
+
+        detect_drift_for_sources(tmp_path, ["testshop"])
+
         with connect(tmp_path) as sqlite_conn:
             # 1. Profiling stats populated
             profiling = sqlite_conn.execute(
