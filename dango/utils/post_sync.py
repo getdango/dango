@@ -284,15 +284,21 @@ def _cache_stats(
 def dispatch_post_sync_hooks(
     project_root: Path,
     sources: list[str],
+    *,
+    sync_result: dict[str, Any] | None = None,
+    skip_sync_notification: bool = False,
 ) -> None:
     """Run post-sync hooks for successfully synced sources.
 
-    Invokes each hook in order: profiling, drift detection, PII scanning,
-    analysis.
+    Invokes each hook in order: profiling, PII scanning, analysis,
+    and (optionally) sync notification.
 
     Args:
         project_root: Path to the Dango project root.
         sources: Names of sources that synced successfully.
+        sync_result: Summary dict from ``run_sync()`` (used for notifications).
+        skip_sync_notification: If True, skip sending sync webhooks
+            (e.g. when the scheduler sends its own notifications).
     """
     if not sources:
         return
@@ -302,6 +308,9 @@ def dispatch_post_sync_hooks(
     _run_profiling(project_root, sources)
     _run_pii_scan(project_root, sources)
     _run_analysis(project_root, sources)
+
+    if not skip_sync_notification and sync_result is not None:
+        _send_sync_notification(project_root, sources, sync_result)
 
     logger.info("post_sync_hooks_complete", sources=sources)
 
@@ -417,6 +426,42 @@ def _ensure_ga4_metrics(project_root: Path, sources: list[str]) -> None:
         logger.debug("ga4_metrics_auto_generate_skipped", exc_info=True)
 
 
+def _deliver_to_webhooks(
+    webhooks: list[Any],
+    payload: Any,
+) -> None:
+    """Deliver a ``WebhookPayload`` to a list of webhook configs.
+
+    Formats each webhook (Slack vs generic) and sends via synchronous httpx.
+    Never raises — individual delivery errors are logged and skipped.
+    """
+    import httpx
+
+    for webhook in webhooks:
+        try:
+            if webhook.format == "slack":
+                from dango.platform.notifications.slack import format_slack_message
+
+                json_payload: dict[str, Any] = format_slack_message(payload)
+            else:
+                json_payload = {
+                    "event": payload.event_type.value,
+                    "schedule": payload.schedule_name,
+                    "sources": payload.sources,
+                    "error": getattr(payload, "error", None),
+                    "duration_seconds": getattr(payload, "duration_seconds", None),
+                    "rows_loaded": getattr(payload, "rows_loaded", None),
+                    "dashboard_url": getattr(payload, "dashboard_url", None),
+                    "metadata": getattr(payload, "metadata", None),
+                    "timestamp": payload.occurred_at.isoformat() if payload.occurred_at else None,
+                }
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.post(webhook.url, json=json_payload)
+            logger.info("webhook_delivered", webhook=webhook.name, status=resp.status_code)
+        except Exception:
+            logger.warning("webhook_delivery_error", webhook=webhook.name, exc_info=True)
+
+
 def _send_analysis_webhook(
     project_root: Path,
     sources: list[str],
@@ -452,30 +497,53 @@ def _send_analysis_webhook(
             occurred_at=datetime.now(tz=timezone.utc),
         )
 
-        import httpx
-
-        for webhook in config.webhooks:
-            try:
-                if webhook.format == "slack":
-                    from dango.platform.notifications.slack import format_slack_message
-
-                    json_payload: dict[str, Any] = format_slack_message(payload)
-                else:
-                    json_payload = {
-                        "event": payload.event_type.value,
-                        "schedule": payload.schedule_name,
-                        "sources": payload.sources,
-                        "metadata": payload.metadata,
-                        "timestamp": payload.occurred_at.isoformat()
-                        if payload.occurred_at
-                        else None,
-                    }
-                with httpx.Client(timeout=10.0) as client:
-                    resp = client.post(webhook.url, json=json_payload)
-                logger.info(
-                    "analysis_webhook_delivered", webhook=webhook.name, status=resp.status_code
-                )
-            except Exception:
-                logger.warning("analysis_webhook_error", webhook=webhook.name, exc_info=True)
+        _deliver_to_webhooks(config.webhooks, payload)
     except Exception:
         logger.warning("analysis_webhook_outer_error", exc_info=True)
+
+
+def _send_sync_notification(
+    project_root: Path,
+    sources: list[str],
+    sync_result: dict[str, Any],
+) -> None:
+    """Send sync completed/failed webhook notification.  Never raises."""
+    try:
+        from dango.platform.notifications.webhook import (
+            EventType,
+            WebhookPayload,
+            load_notification_config,
+            should_notify,
+        )
+
+        config = load_notification_config(project_root)
+        if config is None or not config.webhooks:
+            return
+
+        failed = sync_result.get("failed_count", 0)
+        event_type = EventType.SYNC_FAILED if failed > 0 else EventType.SYNC_COMPLETED
+        if not should_notify(event_type, config):
+            return
+
+        # Compute total rows loaded
+        total_rows = sum(
+            r.get("rows_loaded", 0) for r in sync_result.get("results", []) if isinstance(r, dict)
+        )
+
+        error_msg: str | None = None
+        if failed > 0:
+            failed_names = [f.get("name", "?") for f in sync_result.get("failed_sources", [])]
+            error_msg = f"Failed sources: {', '.join(failed_names)}"
+
+        payload = WebhookPayload(
+            event_type=event_type,
+            schedule_name="cli_sync",
+            sources=sources,
+            rows_loaded=total_rows or None,
+            error=error_msg,
+            occurred_at=datetime.now(tz=timezone.utc),
+        )
+
+        _deliver_to_webhooks(config.webhooks, payload)
+    except Exception:
+        logger.warning("sync_notification_error", exc_info=True)

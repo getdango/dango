@@ -218,7 +218,7 @@ dango/                          # Python package source
 │   │   ├── scheduler.py        # SchedulerService (lifecycle, events, cancellation)
 │   │   ├── resilience.py       # Retry, timeout, cancellation
 │   │   ├── history.py          # Execution history tracking
-│   │   ├── jobs.py             # Module-level job functions (732 lines)
+│   │   ├── jobs.py             # Module-level job functions (894 lines)
 │   │   └── sync_trigger.py     # Server-side manual sync runner
 │   ├── notifications/          # Webhook notifications (TASK-043+)
 │   │   ├── webhook.py          # Event types, config, async sender
@@ -249,7 +249,7 @@ dango/                          # Python package source
 │   └── watcher_runner.py       # → local/watcher_runner.py
 │
 ├── ingestion/                  # Level 1 — Data loading
-│   ├── dlt_runner.py           # ⚠ 2373 lines — orchestrates full sync pipeline
+│   ├── dlt_runner.py           # ⚠ 2415 lines — orchestrates full sync pipeline
 │   ├── csv_loader.py           # Multi-format file loading with dedup (867 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (33 source types)
@@ -286,7 +286,7 @@ dango/                          # Python package source
 │   ├── data_validation.py      # Data validation utilities
 │   ├── env_file.py             # .env file parsing and serialization
 │   ├── dango_db.py             # SQLite context manager for .dango/dango.db + schema init
-│   ├── post_sync.py            # Post-sync hook dispatcher (~497 lines)
+│   ├── post_sync.py            # Post-sync hook dispatcher (~549 lines)
 │   └── git_info.py             # Git repository info + deployment guardrails
 │
 ├── migrations/                 # Level 0 — Database migration framework
@@ -332,7 +332,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
-| `ingestion/dlt_runner.py` | 2373 | — (exempt, too risky) |
+| `ingestion/dlt_runner.py` | 2415 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2008 | — (metadata-only) |
 | `cli/source_wizard.py` | 2288 | — |
 | `visualization/metabase.py` | 1151 | — |
@@ -343,8 +343,9 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 819 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 867 | — |
-| `platform/scheduling/jobs.py` | 839 | — (module-level job functions) |
-| `web/routes/schedules.py` | 720 | — (schedule CRUD, history, notifications) |
+| `platform/scheduling/jobs.py` | 894 | — (module-level job functions) |
+| `utils/post_sync.py` | 549 | — (post-sync hooks + sync notification) |
+| `web/routes/schedules.py` | 859 | — (schedule CRUD, history, notifications, webhook CRUD) |
 | `web/routes/upload.py` | 701 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 670 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |

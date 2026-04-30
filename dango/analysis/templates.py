@@ -8,6 +8,7 @@ so analysis starts working automatically from the first sync.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from dango.analysis.models import ComparisonType, MetricConfig
@@ -41,9 +42,10 @@ def generate_metrics_for_source(
         "csv": lambda name: _csv_metrics(name),
     }
     generator = generators.get(source_type)
-    if generator is None:
-        return []
-    return generator(source_name)
+    if generator is not None:
+        return generator(source_name)
+    # Fallback: auto-discover tables and generate generic metrics
+    return _generic_metrics(source_name, project_root)
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +148,82 @@ def _csv_metrics(name: str) -> list[MetricConfig]:
     Add metrics manually after first sync via 'dango db status'.
     """
     return []
+
+
+def _generic_metrics(name: str, project_root: Path | None) -> list[MetricConfig]:
+    """Generate generic row-count and freshness metrics by discovering tables.
+
+    Queries ``information_schema.tables`` for the ``raw_{name}`` schema,
+    skipping dlt internal tables.  For each user table, creates:
+
+    - ``{name}_{table}_row_count`` — ``COUNT(*)`` with week-over-week comparison
+    - ``{name}_{table}_freshness`` — ``MAX(_dlt_load_id)`` cast to BIGINT
+      (only if the table has a ``_dlt_load_id`` column)
+    """
+    if project_root is None:
+        return []
+    db_path = project_root / "data" / "warehouse.duckdb"
+    if not db_path.exists():
+        return []
+    schema = f"raw_{name}"
+    try:
+        import duckdb
+
+        conn = duckdb.connect(str(db_path), read_only=True)
+        try:
+            tables = conn.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = ? AND table_name NOT LIKE '_dlt_%' "
+                "ORDER BY table_name",
+                [schema],
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return []
+
+    if not tables:
+        return []
+
+    metrics: list[MetricConfig] = []
+    for (table_name,) in tables:
+        sanitized = _sanitize_table_name(table_name)
+        metrics.append(
+            MetricConfig(
+                name=f"{name}_{sanitized}_row_count",
+                source_table=f"{schema}.{table_name}",
+                value_expression="COUNT(*)",
+                compare=ComparisonType.week_over_week,
+                warn_threshold=25.0,
+            )
+        )
+        # Add freshness metric only if _dlt_load_id column exists
+        columns = _get_table_columns(schema, table_name, project_root)
+        if "_dlt_load_id" in columns:
+            metrics.append(
+                MetricConfig(
+                    name=f"{name}_{sanitized}_freshness",
+                    source_table=f"{schema}.{table_name}",
+                    value_expression="CAST(MAX(_dlt_load_id) AS BIGINT)",
+                    compare=ComparisonType.week_over_week,
+                    warn_threshold=25.0,
+                )
+            )
+    return metrics
+
+
+_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
+_LEADING_DIGITS_RE = re.compile(r"^[0-9]+")
+
+
+def _sanitize_table_name(table_name: str) -> str:
+    """Sanitize a table name for use in a metric name.
+
+    Replaces non-alphanumeric characters with ``_`` and strips leading digits.
+    """
+    result = _SANITIZE_RE.sub("_", table_name)
+    result = _LEADING_DIGITS_RE.sub("", result)
+    return result.strip("_") or "table"
 
 
 # ---------------------------------------------------------------------------
