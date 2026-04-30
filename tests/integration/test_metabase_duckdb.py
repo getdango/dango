@@ -11,8 +11,10 @@ Tests validate:
 
 from __future__ import annotations
 
+import multiprocessing
 import os
 import shutil
+from typing import Any
 
 import duckdb
 import pytest
@@ -65,7 +67,7 @@ class TestDuckdbReadWriteReadOnly:
         ro_con.close()
 
 
-def _read_readonly_in_subprocess(db_path: str, result_queue) -> None:  # type: ignore[no-untyped-def]
+def _read_readonly_in_subprocess(db_path: str, result_queue: multiprocessing.Queue[Any]) -> None:
     """Helper: open DuckDB read-only in a child process and report row count."""
     import duckdb as _duckdb
 
@@ -89,8 +91,6 @@ class TestDuckdbCrossProcessReadOnly:
     """
 
     def test_write_close_then_readonly_subprocess(self, tmp_path) -> None:
-        import multiprocessing
-
         db_path = str(tmp_path / "test.duckdb")
 
         # Write data and close (simulates completed dlt sync)
@@ -130,6 +130,7 @@ class TestMetabaseReadsPythonDuckdbData:
 
     def test_metabase_sees_tables(self, tmp_path) -> None:
         """Start Metabase, add DuckDB database, verify tables visible."""
+        import socket
         import time
 
         import requests
@@ -151,8 +152,13 @@ class TestMetabaseReadsPythonDuckdbData:
         driver_path = plugins_dir / "duckdb.metabase-driver.jar"
         urllib.request.urlretrieve(METABASE_DUCKDB_DRIVER_URL, driver_path)
 
-        # 3. Start Metabase container
+        # 3. Start Metabase container (use dynamic port to avoid collisions)
         import subprocess
+
+        # Find a free port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            host_port = s.getsockname()[1]
 
         container_name = "dango-test-metabase-duckdb"
 
@@ -170,7 +176,7 @@ class TestMetabaseReadsPythonDuckdbData:
                 "--name",
                 container_name,
                 "-p",
-                "3333:3000",
+                f"{host_port}:3000",
                 "-v",
                 f"{db_path}:/data/warehouse.duckdb:ro",
                 "-v",
@@ -186,7 +192,7 @@ class TestMetabaseReadsPythonDuckdbData:
         )
         assert proc.returncode == 0, f"Docker run failed: {proc.stderr}"
 
-        mb_url = "http://localhost:3333"
+        mb_url = f"http://localhost:{host_port}"
 
         try:
             # 4. Wait for Metabase health
@@ -206,7 +212,7 @@ class TestMetabaseReadsPythonDuckdbData:
             setup_token = setup_token_resp.json().get("setup-token")
             assert setup_token, "No setup token — Metabase already configured?"
 
-            requests.post(
+            setup_resp = requests.post(
                 f"{mb_url}/api/setup",
                 json={
                     "token": setup_token,
@@ -221,6 +227,7 @@ class TestMetabaseReadsPythonDuckdbData:
                 },
                 timeout=30,
             )
+            assert setup_resp.status_code == 200, f"Metabase setup failed: {setup_resp.text}"
 
             # Login
             login_resp = requests.post(
@@ -257,6 +264,7 @@ class TestMetabaseReadsPythonDuckdbData:
             )
 
             # Wait for sync to complete
+            table_names: list[str] = []
             for _ in range(30):
                 time.sleep(2)
                 meta_resp = requests.get(

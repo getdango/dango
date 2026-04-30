@@ -327,12 +327,12 @@ module = [
     "tests.unit.test_ingestion_ux",
     "tests.integration.test_post_sync_chain_integration",
     "tests.integration.test_notebook_lifecycle",
+    "tests.integration.test_metabase_duckdb",
     "tests.unit.test_web_ai",
     "tests.unit.test_web_ai_tools",
     "tests.unit.test_web_imports",
     "tests.unit.test_byos",
     "tests.unit.test_driver_utils",
-    "tests.integration.test_metabase_duckdb",
     "tests.unit.test_process_manager",
     "tests.unit.test_static_cache_busting",
 ]

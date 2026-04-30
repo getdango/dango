@@ -166,6 +166,19 @@ def start(ctx: click.Context) -> None:
         project_name = config.project.name
         platform_config = config.platform
 
+        # Version alignment check — abort early if Python DuckDB ≠ driver major.minor
+        # Must run BEFORE any DuckDB write operations (migrations, schema setup)
+        # because write mode auto-migrates the file format irreversibly.
+        try:
+            check_duckdb_version_alignment()
+        except Exception as version_exc:
+            from dango.exceptions import VersionMismatchError
+
+            if isinstance(version_exc, VersionMismatchError):
+                console.print(f"[red]❌ DuckDB version mismatch:[/red] {version_exc}")
+                raise click.Abort() from version_exc
+            raise
+
         # Rotate JSONL logs (never-fail)
         rotate_logs(project_root)
 
@@ -346,17 +359,6 @@ def start(ctx: click.Context) -> None:
 
         # Check Docker service ports (Metabase and dbt-docs)
         _check_docker_ports(platform_config)
-
-        # Version alignment check — abort early if Python DuckDB ≠ driver major.minor
-        try:
-            check_duckdb_version_alignment()
-        except Exception as version_exc:
-            from dango.exceptions import VersionMismatchError
-
-            if isinstance(version_exc, VersionMismatchError):
-                console.print(f"[red]❌ DuckDB version mismatch:[/red] {version_exc}")
-                raise click.Abort() from version_exc
-            raise
 
         # Ensure DuckDB driver is present (download if missing)
         driver_path = project_root / "metabase-plugins" / "duckdb.metabase-driver.jar"

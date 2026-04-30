@@ -1,5 +1,5 @@
 # Exact tested dependency stack for reproducible installs.
-# Use: pip install getdango -c constraints.txt
+# Use: pip install -e ".[dev]" -c constraints.txt
 # See VERSIONS.md for tier definitions and upgrade process.
 #
 # Tier 1 — tightly coupled (change as a group)

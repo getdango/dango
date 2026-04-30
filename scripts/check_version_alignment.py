@@ -26,8 +26,10 @@ def _extract_pyproject_duckdb_major_minor() -> str | None:
 
     text = pyproject.read_text()
 
-    # Match patterns: "duckdb>=X.Y.Z,<A.B", "duckdb==X.Y.Z", "duckdb~=X.Y.Z"
-    match = re.search(r'"duckdb([>~=!]+)(\d+\.\d+)\.\d+', text)
+    # Match the lower-bound version from >=, ~=, or == specifiers.
+    # Skips != specifiers to avoid extracting the wrong version from
+    # patterns like "duckdb!=1.4.4,>=1.5.0,<1.6".
+    match = re.search(r'"duckdb(?:[^"]*,\s*)?(>=|~=|==)(\d+\.\d+)\.\d+', text)
     if match:
         return match.group(2)
 
@@ -76,6 +78,7 @@ def main() -> int:
         )
         return 1
 
+    print(f"DuckDB versions aligned: {pyproject_mm}.x")
     return 0
 
 
