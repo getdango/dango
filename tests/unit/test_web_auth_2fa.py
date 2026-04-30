@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from dango.auth import database as db
 from dango.auth.models import Role, User, UserUpdate
 from dango.auth.security import hash_password
+from dango.auth.sessions import DEFAULT_SESSION_MAX_DAYS
 from dango.auth.totp import (
     enable_totp,
     generate_totp_secret,
@@ -372,3 +373,55 @@ class TestLoginWith2FA:
         data = resp.json()
         assert data["requires_2fa_setup"] is True
         assert "user" in data
+
+
+# ---------------------------------------------------------------------------
+# Cookie max_age tests
+# ---------------------------------------------------------------------------
+
+
+def _get_cookie_max_age(resp: Any, cookie_name: str) -> int | None:
+    """Extract Max-Age from a Set-Cookie header for a given cookie name."""
+    for header in resp.headers.get_list("set-cookie"):
+        if header.startswith(f"{cookie_name}="):
+            for part in header.split(";"):
+                part = part.strip()
+                if part.lower().startswith("max-age="):
+                    return int(part.split("=", 1)[1])
+    return None
+
+
+@pytest.mark.unit
+class TestTwoFACookieMaxAge:
+    """Verify 2FA verify endpoint sets Max-Age on session cookie."""
+
+    def test_2fa_verify_cookie_has_max_age(self, tmp_path: Path) -> None:
+        """Successful 2FA verification sets Max-Age = session_max_days * 86400."""
+        db_path = _make_db(tmp_path)
+        secret = generate_totp_secret()
+        user = _make_user(db_path, totp_secret=secret, totp_enabled=True)
+        hashed = hash_and_store_codes(["AAAA-BBBB", "CCCC-DDDD"])
+        db.update_user(db_path, user.id, UserUpdate(recovery_codes=hashed))
+        app = _make_app(db_path)
+        tc = _client(app)
+
+        # Get partial session
+        resp = tc.post(
+            "/api/auth/login",
+            json={"email": "test@example.com", "password": _TEST_PASSWORD},
+        )
+        assert resp.status_code == 200
+        cookie = resp.cookies.get(COOKIE_NAME)
+        assert cookie is not None
+
+        # Verify 2FA
+        code = pyotp.TOTP(secret).now()
+        resp = tc.post(
+            "/api/auth/2fa/verify",
+            json={"code": code, "is_recovery": False},
+            cookies={COOKIE_NAME: cookie},
+            headers=_hdrs(),
+        )
+        assert resp.status_code == 200
+        max_age = _get_cookie_max_age(resp, COOKIE_NAME)
+        assert max_age == DEFAULT_SESSION_MAX_DAYS * 86400

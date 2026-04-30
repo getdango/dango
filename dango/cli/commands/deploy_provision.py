@@ -167,17 +167,19 @@ def run_provisioning(
 
         # --- Sub-step 5: Server setup ---
         _status("Setting up server (installs Docker, Caddy, Python, etc.)...")
-        from dango.platform.cloud.server_setup import setup_server
+        from dango.platform.cloud.server_setup import (
+            resolve_install_source,
+            setup_server,
+        )
 
+        install_source = resolve_install_source()
         ssh.connect(droplet_ip, username="root")
         try:
-            import dango
-
             setup_result = setup_server(
                 ssh,
                 on_progress=_setup_progress,
                 domain=config.domain,
-                dango_version=dango.__version__,
+                install_source=install_source,
             )
             if setup_result.warnings:
                 for w in setup_result.warnings:
@@ -210,12 +212,15 @@ def run_provisioning(
 
         # --- Sub-step 7: Push secrets ---
         warnings: list[str] = []
-        _status("Pushing secrets to server...")
-        ssh.connect(droplet_ip, username="root")
-        try:
-            _push_secrets(ssh, project_root, warnings)
-        finally:
-            ssh.disconnect()
+        # BUG-122: Confirm BEFORE opening SSH to avoid timeout during prompt
+        secrets_confirmed = _confirm_secrets_push(project_root, warnings)
+        if secrets_confirmed:
+            _status("Pushing secrets to server...")
+            ssh.connect(droplet_ip, username="root")
+            try:
+                _push_secrets(ssh, project_root)
+            finally:
+                ssh.disconnect()
 
         # --- Sub-step 8: Create admin + enable auth ---
         _status("Creating admin account and enabling auth...")
@@ -291,7 +296,9 @@ def run_provisioning(
         )
 
     except Exception as exc:
-        console.print(f"\n[red]Provisioning failed:[/red] {exc}")
+        # BUG-122: Handle empty exception messages (e.g. SSH timeout)
+        err_msg = str(exc) or f"{type(exc).__name__} (no detail)"
+        console.print(f"\n[red]Provisioning failed:[/red] {err_msg}")
         console.print("Cleaning up resources...")
         errors = tracker.cleanup()
         if errors:
@@ -300,7 +307,7 @@ def run_provisioning(
                 console.print(f"  - {err}")
         else:
             console.print("[green]All resources cleaned up.[/green]")
-        raise CloudProvisioningError(str(exc)) from exc
+        raise CloudProvisioningError(err_msg) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -338,16 +345,17 @@ def run_byos_setup(
     try:
         # --- Sub-step 1: Server setup (16 steps + UFW) ---
         _status("Setting up server (installs Docker, Caddy, Python, etc.)...")
+        from dango.platform.cloud.server_setup import resolve_install_source
+
+        install_source = resolve_install_source()
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            import dango
-
             setup_result = setup_server(
                 ssh,
                 on_progress=_setup_progress,
                 domain=config.domain,
                 setup_ufw=True,
-                dango_version=dango.__version__,
+                install_source=install_source,
             )
             if setup_result.warnings:
                 for w in setup_result.warnings:
@@ -377,12 +385,15 @@ def run_byos_setup(
             ssh.disconnect()
 
         # --- Sub-step 3: Push secrets ---
-        _status("Pushing secrets to server...")
-        ssh.connect(config.server_ip, username=config.ssh_user)
-        try:
-            _push_secrets(ssh, project_root, warnings)
-        finally:
-            ssh.disconnect()
+        # BUG-122: Confirm BEFORE opening SSH to avoid timeout during prompt
+        secrets_confirmed = _confirm_secrets_push(project_root, warnings)
+        if secrets_confirmed:
+            _status("Pushing secrets to server...")
+            ssh.connect(config.server_ip, username=config.ssh_user)
+            try:
+                _push_secrets(ssh, project_root)
+            finally:
+                ssh.disconnect()
 
         # --- Sub-step 4: Create admin + enable auth ---
         _status("Creating admin account and enabling auth...")
@@ -435,12 +446,14 @@ def run_byos_setup(
     except CloudProvisioningError:
         raise
     except Exception as exc:
-        console.print(f"\n[red]BYOS setup failed:[/red] {exc}")
+        # BUG-122: Handle empty exception messages (e.g. SSH timeout)
+        err_msg = str(exc) or f"{type(exc).__name__} (no detail)"
+        console.print(f"\n[red]BYOS setup failed:[/red] {err_msg}")
         console.print(
             "[dim]Server setup steps are idempotent — "
             "run 'dango deploy destroy' then 'dango deploy' to retry.[/dim]"
         )
-        raise CloudProvisioningError(str(exc)) from exc
+        raise CloudProvisioningError(err_msg) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -472,16 +485,21 @@ def _extract_ip(droplet: dict[str, Any]) -> str:
     raise RuntimeError("Droplet has no public IPv4 address")
 
 
-def _push_secrets(
-    ssh: Any,
+def _confirm_secrets_push(
     project_root: Path,
     warnings: list[str],
-) -> None:
-    """Push .dlt/secrets.toml and .env to remote server."""
+) -> bool:
+    """List secret files and prompt for confirmation (no SSH required).
+
+    BUG-122: This runs BEFORE SSH connect to avoid SSH timeout during
+    interactive prompt.
+
+    Returns:
+        ``True`` if the user confirmed, ``False`` if no files or declined.
+    """
     secrets_path = project_root / ".dlt" / "secrets.toml"
     env_path = project_root / ".env"
 
-    # Identify files to push
     files_to_push: list[str] = []
     if secrets_path.exists():
         files_to_push.append(".dlt/secrets.toml")
@@ -490,7 +508,7 @@ def _push_secrets(
 
     if not files_to_push:
         warnings.append("No .dlt/secrets.toml or .env found locally — skipped.")
-        return
+        return False
 
     console.print("\n[bold]Secrets to push:[/bold]")
     for f in files_to_push:
@@ -500,9 +518,24 @@ def _push_secrets(
     if not click.confirm("Push these secrets to the server?", default=True):
         console.print("[yellow]Skipped secrets push.[/yellow]")
         warnings.append("Secrets push skipped by user.")
-        return
+        return False
 
-    # Push files and fix ownership for each
+    return True
+
+
+def _push_secrets(
+    ssh: Any,
+    project_root: Path,
+) -> None:
+    """Push .dlt/secrets.toml and .env to remote server.
+
+    Must be called only after :func:`_confirm_secrets_push` returns
+    ``True``.  Confirmation is handled separately to avoid SSH timeout
+    during interactive prompts (BUG-122).
+    """
+    secrets_path = project_root / ".dlt" / "secrets.toml"
+    env_path = project_root / ".env"
+
     pushed_paths: list[str] = []
     if secrets_path.exists():
         content = secrets_path.read_text()

@@ -62,15 +62,15 @@ exemptions:
 
   # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
   - file: dango/cli/commands/deploy_wizard.py
-    lines: 808
+    lines: 813
     category: exempt
-    reason: "TASK-029+075e: Interactive wizard steps 1-8 + BYOS wizard + non-interactive modes. Sequential prompt flow — splitting would scatter closely coupled wizard steps."
+    reason: "TASK-029+075e: Interactive wizard steps 1-8 + BYOS wizard + non-interactive modes. Sequential prompt flow — splitting would scatter closely coupled wizard steps. R9-C added cloud_credentials integration."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy_provision.py
-    lines: 813
+    lines: 846
     category: exempt
-    reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery. R8-F added _generate_cloud_profiles + DANGO_ADMIN_EMAIL persistence."
+    reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery. R8-F added _generate_cloud_profiles + DANGO_ADMIN_EMAIL persistence. R9-C added _confirm_secrets_push, install source detection, empty error handling."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy.py
@@ -249,15 +249,15 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/cloud/digitalocean.py
-    lines: 542
+    lines: 547
     category: exempt
-    reason: "TASK-104: Added get_action() and wait_for_action() for resize/migrate action polling. Core DO API client — splitting would fragment related HTTP methods."
+    reason: "TASK-104: Added get_action() and wait_for_action() for resize/migrate action polling. Core DO API client — splitting would fragment related HTTP methods. R9-C added cloud_credentials fallback."
     review_by: "v1.1"
 
   - file: dango/platform/cloud/server_setup.py
-    lines: 548
+    lines: 652
     category: exempt
-    reason: "TASK-075e: Added optional UFW firewall step for BYOS deployments (+35 lines). 17 idempotent setup steps — splitting would scatter sequential orchestration."
+    reason: "TASK-075e+R9-C: 17 idempotent setup steps + optional UFW. R9-C added resolve_install_source() and system-wide apt lock timeout config."
     review_by: "v1.1"
 
   - file: dango/platform/cloud/scheduled_backup.py
@@ -285,15 +285,15 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_server_setup.py
-    lines: 584
+    lines: 735
     category: exempt
-    reason: "TASK-026+027: Added domain parameter tests for setup_server(). Each test requires isolated mock setup with full exec_results map."
+    reason: "TASK-026+R9-C: Tests for server setup, version pinning, apt lock timeout, _resolve_install_source. Each test requires isolated mock setup with full exec_results map."
     review_by: "v1.1"
 
   - file: tests/unit/test_deploy_provision.py
-    lines: 682
+    lines: 722
     category: exempt
-    reason: "TASK-029+R8-F: 11 test classes covering ResourceTracker, IP extraction, secrets push, admin creation, health check, provisioning sequence, backup setup, metadata persistence, sync trigger, admin email persistence, and cloud profiles generation."
+    reason: "TASK-029+R9-C: 14 test classes covering ResourceTracker, IP extraction, secrets push, admin creation, health check, provisioning sequence, backup setup, metadata persistence, sync trigger, admin email persistence, cloud profiles generation, confirm_secrets_push, and error handling."
     review_by: "v1.1"
 
   - file: tests/unit/test_sync_jobs.py
@@ -365,9 +365,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_serve_command.py
-    lines: 508
+    lines: 549
     category: exempt
-    reason: "R8-A: BUG-103/104 fixes added call-order tracking test and two Metabase failure-path tests (exception + return-dict). Each test requires its own full decorator stack for startup helpers. Marginally over limit."
+    reason: "R8-A+R9-C: BUG-103/104/124 tests. Each test requires its own full decorator stack for startup helpers. R9-C added driver-failure-continues-if-jar-exists test."
     review_by: "v1.1"
 
   - file: tests/unit/test_platform_startup.py

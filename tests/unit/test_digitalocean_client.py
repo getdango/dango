@@ -71,8 +71,9 @@ class TestDigitalOceanClientInit:
     def test_missing_token_raises(self, monkeypatch):
         """CloudAuthError raised when no token is available."""
         monkeypatch.delenv("DIGITALOCEAN_TOKEN", raising=False)
-        with pytest.raises(CloudAuthError):
-            DigitalOceanClient()
+        with patch("dango.config.cloud_credentials.get_do_token", return_value=None):
+            with pytest.raises(CloudAuthError):
+                DigitalOceanClient()
 
     def test_custom_timeout_and_retries(self):
         """Custom timeout and max_retries are stored."""

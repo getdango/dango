@@ -44,6 +44,7 @@ from dango.auth.security import (
     verify_password,
 )
 from dango.auth.sessions import (
+    DEFAULT_PARTIAL_SESSION_TIMEOUT_MINUTES,
     DEFAULT_SESSION_MAX_DAYS,
     create_api_key,
     create_session,
@@ -99,7 +100,13 @@ def _get_user_agent(request: Request) -> str | None:
     return request.headers.get("user-agent")
 
 
-def _set_session_cookie(response: JSONResponse, token: str, request: Request) -> None:
+def _set_session_cookie(
+    response: JSONResponse | RedirectResponse,
+    token: str,
+    request: Request,
+    *,
+    max_age_seconds: int,
+) -> None:
     """Set the session cookie on a response with appropriate security flags."""
     response.set_cookie(
         key=COOKIE_NAME,
@@ -108,6 +115,7 @@ def _set_session_cookie(response: JSONResponse, token: str, request: Request) ->
         httponly=True,
         samesite="lax",
         secure=is_secure_request(request.scope),
+        max_age=max_age_seconds,
     )
 
 
@@ -263,7 +271,12 @@ async def login(request: Request) -> JSONResponse:
             is_partial=True,
         )
         response = JSONResponse(content={"requires_2fa": True})
-        _set_session_cookie(response, raw_token, request)
+        _set_session_cookie(
+            response,
+            raw_token,
+            request,
+            max_age_seconds=DEFAULT_PARTIAL_SESSION_TIMEOUT_MINUTES * 60,
+        )
         return response
 
     # Check if admin requires 2FA but user hasn't set it up
@@ -289,7 +302,7 @@ async def login(request: Request) -> JSONResponse:
             "requires_2fa_setup": requires_2fa_setup,
         }
     )
-    _set_session_cookie(response, raw_token, request)
+    _set_session_cookie(response, raw_token, request, max_age_seconds=session_max_days * 86400)
     await _bridge_metabase_session(user, request, response)
 
     return response
@@ -408,7 +421,7 @@ async def change_password(request: Request) -> JSONResponse:
     )
 
     response = JSONResponse(content={"success": True})
-    _set_session_cookie(response, raw_token, request)
+    _set_session_cookie(response, raw_token, request, max_age_seconds=session_max_days * 86400)
     return response
 
 
@@ -782,13 +795,11 @@ async def _resolve_oauth_user(
             is_partial=True,
         )
         response = RedirectResponse(url="/login?requires_2fa=true", status_code=302)
-        response.set_cookie(
-            key=COOKIE_NAME,
-            value=raw_token,
-            path="/",
-            httponly=True,
-            samesite="lax",
-            secure=is_secure_request(request.scope),
+        _set_session_cookie(
+            response,
+            raw_token,
+            request,
+            max_age_seconds=DEFAULT_PARTIAL_SESSION_TIMEOUT_MINUTES * 60,
         )
         return response
 
@@ -810,14 +821,7 @@ async def _resolve_oauth_user(
             details={"provider": user_info.provider},
         )
         response = RedirectResponse(url="/setup?requires_2fa_setup=true", status_code=302)
-        response.set_cookie(
-            key=COOKIE_NAME,
-            value=raw_token,
-            path="/",
-            httponly=True,
-            samesite="lax",
-            secure=is_secure_request(request.scope),
-        )
+        _set_session_cookie(response, raw_token, request, max_age_seconds=session_max_days * 86400)
 
         await _bridge_metabase_session(user, request, response, log_context="oauth_login")
 
@@ -841,14 +845,7 @@ async def _resolve_oauth_user(
 
     target = "/setup" if user.must_change_password else "/"
     response = RedirectResponse(url=target, status_code=302)
-    response.set_cookie(
-        key=COOKIE_NAME,
-        value=raw_token,
-        path="/",
-        httponly=True,
-        samesite="lax",
-        secure=is_secure_request(request.scope),
-    )
+    _set_session_cookie(response, raw_token, request, max_age_seconds=session_max_days * 86400)
 
     await _bridge_metabase_session(user, request, response, log_context="oauth_login")
 

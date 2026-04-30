@@ -83,7 +83,13 @@ def _get_user_agent(request: Request) -> str | None:
     return request.headers.get("user-agent")
 
 
-def _set_session_cookie(response: JSONResponse, token: str, request: Request) -> None:
+def _set_session_cookie(
+    response: JSONResponse,
+    token: str,
+    request: Request,
+    *,
+    max_age_seconds: int,
+) -> None:
     """Set the session cookie on a response with appropriate security flags."""
     response.set_cookie(
         key=COOKIE_NAME,
@@ -92,6 +98,7 @@ def _set_session_cookie(response: JSONResponse, token: str, request: Request) ->
         httponly=True,
         samesite="lax",
         secure=is_secure_request(request.scope),
+        max_age=max_age_seconds,
     )
 
 
@@ -269,7 +276,7 @@ async def verify_2fa(request: Request) -> JSONResponse:
             "must_change_password": current_user.must_change_password,
         }
     )
-    _set_session_cookie(response, raw_token, request)
+    _set_session_cookie(response, raw_token, request, max_age_seconds=session_max_days * 86400)
 
     await _bridge_metabase_session(current_user, request, response, log_context="2fa_verify")
 

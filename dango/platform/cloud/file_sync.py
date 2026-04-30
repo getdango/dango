@@ -51,9 +51,6 @@ REMOTE_PROJECT_DIR = "/srv/dango/project"
 
 #: Config files to upload via SFTP.  Tuples of (local_relative, remote_relative).
 #: Files that may not exist locally are skipped gracefully.
-#:
-#: Note: ``metabase-plugins/`` is intentionally NOT synced — the server's
-#: ``ensure_duckdb_driver()`` handles driver download independently.
 SYNC_CONFIG_FILES: list[tuple[str, str]] = [
     (".dango/sources.yml", f"{REMOTE_PROJECT_DIR}/.dango/sources.yml"),
     (".dango/schedules.yml", f"{REMOTE_PROJECT_DIR}/.dango/schedules.yml"),
@@ -64,6 +61,16 @@ SYNC_CONFIG_FILES: list[tuple[str, str]] = [
     ("docker-compose.yml", f"{REMOTE_PROJECT_DIR}/docker-compose.yml"),
     ("Dockerfile.metabase", f"{REMOTE_PROJECT_DIR}/Dockerfile.metabase"),
     ("entrypoint.sh", f"{REMOTE_PROJECT_DIR}/entrypoint.sh"),
+    # Metabase DuckDB driver — synced from local to avoid GitHub download
+    # failures on fresh droplets (BUG-124).  ~80MB, acceptable for deploy.
+    (
+        "metabase-plugins/duckdb.metabase-driver.jar",
+        f"{REMOTE_PROJECT_DIR}/metabase-plugins/duckdb.metabase-driver.jar",
+    ),
+    (
+        "metabase-plugins/.driver-version",
+        f"{REMOTE_PROJECT_DIR}/metabase-plugins/.driver-version",
+    ),
 ]
 
 #: Directories to sync via rsync (with ``--delete``).
@@ -337,6 +344,11 @@ def sync_project_files(
         uploaded = _upload_file_if_exists(ssh, local_path, remote_abs, dry_run=dry_run)
         if uploaded:
             synced_files.append(local_rel)
+    # BUG-124: Fix ownership for metabase-plugins (uploaded as root via SFTP)
+    if not dry_run:
+        ssh.exec_command(
+            f"chown -R dango:dango {REMOTE_PROJECT_DIR}/metabase-plugins 2>/dev/null; true"
+        )
     _notify(on_progress, "upload_config", "done")
 
     # --- Step 3: Sync dbt directories via rsync ---
