@@ -18,18 +18,16 @@ class TestDispatchPostSyncHooks:
     """Unit tests for dispatch_post_sync_hooks."""
 
     def test_calls_all_hooks(self, tmp_path: Path):
-        """All four hooks are called with the correct sources."""
+        """All three hooks are called with the correct sources (drift moved to pre-dbt)."""
         sources = ["shopify", "stripe"]
         with (
             patch("dango.utils.post_sync._run_profiling") as mock_prof,
-            patch("dango.utils.post_sync._run_drift_detection") as mock_drift,
             patch("dango.utils.post_sync._run_pii_scan") as mock_pii,
             patch("dango.utils.post_sync._run_analysis") as mock_analysis,
         ):
             dispatch_post_sync_hooks(project_root=tmp_path, sources=sources)
 
         mock_prof.assert_called_once_with(tmp_path, sources)
-        mock_drift.assert_called_once_with(tmp_path, sources)
         mock_pii.assert_called_once_with(tmp_path, sources)
         mock_analysis.assert_called_once_with(tmp_path, sources)
 
@@ -57,10 +55,9 @@ class TestDispatchPostSyncHooks:
         mock_engine.assert_called_once_with(tmp_path, source_filter=["raw_stripe", "raw_ga"])
 
     def test_profiling_engine_error_isolation(self, tmp_path: Path) -> None:
-        """When profiling engine raises, _run_profiling catches it and drift/pii/analysis still run."""
+        """When profiling engine raises, _run_profiling catches it and pii/analysis still run."""
         with (
             patch("dango.utils.post_sync.profile_table", side_effect=RuntimeError("boom")),
-            patch("dango.governance.schema_drift.detect_drift_for_sources") as mock_drift,
             patch("dango.governance.pii_detector.scan_sources_for_pii") as mock_pii,
             patch("dango.analysis.metrics.run_analysis", return_value=[]) as mock_analysis,
         ):
@@ -77,24 +74,7 @@ class TestDispatchPostSyncHooks:
 
             dispatch_post_sync_hooks(project_root=tmp_path, sources=["testshop"])
 
-        # Drift, PII, and analysis still called despite profiling failure
-        mock_drift.assert_called_once()
-        mock_pii.assert_called_once()
-        mock_analysis.assert_called_once()
-
-    def test_drift_engine_error_isolation(self, tmp_path: Path) -> None:
-        """When drift engine raises, _run_drift_detection catches it and pii/analysis still run."""
-        with (
-            patch("dango.utils.post_sync._run_profiling"),
-            patch(
-                "dango.governance.schema_drift.detect_drift_for_sources",
-                side_effect=RuntimeError("drift boom"),
-            ),
-            patch("dango.governance.pii_detector.scan_sources_for_pii") as mock_pii,
-            patch("dango.analysis.metrics.run_analysis", return_value=[]) as mock_analysis,
-        ):
-            dispatch_post_sync_hooks(project_root=tmp_path, sources=["s1"])
-
+        # PII and analysis still called despite profiling failure
         mock_pii.assert_called_once()
         mock_analysis.assert_called_once()
 
@@ -102,7 +82,6 @@ class TestDispatchPostSyncHooks:
         """When PII engine raises, _run_pii_scan catches it and analysis still runs."""
         with (
             patch("dango.utils.post_sync._run_profiling"),
-            patch("dango.utils.post_sync._run_drift_detection"),
             patch(
                 "dango.governance.pii_detector.scan_sources_for_pii",
                 side_effect=RuntimeError("pii boom"),
@@ -114,7 +93,7 @@ class TestDispatchPostSyncHooks:
         mock_analysis.assert_called_once()
 
     def test_hooks_called_in_order(self, tmp_path: Path) -> None:
-        """Hooks are called in order: profiling -> drift -> pii -> analysis."""
+        """Hooks are called in order: profiling -> pii -> analysis (drift moved to pre-dbt)."""
         call_order: list[str] = []
 
         def _make_side_effect(name: str):
@@ -129,10 +108,6 @@ class TestDispatchPostSyncHooks:
                 side_effect=_make_side_effect("profiling"),
             ),
             patch(
-                "dango.utils.post_sync._run_drift_detection",
-                side_effect=_make_side_effect("drift"),
-            ),
-            patch(
                 "dango.utils.post_sync._run_pii_scan",
                 side_effect=_make_side_effect("pii"),
             ),
@@ -143,13 +118,12 @@ class TestDispatchPostSyncHooks:
         ):
             dispatch_post_sync_hooks(project_root=tmp_path, sources=["s1"])
 
-        assert call_order == ["profiling", "drift", "pii", "analysis"]
+        assert call_order == ["profiling", "pii", "analysis"]
 
     def test_log_start_and_complete(self, tmp_path: Path) -> None:
         """Verify logger.info called with post_sync_hooks_start and _complete."""
         with (
             patch("dango.utils.post_sync._run_profiling"),
-            patch("dango.utils.post_sync._run_drift_detection"),
             patch("dango.utils.post_sync._run_pii_scan"),
             patch("dango.utils.post_sync._run_analysis"),
             patch("dango.utils.post_sync.logger") as mock_logger,
@@ -161,11 +135,8 @@ class TestDispatchPostSyncHooks:
         assert "post_sync_hooks_start" in events
         assert "post_sync_hooks_complete" in events
 
-    def test_drift_hook_calls_engine(self, tmp_path: Path) -> None:
-        """Call _run_drift_detection directly and verify it calls the engine."""
-        with patch("dango.governance.schema_drift.detect_drift_for_sources") as mock_engine:
-            from dango.utils.post_sync import _run_drift_detection
+    def test_drift_detection_removed_from_post_sync(self, tmp_path: Path) -> None:
+        """_run_drift_detection was removed (drift now runs pre-dbt in dlt_runner)."""
+        import dango.utils.post_sync as ps
 
-            _run_drift_detection(tmp_path, ["shopify", "stripe"])
-
-        mock_engine.assert_called_once_with(tmp_path, ["shopify", "stripe"])
+        assert not hasattr(ps, "_run_drift_detection")

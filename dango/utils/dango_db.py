@@ -179,7 +179,19 @@ CREATE TABLE IF NOT EXISTS pii_overrides (
     updated_at   TEXT NOT NULL,
     UNIQUE (source, table_name, column_name)
 );
+
+CREATE TABLE IF NOT EXISTS source_attention (
+    source       TEXT PRIMARY KEY,
+    reason       TEXT NOT NULL,
+    drift_events TEXT,
+    created_at   TEXT NOT NULL
+);
 """
+
+# Additive migrations — each wrapped in try/except to ignore "duplicate column".
+_ADDITIVE_DDL = [
+    "ALTER TABLE drift_events ADD COLUMN severity TEXT",
+]
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
@@ -189,3 +201,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn: An open SQLite connection.
     """
     conn.executescript(_DDL)
+    for stmt in _ADDITIVE_DDL:
+        try:
+            conn.execute(stmt)
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists

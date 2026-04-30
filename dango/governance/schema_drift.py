@@ -20,6 +20,9 @@ from dango.validation import validate_identifier, validate_source_name
 
 logger = get_logger(__name__)
 
+# Event types that represent breaking schema changes.
+_BREAKING_EVENT_TYPES: frozenset[str] = frozenset({"column_removed", "type_changed"})
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -146,6 +149,7 @@ def detect_table_drift(
                     "table_name": table_name,
                     "column_name": col_name,
                     "event_type": "column_added",
+                    "severity": "additive",
                     "detail": f"type={col_type}",
                     "detected_at": now,
                 }
@@ -160,6 +164,7 @@ def detect_table_drift(
                     "table_name": table_name,
                     "column_name": col_name,
                     "event_type": "column_removed",
+                    "severity": "breaking",
                     "detail": f"was={baseline[col_name]}",
                     "detected_at": now,
                 }
@@ -174,6 +179,7 @@ def detect_table_drift(
                     "table_name": table_name,
                     "column_name": col_name,
                     "event_type": "type_changed",
+                    "severity": "breaking",
                     "detail": f"{baseline[col_name]} -> {col_type}",
                     "detected_at": now,
                 }
@@ -182,9 +188,19 @@ def detect_table_drift(
     if not events:
         return []
 
-    # Record events + update baseline (resilient cache pattern)
+    # Determine if any events are breaking
+    has_breaking = any(ev.get("severity") == "breaking" for ev in events)
+
+    # Record events (resilient cache pattern)
     try:
-        _record_drift_events(project_root, source, table_name, events, current_schema)
+        if has_breaking:
+            # Breaking drift: record events but do NOT update baseline.
+            # Baseline stays old so drift keeps being detected until user accepts.
+            _record_drift_events_only(project_root, events)
+            _set_source_attention(project_root, source, events)
+        else:
+            # Additive-only: record events + update baseline as before
+            _record_drift_events(project_root, source, table_name, events, current_schema)
     except Exception:
         logger.warning(
             "drift_record_error",
@@ -233,7 +249,8 @@ def get_drift_history(
     params.append(limit)
 
     query = (
-        "SELECT id, source, table_name, column_name, event_type, detail, detected_at "
+        "SELECT id, source, table_name, column_name, event_type, severity, "
+        "detail, detected_at "
         f"FROM drift_events {where_clause} "
         "ORDER BY id DESC LIMIT ?"
     )
@@ -248,8 +265,9 @@ def get_drift_history(
             "table_name": row[2],
             "column_name": row[3],
             "event_type": row[4],
-            "detail": row[5],
-            "detected_at": row[6],
+            "severity": row[5],
+            "detail": row[6],
+            "detected_at": row[7],
         }
         for row in rows
     ]
@@ -378,13 +396,14 @@ def _record_drift_events(
         for ev in events:
             conn.execute(
                 "INSERT INTO drift_events "
-                "(source, table_name, column_name, event_type, detail, detected_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(source, table_name, column_name, event_type, severity, detail, detected_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     ev["source"],
                     ev["table_name"],
                     ev.get("column_name"),
                     ev["event_type"],
+                    ev.get("severity"),
                     ev.get("detail"),
                     ev["detected_at"],
                 ),
@@ -403,6 +422,126 @@ def _record_drift_events(
                 (source, table_name, col_name, col_type, now),
             )
         conn.commit()
+
+
+def _record_drift_events_only(
+    project_root: Path,
+    events: list[dict[str, Any]],
+) -> None:
+    """Record drift events WITHOUT updating baseline.
+
+    Used for breaking drift so drift keeps being detected until user accepts.
+
+    Args:
+        project_root: Path to the Dango project root.
+        events: List of drift event dicts.
+    """
+    with connect(project_root) as conn:
+        for ev in events:
+            conn.execute(
+                "INSERT INTO drift_events "
+                "(source, table_name, column_name, event_type, severity, detail, detected_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    ev["source"],
+                    ev["table_name"],
+                    ev.get("column_name"),
+                    ev["event_type"],
+                    ev.get("severity"),
+                    ev.get("detail"),
+                    ev["detected_at"],
+                ),
+            )
+        conn.commit()
+
+
+def _set_source_attention(
+    project_root: Path,
+    source: str,
+    events: list[dict[str, Any]],
+) -> None:
+    """Flag a source as needing attention due to breaking drift.
+
+    Args:
+        project_root: Path to the Dango project root.
+        source: Source name.
+        events: Breaking drift event dicts.
+    """
+    import json
+
+    now = datetime.now(timezone.utc).isoformat()
+    breaking = [e for e in events if e.get("severity") == "breaking"]
+    reason = f"{len(breaking)} breaking schema change(s) detected"
+
+    with connect(project_root) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO source_attention "
+            "(source, reason, drift_events, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (source, reason, json.dumps(breaking), now),
+        )
+        conn.commit()
+
+
+def accept_drift(project_root: Path, source: str) -> None:
+    """Accept current schema as new baseline and clear attention flag.
+
+    For each table in the source, reads the current DuckDB schema and saves
+    it as the new baseline, then removes the attention flag.
+
+    Args:
+        project_root: Path to the Dango project root.
+        source: Source name.
+    """
+    source = validate_source_name(source)
+
+    # Get all tables for this source from the current baseline
+    with connect(project_root) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT table_name FROM schema_baselines WHERE source = ?",
+            (source,),
+        ).fetchall()
+    table_names = [row[0] for row in rows]
+
+    # Re-save baseline from current DuckDB state for each table
+    for table_name in table_names:
+        current_schema = _get_current_schema(project_root, source, table_name)
+        if current_schema:
+            _save_baseline(project_root, source, table_name, current_schema)
+
+    # Clear the attention flag
+    with connect(project_root) as conn:
+        conn.execute("DELETE FROM source_attention WHERE source = ?", (source,))
+        conn.commit()
+
+    logger.info("drift_accepted", source=source, tables=len(table_names))
+
+
+def get_sources_needing_attention(project_root: Path) -> list[dict[str, Any]]:
+    """Return list of sources with unresolved breaking drift.
+
+    Args:
+        project_root: Path to the Dango project root.
+
+    Returns:
+        List of dicts with source, reason, drift_events, created_at.
+    """
+    import json
+
+    with connect(project_root) as conn:
+        rows = conn.execute(
+            "SELECT source, reason, drift_events, created_at FROM source_attention"
+        ).fetchall()
+
+    return [
+        {
+            "source": row[0],
+            "reason": row[1],
+            "drift_events": json.loads(row[2]) if row[2] else [],
+            "created_at": row[3],
+        }
+        for row in rows
+    ]
 
 
 def _send_drift_webhook(
@@ -438,12 +577,21 @@ def _send_drift_webhook(
         if not config.webhooks:
             return
 
-        # Build summary string
+        # Build summary string with severity breakdown
         event_counts: dict[str, int] = {}
         for ev in events:
             event_counts[ev["event_type"]] = event_counts.get(ev["event_type"], 0) + 1
-        summary_parts = [f"{count} {etype}" for etype, count in event_counts.items()]
-        summary = f"Schema drift detected: {', '.join(summary_parts)}"
+        breaking_count = sum(1 for ev in events if ev.get("severity") == "breaking")
+        additive_count = len(events) - breaking_count
+        severity_parts = []
+        if breaking_count:
+            severity_parts.append(f"{breaking_count} breaking")
+        if additive_count:
+            severity_parts.append(f"{additive_count} additive")
+        type_parts = [f"{count} {etype}" for etype, count in event_counts.items()]
+        summary = (
+            f"Schema drift detected: {', '.join(type_parts)} ({', '.join(severity_parts)} changes)"
+        )
 
         payload = WebhookPayload(
             event_type=EventType.SCHEMA_DRIFT_DETECTED,

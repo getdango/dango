@@ -490,6 +490,11 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
 @click.option("--limit", type=int, help="Limit rows per source (dev testing)")
 @click.option("--full-refresh", is_flag=True, help="Drop existing data and reload from scratch")
 @click.option("--dry-run", is_flag=True, help="Show what would be synced without executing")
+@click.option(
+    "--allow-schema-changes",
+    is_flag=True,
+    help="Allow CSV schema changes (add columns, treat missing as NULL)",
+)
 @click.pass_context
 def sync(
     ctx: click.Context,
@@ -500,6 +505,7 @@ def sync(
     limit: int | None,
     full_refresh: bool,
     dry_run: bool,
+    allow_schema_changes: bool,
 ) -> None:
     """
     Load data from all sources (or specific source).
@@ -693,6 +699,7 @@ def sync(
                 end_date=end_date_obj,
                 full_refresh=full_refresh,
                 limit=limit,
+                allow_schema_changes=allow_schema_changes,
             )
         except KeyboardInterrupt:
             console.print("\n[yellow]Sync interrupted — progress saved.[/yellow]")

@@ -756,6 +756,7 @@ async function loadSources() {
         // Longer timeout for sources (includes DuckDB queries for row counts)
         sources = await apiCall('/api/sources', 'GET', null, 15000);
         renderSourcesTable();
+        renderAttentionBanner();
     } catch (error) {
         console.log('⏸️ [loadSources] Error (expected during sync):', error.message);
 
@@ -1200,7 +1201,8 @@ function renderSourcesTable() {
             onclick="${rowClickHandler}" title="${rowClickHelp}">
             <td class="px-6 py-4 whitespace-nowrap">
                 <div class="flex items-center">
-                    <div class="text-sm font-medium text-gray-900">${source.name}</div>
+                    <div class="text-sm font-medium text-gray-900">${escapeHtml(source.name)}</div>
+                    ${source.needs_attention ? '<span class="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Needs Attention</span>' : ''}
                 </div>
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
@@ -2506,6 +2508,71 @@ function dismissMetabaseBanner() {
     localStorage.setItem('metabase-credentials-dismissed', 'true');
 }
 
+// ============================================================================
+// Schema Drift Attention
+// ============================================================================
+
+/**
+ * Render attention banner for sources with breaking schema drift.
+ * Called after loadSources() completes.
+ */
+async function renderAttentionBanner() {
+    const banner = document.getElementById('attention-banner');
+    if (!banner) return;
+
+    try {
+        const attentionSources = await apiCall('/api/governance/attention');
+        if (!attentionSources || attentionSources.length === 0) {
+            banner.innerHTML = '';
+            return;
+        }
+
+        const canManage = window.DANGO_USER_ROLE === 'admin';
+        const sourceItems = attentionSources.map(s => {
+            const acceptBtn = canManage
+                ? `<button onclick="acceptDrift('${escapeHtml(s.source)}')" class="ml-2 text-sm text-yellow-700 underline hover:text-yellow-900">Accept</button>`
+                : '';
+            return `<span class="font-medium">${escapeHtml(s.source)}</span>: ${escapeHtml(s.reason)}${acceptBtn}`;
+        }).join('<br>');
+
+        banner.innerHTML = `
+            <div class="mb-4 rounded-lg bg-yellow-50 border border-yellow-200 p-4">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                    <div class="ml-3">
+                        <h3 class="text-sm font-medium text-yellow-800">Breaking Schema Drift Detected</h3>
+                        <div class="mt-2 text-sm text-yellow-700">${sourceItems}</div>
+                        <p class="mt-1 text-xs text-yellow-600">dbt is paused for affected sources. Accept changes to resume.</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        // Non-critical — don't show banner on error
+        banner.innerHTML = '';
+    }
+}
+
+/**
+ * Accept schema drift for a source.
+ * @param {string} sourceName - The source to accept drift for
+ */
+async function acceptDrift(sourceName) {
+    try {
+        await apiCall(`/api/governance/drift/${encodeURIComponent(sourceName)}/accept`, 'POST');
+        showToast(`Schema changes accepted for '${sourceName}'.`, 'success');
+        // Refresh sources and banner
+        await loadSources();
+        await renderAttentionBanner();
+    } catch (error) {
+        showToast(`Failed to accept drift: ${error.message}`, 'error');
+    }
+}
+
 // Make functions available globally
 window.triggerSync = triggerSync;
 window.refreshSources = refreshSources;
@@ -2525,3 +2592,4 @@ window.triggerFullRefresh = triggerFullRefresh;
 window.openDateRangeModal = openDateRangeModal;
 window.closeDateRangeModal = closeDateRangeModal;
 window.syncWithDateRange = syncWithDateRange;
+window.acceptDrift = acceptDrift;

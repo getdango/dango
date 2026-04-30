@@ -84,7 +84,7 @@ dango/                          # Python package source
 │   │   ├── model.py            # model group (add/remove)
 │   │   ├── platform.py         # start/stop/status + port helpers (970 lines)
 │   │   ├── project.py          # init/rename/info
-│   │   ├── source.py           # source group (add/list/remove) + sync (750 lines)
+│   │   ├── source.py           # source group (add/list/remove) + sync (757 lines)
 │   │   ├── transform.py        # run/docs/generate
 │   │   ├── upgrade.py          # local Dango upgrade via pip + migrations
 │   │   ├── web.py              # web dev server
@@ -135,7 +135,7 @@ dango/                          # Python package source
 ├── governance/                 # Level 1 — Data governance (schema drift + PII scanning)
 │   ├── __init__.py             # Re-exports public API
 │   ├── models.py               # Pydantic V2 response models
-│   ├── schema_drift.py         # Schema drift detection engine (490 lines)
+│   ├── schema_drift.py         # Schema drift detection engine (654 lines)
 │   ├── pii_detector.py         # PII scanning engine (602 lines)
 │   └── pii_overrides.py        # PII override CRUD
 │
@@ -250,7 +250,7 @@ dango/                          # Python package source
 │
 ├── ingestion/                  # Level 1 — Data loading
 │   ├── dlt_runner.py           # ⚠ 2373 lines — orchestrates full sync pipeline
-│   ├── csv_loader.py           # Multi-format file loading with dedup (766 lines)
+│   ├── csv_loader.py           # Multi-format file loading with dedup (847 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (33 source types)
 │   └── dlt_sources/            # ⚠ DO NOT MODIFY — vendored connectors (127 files)
@@ -342,13 +342,13 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 819 | — (extracted from app.py by TASK-085) |
-| `ingestion/csv_loader.py` | 766 | — |
+| `ingestion/csv_loader.py` | 847 | — |
 | `platform/scheduling/jobs.py` | 839 | — (module-level job functions) |
 | `web/routes/schedules.py` | 720 | — (schedule CRUD, history, notifications) |
 | `web/routes/upload.py` | 701 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 670 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
-| `cli/commands/source.py` | 748 | — (extracted from main.py by TASK-005) |
+| `cli/commands/source.py` | 757 | — (extracted from main.py by TASK-005) |
 | `cli/commands/remote.py` | 698 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 595 | — (push deploy workflow + deploy lock + journal) |
@@ -368,6 +368,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/schedule.py` | 743 | — (schedule wizard + time customization) |
 | `cli/model_wizard.py` | 507 | — |
 | `platform/cloud/scheduled_backup.py` | 505 | — (server-side scheduled backup) |
+| `governance/schema_drift.py` | 654 | — (R9-D: breaking drift protection + accept flow) |
 | `governance/pii_detector.py` | 602 | — (BUG-027/BUG-133/BUG-139: spaCy fallback + PERSON threshold + override application) |
 
 ## Module Documentation Index

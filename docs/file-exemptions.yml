@@ -93,7 +93,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 750
+    lines: 757
     category: exempt
     reason: "Source management commands (add/list/remove) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation."
     review_by: "v1.1"
@@ -168,9 +168,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/ingestion/csv_loader.py
-    lines: 765
+    lines: 847
     category: exempt
-    reason: "Multi-format file loading (CSV, JSON, JSONL, Parquet) with deduplication. Single-purpose module, stable."
+    reason: "Multi-format file loading (CSV, JSON, JSONL, Parquet) with deduplication and schema evolution. Single-purpose module."
     review_by: "v1.1"
 
   - file: dango/cli/validate.py
@@ -352,10 +352,22 @@ exemptions:
     reason: "TEST-030: 7 test classes covering page, list, create, delete, lock, heartbeat, release, force-release, copy. Marginally over limit after locked_at test addition."
     review_by: "v1.1"
 
+  - file: dango/governance/schema_drift.py
+    lines: 638
+    category: exempt
+    reason: "R9-D: grew to 638 lines adding breaking drift protection, accept flow, source attention management. Single-responsibility module (schema drift detection + resolution)."
+    review_by: "v1.1"
+
   - file: dango/governance/pii_detector.py
     lines: 602
     category: exempt
     reason: "BUG-027/BUG-133/BUG-139: grew to 602 lines adding spaCy fallback, PERSON threshold, intl phone recognizer, and PII override application. Single-responsibility module, not worth splitting."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_drift_detection.py
+    lines: 541
+    category: exempt
+    reason: "R9-D: Added severity, attention, accept tests. Marginally over limit."
     review_by: "v1.1"
 
   - file: tests/unit/test_pii_detection.py

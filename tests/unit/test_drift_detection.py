@@ -12,9 +12,11 @@ import pytest
 
 from dango.governance.schema_drift import (
     _send_drift_webhook,
+    accept_drift,
     detect_drift_for_sources,
     detect_table_drift,
     get_drift_history,
+    get_sources_needing_attention,
 )
 
 _DRIFT = "dango.governance.schema_drift"
@@ -244,8 +246,26 @@ class TestGetDriftHistory:
         """Events are returned newest first (descending id)."""
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchall.return_value = [
-            (2, "shopify", "orders", "email", "column_added", "type=VARCHAR", "2026-01-02"),
-            (1, "shopify", "orders", "name", "column_removed", "was=VARCHAR", "2026-01-01"),
+            (
+                2,
+                "shopify",
+                "orders",
+                "email",
+                "column_added",
+                "additive",
+                "type=VARCHAR",
+                "2026-01-02",
+            ),
+            (
+                1,
+                "shopify",
+                "orders",
+                "name",
+                "column_removed",
+                "breaking",
+                "was=VARCHAR",
+                "2026-01-01",
+            ),
         ]
         with patch(f"{_DRIFT}.connect") as mock_ctx:
             mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_conn)
@@ -357,3 +377,165 @@ class TestSendDriftWebhook:
         ):
             _send_drift_webhook(tmp_path, ["shopify"], self._events)
         mock_fmt.assert_called_once()
+
+
+@pytest.mark.unit
+class TestDriftSeverity:
+    """Tests for drift severity classification."""
+
+    def test_breaking_drift_severity_column_removed(self, tmp_path: Path) -> None:
+        """column_removed event has severity 'breaking'."""
+        with (
+            patch(f"{_DRIFT}._get_current_schema", return_value={"id": "INTEGER"}),
+            patch(
+                f"{_DRIFT}._get_baseline",
+                return_value={"id": "INTEGER", "name": "VARCHAR"},
+            ),
+            patch(f"{_DRIFT}._record_drift_events_only"),
+            patch(f"{_DRIFT}._set_source_attention"),
+        ):
+            result = detect_table_drift(tmp_path, "shopify", "orders")
+
+        assert len(result) == 1
+        assert result[0]["event_type"] == "column_removed"
+        assert result[0]["severity"] == "breaking"
+
+    def test_breaking_drift_severity_type_changed(self, tmp_path: Path) -> None:
+        """type_changed event has severity 'breaking'."""
+        with (
+            patch(
+                f"{_DRIFT}._get_current_schema",
+                return_value={"id": "INTEGER", "total": "DOUBLE"},
+            ),
+            patch(
+                f"{_DRIFT}._get_baseline",
+                return_value={"id": "INTEGER", "total": "INTEGER"},
+            ),
+            patch(f"{_DRIFT}._record_drift_events_only"),
+            patch(f"{_DRIFT}._set_source_attention"),
+        ):
+            result = detect_table_drift(tmp_path, "shopify", "orders")
+
+        assert len(result) == 1
+        assert result[0]["event_type"] == "type_changed"
+        assert result[0]["severity"] == "breaking"
+
+    def test_additive_drift_severity(self, tmp_path: Path) -> None:
+        """column_added event has severity 'additive'."""
+        with (
+            patch(
+                f"{_DRIFT}._get_current_schema",
+                return_value={"id": "INTEGER", "email": "VARCHAR"},
+            ),
+            patch(f"{_DRIFT}._get_baseline", return_value={"id": "INTEGER"}),
+            patch(f"{_DRIFT}._record_drift_events"),
+        ):
+            result = detect_table_drift(tmp_path, "shopify", "orders")
+
+        assert len(result) == 1
+        assert result[0]["event_type"] == "column_added"
+        assert result[0]["severity"] == "additive"
+
+    def test_breaking_drift_skips_baseline_update(self, tmp_path: Path) -> None:
+        """Breaking drift records events but does NOT update baseline."""
+        with (
+            patch(f"{_DRIFT}._get_current_schema", return_value={"id": "INTEGER"}),
+            patch(
+                f"{_DRIFT}._get_baseline",
+                return_value={"id": "INTEGER", "name": "VARCHAR"},
+            ),
+            patch(f"{_DRIFT}._record_drift_events_only") as mock_record_only,
+            patch(f"{_DRIFT}._record_drift_events") as mock_record,
+            patch(f"{_DRIFT}._set_source_attention") as mock_attention,
+        ):
+            detect_table_drift(tmp_path, "shopify", "orders")
+
+        # Breaking: uses _record_drift_events_only, NOT _record_drift_events
+        mock_record_only.assert_called_once()
+        mock_record.assert_not_called()
+        mock_attention.assert_called_once()
+
+    def test_additive_drift_updates_baseline(self, tmp_path: Path) -> None:
+        """Additive-only drift updates baseline normally."""
+        current = {"id": "INTEGER", "email": "VARCHAR"}
+        with (
+            patch(f"{_DRIFT}._get_current_schema", return_value=current),
+            patch(f"{_DRIFT}._get_baseline", return_value={"id": "INTEGER"}),
+            patch(f"{_DRIFT}._record_drift_events_only") as mock_record_only,
+            patch(f"{_DRIFT}._record_drift_events") as mock_record,
+            patch(f"{_DRIFT}._set_source_attention") as mock_attention,
+        ):
+            detect_table_drift(tmp_path, "shopify", "orders")
+
+        # Additive: uses _record_drift_events (with baseline update)
+        mock_record.assert_called_once()
+        mock_record_only.assert_not_called()
+        mock_attention.assert_not_called()
+
+
+@pytest.mark.unit
+class TestSourceAttention:
+    """Tests for source attention (breaking drift state management)."""
+
+    def test_source_attention_set_on_breaking(self, tmp_path: Path) -> None:
+        """Source attention row is set when breaking drift is detected."""
+        with (
+            patch(f"{_DRIFT}._get_current_schema", return_value={"id": "INTEGER"}),
+            patch(
+                f"{_DRIFT}._get_baseline",
+                return_value={"id": "INTEGER", "name": "VARCHAR"},
+            ),
+            patch(f"{_DRIFT}._record_drift_events_only"),
+            patch(f"{_DRIFT}._set_source_attention") as mock_attention,
+        ):
+            detect_table_drift(tmp_path, "shopify", "orders")
+
+        mock_attention.assert_called_once()
+        call_args = mock_attention.call_args
+        assert call_args[0][1] == "shopify"
+        events = call_args[0][2]
+        assert len(events) == 1
+        assert events[0]["severity"] == "breaking"
+
+    def test_accept_drift_clears_attention(self, tmp_path: Path) -> None:
+        """accept_drift() clears attention and updates baseline."""
+        with (
+            patch(f"{_DRIFT}.connect") as mock_ctx,
+            patch(f"{_DRIFT}._get_current_schema", return_value={"id": "INTEGER"}),
+            patch(f"{_DRIFT}._save_baseline") as mock_save,
+        ):
+            mock_conn = MagicMock()
+            mock_conn.execute.return_value.fetchall.return_value = [("orders",)]
+            mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_conn)
+            mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+            accept_drift(tmp_path, "shopify")
+
+        # Baseline updated for each table
+        mock_save.assert_called_once()
+        # Attention cleared (DELETE query was executed)
+        delete_calls = [
+            c for c in mock_conn.execute.call_args_list if "DELETE FROM source_attention" in str(c)
+        ]
+        assert len(delete_calls) == 1
+
+    def test_get_sources_needing_attention(self, tmp_path: Path) -> None:
+        """get_sources_needing_attention returns correct sources."""
+        import json
+
+        mock_events = [{"event_type": "column_removed", "severity": "breaking"}]
+
+        with patch(f"{_DRIFT}.connect") as mock_ctx:
+            mock_conn = MagicMock()
+            mock_conn.execute.return_value.fetchall.return_value = [
+                ("shopify", "1 breaking change(s)", json.dumps(mock_events), "2026-01-01"),
+            ]
+            mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_conn)
+            mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+            result = get_sources_needing_attention(tmp_path)
+
+        assert len(result) == 1
+        assert result[0]["source"] == "shopify"
+        assert result[0]["reason"] == "1 breaking change(s)"
+        assert len(result[0]["drift_events"]) == 1
