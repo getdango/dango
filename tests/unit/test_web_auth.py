@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from dango.auth import database as db
 from dango.auth.models import Role, User
 from dango.auth.security import hash_password, hash_token, verify_password
-from dango.auth.sessions import create_session
+from dango.auth.sessions import DEFAULT_SESSION_MAX_DAYS, create_session
 from dango.migrations.runner import MigrationRunner
 from dango.web.middleware.auth import COOKIE_NAME
 from dango.web.routes.auth import router
@@ -378,3 +378,66 @@ class TestChangePassword:
         updated = db.get_user_by_id(db_path, user.id)
         assert updated is not None
         assert updated.must_change_password is False
+
+
+# ---------------------------------------------------------------------------
+# Cookie max_age tests
+# ---------------------------------------------------------------------------
+
+
+def _get_cookie_max_age(resp: Any, cookie_name: str) -> int | None:
+    """Extract Max-Age from a Set-Cookie header for a given cookie name."""
+    for header in resp.headers.get_list("set-cookie"):
+        if header.startswith(f"{cookie_name}="):
+            for part in header.split(";"):
+                part = part.strip()
+                if part.lower().startswith("max-age="):
+                    return int(part.split("=", 1)[1])
+    return None
+
+
+@pytest.mark.unit
+class TestCookieMaxAge:
+    """Verify session cookies include Max-Age matching configured expiry."""
+
+    def test_login_cookie_has_max_age(self, tmp_path: Path) -> None:
+        """Successful login sets Max-Age = session_max_days * 86400."""
+        db_path = _make_db(tmp_path)
+        _make_user(db_path)
+        client = _make_client(_make_app(db_path))
+
+        resp = client.post(
+            "/api/auth/login",
+            json={"email": "test@example.com", "password": "securepassword123"},
+        )
+        assert resp.status_code == 200
+        max_age = _get_cookie_max_age(resp, COOKIE_NAME)
+        assert max_age == DEFAULT_SESSION_MAX_DAYS * 86400
+
+    def test_2fa_partial_cookie_has_short_max_age(self, tmp_path: Path) -> None:
+        """2FA partial session sets Max-Age = 300 (5 minutes)."""
+        db_path = _make_db(tmp_path)
+        _make_user(db_path, totp_enabled=True, totp_secret="JBSWY3DPEHPK3PXP")
+        client = _make_client(_make_app(db_path))
+
+        resp = client.post(
+            "/api/auth/login",
+            json={"email": "test@example.com", "password": "securepassword123"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["requires_2fa"] is True
+        max_age = _get_cookie_max_age(resp, COOKIE_NAME)
+        assert max_age == 300
+
+    def test_change_password_cookie_has_max_age(self, tmp_path: Path) -> None:
+        """Password change sets Max-Age on the new session cookie."""
+        client, _db_path, _user = _setup_auth_client(tmp_path)
+
+        resp = client.post(
+            "/api/auth/change-password",
+            json={"current_password": "securepassword123", "new_password": "newpassword456"},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 200
+        max_age = _get_cookie_max_age(resp, COOKIE_NAME)
+        assert max_age == DEFAULT_SESSION_MAX_DAYS * 86400
