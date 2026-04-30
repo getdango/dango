@@ -3,10 +3,14 @@
 Tests for dango.utils.driver — Metabase DuckDB driver version management.
 """
 
+from unittest.mock import patch
+
 import pytest
 
+from dango.exceptions import VersionMismatchError
 from dango.utils.driver import (
     METABASE_DUCKDB_DRIVER_VERSION,
+    check_version_alignment,
     driver_needs_update,
     get_duckdb_driver_url,
     read_driver_version,
@@ -63,3 +67,25 @@ class TestDriverNeedsUpdate:
         (tmp_path / "duckdb.metabase-driver.jar").touch()
         write_driver_version(tmp_path, METABASE_DUCKDB_DRIVER_VERSION)
         assert driver_needs_update(tmp_path) is False
+
+
+@pytest.mark.unit
+class TestCheckVersionAlignment:
+    def test_matching_versions_no_error(self):
+        """No exception when Python DuckDB and driver share major.minor."""
+        with patch("duckdb.__version__", "1.5.2"):
+            check_version_alignment()  # Should not raise
+
+    def test_mismatched_versions_raises(self):
+        """VersionMismatchError raised when major.minor differs."""
+        with patch("duckdb.__version__", "1.4.4"):
+            with pytest.raises(VersionMismatchError, match="does not match") as exc_info:
+                check_version_alignment()
+            assert exc_info.value.error_code == "DANGO-U008"
+
+    def test_three_vs_four_segment_match(self):
+        """Three-segment Python version matches four-segment driver version."""
+        # Python: "1.5.0" → major.minor "1.5"
+        # Driver: "1.5.1.0" → major.minor "1.5"
+        with patch("duckdb.__version__", "1.5.0"):
+            check_version_alignment()  # Should not raise

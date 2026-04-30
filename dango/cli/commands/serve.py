@@ -38,6 +38,7 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
     """
     from dango.config import ConfigLoader
     from dango.platform.common.startup import (
+        check_duckdb_version_alignment,
         ensure_dbt_schemas,
         ensure_duckdb_driver,
         import_dashboards,
@@ -71,7 +72,19 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
     organization = getattr(config.project, "organization", None)
     effective_port = port if port is not None else config.platform.port
 
-    # 0. Log rotation (never-fail)
+    # 0. Version alignment check — must run BEFORE any DuckDB write operations
+    # because write mode auto-migrates the file format irreversibly.
+    try:
+        check_duckdb_version_alignment()
+    except Exception as exc:
+        from dango.exceptions import VersionMismatchError
+
+        if isinstance(exc, VersionMismatchError):
+            print(f"DuckDB version mismatch: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        raise
+
+    # 0.5. Log rotation (never-fail)
     rotate_logs(project_root)
 
     # 1. Migrations

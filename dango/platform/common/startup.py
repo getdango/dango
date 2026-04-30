@@ -65,6 +65,13 @@ def ensure_dbt_schemas(project_root: Path) -> None:
     _ensure_dbt_schemas(duckdb_path)
 
 
+def check_duckdb_version_alignment() -> None:
+    """Verify Python DuckDB and Metabase JDBC driver share the same major.minor."""
+    from dango.utils.driver import check_version_alignment
+
+    check_version_alignment()
+
+
 def ensure_duckdb_driver(project_root: Path) -> None:
     """Ensure Metabase DuckDB driver is downloaded and version-matched.
 

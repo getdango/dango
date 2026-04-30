@@ -8,8 +8,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from dango.exceptions import VersionMismatchError
 from dango.platform.common.startup import (
     _link_metabase_admin,
+    check_duckdb_version_alignment,
     ensure_dbt_schemas,
     ensure_duckdb_driver,
     import_dashboards,
@@ -599,3 +601,23 @@ class TestRefreshMetabaseConnection:
         ):
             result = refresh_metabase_connection(tmp_path)
         assert result is False
+
+
+@pytest.mark.unit
+class TestCheckDuckdbVersionAlignment:
+    """Tests for the startup wrapper around driver.check_version_alignment."""
+
+    def test_calls_through_to_driver(self):
+        """Wrapper delegates to driver.check_version_alignment."""
+        with patch("dango.utils.driver.check_version_alignment") as mock_check:
+            check_duckdb_version_alignment()
+        mock_check.assert_called_once()
+
+    def test_propagates_mismatch_error(self):
+        """VersionMismatchError from driver propagates through wrapper."""
+        with patch(
+            "dango.utils.driver.check_version_alignment",
+            side_effect=VersionMismatchError("test mismatch"),
+        ):
+            with pytest.raises(VersionMismatchError, match="test mismatch"):
+                check_duckdb_version_alignment()
