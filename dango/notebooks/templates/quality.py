@@ -30,21 +30,18 @@ def row_counts(conn):
     for schema, table in tables:
         n = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()[0]
         counts.append({"schema": schema, "table": table, "row_count": n})
-    import pandas as pd
-
-    counts_df = pd.DataFrame(counts)
-    return (counts_df,)
+    return (counts,)
 
 
 @app.cell
 def null_analysis(conn):
     """Show column metadata for a target table — edit the WHERE clause."""
     # Replace with your target table
-    result = conn.execute(
+    result = conn.sql(
         "SELECT column_name, data_type "
         "FROM information_schema.columns "
         "WHERE table_schema = 'raw' "
         "ORDER BY ordinal_position "
         "LIMIT 20"
-    ).fetchdf()
+    )
     return (result,)

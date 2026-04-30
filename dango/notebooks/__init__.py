@@ -16,7 +16,9 @@ from dango.notebooks.locking import (
 from dango.notebooks.manager import (
     get_marimo_pid_file_path,
     get_marimo_status,
+    start_idle_checker,
     start_marimo,
+    stop_idle_checker,
     stop_marimo,
 )
 from dango.notebooks.snapshot import (
@@ -31,6 +33,8 @@ __all__ = [
     "start_marimo",
     "stop_marimo",
     "get_marimo_status",
+    "start_idle_checker",
+    "stop_idle_checker",
     # snapshot
     "create_snapshot",
     "list_snapshots",

@@ -81,7 +81,7 @@ exemptions:
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
-    lines: 970
+    lines: 985
     category: exempt
     reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic."
     review_by: "v1.1"
@@ -347,7 +347,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_web_notebooks.py
-    lines: 506
+    lines: 515
     category: exempt
     reason: "TEST-030: 7 test classes covering page, list, create, delete, lock, heartbeat, release, force-release, copy. Marginally over limit after locked_at test addition."
     review_by: "v1.1"

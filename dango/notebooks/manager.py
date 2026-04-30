@@ -1,18 +1,26 @@
 """dango/notebooks/manager.py
 
-Marimo notebook server process lifecycle (start, stop, status).
+Marimo notebook server process lifecycle (start, stop, status) and idle
+auto-shutdown.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import subprocess
 import time
 from pathlib import Path
 
+from dango.utils.dango_db import connect
 from dango.utils.process import is_process_running, kill_process
 
 logger = logging.getLogger(__name__)
+
+# --- Idle auto-shutdown state ---
+_idle_checker_task: asyncio.Task[None] | None = None
+_IDLE_CHECK_INTERVAL = 300  # 5 minutes
+_IDLE_TIMEOUT = 900  # 15 minutes
 
 
 def get_marimo_pid_file_path(project_root: Path) -> Path:
@@ -195,3 +203,60 @@ def get_marimo_status(project_root: Path) -> dict[str, bool | int | Path | None]
             pass
 
     return status
+
+
+def _has_active_locks(project_root: Path) -> bool:
+    """Check if any non-expired notebook locks exist."""
+    with connect(project_root) as conn:
+        conn.execute("DELETE FROM notebook_locks WHERE expires_at < datetime('now')")
+        conn.commit()
+        row = conn.execute("SELECT COUNT(*) AS cnt FROM notebook_locks").fetchone()
+        return bool(row and row["cnt"] > 0)
+
+
+def _release_all_locks(project_root: Path) -> None:
+    """Delete all notebook locks (used during idle shutdown)."""
+    with connect(project_root) as conn:
+        conn.execute("DELETE FROM notebook_locks")
+        conn.commit()
+    logger.info("Released all notebook locks (idle shutdown)")
+
+
+async def _idle_check_loop(project_root: Path) -> None:
+    """Background loop: shut down Marimo when idle for ``_IDLE_TIMEOUT`` seconds."""
+    idle_since: float | None = None
+
+    while True:
+        await asyncio.sleep(_IDLE_CHECK_INTERVAL)
+
+        has_locks = await asyncio.to_thread(_has_active_locks, project_root)
+        if has_locks:
+            idle_since = None
+            continue
+
+        now = time.monotonic()
+        if idle_since is None:
+            idle_since = now
+            continue
+
+        if now - idle_since >= _IDLE_TIMEOUT:
+            logger.info("Marimo idle for %ds — shutting down", _IDLE_TIMEOUT)
+            await asyncio.to_thread(_release_all_locks, project_root)
+            await asyncio.to_thread(stop_marimo, project_root)
+            break
+
+
+def start_idle_checker(project_root: Path) -> None:
+    """Start the idle-shutdown background task (idempotent)."""
+    global _idle_checker_task  # noqa: PLW0603
+    if _idle_checker_task is not None and not _idle_checker_task.done():
+        return
+    _idle_checker_task = asyncio.get_event_loop().create_task(_idle_check_loop(project_root))
+
+
+def stop_idle_checker() -> None:
+    """Cancel the idle-shutdown background task if running."""
+    global _idle_checker_task  # noqa: PLW0603
+    if _idle_checker_task is not None and not _idle_checker_task.done():
+        _idle_checker_task.cancel()
+    _idle_checker_task = None

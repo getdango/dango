@@ -203,8 +203,8 @@ def get_lock_info(project_root: Path, notebook_id: str) -> dict[str, str] | None
 
         return {
             "locked_by": row["locked_by"],
-            "locked_at": row["locked_at"],
-            "expires_at": row["expires_at"],
+            "locked_at": row["locked_at"].replace(" ", "T") + "Z",
+            "expires_at": row["expires_at"].replace(" ", "T") + "Z",
         }
 
 
