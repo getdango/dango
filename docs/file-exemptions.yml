@@ -142,7 +142,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/visualization/metabase.py
-    lines: 1152
+    lines: 1151
     category: exempt
     reason: "Metabase REST API wrapper. Methods map 1:1 to API endpoints — splitting would scatter related operations."
     review_by: "v1.1"
@@ -368,6 +368,12 @@ exemptions:
     lines: 508
     category: exempt
     reason: "R8-A: BUG-103/104 fixes added call-order tracking test and two Metabase failure-path tests (exception + return-dict). Each test requires its own full decorator stack for startup helpers. Marginally over limit."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_platform_startup.py
+    lines: 601
+    category: exempt
+    reason: "R9-B: BUG-115/118 tests added metabase.yml write-back assertions and refresh_metabase_connection container-name tests. Each test class requires independent auth DB setup and multi-layer mocking."
     review_by: "v1.1"
 
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)

@@ -358,6 +358,9 @@ def _link_metabase_admin(project_root: Path, admin_email: str) -> None:
             dango_user.id,
             UserUpdate(metabase_user_id=mb_user["id"], metabase_password_enc=encrypted_pw),
         )
+        admin_creds["password"] = password
+        with open(mb_yml_path, "w") as f:
+            yaml.safe_dump(mb_creds, f, default_flow_style=False)
         _logger.info("metabase_admin_linked", email=admin_email, metabase_user_id=mb_user["id"])
     except Exception:
         # Non-critical — SSO bridge will lazy-sync on next login

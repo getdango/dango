@@ -1107,9 +1107,11 @@ def refresh_metabase_connection(
     import subprocess
 
     try:
-        # Get container name from project root
-        project_name = project_root.name
-        container_name = f"{project_name}-metabase-1"
+        # Get container name from DockerManager (uses hash-based naming)
+        from dango.platform.docker import DockerManager
+
+        dm = DockerManager(project_root)
+        container_name = f"{dm.compose_project_name}-metabase-1"
 
         # Check if container exists and is running
         check_result = subprocess.run(

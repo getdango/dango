@@ -472,3 +472,130 @@ class TestLinkMetabaseAdmin:
 
         _link_metabase_admin(tmp_path, "admin@test.com")
         mock_post.assert_not_called()
+
+    @patch("requests.put")
+    @patch("requests.post")
+    @patch("requests.get")
+    @patch("dango.auth.metabase_sync.SecureTokenStorage")
+    def test_happy_path_updates_metabase_yml(
+        self,
+        mock_sts: MagicMock,
+        mock_get: MagicMock,
+        mock_post: MagicMock,
+        mock_put: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """BUG-115: metabase.yml is updated with the new password after linking."""
+        import yaml
+
+        self._setup_metabase_yml(tmp_path)
+        self._setup_auth_db(tmp_path)
+        mock_sts.return_value.encrypt_token.return_value = "encrypted_pw"
+
+        session_resp = MagicMock(status_code=200)
+        session_resp.json.return_value = {"id": "session123"}
+        mock_post.return_value = session_resp
+
+        user_list_resp = MagicMock(status_code=200)
+        user_list_resp.json.return_value = [{"id": 42, "email": "admin@test.com"}]
+        mock_get.return_value = user_list_resp
+
+        mock_put.return_value = MagicMock(status_code=200)
+
+        _link_metabase_admin(tmp_path, "admin@test.com")
+
+        # Verify metabase.yml was updated with the new password
+        mb_yml_path = tmp_path / ".dango" / "metabase.yml"
+        with open(mb_yml_path) as f:
+            updated_creds = yaml.safe_load(f)
+        new_password = updated_creds["admin"]["password"]
+        assert new_password != "testpw", "Password in metabase.yml should have been updated"
+        # The new password was sent to the Metabase API
+        put_json = mock_put.call_args[1]["json"]
+        assert put_json["password"] == new_password
+
+    @patch("requests.put")
+    @patch("requests.post")
+    @patch("requests.get")
+    @patch("dango.auth.metabase_sync.SecureTokenStorage")
+    def test_metabase_yml_unchanged_when_password_update_fails(
+        self,
+        mock_sts: MagicMock,
+        mock_get: MagicMock,
+        mock_post: MagicMock,
+        mock_put: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """BUG-115: metabase.yml keeps old password when Metabase password update fails."""
+        import yaml
+
+        self._setup_metabase_yml(tmp_path)
+        self._setup_auth_db(tmp_path)
+
+        session_resp = MagicMock(status_code=200)
+        session_resp.json.return_value = {"id": "session123"}
+        mock_post.return_value = session_resp
+
+        user_list_resp = MagicMock(status_code=200)
+        user_list_resp.json.return_value = [{"id": 42, "email": "admin@test.com"}]
+        mock_get.return_value = user_list_resp
+
+        # Simulate password update failure (returns 400)
+        mock_put.return_value = MagicMock(status_code=400)
+
+        _link_metabase_admin(tmp_path, "admin@test.com")
+
+        # Verify metabase.yml was NOT changed
+        mb_yml_path = tmp_path / ".dango" / "metabase.yml"
+        with open(mb_yml_path) as f:
+            unchanged_creds = yaml.safe_load(f)
+        assert unchanged_creds["admin"]["password"] == "testpw"
+
+
+@pytest.mark.unit
+class TestRefreshMetabaseConnection:
+    """Tests for refresh_metabase_connection() container name resolution (BUG-118)."""
+
+    def test_uses_hash_based_container_name(self, tmp_path: Path) -> None:
+        """BUG-118: refresh_metabase_connection uses DockerManager's hash-based name."""
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        mock_subprocess_run = MagicMock(
+            side_effect=[
+                MagicMock(stdout="dango-abc123-metabase-1\n", returncode=0),  # docker ps
+                MagicMock(returncode=0),  # docker restart
+            ]
+        )
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", mock_subprocess_run),
+            patch("requests.get", return_value=MagicMock(status_code=200)),
+        ):
+            result = refresh_metabase_connection(tmp_path)
+
+        # Verify the hash-based container name was used in docker ps filter
+        ps_call = mock_subprocess_run.call_args_list[0]
+        ps_cmd = ps_call[0][0]
+        assert "name=dango-abc123-metabase-1" in " ".join(ps_cmd)
+
+        restart_call = mock_subprocess_run.call_args_list[1]
+        assert restart_call[0][0] == ["docker", "restart", "dango-abc123-metabase-1"]
+        assert result is True
+
+    def test_returns_false_when_container_not_running(self, tmp_path: Path) -> None:
+        """Returns False when the Metabase container is not found."""
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", return_value=MagicMock(stdout="", returncode=0)),
+        ):
+            result = refresh_metabase_connection(tmp_path)
+        assert result is False
