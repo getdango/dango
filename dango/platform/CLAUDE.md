@@ -90,7 +90,7 @@ platform/
 | `cloud/firewall.py` | Firewall lifecycle and IP allowlisting | `create_default_firewall`, `add_allowed_ip`, `restrict_web_to_ips`, `allow_all_web`, `validate_ip_or_cidr`, `save_firewall_metadata` |
 | `cloud/spaces.py` | DigitalOcean Spaces (S3-compatible) client | `SpacesClient` |
 | `cloud/ssh.py` | SSH key management, TOFU known-hosts, command exec, SFTP | `SSHManager`, `CommandResult` |
-| `cloud/server_setup.py` | SSH-based server setup orchestration (16 steps + optional UFW for BYOS) | `setup_server` (`setup_ufw` param), `SetupResult` |
+| `cloud/server_setup.py` | SSH-based server setup orchestration (16 steps + optional UFW for BYOS) + install source detection | `setup_server` (`setup_ufw`, `install_source` params), `SetupResult`, `_resolve_install_source` |
 | `cloud/server_status.py` | Server resource metrics, service status, PyPI version check | `ServerStatus`, `ServiceInfo`, `collect_server_status`, `check_latest_pypi_version`, `get_local_resource_usage` |
 | `cloud/domain.py` | DNS check, domain set/remove for HTTPS via Caddy | `check_dns`, `set_domain`, `remove_domain` |
 | `cloud/backup.py` | SSH-based backup and rollback | `create_backup`, `rollback`, `list_local_backups`, `rotate_local_backups`, `BackupManifest`, `BackupResult`, `RestoreResult` |

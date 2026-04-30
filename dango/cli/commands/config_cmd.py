@@ -195,3 +195,24 @@ def config_show(ctx: click.Context) -> None:
 
             console.print(traceback.format_exc())
         raise click.Abort() from e
+
+
+# ---------------------------------------------------------------------------
+# DigitalOcean token management (BUG-127)
+# ---------------------------------------------------------------------------
+
+
+@config.group("do-token")
+def do_token() -> None:
+    """Manage stored DigitalOcean API token."""
+
+
+@do_token.command("clear")
+def do_token_clear() -> None:
+    """Remove the stored DigitalOcean API token."""
+    from dango.config.cloud_credentials import clear_do_token
+
+    if clear_do_token():
+        console.print("[green]DigitalOcean API token removed.[/green]")
+    else:
+        console.print("[dim]No stored token found.[/dim]")

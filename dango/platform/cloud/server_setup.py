@@ -138,6 +138,14 @@ def _setup_apt_packages(
     """Step 1: Install system packages via apt."""
     step = "apt_packages"
     _notify(on_progress, step, "running")
+    # BUG-121: Set system-wide dpkg lock timeout so ALL apt commands
+    # (including Docker's get.docker.com install script) wait for locks.
+    _write_remote_config(
+        ssh,
+        "/etc/apt/apt.conf.d/99lock-timeout",
+        'DPkg::Lock::Timeout "120";\n',
+        step=step,
+    )
     _run_checked(
         ssh,
         "add-apt-repository -y universe 2>/dev/null || true"
@@ -263,6 +271,7 @@ def _setup_venv(
     on_progress: Callable[[str, str], None] | None,
     *,
     dango_version: str | None = None,
+    install_source: tuple[str, str] | None = None,
 ) -> None:
     """Step 7: Create Python venv and install getdango."""
     step = "python_venv"
@@ -272,7 +281,10 @@ def _setup_venv(
         result.steps_skipped.append(step)
         _notify(on_progress, step, "skipped")
         return
-    if dango_version:
+    if install_source:
+        # BUG-123: Use resolved install source (PyPI, git, or editable)
+        pkg = install_source[1]
+    elif dango_version:
         import re
 
         if not re.match(r"^[a-zA-Z0-9._-]+$", dango_version):
@@ -284,7 +296,7 @@ def _setup_venv(
         ssh,
         "python3 -m venv /srv/dango/venv"
         " && /srv/dango/venv/bin/pip install --upgrade pip -q"
-        f" && /srv/dango/venv/bin/pip install {pkg} -q",
+        f" && /srv/dango/venv/bin/pip install '{pkg}' -q",
         step=step,
         timeout=300,
     )
@@ -480,6 +492,87 @@ def _setup_ufw(
 
 
 # ---------------------------------------------------------------------------
+# Install source detection (BUG-123)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_install_source() -> tuple[str, str]:
+    """Determine how getdango should be installed on the remote server.
+
+    Inspects the local installation's ``direct_url.json`` (PEP 610) to decide:
+
+    - **PyPI install** (no ``direct_url.json``): ``("pypi", "getdango==<version>")``
+    - **Git install** (``vcs_info`` present): ``("git", "git+<url>@<commit>#egg=getdango")``
+    - **Editable install** (``dir_info.editable``): resolve git remote + HEAD from
+      the source directory, return git install command.  Falls back to
+      ``("editable", "getdango")`` if git info is unavailable.
+
+    Returns:
+        ``(source_type, pip_install_arg)`` tuple.
+    """
+    import importlib.metadata
+    import json
+    import subprocess  # noqa: S404 — git info lookup only
+
+    try:
+        dist = importlib.metadata.distribution("getdango")
+    except importlib.metadata.PackageNotFoundError:
+        return ("editable", "getdango")
+
+    raw = dist.read_text("direct_url.json")
+    if raw is None:
+        # Standard PyPI install
+        import dango
+
+        return ("pypi", f"getdango=={dango.__version__}")
+
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        import dango
+
+        return ("pypi", f"getdango=={dango.__version__}")
+
+    # Git install (pip install git+https://...)
+    vcs_info = data.get("vcs_info")
+    if vcs_info:
+        vcs = vcs_info.get("vcs", "git")
+        url = data.get("url", "")
+        commit = vcs_info.get("commit_id", "")
+        if url and commit:
+            return ("git", f"{vcs}+{url}@{commit}#egg=getdango")
+        if url:
+            return ("git", f"{vcs}+{url}#egg=getdango")
+
+    # Editable install (pip install -e .)
+    dir_info = data.get("dir_info", {})
+    if dir_info.get("editable"):
+        src_dir = data.get("url", "").replace("file://", "")
+        if src_dir:
+            try:
+                remote = subprocess.run(  # noqa: S603, S607
+                    ["git", "-C", src_dir, "remote", "get-url", "origin"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                head = subprocess.run(  # noqa: S603, S607
+                    ["git", "-C", src_dir, "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if remote.returncode == 0 and head.returncode == 0:
+                    url = remote.stdout.strip()
+                    commit = head.stdout.strip()
+                    return ("git", f"git+{url}@{commit}#egg=getdango")
+            except Exception:
+                pass
+
+    return ("editable", "getdango")
+
+
+# ---------------------------------------------------------------------------
 # Public orchestrator
 # ---------------------------------------------------------------------------
 
@@ -516,6 +609,7 @@ def setup_server(
     domain: str | None = None,
     setup_ufw: bool = False,
     dango_version: str | None = None,
+    install_source: tuple[str, str] | None = None,
 ) -> SetupResult:
     """Run all server setup steps on a connected server.
 
@@ -528,6 +622,10 @@ def setup_server(
         setup_ufw: If ``True``, install and configure UFW firewall
             (used for BYOS deployments that lack a cloud-managed firewall).
         dango_version: Pin getdango to this version. ``None`` → latest.
+            Ignored when *install_source* is provided.
+        install_source: ``(source_type, pip_arg)`` from
+            :func:`_resolve_install_source`.  Takes precedence over
+            *dango_version*.
 
     Raises:
         CloudProvisioningError: If any step fails.
@@ -538,7 +636,13 @@ def setup_server(
         if step_fn is _setup_caddyfile:
             _setup_caddyfile(ssh, result, on_progress, domain=domain)
         elif step_fn is _setup_venv:
-            _setup_venv(ssh, result, on_progress, dango_version=dango_version)
+            _setup_venv(
+                ssh,
+                result,
+                on_progress,
+                dango_version=dango_version,
+                install_source=install_source,
+            )
         else:
             step_fn(ssh, result, on_progress)
 

@@ -248,10 +248,12 @@ class TestSetupSteps:
         result = SetupResult()
         _setup_apt_packages(ssh, result, None)
 
-        cmd = ssh.exec_command.call_args_list[0][0][0]
-        assert "apt-get" in cmd
+        cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
+        # Find the main apt-get command (skip _write_remote_config calls)
+        apt_cmds = [c for c in cmds if "apt-get" in c and "install" in c]
+        assert apt_cmds, "Expected apt-get install command"
+        cmd = apt_cmds[0]
         assert "update" in cmd
-        assert "install" in cmd
         assert "fail2ban" in cmd
         assert "universe" in cmd
         assert "DPkg::Lock::Timeout=120" in cmd
@@ -336,7 +338,8 @@ class TestSetupSteps:
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
         venv_cmds = [c for c in cmds if "python3 -m venv" in c]
         assert len(venv_cmds) == 1
-        assert "pip install getdango" in venv_cmds[0]
+        assert "pip install" in venv_cmds[0]
+        assert "getdango" in venv_cmds[0]
 
     def test_ssh_hardening_disables_password(self):
         """SSH hardening step disables password auth and KbdInteractive."""
@@ -582,3 +585,151 @@ class TestSetupVenvVersionPinning:
         result = SetupResult()
         with pytest.raises(ValueError, match="Invalid version string"):
             _setup_venv(ssh, result, None, dango_version="1.0; rm -rf /")
+
+    def test_setup_venv_with_install_source(self):
+        """install_source takes precedence over dango_version."""
+        from dango.platform.cloud.server_setup import SetupResult, _setup_venv
+
+        ssh = _make_ssh_mock(exec_results={"test -x": ("", "", 1)})
+        result = SetupResult()
+        _setup_venv(
+            ssh,
+            result,
+            None,
+            dango_version="1.0.0",
+            install_source=("git", "git+https://github.com/x/y@abc#egg=getdango"),
+        )
+
+        cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
+        pip_cmd = [c for c in cmds if "pip install" in c and "getdango" in c]
+        assert pip_cmd
+        assert "git+https://github.com/x/y@abc#egg=getdango" in pip_cmd[0]
+        assert "getdango==1.0.0" not in pip_cmd[0]
+
+    def test_setup_server_passes_install_source(self):
+        """setup_server threads install_source through to _setup_venv."""
+        from dango.platform.cloud.server_setup import setup_server
+
+        ssh = _make_ssh_mock(exec_results={"test -x": ("", "", 1)})
+        setup_server(ssh, install_source=("pypi", "getdango==2.0.0"))
+
+        cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
+        pip_cmds = [c for c in cmds if "pip install" in c and "getdango" in c]
+        assert pip_cmds
+        assert "getdango==2.0.0" in pip_cmds[0]
+
+
+# ---------------------------------------------------------------------------
+# BUG-121: dpkg lock timeout config
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestAptLockTimeout:
+    def test_lock_timeout_config_written_before_apt(self):
+        """BUG-121: System-wide apt lock timeout config is written before apt-get runs."""
+        from dango.platform.cloud.server_setup import SetupResult, _setup_apt_packages
+
+        ssh = _make_ssh_mock()
+        result = SetupResult()
+        _setup_apt_packages(ssh, result, None)
+
+        # _write_remote_config checks content via cat first
+        cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
+        cat_cmds = [c for c in cmds if "99lock-timeout" in c]
+        assert cat_cmds, "Expected _write_remote_config call for 99lock-timeout"
+
+        # write_remote_file should be called for the lock timeout config
+        write_calls = ssh.write_remote_file.call_args_list
+        lock_writes = [c for c in write_calls if c[0][0] == "/etc/apt/apt.conf.d/99lock-timeout"]
+        assert len(lock_writes) == 1
+        assert 'DPkg::Lock::Timeout "120"' in lock_writes[0][0][1]
+
+
+# ---------------------------------------------------------------------------
+# BUG-123: _resolve_install_source
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestResolveInstallSource:
+    def test_pypi_install(self):
+        """PyPI install returns ('pypi', 'getdango==<version>')."""
+        from unittest.mock import MagicMock, patch
+
+        from dango.platform.cloud.server_setup import _resolve_install_source
+
+        mock_dist = MagicMock()
+        mock_dist.read_text.return_value = None
+
+        with patch("importlib.metadata.distribution", return_value=mock_dist):
+            source_type, pip_arg = _resolve_install_source()
+
+        assert source_type == "pypi"
+        assert pip_arg.startswith("getdango==")
+
+    def test_git_install(self):
+        """Git install returns ('git', 'git+<url>@<commit>#egg=getdango')."""
+        import json
+        from unittest.mock import MagicMock, patch
+
+        from dango.platform.cloud.server_setup import _resolve_install_source
+
+        direct_url = json.dumps(
+            {
+                "url": "https://github.com/getdango/dango",
+                "vcs_info": {"vcs": "git", "commit_id": "abc123"},
+            }
+        )
+        mock_dist = MagicMock()
+        mock_dist.read_text.return_value = direct_url
+
+        with patch("importlib.metadata.distribution", return_value=mock_dist):
+            source_type, pip_arg = _resolve_install_source()
+
+        assert source_type == "git"
+        assert pip_arg == "git+https://github.com/getdango/dango@abc123#egg=getdango"
+
+    def test_editable_install_with_git(self):
+        """Editable install resolves git remote and HEAD."""
+        import json
+        from unittest.mock import MagicMock, patch
+
+        from dango.platform.cloud.server_setup import _resolve_install_source
+
+        direct_url = json.dumps(
+            {
+                "url": "file:///home/user/code/dango",
+                "dir_info": {"editable": True},
+            }
+        )
+        mock_dist = MagicMock()
+        mock_dist.read_text.return_value = direct_url
+
+        mock_remote = MagicMock(returncode=0, stdout="https://github.com/getdango/dango\n")
+        mock_head = MagicMock(returncode=0, stdout="def456\n")
+
+        with (
+            patch("importlib.metadata.distribution", return_value=mock_dist),
+            patch("subprocess.run", side_effect=[mock_remote, mock_head]),
+        ):
+            source_type, pip_arg = _resolve_install_source()
+
+        assert source_type == "git"
+        assert pip_arg == "git+https://github.com/getdango/dango@def456#egg=getdango"
+
+    def test_package_not_found(self):
+        """PackageNotFoundError returns ('editable', 'getdango')."""
+        import importlib.metadata
+        from unittest.mock import patch
+
+        from dango.platform.cloud.server_setup import _resolve_install_source
+
+        with patch(
+            "importlib.metadata.distribution",
+            side_effect=importlib.metadata.PackageNotFoundError("getdango"),
+        ):
+            source_type, pip_arg = _resolve_install_source()
+
+        assert source_type == "editable"
+        assert pip_arg == "getdango"

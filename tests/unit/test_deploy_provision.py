@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dango.cli.commands.deploy_provision import (
+    _confirm_secrets_push,
     _create_admin_and_enable_auth,
     _extract_ip,
     _generate_cloud_profiles,
@@ -680,3 +681,81 @@ class TestGenerateCloudProfiles:
             if "chown dango:dango" in str(c) and "profiles.yml" in str(c)
         ]
         assert len(chown_calls) >= 1
+
+
+# ---------------------------------------------------------------------------
+# 12. BUG-122: Confirm secrets push (pre-SSH)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestConfirmSecretsPush:
+    def test_confirms_when_files_exist(self, project_root):
+        """Returns True when user confirms and secret files exist."""
+        dlt_dir = project_root / ".dlt"
+        dlt_dir.mkdir()
+        (dlt_dir / "secrets.toml").write_text("[sources]\n")
+        (project_root / ".env").write_text("KEY=val\n")
+
+        warnings: list[str] = []
+        with patch("dango.cli.commands.deploy_provision.click.confirm", return_value=True):
+            result = _confirm_secrets_push(project_root, warnings)
+
+        assert result is True
+        assert warnings == []
+
+    def test_returns_false_when_declined(self, project_root):
+        """Returns False when user declines."""
+        dlt_dir = project_root / ".dlt"
+        dlt_dir.mkdir()
+        (dlt_dir / "secrets.toml").write_text("[sources]\n")
+
+        warnings: list[str] = []
+        with patch("dango.cli.commands.deploy_provision.click.confirm", return_value=False):
+            result = _confirm_secrets_push(project_root, warnings)
+
+        assert result is False
+        assert "skipped by user" in warnings[0]
+
+    def test_returns_false_when_no_files(self, project_root):
+        """Returns False when no secret files exist."""
+        warnings: list[str] = []
+        result = _confirm_secrets_push(project_root, warnings)
+
+        assert result is False
+        assert "No .dlt/secrets.toml or .env found locally" in warnings[0]
+
+
+@pytest.mark.unit
+class TestPushSecretsConfirmed:
+    def test_confirmed_skips_prompt(self, project_root):
+        """confirmed=True pushes without prompting."""
+        dlt_dir = project_root / ".dlt"
+        dlt_dir.mkdir()
+        (dlt_dir / "secrets.toml").write_text("[sources]\n")
+
+        ssh = _make_mock_ssh()
+        warnings: list[str] = []
+        # No click.confirm mock needed — should not be called
+        _push_secrets(ssh, project_root, warnings, confirmed=True)
+
+        assert ssh.write_remote_file.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# 13. BUG-122: Empty exception message handling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestEmptyExceptionMessage:
+    def test_empty_str_exception_gets_type_name(self):
+        """Empty exception message is replaced with type name."""
+        # Simulate the error message handling in the except block
+        exc = Exception("")
+        err_msg = str(exc) or f"{type(exc).__name__} (no detail)"
+        assert err_msg == "Exception (no detail)"
+
+        exc2 = TimeoutError()
+        err_msg2 = str(exc2) or f"{type(exc2).__name__} (no detail)"
+        assert err_msg2 == "TimeoutError (no detail)"

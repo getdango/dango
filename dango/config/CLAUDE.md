@@ -14,6 +14,7 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 | `helpers.py` | Config convenience functions | `find_project_root`, `get_config`, `load_config`, `save_config`, `check_unreferenced_custom_sources`, `format_unreferenced_sources_warning` |
 | `schedules.py` | Schedule config models, validation, reload | `ScheduleConfig`, `SchedulesConfig`, `ScheduleType`, `ReloadResult`, `CRON_PRESETS`, `load_schedules_config`, `validate_schedules`, `reload_schedules`, `log_startup_checks` |
 | `credentials.py` | Credential loading for dlt sources | `CredentialManager`, `init_dlt_directory` |
+| `cloud_credentials.py` | Cloud provider credential persistence (`~/.dango/credentials`, INI, 0o600) | `get_do_token`, `save_do_token`, `clear_do_token` |
 | `exceptions.py` | Re-export shim — classes live in `dango/exceptions.py` | `ConfigError`, `ConfigNotFoundError`, `ConfigValidationError`, `ProjectNotFoundError` |
 
 ## Common Tasks

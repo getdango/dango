@@ -353,12 +353,13 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `platform/cloud/deployer.py` | 595 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 651 | — |
 | `config/models.py` | 600 | — (Pydantic config models) |
-| `cli/commands/deploy_wizard.py` | 808 | — (interactive deploy wizard + BYOS) |
+| `cli/commands/deploy_wizard.py` | 813 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 548 | — |
 | `web/routes/catalog.py` | 1157 | — (data catalog: columns, profiling, lineage, impact, models, search) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
-| `cli/commands/deploy_provision.py` | 813 | — (provisioning orchestration + BYOS) |
-| `platform/cloud/digitalocean.py` | 542 | — (DO REST API v2 client) |
+| `cli/commands/deploy_provision.py` | 872 | — (provisioning orchestration + BYOS) |
+| `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
+| `platform/cloud/server_setup.py` | 652 | — (server setup + install source detection) |
 | `cli/commands/auth.py` | 660 | — (13 auth subcommands) |
 | `auth/database.py` | 529 | — (SQLite CRUD) |
 | `web/routes/users.py` | 527 | — (admin user CRUD + invite) |

@@ -92,12 +92,20 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
         print(f"Schema setup failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
-    # 3. DuckDB driver
+    # 3. DuckDB driver — non-fatal if JAR already exists (BUG-124: synced from local)
     try:
         ensure_duckdb_driver(project_root)
     except Exception as exc:
-        print(f"DuckDB driver download failed: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        driver_jar = project_root / "metabase-plugins" / "duckdb.metabase-driver.jar"
+        if driver_jar.is_file():
+            print(
+                f"WARNING: DuckDB driver download failed ({exc}), "
+                "but driver JAR exists (synced from local). Continuing.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"DuckDB driver download failed: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
 
     # 4. Docker services
     try:

@@ -59,10 +59,15 @@ class DigitalOceanClient:
         max_retries: int = 3,
     ) -> None:
         resolved = token or os.environ.get("DIGITALOCEAN_TOKEN")
+        # BUG-127: Fall back to stored credential
+        if not resolved:
+            from dango.config.cloud_credentials import get_do_token
+
+            resolved = get_do_token()
         if not resolved:
             raise CloudAuthError(
-                "No DigitalOcean token found. Set DIGITALOCEAN_TOKEN environment "
-                "variable or pass token= to DigitalOceanClient.",
+                "No DigitalOcean token found. Run 'dango deploy' to configure, "
+                "or set the DIGITALOCEAN_TOKEN environment variable.",
             )
         self._token = resolved
         self._timeout = timeout
