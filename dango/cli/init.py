@@ -427,6 +427,16 @@ When creating dashboards and reports in Metabase, use tables in this priority or
                 f.write(readme_content)
             print_success("Created README.md")
 
+    @staticmethod
+    def _get_duckdb_version() -> str:
+        """Return the installed DuckDB version for COMPATIBILITY.md."""
+        try:
+            import duckdb
+
+            return duckdb.__version__
+        except ImportError:
+            return "1.5.x"
+
     def _create_compatibility_md(self):
         """Create COMPATIBILITY.md with version requirements and platform support."""
         content = f"""\
@@ -465,7 +475,7 @@ Latest 2 versions of:
 
 | Component | Version | Notes |
 |-----------|---------|-------|
-| DuckDB | 1.4.4 | Embedded analytical database |
+| DuckDB | {self._get_duckdb_version()} | Embedded analytical database |
 | dbt-core | 1.10.20 | Data transformation framework |
 | dlt | 1.24.0 | Data ingestion toolkit |
 | Metabase | v0.59.1 | Business intelligence / dashboards |
