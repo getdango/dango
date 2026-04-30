@@ -323,9 +323,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/catalog.py
-    lines: 1157
+    lines: 1273
     category: exempt
-    reason: "P7-001+P7-002+BUG-016: Column schema, profiling, lineage DAG, impact analysis, model list/detail/search endpoints. Single router file — manifest parsing helpers are private to the same module."
+    reason: "P7-001+P7-002+BUG-016+R9-G: Column schema, profiling, lineage DAG, impact analysis, model list/detail/search, raw table discovery, overview summary. Single router file — manifest parsing helpers are private to the same module."
     review_by: "v1.1"
 
   - file: tests/unit/test_catalog_models.py

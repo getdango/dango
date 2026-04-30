@@ -183,6 +183,26 @@ def _table_exists(db_path: Path, source: str, table: str) -> bool:
     return bool(result and result[0] > 0)
 
 
+def _get_raw_tables_from_duckdb(db_path: Path) -> list[dict[str, str]]:
+    """List all user tables in raw_* schemas (for discovering unmodeled tables).
+
+    Args:
+        db_path: Path to the DuckDB warehouse file.
+
+    Returns:
+        List of ``{"schema": ..., "table": ..., "source_name": ...}``.
+    """
+    conn = duckdb.connect(str(db_path), read_only=True)
+    try:
+        rows = conn.execute(
+            "SELECT table_schema, table_name FROM information_schema.tables "
+            "WHERE table_schema LIKE 'raw_%' AND table_name NOT LIKE '_dlt_%'"
+        ).fetchall()
+    finally:
+        conn.close()
+    return [{"schema": r[0], "table": r[1], "source_name": r[0][4:]} for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # Manifest / model helpers (called via asyncio.to_thread)
 # ---------------------------------------------------------------------------
@@ -783,23 +803,70 @@ async def list_catalog_models(
     """List all models and sources from the dbt manifest.
 
     Returns models categorized by type (staging/intermediate/marts) and
-    sources.  Degrades gracefully when no manifest exists.
+    sources.  Includes raw tables not yet modeled in dbt and an overview
+    summary with source freshness.
 
     Args:
         user: Authenticated user with ``governance.view`` permission.
 
     Returns:
-        Dict with ``models`` and ``sources`` lists.
+        Dict with ``models``, ``sources``, and ``overview`` keys.
     """
+    from dango.web.helpers import get_source_freshness, load_sources_config
+
     manifest, run_results = await asyncio.gather(
         asyncio.to_thread(get_dbt_manifest),
         asyncio.to_thread(_get_run_results),
     )
 
     if manifest is None:
-        return {"models": [], "sources": []}
+        result: dict[str, Any] = {"models": [], "sources": []}
+    else:
+        result = await asyncio.to_thread(_build_catalog_models, manifest, run_results)
 
-    return await asyncio.to_thread(_build_catalog_models, manifest, run_results)
+    # BUG-132: Discover raw tables without dbt staging models
+    project_root = get_project_root()
+    db_path = project_root / "data" / "warehouse.duckdb"
+    if db_path.exists():
+        known_names = {s["name"] for s in result["sources"]}
+        raw_tables = await asyncio.to_thread(_get_raw_tables_from_duckdb, db_path)
+        for rt in raw_tables:
+            if rt["table"] not in known_names:
+                result["sources"].append(
+                    {
+                        "unique_id": f"raw.{rt['schema']}.{rt['table']}",
+                        "name": rt["table"],
+                        "type": "source",
+                        "schema": rt["schema"],
+                        "description": "",
+                        "source_name": rt["source_name"],
+                        "test_count": 0,
+                        "columns_total": 0,
+                        "columns_documented": 0,
+                    }
+                )
+        result["sources"].sort(key=lambda s: s["name"].lower())
+
+    # BUG-128: Overview summary with source freshness
+    sources_config = await asyncio.to_thread(load_sources_config)
+    freshness_list = await asyncio.gather(
+        *[asyncio.to_thread(get_source_freshness, src.get("name", "")) for src in sources_config]
+    )
+    result["overview"] = {
+        "source_count": len(sources_config),
+        "table_count": len(result["sources"]),
+        "model_count": len(result["models"]),
+        "freshness": [
+            {
+                "source": sources_config[i].get("name", ""),
+                "status": f.get("status"),
+                "hours_since_sync": f.get("hours_since_sync"),
+            }
+            for i, f in enumerate(freshness_list)
+        ],
+    }
+
+    return result
 
 
 @router.get("/api/catalog/models/{model_name}")
@@ -835,6 +902,48 @@ async def get_catalog_model(
 
     target_uid, target_node, kind = _find_model_in_manifest(manifest, model_name)
     if target_uid is None or target_node is None:
+        # BUG-132: Fallback — check if this table exists in DuckDB raw schemas
+        db_path = project_root / "data" / "warehouse.duckdb"
+        if db_path.exists():
+            raw_tables = await asyncio.to_thread(_get_raw_tables_from_duckdb, db_path)
+            match = next((rt for rt in raw_tables if rt["table"] == model_name), None)
+            if match:
+                schema = match["schema"]
+                source_name = match["source_name"]
+                db_columns = await asyncio.to_thread(
+                    _get_model_column_schema, db_path, schema, model_name
+                )
+                profiled_at = await asyncio.to_thread(
+                    _get_profiled_at, project_root, source_name, model_name
+                )
+                # Build minimal response
+                columns = []
+                for col in db_columns:
+                    columns.append({**col, "description": "", "tests": []})
+                # Inject cached stats
+                cached_stats = await asyncio.to_thread(
+                    _get_cached_stats, project_root, source_name, model_name
+                )
+                if cached_stats:
+                    for col in columns:
+                        col["stats"] = cached_stats.get(col["name"])
+                return {
+                    "name": model_name,
+                    "type": "source",
+                    "schema": schema,
+                    "source_name": source_name,
+                    "description": "",
+                    "materialization": None,
+                    "columns": columns,
+                    "profiled_at": profiled_at,
+                    "row_count": None,
+                    "tests": [],
+                    "tags": [],
+                    "depends_on": [],
+                    "depended_on_by": [],
+                    "raw_code": None,
+                    "compiled_code": None,
+                }
         raise HTTPException(
             status_code=404,
             detail=f"Model or source '{model_name}' not found in manifest.",
@@ -880,6 +989,13 @@ async def get_catalog_model(
         row_count = await asyncio.to_thread(_count_rows)
         if row_count is not None:
             result["row_count"] = row_count
+
+    # BUG-134: Inject cached profiling stats for source tables
+    if kind == "source" and source_name and result.get("columns"):
+        cached_stats = await asyncio.to_thread(_get_cached_stats, project_root, source_name, table)
+        if cached_stats:
+            for col in result["columns"]:
+                col["stats"] = cached_stats.get(col["name"])
 
     return result
 
