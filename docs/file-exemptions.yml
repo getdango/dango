@@ -168,7 +168,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/ingestion/csv_loader.py
-    lines: 847
+    lines: 867
     category: exempt
     reason: "Multi-format file loading (CSV, JSON, JSONL, Parquet) with deduplication and schema evolution. Single-purpose module."
     review_by: "v1.1"
@@ -353,7 +353,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/governance/schema_drift.py
-    lines: 638
+    lines: 654
     category: exempt
     reason: "R9-D: grew to 638 lines adding breaking drift protection, accept flow, source attention management. Single-responsibility module (schema drift detection + resolution)."
     review_by: "v1.1"
@@ -365,7 +365,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_drift_detection.py
-    lines: 541
+    lines: 569
     category: exempt
     reason: "R9-D: Added severity, attention, accept tests. Marginally over limit."
     review_by: "v1.1"

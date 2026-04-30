@@ -143,13 +143,14 @@ def detect_table_drift(
     # Columns added
     for col_name, col_type in current_schema.items():
         if col_name not in baseline:
+            event_type = "column_added"
             events.append(
                 {
                     "source": source,
                     "table_name": table_name,
                     "column_name": col_name,
-                    "event_type": "column_added",
-                    "severity": "additive",
+                    "event_type": event_type,
+                    "severity": "breaking" if event_type in _BREAKING_EVENT_TYPES else "additive",
                     "detail": f"type={col_type}",
                     "detected_at": now,
                 }
@@ -158,13 +159,14 @@ def detect_table_drift(
     # Columns removed
     for col_name in baseline:
         if col_name not in current_schema:
+            event_type = "column_removed"
             events.append(
                 {
                     "source": source,
                     "table_name": table_name,
                     "column_name": col_name,
-                    "event_type": "column_removed",
-                    "severity": "breaking",
+                    "event_type": event_type,
+                    "severity": "breaking" if event_type in _BREAKING_EVENT_TYPES else "additive",
                     "detail": f"was={baseline[col_name]}",
                     "detected_at": now,
                 }
@@ -173,13 +175,14 @@ def detect_table_drift(
     # Type changed
     for col_name, col_type in current_schema.items():
         if col_name in baseline and baseline[col_name] != col_type:
+            event_type = "type_changed"
             events.append(
                 {
                     "source": source,
                     "table_name": table_name,
                     "column_name": col_name,
-                    "event_type": "type_changed",
-                    "severity": "breaking",
+                    "event_type": event_type,
+                    "severity": "breaking" if event_type in _BREAKING_EVENT_TYPES else "additive",
                     "detail": f"{baseline[col_name]} -> {col_type}",
                     "detected_at": now,
                 }
@@ -196,6 +199,9 @@ def detect_table_drift(
         if has_breaking:
             # Breaking drift: record events but do NOT update baseline.
             # Baseline stays old so drift keeps being detected until user accepts.
+            # Note: when mixed with additive events, ALL events (including additive)
+            # will be re-detected on subsequent syncs until the user accepts.
+            # This is intentional — the user must accept the full batch.
             _record_drift_events_only(project_root, events)
             _set_source_attention(project_root, source, events)
         else:
@@ -373,6 +379,36 @@ def _save_baseline(
         conn.commit()
 
 
+def _insert_drift_events(
+    conn: Any,
+    events: list[dict[str, Any]],
+) -> None:
+    """Insert drift event rows into the ``drift_events`` table.
+
+    Shared helper used by both :func:`_record_drift_events` and
+    :func:`_record_drift_events_only`.
+
+    Args:
+        conn: An open SQLite connection (caller manages transaction).
+        events: List of drift event dicts.
+    """
+    for ev in events:
+        conn.execute(
+            "INSERT INTO drift_events "
+            "(source, table_name, column_name, event_type, severity, detail, detected_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                ev["source"],
+                ev["table_name"],
+                ev.get("column_name"),
+                ev["event_type"],
+                ev.get("severity"),
+                ev.get("detail"),
+                ev["detected_at"],
+            ),
+        )
+
+
 def _record_drift_events(
     project_root: Path,
     source: str,
@@ -392,22 +428,7 @@ def _record_drift_events(
     now = datetime.now(timezone.utc).isoformat()
 
     with connect(project_root) as conn:
-        # Record events
-        for ev in events:
-            conn.execute(
-                "INSERT INTO drift_events "
-                "(source, table_name, column_name, event_type, severity, detail, detected_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    ev["source"],
-                    ev["table_name"],
-                    ev.get("column_name"),
-                    ev["event_type"],
-                    ev.get("severity"),
-                    ev.get("detail"),
-                    ev["detected_at"],
-                ),
-            )
+        _insert_drift_events(conn, events)
 
         # Update baseline
         conn.execute(
@@ -437,21 +458,7 @@ def _record_drift_events_only(
         events: List of drift event dicts.
     """
     with connect(project_root) as conn:
-        for ev in events:
-            conn.execute(
-                "INSERT INTO drift_events "
-                "(source, table_name, column_name, event_type, severity, detail, detected_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    ev["source"],
-                    ev["table_name"],
-                    ev.get("column_name"),
-                    ev["event_type"],
-                    ev.get("severity"),
-                    ev.get("detail"),
-                    ev["detected_at"],
-                ),
-            )
+        _insert_drift_events(conn, events)
         conn.commit()
 
 
@@ -494,6 +501,15 @@ def accept_drift(project_root: Path, source: str) -> None:
         source: Source name.
     """
     source = validate_source_name(source)
+
+    db_path = project_root / "data" / "warehouse.duckdb"
+    if not db_path.exists():
+        # No warehouse — just clear the attention flag
+        with connect(project_root) as conn:
+            conn.execute("DELETE FROM source_attention WHERE source = ?", (source,))
+            conn.commit()
+        logger.info("drift_accepted_no_warehouse", source=source)
+        return
 
     # Get all tables for this source from the current baseline
     with connect(project_root) as conn:

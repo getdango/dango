@@ -86,10 +86,17 @@ class TestAcceptDriftEndpoint:
     def test_accept_drift_returns_200(self, tmp_path: Path) -> None:
         """Admin can accept drift for a source."""
         client, _ = _setup_client(tmp_path, Role.ADMIN)
+        mock_attention = [
+            {"source": "shopify", "reason": "1 breaking", "drift_events": [], "created_at": "t"}
+        ]
         with (
             patch(
                 "dango.governance.schema_drift.accept_drift",
             ) as mock_accept,
+            patch(
+                "dango.governance.schema_drift.get_sources_needing_attention",
+                return_value=mock_attention,
+            ),
             patch("dango.web.routes.governance.log_auth_event"),
             patch("dango.web.routes.governance.get_project_root", return_value=tmp_path),
         ):
@@ -103,6 +110,24 @@ class TestAcceptDriftEndpoint:
         assert data["source"] == "shopify"
         assert data["accepted"] is True
         mock_accept.assert_called_once()
+
+    def test_accept_drift_404_when_no_attention(self, tmp_path: Path) -> None:
+        """Returns 404 when source has no pending drift."""
+        client, _ = _setup_client(tmp_path, Role.ADMIN)
+        with (
+            patch(
+                "dango.governance.schema_drift.get_sources_needing_attention",
+                return_value=[],
+            ),
+            patch("dango.web.routes.governance.log_auth_event"),
+            patch("dango.web.routes.governance.get_project_root", return_value=tmp_path),
+        ):
+            resp = client.post(
+                "/api/governance/drift/nonexistent/accept",
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+
+        assert resp.status_code == 404
 
     def test_accept_drift_requires_manage_permission(self, tmp_path: Path) -> None:
         """Viewer gets 403 on accept (needs governance.manage)."""

@@ -472,6 +472,33 @@ class TestDriftSeverity:
         mock_record_only.assert_not_called()
         mock_attention.assert_not_called()
 
+    def test_mixed_breaking_and_additive_uses_breaking_path(self, tmp_path: Path) -> None:
+        """Mixed breaking+additive drift takes the breaking path for all events."""
+        # column removed (breaking) + column added (additive) in same diff
+        current = {"id": "INTEGER", "email": "VARCHAR"}
+        baseline = {"id": "INTEGER", "name": "VARCHAR"}
+        with (
+            patch(f"{_DRIFT}._get_current_schema", return_value=current),
+            patch(f"{_DRIFT}._get_baseline", return_value=baseline),
+            patch(f"{_DRIFT}._record_drift_events_only") as mock_record_only,
+            patch(f"{_DRIFT}._record_drift_events") as mock_record,
+            patch(f"{_DRIFT}._set_source_attention") as mock_attention,
+        ):
+            result = detect_table_drift(tmp_path, "shopify", "orders")
+
+        # Both events returned
+        event_types = {e["event_type"] for e in result}
+        assert event_types == {"column_added", "column_removed"}
+
+        # Breaking path used (no baseline update), even though additive events exist
+        mock_record_only.assert_called_once()
+        mock_record.assert_not_called()
+        mock_attention.assert_called_once()
+
+        # All events passed to _record_drift_events_only
+        recorded = mock_record_only.call_args[0][1]
+        assert len(recorded) == 2
+
 
 @pytest.mark.unit
 class TestSourceAttention:
@@ -499,6 +526,7 @@ class TestSourceAttention:
 
     def test_accept_drift_clears_attention(self, tmp_path: Path) -> None:
         """accept_drift() clears attention and updates baseline."""
+        _make_warehouse(tmp_path)
         with (
             patch(f"{_DRIFT}.connect") as mock_ctx,
             patch(f"{_DRIFT}._get_current_schema", return_value={"id": "INTEGER"}),

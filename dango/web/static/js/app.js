@@ -756,7 +756,7 @@ async function loadSources() {
         // Longer timeout for sources (includes DuckDB queries for row counts)
         sources = await apiCall('/api/sources', 'GET', null, 15000);
         renderSourcesTable();
-        renderAttentionBanner();
+        await renderAttentionBanner();
     } catch (error) {
         console.log('⏸️ [loadSources] Error (expected during sync):', error.message);
 
@@ -2530,7 +2530,7 @@ async function renderAttentionBanner() {
         const canManage = window.DANGO_USER_ROLE === 'admin';
         const sourceItems = attentionSources.map(s => {
             const acceptBtn = canManage
-                ? `<button onclick="acceptDrift('${escapeHtml(s.source)}')" class="ml-2 text-sm text-yellow-700 underline hover:text-yellow-900">Accept</button>`
+                ? `<button onclick="acceptDrift(${JSON.stringify(s.source)})" class="ml-2 text-sm text-yellow-700 underline hover:text-yellow-900">Accept</button>`
                 : '';
             return `<span class="font-medium">${escapeHtml(s.source)}</span>: ${escapeHtml(s.reason)}${acceptBtn}`;
         }).join('<br>');
@@ -2564,12 +2564,11 @@ async function renderAttentionBanner() {
 async function acceptDrift(sourceName) {
     try {
         await apiCall(`/api/governance/drift/${encodeURIComponent(sourceName)}/accept`, 'POST');
-        showToast(`Schema changes accepted for '${sourceName}'.`, 'success');
-        // Refresh sources and banner
+        showToast(`Schema changes accepted for '${escapeHtml(sourceName)}'.`, 'success');
+        // loadSources() already calls renderAttentionBanner()
         await loadSources();
-        await renderAttentionBanner();
     } catch (error) {
-        showToast(`Failed to accept drift: ${error.message}`, 'error');
+        showToast(`Failed to accept drift: ${escapeHtml(error.message)}`, 'error');
     }
 }
 

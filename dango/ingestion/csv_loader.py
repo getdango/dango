@@ -202,12 +202,24 @@ class CSVLoader:
         try:
             # Load new files
             for filepath, _metadata in classified["new"]:
-                if self._load_new_file(conn, filepath, target_table, source_name):
+                if self._load_new_file(
+                    conn,
+                    filepath,
+                    target_table,
+                    source_name,
+                    skip_schema_check=allow_schema_changes,
+                ):
                     stats["new"] += 1
 
             # Reload updated files
             for filepath, _metadata in classified["updated"]:
-                if self._reload_updated_file(conn, filepath, target_table, source_name):
+                if self._reload_updated_file(
+                    conn,
+                    filepath,
+                    target_table,
+                    source_name,
+                    skip_schema_check=allow_schema_changes,
+                ):
                     stats["updated"] += 1
 
             # Delete removed files
@@ -419,7 +431,9 @@ class CSVLoader:
         Args:
             conn: DuckDB connection
             target_table: Fully qualified table name (schema.table)
-            new_columns: Mapping of {column_name: column_type} to add
+            new_columns: Mapping of {column_name: column_type} to add.
+                Both col_name and col_type come from DuckDB's DESCRIBE output
+                (inferred from the data file), not from raw user input.
         """
         for col_name, col_type in new_columns.items():
             conn.execute(f'ALTER TABLE {target_table} ADD COLUMN "{col_name}" {col_type}')
@@ -679,6 +693,7 @@ class CSVLoader:
         filepath: str,
         target_table: str,
         source_name: str,
+        skip_schema_check: bool = False,
     ) -> bool:
         """Load a new file"""
         filename = os.path.basename(filepath)
@@ -686,7 +701,9 @@ class CSVLoader:
 
         try:
             # Validate schema matches table (strict mode - fail on any mismatch)
-            self._validate_schema_match(conn, filepath, target_table, source_name)
+            # Skipped when allow_schema_changes=True (pre-validation already handled)
+            if not skip_schema_check:
+                self._validate_schema_match(conn, filepath, target_table, source_name)
 
             metadata = self._get_file_metadata(filepath)
             read_fn = self._get_read_function(filepath)
@@ -747,6 +764,7 @@ class CSVLoader:
         filepath: str,
         target_table: str,
         source_name: str,
+        skip_schema_check: bool = False,
     ) -> bool:
         """Reload an updated file (transactional)"""
         filename = os.path.basename(filepath)
@@ -754,7 +772,9 @@ class CSVLoader:
 
         try:
             # Validate schema matches table (strict mode - fail on any mismatch)
-            self._validate_schema_match(conn, filepath, target_table, source_name)
+            # Skipped when allow_schema_changes=True (pre-validation already handled)
+            if not skip_schema_check:
+                self._validate_schema_match(conn, filepath, target_table, source_name)
 
             metadata = self._get_file_metadata(filepath)
             read_fn = self._get_read_function(filepath)
