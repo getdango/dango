@@ -224,24 +224,24 @@ def _release_all_locks(project_root: Path) -> None:
 
 async def _idle_check_loop(project_root: Path) -> None:
     """Background loop: shut down Marimo when idle for ``_IDLE_TIMEOUT`` seconds."""
-    idle_since: float | None = None
+    idle_since: float = time.monotonic()
 
     while True:
         await asyncio.sleep(_IDLE_CHECK_INTERVAL)
 
         has_locks = await asyncio.to_thread(_has_active_locks, project_root)
         if has_locks:
-            idle_since = None
+            idle_since = 0.0  # reset — will be set on next no-lock check
             continue
 
-        now = time.monotonic()
-        if idle_since is None:
-            idle_since = now
-            continue
+        if idle_since == 0.0:
+            idle_since = time.monotonic()
 
-        if now - idle_since >= _IDLE_TIMEOUT:
+        if time.monotonic() - idle_since >= _IDLE_TIMEOUT:
             logger.info("Marimo idle for %ds — shutting down", _IDLE_TIMEOUT)
-            await asyncio.to_thread(_release_all_locks, project_root)
+            # Clean up any locks created in the narrow window since last check
+            if await asyncio.to_thread(_has_active_locks, project_root):
+                await asyncio.to_thread(_release_all_locks, project_root)
             await asyncio.to_thread(stop_marimo, project_root)
             break
 
@@ -251,7 +251,7 @@ def start_idle_checker(project_root: Path) -> None:
     global _idle_checker_task  # noqa: PLW0603
     if _idle_checker_task is not None and not _idle_checker_task.done():
         return
-    _idle_checker_task = asyncio.get_event_loop().create_task(_idle_check_loop(project_root))
+    _idle_checker_task = asyncio.get_running_loop().create_task(_idle_check_loop(project_root))
 
 
 def stop_idle_checker() -> None:

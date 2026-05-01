@@ -89,7 +89,7 @@
                                         <button @click="copyNotebook(nb)"
                                                 class="text-gray-600 hover:text-gray-800 text-xs font-medium">Copy</button>
                                     </template>
-                                    <template x-if="canManage && nb.lock">
+                                    <template x-if="canManage && nb.lock && nb.lock.locked_by !== userEmail">
                                         <button @click="forceReleaseLock(nb)"
                                                 class="text-orange-600 hover:text-orange-800 text-xs font-medium">Force Unlock</button>
                                     </template>
