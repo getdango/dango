@@ -42,16 +42,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Create a temporary API key for authentication (requires .dango/auth.db)
 AUTH_RESULT=$(python3 -c "
-from pathlib import Path
-from dango.auth.admin import get_auth_db_path
-from dango.auth.database import list_users
-from dango.auth.sessions import create_api_key
+from pathlib import Path; from dango.auth.admin import get_auth_db_path
+from dango.auth.database import list_users; from dango.auth.sessions import create_api_key
 from dango.auth.models import Role
 db_path = get_auth_db_path(Path('.'))
 users = list_users(db_path, active_only=True)
 admin = next((u for u in users if u.role == Role.ADMIN), None)
-if admin is None:
-    raise SystemExit('No active admin user found in auth.db')
+if admin is None: raise SystemExit('No active admin user found in auth.db')
 raw_key, api_key = create_api_key(db_path, admin.id, 'smoke_test_temp')
 print(f'{raw_key}|{api_key.id}')
 " 2>&1) || { echo "ERROR: Failed to create API key: $AUTH_RESULT"; exit 1; }
@@ -187,8 +184,8 @@ curl_page_test() {
     local body
     local status
     body=$(curl -s -H "Authorization: Bearer $API_KEY" -w "\n%{http_code}" "${BASE_URL}${path}")
-    status=$(echo "$body" | tail -n1)
-    body=$(echo "$body" | sed '$d')
+    status=$(tail -n1 <<< "$body")
+    body=$(sed '$d' <<< "$body")
 
     if [ "$status" != "200" ]; then
         fail_test "$name" "Expected HTTP 200, got $status"
@@ -454,6 +451,10 @@ curl_api_test "GET /api/governance/attention" GET "/api/governance/attention"
 
 # Notebooks — create then delete
 curl_api_test "GET /api/notebooks" GET "/api/notebooks"
+# Pre-cleanup: remove leftover from previous interrupted run
+curl -s -o /dev/null -H "Authorization: Bearer $API_KEY" \
+    -H "X-Requested-With: XMLHttpRequest" \
+    -X DELETE "${BASE_URL}/api/notebooks/smoke_test_nb" 2>/dev/null
 NB_CREATE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -H "Authorization: Bearer $API_KEY" \
     -H "X-Requested-With: XMLHttpRequest" \
