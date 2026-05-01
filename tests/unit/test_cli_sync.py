@@ -4,6 +4,7 @@ Unit tests for dango sync CLI backfill and dev-sync options.
 """
 
 import re
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -196,7 +197,7 @@ class TestSyncBackfillValidation:
         assert mock_run_sync.call_args.kwargs["limit"] == 500
 
 
-def _make_cloud_config(droplet_ip: str = "1.2.3.4", domain: str | None = None):
+def _make_cloud_config(droplet_ip: str = "1.2.3.4", domain: str | None = None) -> MagicMock:
     """Create a mock CloudConfig."""
     cfg = MagicMock()
     cfg.droplet_ip = droplet_ip
@@ -208,7 +209,12 @@ def _make_cloud_config(droplet_ip: str = "1.2.3.4", domain: str | None = None):
 class TestSyncGuardRails:
     """Tests for sync command guard rails (cloud warning, first-sync confirmation)."""
 
-    def _invoke(self, args: list[str], cloud_config=None, extra_patches=None):
+    def _invoke(
+        self,
+        args: list[str],
+        cloud_config: MagicMock | None = None,
+        extra_patches: list[patch] | None = None,
+    ) -> click.testing.Result:
         runner = CliRunner()
         patches = _patch_sync_prereqs(cloud_config=cloud_config)
         if extra_patches:
@@ -216,16 +222,18 @@ class TestSyncGuardRails:
         for p in patches:
             p.start()
         try:
-            return runner.invoke(
-                sync, args, obj={"project_root": "/tmp"}, input=args[-1] if False else None
-            )
+            return runner.invoke(sync, args, obj={"project_root": "/tmp"})
         finally:
             for p in patches:
                 p.stop()
 
     def _invoke_with_input(
-        self, args: list[str], input_text: str, cloud_config=None, extra_patches=None
-    ):
+        self,
+        args: list[str],
+        input_text: str,
+        cloud_config: MagicMock | None = None,
+        extra_patches: list[patch] | None = None,
+    ) -> click.testing.Result:
         runner = CliRunner()
         patches = _patch_sync_prereqs(cloud_config=cloud_config)
         if extra_patches:
@@ -271,13 +279,6 @@ class TestSyncGuardRails:
 
     def test_first_sync_shown_when_no_warehouse(self) -> None:
         """First-sync confirmation shown when warehouse.duckdb doesn't exist."""
-        with patch("pathlib.Path.exists", side_effect=lambda self=None: False):
-            # Need more targeted patching — patch just the warehouse path check
-            pass
-
-        # Use a tmp dir where warehouse.duckdb won't exist
-        import tempfile
-
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             patches = _patch_sync_prereqs()
@@ -293,12 +294,10 @@ class TestSyncGuardRails:
                     p.stop()
 
             plain = _ANSI_RE.sub("", result.output)
-            assert "sync 1 source(s)" in plain.lower() or "This will sync" in plain
+            assert "This will sync" in plain
 
     def test_first_sync_skipped_when_warehouse_exists(self) -> None:
         """First-sync confirmation skipped when warehouse.duckdb exists."""
-        import tempfile
-
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             # Create the warehouse file
@@ -322,8 +321,6 @@ class TestSyncGuardRails:
 
     def test_first_sync_skipped_with_yes(self) -> None:
         """First-sync confirmation skipped with --yes flag."""
-        import tempfile
-
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             patches = _patch_sync_prereqs()
@@ -344,8 +341,6 @@ class TestSyncGuardRails:
 
     def test_first_sync_skipped_in_dry_run(self) -> None:
         """First-sync confirmation skipped in --dry-run mode."""
-        import tempfile
-
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             patches = _patch_sync_prereqs()
