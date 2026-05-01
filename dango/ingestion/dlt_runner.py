@@ -2188,6 +2188,8 @@ def run_sync(
         limit: Max rows per source (dev testing)
         skip_dbt: If True, skip dbt run/docs/Metabase refresh (caller handles separately)
         allow_schema_changes: If True, allow CSV schema evolution (add cols, NULL missing)
+        skip_sync_notification: If True, skip sending sync webhooks in post-sync hooks
+            (used by scheduler which sends its own notifications)
 
     Returns:
         Summary dictionary with success/failed counts

@@ -287,6 +287,7 @@ def dispatch_post_sync_hooks(
     *,
     sync_result: dict[str, Any] | None = None,
     skip_sync_notification: bool = False,
+    trigger: str = "cli",
 ) -> None:
     """Run post-sync hooks for successfully synced sources.
 
@@ -299,6 +300,7 @@ def dispatch_post_sync_hooks(
         sync_result: Summary dict from ``run_sync()`` (used for notifications).
         skip_sync_notification: If True, skip sending sync webhooks
             (e.g. when the scheduler sends its own notifications).
+        trigger: Label for the sync trigger (e.g. ``"cli"``, ``"web"``).
     """
     if not sources:
         return
@@ -310,7 +312,7 @@ def dispatch_post_sync_hooks(
     _run_analysis(project_root, sources)
 
     if not skip_sync_notification and sync_result is not None:
-        _send_sync_notification(project_root, sources, sync_result)
+        _send_sync_notification(project_root, sources, sync_result, trigger=trigger)
 
     logger.info("post_sync_hooks_complete", sources=sources)
 
@@ -448,11 +450,11 @@ def _deliver_to_webhooks(
                     "event": payload.event_type.value,
                     "schedule": payload.schedule_name,
                     "sources": payload.sources,
-                    "error": getattr(payload, "error", None),
-                    "duration_seconds": getattr(payload, "duration_seconds", None),
-                    "rows_loaded": getattr(payload, "rows_loaded", None),
-                    "dashboard_url": getattr(payload, "dashboard_url", None),
-                    "metadata": getattr(payload, "metadata", None),
+                    "error": payload.error,
+                    "duration_seconds": payload.duration_seconds,
+                    "rows_loaded": payload.rows_loaded,
+                    "dashboard_url": payload.dashboard_url,
+                    "metadata": payload.metadata,
                     "timestamp": payload.occurred_at.isoformat() if payload.occurred_at else None,
                 }
             with httpx.Client(timeout=10.0) as client:
@@ -506,6 +508,8 @@ def _send_sync_notification(
     project_root: Path,
     sources: list[str],
     sync_result: dict[str, Any],
+    *,
+    trigger: str = "cli",
 ) -> None:
     """Send sync completed/failed webhook notification.  Never raises."""
     try:
@@ -537,9 +541,9 @@ def _send_sync_notification(
 
         payload = WebhookPayload(
             event_type=event_type,
-            schedule_name="cli_sync",
+            schedule_name=f"{trigger}_sync",
             sources=sources,
-            rows_loaded=total_rows or None,
+            rows_loaded=total_rows,
             error=error_msg,
             occurred_at=datetime.now(tz=timezone.utc),
         )

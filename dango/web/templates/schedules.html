@@ -398,7 +398,7 @@ function schedulesPage() {
             this.addingWebhook = false;
         },
         async deleteWebhook(name) {
-            if (!confirm('Remove webhook "' + name + '"?')) return;
+            if (!confirm(`Remove webhook "${name}"?`)) return;
             this.error = '';
             try {
                 const res = await fetch('/api/notifications/webhooks/' + encodeURIComponent(name), {

@@ -286,7 +286,7 @@ dango/                          # Python package source
 │   ├── data_validation.py      # Data validation utilities
 │   ├── env_file.py             # .env file parsing and serialization
 │   ├── dango_db.py             # SQLite context manager for .dango/dango.db + schema init
-│   ├── post_sync.py            # Post-sync hook dispatcher (~549 lines)
+│   ├── post_sync.py            # Post-sync hook dispatcher (~553 lines)
 │   └── git_info.py             # Git repository info + deployment guardrails
 │
 ├── migrations/                 # Level 0 — Database migration framework
@@ -343,8 +343,8 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 819 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 867 | — |
-| `platform/scheduling/jobs.py` | 894 | — (module-level job functions) |
-| `utils/post_sync.py` | 549 | — (post-sync hooks + sync notification) |
+| `platform/scheduling/jobs.py` | 895 | — (module-level job functions) |
+| `utils/post_sync.py` | 553 | — (post-sync hooks + sync notification) |
 | `web/routes/schedules.py` | 859 | — (schedule CRUD, history, notifications, webhook CRUD) |
 | `web/routes/upload.py` | 701 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 670 | — |

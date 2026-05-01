@@ -157,8 +157,10 @@ def _generic_metrics(name: str, project_root: Path | None) -> list[MetricConfig]
     skipping dlt internal tables.  For each user table, creates:
 
     - ``{name}_{table}_row_count`` — ``COUNT(*)`` with week-over-week comparison
-    - ``{name}_{table}_freshness`` — ``MAX(_dlt_load_id)`` cast to BIGINT
+    - ``{name}_{table}_freshness`` — ``MAX(_dlt_load_id)``
       (only if the table has a ``_dlt_load_id`` column)
+
+    Uses a single DuckDB connection for all queries to avoid N+1 overhead.
     """
     if project_root is None:
         return []
@@ -177,12 +179,19 @@ def _generic_metrics(name: str, project_root: Path | None) -> list[MetricConfig]
                 "ORDER BY table_name",
                 [schema],
             ).fetchall()
+            if not tables:
+                return []
+
+            # Batch-fetch columns for all tables to check for _dlt_load_id
+            cols_rows = conn.execute(
+                "SELECT table_name, column_name FROM information_schema.columns "
+                "WHERE table_schema = ? AND column_name = '_dlt_load_id'",
+                [schema],
+            ).fetchall()
+            tables_with_load_id = {r[0] for r in cols_rows}
         finally:
             conn.close()
     except Exception:
-        return []
-
-    if not tables:
         return []
 
     metrics: list[MetricConfig] = []
@@ -198,13 +207,12 @@ def _generic_metrics(name: str, project_root: Path | None) -> list[MetricConfig]
             )
         )
         # Add freshness metric only if _dlt_load_id column exists
-        columns = _get_table_columns(schema, table_name, project_root)
-        if "_dlt_load_id" in columns:
+        if table_name in tables_with_load_id:
             metrics.append(
                 MetricConfig(
                     name=f"{name}_{sanitized}_freshness",
                     source_table=f"{schema}.{table_name}",
-                    value_expression="CAST(MAX(_dlt_load_id) AS BIGINT)",
+                    value_expression="MAX(_dlt_load_id)",
                     compare=ComparisonType.week_over_week,
                     warn_threshold=25.0,
                 )

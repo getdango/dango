@@ -106,6 +106,21 @@ def _ts() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 
 
+def _build_dashboard_url(project_root: Path) -> str | None:
+    """Build the dashboard URL, preferring domain over localhost.  Never raises."""
+    try:
+        from dango.config import ConfigLoader
+
+        loader = ConfigLoader(project_root)
+        cloud = loader.load_cloud_config()
+        if cloud is not None and cloud.domain:
+            return f"https://{cloud.domain}"
+        config = loader.load_config()
+        return f"http://localhost:{config.platform.port}"
+    except Exception:  # noqa: BLE001
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Source resolution
 # ---------------------------------------------------------------------------
@@ -526,14 +541,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
 
         elapsed = time.monotonic() - t0
 
-        # Build dashboard URL from project config
-        try:
-            from dango.config.helpers import load_config
-
-            _cfg = load_config(project_root)
-            dashboard_url: str | None = f"http://localhost:{_cfg.platform.port}"
-        except Exception:  # noqa: BLE001
-            dashboard_url = None
+        dashboard_url = _build_dashboard_url(project_root)
 
         _try_finish_record(project_root, schedule_name, record_id, "record_completion")
 
@@ -559,7 +567,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             schedule_name=schedule_name,
             sources=source_names,
             duration_seconds=round(elapsed, 2),
-            rows_loaded=total_rows or None,
+            rows_loaded=total_rows,
             dashboard_url=dashboard_url,
         )
         _check_freshness(project_root, schedule_name, source_names, sender)
@@ -752,14 +760,7 @@ def run_scheduled_dbt(
         success, output = run_dbt_models(project_root, select=dbt_command)
         elapsed = time.monotonic() - t0
 
-        # Build dashboard URL from project config
-        try:
-            from dango.config.helpers import load_config as _load_cfg
-
-            _dbt_cfg = _load_cfg(project_root)
-            dbt_dashboard_url: str | None = f"http://localhost:{_dbt_cfg.platform.port}"
-        except Exception:  # noqa: BLE001
-            dbt_dashboard_url = None
+        dbt_dashboard_url = _build_dashboard_url(project_root)
 
         if success:
             _try_finish_record(project_root, schedule_name, record_id, "record_completion")
