@@ -66,6 +66,18 @@ class QueryResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _looks_like_select(sql: str) -> bool:
+    """Return True if *sql* starts with SELECT or WITH (case-insensitive).
+
+    Used as a basic keyword guard when sqlglot is unavailable or fails to
+    parse.  ``read_only=True`` prevents database writes but does NOT prevent
+    file-system writes (``COPY TO``, ``EXPORT DATABASE``), so we need this
+    check as an additional layer.
+    """
+    first_keyword = sql.strip().split()[0].upper() if sql.strip() else ""
+    return first_keyword in ("SELECT", "WITH")
+
+
 def _validate_sql(sql: str) -> None:
     """Validate that *sql* is a single SELECT statement.
 
@@ -76,7 +88,9 @@ def _validate_sql(sql: str) -> None:
         import sqlglot
         import sqlglot.expressions as exp
     except ImportError:
-        # Fallback: reject multi-statement SQL (semicolons other than trailing)
+        # Fallback: keyword check + reject multi-statement
+        if not _looks_like_select(sql):
+            raise ValueError("Only SELECT queries are allowed") from None
         stripped = sql.strip().rstrip(";").strip()
         if ";" in stripped:
             raise ValueError("Multiple SQL statements are not allowed") from None
@@ -85,11 +99,18 @@ def _validate_sql(sql: str) -> None:
     try:
         statements = sqlglot.parse(sql, dialect="duckdb")
     except sqlglot.errors.SqlglotError:
-        # sqlglot could not parse — let DuckDB decide (read_only=True is the safety net)
+        # sqlglot could not parse — fall back to keyword check.
+        # read_only=True is defense-in-depth for DB writes, but does not
+        # prevent file-system writes (COPY TO, EXPORT), so we reject
+        # anything that doesn't look like a SELECT.
         logger.warning("sqlglot_parse_failed", sql_length=len(sql))
+        if not _looks_like_select(sql):
+            raise ValueError("Only SELECT queries are allowed") from None
         return
     except Exception:
         logger.warning("sqlglot_parse_failed", sql_length=len(sql))
+        if not _looks_like_select(sql):
+            raise ValueError("Only SELECT queries are allowed") from None
         return
 
     # Filter out None entries (blank trailing semicolons)

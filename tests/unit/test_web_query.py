@@ -295,9 +295,7 @@ class TestExecution:
         mock_path.return_value = db_file
         mock_exec.side_effect = asyncio.TimeoutError()
         client, _ = _setup_client(tmp_path)
-
-        with patch("dango.web.routes.query._QUERY_TIMEOUT_SECONDS", 0.001):
-            resp = client.post("/api/query", json={"sql": "SELECT 1"})
+        resp = client.post("/api/query", json={"sql": "SELECT 1"})
         assert resp.status_code == 408
         assert resp.json()["error_code"] == "DANGO-Q004"
 
@@ -322,6 +320,25 @@ class TestExecution:
         assert resp.json()["error_code"] == "DANGO-Q005"
         # Must NOT leak the raw error message
         assert "some internal error" not in resp.json()["message"]
+
+    @patch("dango.web.routes.query.get_duckdb_path")
+    @patch("dango.web.routes.query._execute_query")
+    def test_unexpected_error_returns_500(
+        self,
+        mock_exec: MagicMock,
+        mock_path: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        db_file = tmp_path / "data" / "warehouse.duckdb"
+        db_file.parent.mkdir(parents=True)
+        db_file.touch()
+        mock_path.return_value = db_file
+        mock_exec.side_effect = RuntimeError("something unexpected")
+        client, _ = _setup_client(tmp_path)
+        resp = client.post("/api/query", json={"sql": "SELECT 1"})
+        assert resp.status_code == 500
+        assert resp.json()["error_code"] == "DANGO-Q006"
+        assert "something unexpected" not in resp.json()["message"]
 
     @patch("dango.web.routes.query.get_duckdb_path")
     @patch("dango.web.routes.query._execute_query")
@@ -410,3 +427,34 @@ class TestSQLValidation:
 
         with pytest.raises(ValueError, match="SELECT"):
             _validate_sql("CREATE TABLE t (id INT)")
+
+    def test_copy_to_rejected(self, tmp_path: Path) -> None:
+        """COPY TO should be rejected (writes files, not blocked by read_only)."""
+        from dango.web.routes.query import _validate_sql
+
+        with pytest.raises(ValueError, match="SELECT"):
+            _validate_sql("COPY (SELECT 1) TO '/tmp/out.csv'")
+
+    def test_sqlglot_parse_failure_rejects_non_select(self) -> None:
+        """When sqlglot fails to parse, keyword guard should reject non-SELECT."""
+        from dango.web.routes.query import _validate_sql
+
+        with patch("sqlglot.parse", side_effect=Exception("parse boom")):
+            with pytest.raises(ValueError, match="SELECT"):
+                _validate_sql("COPY (SELECT 1) TO '/tmp/out.csv'")
+
+    def test_sqlglot_parse_failure_allows_select(self) -> None:
+        """When sqlglot fails to parse, keyword guard should allow SELECT."""
+        from dango.web.routes.query import _validate_sql
+
+        with patch("sqlglot.parse", side_effect=Exception("parse boom")):
+            # Should not raise — starts with SELECT
+            _validate_sql("SELECT some_duckdb_specific_syntax()")
+
+    def test_fallback_rejects_non_select(self) -> None:
+        """When sqlglot is unavailable, keyword guard should reject non-SELECT."""
+        from dango.web.routes.query import _validate_sql
+
+        with patch.dict("sys.modules", {"sqlglot": None, "sqlglot.expressions": None}):
+            with pytest.raises(ValueError, match="SELECT"):
+                _validate_sql("EXPORT DATABASE '/tmp/dump'")
