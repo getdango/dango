@@ -492,6 +492,8 @@ function catalogPage() {
         piiFindings: [], driftEvents: [], piiOverrides: [],
         // Shared state
         loading: true, profilingLoading: false, error: null, hasLineage: false,
+        // Guard flag: suppresses pushState during URL restoration and popstate
+        // handling to prevent feedback loops (restoreFromUrl → openModel → updateUrl).
         _skipPush: false,
         // Tab config
         tabs: [

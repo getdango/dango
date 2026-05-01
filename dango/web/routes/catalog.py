@@ -850,20 +850,33 @@ async def list_catalog_models(
     # BUG-128: Overview summary with source freshness
     sources_config = await asyncio.to_thread(load_sources_config)
     freshness_list = await asyncio.gather(
-        *[asyncio.to_thread(get_source_freshness, src.get("name", "")) for src in sources_config]
+        *[asyncio.to_thread(get_source_freshness, src.get("name", "")) for src in sources_config],
+        return_exceptions=True,
     )
+    freshness_items: list[dict[str, Any]] = []
+    for i, f in enumerate(freshness_list):
+        if isinstance(f, BaseException):
+            logger.warning("freshness_check_failed", source=sources_config[i].get("name", ""))
+            freshness_items.append(
+                {
+                    "source": sources_config[i].get("name", ""),
+                    "status": None,
+                    "hours_since_sync": None,
+                }
+            )
+        else:
+            freshness_items.append(
+                {
+                    "source": sources_config[i].get("name", ""),
+                    "status": f.get("status"),
+                    "hours_since_sync": f.get("hours_since_sync"),
+                }
+            )
     result["overview"] = {
         "source_count": len(sources_config),
         "table_count": len(result["sources"]),
         "model_count": len(result["models"]),
-        "freshness": [
-            {
-                "source": sources_config[i].get("name", ""),
-                "status": f.get("status"),
-                "hours_since_sync": f.get("hours_since_sync"),
-            }
-            for i, f in enumerate(freshness_list)
-        ],
+        "freshness": freshness_items,
     }
 
     return result
