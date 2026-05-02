@@ -404,6 +404,7 @@ from dango.web.routes.logs import router as logs_router  # noqa: E402
 from dango.web.routes.metabase_proxy import router as metabase_proxy_router  # noqa: E402
 from dango.web.routes.notebooks import router as notebooks_router  # noqa: E402
 from dango.web.routes.oauth_connect import router as oauth_connect_router  # noqa: E402
+from dango.web.routes.query import router as query_router  # noqa: E402
 from dango.web.routes.schedules import router as schedules_router  # noqa: E402
 from dango.web.routes.secrets import router as secrets_router  # noqa: E402
 from dango.web.routes.sources import router as sources_router  # noqa: E402
@@ -430,6 +431,7 @@ app.include_router(dbt_router)
 app.include_router(schedules_router)
 app.include_router(catalog_router)
 app.include_router(governance_router)
+app.include_router(query_router)
 app.include_router(insights_router)
 app.include_router(ai_router)
 app.include_router(notebooks_router)

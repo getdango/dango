@@ -73,6 +73,7 @@ class AuditEvent(str, Enum):
     GOVERNANCE_PII_OVERRIDE_SET     = "governance_pii_override_set"
     GOVERNANCE_PII_OVERRIDE_DELETED = "governance_pii_override_deleted"
     GOVERNANCE_DRIFT_ACCEPTED   = "governance_drift_accepted"
+    QUERY_EXECUTED              = "query_executed"
     # fmt: on
 
 
