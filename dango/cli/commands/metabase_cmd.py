@@ -26,7 +26,7 @@ def metabase(ctx: click.Context) -> None:
     "--all",
     "include_personal",
     is_flag=True,
-    help="Include personal collections (default: only shared/team)",
+    help="Include personal collections (currently a no-op; default: 'Shared' only)",
 )
 @click.option("--collections", help="Specific collections to export (comma-separated)")
 @click.pass_context
@@ -35,12 +35,13 @@ def metabase_save(ctx: click.Context, include_personal: bool, collections: str |
     Save Metabase dashboards and questions to files.
 
     Exports to metabase/ directory in YAML format.
-    By default, excludes personal collections (only exports shared/team assets).
+    By default, only exports the "Shared" collection.
 
     What this does:
     - Exports dashboards from Metabase to metabase/dashboards/ (YAML files)
     - Exports questions from Metabase to metabase/questions/ (YAML files)
-    - Excludes personal collections by default
+    - Only exports the "Shared" collection by default
+    - Use --collections to include other root collections
     - Files can optionally be committed to git for version control
 
     Workflow:
@@ -49,9 +50,9 @@ def metabase_save(ctx: click.Context, include_personal: bool, collections: str |
       3. (Optional) Commit to git: git add metabase/ && git commit -m "Update dashboards"
 
     Examples:
-      dango metabase save                          # Export shared/team collections
-      dango metabase save --all                    # Include personal collections
-      dango metabase save --collections "Shared,Marketing"  # Specific collections
+      dango metabase save                                    # Export "Shared" collection only
+      dango metabase save --collections "Our analytics"      # Export a specific root collection
+      dango metabase save --collections "Shared,Marketing"   # Export multiple collections
     """
     from dango.visualization.dashboard_manager import DashboardManager
 

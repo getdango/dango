@@ -581,14 +581,14 @@ class DashboardManager:
         Save Metabase assets to files (simplified export for version control)
 
         Exports dashboards and questions to metabase/ directory in YAML format.
-        By default, excludes personal collections (only exports team/shared assets).
+        By default, only exports the "Shared" collection.
 
         Files can optionally be committed to git for version control, but this
         command works independently of git.
 
         Args:
             include_personal: Include personal collections (default: False)
-            collections: Specific collections to export (default: all non-personal)
+            collections: Specific collections to export (default: 'Shared' collection only)
 
         Returns:
             Summary with exported items
@@ -632,7 +632,13 @@ class DashboardManager:
             ]
 
         if not collections_to_export:
-            summary["errors"].append("No collections to export")
+            if collections:
+                summary["errors"].append(f"No matching collections found: {', '.join(collections)}")
+            else:
+                summary["errors"].append(
+                    "No 'Shared' collection found. Create one in Metabase, "
+                    "or use --collections to specify a collection name."
+                )
             return summary
 
         # Create metabase/ directory structure

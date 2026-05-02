@@ -22,7 +22,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/upgrade.py` (236 lines) | `upgrade` command — local Dango upgrade via pip + migrations | `upgrade()`, `get_latest_version_cached()` |
 | `commands/data.py` (360 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
 | `commands/config_cmd.py` (179 lines) | `config` group (`validate`, `show`) | `config` |
-| `commands/metabase_cmd.py` (431 lines) | `metabase` group (`save`, `load`, `refresh`) | `metabase` |
+| `commands/metabase_cmd.py` (412 lines) | `metabase` group (`save`, `load`, `refresh`) | `metabase` |
 | `commands/model.py` (212 lines) | `model` group (`add`, `remove`) | `model` |
 | `commands/dashboard.py` (125 lines) | `dashboard` group (`provision`) | `dashboard` |
 | `commands/remote.py` (698 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
