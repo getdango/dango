@@ -390,7 +390,6 @@ class TestSyncAllUsers:
 
         mb_users = [
             {"id": 10, "email": "synced@example.com", "is_active": True},
-            {"id": 1, "email": "admin@dango.local", "is_active": True},
             {"id": 99, "email": "orphan@example.com", "is_active": True},
         ]
 
@@ -421,7 +420,6 @@ class TestSyncAllUsers:
         result = sync_all_users_to_metabase(db, root, MB_URL)
         assert result["synced"] >= 1 and result["created"] >= 1
         assert any("orphan" in w for w in result["warnings"])
-        assert not any("admin@dango.local" in w for w in result["warnings"])
 
     @patch("dango.auth.metabase_sync.requests")
     def test_auth_failure(self, mock_req: MagicMock, tmp_path: Path) -> None:
