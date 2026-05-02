@@ -921,21 +921,21 @@ async def get_catalog_model(
             raw_tables = await asyncio.to_thread(_get_raw_tables_from_duckdb, db_path)
             match = next((rt for rt in raw_tables if rt["table"] == model_name), None)
             if match:
-                schema = match["schema"]
-                source_name = match["source_name"]
-                db_columns = await asyncio.to_thread(
-                    _get_model_column_schema, db_path, schema, model_name
+                raw_schema = match["schema"]
+                raw_source_name = match["source_name"]
+                raw_cols = await asyncio.to_thread(
+                    _get_model_column_schema, db_path, raw_schema, model_name
                 )
-                profiled_at = await asyncio.to_thread(
-                    _get_profiled_at, project_root, source_name, model_name
+                raw_profiled_at = await asyncio.to_thread(
+                    _get_profiled_at, project_root, raw_source_name, model_name
                 )
                 # Build minimal response
                 columns = []
-                for col in db_columns:
+                for col in raw_cols:
                     columns.append({**col, "description": "", "tests": []})
                 # Inject cached stats
                 cached_stats = await asyncio.to_thread(
-                    _get_cached_stats, project_root, source_name, model_name
+                    _get_cached_stats, project_root, raw_source_name, model_name
                 )
                 if cached_stats:
                     for col in columns:
@@ -943,12 +943,12 @@ async def get_catalog_model(
                 return {
                     "name": model_name,
                     "type": "source",
-                    "schema": schema,
-                    "source_name": source_name,
+                    "schema": raw_schema,
+                    "source_name": raw_source_name,
                     "description": "",
                     "materialization": None,
                     "columns": columns,
-                    "profiled_at": profiled_at,
+                    "profiled_at": raw_profiled_at,
                     "row_count": None,
                     "tests": [],
                     "tags": [],
