@@ -495,6 +495,7 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
     is_flag=True,
     help="Allow CSV schema changes (add columns, treat missing as NULL)",
 )
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
 @click.pass_context
 def sync(
     ctx: click.Context,
@@ -506,6 +507,7 @@ def sync(
     full_refresh: bool,
     dry_run: bool,
     allow_schema_changes: bool,
+    yes: bool,
 ) -> None:
     """
     Load data from all sources (or specific source).
@@ -526,7 +528,7 @@ def sync(
     """
     from datetime import datetime, timedelta
 
-    from dango.config import get_config
+    from dango.config import ConfigLoader, get_config
     from dango.ingestion import run_sync
     from dango.utils import DbtLock, DbtLockError
 
@@ -540,32 +542,22 @@ def sync(
         # Get project context
         project_root = require_project_context(ctx)
 
-        # Try to acquire lock before running sync (which includes dbt)
-        try:
-            lock = DbtLock(
-                project_root=project_root,
-                source="cli",
-                operation=f"sync {source if source else 'all sources'}",
-            )
-            lock.acquire()
-        except DbtLockError as e:
-            console.print(f"[red]Error:[/red] {str(e)}")
-            raise click.Abort() from e
+        # Guard rail: warn if project is deployed to cloud
+        # Placed before lock so user doesn't wait for lock if they'll cancel.
+        if not yes:
+            cloud_cfg = ConfigLoader(project_root).load_cloud_config()
+            if cloud_cfg and cloud_cfg.droplet_ip:
+                target = cloud_cfg.domain or cloud_cfg.droplet_ip
+                console.print(f"[yellow]  This project is deployed to {target}.[/yellow]")
+                console.print(
+                    "[yellow]   `dango sync` syncs data LOCALLY, not on your cloud server.[/yellow]"
+                )
+                console.print("[yellow]   Use `dango remote sync` for cloud.[/yellow]")
+                if not click.confirm("Continue?", default=False):
+                    raise click.Abort()
+                console.print()
 
-        # Check git branch (gentle reminder if on main/master)
-        from ..utils import check_git_branch_warning
-
-        check_git_branch_warning(project_root)
-
-        # Load configuration
-        config = get_config(project_root)
-
-        # Check for unreferenced custom sources
-        unreferenced = check_unreferenced_custom_sources(project_root, config.sources)
-        if unreferenced:
-            console.print(format_unreferenced_sources_warning(unreferenced))
-
-        # --- Validate option conflicts ---
+        # --- Validate option conflicts (before lock — fast failures) ---
         if backfill and (since or until):
             console.print(
                 "[red]Error:[/red] --backfill conflicts with --since/--until. Use one or the other."
@@ -576,7 +568,7 @@ def sync(
             console.print("[red]Error:[/red] --limit must be a positive integer.")
             raise click.Abort()
 
-        # --- Resolve dates ---
+        # --- Resolve dates (before lock — fast failures) ---
         start_date_obj = None
         end_date_obj = None
 
@@ -604,6 +596,14 @@ def sync(
             console.print("[red]Error:[/red] --since must be before --until.")
             raise click.Abort()
 
+        # Load configuration (before lock — needed for source resolution + first-sync check)
+        config = get_config(project_root)
+
+        # Check for unreferenced custom sources
+        unreferenced = check_unreferenced_custom_sources(project_root, config.sources)
+        if unreferenced:
+            console.print(format_unreferenced_sources_warning(unreferenced))
+
         # Get sources to sync
         if source:
             # Sync specific source
@@ -627,6 +627,34 @@ def sync(
                 return
 
             console.print(f"Syncing {len(sources_to_sync)} enabled source(s)")
+
+        # Guard rail: on first sync, confirm scope
+        # Placed before lock so user doesn't wait for lock if they'll cancel.
+        if not yes and not dry_run:
+            warehouse_path = project_root / "data" / "warehouse.duckdb"
+            if not warehouse_path.exists():
+                if not click.confirm(
+                    f"This will sync {len(sources_to_sync)} source(s). Continue?",
+                    default=True,
+                ):
+                    raise click.Abort()
+
+        # Try to acquire lock before running sync (which includes dbt)
+        try:
+            lock = DbtLock(
+                project_root=project_root,
+                source="cli",
+                operation=f"sync {source if source else 'all sources'}",
+            )
+            lock.acquire()
+        except DbtLockError as e:
+            console.print(f"[red]Error:[/red] {str(e)}")
+            raise click.Abort() from e
+
+        # Check git branch (gentle reminder if on main/master)
+        from ..utils import check_git_branch_warning
+
+        check_git_branch_warning(project_root)
 
         if full_refresh:
             console.print("[yellow]⚠️  Full refresh mode: existing data will be dropped[/yellow]")

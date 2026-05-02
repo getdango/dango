@@ -20,12 +20,12 @@ def setup():
 @app.cell
 def list_tables(conn):
     """List all user-created tables across schemas."""
-    tables = conn.execute(
+    tables = conn.sql(
         "SELECT table_schema, table_name "
         "FROM information_schema.tables "
         "WHERE table_schema NOT IN ('information_schema', 'pg_catalog') "
         "ORDER BY table_schema, table_name"
-    ).fetchdf()
+    )
     return (tables,)
 
 
@@ -33,5 +33,5 @@ def list_tables(conn):
 def sample_query(conn):
     """Run an ad-hoc query — edit the SQL below to explore your data."""
     # Edit the query below to explore your data
-    result = conn.execute("SELECT 1 AS hello").fetchdf()
+    result = conn.sql("SELECT 1 AS hello")
     return (result,)

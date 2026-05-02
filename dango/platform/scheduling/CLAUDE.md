@@ -12,7 +12,7 @@ APScheduler-based job scheduling for Dango data pipelines. Manages scheduled syn
 | `scheduler.py` (430 lines) | APScheduler wrapper with SQLite persistence, event listeners, cancellation | `SchedulerService` |
 | `resilience.py` (211 lines) | Retry with backoff, timeout via thread kill, cancellation flags | `ResilienceConfig`, `run_with_resilience`, `_execute_with_timeout`, `_raise_in_thread` |
 | `history.py` (499 lines) | Execution history tracking in scheduler SQLite DB | `record_start`, `record_completion`, `record_failure`, `record_cancellation`, `record_timeout`, `get_schedule_history`, `get_recent_history`, `get_average_duration`, `get_last_run`, `cleanup_old_records` |
-| `jobs.py` (839 lines) | Module-level job functions (pickle-safe for APScheduler) | `configure_jobs`, `run_scheduled_sync`, `run_scheduled_dbt` |
+| `jobs.py` (895 lines) | Module-level job functions (pickle-safe for APScheduler) | `configure_jobs`, `run_scheduled_sync`, `run_scheduled_dbt` |
 | `sync_trigger.py` (147 lines) | Server-side manual sync runner invoked via SSH from `dango remote sync` | `main()`, `_run_sync()` |
 
 ## Key Conventions

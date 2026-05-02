@@ -137,6 +137,18 @@ class TestGetLockInfo:
 
         assert get_lock_info(tmp_path, "nb1") is None
 
+    def test_timestamps_are_iso_utc(self, tmp_path):
+        """Timestamps use ISO 8601 format with Z suffix for UTC."""
+        from dango.notebooks.locking import acquire_lock, get_lock_info
+
+        acquire_lock(tmp_path, "nb1", "alice")
+        info = get_lock_info(tmp_path, "nb1")
+        assert info is not None
+        assert "T" in info["locked_at"]
+        assert info["locked_at"].endswith("Z")
+        assert "T" in info["expires_at"]
+        assert info["expires_at"].endswith("Z")
+
 
 @pytest.mark.unit
 class TestCopyLockedNotebook:

@@ -676,3 +676,248 @@ class TestGetCatalogModel:
         client, _ = _setup_client(tmp_path, role=Role.VIEWER)
         resp = client.get("/api/catalog/models/stg_orders")
         assert resp.status_code != 403
+
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._get_cached_stats")
+    @patch("dango.web.routes.catalog._get_profiled_at")
+    @patch("dango.web.routes.catalog._get_model_column_schema")
+    @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_raw_table_fallback_when_not_in_manifest(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        mock_raw_tables: MagicMock,
+        mock_col_schema: MagicMock,
+        mock_profiled: MagicMock,
+        mock_cached_stats: MagicMock,
+        mock_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Raw DuckDB table returned when not in manifest (BUG-132)."""
+        client, project_root = _setup_client(tmp_path)
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        (db_dir / "warehouse.duckdb").touch()
+
+        mock_root.return_value = project_root
+        mock_manifest.return_value = _make_manifest()  # empty manifest
+        mock_run_results.return_value = None
+        mock_raw_tables.return_value = [
+            {"schema": "raw_shop", "table": "child_table", "source_name": "shop"},
+        ]
+        mock_col_schema.return_value = [
+            {"name": "id", "type": "BIGINT", "nullable": False},
+            {"name": "value", "type": "VARCHAR", "nullable": True},
+        ]
+        mock_profiled.return_value = "2026-04-30T10:00:00Z"
+        mock_cached_stats.return_value = {
+            "id": {"null_pct": "0", "distinct_count": "42"},
+        }
+
+        resp = client.get("/api/catalog/models/child_table")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "child_table"
+        assert data["type"] == "source"
+        assert data["source_name"] == "shop"
+        assert data["profiled_at"] == "2026-04-30T10:00:00Z"
+        assert len(data["columns"]) == 2
+        assert data["columns"][0]["stats"] == {"null_pct": "0", "distinct_count": "42"}
+        assert data["columns"][1]["stats"] is None
+
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_404_when_not_in_manifest_or_duckdb(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        mock_raw_tables: MagicMock,
+        mock_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Still 404 when model not in manifest AND not in DuckDB raw schemas."""
+        client, project_root = _setup_client(tmp_path)
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        (db_dir / "warehouse.duckdb").touch()
+
+        mock_root.return_value = project_root
+        mock_manifest.return_value = _make_manifest()
+        mock_run_results.return_value = None
+        mock_raw_tables.return_value = []  # no raw tables either
+
+        resp = client.get("/api/catalog/models/nonexistent")
+
+        assert resp.status_code == 404
+
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._get_cached_stats")
+    @patch("dango.web.routes.catalog._get_profiled_at")
+    @patch("dango.web.routes.catalog._get_model_column_schema")
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_source_detail_includes_cached_stats(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        mock_col_schema: MagicMock,
+        mock_profiled: MagicMock,
+        mock_cached_stats: MagicMock,
+        mock_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Source detail response injects cached profiling stats (BUG-134)."""
+        client, project_root = _setup_client(tmp_path)
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        (db_dir / "warehouse.duckdb").touch()
+
+        mock_root.return_value = project_root
+        mock_manifest.return_value = _make_manifest(
+            sources={
+                "source.proj.shop.orders": {
+                    "name": "orders",
+                    "source_name": "shop",
+                    "schema": "raw_shop",
+                },
+            },
+        )
+        mock_run_results.return_value = None
+        mock_col_schema.return_value = [
+            {"name": "id", "type": "BIGINT", "nullable": False},
+            {"name": "amount", "type": "DOUBLE", "nullable": True},
+        ]
+        mock_profiled.return_value = "2026-04-30T12:00:00Z"
+        mock_cached_stats.return_value = {
+            "id": {"null_pct": "0", "distinct_count": "100", "min": "1", "max": "100"},
+        }
+
+        resp = client.get("/api/catalog/models/orders")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        cols = {c["name"]: c for c in data["columns"]}
+        assert cols["id"]["stats"]["null_pct"] == "0"
+        assert cols["id"]["stats"]["distinct_count"] == "100"
+        assert cols["amount"]["stats"] is None
+
+
+# ---------------------------------------------------------------------------
+# Raw table discovery helper
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRawTableDiscovery:
+    """Tests for _get_raw_tables_from_duckdb and list endpoint integration."""
+
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_raw_tables_appended_to_sources(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        mock_raw_tables: MagicMock,
+        mock_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Unmodeled raw tables appear in sources list (BUG-132)."""
+        client, project_root = _setup_client(tmp_path)
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        (db_dir / "warehouse.duckdb").touch()
+        mock_root.return_value = project_root
+
+        mock_manifest.return_value = _make_manifest(
+            sources={
+                "source.proj.shop.orders": {
+                    "name": "orders",
+                    "source_name": "shop",
+                },
+            },
+        )
+        mock_run_results.return_value = None
+        mock_raw_tables.return_value = [
+            {"schema": "raw_shop", "table": "orders", "source_name": "shop"},
+            {"schema": "raw_shop", "table": "order_items", "source_name": "shop"},
+        ]
+
+        resp = client.get("/api/catalog/models")
+        data = resp.json()
+
+        source_names = [s["name"] for s in data["sources"]]
+        assert "orders" in source_names  # from manifest
+        assert "order_items" in source_names  # from raw tables
+        assert source_names.count("orders") == 1  # no duplicate
+
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_overview_included_in_response(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        mock_raw_tables: MagicMock,
+        mock_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Response includes overview with source/table/model counts (BUG-128)."""
+        client, project_root = _setup_client(tmp_path)
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        (db_dir / "warehouse.duckdb").touch()
+        mock_root.return_value = project_root
+
+        mock_manifest.return_value = _make_manifest(
+            sources={
+                "source.proj.shop.orders": {
+                    "name": "orders",
+                    "source_name": "shop",
+                },
+            },
+            models={
+                "model.proj.stg_orders": {
+                    "name": "stg_orders",
+                    "schema": "staging",
+                },
+            },
+        )
+        mock_run_results.return_value = None
+        mock_raw_tables.return_value = []
+
+        resp = client.get("/api/catalog/models")
+        data = resp.json()
+
+        assert "overview" in data
+        overview = data["overview"]
+        assert overview["model_count"] == 1
+        assert overview["table_count"] == 1  # 1 source
+        assert isinstance(overview["freshness"], list)
+
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_overview_present_when_no_manifest(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Overview is present even when manifest is None."""
+        client, _ = _setup_client(tmp_path)
+        mock_manifest.return_value = None
+        mock_run_results.return_value = None
+
+        resp = client.get("/api/catalog/models")
+        data = resp.json()
+
+        assert "overview" in data
+        assert data["overview"]["model_count"] == 0
+        assert data["overview"]["table_count"] == 0

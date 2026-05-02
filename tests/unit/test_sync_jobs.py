@@ -505,6 +505,105 @@ class TestNotifyHelper:
         finally:
             jobs_mod._event_loop = old
 
+    def test_passes_rows_loaded_and_dashboard_url(self):
+        """_notify passes rows_loaded and dashboard_url to sender.send()."""
+        import dango.platform.scheduling.jobs as jobs_mod
+
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        old = jobs_mod._event_loop
+        try:
+            jobs_mod._event_loop = loop
+
+            sender = MagicMock()
+            sender.is_configured = True
+
+            jobs_mod._notify(
+                sender,
+                event_type="TEST",
+                schedule_name="daily",
+                rows_loaded=42,
+                dashboard_url="https://example.com",
+            )
+
+            sender.send.assert_called_once()
+            call_kwargs = sender.send.call_args[1]
+            assert call_kwargs["rows_loaded"] == 42
+            assert call_kwargs["dashboard_url"] == "https://example.com"
+        finally:
+            jobs_mod._event_loop = old
+
+    def test_rows_loaded_zero_is_preserved(self):
+        """_notify should pass rows_loaded=0, not convert it to None."""
+        import dango.platform.scheduling.jobs as jobs_mod
+
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        old = jobs_mod._event_loop
+        try:
+            jobs_mod._event_loop = loop
+
+            sender = MagicMock()
+            sender.is_configured = True
+
+            jobs_mod._notify(
+                sender,
+                event_type="TEST",
+                schedule_name="daily",
+                rows_loaded=0,
+            )
+
+            call_kwargs = sender.send.call_args[1]
+            assert call_kwargs["rows_loaded"] == 0
+        finally:
+            jobs_mod._event_loop = old
+
+
+# ---------------------------------------------------------------------------
+# _build_dashboard_url
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestBuildDashboardUrl:
+    """Test _build_dashboard_url() domain detection."""
+
+    def test_returns_domain_when_cloud_config_has_domain(self, tmp_path):
+        """Cloud domain takes precedence over localhost."""
+        import dango.platform.scheduling.jobs as jobs_mod
+
+        mock_loader = MagicMock()
+        mock_cloud = MagicMock()
+        mock_cloud.domain = "app.example.com"
+        mock_loader.return_value.load_cloud_config.return_value = mock_cloud
+
+        with patch("dango.config.ConfigLoader", mock_loader):
+            url = jobs_mod._build_dashboard_url(tmp_path)
+
+        assert url == "https://app.example.com"
+
+    def test_returns_localhost_when_no_cloud_config(self, tmp_path):
+        """Falls back to localhost when no cloud config."""
+        import dango.platform.scheduling.jobs as jobs_mod
+
+        mock_loader = MagicMock()
+        mock_loader.return_value.load_cloud_config.return_value = None
+        mock_config = MagicMock()
+        mock_config.platform.port = 8800
+        mock_loader.return_value.load_config.return_value = mock_config
+
+        with patch("dango.config.ConfigLoader", mock_loader):
+            url = jobs_mod._build_dashboard_url(tmp_path)
+
+        assert url == "http://localhost:8800"
+
+    def test_returns_none_on_error(self, tmp_path):
+        """Returns None when config loading fails."""
+        import dango.platform.scheduling.jobs as jobs_mod
+
+        with patch("dango.config.ConfigLoader", side_effect=Exception("boom")):
+            url = jobs_mod._build_dashboard_url(tmp_path)
+
+        assert url is None
+
 
 # ---------------------------------------------------------------------------
 # _check_freshness

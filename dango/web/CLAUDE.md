@@ -43,16 +43,16 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/metabase_proxy.py` | All Metabase proxy routes + SSO session state | `proxy_to_metabase()`, `get_metabase_session()` |
 | `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
-| `routes/schedules.py` | Schedule CRUD, trigger, reload, cancel, history, notification config/test, `/schedules` page (~720 lines) | `router` |
+| `routes/schedules.py` | Schedule CRUD, trigger, reload, cancel, history, notification config/test, webhook CRUD, `/schedules` page (~859 lines) | `router` |
 | `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~490 lines) | `router` |
-| `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact, model list/detail, search (~1157 lines) | `router` |
+| `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact, model list/detail, search (~1286 lines) | `router` |
 | `routes/governance.py` | Schema drift + PII results API (~120 lines) | `router` |
 | `routes/insights.py` | Metric results, run trigger, history (~272 lines) | `router` |
 | `routes/ai.py` | Agent/AI interface: /api/catalog/summary, /api/tools (~496 lines) | `router` |
 | `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |
 | `templates/schedules.html` | Schedule management page (extends `base.html`) — table, modals, WebSocket | Alpine.js `schedulesPage()` component |
 | `templates/notebooks.html` | Notebook management page (extends `base.html`) — table, create/delete modals, locking | Alpine.js `notebooksPage()` component |
-| `templates/catalog.html` | Data catalog page (extends `base.html`) — model browser, search, detail view, code view, profiling, lineage (618 lines) | Alpine.js `catalogPage()` component |
+| `templates/catalog.html` | Data catalog page (extends `base.html`) — model browser, search, detail view, code view, profiling, lineage (872 lines) | Alpine.js `catalogPage()` component |
 | `templates/insights.html` | Insights/analysis page (extends `base.html`) — metric results, trends (~153 lines) | Alpine.js `insightsPage()` component |
 | `static/` | CSS and JS assets (`css/tailwind.min.css` (compiled), `css/main.css`, `css/catalog.css`, `css/input.css` (Tailwind source), `js/app.js`, `js/logs.js`, `js/lineage.js`, `js/catalog.js`) | — |
 

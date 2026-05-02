@@ -82,9 +82,9 @@ dango/                          # Python package source
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
 │   │   ├── model.py            # model group (add/remove)
-│   │   ├── platform.py         # start/stop/status + port helpers (970 lines)
+│   │   ├── platform.py         # start/stop/status + port helpers (1011 lines)
 │   │   ├── project.py          # init/rename/info
-│   │   ├── source.py           # source group (add/list/remove) + sync (757 lines)
+│   │   ├── source.py           # source group (add/list/remove) + sync (785 lines)
 │   │   ├── transform.py        # run/docs/generate
 │   │   ├── upgrade.py          # local Dango upgrade via pip + migrations
 │   │   ├── web.py              # web dev server
@@ -218,7 +218,7 @@ dango/                          # Python package source
 │   │   ├── scheduler.py        # SchedulerService (lifecycle, events, cancellation)
 │   │   ├── resilience.py       # Retry, timeout, cancellation
 │   │   ├── history.py          # Execution history tracking
-│   │   ├── jobs.py             # Module-level job functions (732 lines)
+│   │   ├── jobs.py             # Module-level job functions (894 lines)
 │   │   └── sync_trigger.py     # Server-side manual sync runner
 │   ├── notifications/          # Webhook notifications (TASK-043+)
 │   │   ├── webhook.py          # Event types, config, async sender
@@ -249,7 +249,7 @@ dango/                          # Python package source
 │   └── watcher_runner.py       # → local/watcher_runner.py
 │
 ├── ingestion/                  # Level 1 — Data loading
-│   ├── dlt_runner.py           # ⚠ 2373 lines — orchestrates full sync pipeline
+│   ├── dlt_runner.py           # ⚠ 2415 lines — orchestrates full sync pipeline
 │   ├── csv_loader.py           # Multi-format file loading with dedup (867 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (33 source types)
@@ -286,7 +286,7 @@ dango/                          # Python package source
 │   ├── data_validation.py      # Data validation utilities
 │   ├── env_file.py             # .env file parsing and serialization
 │   ├── dango_db.py             # SQLite context manager for .dango/dango.db + schema init
-│   ├── post_sync.py            # Post-sync hook dispatcher (~497 lines)
+│   ├── post_sync.py            # Post-sync hook dispatcher (~553 lines)
 │   └── git_info.py             # Git repository info + deployment guardrails
 │
 ├── migrations/                 # Level 0 — Database migration framework
@@ -332,23 +332,24 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
-| `ingestion/dlt_runner.py` | 2373 | — (exempt, too risky) |
+| `ingestion/dlt_runner.py` | 2415 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2008 | — (metadata-only) |
 | `cli/source_wizard.py` | 2288 | — |
 | `visualization/metabase.py` | 1151 | — |
 | `cli/init.py` | 1324 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
-| `cli/commands/platform.py` | 970 | — (extracted from main.py by TASK-005) |
+| `cli/commands/platform.py` | 1011 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 819 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 867 | — |
-| `platform/scheduling/jobs.py` | 839 | — (module-level job functions) |
-| `web/routes/schedules.py` | 720 | — (schedule CRUD, history, notifications) |
+| `platform/scheduling/jobs.py` | 895 | — (module-level job functions) |
+| `utils/post_sync.py` | 553 | — (post-sync hooks + sync notification) |
+| `web/routes/schedules.py` | 859 | — (schedule CRUD, history, notifications, webhook CRUD) |
 | `web/routes/upload.py` | 701 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 670 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
-| `cli/commands/source.py` | 757 | — (extracted from main.py by TASK-005) |
+| `cli/commands/source.py` | 785 | — (extracted from main.py by TASK-005) |
 | `cli/commands/remote.py` | 698 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 595 | — (push deploy workflow + deploy lock + journal) |
@@ -356,7 +357,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `config/models.py` | 600 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 813 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 548 | — |
-| `web/routes/catalog.py` | 1157 | — (data catalog: columns, profiling, lineage, impact, models, search) |
+| `web/routes/catalog.py` | 1286 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/deploy_provision.py` | 846 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |

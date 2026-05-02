@@ -13,8 +13,8 @@ Click-based command-line interface for all Dango operations — project init, so
 | **commands/** | | |
 | `commands/__init__.py` (4 lines) | Package marker | — |
 | `commands/project.py` (292 lines) | `init`, `rename`, `info` | `init()`, `rename()`, `info()` |
-| `commands/source.py` (750 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
-| `commands/platform.py` (970 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
+| `commands/source.py` (785 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
+| `commands/platform.py` (1011 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
 | `commands/auth.py` (660 lines) | `auth` group (13 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, change-role, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_change_role()`, `auth_status()`, etc. |
 | `commands/cleanup.py` (322 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
 | `commands/oauth.py` (813 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |

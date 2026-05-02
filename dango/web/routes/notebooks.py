@@ -29,7 +29,7 @@ from dango.notebooks.locking import (
     refresh_lock,
     release_lock,
 )
-from dango.notebooks.manager import get_marimo_status, start_marimo
+from dango.notebooks.manager import get_marimo_status, start_idle_checker, start_marimo
 from dango.utils.dango_db import connect
 from dango.validation import validate_identifier
 from dango.web.helpers import get_project_root
@@ -384,7 +384,9 @@ async def lock_notebook(
 
     port = status.get("port") or _DEFAULT_MARIMO_PORT  # type: ignore[assignment]
 
-    marimo_url = f"http://localhost:{port}/@file/{name}.py"
+    marimo_url = f"http://localhost:{port}/?file={name}.py"
+
+    start_idle_checker(project_root)
 
     return JSONResponse(content={"locked": True, "marimo_url": marimo_url})
 
