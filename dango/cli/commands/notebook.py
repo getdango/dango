@@ -153,7 +153,7 @@ def notebook_open(ctx: click.Context, name: str) -> None:
         status = get_marimo_status(project_root)
 
     port = status.get("port") or 7805
-    url = f"http://localhost:{port}/@file/{name}.py"
+    url = f"http://localhost:{port}/?file={name}.py"
     console.print(f"\n  [bold]Open in browser:[/bold] {url}\n")
 
 

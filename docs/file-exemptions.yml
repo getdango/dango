@@ -81,7 +81,7 @@ exemptions:
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
-    lines: 970
+    lines: 985
     category: exempt
     reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic."
     review_by: "v1.1"
@@ -329,15 +329,15 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/catalog.py
-    lines: 1157
+    lines: 1286
     category: exempt
-    reason: "P7-001+P7-002+BUG-016: Column schema, profiling, lineage DAG, impact analysis, model list/detail/search endpoints. Single router file — manifest parsing helpers are private to the same module."
+    reason: "P7-001+P7-002+BUG-016+R9-G: Column schema, profiling, lineage DAG, impact analysis, model list/detail/search, raw table discovery, overview summary. Single router file — manifest parsing helpers are private to the same module."
     review_by: "v1.1"
 
   - file: tests/unit/test_catalog_models.py
-    lines: 678
+    lines: 923
     category: exempt
-    reason: "BUG-016: 16 tests covering catalog model list (8) + model detail (8). Test infrastructure shared with test_catalog_lineage.py."
+    reason: "BUG-016+R9-G: 22 tests covering catalog model list (8) + model detail (11) + raw table discovery (3). Test infrastructure shared with test_catalog_lineage.py."
     review_by: "v1.1"
 
   - file: tests/unit/test_schedule_crud_api.py
@@ -353,7 +353,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_web_notebooks.py
-    lines: 506
+    lines: 515
     category: exempt
     reason: "TEST-030: 7 test classes covering page, list, create, delete, lock, heartbeat, release, force-release, copy. Marginally over limit after locked_at test addition."
     review_by: "v1.1"

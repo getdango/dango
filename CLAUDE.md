@@ -82,7 +82,7 @@ dango/                          # Python package source
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
 │   │   ├── model.py            # model group (add/remove)
-│   │   ├── platform.py         # start/stop/status + port helpers (970 lines)
+│   │   ├── platform.py         # start/stop/status + port helpers (985 lines)
 │   │   ├── project.py          # init/rename/info
 │   │   ├── source.py           # source group (add/list/remove) + sync (757 lines)
 │   │   ├── transform.py        # run/docs/generate
@@ -338,7 +338,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `visualization/metabase.py` | 1151 | — |
 | `cli/init.py` | 1324 | — |
 | `visualization/dashboard_manager.py` | 1113 | — |
-| `cli/commands/platform.py` | 970 | — (extracted from main.py by TASK-005) |
+| `cli/commands/platform.py` | 985 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 819 | — (extracted from app.py by TASK-085) |
@@ -357,7 +357,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `config/models.py` | 600 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 813 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 548 | — |
-| `web/routes/catalog.py` | 1157 | — (data catalog: columns, profiling, lineage, impact, models, search) |
+| `web/routes/catalog.py` | 1286 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/deploy_provision.py` | 846 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
