@@ -125,8 +125,9 @@ def _check_docker_ports(platform_config: object) -> None:
 
 
 @click.command()
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
 @click.pass_context
-def start(ctx: click.Context) -> None:
+def start(ctx: click.Context, yes: bool) -> None:
     """
     Start all Dango data platform services.
 
@@ -160,11 +161,36 @@ def start(ctx: click.Context) -> None:
     try:
         project_root = require_project_context(ctx)
 
+        # Guard rail: inform if this looks like a cloned project
+        sources_file = project_root / ".dango" / "sources.yml"
+        dango_db = project_root / ".dango" / "dango.db"
+        warehouse = project_root / "data" / "warehouse.duckdb"
+        if sources_file.exists() and not dango_db.exists() and not warehouse.exists():
+            console.print(
+                "[yellow]  This looks like a cloned project. "
+                "Run `dango sync` to load data before starting.[/yellow]"
+            )
+            console.print()
+
         # Load project config
         config_loader = ConfigLoader(project_root)
         config = config_loader.load_config()
         project_name = config.project.name
         platform_config = config.platform
+
+        # Guard rail: warn if project is deployed to cloud
+        if not yes:
+            cloud_cfg = config_loader.load_cloud_config()
+            if cloud_cfg and cloud_cfg.droplet_ip:
+                target = cloud_cfg.domain or cloud_cfg.droplet_ip
+                console.print(f"[yellow]  This project is deployed to {target}.[/yellow]")
+                console.print(
+                    "[yellow]   Starting locally will run a SEPARATE instance. "
+                    "Your cloud server is unaffected.[/yellow]"
+                )
+                if not click.confirm("Continue?", default=True):
+                    raise click.Abort()
+                console.print()
 
         # Version alignment check — abort early if Python DuckDB ≠ driver major.minor
         # Must run BEFORE any DuckDB write operations (migrations, schema setup)

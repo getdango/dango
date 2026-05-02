@@ -4,6 +4,7 @@ Unit tests for dango sync CLI backfill and dev-sync options.
 """
 
 import re
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -88,7 +89,7 @@ def _make_mock_source(name: str = "test_src", source_type: str = "stripe"):
     return mock_src
 
 
-def _patch_sync_prereqs(sources=None):
+def _patch_sync_prereqs(sources=None, cloud_config=None):
     """Stack patches for all sync prerequisites (lazy imports)."""
     if sources is None:
         sources = [_make_mock_source()]
@@ -99,6 +100,9 @@ def _patch_sync_prereqs(sources=None):
     mock_config = MagicMock()
     mock_config.sources = mock_sources_cfg
 
+    mock_config_loader = MagicMock()
+    mock_config_loader.return_value.load_cloud_config.return_value = cloud_config
+
     return [
         patch("dango.cli.utils.require_project_context", return_value=Path("/tmp/fake")),
         patch("dango.utils.DbtLock"),
@@ -108,6 +112,7 @@ def _patch_sync_prereqs(sources=None):
             "dango.cli.commands.source.check_unreferenced_custom_sources",
             return_value=[],
         ),
+        patch("dango.config.ConfigLoader", mock_config_loader),
     ]
 
 
@@ -180,7 +185,7 @@ class TestSyncBackfillValidation:
         )
         mock_validate = patch("dango.oauth.validation.validate_before_sync")
         result = self._invoke(
-            ["--limit", "500"],
+            ["--limit", "500", "--yes"],
             extra_patches=[
                 patch("dango.ingestion.run_sync", mock_run_sync),
                 mock_metabase,
@@ -190,3 +195,164 @@ class TestSyncBackfillValidation:
         assert result.exit_code == 0, result.output
         mock_run_sync.assert_called_once()
         assert mock_run_sync.call_args.kwargs["limit"] == 500
+
+
+def _make_cloud_config(droplet_ip: str = "1.2.3.4", domain: str | None = None) -> MagicMock:
+    """Create a mock CloudConfig."""
+    cfg = MagicMock()
+    cfg.droplet_ip = droplet_ip
+    cfg.domain = domain
+    return cfg
+
+
+@pytest.mark.unit
+class TestSyncGuardRails:
+    """Tests for sync command guard rails (cloud warning, first-sync confirmation)."""
+
+    def _invoke(
+        self,
+        args: list[str],
+        cloud_config: MagicMock | None = None,
+        extra_patches: list[patch] | None = None,
+    ) -> click.testing.Result:
+        runner = CliRunner()
+        patches = _patch_sync_prereqs(cloud_config=cloud_config)
+        if extra_patches:
+            patches.extend(extra_patches)
+        for p in patches:
+            p.start()
+        try:
+            return runner.invoke(sync, args, obj={"project_root": "/tmp"})
+        finally:
+            for p in patches:
+                p.stop()
+
+    def _invoke_with_input(
+        self,
+        args: list[str],
+        input_text: str,
+        cloud_config: MagicMock | None = None,
+        extra_patches: list[patch] | None = None,
+    ) -> click.testing.Result:
+        runner = CliRunner()
+        patches = _patch_sync_prereqs(cloud_config=cloud_config)
+        if extra_patches:
+            patches.extend(extra_patches)
+        for p in patches:
+            p.start()
+        try:
+            return runner.invoke(sync, args, obj={"project_root": "/tmp"}, input=input_text)
+        finally:
+            for p in patches:
+                p.stop()
+
+    def test_cloud_warning_shown_and_cancelled(self) -> None:
+        """Cloud warning is shown and sync aborts when user says 'n'."""
+        cloud_cfg = _make_cloud_config(droplet_ip="1.2.3.4")
+        result = self._invoke_with_input(["--dry-run"], input_text="n\n", cloud_config=cloud_cfg)
+        plain = _ANSI_RE.sub("", result.output)
+        assert "deployed to 1.2.3.4" in plain
+        assert "dango remote sync" in plain
+        assert result.exit_code != 0
+
+    def test_cloud_warning_shows_domain(self) -> None:
+        """Cloud warning shows domain when configured."""
+        cloud_cfg = _make_cloud_config(droplet_ip="1.2.3.4", domain="data.example.com")
+        result = self._invoke_with_input(["--dry-run"], input_text="n\n", cloud_config=cloud_cfg)
+        plain = _ANSI_RE.sub("", result.output)
+        assert "deployed to data.example.com" in plain
+
+    def test_cloud_warning_skipped_with_yes(self) -> None:
+        """Cloud warning is skipped with --yes flag."""
+        cloud_cfg = _make_cloud_config(droplet_ip="1.2.3.4")
+        result = self._invoke(["--dry-run", "--yes"], cloud_config=cloud_cfg)
+        plain = _ANSI_RE.sub("", result.output)
+        assert "deployed to" not in plain
+        assert result.exit_code == 0
+
+    def test_cloud_warning_not_shown_without_cloud(self) -> None:
+        """No cloud warning when project is not deployed."""
+        result = self._invoke(["--dry-run"], cloud_config=None)
+        plain = _ANSI_RE.sub("", result.output)
+        assert "deployed to" not in plain
+        assert result.exit_code == 0
+
+    def test_first_sync_shown_when_no_warehouse(self) -> None:
+        """First-sync confirmation shown when warehouse.duckdb doesn't exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            patches = _patch_sync_prereqs()
+            # Override require_project_context to use our tmpdir
+            patches[0] = patch("dango.cli.utils.require_project_context", return_value=tmp_path)
+            runner = CliRunner()
+            for p in patches:
+                p.start()
+            try:
+                result = runner.invoke(sync, [], obj={"project_root": str(tmp_path)}, input="n\n")
+            finally:
+                for p in patches:
+                    p.stop()
+
+            plain = _ANSI_RE.sub("", result.output)
+            assert "This will sync" in plain
+
+    def test_first_sync_skipped_when_warehouse_exists(self) -> None:
+        """First-sync confirmation skipped when warehouse.duckdb exists."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            # Create the warehouse file
+            data_dir = tmp_path / "data"
+            data_dir.mkdir()
+            (data_dir / "warehouse.duckdb").touch()
+
+            patches = _patch_sync_prereqs()
+            patches[0] = patch("dango.cli.utils.require_project_context", return_value=tmp_path)
+            runner = CliRunner()
+            for p in patches:
+                p.start()
+            try:
+                result = runner.invoke(sync, ["--dry-run"], obj={"project_root": str(tmp_path)})
+            finally:
+                for p in patches:
+                    p.stop()
+
+            plain = _ANSI_RE.sub("", result.output)
+            assert "This will sync" not in plain
+
+    def test_first_sync_skipped_with_yes(self) -> None:
+        """First-sync confirmation skipped with --yes flag."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            patches = _patch_sync_prereqs()
+            patches[0] = patch("dango.cli.utils.require_project_context", return_value=tmp_path)
+            runner = CliRunner()
+            for p in patches:
+                p.start()
+            try:
+                result = runner.invoke(
+                    sync, ["--yes", "--dry-run"], obj={"project_root": str(tmp_path)}
+                )
+            finally:
+                for p in patches:
+                    p.stop()
+
+            plain = _ANSI_RE.sub("", result.output)
+            assert "This will sync" not in plain
+
+    def test_first_sync_skipped_in_dry_run(self) -> None:
+        """First-sync confirmation skipped in --dry-run mode."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            patches = _patch_sync_prereqs()
+            patches[0] = patch("dango.cli.utils.require_project_context", return_value=tmp_path)
+            runner = CliRunner()
+            for p in patches:
+                p.start()
+            try:
+                result = runner.invoke(sync, ["--dry-run"], obj={"project_root": str(tmp_path)})
+            finally:
+                for p in patches:
+                    p.stop()
+
+            plain = _ANSI_RE.sub("", result.output)
+            assert "This will sync" not in plain
