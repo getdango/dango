@@ -439,7 +439,7 @@ category_end "7" "R8 Regression Checks"
 # Category 8: R9 Feature Checks
 # ---------------------------------------------------------------------------
 
-category_start 12
+category_start 13
 
 # Catalog endpoints
 curl_api_test "GET /api/catalog/models" GET "/api/catalog/models"
@@ -476,6 +476,9 @@ fi
 curl_api_test "GET /api/monitoring" GET "/api/monitoring"
 curl_api_test "GET /api/monitoring/history" GET "/api/monitoring/history?metric=row_count&days=7"
 curl_api_test "POST /api/monitoring/run" POST "/api/monitoring/run"
+
+# Backward-compat redirects (R9-M kept old /insights paths as 301)
+curl_api_test "GET /api/insights → 301" GET "/api/insights" "301"
 
 category_end "8" "R9 Feature Checks"
 
