@@ -9,7 +9,7 @@ top-level ``cli`` group with version info and project-root discovery.
 import click
 
 from dango import __version__
-from dango.cli.commands.analyze import analyze
+from dango.cli.commands.analyze import analyze, monitor
 from dango.cli.commands.auth import auth
 from dango.cli.commands.cleanup import cleanup
 from dango.cli.commands.config_cmd import config
@@ -110,6 +110,7 @@ cli.add_command(notebook)
 cli.add_command(schedule)
 cli.add_command(deploy)
 cli.add_command(governance)
+cli.add_command(monitor)
 
 
 def main() -> None:

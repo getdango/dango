@@ -1,6 +1,9 @@
 """dango/cli/commands/analyze.py
 
-CLI command for running metric analysis and displaying results.
+CLI commands for running monitor analysis and displaying results.
+
+Provides ``dango monitor run`` as the canonical command and
+``dango analyze`` as a backward-compatible alias.
 """
 
 from __future__ import annotations
@@ -10,11 +13,16 @@ import click
 from dango.cli import console
 
 
-@click.command("analyze")
+@click.group("monitor")
+def monitor() -> None:
+    """Monitor data quality."""
+
+
+@monitor.command("run")
 @click.option("--source", default=None, help="Filter by source name.")
 @click.pass_context
-def analyze(ctx: click.Context, source: str | None) -> None:
-    """Run metric analysis and display results."""
+def monitor_run(ctx: click.Context, source: str | None) -> None:
+    """Run monitor analysis and display results."""
     from rich.table import Table
 
     from dango.analysis.formatter import categorize_results
@@ -33,14 +41,14 @@ def analyze(ctx: click.Context, source: str | None) -> None:
     results = run_analysis(project_root, source_filter=source_filter)
 
     if not results:
-        console.print("[dim]No metrics configured or no data available.[/dim]")
+        console.print("[dim]No monitors configured or no data available.[/dim]")
         return
 
     categorized = categorize_results(results)
 
-    tbl = Table(title="Metric Analysis")
+    tbl = Table(title="Monitor Results")
     tbl.add_column("Status")
-    tbl.add_column("Metric", style="bold")
+    tbl.add_column("Monitor", style="bold")
     tbl.add_column("Value", justify="right")
     tbl.add_column("Change", justify="right")
     tbl.add_column("Trend")
@@ -79,3 +87,11 @@ def analyze(ctx: click.Context, source: str | None) -> None:
                     f"{contrib['change_pct']:+.1f}%" if contrib["change_pct"] is not None else "-"
                 )
                 console.print(f"      {group}: {cpct}")
+
+
+@click.command("analyze")
+@click.option("--source", default=None, help="Filter by source name.")
+@click.pass_context
+def analyze(ctx: click.Context, source: str | None) -> None:
+    """Run monitor analysis and display results (alias for 'monitor run')."""
+    ctx.invoke(monitor_run, source=source)

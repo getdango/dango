@@ -169,26 +169,32 @@ async def catalog_page(
     )
 
 
-@router.get("/insights")
-async def insights_page(
+@router.get("/monitoring")
+async def monitoring_page(
     request: Request,
     user: User = Depends(require_permission("governance.view")),
 ) -> HTMLResponse:
-    """Serve the insights page."""
+    """Serve the monitoring page."""
     log_auth_event(
-        AuditEvent.INSIGHTS_VIEWED,
+        AuditEvent.MONITORING_VIEWED,
         user_id=user.id,
         email=user.email,
     )
     return _render_template(
         request,
-        "insights.html",
+        "monitoring.html",
         {
             "version": dango.__version__,
-            "current_page": "insights",
-            "subtitle": "Insights",
+            "current_page": "monitoring",
+            "subtitle": "Monitoring",
         },
     )
+
+
+@router.get("/insights")
+async def insights_redirect() -> RedirectResponse:
+    """Redirect old /insights to /monitoring."""
+    return RedirectResponse(url="/monitoring", status_code=301)
 
 
 @router.get("/api")

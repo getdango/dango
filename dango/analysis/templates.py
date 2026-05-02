@@ -2,7 +2,7 @@
 
 Pre-built metric templates for common data sources.
 
-Generates sensible default ``MetricConfig`` objects when users add a new source,
+Generates sensible default ``MonitorConfig`` objects when users add a new source,
 so analysis starts working automatically from the first sync.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from dango.analysis.models import ComparisonType, MetricConfig
+from dango.analysis.models import ComparisonType, MonitorConfig
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -23,7 +23,7 @@ def generate_metrics_for_source(
     source_name: str,
     *,
     project_root: Path | None = None,
-) -> list[MetricConfig]:
+) -> list[MonitorConfig]:
     """Generate pre-built metric templates for a data source.
 
     Args:
@@ -33,7 +33,7 @@ def generate_metrics_for_source(
             When provided, GA4 templates use actual column names from the warehouse.
 
     Returns:
-        A list of ``MetricConfig`` objects.  Empty if the source type has no
+        A list of ``MonitorConfig`` objects.  Empty if the source type has no
         pre-built templates or if the warehouse hasn't been synced yet.
     """
     generators = {
@@ -53,40 +53,40 @@ def generate_metrics_for_source(
 # ---------------------------------------------------------------------------
 
 
-def _stripe_metrics(name: str) -> list[MetricConfig]:
+def _stripe_metrics(name: str) -> list[MonitorConfig]:
     """Stripe metrics: revenue, customers, refund rate, AOV."""
     schema = f"raw_{name}"
     return [
-        MetricConfig(
+        MonitorConfig(
             name=f"{name}_daily_revenue",
             source_table=f"{schema}.charge",
             value_expression="SUM(amount) / 100.0",
             filter="status = 'succeeded'",
             compare=ComparisonType.week_over_week,
-            warn_threshold=20.0,
+            alert_threshold=20.0,
             drill_down=["currency"],
         ),
-        MetricConfig(
+        MonitorConfig(
             name=f"{name}_new_customers",
             source_table=f"{schema}.customer",
             value_expression="COUNT(*)",
             compare=ComparisonType.week_over_week,
-            warn_threshold=25.0,
+            alert_threshold=25.0,
         ),
-        MetricConfig(
+        MonitorConfig(
             name=f"{name}_refund_rate",
             source_table=f"{schema}.charge",
             value_expression=("COUNT(CASE WHEN refunded THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0)"),
             compare=ComparisonType.rolling_7day_avg,
-            warn_threshold=50.0,
+            alert_threshold=50.0,
         ),
-        MetricConfig(
+        MonitorConfig(
             name=f"{name}_avg_order_value",
             source_table=f"{schema}.charge",
             value_expression="AVG(amount) / 100.0",
             filter="status = 'succeeded'",
             compare=ComparisonType.rolling_7day_avg,
-            warn_threshold=15.0,
+            alert_threshold=15.0,
         ),
     ]
 
@@ -104,7 +104,7 @@ def _google_analytics_metrics(
     name: str,
     *,
     project_root: Path | None = None,
-) -> list[MetricConfig]:
+) -> list[MonitorConfig]:
     """Google Analytics metrics using actual DuckDB column names.
 
     When ``project_root`` is provided and the warehouse contains the GA4 traffic
@@ -122,26 +122,26 @@ def _google_analytics_metrics(
     # Find drill-down column for sessions (any column containing "source")
     source_col = next((c for c in columns if "source" in c.lower()), None)
 
-    metrics: list[MetricConfig] = []
+    metrics: list[MonitorConfig] = []
     for keyword, exclude, suffix, agg, compare, threshold in _GA4_METRIC_DEFS:
         col = _find_column(columns, keyword, exclude)
         if col is None:
             continue
         drill = [source_col] if source_col and suffix == "daily_sessions" else []
         metrics.append(
-            MetricConfig(
+            MonitorConfig(
                 name=f"{name}_{suffix}",
                 source_table=f"{schema}.{table}",
                 value_expression=f"{agg}({col})",
                 compare=compare,
-                warn_threshold=threshold,
+                alert_threshold=threshold,
                 drill_down=drill,
             )
         )
     return metrics
 
 
-def _csv_metrics(name: str) -> list[MetricConfig]:
+def _csv_metrics(name: str) -> list[MonitorConfig]:
     """CSV metrics: skipped — table name unknown until first sync.
 
     CSV table names derive from filenames, unknown at source-add time.
@@ -150,7 +150,7 @@ def _csv_metrics(name: str) -> list[MetricConfig]:
     return []
 
 
-def _generic_metrics(name: str, project_root: Path | None) -> list[MetricConfig]:
+def _generic_metrics(name: str, project_root: Path | None) -> list[MonitorConfig]:
     """Generate generic row-count and freshness metrics by discovering tables.
 
     Queries ``information_schema.tables`` for the ``raw_{name}`` schema,
@@ -194,27 +194,27 @@ def _generic_metrics(name: str, project_root: Path | None) -> list[MetricConfig]
     except Exception:
         return []
 
-    metrics: list[MetricConfig] = []
+    metrics: list[MonitorConfig] = []
     for (table_name,) in tables:
         sanitized = _sanitize_table_name(table_name)
         metrics.append(
-            MetricConfig(
+            MonitorConfig(
                 name=f"{name}_{sanitized}_row_count",
                 source_table=f"{schema}.{table_name}",
                 value_expression="COUNT(*)",
                 compare=ComparisonType.week_over_week,
-                warn_threshold=25.0,
+                alert_threshold=25.0,
             )
         )
         # Add freshness metric only if _dlt_load_id column exists
         if table_name in tables_with_load_id:
             metrics.append(
-                MetricConfig(
+                MonitorConfig(
                     name=f"{name}_{sanitized}_freshness",
                     source_table=f"{schema}.{table_name}",
                     value_expression="MAX(_dlt_load_id)",
                     compare=ComparisonType.week_over_week,
-                    warn_threshold=25.0,
+                    alert_threshold=25.0,
                 )
             )
     return metrics

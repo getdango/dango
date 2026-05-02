@@ -67,7 +67,8 @@ class AuditEvent(str, Enum):
     GOVERNANCE_DRIFT_VIEWED      = "governance_drift_viewed"
     GOVERNANCE_PII_VIEWED        = "governance_pii_viewed"
     CATALOG_VIEWED               = "catalog_viewed"
-    INSIGHTS_VIEWED              = "insights_viewed"
+    MONITORING_VIEWED             = "monitoring_viewed"
+    INSIGHTS_VIEWED              = "monitoring_viewed"  # deprecated alias
     AI_CATALOG_VIEWED            = "ai_catalog_viewed"
     DEPLOYMENT_HISTORY_VIEWED    = "deployment_history_viewed"
     GOVERNANCE_PII_OVERRIDE_SET     = "governance_pii_override_set"

@@ -10,8 +10,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from dango.analysis.config import save_metrics_config
-from dango.analysis.models import ComparisonType, MetricConfig, MetricsConfig
+from dango.analysis.config import save_monitors_config
+from dango.analysis.models import ComparisonType, MonitorConfig, MonitorsConfig
 from dango.utils.dango_db import _schema_initialized, connect
 from dango.utils.post_sync import dispatch_post_sync_hooks
 
@@ -58,21 +58,21 @@ class TestAnalysisHookIntegration:
         _clear_schema_cache()
         _create_test_warehouse(tmp_path)
 
-        # Create metrics config
-        config = MetricsConfig(
+        # Create monitors config
+        config = MonitorsConfig(
             enabled=True,
-            metrics=[
-                MetricConfig(
+            monitors=[
+                MonitorConfig(
                     name="testshop_order_total",
                     source_table="raw_testshop.orders",
                     value_expression="SUM(total)",
                     filter="status = 'succeeded'",
                     compare=ComparisonType.week_over_week,
-                    warn_threshold=20.0,
+                    alert_threshold=20.0,
                 ),
             ],
         )
-        save_metrics_config(tmp_path, config)
+        save_monitors_config(tmp_path, config)
 
         # Run via dispatcher (full hook boundary)
         dispatch_post_sync_hooks(tmp_path, ["testshop"])

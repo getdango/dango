@@ -1,6 +1,6 @@
-"""tests/unit/test_web_insights.py
+"""tests/unit/test_web_monitoring.py
 
-Tests for dango/web/routes/insights.py — insights API endpoints.
+Tests for dango/web/routes/monitoring.py — monitoring API endpoints.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from dango.exceptions import (
     DangoError,
     ValidationError,
 )
-from dango.web.routes.insights import router
+from dango.web.routes.monitoring import router
 
 # ---------------------------------------------------------------------------
 # Test infrastructure
@@ -41,7 +41,7 @@ def _make_user(role: Role = Role.ADMIN) -> User:
 
 
 def _make_app(project_root: Path) -> FastAPI:
-    """Create a minimal FastAPI app with the insights router."""
+    """Create a minimal FastAPI app with the monitoring router."""
     app = FastAPI()
     app.state.project_root = project_root
 
@@ -137,25 +137,25 @@ def _mock_connect_with_cache(
 
 
 # ---------------------------------------------------------------------------
-# GET /api/insights (reads cached results)
+# GET /api/monitoring (reads cached results)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestGetInsights:
-    """Tests for GET /api/insights."""
+    """Tests for GET /api/monitoring."""
 
-    @patch("dango.web.routes.insights.get_project_root")
+    @patch("dango.web.routes.monitoring.get_project_root")
     @patch("dango.utils.dango_db.connect")
-    @patch("dango.web.routes.insights.log_auth_event")
-    def test_returns_cached_insights(
+    @patch("dango.web.routes.monitoring.log_auth_event")
+    def test_returns_cached_monitoring(
         self,
         mock_audit: MagicMock,
         mock_connect: MagicMock,
         mock_root: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """GET /api/insights returns cached metrics from SQLite."""
+        """GET /api/monitoring returns cached metrics from SQLite."""
         client, project_root = _setup_client(tmp_path)
         mock_root.return_value = project_root
 
@@ -173,7 +173,7 @@ class TestGetInsights:
             result_rows=[("revenue", comparison_json)],
         )
 
-        resp = client.get("/api/insights")
+        resp = client.get("/api/monitoring")
         assert resp.status_code == 200
         data = resp.json()
         assert "metrics" in data
@@ -182,9 +182,9 @@ class TestGetInsights:
         assert data["metrics"][0]["name"] == "revenue"
         assert data["metrics"][0]["status"] == "normal"
 
-    @patch("dango.web.routes.insights.get_project_root")
+    @patch("dango.web.routes.monitoring.get_project_root")
     @patch("dango.utils.dango_db.connect")
-    @patch("dango.web.routes.insights.log_auth_event")
+    @patch("dango.web.routes.monitoring.log_auth_event")
     def test_empty_cache(
         self,
         mock_audit: MagicMock,
@@ -192,20 +192,20 @@ class TestGetInsights:
         mock_root: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """GET /api/insights with empty cache returns empty list."""
+        """GET /api/monitoring with empty cache returns empty list."""
         client, project_root = _setup_client(tmp_path)
         mock_root.return_value = project_root
         mock_connect.return_value = _mock_connect_with_cache(history_rows=[], result_rows=[])
 
-        resp = client.get("/api/insights")
+        resp = client.get("/api/monitoring")
         assert resp.status_code == 200
         data = resp.json()
         assert data["metrics"] == []
         assert data["total"] == 0
 
-    @patch("dango.web.routes.insights.get_project_root")
+    @patch("dango.web.routes.monitoring.get_project_root")
     @patch("dango.utils.dango_db.connect")
-    @patch("dango.web.routes.insights.log_auth_event")
+    @patch("dango.web.routes.monitoring.log_auth_event")
     def test_flagged_metric_in_cache(
         self,
         mock_audit: MagicMock,
@@ -213,7 +213,7 @@ class TestGetInsights:
         mock_root: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """GET /api/insights returns flagged count from cached data."""
+        """GET /api/monitoring returns flagged count from cached data."""
         client, project_root = _setup_client(tmp_path)
         mock_root.return_value = project_root
 
@@ -231,15 +231,15 @@ class TestGetInsights:
             result_rows=[("revenue", comparison_json)],
         )
 
-        resp = client.get("/api/insights")
+        resp = client.get("/api/monitoring")
         assert resp.status_code == 200
         data = resp.json()
         assert data["flagged"] == 1
         assert data["metrics"][0]["status"] == "flagged"
 
-    @patch("dango.web.routes.insights.get_project_root")
+    @patch("dango.web.routes.monitoring.get_project_root")
     @patch("dango.utils.dango_db.connect")
-    @patch("dango.web.routes.insights.log_auth_event")
+    @patch("dango.web.routes.monitoring.log_auth_event")
     def test_audit_logged(
         self,
         mock_audit: MagicMock,
@@ -247,27 +247,27 @@ class TestGetInsights:
         mock_root: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """GET /api/insights logs audit event."""
+        """GET /api/monitoring logs audit event."""
         client, project_root = _setup_client(tmp_path)
         mock_root.return_value = project_root
         mock_connect.return_value = _mock_connect_with_cache(history_rows=[], result_rows=[])
 
-        client.get("/api/insights")
+        client.get("/api/monitoring")
         mock_audit.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
-# POST /api/insights/run
+# POST /api/monitoring/run
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestRunInsights:
-    """Tests for POST /api/insights/run."""
+    """Tests for POST /api/monitoring/run."""
 
-    @patch("dango.web.routes.insights.get_project_root")
+    @patch("dango.web.routes.monitoring.get_project_root")
     @patch("dango.analysis.metrics.run_analysis")
-    @patch("dango.web.routes.insights.log_auth_event")
+    @patch("dango.web.routes.monitoring.log_auth_event")
     def test_run_returns_fresh_results(
         self,
         mock_audit: MagicMock,
@@ -275,7 +275,7 @@ class TestRunInsights:
         mock_root: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """POST /api/insights/run executes and returns results."""
+        """POST /api/monitoring/run executes and returns results."""
         client, project_root = _setup_client(tmp_path)
         mock_root.return_value = project_root
         mock_run.return_value = [
@@ -283,16 +283,16 @@ class TestRunInsights:
         ]
 
         resp = client.post(
-            "/api/insights/run",
+            "/api/monitoring/run",
             headers={"X-Requested-With": "XMLHttpRequest"},
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["flagged"] == 1
 
-    @patch("dango.web.routes.insights.get_project_root")
+    @patch("dango.web.routes.monitoring.get_project_root")
     @patch("dango.analysis.metrics.run_analysis")
-    @patch("dango.web.routes.insights.log_auth_event")
+    @patch("dango.web.routes.monitoring.log_auth_event")
     def test_run_with_source_filter(
         self,
         mock_audit: MagicMock,
@@ -300,13 +300,13 @@ class TestRunInsights:
         mock_root: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """POST /api/insights/run?source=stripe passes source filter."""
+        """POST /api/monitoring/run?source=stripe passes source filter."""
         client, project_root = _setup_client(tmp_path)
         mock_root.return_value = project_root
         mock_run.return_value = []
 
         resp = client.post(
-            "/api/insights/run?source=stripe",
+            "/api/monitoring/run?source=stripe",
             headers={"X-Requested-With": "XMLHttpRequest"},
         )
         assert resp.status_code == 200
@@ -316,17 +316,17 @@ class TestRunInsights:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/insights/history
+# GET /api/monitoring/history
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestGetMetricHistory:
-    """Tests for GET /api/insights/history."""
+    """Tests for GET /api/monitoring/history."""
 
-    @patch("dango.web.routes.insights.get_project_root")
+    @patch("dango.web.routes.monitoring.get_project_root")
     @patch("dango.utils.dango_db.connect")
-    @patch("dango.web.routes.insights.log_auth_event")
+    @patch("dango.web.routes.monitoring.log_auth_event")
     def test_returns_history(
         self,
         mock_audit: MagicMock,
@@ -334,7 +334,7 @@ class TestGetMetricHistory:
         mock_root: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """GET /api/insights/history returns data points."""
+        """GET /api/monitoring/history returns data points."""
         client, project_root = _setup_client(tmp_path)
         mock_root.return_value = project_root
 
@@ -346,7 +346,7 @@ class TestGetMetricHistory:
             (95.0, "2026-03-09T12:00:00"),
         ]
 
-        resp = client.get("/api/insights/history?metric=test_metric&days=7")
+        resp = client.get("/api/monitoring/history?metric=test_metric&days=7")
         assert resp.status_code == 200
         data = resp.json()
         assert data["metric"] == "test_metric"

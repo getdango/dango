@@ -1,17 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Insights - Dango{% endblock %}
+{% block title %}Monitoring - Dango{% endblock %}
 {% block content %}
 <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-    <div x-data="insightsPage()" x-init="init()" x-cloak>
+    <div x-data="monitoringPage()" x-init="init()" x-cloak>
         <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
             <p class="text-sm text-red-700" x-text="error"></p>
         </div>
         <!-- Header -->
         <div class="flex items-center justify-between mb-6">
             <div>
-                <h2 class="text-xl font-bold text-gray-900">Insights</h2>
+                <h2 class="text-xl font-bold text-gray-900">Monitoring</h2>
                 <p class="text-sm text-gray-500 mt-1">
-                    <span x-text="metrics.length"></span> metrics<template x-if="flaggedCount > 0">, <span class="text-red-600 font-medium" x-text="flaggedCount + ' flagged'"></span></template>
+                    <span x-text="metrics.length"></span> monitors<template x-if="flaggedCount > 0">, <span class="text-red-600 font-medium" x-text="flaggedCount + ' flagged'"></span></template>
                 </p>
             </div>
             <button @click="runAnalysis()" :disabled="running"
@@ -21,12 +21,12 @@
             </button>
         </div>
         <div x-show="loading" x-cloak class="flex items-center justify-center py-12">
-            <div class="text-gray-400 text-sm">Loading insights...</div>
+            <div class="text-gray-400 text-sm">Loading monitors...</div>
         </div>
         <!-- No data -->
         <template x-if="!loading && metrics.length === 0">
             <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
-                No metrics configured or no data available. Configure metrics in <code>.dango/metrics.yml</code>.
+                No monitors configured or no data available. Configure monitors in <code>.dango/monitors.yml</code>.
             </div>
         </template>
         <!-- Metric cards -->
@@ -103,25 +103,25 @@
 {% endblock %}
 {% block scripts %}
 <script>
-function insightsPage() {
+function monitoringPage() {
     return {
         metrics: [], flaggedCount: 0, loading: true, running: false, error: null,
         historyMetric: null, historyData: [], historyLoading: false,
         async init() {
             try {
-                const res = await fetch('/api/insights', {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+                const res = await fetch('/api/monitoring', {headers: {'X-Requested-With': 'XMLHttpRequest'}});
                 if (res.ok) {
                     const data = await res.json();
                     this.metrics = data.metrics.map(m => ({...m, _expanded: false}));
                     this.flaggedCount = data.flagged;
-                } else { this.error = 'Failed to load insights.'; }
-            } catch (e) { this.error = 'Failed to load insights.'; }
+                } else { this.error = 'Failed to load monitors.'; }
+            } catch (e) { this.error = 'Failed to load monitors.'; }
             finally { this.loading = false; }
         },
         async runAnalysis() {
             this.running = true; this.error = null;
             try {
-                const res = await fetch('/api/insights/run', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}});
+                const res = await fetch('/api/monitoring/run', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}});
                 if (res.ok) {
                     const data = await res.json();
                     this.metrics = data.metrics.map(m => ({...m, _expanded: false}));
@@ -134,7 +134,7 @@ function insightsPage() {
             if (this.historyMetric === metricName) { this.historyMetric = null; this.historyData = []; return; }
             this.historyMetric = metricName; this.historyLoading = true; this.historyData = [];
             try {
-                const res = await fetch('/api/insights/history?metric=' + encodeURIComponent(metricName) + '&days=30', {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+                const res = await fetch('/api/monitoring/history?metric=' + encodeURIComponent(metricName) + '&days=30', {headers: {'X-Requested-With': 'XMLHttpRequest'}});
                 if (res.ok) { const data = await res.json(); this.historyData = data.data_points; }
             } catch (e) { /* silent */ }
             finally { this.historyLoading = false; }

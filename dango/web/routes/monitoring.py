@@ -1,6 +1,6 @@
-"""dango/web/routes/insights.py
+"""dango/web/routes/monitoring.py
 
-Automated insights API endpoints.
+Automated monitoring API endpoints.
 
 Provides read access to cached analysis results, on-demand analysis execution,
 and metric history queries.
@@ -15,6 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
+from starlette.responses import RedirectResponse
 
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
@@ -25,7 +26,7 @@ from dango.web.helpers import get_project_root
 
 logger = get_logger(__name__)
 
-router = APIRouter(tags=["insights"])
+router = APIRouter(tags=["monitoring"])
 
 
 # ---------------------------------------------------------------------------
@@ -33,8 +34,8 @@ router = APIRouter(tags=["insights"])
 # ---------------------------------------------------------------------------
 
 
-class InsightMetric(BaseModel):
-    """A single metric in the insights response."""
+class MonitorMetric(BaseModel):
+    """A single metric in the monitoring response."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -53,14 +54,22 @@ class InsightMetric(BaseModel):
     error: str | None = None
 
 
-class InsightsResponse(BaseModel):
-    """Response for insights endpoints."""
+# Backward-compatible alias
+InsightMetric = MonitorMetric
+
+
+class MonitoringResponse(BaseModel):
+    """Response for monitoring endpoints."""
 
     model_config = ConfigDict(frozen=True)
 
-    metrics: list[InsightMetric]
+    metrics: list[MonitorMetric]
     total: int
     flagged: int
+
+
+# Backward-compatible alias
+InsightsResponse = MonitoringResponse
 
 
 class HistoryPoint(BaseModel):
@@ -87,18 +96,18 @@ class MetricHistoryResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _build_insights_response(categorized: list[dict]) -> InsightsResponse:  # type: ignore[type-arg]
-    """Build an ``InsightsResponse`` from categorised result dicts.
+def _build_monitoring_response(categorized: list[dict]) -> MonitoringResponse:  # type: ignore[type-arg]
+    """Build a ``MonitoringResponse`` from categorised result dicts.
 
     Args:
         categorized: Output of ``categorize_results()``.
 
     Returns:
-        An ``InsightsResponse`` with metric list, total, and flagged count.
+        A ``MonitoringResponse`` with metric list, total, and flagged count.
     """
-    metrics = [InsightMetric(**m) for m in categorized]
+    metrics = [MonitorMetric(**m) for m in categorized]
     flagged_count = sum(1 for m in metrics if m.status == "flagged")
-    return InsightsResponse(metrics=metrics, total=len(metrics), flagged=flagged_count)
+    return MonitoringResponse(metrics=metrics, total=len(metrics), flagged=flagged_count)
 
 
 def _read_cached_results(project_root: Path) -> list[dict[str, Any]]:
@@ -106,7 +115,7 @@ def _read_cached_results(project_root: Path) -> list[dict[str, Any]]:
 
     Queries ``metric_history`` for latest values and ``metric_results`` for
     latest comparison data per metric.  Returns categorised dicts ready for
-    ``_build_insights_response()``.
+    ``_build_monitoring_response()``.
 
     Args:
         project_root: Path to the Dango project root.
@@ -197,32 +206,32 @@ def _read_cached_results(project_root: Path) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api/insights")
-async def get_insights(
+@router.get("/api/monitoring")
+async def get_monitoring(
     user: User = Depends(require_permission("governance.view")),
-) -> InsightsResponse:
+) -> MonitoringResponse:
     """Read latest cached analysis results.
 
     Returns categorised metrics from the most recent analysis run.
-    Does not execute new analysis — use ``POST /api/insights/run`` for that.
+    Does not execute new analysis — use ``POST /api/monitoring/run`` for that.
     """
-    log_auth_event(AuditEvent.INSIGHTS_VIEWED, user_id=user.id, email=user.email)
+    log_auth_event(AuditEvent.MONITORING_VIEWED, user_id=user.id, email=user.email)
 
     project_root = get_project_root()
     categorized = await asyncio.to_thread(_read_cached_results, project_root)
-    return _build_insights_response(categorized)
+    return _build_monitoring_response(categorized)
 
 
-@router.post("/api/insights/run")
-async def run_insights(
+@router.post("/api/monitoring/run")
+async def run_monitoring(
     source: str | None = Query(None, description="Filter by source name"),
     user: User = Depends(require_permission("governance.view")),
-) -> InsightsResponse:
+) -> MonitoringResponse:
     """Execute a fresh analysis run (state-mutating).
 
     Optionally filter by source name.
     """
-    log_auth_event(AuditEvent.INSIGHTS_VIEWED, user_id=user.id, email=user.email)
+    log_auth_event(AuditEvent.MONITORING_VIEWED, user_id=user.id, email=user.email)
 
     project_root = get_project_root()
 
@@ -236,10 +245,10 @@ async def run_insights(
 
     results = await asyncio.to_thread(run_analysis, project_root, source_filter=source_filter)
     categorized = categorize_results(results)
-    return _build_insights_response(categorized)
+    return _build_monitoring_response(categorized)
 
 
-@router.get("/api/insights/history")
+@router.get("/api/monitoring/history")
 async def get_metric_history(
     metric: str = Query(..., description="Metric name"),
     days: int = Query(30, ge=1, le=365, description="Days of history"),
@@ -249,7 +258,7 @@ async def get_metric_history(
 
     Returns up to ``days`` worth of historical data points.
     """
-    log_auth_event(AuditEvent.INSIGHTS_VIEWED, user_id=user.id, email=user.email)
+    log_auth_event(AuditEvent.MONITORING_VIEWED, user_id=user.id, email=user.email)
 
     validated_metric = validate_identifier(metric)
     project_root = get_project_root()
@@ -270,3 +279,32 @@ async def get_metric_history(
 
     data_points = await asyncio.to_thread(_query_history)
     return MetricHistoryResponse(metric=validated_metric, days=days, data_points=data_points)
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible redirects for old /api/insights* paths
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/insights")
+async def redirect_insights_get(
+    user: User = Depends(require_permission("governance.view")),
+) -> RedirectResponse:
+    """Redirect old GET /api/insights to /api/monitoring."""
+    return RedirectResponse(url="/api/monitoring", status_code=301)
+
+
+@router.post("/api/insights/run")
+async def redirect_insights_run(
+    user: User = Depends(require_permission("governance.view")),
+) -> RedirectResponse:
+    """Redirect old POST /api/insights/run to /api/monitoring/run."""
+    return RedirectResponse(url="/api/monitoring/run", status_code=307)
+
+
+@router.get("/api/insights/history")
+async def redirect_insights_history(
+    user: User = Depends(require_permission("governance.view")),
+) -> RedirectResponse:
+    """Redirect old GET /api/insights/history to /api/monitoring/history."""
+    return RedirectResponse(url="/api/monitoring/history", status_code=301)

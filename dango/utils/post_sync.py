@@ -405,12 +405,12 @@ def _run_analysis(project_root: Path, sources: list[str]) -> None:
 def _ensure_ga4_metrics(project_root: Path, sources: list[str]) -> None:
     """Generate GA4 metric templates if not already present.  Never raises."""
     try:
-        from dango.analysis.config import add_metrics_to_config, load_metrics_config
+        from dango.analysis.config import add_monitors_to_config, load_monitors_config
         from dango.analysis.templates import generate_metrics_for_source
         from dango.config import get_config
 
         config = get_config(project_root)
-        existing_names = {m.name for m in load_metrics_config(project_root).metrics}
+        existing_names = {m.name for m in load_monitors_config(project_root).monitors}
         for source in config.sources.sources:
             if source.type.value != "google_analytics" or source.name not in sources:
                 continue
@@ -422,7 +422,7 @@ def _ensure_ga4_metrics(project_root: Path, sources: list[str]) -> None:
                 if m.name not in existing_names
             ]
             if new:
-                add_metrics_to_config(project_root, new)
+                add_monitors_to_config(project_root, new)
                 logger.info("ga4_metrics_auto_generated", source=source.name, count=len(new))
     except Exception:
         logger.debug("ga4_metrics_auto_generate_skipped", exc_info=True)

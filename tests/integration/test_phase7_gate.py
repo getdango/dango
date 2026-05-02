@@ -18,9 +18,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-from dango.analysis.config import save_metrics_config
+from dango.analysis.config import save_monitors_config
 from dango.analysis.drilldown import run_drill_down
-from dango.analysis.models import ComparisonType, MetricConfig, MetricsConfig
+from dango.analysis.models import ComparisonType, MonitorConfig, MonitorsConfig
 from dango.exceptions import (
     AuthenticationError,
     DangoError,
@@ -119,7 +119,7 @@ class TestRouteRegistration:
             "/api/catalog/{source}/{table}/columns",
             "/api/governance/schema-drift",
             "/api/governance/pii",
-            "/api/insights",
+            "/api/monitoring",
             "/api/notebooks",
         ]
         for path in expected:
@@ -135,11 +135,12 @@ class TestCLIRegistration:
     """Phase 7 CLI commands are registered."""
 
     def test_cli_commands_registered(self) -> None:
-        """governance, notebook, and analyze commands exist."""
+        """governance, notebook, monitor, and analyze commands exist."""
         from dango.cli.main import cli
 
         assert "governance" in cli.commands
         assert "notebook" in cli.commands
+        assert "monitor" in cli.commands
         assert "analyze" in cli.commands
 
 
@@ -157,21 +158,21 @@ class TestFullPipelineEndToEnd:
         _clear_schema_cache()
         _create_test_warehouse(tmp_path)
 
-        # Set up metrics config so the analysis hook has work to do
-        config = MetricsConfig(
+        # Set up monitors config so the analysis hook has work to do
+        config = MonitorsConfig(
             enabled=True,
-            metrics=[
-                MetricConfig(
+            monitors=[
+                MonitorConfig(
                     name="gate_order_total",
                     source_table="raw_testshop.orders",
                     value_expression="SUM(total)",
                     filter="status = 'succeeded'",
                     compare=ComparisonType.week_over_week,
-                    warn_threshold=20.0,
+                    alert_threshold=20.0,
                 ),
             ],
         )
-        save_metrics_config(tmp_path, config)
+        save_monitors_config(tmp_path, config)
 
         # Run the full hook chain — mock PII analyzer to avoid spaCy
         with patch("dango.governance.pii_detector._get_analyzer", return_value=None):
@@ -224,17 +225,17 @@ class TestAnalysisWithDrillDown:
         _clear_schema_cache()
         db_path = _create_test_warehouse(tmp_path)
 
-        # Set up metrics with a drill-down dimension
-        metric = MetricConfig(
+        # Set up monitors with a drill-down dimension
+        metric = MonitorConfig(
             name="gate_drilldown_total",
             source_table="raw_testshop.orders",
             value_expression="SUM(total)",
             compare=ComparisonType.week_over_week,
-            warn_threshold=20.0,
+            alert_threshold=20.0,
             drill_down=["status"],
         )
-        config = MetricsConfig(enabled=True, metrics=[metric])
-        save_metrics_config(tmp_path, config)
+        config = MonitorsConfig(enabled=True, monitors=[metric])
+        save_monitors_config(tmp_path, config)
 
         # Run analysis via public API
         from dango.analysis import run_analysis
@@ -277,7 +278,7 @@ class TestRBACEnforcement:
         """FastAPI test client with auth middleware + Phase 7 routers."""
         from dango.web.routes.catalog import router as catalog_router
         from dango.web.routes.governance import router as governance_router
-        from dango.web.routes.insights import router as insights_router
+        from dango.web.routes.monitoring import router as monitoring_router
         from dango.web.routes.notebooks import router as notebooks_router
 
         # Set up auth database
@@ -294,7 +295,7 @@ class TestRBACEnforcement:
         app.add_middleware(AuthMiddleware, project_root=tmp_path, idle_timeout_minutes=60)
         app.include_router(catalog_router)
         app.include_router(governance_router)
-        app.include_router(insights_router)
+        app.include_router(monitoring_router)
         app.include_router(notebooks_router)
 
         @app.exception_handler(DangoError)
@@ -315,7 +316,7 @@ class TestRBACEnforcement:
         "path",
         [
             "/api/governance/schema-drift",
-            "/api/insights",
+            "/api/monitoring",
             "/api/catalog/test/test/columns",
             "/api/notebooks",
         ],
