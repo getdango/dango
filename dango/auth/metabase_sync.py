@@ -542,11 +542,7 @@ def sync_all_users_to_metabase(
                 errors.append(f"Error syncing {user.email}")
 
         for email, mb_u in mb_by_email.items():
-            if (
-                email != "admin@dango.local"
-                and email not in dango_emails
-                and mb_u.get("is_active", True)
-            ):
+            if email not in dango_emails and mb_u.get("is_active", True):
                 warnings.append(f"Metabase user '{email}' not found in Dango")
 
     except Exception:
