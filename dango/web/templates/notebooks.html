@@ -81,11 +81,15 @@
                                         <button @click="openNotebook(nb)"
                                                 class="text-blue-600 hover:text-blue-800 text-xs font-medium">Open</button>
                                     </template>
+                                    <template x-if="canExecute && nb.lock && nb.lock.locked_by === userEmail">
+                                        <button @click="releaseOwnLock(nb)"
+                                                class="text-yellow-600 hover:text-yellow-800 text-xs font-medium">Release Lock</button>
+                                    </template>
                                     <template x-if="canExecute && nb.lock && nb.lock.locked_by !== userEmail">
                                         <button @click="copyNotebook(nb)"
                                                 class="text-gray-600 hover:text-gray-800 text-xs font-medium">Copy</button>
                                     </template>
-                                    <template x-if="canManage && nb.lock">
+                                    <template x-if="canManage && nb.lock && nb.lock.locked_by !== userEmail">
                                         <button @click="forceReleaseLock(nb)"
                                                 class="text-orange-600 hover:text-orange-800 text-xs font-medium">Force Unlock</button>
                                     </template>
@@ -299,6 +303,22 @@ function notebooksPage() {
                 await this.loadNotebooks();
             } catch (e) { this.error = 'Failed to delete notebook'; }
             this.deleteLoading = false;
+        },
+
+        async releaseOwnLock(nb) {
+            this.error = '';
+            try {
+                const res = await fetch(`/api/notebooks/${nb.name}/release`, {
+                    method: 'POST', headers, body: '{}'
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to release lock'; return; }
+                this.stopHeartbeat();
+                this.activeNotebook = null;
+                this.success = 'Lock released.';
+                setTimeout(() => this.success = '', 3000);
+                await this.loadNotebooks();
+            } catch (e) { this.error = 'Failed to release lock'; }
         },
 
         async forceReleaseLock(nb) {

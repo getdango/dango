@@ -186,6 +186,11 @@ class TestNotebookOpen:
                 result = runner.invoke(notebook, ["open", "test"])
 
             assert "localhost:7805" in result.output
+            # Rich inserts ANSI escape codes in URLs; strip before checking
+            import re
+
+            plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+            assert "?file=test.py" in plain
 
     def test_open_nonexistent_notebook(self):
         runner = CliRunner()
