@@ -1197,9 +1197,8 @@ function renderSourcesTable() {
                 </div>` : '<span class="inline-block w-full text-center text-gray-300">—</span>';
 
         return `
-        <tr id="source-${source.name}" class="hover:bg-gray-50 transition-colors duration-150 cursor-pointer"
-            onclick="${rowClickHandler}" title="${rowClickHelp}">
-            <td class="px-6 py-4 whitespace-nowrap">
+        <tr id="source-${source.name}" class="hover:bg-gray-50 transition-colors duration-150">
+            <td class="px-6 py-4 whitespace-nowrap cursor-pointer" onclick="${rowClickHandler}" title="${rowClickHelp}">
                 <div class="flex items-center">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(source.name)}</div>
                     ${source.needs_attention ? '<span class="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Needs Attention</span>' : ''}
@@ -1210,7 +1209,7 @@ function renderSourcesTable() {
                     ${source.type}
                 </span>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap">
+            <td class="px-6 py-4 whitespace-nowrap cursor-pointer" onclick="event.stopPropagation(); openSyncHistory('${source.name}')" title="Click to view sync history">
                 ${renderStatusPill(source, isSyncing, hasFileOps)}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -1261,7 +1260,7 @@ function renderRowCount(source) {
 
     // Multi-resource source: show breakdown with clean bullets (no monospace needed)
     const tablesList = source.tables
-        .map(t => `<div class="text-xs text-gray-600 pl-4 py-0.5">• <span class="font-medium">${t.name}</span>: ${t.row_count.toLocaleString()} rows</div>`)
+        .map(t => `<div class="text-xs text-gray-600 pl-4 py-0.5">• <a href="/catalog?model=${encodeURIComponent(t.name)}" class="font-medium text-blue-600 hover:text-blue-800 hover:underline" onclick="event.stopPropagation()">${escapeHtml(t.name)}</a>: ${t.row_count.toLocaleString()} rows</div>`)
         .join('');
 
     return `
@@ -1922,7 +1921,7 @@ async function openSourceDetail(sourceName) {
             } else if (details.tables && details.tables.length > 1) {
                 // Multi-resource source: show table breakdown
                 const tablesList = details.tables
-                    .map(t => `<div class="text-xs text-gray-600 pl-4 py-0.5">• <span class="font-medium">${t.name}</span>: ${t.row_count.toLocaleString()} rows</div>`)
+                    .map(t => `<div class="text-xs text-gray-600 pl-4 py-0.5">• <a href="/catalog?model=${encodeURIComponent(t.name)}" class="font-medium text-blue-600 hover:text-blue-800 hover:underline">${escapeHtml(t.name)}</a>: ${t.row_count.toLocaleString()} rows</div>`)
                     .join('');
 
                 detailRowCountElement.innerHTML = `
@@ -2022,6 +2021,12 @@ ${details.config.description ? `<div><span class="font-semibold text-gray-700">N
         // Render history table
         renderSourceHistory(history);
 
+        // Set catalog link
+        const catalogLinkEl = document.getElementById('detail-catalog-link');
+        if (catalogLinkEl) {
+            catalogLinkEl.innerHTML = `<a href="/catalog?model=${encodeURIComponent(sourceName)}" class="text-sm text-indigo-600 hover:text-indigo-800 hover:underline">View in Catalog &rarr;</a>`;
+        }
+
         // Show content, hide loading
         document.getElementById('detail-loading')?.classList.add('hidden');
         document.getElementById('detail-content')?.classList.remove('hidden');
@@ -2035,6 +2040,14 @@ ${details.config.description ? `<div><span class="font-semibold text-gray-700">N
 
 function closeSourceDetail() {
     document.getElementById('source-detail-modal')?.classList.add('hidden');
+}
+
+async function openSyncHistory(sourceName) {
+    await openSourceDetail(sourceName);
+    setTimeout(() => {
+        const el = document.getElementById('detail-history');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 200);
 }
 
 function renderSourceHistory(history) {
@@ -2579,6 +2592,7 @@ window.clearLog = clearLog;
 window.closeUploadModal = closeUploadModal;
 window.openSourceDetail = openSourceDetail;
 window.closeSourceDetail = closeSourceDetail;
+window.openSyncHistory = openSyncHistory;
 window.runDbtModel = runDbtModel;
 window.refreshDbtModels = refreshDbtModels;
 window.switchTab = switchTab;

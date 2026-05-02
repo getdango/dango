@@ -356,7 +356,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `config/models.py` | 600 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 813 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 548 | — |
-| `web/routes/catalog.py` | 1157 | — (data catalog: columns, profiling, lineage, impact, models, search) |
+| `web/routes/catalog.py` | 1286 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/deploy_provision.py` | 846 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
