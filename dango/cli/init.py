@@ -65,8 +65,8 @@ class ProjectInitializer:
             # Save configuration
             self.loader.save_config(config)
 
-            # Create metrics config
-            self._create_metrics_config(force=force)
+            # Create monitors config
+            self._create_monitors_config(force=force)
 
             # Create default .gitignore
             self._create_gitignore()
@@ -152,27 +152,27 @@ class ProjectInitializer:
 
         return DangoConfig(project=project, sources=sources)
 
-    def _create_metrics_config(self, *, force: bool = False) -> None:
-        """Create ``.dango/metrics.yml`` with default analysis metrics.
+    def _create_monitors_config(self, *, force: bool = False) -> None:
+        """Create ``.dango/monitors.yml`` with default monitors.
 
         Fresh init creates an empty config.  ``--force`` re-init with existing
         sources generates templates for configured source types by reading
         the on-disk ``sources.yml`` (not the wizard config, which is blank).
         """
         try:
-            from dango.analysis.config import save_metrics_config
-            from dango.analysis.models import MetricsConfig
+            from dango.analysis.config import save_monitors_config
+            from dango.analysis.models import MonitorsConfig
             from dango.analysis.templates import generate_metrics_for_source
 
-            all_metrics = []  # type: ignore[var-annotated]
+            all_monitors = []  # type: ignore[var-annotated]
             if force:
                 existing_config = self.loader.load_config()
                 if existing_config.sources and existing_config.sources.sources:
                     for src in existing_config.sources.sources:
-                        all_metrics.extend(generate_metrics_for_source(src.type, src.name))
+                        all_monitors.extend(generate_metrics_for_source(src.type, src.name))
 
-            metrics_config = MetricsConfig(enabled=True, metrics=all_metrics)
-            save_metrics_config(self.project_dir, metrics_config)
+            monitors_config = MonitorsConfig(enabled=True, monitors=all_monitors)
+            save_monitors_config(self.project_dir, monitors_config)
         except Exception:
             pass  # Non-critical — never block init
 

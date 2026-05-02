@@ -1,8 +1,8 @@
 """dango/analysis/models.py
 
-Pydantic V2 models for the metric engine, comparison system, and drill-down.
+Pydantic V2 models for the monitoring engine, comparison system, and drill-down.
 
-Defines configuration shapes (``MetricConfig``, ``MetricsConfig``), runtime
+Defines configuration shapes (``MonitorConfig``, ``MonitorsConfig``), runtime
 value containers (``MetricValue``, ``ComparisonResult``), drill-down models
 (``DimensionContributor``, ``DrillDownDimension``), and the top-level
 ``AnalysisResult`` that bundles a metric value with its comparison and
@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -37,17 +37,20 @@ class ComparisonType(str, Enum):
 # ---------------------------------------------------------------------------
 
 
-class MetricConfig(BaseModel):
-    """Single metric definition from ``.dango/metrics.yml``."""
+class MonitorConfig(BaseModel):
+    """Single monitor definition from ``.dango/monitors.yml``."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
 
     name: str
     source_table: str
     value_expression: str
     filter: str | None = None
     compare: ComparisonType = ComparisonType.week_over_week
-    warn_threshold: float | None = None
+    alert_threshold: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("alert_threshold", "warn_threshold"),
+    )
     drill_down: list[str] = Field(default_factory=list)
 
     @field_validator("name")
@@ -55,7 +58,7 @@ class MetricConfig(BaseModel):
     def _name_is_slug(cls, v: str) -> str:
         if not _SLUG_RE.match(v):
             msg = (
-                f"Metric name must be lowercase alphanumeric with underscores, "
+                f"Monitor name must be lowercase alphanumeric with underscores, "
                 f"starting with a letter: {v!r}"
             )
             raise ValueError(msg)
@@ -77,22 +80,33 @@ class MetricConfig(BaseModel):
             raise ValueError(msg)
         return v
 
-    @field_validator("warn_threshold")
+    @field_validator("alert_threshold")
     @classmethod
-    def _warn_threshold_positive(cls, v: float | None) -> float | None:
+    def _alert_threshold_positive(cls, v: float | None) -> float | None:
         if v is not None and v <= 0:
-            msg = f"warn_threshold must be positive: {v}"
+            msg = f"alert_threshold must be positive: {v}"
             raise ValueError(msg)
         return v
 
 
-class MetricsConfig(BaseModel):
-    """Top-level metrics configuration from ``.dango/metrics.yml``."""
+# Backward-compatible aliases
+MetricConfig = MonitorConfig
 
-    model_config = ConfigDict(frozen=True)
 
-    metrics: list[MetricConfig] = Field(default_factory=list)
+class MonitorsConfig(BaseModel):
+    """Top-level monitors configuration from ``.dango/monitors.yml``."""
+
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    monitors: list[MonitorConfig] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("monitors", "metrics"),
+    )
     enabled: bool = True
+
+
+# Backward-compatible alias
+MetricsConfig = MonitorsConfig
 
 
 # ---------------------------------------------------------------------------

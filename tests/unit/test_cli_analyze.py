@@ -1,6 +1,6 @@
 """tests/unit/test_cli_analyze.py
 
-Tests for dango/cli/commands/analyze.py — CLI analyze command.
+Tests for dango/cli/commands/analyze.py — CLI monitor and analyze commands.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ class TestAnalyzeCommand:
         runner = CliRunner()
         result = runner.invoke(cli, ["analyze"])
         assert result.exit_code == 0
-        assert "No metrics" in result.output
+        assert "No monitors" in result.output
 
     @patch("dango.analysis.metrics.run_analysis")
     @patch("dango.cli.utils.require_project_context")
@@ -94,3 +94,44 @@ class TestAnalyzeCommand:
         result = runner.invoke(cli, ["analyze"])
         assert result.exit_code == 0
         assert "broken" in result.output
+
+
+@pytest.mark.unit
+class TestMonitorRunCommand:
+    """Tests for ``dango monitor run``."""
+
+    @patch("dango.analysis.metrics.run_analysis")
+    @patch("dango.cli.utils.require_project_context")
+    def test_no_results(self, mock_ctx: MagicMock, mock_run: MagicMock) -> None:
+        """Empty results show informational message."""
+        mock_ctx.return_value = Path("/fake/project")
+        mock_run.return_value = []
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["monitor", "run"])
+        assert result.exit_code == 0
+        assert "No monitors" in result.output
+
+    @patch("dango.analysis.metrics.run_analysis")
+    @patch("dango.cli.utils.require_project_context")
+    def test_with_results(self, mock_ctx: MagicMock, mock_run: MagicMock) -> None:
+        """Results display in a Rich table."""
+        mock_ctx.return_value = Path("/fake/project")
+        mock_run.return_value = [_make_mock_result()]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["monitor", "run"])
+        assert result.exit_code == 0
+        assert "revenue" in result.output
+
+    @patch("dango.analysis.metrics.run_analysis")
+    @patch("dango.cli.utils.require_project_context")
+    def test_source_filter(self, mock_ctx: MagicMock, mock_run: MagicMock) -> None:
+        """--source flag passes source_filter to run_analysis."""
+        mock_ctx.return_value = Path("/fake/project")
+        mock_run.return_value = []
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["monitor", "run", "--source", "stripe"])
+        assert result.exit_code == 0
+        mock_run.assert_called_once_with(Path("/fake/project"), source_filter=["raw_stripe"])

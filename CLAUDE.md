@@ -26,7 +26,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 | Auth / users / sessions | `dango/auth/` | [`dango/auth/CLAUDE.md`](dango/auth/CLAUDE.md) |
 | Notebooks | `dango/notebooks/` | [`dango/notebooks/CLAUDE.md`](dango/notebooks/CLAUDE.md) |
 | Data governance | `dango/governance/` | [`dango/governance/CLAUDE.md`](dango/governance/CLAUDE.md) |
-| Metric analysis / insights | `dango/analysis/` | [`dango/analysis/CLAUDE.md`](dango/analysis/CLAUDE.md) |
+| Monitoring / analysis | `dango/analysis/` | [`dango/analysis/CLAUDE.md`](dango/analysis/CLAUDE.md) |
 
 ## Don't Read First
 
@@ -101,7 +101,7 @@ dango/                          # Python package source
 │   │   ├── schedule.py         # schedule group (add/list/remove/status/enable/disable/webhook)
 │   │   ├── governance.py       # governance group (drift-report/pii-report)
 │   │   ├── notebook.py         # notebook group (new/open) + snapshot
-│   │   └── analyze.py          # analyze top-level command
+│   │   └── analyze.py          # monitor group + analyze alias
 │   ├── init.py                 # Project initialization wizard
 │   ├── wizard.py               # Interactive setup wizards
 │   ├── source_wizard.py        # Source configuration wizard
@@ -183,7 +183,7 @@ dango/                          # Python package source
 │   │   ├── oauth_connect.py    # Web-based OAuth connect/callback
 │   │   ├── catalog.py          # Data catalog: columns, profiling, lineage, impact, models, search (1157 lines)
 │   │   ├── governance.py       # Schema drift + PII results API
-│   │   ├── insights.py         # Metric results, run trigger, history
+│   │   ├── monitoring.py        # Monitor results, run trigger, history
 │   │   ├── notebooks.py        # Notebook management API + page route
 │   │   └── initial_sync.py     # Initial data sync after first deploy
 │   ├── templates/              # Jinja2 page templates
@@ -196,7 +196,7 @@ dango/                          # Python package source
 │   │   ├── schedules.html      # Schedule management page
 │   │   ├── notebooks.html      # Notebook management page
 │   │   ├── catalog.html        # Data catalog page (495 lines)
-│   │   └── insights.html       # Insights/analysis page
+│   │   └── monitoring.html      # Monitoring page
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration

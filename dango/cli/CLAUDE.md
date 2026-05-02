@@ -38,7 +38,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/schedule.py` (743 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
 | `commands/governance.py` (208 lines) | `governance` group (drift-report, pii-report, pii-set, pii-list) | `governance`, `drift_report()`, `pii_report()`, `pii_set()`, `pii_list()` |
 | `commands/notebook.py` (179 lines) | `notebook` group (new, open) + `snapshot` top-level | `notebook`, `notebook_new()`, `notebook_open()`, `snapshot()` |
-| `commands/analyze.py` (81 lines) | `analyze` top-level command | `analyze()` |
+| `commands/analyze.py` (~95 lines) | `monitor` group + `analyze` alias | `monitor` (group), `monitor_run()`, `analyze()` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
 | `init.py` (1324 lines) | Project initialization wizard | `ProjectInitializer` |
@@ -108,7 +108,9 @@ dango (top-level group)
 │   ├── (default)  interactive wizard (DO or BYOS) → deploy_wizard.py + deploy_provision.py
 │   ├── --byos     deploy to existing server (any provider)
 │   └── destroy    tear down cloud infrastructure (DO resources or BYOS config)
-├── analyze                     ← commands/analyze.py
+├── analyze                     ← commands/analyze.py (alias for monitor run)
+├── monitor (group)             ← commands/analyze.py
+│   ├── run
 ├── snapshot                    ← commands/notebook.py
 ├── governance (group)          ← commands/governance.py
 │   ├── drift-report, pii-report, pii-set, pii-list

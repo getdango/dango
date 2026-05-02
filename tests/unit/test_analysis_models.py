@@ -15,6 +15,8 @@ from dango.analysis.models import (
     MetricConfig,
     MetricsConfig,
     MetricValue,
+    MonitorConfig,
+    MonitorsConfig,
 )
 
 
@@ -31,12 +33,12 @@ class TestComparisonType:
 
 
 @pytest.mark.unit
-class TestMetricConfig:
-    """MetricConfig validation."""
+class TestMonitorConfig:
+    """MonitorConfig validation."""
 
     def test_valid_config(self):
         """Valid config creates successfully."""
-        mc = MetricConfig(
+        mc = MonitorConfig(
             name="daily_revenue",
             source_table="raw_stripe.payments",
             value_expression="SUM(amount)",
@@ -47,23 +49,23 @@ class TestMetricConfig:
 
     def test_full_config(self):
         """Config with all optional fields."""
-        mc = MetricConfig(
+        mc = MonitorConfig(
             name="daily_revenue",
             source_table="raw_stripe.payments",
             value_expression="SUM(amount)",
             filter="status = 'succeeded'",
             compare=ComparisonType.rolling_7day_avg,
-            warn_threshold=10.0,
+            alert_threshold=10.0,
             drill_down=["product_name", "country"],
         )
         assert mc.filter == "status = 'succeeded'"
-        assert mc.warn_threshold == 10.0
+        assert mc.alert_threshold == 10.0
         assert mc.drill_down == ["product_name", "country"]
 
     def test_name_must_be_slug(self):
         """Name with uppercase or special chars is rejected."""
         with pytest.raises(ValidationError, match="lowercase alphanumeric"):
-            MetricConfig(
+            MonitorConfig(
                 name="DailyRevenue",
                 source_table="raw.t",
                 value_expression="SUM(x)",
@@ -72,7 +74,7 @@ class TestMetricConfig:
     def test_name_must_start_with_letter(self):
         """Name starting with digit is rejected."""
         with pytest.raises(ValidationError, match="lowercase alphanumeric"):
-            MetricConfig(
+            MonitorConfig(
                 name="1metric",
                 source_table="raw.t",
                 value_expression="SUM(x)",
@@ -81,7 +83,7 @@ class TestMetricConfig:
     def test_source_table_must_have_dot(self):
         """source_table without schema qualifier is rejected."""
         with pytest.raises(ValidationError, match="schema-qualified"):
-            MetricConfig(
+            MonitorConfig(
                 name="my_metric",
                 source_table="payments",
                 value_expression="SUM(amount)",
@@ -90,66 +92,102 @@ class TestMetricConfig:
     def test_value_expression_not_empty(self):
         """Empty value_expression is rejected."""
         with pytest.raises(ValidationError, match="must not be empty"):
-            MetricConfig(
+            MonitorConfig(
                 name="my_metric",
                 source_table="raw.t",
                 value_expression="   ",
             )
 
-    def test_warn_threshold_must_be_positive(self):
-        """Non-positive warn_threshold is rejected."""
+    def test_alert_threshold_must_be_positive(self):
+        """Non-positive alert_threshold is rejected."""
         with pytest.raises(ValidationError, match="must be positive"):
-            MetricConfig(
+            MonitorConfig(
                 name="my_metric",
                 source_table="raw.t",
                 value_expression="SUM(x)",
-                warn_threshold=-5.0,
+                alert_threshold=-5.0,
             )
 
-    def test_warn_threshold_zero_rejected(self):
-        """Zero warn_threshold is rejected."""
+    def test_alert_threshold_zero_rejected(self):
+        """Zero alert_threshold is rejected."""
         with pytest.raises(ValidationError, match="must be positive"):
-            MetricConfig(
+            MonitorConfig(
                 name="my_metric",
                 source_table="raw.t",
                 value_expression="SUM(x)",
-                warn_threshold=0,
+                alert_threshold=0,
             )
 
     def test_frozen(self):
-        """MetricConfig is immutable."""
-        mc = MetricConfig(name="m", source_table="s.t", value_expression="COUNT(*)")
+        """MonitorConfig is immutable."""
+        mc = MonitorConfig(name="m", source_table="s.t", value_expression="COUNT(*)")
         with pytest.raises(ValidationError):
             mc.name = "other"
 
 
 @pytest.mark.unit
-class TestMetricsConfig:
-    """MetricsConfig model."""
+class TestMonitorsConfig:
+    """MonitorsConfig model."""
 
     def test_empty_default(self):
-        """Empty config has no metrics and is enabled."""
-        cfg = MetricsConfig()
-        assert cfg.metrics == []
+        """Empty config has no monitors and is enabled."""
+        cfg = MonitorsConfig()
+        assert cfg.monitors == []
         assert cfg.enabled is True
 
-    def test_with_metrics(self):
-        """Config with a list of metrics."""
-        cfg = MetricsConfig(
-            metrics=[
-                MetricConfig(
+    def test_with_monitors(self):
+        """Config with a list of monitors."""
+        cfg = MonitorsConfig(
+            monitors=[
+                MonitorConfig(
                     name="m1",
                     source_table="s.t",
                     value_expression="COUNT(*)",
                 ),
             ],
         )
-        assert len(cfg.metrics) == 1
+        assert len(cfg.monitors) == 1
 
     def test_disabled(self):
         """Config can be disabled."""
-        cfg = MetricsConfig(enabled=False)
+        cfg = MonitorsConfig(enabled=False)
         assert cfg.enabled is False
+
+
+@pytest.mark.unit
+class TestBackwardCompatibility:
+    """Backward-compatible aliases work correctly."""
+
+    def test_metric_config_alias(self):
+        """MetricConfig is an alias for MonitorConfig."""
+        assert MetricConfig is MonitorConfig
+
+    def test_metrics_config_alias(self):
+        """MetricsConfig is an alias for MonitorsConfig."""
+        assert MetricsConfig is MonitorsConfig
+
+    def test_warn_threshold_accepted(self):
+        """Old ``warn_threshold`` field name is accepted via AliasChoices."""
+        mc = MonitorConfig(
+            name="test",
+            source_table="s.t",
+            value_expression="COUNT(*)",
+            warn_threshold=10.0,
+        )
+        assert mc.alert_threshold == 10.0
+
+    def test_metrics_key_accepted(self):
+        """Old ``metrics`` key is accepted via AliasChoices."""
+        cfg = MonitorsConfig(
+            metrics=[
+                MonitorConfig(
+                    name="m1",
+                    source_table="s.t",
+                    value_expression="COUNT(*)",
+                ),
+            ],
+        )
+        assert len(cfg.monitors) == 1
 
 
 @pytest.mark.unit

@@ -307,7 +307,7 @@ class SourceWizard:
                         "\n[bold]Enable automatic analysis?[/bold]",
                         default=True,
                     ):
-                        from dango.analysis.config import add_metrics_to_config
+                        from dango.analysis.config import add_monitors_to_config
 
                         header = None
                         if source_type in ("csv", "local_files"):
@@ -316,10 +316,10 @@ class SourceWizard:
                                 f" schema. Replace 'your_table' with your actual"
                                 f" table name after first sync."
                             )
-                        add_metrics_to_config(self.project_root, templates, header_comment=header)
+                        add_monitors_to_config(self.project_root, templates, header_comment=header)
                         console.print(
                             f"[green]✅ Added {len(templates)} analysis"
-                            f" metric(s) to metrics.yml[/green]"
+                            f" monitor(s) to monitors.yml[/green]"
                         )
             except Exception:
                 pass  # Never block source add

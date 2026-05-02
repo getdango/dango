@@ -97,7 +97,7 @@ class TestComputeComparison:
 
         mv = MetricValue(metric_name="revenue", value=110.0)
         result = compute_comparison(
-            tmp_path, mv, ComparisonType.week_over_week, warn_threshold=15.0
+            tmp_path, mv, ComparisonType.week_over_week, alert_threshold=15.0
         )
         assert result.baseline_value == pytest.approx(100.0)
         assert result.change_pct == pytest.approx(10.0)
@@ -110,7 +110,7 @@ class TestComputeComparison:
 
         mv = MetricValue(metric_name="revenue", value=120.0)
         result = compute_comparison(
-            tmp_path, mv, ComparisonType.week_over_week, warn_threshold=10.0
+            tmp_path, mv, ComparisonType.week_over_week, alert_threshold=10.0
         )
         assert result.exceeds_threshold is True
 
@@ -121,7 +121,7 @@ class TestComputeComparison:
 
         mv = MetricValue(metric_name="users", value=110.0)
         result = compute_comparison(
-            tmp_path, mv, ComparisonType.rolling_7day_avg, warn_threshold=None
+            tmp_path, mv, ComparisonType.rolling_7day_avg, alert_threshold=None
         )
         assert result.baseline_value is not None
         assert result.baseline_value == pytest.approx(103.0)
@@ -133,7 +133,7 @@ class TestComputeComparison:
 
         mv = MetricValue(metric_name="orders", value=60.0)
         result = compute_comparison(
-            tmp_path, mv, ComparisonType.rolling_30day_avg, warn_threshold=None
+            tmp_path, mv, ComparisonType.rolling_30day_avg, alert_threshold=None
         )
         assert result.baseline_value == pytest.approx(50.0)
 
@@ -143,14 +143,14 @@ class TestComputeComparison:
         _insert_history(tmp_path, "signups", 90.0, days_ago=0)
 
         mv = MetricValue(metric_name="signups", value=90.0)
-        result = compute_comparison(tmp_path, mv, ComparisonType.prior_period, warn_threshold=None)
+        result = compute_comparison(tmp_path, mv, ComparisonType.prior_period, alert_threshold=None)
         assert result.baseline_value == pytest.approx(80.0)
 
     def test_no_history_returns_none_baseline(self, tmp_path):
         """First run — no history returns None baseline and change_pct."""
         mv = MetricValue(metric_name="new_metric", value=100.0)
         result = compute_comparison(
-            tmp_path, mv, ComparisonType.week_over_week, warn_threshold=10.0
+            tmp_path, mv, ComparisonType.week_over_week, alert_threshold=10.0
         )
         assert result.baseline_value is None
         assert result.change_pct is None
@@ -160,7 +160,7 @@ class TestComputeComparison:
         """Metric with None value returns minimal ComparisonResult."""
         mv = MetricValue(metric_name="broken", value=None, error="query failed")
         result = compute_comparison(
-            tmp_path, mv, ComparisonType.week_over_week, warn_threshold=10.0
+            tmp_path, mv, ComparisonType.week_over_week, alert_threshold=10.0
         )
         assert result.current_value is None
         assert result.baseline_value is None

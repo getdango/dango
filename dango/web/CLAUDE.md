@@ -14,7 +14,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `__init__.py` | Public exports | `app` module |
 | `middleware/auth.py` | Session/API key auth + CSRF check on every request (~325 lines) | `AuthMiddleware`, `is_secure_request()`, `COOKIE_NAME` |
 | `middleware/rate_limit.py` | Rate limiting (login 10/min, API 200/min, localhost exempt, ~212 lines) | `RateLimitMiddleware` |
-| `templates/base.html` | Shared Jinja2 layout: head (compiled Tailwind CSS), header, nav bar (9-item flat: Overview/Sources/Models/Schedules/Catalog/Query/Dashboards/Notebooks/Insights + gear dropdown), responsive hamburger menu, footer, script blocks | Blocks: `title`, `subtitle_attrs`, `header_right`, `nav`, `content`, `footer`, `scripts` |
+| `templates/base.html` | Shared Jinja2 layout: head (compiled Tailwind CSS), header, nav bar (9-item flat: Overview/Sources/Models/Schedules/Catalog/Query/Dashboards/Notebooks/Monitoring + gear dropdown), responsive hamburger menu, footer, script blocks | Blocks: `title`, `subtitle_attrs`, `header_right`, `nav`, `content`, `footer`, `scripts` |
 | `templates/error.html` | HTML error page (extends `base.html`) — status code, title, message, back/home links | Rendered by `dango_error_handler()` for browser 401/403 requests |
 | `templates/dashboard.html` | Overview page (extends `base.html`) — health widget, service cards, activity log | Loads `app.js` |
 | `templates/sources.html` | Sources page (extends `base.html`) — source table, sync controls, upload/detail modals | Loads `app.js` |
@@ -47,13 +47,13 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~490 lines) | `router` |
 | `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact, model list/detail, search (~1286 lines) | `router` |
 | `routes/governance.py` | Schema drift + PII results API (~120 lines) | `router` |
-| `routes/insights.py` | Metric results, run trigger, history (~272 lines) | `router` |
+| `routes/monitoring.py` | Monitor results, run trigger, history + backward-compat redirects for old `/api/insights*` paths (~295 lines) | `router` |
 | `routes/ai.py` | Agent/AI interface: /api/catalog/summary, /api/tools (~496 lines) | `router` |
 | `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |
 | `templates/schedules.html` | Schedule management page (extends `base.html`) — table, modals, WebSocket | Alpine.js `schedulesPage()` component |
 | `templates/notebooks.html` | Notebook management page (extends `base.html`) — table, create/delete modals, locking | Alpine.js `notebooksPage()` component |
 | `templates/catalog.html` | Data catalog page (extends `base.html`) — model browser, search, detail view, code view, profiling, lineage (872 lines) | Alpine.js `catalogPage()` component |
-| `templates/insights.html` | Insights/analysis page (extends `base.html`) — metric results, trends (~153 lines) | Alpine.js `insightsPage()` component |
+| `templates/monitoring.html` | Monitoring page (extends `base.html`) — monitor results, trends (~153 lines) | Alpine.js `monitoringPage()` component |
 | `static/` | CSS and JS assets (`css/tailwind.min.css` (compiled), `css/main.css`, `css/catalog.css`, `css/input.css` (Tailwind source), `js/app.js`, `js/logs.js`, `js/lineage.js`, `js/catalog.js`) | — |
 
 ## Architecture

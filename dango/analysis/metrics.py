@@ -16,13 +16,13 @@ from pathlib import Path
 import duckdb
 
 from dango.analysis.comparisons import compute_comparison
-from dango.analysis.config import load_metrics_config
+from dango.analysis.config import load_monitors_config
 from dango.analysis.models import (
     AnalysisResult,
     ComparisonResult,
     DrillDownDimension,
-    MetricConfig,
     MetricValue,
+    MonitorConfig,
 )
 from dango.logging import get_logger
 from dango.utils.dango_db import connect
@@ -50,8 +50,8 @@ def run_analysis(
     Returns:
         A list of ``AnalysisResult`` objects, one per metric.
     """
-    config = load_metrics_config(project_root)
-    if not config.enabled or not config.metrics:
+    config = load_monitors_config(project_root)
+    if not config.enabled or not config.monitors:
         return []
 
     duckdb_path = project_root / "data" / "warehouse.duckdb"
@@ -61,7 +61,7 @@ def run_analysis(
 
     results: list[AnalysisResult] = []
 
-    for metric in config.metrics:
+    for metric in config.monitors:
         if source_filter is not None:
             source, _table = _parse_source_from_table(metric.source_table)
             if source and source not in source_filter:
@@ -76,7 +76,7 @@ def run_analysis(
                 project_root,
                 metric_value,
                 metric.compare,
-                metric.warn_threshold,
+                metric.alert_threshold,
             )
             _store_comparison_result(project_root, comparison)
 
@@ -111,7 +111,7 @@ def run_analysis(
 # ---------------------------------------------------------------------------
 
 
-def _execute_metric(duckdb_path: Path, metric: MetricConfig) -> MetricValue:
+def _execute_metric(duckdb_path: Path, metric: MonitorConfig) -> MetricValue:
     """Execute a single metric query against DuckDB.
 
     Args:
@@ -153,7 +153,7 @@ def _execute_metric(duckdb_path: Path, metric: MetricConfig) -> MetricValue:
     )
 
 
-def _build_metric_sql(metric: MetricConfig) -> str:
+def _build_metric_sql(metric: MonitorConfig) -> str:
     """Build the SQL query for a metric.
 
     Args:

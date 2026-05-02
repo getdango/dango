@@ -34,7 +34,7 @@ def compute_comparison(
     project_root: Path,
     metric_value: MetricValue,
     comparison_type: ComparisonType,
-    warn_threshold: float | None,
+    alert_threshold: float | None,
 ) -> ComparisonResult:
     """Compare a metric value against its historical baseline.
 
@@ -42,7 +42,7 @@ def compute_comparison(
         project_root: Path to the Dango project root.
         metric_value: The current metric value.
         comparison_type: Which comparison strategy to use.
-        warn_threshold: Percentage change threshold for warnings.
+        alert_threshold: Percentage change threshold for alerts.
 
     Returns:
         A ``ComparisonResult`` with computed change percentage and threshold flag.
@@ -59,11 +59,13 @@ def compute_comparison(
 
     change_pct = _compute_change_pct(current, baseline)
     exceeds = (
-        warn_threshold is not None and change_pct is not None and abs(change_pct) >= warn_threshold
+        alert_threshold is not None
+        and change_pct is not None
+        and abs(change_pct) >= alert_threshold
     )
 
     slope, direction, forecast_days = detect_trend(
-        project_root, metric_value.metric_name, warn_threshold
+        project_root, metric_value.metric_name, alert_threshold
     )
 
     return ComparisonResult(
@@ -82,7 +84,7 @@ def compute_comparison(
 def detect_trend(
     project_root: Path,
     metric_name: str,
-    warn_threshold: float | None = None,
+    alert_threshold: float | None = None,
 ) -> tuple[float | None, str | None, int | None]:
     """Detect a linear trend over the last 30 data points.
 
@@ -91,7 +93,7 @@ def detect_trend(
     Args:
         project_root: Path to the Dango project root.
         metric_name: Name of the metric to analyse.
-        warn_threshold: Optional threshold percentage for forecasting.
+        alert_threshold: Optional threshold percentage for forecasting.
 
     Returns:
         A tuple of ``(slope, direction, forecast_days)``.  All ``None`` if
@@ -124,7 +126,7 @@ def detect_trend(
     else:
         direction = "stable"
 
-    forecast_days = _forecast_threshold_days(ys[-1], slope, warn_threshold, mean_y)
+    forecast_days = _forecast_threshold_days(ys[-1], slope, alert_threshold, mean_y)
 
     return slope, direction, forecast_days
 
@@ -241,19 +243,19 @@ def _linear_regression(
 def _forecast_threshold_days(
     current_value: float,
     slope: float,
-    warn_threshold: float | None,
+    alert_threshold: float | None,
     mean_value: float,
 ) -> int | None:
-    """Estimate days until the warn_threshold percentage change is exceeded.
+    """Estimate days until the alert_threshold percentage change is exceeded.
 
     Returns ``None`` when forecasting is not applicable (no threshold,
     zero slope, or already exceeded).
     """
-    if warn_threshold is None or slope == 0 or mean_value == 0:
+    if alert_threshold is None or slope == 0 or mean_value == 0:
         return None
 
     # Threshold in absolute terms relative to mean
-    threshold_abs = abs(mean_value * warn_threshold / 100)
+    threshold_abs = abs(mean_value * alert_threshold / 100)
     distance = threshold_abs - abs(current_value - mean_value)
 
     if distance <= 0:
