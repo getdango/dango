@@ -581,7 +581,7 @@ class DashboardManager:
         Save Metabase assets to files (simplified export for version control)
 
         Exports dashboards and questions to metabase/ directory in YAML format.
-        By default, excludes personal collections (only exports team/shared assets).
+        By default, only exports the "Shared" collection.
 
         Files can optionally be committed to git for version control, but this
         command works independently of git.
