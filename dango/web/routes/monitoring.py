@@ -287,18 +287,24 @@ async def get_metric_history(
 
 
 @router.get("/api/insights")
-async def redirect_insights_get() -> RedirectResponse:
+async def redirect_insights_get(
+    user: User = Depends(require_permission("governance.view")),
+) -> RedirectResponse:
     """Redirect old GET /api/insights to /api/monitoring."""
     return RedirectResponse(url="/api/monitoring", status_code=301)
 
 
 @router.post("/api/insights/run")
-async def redirect_insights_run() -> RedirectResponse:
+async def redirect_insights_run(
+    user: User = Depends(require_permission("governance.view")),
+) -> RedirectResponse:
     """Redirect old POST /api/insights/run to /api/monitoring/run."""
     return RedirectResponse(url="/api/monitoring/run", status_code=307)
 
 
 @router.get("/api/insights/history")
-async def redirect_insights_history() -> RedirectResponse:
+async def redirect_insights_history(
+    user: User = Depends(require_permission("governance.view")),
+) -> RedirectResponse:
     """Redirect old GET /api/insights/history to /api/monitoring/history."""
     return RedirectResponse(url="/api/monitoring/history", status_code=301)

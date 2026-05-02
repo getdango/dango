@@ -183,7 +183,7 @@ dango/                          # Python package source
 │   │   ├── oauth_connect.py    # Web-based OAuth connect/callback
 │   │   ├── catalog.py          # Data catalog: columns, profiling, lineage, impact, models, search (1157 lines)
 │   │   ├── governance.py       # Schema drift + PII results API
-│   │   ├── monitoring.py        # Monitor results, run trigger, history
+│   │   ├── monitoring.py       # Monitor results, run trigger, history
 │   │   ├── notebooks.py        # Notebook management API + page route
 │   │   └── initial_sync.py     # Initial data sync after first deploy
 │   ├── templates/              # Jinja2 page templates
@@ -196,7 +196,7 @@ dango/                          # Python package source
 │   │   ├── schedules.html      # Schedule management page
 │   │   ├── notebooks.html      # Notebook management page
 │   │   ├── catalog.html        # Data catalog page (495 lines)
-│   │   └── monitoring.html      # Monitoring page
+│   │   └── monitoring.html     # Monitoring page
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
