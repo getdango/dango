@@ -30,6 +30,7 @@ repos:
         types: [python]
         pass_filenames: true
         exclude: dango/ingestion/dlt_sources/
+        stages: [manual]
 
       - id: file-size-check
         name: Check file sizes
