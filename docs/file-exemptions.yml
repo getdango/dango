@@ -148,7 +148,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/visualization/dashboard_manager.py
-    lines: 1117
+    lines: 1112
     category: exempt
     reason: "Dashboard export/import operations. Tightly coupled to metabase.py API surface."
     review_by: "v1.1"

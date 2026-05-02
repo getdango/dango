@@ -588,7 +588,7 @@ class DashboardManager:
 
         Args:
             include_personal: Include personal collections (default: False)
-            collections: Specific collections to export (default: all non-personal)
+            collections: Specific collections to export (default: 'Shared' collection only)
 
         Returns:
             Summary with exported items
@@ -632,7 +632,13 @@ class DashboardManager:
             ]
 
         if not collections_to_export:
-            summary["errors"].append("No collections to export")
+            if collections:
+                summary["errors"].append(f"No matching collections found: {', '.join(collections)}")
+            else:
+                summary["errors"].append(
+                    "No 'Shared' collection found. Create one in Metabase, "
+                    "or use --collections to specify a collection name."
+                )
             return summary
 
         # Create metabase/ directory structure

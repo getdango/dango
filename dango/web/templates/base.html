@@ -77,6 +77,10 @@
                 <div class="flex items-center space-x-2 ml-auto">
                     {% if request.state.user %}
                     <span class="text-xs text-gray-400 hidden lg:inline mr-2">{{ request.state.user.email }}</span>
+                    <span class="text-xs px-1.5 py-0.5 rounded-full hidden lg:inline mr-1
+                        {% if request.state.user.role.value == 'admin' %}bg-red-100 text-red-800
+                        {% elif request.state.user.role.value == 'editor' %}bg-blue-100 text-blue-800
+                        {% else %}bg-gray-100 text-gray-800{% endif %}">{{ request.state.user.role.value }}</span>
                     <!-- Settings gear dropdown -->
                     <div class="relative">
                         <button @click="settingsOpen = !settingsOpen"
@@ -132,6 +136,13 @@
             </div>
             {% if request.state.user %}
             <div class="border-t border-gray-700 px-2 pt-2 pb-3 space-y-1">
+                <div class="px-3 py-2 text-sm text-gray-400 flex items-center space-x-2">
+                    <span>{{ request.state.user.email }}</span>
+                    <span class="text-xs px-1.5 py-0.5 rounded-full
+                        {% if request.state.user.role.value == 'admin' %}bg-red-100 text-red-800
+                        {% elif request.state.user.role.value == 'editor' %}bg-blue-100 text-blue-800
+                        {% else %}bg-gray-100 text-gray-800{% endif %}">{{ request.state.user.role.value }}</span>
+                </div>
                 <a href="/settings/account" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Account Settings</a>
                 {% if request.state.user.role.value == 'admin' %}
                 <a href="/settings/users" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">User Management</a>
