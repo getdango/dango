@@ -2173,6 +2173,8 @@ def run_sync(
     limit: int | None = None,
     skip_dbt: bool = False,
     allow_schema_changes: bool = False,
+    *,
+    skip_sync_notification: bool = False,
 ) -> dict[str, Any]:
     """
     Sync multiple sources and return summary
@@ -2186,6 +2188,8 @@ def run_sync(
         limit: Max rows per source (dev testing)
         skip_dbt: If True, skip dbt run/docs/Metabase refresh (caller handles separately)
         allow_schema_changes: If True, allow CSV schema evolution (add cols, NULL missing)
+        skip_sync_notification: If True, skip sending sync webhooks in post-sync hooks
+            (used by scheduler which sends its own notifications)
 
     Returns:
         Summary dictionary with success/failed counts
@@ -2382,19 +2386,7 @@ def run_sync(
         else:
             console.print("[dim]⏭  Skipping dbt run (will be coalesced)[/dim]\n")
 
-    # Post-sync hooks (profiling, drift detection, PII scanning, analysis)
-    if success_sources:
-        try:
-            from dango.utils.post_sync import dispatch_post_sync_hooks
-
-            dispatch_post_sync_hooks(project_root=project_root, sources=success_sources)
-        except Exception:
-            import logging as _logging
-
-            _logging.getLogger(__name__).debug("post_sync_hooks_failed", exc_info=True)
-            console.print("[dim]Post-sync hooks skipped (non-critical)[/dim]")
-
-    return {
+    summary = {
         "success_count": len(success_sources),
         "failed_count": len(failed_sources),
         "skipped_count": len(skipped_sources),
@@ -2404,3 +2396,22 @@ def run_sync(
         "results": results,
         "oauth_warnings": oauth_warnings,  # For display at very end of sync
     }
+
+    # Post-sync hooks (profiling, drift detection, PII scanning, analysis, notifications)
+    if success_sources:
+        try:
+            from dango.utils.post_sync import dispatch_post_sync_hooks
+
+            dispatch_post_sync_hooks(
+                project_root=project_root,
+                sources=success_sources,
+                sync_result=summary,
+                skip_sync_notification=skip_sync_notification,
+            )
+        except Exception:
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug("post_sync_hooks_failed", exc_info=True)
+            console.print("[dim]Post-sync hooks skipped (non-critical)[/dim]")
+
+    return summary

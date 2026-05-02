@@ -11,7 +11,10 @@ from unittest.mock import patch
 import duckdb
 import pytest
 
-from dango.analysis.templates import generate_metrics_for_source
+from dango.analysis.templates import (
+    _sanitize_table_name,
+    generate_metrics_for_source,
+)
 
 _MOD = "dango.analysis.templates"
 
@@ -197,3 +200,147 @@ class TestGA4DynamicMetrics:
             metrics = generate_metrics_for_source("google_analytics", "ga", project_root=tmp_path)
 
         assert len(metrics) == 0
+
+
+# ---------------------------------------------------------------------------
+# Generic metric templates (BUG-148)
+# ---------------------------------------------------------------------------
+
+
+def _create_generic_warehouse(
+    tmp_path: Path,
+    source_name: str,
+    tables: dict[str, list[str]],
+) -> Path:
+    """Create a DuckDB warehouse with arbitrary tables.
+
+    Args:
+        tables: Mapping of table_name → list of column names.
+    """
+    db_path = tmp_path / "data" / "warehouse.duckdb"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    schema = f"raw_{source_name}"
+    conn = duckdb.connect(str(db_path))
+    conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
+    for table_name, cols in tables.items():
+        col_defs = ", ".join(f'"{c}" VARCHAR' for c in cols)
+        conn.execute(f'CREATE TABLE {schema}."{table_name}" ({col_defs})')
+    conn.close()
+    return db_path
+
+
+@pytest.mark.unit
+class TestGenericMetrics:
+    """Tests for the generic metric fallback (unknown source types)."""
+
+    def test_no_project_root_returns_empty(self) -> None:
+        metrics = generate_metrics_for_source("hubspot", "hs")
+        assert metrics == []
+
+    def test_no_warehouse_returns_empty(self, tmp_path: Path) -> None:
+        metrics = generate_metrics_for_source("hubspot", "hs", project_root=tmp_path)
+        assert metrics == []
+
+    def test_no_tables_returns_empty(self, tmp_path: Path) -> None:
+        """Schema exists but has no user tables."""
+        db_path = tmp_path / "data" / "warehouse.duckdb"
+        db_path.parent.mkdir(parents=True)
+        conn = duckdb.connect(str(db_path))
+        conn.execute("CREATE SCHEMA IF NOT EXISTS raw_empty")
+        conn.close()
+
+        metrics = generate_metrics_for_source("hubspot", "empty", project_root=tmp_path)
+        assert metrics == []
+
+    def test_generates_row_count_per_table(self, tmp_path: Path) -> None:
+        _create_generic_warehouse(
+            tmp_path,
+            "hs",
+            {
+                "contact": ["id", "email"],
+                "deal": ["id", "amount"],
+            },
+        )
+
+        metrics = generate_metrics_for_source("hubspot", "hs", project_root=tmp_path)
+
+        row_count_metrics = [m for m in metrics if "row_count" in m.name]
+        assert len(row_count_metrics) == 2
+        names = {m.name for m in row_count_metrics}
+        assert "hs_contact_row_count" in names
+        assert "hs_deal_row_count" in names
+
+    def test_freshness_only_when_dlt_load_id_exists(self, tmp_path: Path) -> None:
+        _create_generic_warehouse(
+            tmp_path,
+            "src",
+            {
+                "with_load_id": ["id", "_dlt_load_id"],
+                "without_load_id": ["id", "name"],
+            },
+        )
+
+        metrics = generate_metrics_for_source("salesforce", "src", project_root=tmp_path)
+
+        freshness_metrics = [m for m in metrics if "freshness" in m.name]
+        assert len(freshness_metrics) == 1
+        assert freshness_metrics[0].name == "src_with_load_id_freshness"
+        assert "MAX(_dlt_load_id)" in freshness_metrics[0].value_expression
+
+    def test_skips_dlt_internal_tables(self, tmp_path: Path) -> None:
+        _create_generic_warehouse(
+            tmp_path,
+            "src",
+            {
+                "user_table": ["id"],
+                "_dlt_loads": ["load_id"],
+                "_dlt_version": ["version"],
+            },
+        )
+
+        metrics = generate_metrics_for_source("salesforce", "src", project_root=tmp_path)
+
+        metric_tables = {m.source_table for m in metrics}
+        assert "raw_src.user_table" in metric_tables
+        assert all("_dlt_" not in t for t in metric_tables)
+
+    def test_unique_metric_names(self, tmp_path: Path) -> None:
+        _create_generic_warehouse(
+            tmp_path,
+            "src",
+            {
+                "table_a": ["id", "_dlt_load_id"],
+                "table_b": ["id", "_dlt_load_id"],
+            },
+        )
+
+        metrics = generate_metrics_for_source("salesforce", "src", project_root=tmp_path)
+
+        names = [m.name for m in metrics]
+        assert len(names) == len(set(names))
+
+
+@pytest.mark.unit
+class TestSanitizeTableName:
+    """Tests for _sanitize_table_name()."""
+
+    def test_basic_name(self) -> None:
+        assert _sanitize_table_name("users") == "users"
+
+    def test_hyphens_replaced(self) -> None:
+        assert _sanitize_table_name("my-table") == "my_table"
+
+    def test_dots_replaced(self) -> None:
+        assert _sanitize_table_name("my.table") == "my_table"
+
+    def test_leading_digits_stripped(self) -> None:
+        assert _sanitize_table_name("123abc") == "abc"
+
+    def test_all_special_chars_returns_table(self) -> None:
+        assert _sanitize_table_name("---") == "table"
+
+    def test_all_digits_returns_table(self) -> None:
+        assert _sanitize_table_name("123") == "table"
+
+    def test_mixed_special_chars(self) -> None:
+        assert _sanitize_table_name("my table (v2)") == "my_table__v2"

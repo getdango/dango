@@ -319,6 +319,7 @@ class TestDeleteNotebook:
 class TestLockNotebook:
     """Tests for POST /api/notebooks/{name}/lock."""
 
+    @patch(f"{_P}.start_idle_checker")
     @patch(f"{_P}.start_marimo")
     @patch(f"{_P}.get_marimo_status")
     @patch(f"{_P}.get_project_root")
@@ -327,9 +328,10 @@ class TestLockNotebook:
         mock_root: MagicMock,
         mock_status: MagicMock,
         mock_start: MagicMock,
+        mock_idle: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Acquires lock and returns Marimo URL."""
+        """Acquires lock and returns Marimo URL with ?file= query param."""
         mock_root.return_value = tmp_path
         mock_status.return_value = {"running": True, "port": 7805, "pid": 123, "log_file": None}
         _init_db(tmp_path)
@@ -337,7 +339,8 @@ class TestLockNotebook:
         resp = _client(tmp_path).post("/api/notebooks/test_nb/lock", json={})
         assert resp.status_code == 200
         assert resp.json()["locked"] is True
-        assert "test_nb.py" in resp.json()["marimo_url"]
+        assert "?file=test_nb.py" in resp.json()["marimo_url"]
+        mock_idle.assert_called_once_with(tmp_path)
 
     @patch(f"{_P}.get_project_root")
     def test_conflict(self, mock_root: MagicMock, tmp_path: Path) -> None:
@@ -367,11 +370,17 @@ class TestLockNotebook:
         resp = _client(tmp_path).post("/api/notebooks/no_file/lock", json={})
         assert resp.status_code == 404
 
+    @patch(f"{_P}.start_idle_checker")
     @patch(f"{_P}.start_marimo", side_effect=RuntimeError("already running"))
     @patch(f"{_P}.get_marimo_status")
     @patch(f"{_P}.get_project_root")
     def test_marimo_start_race_condition(
-        self, mock_root: MagicMock, mock_status: MagicMock, _ms: MagicMock, tmp_path: Path
+        self,
+        mock_root: MagicMock,
+        mock_status: MagicMock,
+        _ms: MagicMock,
+        _idle: MagicMock,
+        tmp_path: Path,
     ) -> None:
         """Recovers when start_marimo raises RuntimeError (race condition)."""
         mock_root.return_value = tmp_path

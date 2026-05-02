@@ -81,7 +81,7 @@ exemptions:
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
-    lines: 970
+    lines: 985
     category: exempt
     reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic."
     review_by: "v1.1"
@@ -124,9 +124,9 @@ exemptions:
 
   # --- Exempt (stable, not modified in v1) ---
   - file: dango/ingestion/dlt_runner.py
-    lines: 2373
+    lines: 2415
     category: exempt
-    reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage. Post-sync hook dispatch added in P7-000. P5c grew +480 lines (credential unification, resource selection, local_files routing). P8-001 added headers/data_selector/params passthrough (+8 lines)."
+    reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage. Post-sync hook dispatch added in P7-000. P5c grew +480 lines (credential unification, resource selection, local_files routing). P8-001 added headers/data_selector/params passthrough (+8 lines). R9-I added skip_sync_notification param + sync_result passthrough to post_sync hooks."
     review_by: "v1.1"
 
   - file: dango/ingestion/sources/registry.py
@@ -243,9 +243,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/scheduling/jobs.py
-    lines: 839
+    lines: 895
     category: exempt
-    reason: "TASK-041 + TEST-008: Scheduled sync/dbt job functions with DbtLock, WebSocket broadcast, webhook notification, SQLite history recording, per-source cancellation, and timeout/cancel status tracking. Each job path requires broadcast + notify + record calls — splitting would fragment the job lifecycle."
+    reason: "TASK-041 + TEST-008: Scheduled sync/dbt job functions with DbtLock, WebSocket broadcast, webhook notification, SQLite history recording, per-source cancellation, and timeout/cancel status tracking. R9-I added rows_loaded/dashboard_url to _notify + sync result accumulation. Each job path requires broadcast + notify + record calls — splitting would fragment the job lifecycle."
     review_by: "v1.1"
 
   - file: dango/platform/cloud/digitalocean.py
@@ -297,9 +297,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_sync_jobs.py
-    lines: 569
+    lines: 685
     category: exempt
-    reason: "TASK-041: 25 tests across 6 classes covering configure_jobs, _broadcast, _notify, run_scheduled_sync (8 tests incl. lock failure, no sources, exception), run_scheduled_dbt (6 tests incl. lock failure, exception), and _check_freshness. Each test requires isolated mock setup for lazy-import patching."
+    reason: "TASK-041+R9-I: 30 tests across 8 classes covering configure_jobs, _broadcast, _notify (incl. rows_loaded/dashboard_url), _build_dashboard_url (domain/localhost/error), run_scheduled_sync, run_scheduled_dbt, and _check_freshness. Each test requires isolated mock setup for lazy-import patching."
     review_by: "v1.1"
 
   - file: tests/unit/test_scheduler.py
@@ -310,10 +310,16 @@ exemptions:
 
   # --- Phase 4 scheduling ---
 
-  - file: dango/web/routes/schedules.py
-    lines: 720
+  - file: dango/utils/post_sync.py
+    lines: 553
     category: exempt
-    reason: "TASK-037+038+045b: 14 endpoints (history×2, CRUD×5, trigger, reload, cancel, unscheduled, page route, notification config/test). Single router file — split would scatter schedule logic across files."
+    reason: "R9-I: Added _deliver_to_webhooks shared helper and _send_sync_notification for CLI sync webhook delivery. Marginally over limit."
+    review_by: "v1.1"
+
+  - file: dango/web/routes/schedules.py
+    lines: 859
+    category: exempt
+    reason: "TASK-037+038+045b: 16 endpoints (history×2, CRUD×5, trigger, reload, cancel, unscheduled, page route, notification config/test, webhook add/delete). R9-I added webhook CRUD endpoints. Single router file — split would scatter schedule logic across files."
     review_by: "v1.1"
 
   - file: dango/web/routes/sync.py
@@ -323,15 +329,15 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/catalog.py
-    lines: 1157
+    lines: 1286
     category: exempt
-    reason: "P7-001+P7-002+BUG-016: Column schema, profiling, lineage DAG, impact analysis, model list/detail/search endpoints. Single router file — manifest parsing helpers are private to the same module."
+    reason: "P7-001+P7-002+BUG-016+R9-G: Column schema, profiling, lineage DAG, impact analysis, model list/detail/search, raw table discovery, overview summary. Single router file — manifest parsing helpers are private to the same module."
     review_by: "v1.1"
 
   - file: tests/unit/test_catalog_models.py
-    lines: 678
+    lines: 923
     category: exempt
-    reason: "BUG-016: 16 tests covering catalog model list (8) + model detail (8). Test infrastructure shared with test_catalog_lineage.py."
+    reason: "BUG-016+R9-G: 22 tests covering catalog model list (8) + model detail (11) + raw table discovery (3). Test infrastructure shared with test_catalog_lineage.py."
     review_by: "v1.1"
 
   - file: tests/unit/test_schedule_crud_api.py
@@ -347,7 +353,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_web_notebooks.py
-    lines: 506
+    lines: 515
     category: exempt
     reason: "TEST-030: 7 test classes covering page, list, create, delete, lock, heartbeat, release, force-release, copy. Marginally over limit after locked_at test addition."
     review_by: "v1.1"

@@ -714,8 +714,9 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
             console.print("[yellow]⚠[/yellow] Failed to stop file watcher")
 
         # Stop Marimo notebook server
-        from dango.notebooks.manager import get_marimo_status, stop_marimo
+        from dango.notebooks.manager import get_marimo_status, stop_idle_checker, stop_marimo
 
+        stop_idle_checker()
         marimo_was_running = get_marimo_status(project_root)["running"]
         marimo_stopped = stop_marimo(project_root)
         if marimo_was_running and not marimo_stopped:

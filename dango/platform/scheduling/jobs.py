@@ -79,6 +79,8 @@ def _notify(
     error: str | None = None,
     duration_seconds: float | None = None,
     stale_hours: float | None = None,
+    rows_loaded: int | None = None,
+    dashboard_url: str | None = None,
 ) -> None:
     """Bridge a webhook notification (fire-and-forget).  Never raises."""
     try:
@@ -91,6 +93,8 @@ def _notify(
             error=error,
             duration_seconds=duration_seconds,
             stale_hours=stale_hours,
+            rows_loaded=rows_loaded,
+            dashboard_url=dashboard_url,
         )
         asyncio.run_coroutine_threadsafe(coro, _event_loop)
     except Exception:  # noqa: BLE001
@@ -100,6 +104,21 @@ def _notify(
 def _ts() -> str:
     """UTC ISO timestamp for broadcast messages."""
     return datetime.now(tz=timezone.utc).isoformat()
+
+
+def _build_dashboard_url(project_root: Path) -> str | None:
+    """Build the dashboard URL, preferring domain over localhost.  Never raises."""
+    try:
+        from dango.config import ConfigLoader
+
+        loader = ConfigLoader(project_root)
+        cloud = loader.load_cloud_config()
+        if cloud is not None and cloud.domain:
+            return f"https://{cloud.domain}"
+        config = loader.load_config()
+        return f"http://localhost:{config.platform.port}"
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -475,12 +494,24 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         from dango.utils.sync_history import save_sync_history_entry
 
         job_id = f"schedule:{schedule_name}"
+        total_rows = 0
         # Sync each source with skip_dbt=True (dbt coalesced after all sources)
         for src in resolved:
             if _scheduler_service is not None and _scheduler_service.is_cancelled(job_id):
                 raise JobCancelledError(f"Sync cancelled between sources for {schedule_name}")
             src_t0 = time.monotonic()
-            run_sync(project_root, [src], full_refresh=full_refresh, skip_dbt=True)
+            sync_result = run_sync(
+                project_root,
+                [src],
+                full_refresh=full_refresh,
+                skip_dbt=True,
+                skip_sync_notification=True,
+            )
+            total_rows += sum(
+                r.get("rows_loaded", 0)
+                for r in sync_result.get("results", [])
+                if isinstance(r, dict)
+            )
             save_sync_history_entry(
                 project_root,
                 src.name,
@@ -510,6 +541,8 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
 
         elapsed = time.monotonic() - t0
 
+        dashboard_url = _build_dashboard_url(project_root)
+
         _try_finish_record(project_root, schedule_name, record_id, "record_completion")
 
         _log_execution_event(
@@ -534,6 +567,8 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             schedule_name=schedule_name,
             sources=source_names,
             duration_seconds=round(elapsed, 2),
+            rows_loaded=total_rows,
+            dashboard_url=dashboard_url,
         )
         _check_freshness(project_root, schedule_name, source_names, sender)
 
@@ -725,6 +760,8 @@ def run_scheduled_dbt(
         success, output = run_dbt_models(project_root, select=dbt_command)
         elapsed = time.monotonic() - t0
 
+        dbt_dashboard_url = _build_dashboard_url(project_root)
+
         if success:
             _try_finish_record(project_root, schedule_name, record_id, "record_completion")
             _log_execution_event(
@@ -746,6 +783,7 @@ def run_scheduled_dbt(
                 event_type=EventType.SYNC_COMPLETED,
                 schedule_name=schedule_name,
                 duration_seconds=round(elapsed, 2),
+                dashboard_url=dbt_dashboard_url,
             )
         else:
             _try_finish_record(

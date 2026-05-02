@@ -7,10 +7,12 @@ unscheduled-source discovery, and paginated execution history.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import yaml
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import ValidationError
@@ -171,6 +173,143 @@ async def test_notification(
     )
 
     return JSONResponse(content={"status": "sent"})
+
+
+_WEBHOOK_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _read_schedules_yaml(project_root: Path) -> dict[str, Any]:
+    """Read the full schedules.yml as a raw dict."""
+    path = project_root / ".dango" / "schedules.yml"
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _write_schedules_yaml(project_root: Path, data: dict[str, Any]) -> None:
+    """Write the full schedules.yml dict back to disk."""
+    path = project_root / ".dango" / "schedules.yml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+@router.post("/api/notifications/webhooks")
+async def add_webhook(
+    request: Request,
+    user: User = Depends(require_permission("scheduler.manage")),
+) -> JSONResponse:
+    """Add a new webhook to the notification config."""
+    project_root = get_project_root()
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content={"error_code": "DANGO-S009", "message": "Invalid JSON body."},
+        )
+
+    name = body.get("name", "")
+    url = body.get("url", "")
+    fmt = body.get("format", "generic")
+
+    if not _WEBHOOK_NAME_RE.match(name):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error_code": "DANGO-S009",
+                "message": "Webhook name must match ^[a-z][a-z0-9_]*$.",
+            },
+        )
+    if not url.startswith(("http://", "https://")):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error_code": "DANGO-S009",
+                "message": "Webhook URL must start with http:// or https://.",
+            },
+        )
+    if fmt not in ("generic", "slack"):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error_code": "DANGO-S009",
+                "message": "Webhook format must be 'generic' or 'slack'.",
+            },
+        )
+
+    data = _read_schedules_yaml(project_root)
+    notifications = data.setdefault("notifications", {})
+    webhooks = notifications.setdefault("webhooks", [])
+
+    # Check duplicate
+    if any(wh.get("name") == name for wh in webhooks):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error_code": "DANGO-S010",
+                "message": f"Webhook {name!r} already exists.",
+            },
+        )
+
+    webhooks.append({"name": name, "url": url, "format": fmt})
+    _write_schedules_yaml(project_root, data)
+
+    _audit(
+        AuditEvent.SCHEDULE_UPDATED,
+        user,
+        request,
+        project_root,
+        action="webhook_added",
+        webhook_name=name,
+    )
+
+    return JSONResponse(
+        status_code=201,
+        content={"status": "created", "name": name},
+    )
+
+
+@router.delete("/api/notifications/webhooks/{name}")
+async def delete_webhook(
+    name: str,
+    request: Request,
+    user: User = Depends(require_permission("scheduler.manage")),
+) -> JSONResponse:
+    """Remove a webhook from the notification config."""
+    project_root = get_project_root()
+    data = _read_schedules_yaml(project_root)
+    notifications = data.get("notifications", {})
+    webhooks = notifications.get("webhooks", [])
+
+    original_len = len(webhooks)
+    webhooks = [wh for wh in webhooks if wh.get("name") != name]
+
+    if len(webhooks) == original_len:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error_code": "DANGO-S011",
+                "message": f"Webhook {name!r} not found.",
+            },
+        )
+
+    notifications["webhooks"] = webhooks
+    data["notifications"] = notifications
+    _write_schedules_yaml(project_root, data)
+
+    _audit(
+        AuditEvent.SCHEDULE_UPDATED,
+        user,
+        request,
+        project_root,
+        action="webhook_removed",
+        webhook_name=name,
+    )
+
+    return JSONResponse(content={"status": "deleted", "name": name})
 
 
 @router.get("/api/schedules/history/recent")
