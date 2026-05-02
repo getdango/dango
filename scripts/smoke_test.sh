@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/smoke_test.sh — v1.3 (2026-04-30)
+# scripts/smoke_test.sh — v1.4 (2026-05-02)
 #
 # Automated smoke test for a running Dango instance.
 # Requires: dango start running in a test project, venv activated.
@@ -279,7 +279,7 @@ curl_page_test "/sources" "/sources" "Sources"
 curl_page_test "/models" "/models" "Models"
 curl_page_test "/schedules" "/schedules" "Schedules"
 curl_page_test "/catalog" "/catalog" "Catalog"
-curl_page_test "/insights" "/insights" "Insights"
+curl_page_test "/monitoring" "/monitoring" "Monitoring"
 curl_page_test "/notebooks" "/notebooks" "Notebooks"
 curl_page_test "/health" "/health" "Health"
 curl_page_test "/logs" "/logs" "Logs"
@@ -313,7 +313,7 @@ nav_html=$(curl -s -H "Authorization: Bearer $API_KEY" "${BASE_URL}/")
 nav_ok=true
 
 # Check for 9 pipeline nav items (target state after R7-C)
-for item in "Overview" "Sources" "Models" "Schedules" "Catalog" "Query" "Dashboards" "Notebooks" "Insights"; do
+for item in "Overview" "Sources" "Models" "Schedules" "Catalog" "Query" "Dashboards" "Notebooks" "Monitoring"; do
     if ! grep -q "$item" <<< "$nav_html"; then
         fail_test "Nav structure" "Missing nav item: $item"
         nav_ok=false
@@ -425,7 +425,9 @@ fi
 # BUG-082: /api/sources includes supports_date_range capability
 # Note: requires at least one configured source in the test project
 sources_body=$(curl -s -H "Authorization: Bearer $API_KEY" -H "X-Requested-With: XMLHttpRequest" "${BASE_URL}/api/sources")
-if grep -q "supports_date_range" <<< "$sources_body"; then
+if [ "$sources_body" = "[]" ]; then
+    skip_test "supports_date_range (BUG-082)" "no sources configured"
+elif grep -q "supports_date_range" <<< "$sources_body"; then
     pass_test
 else
     fail_test "supports_date_range (BUG-082)" "Field not found in /api/sources response"
@@ -470,10 +472,10 @@ else
     skip_test "DELETE /api/notebooks/smoke_test_nb" "create failed"
 fi
 
-# Insights
-curl_api_test "GET /api/insights" GET "/api/insights"
-curl_api_test "GET /api/insights/history" GET "/api/insights/history?metric=row_count&days=7"
-curl_api_test "POST /api/insights/run" POST "/api/insights/run"
+# Monitoring
+curl_api_test "GET /api/monitoring" GET "/api/monitoring"
+curl_api_test "GET /api/monitoring/history" GET "/api/monitoring/history?metric=row_count&days=7"
+curl_api_test "POST /api/monitoring/run" POST "/api/monitoring/run"
 
 category_end "8" "R9 Feature Checks"
 
