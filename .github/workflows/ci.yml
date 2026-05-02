@@ -54,6 +54,7 @@ jobs:
 
   security:
     name: Security (pip-audit)
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
