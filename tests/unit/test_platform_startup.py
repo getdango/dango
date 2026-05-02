@@ -269,7 +269,7 @@ class TestSetupMetabaseIfNeeded:
         assert result["success"] is True
 
     def test_skips_admin_at_localhost(self, tmp_path, monkeypatch):
-        """BUG-100: admin@localhost is filtered like admin@dango.local."""
+        """BUG-100: admin@localhost is filtered out for Metabase setup."""
         monkeypatch.delenv("DANGO_ADMIN_EMAIL", raising=False)
         # Create auth DB with admin@localhost
         from dango.auth.admin import get_auth_db_path

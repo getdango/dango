@@ -242,10 +242,7 @@ def setup_metabase_if_needed(
             if db_path.exists():
                 users = list_users(db_path, active_only=True)
                 admins = [u for u in users if u.role == Role.ADMIN]
-                if admins and admins[0].email not in (
-                    "admin@dango.local",
-                    "admin@localhost",
-                ):
+                if admins and admins[0].email != "admin@localhost":
                     admin_email = admins[0].email
         except Exception:
             pass
