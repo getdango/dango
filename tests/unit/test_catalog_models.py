@@ -816,6 +816,7 @@ class TestGetCatalogModel:
 class TestRawTableDiscovery:
     """Tests for _get_raw_tables_from_duckdb and list endpoint integration."""
 
+    @patch("dango.web.routes.catalog._get_source_summary_stats")
     @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
     @patch("dango.web.routes.catalog._get_run_results")
@@ -826,6 +827,7 @@ class TestRawTableDiscovery:
         mock_run_results: MagicMock,
         mock_raw_tables: MagicMock,
         mock_root: MagicMock,
+        mock_source_stats: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Unmodeled raw tables appear in sources list (BUG-132)."""
@@ -834,6 +836,7 @@ class TestRawTableDiscovery:
         db_dir.mkdir()
         (db_dir / "warehouse.duckdb").touch()
         mock_root.return_value = project_root
+        mock_source_stats.return_value = {}
 
         mock_manifest.return_value = _make_manifest(
             sources={
@@ -857,6 +860,7 @@ class TestRawTableDiscovery:
         assert "order_items" in source_names  # from raw tables
         assert source_names.count("orders") == 1  # no duplicate
 
+    @patch("dango.web.routes.catalog._get_source_summary_stats")
     @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
     @patch("dango.web.routes.catalog._get_run_results")
@@ -867,6 +871,7 @@ class TestRawTableDiscovery:
         mock_run_results: MagicMock,
         mock_raw_tables: MagicMock,
         mock_root: MagicMock,
+        mock_source_stats: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Response includes overview with source/table/model counts (BUG-128)."""
@@ -875,6 +880,7 @@ class TestRawTableDiscovery:
         db_dir.mkdir()
         (db_dir / "warehouse.duckdb").touch()
         mock_root.return_value = project_root
+        mock_source_stats.return_value = {}
 
         mock_manifest.return_value = _make_manifest(
             sources={
@@ -921,3 +927,113 @@ class TestRawTableDiscovery:
         assert "overview" in data
         assert data["overview"]["model_count"] == 0
         assert data["overview"]["table_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# BUG-155: Per-source breakdown in overview
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSourcesDetail:
+    """Tests for sources_detail in catalog overview (BUG-155)."""
+
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog._get_source_summary_stats")
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_sources_detail_in_overview(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        mock_raw_tables: MagicMock,
+        mock_root: MagicMock,
+        mock_source_stats: MagicMock,
+        mock_helpers_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """sources_detail contains per-source table count and row count."""
+        client, project_root = _setup_client(tmp_path)
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        (db_dir / "warehouse.duckdb").touch()
+        mock_root.return_value = project_root
+        mock_helpers_root.return_value = project_root
+
+        # Create sources config
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        (dango_dir / "sources.yml").write_text(
+            "sources:\n  - name: shop\n    type: postgres\n  - name: crm\n    type: hubspot\n"
+        )
+
+        mock_manifest.return_value = _make_manifest()
+        mock_run_results.return_value = None
+        mock_raw_tables.return_value = []
+        mock_source_stats.return_value = {
+            "shop": {"table_count": 5, "row_count_total": 12000},
+            "crm": {"table_count": 3, "row_count_total": 800},
+        }
+
+        resp = client.get("/api/catalog/models")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        overview = data["overview"]
+        assert "sources_detail" in overview
+        assert len(overview["sources_detail"]) == 2
+
+        detail_map = {sd["name"]: sd for sd in overview["sources_detail"]}
+        assert detail_map["shop"]["table_count"] == 5
+        assert detail_map["shop"]["row_count_total"] == 12000
+        assert detail_map["crm"]["table_count"] == 3
+        assert detail_map["crm"]["row_count_total"] == 800
+
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog._get_source_summary_stats")
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_sources_detail_missing_source_in_duckdb(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        mock_raw_tables: MagicMock,
+        mock_root: MagicMock,
+        mock_source_stats: MagicMock,
+        mock_helpers_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Source in config but not in DuckDB gets zero counts."""
+        client, project_root = _setup_client(tmp_path)
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        (db_dir / "warehouse.duckdb").touch()
+        mock_root.return_value = project_root
+        mock_helpers_root.return_value = project_root
+
+        # Source in config but not in DuckDB stats
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        (dango_dir / "sources.yml").write_text(
+            "sources:\n  - name: shop\n    type: postgres\n  - name: new_source\n    type: stripe\n"
+        )
+
+        mock_manifest.return_value = _make_manifest()
+        mock_run_results.return_value = None
+        mock_raw_tables.return_value = []
+        mock_source_stats.return_value = {
+            "shop": {"table_count": 3, "row_count_total": 500},
+            # new_source is NOT in DuckDB yet
+        }
+
+        resp = client.get("/api/catalog/models")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        detail_map = {sd["name"]: sd for sd in data["overview"]["sources_detail"]}
+        assert detail_map["new_source"]["table_count"] == 0
+        assert detail_map["new_source"]["row_count_total"] == 0

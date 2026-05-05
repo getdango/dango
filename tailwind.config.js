@@ -4,6 +4,7 @@ module.exports = {
     "./dango/web/templates/**/*.html",
     "./dango/web/static/js/**/*.js",
   ],
+  safelist: ['xl:table-cell'],
   theme: {
     extend: {
       colors: {
