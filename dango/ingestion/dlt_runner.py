@@ -457,6 +457,7 @@ class DltPipelineRunner:
                 "status": result_status,
                 "duration_seconds": round(duration, 2),
                 "rows_processed": rows_loaded,
+                "total_row_count": result.get("total_row_count"),
                 "full_refresh": is_full_refresh,
                 "error_message": error_message,
                 "start_date": effective_start,
@@ -1060,7 +1061,12 @@ class DltPipelineRunner:
 
             # Check for row count anomalies
             if rows_loaded >= 0:
-                anomaly = self._check_row_count_anomaly(source_name, rows_loaded)
+                total_row_count = self._get_source_total_rows(source_name)
+                if total_row_count is not None:
+                    stats["total_row_count"] = total_row_count
+                anomaly = self._check_row_count_anomaly(
+                    source_name, rows_loaded, total_rows=total_row_count
+                )
                 if anomaly:
                     stats["anomaly"] = anomaly
 
@@ -1697,41 +1703,76 @@ class DltPipelineRunner:
         mins = minutes % 60
         return f"{hours}h {mins}m"
 
-    def _check_row_count_anomaly(
-        self, source_name: str, current_rows: int
-    ) -> dict[str, Any] | None:
-        """Check for row count anomalies compared to previous sync.
+    def _get_source_total_rows(self, source_name: str) -> int | None:
+        """Get total row count across all tables in a source's raw schema."""
+        import duckdb
 
+        schema = f"raw_{source_name}"
+        try:
+            conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
+            tables = conn.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = ? AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'",
+                [schema],
+            ).fetchall()
+            total = 0
+            for (table_name,) in tables:
+                result = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table_name}"').fetchone()
+                if result:
+                    total += result[0]
+            conn.close()
+            return total
+        except Exception:
+            return None
+
+    def _check_row_count_anomaly(
+        self, source_name: str, current_rows: int, total_rows: int | None = None
+    ) -> dict[str, Any] | None:
+        """Check for row count anomalies by comparing total table row counts.
+
+        Queries DuckDB for total rows across all tables in raw_{source_name}
+        schema, then compares against previous sync's total.
         Returns an anomaly dict if detected, None otherwise.
         """
         from dango.utils.sync_history import load_sync_history
 
-        history = load_sync_history(self.project_root, source_name, limit=5)
-        # Find the most recent successful sync (skip current)
-        prev_rows = None
-        for entry in history:
-            if entry.get("status") == "success" and entry.get("rows_processed", 0) > 0:
-                prev_rows = entry["rows_processed"]
-                break
+        # Get total rows across ALL tables in the source schema
+        if total_rows is None:
+            total_rows = self._get_source_total_rows(source_name)
+        if total_rows is None:
+            return None  # Can't query DB — skip check
 
-        if prev_rows is None:
+        # Find previous total from history
+        history = load_sync_history(self.project_root, source_name, limit=5)
+        prev_total = None
+        for entry in history:
+            if entry.get("status") == "success":
+                # Prefer total_row_count (new field), fall back to rows_processed
+                if entry.get("total_row_count", 0) > 0:
+                    prev_total = entry["total_row_count"]
+                    break
+                elif entry.get("rows_processed", 0) > 0:
+                    prev_total = entry["rows_processed"]
+                    break
+
+        if prev_total is None:
             return None  # No baseline — first successful sync
 
-        if current_rows == 0 and prev_rows > 0:
-            msg = f"Zero rows loaded (previous sync: {prev_rows:,})"
+        if total_rows == 0 and prev_total > 0:
+            msg = f"Zero rows in database (previous total: {prev_total:,})"
             console.print(f"  [red]⚠ {msg}[/red]")
-            return {"level": "error", "message": msg}
+            return {"level": "error", "message": msg, "total_row_count": total_rows}
 
-        if prev_rows > 0:
-            ratio = current_rows / prev_rows
+        if prev_total > 0:
+            ratio = total_rows / prev_total
             if ratio < 0.5:
-                msg = f"Row count dropped >50%: {current_rows:,} vs previous {prev_rows:,}"
+                msg = f"Total row count dropped >50%: {total_rows:,} vs previous {prev_total:,}"
                 console.print(f"  [yellow]⚠ {msg}[/yellow]")
-                return {"level": "warning", "message": msg}
+                return {"level": "warning", "message": msg, "total_row_count": total_rows}
             if ratio > 3.0:
-                msg = f"Row count spiked >300%: {current_rows:,} vs previous {prev_rows:,}"
+                msg = f"Total row count spiked >300%: {total_rows:,} vs previous {prev_total:,}"
                 console.print(f"  [yellow]⚠ {msg}[/yellow]")
-                return {"level": "warning", "message": msg}
+                return {"level": "warning", "message": msg, "total_row_count": total_rows}
 
         return None
 

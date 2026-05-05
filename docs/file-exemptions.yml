@@ -124,9 +124,9 @@ exemptions:
 
   # --- Exempt (stable, not modified in v1) ---
   - file: dango/ingestion/dlt_runner.py
-    lines: 2415
+    lines: 2458
     category: exempt
-    reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage. Post-sync hook dispatch added in P7-000. P5c grew +480 lines (credential unification, resource selection, local_files routing). P8-001 added headers/data_selector/params passthrough (+8 lines). R9-I added skip_sync_notification param + sync_result passthrough to post_sync hooks."
+    reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage. Post-sync hook dispatch added in P7-000. P5c grew +480 lines (credential unification, resource selection, local_files routing). P8-001 added headers/data_selector/params passthrough (+8 lines). R9-I added skip_sync_notification param + sync_result passthrough to post_sync hooks. R10-F3 added _get_source_total_rows + rewrote anomaly check to use DB totals (BUG-182)."
     review_by: "v1.1"
 
   - file: dango/ingestion/sources/registry.py
@@ -180,9 +180,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/transformation/generator.py
-    lines: 548
+    lines: 575
     category: exempt
-    reason: "DbtModelGenerator — generates dbt models from source configs. Stable, rarely modified."
+    reason: "DbtModelGenerator — generates dbt models from source configs. R10-F3 added _find_dlt_nested_table for double-underscore table discovery (BUG-152)."
     review_by: "v1.1"
 
   - file: dango/platform/local/watcher.py
