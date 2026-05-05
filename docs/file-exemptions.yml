@@ -303,9 +303,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_scheduler.py
-    lines: 596
+    lines: 658
     category: exempt
-    reason: "TASK-036+039: 10 test classes covering SchedulerService init, lifecycle, jobs, status, event listeners, history integration, coroutine bridge, cloud warning, startup summary, health endpoint, and job stubs. Each class requires isolated mock setup with APScheduler dual-patch pattern."
+    reason: "TASK-036+039+BUG-167: 11 test classes covering SchedulerService init, lifecycle, jobs, status, event listeners, history integration, coroutine bridge, cloud warning, startup summary, missed recovery, health endpoint, and job stubs. Each class requires isolated mock setup with APScheduler dual-patch pattern."
     review_by: "v1.1"
 
   # --- Phase 4 scheduling ---
