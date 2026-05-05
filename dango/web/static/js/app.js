@@ -2655,6 +2655,7 @@ window.closeUploadModal = closeUploadModal;
 window.openSourceDetail = openSourceDetail;
 window.closeSourceDetail = closeSourceDetail;
 window.openSyncHistory = openSyncHistory;
+window.closeSyncHistory = closeSyncHistory;
 window.runDbtModel = runDbtModel;
 window.refreshDbtModels = refreshDbtModels;
 window.switchTab = switchTab;
