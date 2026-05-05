@@ -516,6 +516,68 @@ class TestJobFunctions:
         assert callable(configure_jobs)
 
 
+@pytest.mark.unit
+class TestSchedulerMissedRecovery:
+    """Test missed job recovery logging on startup."""
+
+    def test_missed_jobs_logged_on_startup(self, tmp_path):
+        """Jobs with next_run_time in the past should be logged as recovering."""
+        from datetime import datetime, timezone
+
+        svc = _make_service(tmp_path)
+        past_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+        job = MagicMock()
+        job.id = "sync-google-sheets"
+        job.next_run_time = past_time
+        svc._scheduler.get_jobs.return_value = [job]
+
+        with patch(f"{_SCHEDULER_MOD}.logger") as mock_logger:
+            svc._log_missed_recovery()
+
+        mock_logger.info.assert_called_once()
+        call_args = mock_logger.info.call_args
+        assert call_args[0][0] == "scheduler_recovering_missed_jobs"
+        assert call_args[1]["count"] == 1
+
+    def test_no_log_when_no_missed_jobs(self, tmp_path):
+        """No log when all jobs have future next_run_time."""
+        from datetime import datetime, timezone
+
+        svc = _make_service(tmp_path)
+        future_time = datetime(2099, 1, 1, tzinfo=timezone.utc)
+
+        job = MagicMock()
+        job.id = "sync-google-sheets"
+        job.next_run_time = future_time
+        svc._scheduler.get_jobs.return_value = [job]
+
+        with patch(f"{_SCHEDULER_MOD}.logger") as mock_logger:
+            svc._log_missed_recovery()
+
+        mock_logger.info.assert_not_called()
+
+    def test_no_log_when_next_run_time_is_none(self, tmp_path):
+        """Jobs with next_run_time=None (paused) should not count as missed."""
+        svc = _make_service(tmp_path)
+
+        job = MagicMock()
+        job.id = "paused-job"
+        job.next_run_time = None
+        svc._scheduler.get_jobs.return_value = [job]
+
+        with patch(f"{_SCHEDULER_MOD}.logger") as mock_logger:
+            svc._log_missed_recovery()
+
+        mock_logger.info.assert_not_called()
+
+    def test_misfire_grace_time_is_none(self):
+        """Verify _DEFAULT_MISFIRE_GRACE_TIME is None (unlimited)."""
+        from dango.platform.scheduling.scheduler import _DEFAULT_MISFIRE_GRACE_TIME
+
+        assert _DEFAULT_MISFIRE_GRACE_TIME is None
+
+
 _HEALTH_MOD = "dango.web.routes.health"
 
 
