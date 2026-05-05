@@ -210,21 +210,25 @@ def _get_source_summary_stats(db_path: Path) -> dict[str, dict[str, int]]:
         db_path: Path to DuckDB warehouse file.
 
     Returns:
-        ``{source_name: {"table_count": int, "row_count_total": int}}``.
+        ``{source_name: {"table_count": int, "estimated_row_total": int}}``.
     """
-    conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
     try:
-        rows = conn.execute(
-            "SELECT schema_name, COUNT(*) AS table_count, "
-            "COALESCE(SUM(estimated_size), 0) AS row_count_total "
-            "FROM duckdb_tables() "
-            "WHERE schema_name LIKE 'raw_%' "
-            "AND table_name NOT LIKE '_dlt_%' "
-            "GROUP BY schema_name"
-        ).fetchall()
-    finally:
-        conn.close()
-    return {r[0][4:]: {"table_count": r[1], "row_count_total": r[2]} for r in rows}
+        conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
+        try:
+            rows = conn.execute(
+                "SELECT schema_name, COUNT(*) AS table_count, "
+                "COALESCE(SUM(estimated_size), 0) AS estimated_row_total "
+                "FROM duckdb_tables() "
+                "WHERE schema_name LIKE 'raw_%' "
+                "AND table_name NOT LIKE '_dlt_%' "
+                "GROUP BY schema_name"
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        logger.warning("source_summary_stats_failed", db_path=str(db_path))
+        return {}
+    return {r[0][4:]: {"table_count": r[1], "estimated_row_total": r[2]} for r in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -906,12 +910,12 @@ async def list_catalog_models(
     sources_detail: list[dict[str, Any]] = []
     for src_cfg in sources_config:
         src_name = src_cfg.get("name", "")
-        stats = source_stats.get(src_name, {"table_count": 0, "row_count_total": 0})
+        stats = source_stats.get(src_name, {"table_count": 0, "estimated_row_total": 0})
         sources_detail.append(
             {
                 "name": src_name,
                 "table_count": stats["table_count"],
-                "row_count_total": stats["row_count_total"],
+                "estimated_row_total": stats["estimated_row_total"],
                 "freshness_status": freshness_by_source.get(src_name),
             }
         )

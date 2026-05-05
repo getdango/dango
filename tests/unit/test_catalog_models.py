@@ -973,8 +973,8 @@ class TestSourcesDetail:
         mock_run_results.return_value = None
         mock_raw_tables.return_value = []
         mock_source_stats.return_value = {
-            "shop": {"table_count": 5, "row_count_total": 12000},
-            "crm": {"table_count": 3, "row_count_total": 800},
+            "shop": {"table_count": 5, "estimated_row_total": 12000},
+            "crm": {"table_count": 3, "estimated_row_total": 800},
         }
 
         resp = client.get("/api/catalog/models")
@@ -987,9 +987,9 @@ class TestSourcesDetail:
 
         detail_map = {sd["name"]: sd for sd in overview["sources_detail"]}
         assert detail_map["shop"]["table_count"] == 5
-        assert detail_map["shop"]["row_count_total"] == 12000
+        assert detail_map["shop"]["estimated_row_total"] == 12000
         assert detail_map["crm"]["table_count"] == 3
-        assert detail_map["crm"]["row_count_total"] == 800
+        assert detail_map["crm"]["estimated_row_total"] == 800
 
     @patch("dango.web.helpers.get_project_root")
     @patch("dango.web.routes.catalog._get_source_summary_stats")
@@ -1026,7 +1026,7 @@ class TestSourcesDetail:
         mock_run_results.return_value = None
         mock_raw_tables.return_value = []
         mock_source_stats.return_value = {
-            "shop": {"table_count": 3, "row_count_total": 500},
+            "shop": {"table_count": 3, "estimated_row_total": 500},
             # new_source is NOT in DuckDB yet
         }
 
@@ -1036,4 +1036,4 @@ class TestSourcesDetail:
         data = resp.json()
         detail_map = {sd["name"]: sd for sd in data["overview"]["sources_detail"]}
         assert detail_map["new_source"]["table_count"] == 0
-        assert detail_map["new_source"]["row_count_total"] == 0
+        assert detail_map["new_source"]["estimated_row_total"] == 0
