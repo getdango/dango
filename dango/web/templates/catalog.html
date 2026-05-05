@@ -140,6 +140,13 @@
             </template>
             <template x-if="searchResults === null">
                 <div>
+                    <template x-if="sourceFilter">
+                        <div class="mb-3 flex items-center gap-2 text-sm text-gray-600">
+                            Showing tables from source: <span class="font-medium" x-text="sourceFilter"></span>
+                            <button @click="sourceFilter = null; activeTab = 'all'; if (!_skipPush) updateUrl(false)"
+                                class="ml-2 text-indigo-600 hover:underline text-xs">Show all</button>
+                        </div>
+                    </template>
                     <template x-if="filteredItems.length === 0 && !loading">
                         <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
                             <template x-if="allModels.length === 0 && allSources.length === 0">
@@ -495,6 +502,7 @@ function catalogPage() {
     return {
         view: 'list',
         activeTab: 'all',
+        sourceFilter: null,
         searchQuery: '',
         searchResults: null,
         allModels: [],
@@ -582,6 +590,8 @@ function catalogPage() {
                 params.set('view', 'lineage');
                 if (this.lineageFocusName) params.set('focus', this.lineageFocusName);
                 if (this.lineageFocusSourceName) params.set('focus_source', this.lineageFocusSourceName);
+            } else if (this.sourceFilter) {
+                params.set('source', this.sourceFilter);
             } else if (this.activeTab !== 'all') {
                 params.set('filter', this.activeTab);
             }
@@ -596,6 +606,7 @@ function catalogPage() {
         async restoreFromUrl() {
             const params = new URLSearchParams(window.location.search);
             const model = params.get('model');
+            const source = params.get('source');
             const view = params.get('view');
             const filter = params.get('filter');
             if (model) {
@@ -604,6 +615,9 @@ function catalogPage() {
                 if (tab && ['columns', 'code', 'info'].includes(tab)) {
                     this.detailTab = tab;
                 }
+            } else if (source) {
+                this.activeTab = 'source';
+                this.sourceFilter = source;
             } else if (view === 'lineage') {
                 const focus = params.get('focus');
                 const focusSource = params.get('focus_source');
@@ -623,6 +637,9 @@ function catalogPage() {
         },
 
         get filteredItems() {
+            if (this.sourceFilter) {
+                return this.allSources.filter(s => s.source_name === this.sourceFilter);
+            }
             const items = [...this.allSources, ...this.allModels];
             if (this.activeTab === 'all') return items;
             return items.filter(i => i.type === this.activeTab);
@@ -637,7 +654,7 @@ function catalogPage() {
         goToList() {
             if (this._lineage) { this._lineage.destroy(); this._lineage = null; }
             this.selectedNode = null; this.impactHighlighted = false; this.impactCount = 0;
-            this.lineageFocusName = null; this.lineageFocusSourceName = null;
+            this.lineageFocusName = null; this.lineageFocusSourceName = null; this.sourceFilter = null;
             this.view = 'list'; this.selectedModel = null; this.detailTab = 'columns';
             if (!this._skipPush) this.updateUrl(false);
         },
