@@ -203,6 +203,34 @@ def _get_raw_tables_from_duckdb(db_path: Path) -> list[dict[str, str]]:
     return [{"schema": r[0], "table": r[1], "source_name": r[0][4:]} for r in rows]
 
 
+def _get_source_summary_stats(db_path: Path) -> dict[str, dict[str, int]]:
+    """Query per-source table counts and estimated row counts.
+
+    Args:
+        db_path: Path to DuckDB warehouse file.
+
+    Returns:
+        ``{source_name: {"table_count": int, "estimated_row_total": int}}``.
+    """
+    try:
+        conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
+        try:
+            rows = conn.execute(
+                "SELECT schema_name, COUNT(*) AS table_count, "
+                "COALESCE(SUM(estimated_size), 0) AS estimated_row_total "
+                "FROM duckdb_tables() "
+                "WHERE schema_name LIKE 'raw_%' "
+                "AND table_name NOT LIKE '_dlt_%' "
+                "GROUP BY schema_name"
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        logger.warning("source_summary_stats_failed", db_path=str(db_path))
+        return {}
+    return {r[0][4:]: {"table_count": r[1], "estimated_row_total": r[2]} for r in rows}
+
+
 # ---------------------------------------------------------------------------
 # Manifest / model helpers (called via asyncio.to_thread)
 # ---------------------------------------------------------------------------
@@ -827,9 +855,13 @@ async def list_catalog_models(
     # BUG-132: Discover raw tables without dbt staging models
     project_root = get_project_root()
     db_path = project_root / "data" / "warehouse.duckdb"
+    source_stats: dict[str, dict[str, int]] = {}
     if db_path.exists():
+        raw_tables, source_stats = await asyncio.gather(
+            asyncio.to_thread(_get_raw_tables_from_duckdb, db_path),
+            asyncio.to_thread(_get_source_summary_stats, db_path),
+        )
         known_names = {s["name"] for s in result["sources"]}
-        raw_tables = await asyncio.to_thread(_get_raw_tables_from_duckdb, db_path)
         for rt in raw_tables:
             if rt["table"] not in known_names:
                 result["sources"].append(
@@ -872,11 +904,28 @@ async def list_catalog_models(
                     "hours_since_sync": f.get("hours_since_sync"),
                 }
             )
+
+    # BUG-155: Per-source breakdown with table count, row count, freshness
+    freshness_by_source = {item["source"]: item["status"] for item in freshness_items}
+    sources_detail: list[dict[str, Any]] = []
+    for src_cfg in sources_config:
+        src_name = src_cfg.get("name", "")
+        stats = source_stats.get(src_name, {"table_count": 0, "estimated_row_total": 0})
+        sources_detail.append(
+            {
+                "name": src_name,
+                "table_count": stats["table_count"],
+                "estimated_row_total": stats["estimated_row_total"],
+                "freshness_status": freshness_by_source.get(src_name),
+            }
+        )
+
     result["overview"] = {
         "source_count": len(sources_config),
         "table_count": len(result["sources"]),
         "model_count": len(result["models"]),
         "freshness": freshness_items,
+        "sources_detail": sources_detail,
     }
 
     return result
