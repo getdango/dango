@@ -2032,7 +2032,7 @@ ${details.config.description ? `<div><span class="font-semibold text-gray-700">N
         // Set catalog link
         const catalogLinkEl = document.getElementById('detail-catalog-link');
         if (catalogLinkEl) {
-            catalogLinkEl.innerHTML = `<a href="/catalog?model=${encodeURIComponent(sourceName)}" class="text-sm text-indigo-600 hover:text-indigo-800 hover:underline">View in Catalog &rarr;</a>`;
+            catalogLinkEl.innerHTML = `<a href="/catalog?source=${encodeURIComponent(sourceName)}" class="text-sm text-indigo-600 hover:text-indigo-800 hover:underline">View in Catalog &rarr;</a>`;
         }
 
         // Show content, hide loading
@@ -2051,11 +2051,73 @@ function closeSourceDetail() {
 }
 
 async function openSyncHistory(sourceName) {
-    await openSourceDetail(sourceName);
-    setTimeout(() => {
-        const el = document.getElementById('detail-history');
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 200);
+    const modal = document.getElementById('sync-history-modal');
+    if (!modal) {
+        // Fallback: open full detail modal scrolled to history
+        await openSourceDetail(sourceName);
+        setTimeout(() => {
+            const el = document.getElementById('detail-history');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 200);
+        return;
+    }
+
+    // Show compact sync history modal
+    modal.classList.remove('hidden');
+    const nameEl = document.getElementById('sync-history-source-name');
+    if (nameEl) nameEl.textContent = sourceName;
+
+    const tbody = document.getElementById('sync-history-body');
+    const noHistory = document.getElementById('sync-history-empty');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-3 text-center text-gray-500 text-sm">Loading...</td></tr>';
+    if (noHistory) noHistory.classList.add('hidden');
+
+    try {
+        const response = await fetch(`/api/sources/${encodeURIComponent(sourceName)}/details`);
+        if (!response.ok) throw new Error('Failed to load');
+        const data = await response.json();
+        const history = (data.history || []).slice(0, 5);
+
+        if (!history.length) {
+            if (tbody) tbody.innerHTML = '';
+            if (noHistory) noHistory.classList.remove('hidden');
+            return;
+        }
+
+        if (tbody) {
+            tbody.innerHTML = history.map(entry => {
+                const statusClass = entry.status === 'success'
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-red-100 text-red-800';
+                const statusLabel = entry.status === 'success' ? 'OK' : 'Fail';
+                const duration = entry.duration != null ? entry.duration.toFixed(1) + 's' : '-';
+                const rows = entry.row_count != null ? entry.row_count.toLocaleString() : '-';
+                const time = formatRelativeTime(entry.timestamp);
+                return `<tr class="border-t border-gray-100">
+                    <td class="px-4 py-2 text-sm text-gray-600">${escapeHtml(time)}</td>
+                    <td class="px-4 py-2"><span class="px-2 py-0.5 text-xs font-medium rounded-full ${statusClass}">${statusLabel}</span></td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${escapeHtml(duration)}</td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${escapeHtml(rows)}</td>
+                </tr>`;
+            }).join('');
+        }
+    } catch (error) {
+        console.error('Error loading sync history:', error);
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-3 text-center text-red-500 text-sm">Failed to load history</td></tr>';
+    }
+
+    // Wire up "View full details" link
+    const fullDetailsBtn = document.getElementById('sync-history-full-details');
+    if (fullDetailsBtn) {
+        fullDetailsBtn.onclick = () => {
+            closeSyncHistory();
+            openSourceDetail(sourceName);
+        };
+    }
+}
+
+function closeSyncHistory() {
+    document.getElementById('sync-history-modal')?.classList.add('hidden');
 }
 
 function renderSourceHistory(history) {
@@ -2601,6 +2663,7 @@ window.closeUploadModal = closeUploadModal;
 window.openSourceDetail = openSourceDetail;
 window.closeSourceDetail = closeSourceDetail;
 window.openSyncHistory = openSyncHistory;
+window.closeSyncHistory = closeSyncHistory;
 window.runDbtModel = runDbtModel;
 window.refreshDbtModels = refreshDbtModels;
 window.switchTab = switchTab;
