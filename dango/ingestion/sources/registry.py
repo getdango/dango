@@ -427,7 +427,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "popularity": 9,
         "capabilities": {
             "performance_metrics": True,
-            "date_range": True,
+            "date_range": False,
             "incremental": True,
             "custom_queries": False,
         },
@@ -1103,7 +1103,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "popularity": 5,
         "capabilities": {
             "performance_metrics": True,
-            "date_range": True,
+            "date_range": False,
             "incremental": True,
             "custom_queries": True,
         },
@@ -1254,7 +1254,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "popularity": 7,
         "capabilities": {
             "performance_metrics": False,
-            "date_range": True,
+            "date_range": False,
             "incremental": True,
             "custom_queries": False,
         },
@@ -1745,7 +1745,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "popularity": 7,
         "capabilities": {
             "performance_metrics": False,
-            "date_range": True,
+            "date_range": False,
             "incremental": True,
             "custom_queries": False,
         },
@@ -1806,7 +1806,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "popularity": 6,
         "capabilities": {
             "performance_metrics": False,
-            "date_range": True,
+            "date_range": False,
             "incremental": True,
             "custom_queries": False,
         },
@@ -1837,7 +1837,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "popularity": 3,
         "capabilities": {
             "performance_metrics": False,
-            "date_range": True,
+            "date_range": False,
             "incremental": False,
             "custom_queries": False,
         },

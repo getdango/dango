@@ -76,6 +76,25 @@ class TestSourceSupportsDateRange:
     def test_unknown_source_not_supported(self) -> None:
         assert _source_supports_date_range("nonexistent_source_xyz") is False
 
+    def test_chess_no_date_range(self) -> None:
+        """Chess source has no date-related params at all."""
+        assert _source_supports_date_range("chess") is False
+
+    def test_date_range_capability_matches_start_date_param(self) -> None:
+        """date_range capability flag must be consistent with start_date param presence."""
+        from dango.ingestion.sources.registry import SOURCE_REGISTRY
+
+        for source_type, metadata in SOURCE_REGISTRY.items():
+            caps = metadata.get("capabilities", {})
+            has_flag = caps.get("date_range", False)
+            all_params = metadata.get("optional_params", []) + metadata.get("required_params", [])
+            has_param = any(p.get("name") == "start_date" for p in all_params)
+
+            assert has_flag == has_param, (
+                f"Source '{source_type}': date_range={has_flag} but "
+                f"{'has' if has_param else 'missing'} start_date param"
+            )
+
 
 def _make_mock_source(name: str = "test_src", source_type: str = "stripe"):
     """Create a mock DataSource with the given name and type."""
