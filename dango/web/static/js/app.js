@@ -1208,6 +1208,7 @@ function renderSourcesTable() {
                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
                     ${source.type}
                 </span>
+                <div class="text-xs text-gray-400 mt-0.5">${source.sync_mode === 'full_refresh' ? 'Full Refresh' : 'Incremental'}${source.lookback_days ? ` (${source.lookback_days}d)` : ''}</div>
             </td>
             <td class="px-6 py-4 whitespace-nowrap cursor-pointer" onclick="event.stopPropagation(); openSyncHistory('${source.name}')" title="Click to view sync history">
                 ${renderStatusPill(source, isSyncing, hasFileOps)}
@@ -1960,6 +1961,13 @@ async function openSourceDetail(sourceName) {
             }
 
             freshnessElement.innerHTML = freshnessHTML;
+        }
+
+        const syncModeEl = document.getElementById('detail-sync-mode');
+        if (syncModeEl) {
+            const mode = details.sync_mode === 'incremental' ? 'Incremental' : 'Full Refresh';
+            const lookback = details.lookback_days ? ` (${details.lookback_days}d lookback)` : '';
+            syncModeEl.textContent = mode + lookback;
         }
 
         const history = details.history || [];

@@ -116,6 +116,49 @@ def source_add(ctx: click.Context) -> None:
         raise click.Abort()
 
 
+@source.command("edit")
+@click.pass_context
+def source_edit(ctx: click.Context) -> None:
+    """Open sources.yml in your default editor ($EDITOR)."""
+    from pathlib import Path
+
+    project_root = ctx.obj.get("project_root")
+    if not project_root:
+        console.print("[red]Not in a dango project directory[/red]")
+        return
+
+    sources_file = Path(project_root) / ".dango" / "sources.yml"
+    if not sources_file.exists():
+        console.print("[red]No sources.yml found[/red]")
+        console.print("[dim]Run 'dango source add' first[/dim]")
+        return
+
+    original = sources_file.read_text()
+    edited = click.edit(original, extension=".yml")
+
+    if edited is None:
+        console.print("[yellow]No editor or no changes.[/yellow]")
+        console.print(f"[dim]Edit manually: {sources_file}[/dim]")
+        return
+
+    if edited == original:
+        console.print("[dim]No changes detected.[/dim]")
+        return
+
+    # Validate YAML syntax
+    import yaml
+
+    try:
+        yaml.safe_load(edited)
+    except yaml.YAMLError as e:
+        console.print(f"[red]Invalid YAML:[/red] {e}")
+        console.print("[yellow]Changes NOT saved.[/yellow]")
+        return
+
+    sources_file.write_text(edited)
+    console.print("[green]sources.yml updated[/green]")
+
+
 @source.command("list")
 @click.option("--enabled-only", is_flag=True, help="Show only enabled sources")
 @click.pass_context
