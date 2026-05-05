@@ -33,7 +33,7 @@ from dango.logging import get_logger
 logger = get_logger(__name__)
 
 _DEFAULT_THREAD_POOL_SIZE = 20
-_DEFAULT_MISFIRE_GRACE_TIME = 3600  # 1 hour
+_DEFAULT_MISFIRE_GRACE_TIME = None  # Unlimited — missed jobs always run once on startup
 
 
 class SchedulerService:
@@ -112,6 +112,9 @@ class SchedulerService:
         self._scheduler.add_listener(self._on_job_executed, EVENT_JOB_EXECUTED)
         self._scheduler.add_listener(self._on_job_error, EVENT_JOB_ERROR)
         self._scheduler.add_listener(self._on_job_missed, EVENT_JOB_MISSED)
+
+        # Log missed jobs that will be recovered on start
+        self._log_missed_recovery()
 
         self._scheduler.start()
         self._started = True
@@ -388,6 +391,21 @@ class SchedulerService:
             )
         except Exception:  # noqa: BLE001
             logger.debug("history_cleanup_setup_failed", exc_info=True)
+
+    def _log_missed_recovery(self) -> None:
+        """Log count of missed jobs that will be recovered on startup."""
+        from datetime import datetime, timezone
+
+        jobs = self._scheduler.get_jobs()
+        now = datetime.now(timezone.utc)
+        missed = [j for j in jobs if j.next_run_time is not None and j.next_run_time < now]
+        if missed:
+            logger.info(
+                "scheduler_recovering_missed_jobs",
+                count=len(missed),
+                job_ids=[j.id for j in missed],
+                message=f"Recovering {len(missed)} missed job(s) (coalesced to single execution)",
+            )
 
     def _log_startup_summary(self) -> None:
         """Log the number of loaded jobs and next run times."""
