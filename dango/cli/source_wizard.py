@@ -217,6 +217,31 @@ class SourceWizard:
             # Step 7: Create source config
             source_config = self._create_source_config(source_name, source_type, params, metadata)
 
+            # Step 7b: Prompt for lookback window if source has a registry default
+            default_lookback = (metadata.get("default_config") or {}).get("lookback_days")
+            if default_lookback is not None:
+                ad_sources = {"google_ads", "facebook_ads"}
+                console.print(f"\n[bold]Lookback window: {default_lookback} day(s)[/bold]")
+                console.print(
+                    "  [dim]Each incremental sync re-loads recent data to catch "
+                    "late-arriving records.[/dim]"
+                )
+                if source_type in ad_sources:
+                    console.print(
+                        "  [dim]Ad platform attribution can update for days after "
+                        "the initial report (e.g., Google Ads up to 30 days).[/dim]"
+                    )
+                keep = Confirm.ask(f"  Keep default of {default_lookback} days?", default=True)
+                if keep:
+                    source_config["lookback_days"] = default_lookback
+                else:
+                    from rich.prompt import IntPrompt
+
+                    custom = IntPrompt.ask("  Enter lookback days", default=default_lookback)
+                    if custom < 1:
+                        custom = 1
+                    source_config["lookback_days"] = custom
+
             # Step 8: If secrets required, validate credentials FIRST (before saving)
             if self.secret_params:
                 import os
@@ -331,14 +356,6 @@ class SourceWizard:
                 console.print(
                     "  [dim]You can press Ctrl+C during sync — progress is saved "
                     "and resumes on next run.[/dim]"
-                )
-
-            # Show lookback window setting if configured
-            lookback = (metadata.get("default_config") or {}).get("lookback_days")
-            if lookback:
-                console.print(
-                    f"\n  [dim]Lookback window: {lookback} day(s) — each incremental "
-                    f"sync re-loads recent data to catch late-arriving records.[/dim]"
                 )
 
             # Unified success message for all sources

@@ -810,6 +810,18 @@ async def get_source_status_data(source: dict) -> SourceStatus:
     supports_incremental = capabilities.get("incremental", True) if capabilities else True
     supports_date_range = capabilities.get("date_range", False) if capabilities else False
 
+    # Derive sync mode and lookback from capabilities + config
+    sync_mode = "incremental" if supports_incremental else "full_refresh"
+    write_disposition = "merge" if supports_incremental else "replace"
+
+    lookback_days = source.get("lookback_days")
+    if lookback_days is None:
+        from dango.ingestion.sources.registry import get_source_metadata
+
+        meta = get_source_metadata(source_type)
+        if meta:
+            lookback_days = (meta.get("default_config") or {}).get("lookback_days")
+
     return SourceStatus(
         name=source_name,
         type=source_type,
@@ -821,4 +833,7 @@ async def get_source_status_data(source: dict) -> SourceStatus:
         tables=tables,
         supports_incremental=supports_incremental,
         supports_date_range=supports_date_range,
+        sync_mode=sync_mode,
+        lookback_days=lookback_days,
+        write_disposition=write_disposition,
     )
