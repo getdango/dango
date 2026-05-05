@@ -9,11 +9,31 @@ app = marimo.App()
 
 
 @app.cell
+def guidance():
+    """Introductory guidance for the quality notebook."""
+    import marimo as mo
+
+    return (
+        mo.md(
+            """
+# Data Quality
+
+This notebook shows **row counts** and **column metadata** for tables in your
+DuckDB warehouse (read-only). Each cell's output appears below it — edit the
+WHERE clause in `null_analysis` to inspect a specific table.
+
+**Tip:** Use `mo.ui.table(df)` for interactive, sortable tables.
+"""
+        ),
+    )
+
+
+@app.cell
 def setup():
     """Connect to the local DuckDB warehouse in read-only mode."""
     import duckdb
 
-    conn = duckdb.connect("data/warehouse.duckdb", read_only=True)
+    conn = duckdb.connect("data/warehouse.duckdb", config={"access_mode": "read_only"})
     return (conn,)
 
 
