@@ -1,21 +1,19 @@
 """dango/web/routes/schedules.py
 
-API endpoints for schedule management and execution history. Provides CRUD
-for schedule definitions, manual triggering, reload from YAML, cancellation,
-unscheduled-source discovery, and paginated execution history.
+Read-only API endpoints for schedule viewing, manual triggering, execution
+history, reload from YAML, cancellation, unscheduled-source discovery, and
+notification config/test.  Schedule and webhook definitions are managed
+exclusively via the CLI (``dango schedule add``, ``dango schedule webhook add``).
 """
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import ValidationError
 
 import dango
 from dango.auth.audit import AuditEvent, log_auth_event
@@ -27,8 +25,6 @@ from dango.config.schedules import (
     get_schedule_job_id,
     load_schedules_config,
     reload_schedules,
-    save_schedules_config,
-    validate_schedules,
 )
 from dango.logging import get_logger
 from dango.platform.notifications.webhook import (
@@ -45,7 +41,7 @@ from dango.platform.scheduling.history import (
     get_scheduler_db_path,
 )
 from dango.web.helpers import get_project_root, load_sources_config
-from dango.web.models import ScheduleCreateRequest, TriggerRequest
+from dango.web.models import TriggerRequest
 from dango.web.routes.ui import _render_template
 
 if TYPE_CHECKING:
@@ -175,143 +171,6 @@ async def test_notification(
     return JSONResponse(content={"status": "sent"})
 
 
-_WEBHOOK_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
-
-
-def _read_schedules_yaml(project_root: Path) -> dict[str, Any]:
-    """Read the full schedules.yml as a raw dict."""
-    path = project_root / ".dango" / "schedules.yml"
-    if not path.exists():
-        return {}
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
-
-
-def _write_schedules_yaml(project_root: Path, data: dict[str, Any]) -> None:
-    """Write the full schedules.yml dict back to disk."""
-    path = project_root / ".dango" / "schedules.yml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-
-
-@router.post("/api/notifications/webhooks")
-async def add_webhook(
-    request: Request,
-    user: User = Depends(require_permission("scheduler.manage")),
-) -> JSONResponse:
-    """Add a new webhook to the notification config."""
-    project_root = get_project_root()
-
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse(
-            status_code=400,
-            content={"error_code": "DANGO-S009", "message": "Invalid JSON body."},
-        )
-
-    name = body.get("name", "")
-    url = body.get("url", "")
-    fmt = body.get("format", "generic")
-
-    if not _WEBHOOK_NAME_RE.match(name):
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error_code": "DANGO-S009",
-                "message": "Webhook name must match ^[a-z][a-z0-9_]*$.",
-            },
-        )
-    if not url.startswith(("http://", "https://")):
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error_code": "DANGO-S009",
-                "message": "Webhook URL must start with http:// or https://.",
-            },
-        )
-    if fmt not in ("generic", "slack"):
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error_code": "DANGO-S009",
-                "message": "Webhook format must be 'generic' or 'slack'.",
-            },
-        )
-
-    data = _read_schedules_yaml(project_root)
-    notifications = data.setdefault("notifications", {})
-    webhooks = notifications.setdefault("webhooks", [])
-
-    # Check duplicate
-    if any(wh.get("name") == name for wh in webhooks):
-        return JSONResponse(
-            status_code=409,
-            content={
-                "error_code": "DANGO-S010",
-                "message": f"Webhook {name!r} already exists.",
-            },
-        )
-
-    webhooks.append({"name": name, "url": url, "format": fmt})
-    _write_schedules_yaml(project_root, data)
-
-    _audit(
-        AuditEvent.SCHEDULE_UPDATED,
-        user,
-        request,
-        project_root,
-        action="webhook_added",
-        webhook_name=name,
-    )
-
-    return JSONResponse(
-        status_code=201,
-        content={"status": "created", "name": name},
-    )
-
-
-@router.delete("/api/notifications/webhooks/{name}")
-async def delete_webhook(
-    name: str,
-    request: Request,
-    user: User = Depends(require_permission("scheduler.manage")),
-) -> JSONResponse:
-    """Remove a webhook from the notification config."""
-    project_root = get_project_root()
-    data = _read_schedules_yaml(project_root)
-    notifications = data.get("notifications", {})
-    webhooks = notifications.get("webhooks", [])
-
-    original_len = len(webhooks)
-    webhooks = [wh for wh in webhooks if wh.get("name") != name]
-
-    if len(webhooks) == original_len:
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error_code": "DANGO-S011",
-                "message": f"Webhook {name!r} not found.",
-            },
-        )
-
-    notifications["webhooks"] = webhooks
-    data["notifications"] = notifications
-    _write_schedules_yaml(project_root, data)
-
-    _audit(
-        AuditEvent.SCHEDULE_UPDATED,
-        user,
-        request,
-        project_root,
-        action="webhook_removed",
-        webhook_name=name,
-    )
-
-    return JSONResponse(content={"status": "deleted", "name": name})
-
-
 @router.get("/api/schedules/history/recent")
 async def recent_executions(
     user: User = Depends(require_permission("scheduler.view")),
@@ -368,75 +227,6 @@ async def list_schedules(
         result.append(entry)
 
     return JSONResponse(content=result)
-
-
-@router.post("/api/schedules")
-async def create_schedule(
-    request: Request,
-    body: ScheduleCreateRequest,
-    user: User = Depends(require_permission("scheduler.manage")),
-) -> JSONResponse:
-    """Create a new schedule definition."""
-    project_root = get_project_root()
-    config = load_schedules_config(project_root)
-
-    # Check for duplicate name
-    if _find_schedule(config, body.name) is not None:
-        return JSONResponse(
-            status_code=409,
-            content={
-                "error_code": "DANGO-S005",
-                "message": f"Schedule {body.name!r} already exists.",
-            },
-        )
-
-    # Validate through ScheduleConfig (handles cron, name, type validation)
-    try:
-        new_sched = ScheduleConfig(**body.model_dump())
-    except ValidationError as e:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error_code": "DANGO-S004",
-                "message": str(e),
-            },
-        )
-
-    # Cross-validate against sources (only block on errors, not overlap/interval warnings)
-    sources = load_sources_config()
-    source_names = {s["name"] for s in sources if "name" in s}
-    issues = validate_schedules([*config.schedules, new_sched], source_names)
-    errors = [i for i in issues if "Duplicate" in i or "unknown source" in i]
-    if errors:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error_code": "DANGO-S004",
-                "message": "; ".join(errors),
-            },
-        )
-
-    # Persist
-    updated_config = SchedulesConfig(schedules=[*config.schedules, new_sched])
-    save_schedules_config(project_root, updated_config)
-
-    # Reload scheduler
-    scheduler = _get_scheduler(request)
-    if scheduler is not None:
-        reload_schedules(scheduler, updated_config.schedules, project_root)
-
-    _audit(
-        AuditEvent.SCHEDULE_CREATED,
-        user,
-        request,
-        project_root,
-        schedule_name=body.name,
-    )
-
-    return JSONResponse(
-        status_code=201,
-        content=new_sched.model_dump(exclude_none=True, mode="json"),
-    )
 
 
 @router.post("/api/schedules/reload")
@@ -579,137 +369,6 @@ async def get_schedule(
     result["recent_history"] = history
 
     return JSONResponse(content=result)
-
-
-@router.put("/api/schedules/{name}")
-async def update_schedule(
-    name: str,
-    request: Request,
-    body: ScheduleCreateRequest,
-    user: User = Depends(require_permission("scheduler.manage")),
-) -> JSONResponse:
-    """Update an existing schedule definition."""
-    project_root = get_project_root()
-    config = load_schedules_config(project_root)
-    existing = _find_schedule(config, name)
-
-    if existing is None:
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error_code": "DANGO-S003",
-                "message": f"Schedule {name!r} not found.",
-            },
-        )
-
-    # Block renames — body name must match URL name to avoid orphaned history
-    if body.name != name:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error_code": "DANGO-S004",
-                "message": (
-                    f"Schedule name in body ({body.name!r}) does not match "
-                    f"URL name ({name!r}). Renaming is not supported — "
-                    "delete and re-create instead."
-                ),
-            },
-        )
-
-    # Validate the updated schedule through ScheduleConfig
-    try:
-        updated_sched = ScheduleConfig(**body.model_dump())
-    except ValidationError as e:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error_code": "DANGO-S004",
-                "message": str(e),
-            },
-        )
-
-    # Replace in list
-    new_schedules = [updated_sched if s.name == name else s for s in config.schedules]
-
-    # Cross-validate
-    sources = load_sources_config()
-    source_names = {s["name"] for s in sources if "name" in s}
-    issues = validate_schedules(new_schedules, source_names)
-    errors = [i for i in issues if "Duplicate" in i or "unknown source" in i]
-    if errors:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error_code": "DANGO-S004",
-                "message": "; ".join(errors),
-            },
-        )
-
-    # Persist
-    updated_config = SchedulesConfig(schedules=new_schedules)
-    save_schedules_config(project_root, updated_config)
-
-    # Reload scheduler
-    scheduler = _get_scheduler(request)
-    if scheduler is not None:
-        reload_schedules(scheduler, updated_config.schedules, project_root)
-
-    _audit(
-        AuditEvent.SCHEDULE_UPDATED,
-        user,
-        request,
-        project_root,
-        schedule_name=name,
-    )
-
-    return JSONResponse(
-        content=updated_sched.model_dump(exclude_none=True, mode="json"),
-    )
-
-
-@router.delete("/api/schedules/{name}")
-async def delete_schedule(
-    name: str,
-    request: Request,
-    user: User = Depends(require_permission("scheduler.manage")),
-) -> JSONResponse:
-    """Delete a schedule definition."""
-    project_root = get_project_root()
-    config = load_schedules_config(project_root)
-    existing = _find_schedule(config, name)
-
-    if existing is None:
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error_code": "DANGO-S003",
-                "message": f"Schedule {name!r} not found.",
-            },
-        )
-
-    # Remove from config
-    new_schedules = [s for s in config.schedules if s.name != name]
-    updated_config = SchedulesConfig(schedules=new_schedules)
-    save_schedules_config(project_root, updated_config)
-
-    # Remove from scheduler
-    scheduler = _get_scheduler(request)
-    if scheduler is not None:
-        job_id = get_schedule_job_id(name)
-        try:
-            scheduler.remove_job(job_id)
-        except Exception:  # noqa: BLE001
-            logger.debug("schedule_job_remove_failed", name=name)
-
-    _audit(
-        AuditEvent.SCHEDULE_DELETED,
-        user,
-        request,
-        project_root,
-        schedule_name=name,
-    )
-
-    return JSONResponse(content={"status": "deleted", "name": name})
 
 
 @router.post("/api/schedules/{name}/trigger")
