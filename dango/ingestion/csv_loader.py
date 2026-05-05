@@ -238,6 +238,21 @@ class CSVLoader:
 
             conn.close()
 
+            # BUG-169: If files were classified for loading but none loaded, report error
+            files_attempted = len(classified["new"]) + len(classified["updated"])
+            files_loaded = stats["new"] + stats["updated"]
+            if files_attempted > 0 and files_loaded == 0 and stats["deleted"] == 0:
+                error_msg = (
+                    f"No data loaded from {files_attempted} file(s)"
+                    " — all files failed or had 0 rows"
+                )
+                console.print(f"  [red]✗ {error_msg}[/red]")
+                return {
+                    "status": "error",
+                    "error": error_msg,
+                    **stats,
+                }
+
             console.print(
                 f"  ✓ Loaded: {stats['new']} new, {stats['updated']} updated, "
                 f"{stats['deleted']} deleted | Total rows: {stats['total_rows']}"
@@ -437,6 +452,35 @@ class CSVLoader:
         """
         for col_name, col_type in new_columns.items():
             conn.execute(f'ALTER TABLE {target_table} ADD COLUMN "{col_name}" {col_type}')
+
+    def _build_insert_select(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        temp_table: str,
+        target_table: str,
+    ) -> tuple[str, list[str]]:
+        """Build INSERT SELECT with NULL padding for missing columns.
+
+        Returns:
+            Tuple of (sql_statement, missing_data_columns). missing_data_columns lists
+            non-metadata columns present in target but absent from temp (will be NULL).
+        """
+        target_cols = [row[0] for row in conn.execute(f"DESCRIBE {target_table}").fetchall()]
+        temp_cols = {row[0] for row in conn.execute(f"DESCRIBE {temp_table}").fetchall()}
+
+        select_parts = []
+        missing_data_cols = []
+        for col in target_cols:
+            if col in temp_cols:
+                select_parts.append(f'"{col}"')
+            else:
+                select_parts.append(f'NULL AS "{col}"')
+                if not col.startswith("_dango_"):
+                    missing_data_cols.append(col)
+
+        select_clause = ", ".join(select_parts)
+        sql = f"INSERT INTO {target_table} SELECT {select_clause} FROM {temp_table}"
+        return sql, missing_data_cols
 
     def _validate_all_files_schema_match(
         self,
@@ -727,8 +771,13 @@ class CSVLoader:
                 conn.execute(f"DROP TABLE {temp_table}")
                 return False
 
-            # Insert into target
-            conn.execute(f"INSERT INTO {target_table} SELECT * FROM {temp_table}")
+            # Insert into target (with NULL padding for missing columns)
+            insert_sql, missing_cols = self._build_insert_select(conn, temp_table, target_table)
+            if missing_cols:
+                console.print(
+                    f"    [dim]Note: {filename} missing columns {missing_cols} → loading as NULL[/dim]"
+                )
+            conn.execute(insert_sql)
 
             # Update metadata
             conn.execute(
@@ -805,8 +854,14 @@ class CSVLoader:
                 # Delete old data
                 conn.execute(f"DELETE FROM {target_table} WHERE _dango_filename = ?", [filename])
 
-                # Insert new data
-                conn.execute(f"INSERT INTO {target_table} SELECT * FROM {temp_table}")
+                # Insert new data (with NULL padding for missing columns)
+                insert_sql, missing_cols = self._build_insert_select(conn, temp_table, target_table)
+                if missing_cols:
+                    console.print(
+                        f"    [dim]Note: {filename} missing columns"
+                        f" {missing_cols} → loading as NULL[/dim]"
+                    )
+                conn.execute(insert_sql)
 
                 # Update metadata
                 conn.execute(
