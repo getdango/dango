@@ -346,10 +346,16 @@ exemptions:
     reason: "TASK-045a: 8 test classes covering schedule help, list, status, remove, enable, disable, add wizard (sync, dbt, custom cron, cancelled). Marginally over limit."
     review_by: "v1.1"
 
-  - file: tests/unit/test_web_notebooks.py
-    lines: 515
+  - file: dango/web/routes/notebooks.py
+    lines: 506
     category: exempt
-    reason: "TEST-030: 7 test classes covering page, list, create, delete, lock, heartbeat, release, force-release, copy. Marginally over limit after locked_at test addition."
+    reason: "R10-D2: Grew to 506 adding heartbeat-based stale lock expiry and WebSocket force-unlock notification. Single router file for notebook management."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_web_notebooks.py
+    lines: 535
+    category: exempt
+    reason: "TEST-030+R10-D2: 7 test classes covering page, list, create, delete, lock, heartbeat, release, force-release (incl. WebSocket broadcast), copy."
     review_by: "v1.1"
 
   - file: dango/governance/schema_drift.py

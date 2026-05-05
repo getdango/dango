@@ -346,6 +346,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `platform/scheduling/jobs.py` | 895 | — (module-level job functions) |
 | `utils/post_sync.py` | 553 | — (post-sync hooks + sync notification) |
 | `web/routes/schedules.py` | 518 | — (schedule read-only, history, trigger, notifications) |
+| `web/routes/notebooks.py` | 506 | — (notebook management API + heartbeat lock expiry + WS notify) |
 | `web/routes/upload.py` | 701 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 670 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |

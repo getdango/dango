@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dango.utils.dango_db import connect
@@ -52,7 +52,8 @@ def acquire_lock(project_root: Path, notebook_id: str, user: str) -> bool:
                 # Refresh existing lock
                 conn.execute(
                     "UPDATE notebook_locks "
-                    "SET expires_at = datetime('now', '+15 minutes') "
+                    "SET expires_at = datetime('now', '+15 minutes'), "
+                    "last_heartbeat_at = datetime('now') "
                     "WHERE notebook_id = ?",
                     (notebook_id,),
                 )
@@ -61,8 +62,9 @@ def acquire_lock(project_root: Path, notebook_id: str, user: str) -> bool:
             return False
 
         conn.execute(
-            "INSERT INTO notebook_locks (notebook_id, locked_by, locked_at, expires_at) "
-            "VALUES (?, ?, datetime('now'), datetime('now', '+15 minutes'))",
+            "INSERT INTO notebook_locks "
+            "(notebook_id, locked_by, locked_at, expires_at, last_heartbeat_at) "
+            "VALUES (?, ?, datetime('now'), datetime('now', '+15 minutes'), datetime('now'))",
             (notebook_id, user),
         )
         conn.commit()
@@ -123,7 +125,8 @@ def refresh_lock(project_root: Path, notebook_id: str, user: str) -> bool:
 
         conn.execute(
             "UPDATE notebook_locks "
-            "SET expires_at = datetime('now', '+15 minutes') "
+            "SET expires_at = datetime('now', '+15 minutes'), "
+            "last_heartbeat_at = datetime('now') "
             "WHERE notebook_id = ?",
             (notebook_id,),
         )
@@ -157,6 +160,39 @@ def force_release_lock(project_root: Path, notebook_id: str) -> bool:
         conn.commit()
         logger.info("Force-released lock on %s (was held by %s)", notebook_id, row["locked_by"])
         return True
+
+
+def expire_stale_locks(project_root: Path, timeout_seconds: int = 120) -> int:
+    """Remove locks whose last heartbeat exceeds the timeout.
+
+    Locks with NULL ``last_heartbeat_at`` (pre-migration) are skipped —
+    they continue to use the existing ``expires_at`` mechanism.
+
+    Args:
+        project_root: Project root directory.
+        timeout_seconds: Seconds since last heartbeat before expiry.
+
+    Returns:
+        Number of locks expired.
+    """
+    threshold = (datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    with connect(project_root) as conn:
+        cursor = conn.execute(
+            "DELETE FROM notebook_locks "
+            "WHERE last_heartbeat_at IS NOT NULL AND last_heartbeat_at < ?",
+            (threshold,),
+        )
+        conn.commit()
+        expired = cursor.rowcount
+        if expired:
+            logger.info(
+                "Expired %d stale notebook lock(s) (no heartbeat for %ds)",
+                expired,
+                timeout_seconds,
+            )
+        return expired
 
 
 def is_locked(project_root: Path, notebook_id: str) -> bool:

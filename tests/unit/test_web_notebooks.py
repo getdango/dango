@@ -481,6 +481,26 @@ class TestForceReleaseLock:
             == 403
         )
 
+    @patch(f"{_P}.ws_manager")
+    @patch(f"{_P}._audit")
+    @patch(f"{_P}.get_project_root")
+    def test_broadcasts_websocket_on_force_release(
+        self, mock_root: MagicMock, mock_audit: MagicMock, mock_ws: MagicMock, tmp_path: Path
+    ) -> None:
+        """Force-release broadcasts notebook_lock_revoked via WebSocket."""
+        from unittest.mock import AsyncMock
+
+        mock_ws.broadcast = AsyncMock()
+        mock_root.return_value = tmp_path
+        _init_db(tmp_path)
+        _seed_lock(tmp_path, "locked_nb", locked_by="other@test.com")
+        resp = _client(tmp_path).delete("/api/notebooks/locked_nb/lock")
+        assert resp.status_code == 200
+        mock_ws.broadcast.assert_called_once()
+        msg = mock_ws.broadcast.call_args[0][0]
+        assert msg["event"] == "notebook_lock_revoked"
+        assert msg["notebook"] == "locked_nb"
+
 
 @pytest.mark.unit
 class TestCopyNotebook:
