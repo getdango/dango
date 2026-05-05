@@ -250,7 +250,7 @@ dango/                          # Python package source
 │
 ├── ingestion/                  # Level 1 — Data loading
 │   ├── dlt_runner.py           # ⚠ 2415 lines — orchestrates full sync pipeline
-│   ├── csv_loader.py           # Multi-format file loading with dedup (867 lines)
+│   ├── csv_loader.py           # Multi-format file loading with dedup (922 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (33 source types)
 │   └── dlt_sources/            # ⚠ DO NOT MODIFY — vendored connectors (127 files)
@@ -342,7 +342,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 819 | — (extracted from app.py by TASK-085) |
-| `ingestion/csv_loader.py` | 867 | — |
+| `ingestion/csv_loader.py` | 922 | — |
 | `platform/scheduling/jobs.py` | 895 | — (module-level job functions) |
 | `utils/post_sync.py` | 553 | — (post-sync hooks + sync notification) |
 | `web/routes/schedules.py` | 859 | — (schedule CRUD, history, notifications, webhook CRUD) |
