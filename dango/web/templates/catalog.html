@@ -140,6 +140,13 @@
             </template>
             <template x-if="searchResults === null">
                 <div>
+                    <template x-if="sourceFilter">
+                        <div class="mb-3 flex items-center gap-2 text-sm text-gray-600">
+                            Showing tables from source: <span class="font-medium" x-text="sourceFilter"></span>
+                            <button @click="sourceFilter = null; activeTab = 'all'; if (!_skipPush) updateUrl(false)"
+                                class="ml-2 text-indigo-600 hover:underline text-xs">Show all</button>
+                        </div>
+                    </template>
                     <template x-if="filteredItems.length === 0 && !loading">
                         <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
                             <template x-if="allModels.length === 0 && allSources.length === 0">
@@ -394,7 +401,7 @@
                         </div>
                     </div>
                     <div x-show="hasLineage">
-                        <button @click="viewInLineage(selectedModel.name)"
+                        <button @click="viewInLineage(selectedModel.name, selectedModel.source_name)"
                                 class="px-3 py-1.5 text-sm font-medium bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition-colors">
                             View in Lineage
                         </button>
@@ -421,7 +428,7 @@
                     <option value="3">3 hops</option>
                     <option value="5">5 hops</option>
                 </select>
-                <button @click="lineageFocusName = null; renderLineage()" class="text-indigo-600 hover:underline">Show Full DAG</button>
+                <button @click="lineageFocusName = null; lineageFocusSourceName = null; renderLineage()" class="text-indigo-600 hover:underline">Show Full DAG</button>
             </div>
             <template x-if="lineageNodes.length === 0">
                 <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
@@ -495,6 +502,7 @@ function catalogPage() {
     return {
         view: 'list',
         activeTab: 'all',
+        sourceFilter: null,
         searchQuery: '',
         searchResults: null,
         allModels: [],
@@ -506,7 +514,7 @@ function catalogPage() {
         overview: null,
         // Lineage state
         lineageNodes: [], lineageEdges: [],
-        lineageFocusName: null, lineageDepth: 2,
+        lineageFocusName: null, lineageFocusSourceName: null, lineageDepth: 2,
         selectedNode: null, impactHighlighted: false, impactCount: 0, _lineage: null,
         // Governance state
         piiFindings: [], driftEvents: [], piiOverrides: [],
@@ -561,9 +569,9 @@ function catalogPage() {
             this._skipPush = true;
             await this.restoreFromUrl();
             this._skipPush = false;
-            window.addEventListener('popstate', () => {
+            window.addEventListener('popstate', async () => {
                 this._skipPush = true;
-                this.restoreFromUrl();
+                await this.restoreFromUrl();
                 this._skipPush = false;
             });
         },
@@ -581,6 +589,9 @@ function catalogPage() {
             } else if (this.view === 'lineage') {
                 params.set('view', 'lineage');
                 if (this.lineageFocusName) params.set('focus', this.lineageFocusName);
+                if (this.lineageFocusSourceName) params.set('focus_source', this.lineageFocusSourceName);
+            } else if (this.sourceFilter) {
+                params.set('source', this.sourceFilter);
             } else if (this.activeTab !== 'all') {
                 params.set('filter', this.activeTab);
             }
@@ -595,6 +606,7 @@ function catalogPage() {
         async restoreFromUrl() {
             const params = new URLSearchParams(window.location.search);
             const model = params.get('model');
+            const source = params.get('source');
             const view = params.get('view');
             const filter = params.get('filter');
             if (model) {
@@ -603,21 +615,31 @@ function catalogPage() {
                 if (tab && ['columns', 'code', 'info'].includes(tab)) {
                     this.detailTab = tab;
                 }
+            } else if (source) {
+                this.activeTab = 'source';
+                this.sourceFilter = source;
             } else if (view === 'lineage') {
                 const focus = params.get('focus');
+                const focusSource = params.get('focus_source');
                 if (focus) {
                     this.lineageFocusName = focus;
+                    this.lineageFocusSourceName = focusSource || null;
                     this.lineageDepth = 2;
                 }
                 this.view = 'lineage';
-                this.selectedNode = focus ? (this.lineageNodes.find(n => n.name === focus) || null) : null;
-                this.$nextTick(() => this.renderLineage());
+                this.selectedNode = focus ? (this.lineageNodes.find(n =>
+                    n.name === focus && (!focusSource || n.source_name === focusSource)
+                ) || null) : null;
+                this.$nextTick(() => { this.$nextTick(() => this.renderLineage()); });
             } else if (filter && ['source', 'staging', 'intermediate', 'marts'].includes(filter)) {
                 this.activeTab = filter;
             }
         },
 
         get filteredItems() {
+            if (this.sourceFilter) {
+                return this.allSources.filter(s => s.source_name === this.sourceFilter);
+            }
             const items = [...this.allSources, ...this.allModels];
             if (this.activeTab === 'all') return items;
             return items.filter(i => i.type === this.activeTab);
@@ -632,7 +654,7 @@ function catalogPage() {
         goToList() {
             if (this._lineage) { this._lineage.destroy(); this._lineage = null; }
             this.selectedNode = null; this.impactHighlighted = false; this.impactCount = 0;
-            this.lineageFocusName = null;
+            this.lineageFocusName = null; this.lineageFocusSourceName = null; this.sourceFilter = null;
             this.view = 'list'; this.selectedModel = null; this.detailTab = 'columns';
             if (!this._skipPush) this.updateUrl(false);
         },
@@ -763,14 +785,16 @@ function catalogPage() {
             finally { this.profilingLoading = false; }
         },
 
-        viewInLineage(name) {
+        viewInLineage(name, sourceName) {
             this.view = 'lineage'; this.impactHighlighted = false; this.impactCount = 0;
-            this.lineageFocusName = name; this.lineageDepth = 2;
-            // Pre-select the node so detail panel opens
-            const node = this.lineageNodes.find(n => n.name === name);
+            this.lineageFocusName = name; this.lineageFocusSourceName = sourceName || null;
+            this.lineageDepth = 2;
+            const node = this.lineageNodes.find(n =>
+                n.name === name && (!sourceName || n.source_name === sourceName)
+            );
             this.selectedNode = node || null;
             if (!this._skipPush) this.updateUrl(false);
-            this.$nextTick(() => this.renderLineage());
+            this.$nextTick(() => { this.$nextTick(() => this.renderLineage()); });
         },
 
         timeAgo(dateStr) {
@@ -787,10 +811,10 @@ function catalogPage() {
                 this.goToList();
             } else {
                 this.view = 'lineage'; this.selectedNode = null;
-                this.lineageFocusName = null;
+                this.lineageFocusName = null; this.lineageFocusSourceName = null;
                 this.impactHighlighted = false; this.impactCount = 0;
                 if (!this._skipPush) this.updateUrl(false);
-                this.$nextTick(() => this.renderLineage());
+                this.$nextTick(() => { this.$nextTick(() => this.renderLineage()); });
             }
         },
         filterLineage(focusName, depth) {
@@ -807,7 +831,9 @@ function catalogPage() {
                 parents[e.target].push(e.source);
             }
             // Find focus node ID
-            const focusNode = this.lineageNodes.find(n => n.name === focusName);
+            const focusNode = this.lineageNodes.find(n =>
+                n.name === focusName && (!this.lineageFocusSourceName || n.source_name === this.lineageFocusSourceName)
+            );
             if (!focusNode) return { nodes: this.lineageNodes, edges: this.lineageEdges };
             const focusId = focusNode.id;
             const reachable = new Set([focusId]);
