@@ -46,12 +46,12 @@ Each source type has a default sync mode based on its data characteristics:
 | `shopify` | merge | E-commerce entities upserted by ID |
 | `postgres` | replace | Full table snapshot (no CDC) |
 | `sql_database` | replace | Full table snapshot (no CDC) |
-| `mongodb` | replace | Full collection snapshot (no CDC) |
+| `mongodb` | replace | Full collection snapshot (no CDC); configurable via dlt config |
 | `csv` | replace | Re-reads files fully |
 | `local_files` | replace | Re-reads files fully |
 | `facebook_ads` | replace | Insights without reliable cursors |
-| `slack` | append | Message history, immutable |
-| `github` | merge | Issues/PRs upserted by ID |
+| `slack` | append | Switches to merge if `end_date` is provided |
+| `github` | replace | Full reload of issues/PRs |
 | `jira` | merge | Issues upserted by ID |
 | `asana` | merge | Tasks upserted by ID |
 | `workable` | merge | Candidates upserted by ID |
@@ -117,7 +117,12 @@ dango sync --source stripe_data --since 2024-01-01 --until 2024-03-31
 
 # Sync from a start date to present
 dango sync --source stripe_data --since 2024-06-01
+
+# Backfill a duration (alternative to --since/--until)
+dango sync --source stripe_data --backfill 30d
 ```
+
+The `--backfill` flag accepts durations like `7d`, `2w`, or `1m` and conflicts with `--since`/`--until` — use one or the other.
 
 ### Relative Date Strings
 
@@ -125,7 +130,7 @@ Google Analytics accepts relative date strings natively (e.g., `"90daysAgo"`). F
 
 ### Interaction with Lookback
 
-If `--since` is provided on the command line, it takes precedence over `lookback_days`. The lookback calculation is skipped entirely.
+If `--since` or `--backfill` is provided on the command line, it takes precedence over `lookback_days`. The lookback calculation is skipped entirely.
 
 ## Database Sources
 
@@ -141,13 +146,13 @@ Dango does **not** perform CDC (Change Data Capture). Database syncs are pure sn
 
 ### Deletions Are Not Propagated
 
-If a row is deleted in the source database, it is **not** automatically removed from DuckDB. After a full refresh (`replace` mode), deleted rows disappear because the entire table is reloaded. But between full refreshes, stale rows persist.
+If a row is deleted in the source database, it is **not** automatically removed from DuckDB. Since database sources default to `replace` mode, deletions are captured on every sync because the entire table is reloaded. However, if you switch a database source to `merge` mode (cursor-based incremental), deleted rows will persist in DuckDB indefinitely.
 
-**Workarounds:**
+**Workarounds for merge mode:**
 
-- Use `--full-refresh` periodically to reload clean data
+- Run `--full-refresh` periodically to reload clean data
 - Build dbt models that detect stale records (e.g., flag rows missing from the latest sync)
-- Use dbt snapshots (SCD Type 2) to track when records disappear
+- Use SCD Type 2 deduplication to track when records disappear
 
 ### Table Selection
 
@@ -180,31 +185,18 @@ sources:
 
 If a database source is configured with `merge` mode, it uses cursor-based state tracking (e.g., "fetch rows where `updated_at` > last sync timestamp"). This is **not** log-based replication — it still queries the source database directly and cannot detect deletes.
 
-## dbt Snapshots (SCD Type 2)
+## Deduplication and Change Tracking
 
-When a source only provides current state (no history), dbt snapshots track changes over time using Slowly Changing Dimension Type 2 logic.
+Dango auto-generates dbt staging models with deduplication logic based on source type and column analysis. This includes SCD Type 2 (Slowly Changing Dimension) support for tracking historical changes.
 
-### Configuration
+### How It Works
 
-Set the deduplication strategy in `sources.yml`:
+When Dango generates dbt staging models (`dango transform generate`), it inspects each table's columns and auto-infers the best deduplication strategy:
 
-```yaml
-sources:
-  - name: app_db
-    type: postgres
-    config:
-      table_names:
-        - customers
-    deduplication: scd_type2
-```
+- Tables with `id` + `updated_at` columns get `last_modified` (keep most recent by timestamp)
+- Other tables may get no deduplication if no suitable columns are found
 
-### What It Generates
-
-Dango generates a dbt staging model that implements SCD Type 2 logic:
-
-- Tracks when each record version was valid (`dbt_valid_from`, `dbt_valid_to`)
-- Current records have `dbt_valid_to = NULL`
-- Historical changes are preserved as separate rows
+The strategy is applied as SQL logic in the generated staging model — these are standard dbt models, not dbt snapshot materializations.
 
 ### Available Deduplication Strategies
 
@@ -216,9 +208,32 @@ Dango generates a dbt staging model that implements SCD Type 2 logic:
 | `row_number` | Keep first row when sorted by specified columns |
 | `scd_type2` | Track historical changes (Slowly Changing Dimension Type 2) |
 
-### Use Case
+### SCD Type 2 Change Tracking
+
+The `scd_type2` strategy generates staging models that track when each record version was valid:
+
+- `dbt_valid_from` — when this version of the record appeared
+- `dbt_valid_to` — when it was superseded (`NULL` for current records)
+- Historical changes are preserved as separate rows
 
 Best for database sources where you need change history but the source only provides current state. Combine with regular syncs — each sync captures the current snapshot, and the SCD Type 2 model tracks what changed between snapshots.
+
+### Google Sheets Deduplication
+
+Google Sheets sources have an explicit `deduplication` config field since sheets are re-read fully on each sync:
+
+```yaml
+sources:
+  - name: my_sheets
+    type: google_sheets
+    google_sheets:
+      spreadsheet_url_or_id: "1ABC..."
+      range_names:
+        - Sheet1
+      deduplication: latest_only
+```
+
+Valid values: `none`, `latest_only` (default), `append_only`, `scd_type2`.
 
 ## Missed Schedules
 
@@ -267,5 +282,5 @@ Setting `misfire_grace_time` to an integer limits how old a missed run can be be
 1. Server starts and initializes the scheduler
 2. Scheduler detects missed jobs from SQLite job store
 3. Missed jobs are coalesced (multiple missed → single execution per schedule)
-4. Jobs execute sequentially (DuckDB single-writer)
-5. After all syncs complete, a coalesced dbt run processes all affected sources
+4. Jobs execute (DuckDB's single-writer lock serializes concurrent write attempts)
+5. After syncs complete, a coalesced dbt run processes all affected sources
