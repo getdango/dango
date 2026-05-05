@@ -49,7 +49,7 @@ Each source type has a default sync mode based on its data characteristics:
 | `mongodb` | replace | Full collection snapshot (no CDC); configurable via dlt config |
 | `csv` | replace | Re-reads files fully |
 | `local_files` | replace | Re-reads files fully |
-| `facebook_ads` | replace | Insights without reliable cursors |
+| `facebook_ads` | replace | Entity tables replace; insights tables use merge |
 | `slack` | append | Switches to merge if `end_date` is provided |
 | `github` | replace | Full reload of issues/PRs |
 | `jira` | merge | Issues upserted by ID |
@@ -162,7 +162,7 @@ Limit which tables are synced to avoid loading unnecessary data:
 sources:
   - name: app_db
     type: postgres
-    config:
+    generic_config:
       table_names:
         - users
         - orders
@@ -175,7 +175,7 @@ For MongoDB:
 sources:
   - name: analytics_db
     type: mongodb
-    config:
+    generic_config:
       collection_names:
         - events
         - sessions
@@ -191,7 +191,7 @@ Dango auto-generates dbt staging models with deduplication logic based on source
 
 ### How It Works
 
-When Dango generates dbt staging models (`dango transform generate`), it inspects each table's columns and auto-infers the best deduplication strategy:
+When Dango generates dbt staging models (`dango generate`), it inspects each table's columns and auto-infers the best deduplication strategy:
 
 - Tables with `id` + `updated_at` columns get `last_modified` (keep most recent by timestamp)
 - Other tables may get no deduplication if no suitable columns are found
