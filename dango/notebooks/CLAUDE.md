@@ -11,7 +11,7 @@ Marimo notebook server lifecycle, DuckDB read-only snapshots, file-level locking
 | `__init__.py` | ~45 | Re-exports public symbols | All public API |
 | `manager.py` | ~262 | Marimo process lifecycle (PID file, start/stop/status) + idle auto-shutdown | `get_marimo_pid_file_path()`, `start_marimo()`, `stop_marimo()`, `get_marimo_status()`, `start_idle_checker()`, `stop_idle_checker()` |
 | `snapshot.py` | ~143 | DuckDB snapshot management | `create_snapshot()`, `list_snapshots()`, `cleanup_snapshots()` |
-| `locking.py` | ~249 | File-level notebook locking via `notebook_locks` table | `acquire_lock()`, `release_lock()`, `refresh_lock()`, `force_release_lock()`, `is_locked()`, `get_lock_info()`, `copy_locked_notebook()` |
+| `locking.py` | ~285 | File-level notebook locking via `notebook_locks` table | `acquire_lock()`, `release_lock()`, `refresh_lock()`, `force_release_lock()`, `expire_stale_locks()`, `is_locked()`, `get_lock_info()`, `copy_locked_notebook()` |
 | `proxy.py` | ~186 | HTTP + WebSocket reverse proxy to Marimo | `proxy_to_marimo()`, `proxy_websocket_to_marimo()` |
 | `templates/__init__.py` | ~5 | Package marker | — |
 | `templates/explore.py` | ~30 | Data exploration starter template | `app` (marimo.App) |
@@ -66,7 +66,7 @@ CLI (notebook new/open/list, snapshot)
 
 Located in `.dango/dango.db` (managed by `dango/utils/dango_db.py`):
 
-- **`notebook_locks`** — `notebook_id` (PK), `locked_by`, `locked_at`, `expires_at`
+- **`notebook_locks`** — `notebook_id` (PK), `locked_by`, `locked_at`, `expires_at`, `last_heartbeat_at` (added via `_ADDITIVE_DDL`)
 - **`notebook_metadata`** — `id` (PK), `name`, `description`, `created_by`, `created_at`, `updated_at`
 
 ## Testing

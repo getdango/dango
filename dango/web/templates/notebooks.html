@@ -29,6 +29,13 @@
             <p class="text-sm text-red-700" x-text="error"></p>
         </div>
 
+        <!-- Lock revoked banner -->
+        <div x-show="lockRevoked" x-cloak class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+            <p class="text-sm text-yellow-800">
+                Your lock on "<span x-text="revokedNotebook"></span>" has been revoked by an administrator.
+            </p>
+        </div>
+
         <!-- Success banner -->
         <div x-show="success" x-cloak class="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
             <p class="text-sm text-green-700" x-text="success"></p>
@@ -191,8 +198,13 @@ function notebooksPage() {
         heartbeatInterval: null,
         _boundBeforeUnload: null,
 
+        // Lock revocation
+        lockRevoked: false,
+        revokedNotebook: '',
+
         async init() {
             await this.loadNotebooks();
+            this.connectWs();
         },
 
         async loadNotebooks() {
@@ -268,6 +280,24 @@ function notebooksPage() {
                 window.removeEventListener('beforeunload', this._boundBeforeUnload);
                 this._boundBeforeUnload = null;
             }
+        },
+
+        connectWs() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            this._ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            this._ws.onmessage = (evt) => {
+                try {
+                    const data = JSON.parse(evt.data);
+                    if (data.event === 'notebook_lock_revoked' && data.notebook === this.activeNotebook) {
+                        this.stopHeartbeat();
+                        this.lockRevoked = true;
+                        this.revokedNotebook = data.notebook;
+                        this.activeNotebook = null;
+                        this.loadNotebooks();
+                    }
+                } catch (e) { /* ignore parse errors */ }
+            };
+            this._ws.onclose = () => { setTimeout(() => this.connectWs(), 5000); };
         },
 
         async copyNotebook(nb) {

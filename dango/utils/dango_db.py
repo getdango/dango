@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS source_attention (
 # Additive migrations — each wrapped in try/except to ignore "duplicate column".
 _ADDITIVE_DDL = [
     "ALTER TABLE drift_events ADD COLUMN severity TEXT",
+    "ALTER TABLE notebook_locks ADD COLUMN last_heartbeat_at TEXT",
 ]
 
 

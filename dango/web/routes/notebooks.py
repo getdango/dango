@@ -24,6 +24,7 @@ from dango.logging import get_logger
 from dango.notebooks.locking import (
     acquire_lock,
     copy_locked_notebook,
+    expire_stale_locks,
     force_release_lock,
     get_lock_info,
     refresh_lock,
@@ -34,6 +35,7 @@ from dango.utils.dango_db import connect
 from dango.validation import validate_identifier
 from dango.web.helpers import get_project_root
 from dango.web.routes.ui import _render_template
+from dango.web.routes.websocket import ws_manager
 
 router = APIRouter(tags=["notebooks"])
 logger = get_logger(__name__)
@@ -399,6 +401,8 @@ async def heartbeat_notebook(
     """Refresh lock expiry for an active editing session."""
     project_root = get_project_root()
 
+    await asyncio.to_thread(expire_stale_locks, project_root)
+
     refreshed = await asyncio.to_thread(refresh_lock, project_root, name, user.email)
     if not refreshed:
         return JSONResponse(
@@ -458,6 +462,15 @@ async def force_release_notebook_lock(
         request,
         project_root,
         notebook_name=name,
+    )
+
+    await ws_manager.broadcast(
+        {
+            "event": "notebook_lock_revoked",
+            "notebook": name,
+            "message": f"Lock on notebook '{name}' was force-released by an administrator.",
+            "timestamp": datetime.now().isoformat(),
+        }
     )
 
     return JSONResponse(content={"force_released": True})

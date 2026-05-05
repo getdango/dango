@@ -180,3 +180,63 @@ class TestCopyLockedNotebook:
 
         with pytest.raises(FileNotFoundError):
             copy_locked_notebook(tmp_path, "nonexistent", "bob")
+
+
+@pytest.mark.unit
+class TestExpireStaleLocks:
+    def test_expires_stale_lock(self, tmp_path):
+        from dango.notebooks.locking import acquire_lock, expire_stale_locks, is_locked
+
+        acquire_lock(tmp_path, "nb1", "alice")
+
+        # Set heartbeat to 3 minutes ago
+        with connect(tmp_path) as conn:
+            conn.execute(
+                "UPDATE notebook_locks SET last_heartbeat_at = datetime('now', '-3 minutes') "
+                "WHERE notebook_id = 'nb1'"
+            )
+            conn.commit()
+
+        expired = expire_stale_locks(tmp_path, timeout_seconds=120)
+        assert expired == 1
+        assert is_locked(tmp_path, "nb1") is False
+
+    def test_active_heartbeat_preserved(self, tmp_path):
+        from dango.notebooks.locking import acquire_lock, expire_stale_locks, is_locked
+
+        acquire_lock(tmp_path, "nb1", "alice")
+
+        expired = expire_stale_locks(tmp_path, timeout_seconds=120)
+        assert expired == 0
+        assert is_locked(tmp_path, "nb1") is True
+
+    def test_null_heartbeat_preserved(self, tmp_path):
+        from dango.notebooks.locking import expire_stale_locks, is_locked
+
+        # Insert a lock without last_heartbeat_at (simulates pre-migration lock)
+        with connect(tmp_path) as conn:
+            conn.execute(
+                "INSERT INTO notebook_locks (notebook_id, locked_by, locked_at, expires_at) "
+                "VALUES ('nb1', 'alice', datetime('now'), datetime('now', '+15 minutes'))"
+            )
+            conn.commit()
+
+        expired = expire_stale_locks(tmp_path, timeout_seconds=1)
+        assert expired == 0
+        assert is_locked(tmp_path, "nb1") is True
+
+    def test_returns_count(self, tmp_path):
+        from dango.notebooks.locking import acquire_lock, expire_stale_locks
+
+        acquire_lock(tmp_path, "nb1", "alice")
+        acquire_lock(tmp_path, "nb2", "bob")
+
+        # Set both heartbeats to 3 minutes ago
+        with connect(tmp_path) as conn:
+            conn.execute(
+                "UPDATE notebook_locks SET last_heartbeat_at = datetime('now', '-3 minutes')"
+            )
+            conn.commit()
+
+        expired = expire_stale_locks(tmp_path, timeout_seconds=120)
+        assert expired == 2
