@@ -9,11 +9,31 @@ app = marimo.App()
 
 
 @app.cell
+def guidance():
+    """Introductory guidance for the explore notebook."""
+    import marimo as mo
+
+    return (
+        mo.md(
+            """
+# Data Exploration
+
+This notebook is connected to your DuckDB warehouse in **read-only** mode.
+Each cell's output appears below it — edit the SQL in `sample_query` to explore
+your data.
+
+**Tip:** Use `mo.ui.table(df)` for interactive, sortable tables.
+"""
+        ),
+    )
+
+
+@app.cell
 def setup():
     """Connect to the local DuckDB warehouse in read-only mode."""
     import duckdb
 
-    conn = duckdb.connect("data/warehouse.duckdb", read_only=True)
+    conn = duckdb.connect("data/warehouse.duckdb", config={"access_mode": "read_only"})
     return (conn,)
 
 

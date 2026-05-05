@@ -14,9 +14,9 @@ Marimo notebook server lifecycle, DuckDB read-only snapshots, file-level locking
 | `locking.py` | ~285 | File-level notebook locking via `notebook_locks` table | `acquire_lock()`, `release_lock()`, `refresh_lock()`, `force_release_lock()`, `expire_stale_locks()`, `is_locked()`, `get_lock_info()`, `copy_locked_notebook()` |
 | `proxy.py` | ~186 | HTTP + WebSocket reverse proxy to Marimo | `proxy_to_marimo()`, `proxy_websocket_to_marimo()` |
 | `templates/__init__.py` | ~5 | Package marker | — |
-| `templates/explore.py` | ~30 | Data exploration starter template | `app` (marimo.App) |
-| `templates/quality.py` | ~40 | Data quality starter template | `app` (marimo.App) |
-| `templates/blank.py` | ~20 | Minimal blank starter template | `app` (marimo.App) |
+| `templates/explore.py` | ~57 | Data exploration starter template | `app` (marimo.App) |
+| `templates/quality.py` | ~67 | Data quality starter template | `app` (marimo.App) |
+| `templates/blank.py` | ~17 | Minimal blank starter template | `app` (marimo.App) |
 
 ## Architecture
 
