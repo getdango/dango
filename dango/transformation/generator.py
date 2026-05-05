@@ -132,6 +132,28 @@ class DbtModelGenerator:
             # Table might not exist yet - return empty
             return []
 
+    def _find_dlt_nested_table(self, normalized_name: str, schema: str) -> str | None:
+        """Find a dlt nested table whose name with __ collapsed matches normalized_name."""
+        if not self.duckdb_path.exists():
+            return None
+        try:
+            conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
+            try:
+                result = conn.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = ? AND table_name LIKE '%\\_\\_%' ESCAPE '\\'",
+                    [schema],
+                ).fetchall()
+            finally:
+                conn.close()
+            for (table_name,) in result:
+                collapsed = "_".join(filter(None, table_name.split("_")))
+                if collapsed == normalized_name:
+                    return table_name
+            return None
+        except Exception:
+            return None
+
     def infer_dedup_strategy(
         self, source: DataSource, columns: list[dict[str, Any]]
     ) -> tuple[str | None, list[str] | None]:
@@ -412,6 +434,13 @@ class DbtModelGenerator:
 
                     # Get schema from DuckDB
                     columns = self.get_table_schema(table_name, schema=schema_name)
+
+                    if not columns:
+                        # Try dlt nested table naming (double underscore convention)
+                        actual_name = self._find_dlt_nested_table(table_name, schema_name)
+                        if actual_name:
+                            columns = self.get_table_schema(actual_name, schema=schema_name)
+                            table_name = actual_name
 
                     if not columns:
                         # Skip this endpoint if table doesn't exist yet

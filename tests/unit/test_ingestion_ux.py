@@ -81,7 +81,11 @@ class TestIdentifyFailingResource:
 
 @pytest.mark.unit
 class TestCheckRowCountAnomaly:
-    """Tests for DltPipelineRunner._check_row_count_anomaly."""
+    """Tests for DltPipelineRunner._check_row_count_anomaly.
+
+    After BUG-182 fix, anomaly detection compares total DB rows (across all
+    tables in raw_{source} schema) against previous sync's total_row_count.
+    """
 
     def _make_runner(self, tmp_path: Path) -> object:
         """Create a minimal DltPipelineRunner with a project_root."""
@@ -89,6 +93,7 @@ class TestCheckRowCountAnomaly:
 
         runner = DltPipelineRunner.__new__(DltPipelineRunner)
         runner.project_root = tmp_path
+        runner.duckdb_path = tmp_path / "data" / "warehouse.duckdb"
         return runner
 
     def _write_history(self, tmp_path: Path, source_name: str, entries: list[dict]) -> None:
@@ -97,49 +102,117 @@ class TestCheckRowCountAnomaly:
         with open(history_dir / f"{source_name}.json", "w") as f:
             json.dump(entries, f)
 
+    def _setup_db(self, tmp_path: Path, source_name: str, table_rows: dict[str, int]) -> None:
+        """Create DuckDB with raw_{source_name} schema and tables with given row counts."""
+        import duckdb
+
+        db_path = tmp_path / "data" / "warehouse.duckdb"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        schema = f"raw_{source_name}"
+        conn = duckdb.connect(str(db_path))
+        conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+        for table_name, count in table_rows.items():
+            conn.execute(f'CREATE TABLE "{schema}"."{table_name}" (id INTEGER)')
+            if count > 0:
+                conn.execute(
+                    f'INSERT INTO "{schema}"."{table_name}" SELECT unnest(range(1, {count + 1}))'
+                )
+        conn.close()
+
+    def test_no_db_returns_none(self, tmp_path: Path) -> None:
+        """No DuckDB file → graceful degradation, returns None."""
+        runner = self._make_runner(tmp_path)
+        self._write_history(tmp_path, "src", [{"status": "success", "rows_processed": 500}])
+        assert runner._check_row_count_anomaly("src") is None
+
     def test_no_history_returns_none(self, tmp_path: Path) -> None:
         runner = self._make_runner(tmp_path)
-        assert runner._check_row_count_anomaly("test_source", 100) is None
+        self._setup_db(tmp_path, "src", {"orders": 100})
+        assert runner._check_row_count_anomaly("src") is None
 
-    def test_first_successful_sync_returns_none(self, tmp_path: Path) -> None:
-        # History has only failed entries — no baseline
-        self._write_history(tmp_path, "src", [{"status": "failed", "rows_processed": 0}])
+    def test_incremental_no_false_alarm(self, tmp_path: Path) -> None:
+        """DB has 68K rows total, history shows 68K previous → no warning."""
         runner = self._make_runner(tmp_path)
-        assert runner._check_row_count_anomaly("src", 100) is None
+        self._setup_db(tmp_path, "src", {"orders": 50000, "customers": 18000})
+        self._write_history(tmp_path, "src", [{"status": "success", "total_row_count": 68000}])
+        result = runner._check_row_count_anomaly("src")
+        assert result is None
 
-    def test_zero_rows_after_nonzero_returns_error(self, tmp_path: Path) -> None:
-        self._write_history(tmp_path, "src", [{"status": "success", "rows_processed": 500}])
+    def test_actual_drop_triggers_warning(self, tmp_path: Path) -> None:
+        """DB has 400 rows, history shows 1000 total → warning (ratio 0.4 < 0.5)."""
         runner = self._make_runner(tmp_path)
-        result = runner._check_row_count_anomaly("src", 0)
-        assert result is not None
-        assert result["level"] == "error"
-        assert "Zero rows" in result["message"]
-
-    def test_large_drop_returns_warning(self, tmp_path: Path) -> None:
-        self._write_history(tmp_path, "src", [{"status": "success", "rows_processed": 1000}])
-        runner = self._make_runner(tmp_path)
-        result = runner._check_row_count_anomaly("src", 400)
+        self._setup_db(tmp_path, "src", {"orders": 250, "customers": 150})
+        self._write_history(tmp_path, "src", [{"status": "success", "total_row_count": 1000}])
+        result = runner._check_row_count_anomaly("src")
         assert result is not None
         assert result["level"] == "warning"
         assert "dropped" in result["message"]
 
-    def test_large_spike_returns_warning(self, tmp_path: Path) -> None:
-        self._write_history(tmp_path, "src", [{"status": "success", "rows_processed": 100}])
+    def test_zero_rows_error(self, tmp_path: Path) -> None:
+        """DB has 0 rows, history shows 500 total → error."""
         runner = self._make_runner(tmp_path)
-        result = runner._check_row_count_anomaly("src", 500)
+        self._setup_db(tmp_path, "src", {"orders": 0, "customers": 0})
+        self._write_history(tmp_path, "src", [{"status": "success", "total_row_count": 500}])
+        result = runner._check_row_count_anomaly("src")
+        assert result is not None
+        assert result["level"] == "error"
+        assert "Zero rows" in result["message"]
+
+    def test_backward_compat_falls_back_to_rows_processed(self, tmp_path: Path) -> None:
+        """History lacks total_row_count → falls back to rows_processed."""
+        runner = self._make_runner(tmp_path)
+        self._setup_db(tmp_path, "src", {"orders": 300})
+        self._write_history(tmp_path, "src", [{"status": "success", "rows_processed": 1000}])
+        # DB total is 300 vs prev 1000 → >50% drop
+        result = runner._check_row_count_anomaly("src")
+        assert result is not None
+        assert result["level"] == "warning"
+        assert "dropped" in result["message"]
+
+    def test_normal_growth_no_alarm(self, tmp_path: Path) -> None:
+        """DB has 68004, history shows 68000 → no warning."""
+        runner = self._make_runner(tmp_path)
+        self._setup_db(tmp_path, "src", {"orders": 50004, "customers": 18000})
+        self._write_history(tmp_path, "src", [{"status": "success", "total_row_count": 68000}])
+        result = runner._check_row_count_anomaly("src")
+        assert result is None
+
+    def test_large_spike_returns_warning(self, tmp_path: Path) -> None:
+        """DB total spiked >300% from previous → warning."""
+        runner = self._make_runner(tmp_path)
+        self._setup_db(tmp_path, "src", {"orders": 4000})
+        self._write_history(tmp_path, "src", [{"status": "success", "total_row_count": 1000}])
+        result = runner._check_row_count_anomaly("src")
         assert result is not None
         assert result["level"] == "warning"
         assert "spiked" in result["message"]
 
-    def test_normal_change_returns_none(self, tmp_path: Path) -> None:
-        self._write_history(tmp_path, "src", [{"status": "success", "rows_processed": 1000}])
+    def test_total_rows_passed_in(self, tmp_path: Path) -> None:
+        """When total_rows is passed, it uses that instead of querying DB."""
         runner = self._make_runner(tmp_path)
-        assert runner._check_row_count_anomaly("src", 800) is None
+        # No DB setup — would return None if it tried to query
+        self._write_history(tmp_path, "src", [{"status": "success", "total_row_count": 1000}])
+        # Pass total_rows=800 directly — within normal range
+        result = runner._check_row_count_anomaly("src", total_rows=800)
+        assert result is None
 
-    def test_normal_increase_returns_none(self, tmp_path: Path) -> None:
-        self._write_history(tmp_path, "src", [{"status": "success", "rows_processed": 1000}])
+    def test_dlt_internal_tables_excluded(self, tmp_path: Path) -> None:
+        """_dlt_ prefixed tables should not be counted in total."""
+        import duckdb
+
         runner = self._make_runner(tmp_path)
-        assert runner._check_row_count_anomaly("src", 2500) is None
+        db_path = tmp_path / "data" / "warehouse.duckdb"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = duckdb.connect(str(db_path))
+        conn.execute('CREATE SCHEMA IF NOT EXISTS "raw_src"')
+        conn.execute('CREATE TABLE "raw_src"."orders" (id INTEGER)')
+        conn.execute('INSERT INTO "raw_src"."orders" SELECT unnest(range(1, 101))')
+        conn.execute('CREATE TABLE "raw_src"."_dlt_loads" (id INTEGER)')
+        conn.execute('INSERT INTO "raw_src"."_dlt_loads" SELECT unnest(range(1, 10001))')
+        conn.close()
+
+        total = runner._get_source_total_rows("src")
+        assert total == 100  # Only orders, not _dlt_loads
 
 
 # ---------------------------------------------------------------------------
