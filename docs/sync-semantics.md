@@ -37,28 +37,28 @@ Each source type has a default sync mode based on its data characteristics:
 | `rest_api` | merge | Default `primary_key: "id"` per endpoint |
 | `google_sheets` | replace | Re-reads entire spreadsheet |
 | `google_analytics` | append | Historical report data, immutable |
-| `hubspot` | merge | CRM entities upserted by ID |
-| `salesforce` | merge | CRM entities upserted by ID |
-| `pipedrive` | merge | CRM entities upserted by ID |
+| `hubspot` | merge | Main entities merge; properties and web analytics differ |
+| `salesforce` | mixed | Core entities merge; metadata tables replace |
+| `pipedrive` | merge | Main entities merge; some metadata tables replace |
 | `freshdesk` | merge | Support tickets upserted by ID |
-| `zendesk` | merge | Support tickets upserted by ID |
-| `stripe` | merge | Incremental with cursor |
+| `zendesk` | mixed | Tickets/chats merge; metadata replace; events append |
+| `stripe` | replace | Full reload per endpoint; incremental source uses append |
 | `shopify` | merge | E-commerce entities upserted by ID |
 | `postgres` | replace | Full table snapshot (no CDC) |
 | `sql_database` | replace | Full table snapshot (no CDC) |
 | `mongodb` | replace | Full collection snapshot (no CDC); configurable via dlt config |
 | `csv` | replace | Re-reads files fully |
 | `local_files` | replace | Re-reads files fully |
-| `facebook_ads` | replace | Entity tables replace; insights tables use merge |
+| `facebook_ads` | replace | Entity tables replace; insights tables merge |
 | `slack` | append | Switches to merge if `end_date` is provided |
 | `github` | replace | Full reload of issues/PRs |
-| `jira` | merge | Issues upserted by ID |
-| `asana` | merge | Tasks upserted by ID |
-| `workable` | merge | Candidates upserted by ID |
-| `airtable` | merge | Records upserted by ID |
-| `notion` | merge | Pages upserted by ID |
+| `jira` | replace | Full reload of issues and projects |
+| `asana` | replace | Most resources replace; tasks merge by ID |
+| `workable` | mixed | Most endpoints replace; candidates merge by ID |
+| `airtable` | replace | Full reload of records |
+| `notion` | replace | Full reload of pages |
 
-Sources not listed here default to `merge` with `primary_key: "id"`.
+REST API sources not listed here default to `merge` with `primary_key: "id"`. Other source types depend on their dlt implementation.
 
 ## Lookback Behavior
 
@@ -81,7 +81,7 @@ On each incremental sync:
 
 1. If `lookback_days` is set, AND
 2. The sync is NOT a full refresh (`--full-refresh`), AND
-3. No explicit `--since` date override is provided
+3. No explicit date override is provided (`--since` or `--backfill`)
 
 Then: `start_date = today - lookback_days` (ISO format, e.g., `2024-01-15`)
 
