@@ -126,8 +126,10 @@ def _make_manifest(
     src: dict[str, Any] = {}
     if sources:
         for uid, s in sources.items():
+            parts = uid.split(".")
             src[uid] = {
-                "name": s.get("name", uid.split(".")[-1]),
+                "name": s.get("name", parts[-1] if parts else ""),
+                "source_name": s.get("source_name", parts[2] if len(parts) > 2 else ""),
                 "schema": s.get("schema", "raw_shop"),
                 "description": s.get("description", ""),
                 "columns": s.get("columns", {}),
@@ -351,6 +353,36 @@ class TestGetLineage:
         assert len(source_nodes) == 1
         assert source_nodes[0]["name"] == "orders"
         assert source_nodes[0]["materialization"] is None
+
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_source_nodes_include_source_name(
+        self,
+        mock_manifest: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Source nodes in lineage include source_name for disambiguation."""
+        client, _ = _setup_client(tmp_path)
+        mock_manifest.return_value = _make_manifest(
+            sources={
+                "source.proj.shopify.orders": {
+                    "name": "orders",
+                    "source_name": "shopify",
+                },
+                "source.proj.stripe.orders": {
+                    "name": "orders",
+                    "source_name": "stripe",
+                },
+            },
+        )
+
+        resp = client.get("/api/catalog/lineage")
+        data = resp.json()
+
+        source_nodes = [n for n in data["nodes"] if n["type"] == "source"]
+        assert len(source_nodes) == 2
+        source_names = {n["source_name"] for n in source_nodes}
+        assert source_names == {"shopify", "stripe"}
+        assert all(n["name"] == "orders" for n in source_nodes)
 
     def test_requires_permission(self, tmp_path: Path) -> None:
         """Endpoint requires governance.view permission (viewer has it)."""

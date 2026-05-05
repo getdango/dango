@@ -1156,6 +1156,7 @@ def _build_lineage_dag() -> dict[str, Any] | None:
                 "id": uid,
                 "name": src.get("name", ""),
                 "type": "source",
+                "source_name": src.get("source_name", ""),
                 "schema": src.get("schema", ""),
                 "materialization": None,
                 "description": src.get("description", ""),
