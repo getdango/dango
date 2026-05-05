@@ -1064,9 +1064,7 @@ class DltPipelineRunner:
                 total_row_count = self._get_source_total_rows(source_name)
                 if total_row_count is not None:
                     stats["total_row_count"] = total_row_count
-                anomaly = self._check_row_count_anomaly(
-                    source_name, rows_loaded, total_rows=total_row_count
-                )
+                anomaly = self._check_row_count_anomaly(source_name, total_rows=total_row_count)
                 if anomaly:
                     stats["anomaly"] = anomaly
 
@@ -1710,23 +1708,27 @@ class DltPipelineRunner:
         schema = f"raw_{source_name}"
         try:
             conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
-            tables = conn.execute(
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = ? AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'",
-                [schema],
-            ).fetchall()
-            total = 0
-            for (table_name,) in tables:
-                result = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table_name}"').fetchone()
-                if result:
-                    total += result[0]
-            conn.close()
-            return total
+            try:
+                tables = conn.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = ? AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'",
+                    [schema],
+                ).fetchall()
+                total = 0
+                for (table_name,) in tables:
+                    result = conn.execute(
+                        f'SELECT COUNT(*) FROM "{schema}"."{table_name}"'
+                    ).fetchone()
+                    if result:
+                        total += result[0]
+                return total
+            finally:
+                conn.close()
         except Exception:
             return None
 
     def _check_row_count_anomaly(
-        self, source_name: str, current_rows: int, total_rows: int | None = None
+        self, source_name: str, total_rows: int | None = None
     ) -> dict[str, Any] | None:
         """Check for row count anomalies by comparing total table row counts.
 

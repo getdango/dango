@@ -123,20 +123,19 @@ class TestCheckRowCountAnomaly:
         """No DuckDB file → graceful degradation, returns None."""
         runner = self._make_runner(tmp_path)
         self._write_history(tmp_path, "src", [{"status": "success", "rows_processed": 500}])
-        assert runner._check_row_count_anomaly("src", 100) is None
+        assert runner._check_row_count_anomaly("src") is None
 
     def test_no_history_returns_none(self, tmp_path: Path) -> None:
         runner = self._make_runner(tmp_path)
         self._setup_db(tmp_path, "src", {"orders": 100})
-        assert runner._check_row_count_anomaly("src", 100) is None
+        assert runner._check_row_count_anomaly("src") is None
 
     def test_incremental_no_false_alarm(self, tmp_path: Path) -> None:
         """DB has 68K rows total, history shows 68K previous → no warning."""
         runner = self._make_runner(tmp_path)
         self._setup_db(tmp_path, "src", {"orders": 50000, "customers": 18000})
         self._write_history(tmp_path, "src", [{"status": "success", "total_row_count": 68000}])
-        # Incremental sync only loaded 200 rows, but DB total is 68K
-        result = runner._check_row_count_anomaly("src", 200)
+        result = runner._check_row_count_anomaly("src")
         assert result is None
 
     def test_actual_drop_triggers_warning(self, tmp_path: Path) -> None:
@@ -144,7 +143,7 @@ class TestCheckRowCountAnomaly:
         runner = self._make_runner(tmp_path)
         self._setup_db(tmp_path, "src", {"orders": 250, "customers": 150})
         self._write_history(tmp_path, "src", [{"status": "success", "total_row_count": 1000}])
-        result = runner._check_row_count_anomaly("src", 50)
+        result = runner._check_row_count_anomaly("src")
         assert result is not None
         assert result["level"] == "warning"
         assert "dropped" in result["message"]
@@ -154,7 +153,7 @@ class TestCheckRowCountAnomaly:
         runner = self._make_runner(tmp_path)
         self._setup_db(tmp_path, "src", {"orders": 0, "customers": 0})
         self._write_history(tmp_path, "src", [{"status": "success", "total_row_count": 500}])
-        result = runner._check_row_count_anomaly("src", 0)
+        result = runner._check_row_count_anomaly("src")
         assert result is not None
         assert result["level"] == "error"
         assert "Zero rows" in result["message"]
@@ -165,7 +164,7 @@ class TestCheckRowCountAnomaly:
         self._setup_db(tmp_path, "src", {"orders": 300})
         self._write_history(tmp_path, "src", [{"status": "success", "rows_processed": 1000}])
         # DB total is 300 vs prev 1000 → >50% drop
-        result = runner._check_row_count_anomaly("src", 50)
+        result = runner._check_row_count_anomaly("src")
         assert result is not None
         assert result["level"] == "warning"
         assert "dropped" in result["message"]
@@ -175,7 +174,7 @@ class TestCheckRowCountAnomaly:
         runner = self._make_runner(tmp_path)
         self._setup_db(tmp_path, "src", {"orders": 50004, "customers": 18000})
         self._write_history(tmp_path, "src", [{"status": "success", "total_row_count": 68000}])
-        result = runner._check_row_count_anomaly("src", 4)
+        result = runner._check_row_count_anomaly("src")
         assert result is None
 
     def test_large_spike_returns_warning(self, tmp_path: Path) -> None:
@@ -183,7 +182,7 @@ class TestCheckRowCountAnomaly:
         runner = self._make_runner(tmp_path)
         self._setup_db(tmp_path, "src", {"orders": 4000})
         self._write_history(tmp_path, "src", [{"status": "success", "total_row_count": 1000}])
-        result = runner._check_row_count_anomaly("src", 3000)
+        result = runner._check_row_count_anomaly("src")
         assert result is not None
         assert result["level"] == "warning"
         assert "spiked" in result["message"]
@@ -194,7 +193,7 @@ class TestCheckRowCountAnomaly:
         # No DB setup — would return None if it tried to query
         self._write_history(tmp_path, "src", [{"status": "success", "total_row_count": 1000}])
         # Pass total_rows=800 directly — within normal range
-        result = runner._check_row_count_anomaly("src", 50, total_rows=800)
+        result = runner._check_row_count_anomaly("src", total_rows=800)
         assert result is None
 
     def test_dlt_internal_tables_excluded(self, tmp_path: Path) -> None:

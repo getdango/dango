@@ -138,12 +138,14 @@ class DbtModelGenerator:
             return None
         try:
             conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
-            result = conn.execute(
-                "SELECT table_name FROM information_schema.tables "
-                "WHERE table_schema = ? AND table_name LIKE '%\\_\\_%' ESCAPE '\\'",
-                [schema],
-            ).fetchall()
-            conn.close()
+            try:
+                result = conn.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = ? AND table_name LIKE '%\\_\\_%' ESCAPE '\\'",
+                    [schema],
+                ).fetchall()
+            finally:
+                conn.close()
             for (table_name,) in result:
                 collapsed = "_".join(filter(None, table_name.split("_")))
                 if collapsed == normalized_name:
