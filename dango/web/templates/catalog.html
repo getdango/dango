@@ -797,7 +797,7 @@ function catalogPage() {
                 this.lineageFocusName = null; this.lineageFocusSourceName = null;
                 this.impactHighlighted = false; this.impactCount = 0;
                 if (!this._skipPush) this.updateUrl(false);
-                this.$nextTick(() => this.renderLineage());
+                this.$nextTick(() => { this.$nextTick(() => this.renderLineage()); });
             }
         },
         filterLineage(focusName, depth) {
