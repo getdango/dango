@@ -640,3 +640,78 @@ class TestOverrideApplication:
             result = scan_table_for_pii(tmp_path, "shopify", "orders")
         assert len(result) == 1
         assert result[0]["entity_type"] == "EMAIL_ADDRESS"
+
+
+@pytest.mark.unit
+class TestStructuredDataHeuristic:
+    """Tests for BUG-185: structured data PERSON suppression."""
+
+    def test_person_suppressed_for_long_structured_values(self) -> None:
+        """PGN-like strings with delimiters suppress PERSON detections."""
+        pgn = (
+            '[Event "Rated Blitz game"] [Site "https://lichess.org/abc123"] '
+            '[White "Magnus_Carlsen"] [Black "Hikaru_Nakamura"] '
+            "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 {Spanish Opening} 4. Ba4 Nf6 "
+            "5. O-O Be7 6. Re1 b5 7. Bb3 d6 8. c3 O-O"
+        )
+        values = [pgn] * 5  # avg_len > 100, contains brackets
+        mock_analyzer = MagicMock()
+
+        mock_result = MagicMock()
+        mock_result.entity_type = "PERSON"
+        mock_result.score = 0.85
+        mock_analyzer.analyze.return_value = [mock_result]
+
+        with patch(f"{_PII}._get_analyzer", return_value=mock_analyzer):
+            result = _scan_column(values)
+
+        assert "PERSON" not in result
+
+    def test_person_kept_for_short_values(self) -> None:
+        """Short strings with delimiters still keep PERSON."""
+        values = ["[John Smith]"] * 5  # avg_len < 100
+        mock_analyzer = MagicMock()
+        mock_result = MagicMock()
+        mock_result.entity_type = "PERSON"
+        mock_result.score = 0.85
+        mock_analyzer.analyze.return_value = [mock_result]
+
+        with patch(f"{_PII}._get_analyzer", return_value=mock_analyzer):
+            result = _scan_column(values)
+
+        assert "PERSON" in result
+
+    def test_person_kept_for_long_values_without_delimiters(self) -> None:
+        """Long plain text without structured delimiters keeps PERSON."""
+        long_text = "John Smith is a person who " + "does things " * 20
+        values = [long_text] * 5  # avg_len > 100, no delimiters
+        mock_analyzer = MagicMock()
+        mock_result = MagicMock()
+        mock_result.entity_type = "PERSON"
+        mock_result.score = 0.85
+        mock_analyzer.analyze.return_value = [mock_result]
+
+        with patch(f"{_PII}._get_analyzer", return_value=mock_analyzer):
+            result = _scan_column(values)
+
+        assert "PERSON" in result
+
+    def test_non_person_not_affected(self) -> None:
+        """EMAIL_ADDRESS is not suppressed by the structured data heuristic."""
+        pgn = (
+            '[Event "Rated Blitz game"] [Site "https://lichess.org/abc123"] '
+            '[White "Magnus_Carlsen"] [Black "Hikaru_Nakamura"] '
+            "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 "
+            "5. O-O Be7 6. Re1 b5 7. Bb3 d6 8. c3 O-O"
+        )
+        values = [pgn] * 5
+        mock_analyzer = MagicMock()
+        mock_result = MagicMock()
+        mock_result.entity_type = "EMAIL_ADDRESS"
+        mock_result.score = 0.9
+        mock_analyzer.analyze.return_value = [mock_result]
+
+        with patch(f"{_PII}._get_analyzer", return_value=mock_analyzer):
+            result = _scan_column(values)
+
+        assert "EMAIL_ADDRESS" in result
