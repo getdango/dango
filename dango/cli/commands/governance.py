@@ -183,7 +183,6 @@ def pii_list(ctx: click.Context, source: str | None) -> None:
         return
 
     tbl = Table(title="PII Overrides")
-    tbl.add_column("ID", style="dim")
     tbl.add_column("Source", style="bold")
     tbl.add_column("Table")
     tbl.add_column("Column")
@@ -195,7 +194,6 @@ def pii_list(ctx: click.Context, source: str | None) -> None:
     for o in overrides:
         status_style = "green" if o["pii_status"] == "not_pii" else "red"
         tbl.add_row(
-            str(o["id"]),
             o["source"],
             o["table_name"],
             o["column_name"],

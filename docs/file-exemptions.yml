@@ -365,9 +365,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/governance/pii_detector.py
-    lines: 602
+    lines: 614
     category: exempt
-    reason: "BUG-027/BUG-133/BUG-139: grew to 602 lines adding spaCy fallback, PERSON threshold, intl phone recognizer, and PII override application. Single-responsibility module, not worth splitting."
+    reason: "BUG-027/BUG-133/BUG-139/BUG-185: grew to 614 lines adding spaCy fallback, PERSON threshold, intl phone recognizer, PII override application, and structured data heuristic. Single-responsibility module, not worth splitting."
     review_by: "v1.1"
 
   - file: tests/unit/test_drift_detection.py

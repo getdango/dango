@@ -282,7 +282,7 @@
                                         <tr>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                                 <span x-text="col.name"></span>
-                                                <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800 cursor-pointer" :title="'PII: ' + (col._pii || '') + ' (click to dismiss)'" @click.stop="dismissPii(col)">PII &times;</span>
+                                                <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800" :title="'PII: ' + (col._pii || '') + ' — Manage via CLI: dango governance pii-set'">PII</span>
                                                 <span x-show="col._pii && col._piiProvenance === 'confirmed'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800" :title="'PII confirmed: ' + (col._pii || '')">PII</span>
                                                 <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800" x-text="col._drift" :title="'Schema drift: ' + (col._drift || '')"></span>
                                             </td>
@@ -747,25 +747,6 @@ function catalogPage() {
         clearSearch() {
             this.searchQuery = '';
             this.searchResults = null;
-        },
-
-        async dismissPii(col) {
-            if (!this.selectedModel) return;
-            const source = this.selectedModel.source_name;
-            const table = this.selectedModel.name;
-            if (!source || !table) return;
-            try {
-                const res = await fetch('/api/governance/pii/override', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                    body: JSON.stringify({ source: source, table_name: table, column_name: col.name, pii_status: 'not_pii' }),
-                });
-                if (res.ok) {
-                    col._pii = null;
-                    col._piiProvenance = 'dismissed';
-                    this.piiOverrides.push({ source: source, table_name: table, column_name: col.name, pii_status: 'not_pii' });
-                }
-            } catch (_) { /* silent */ }
         },
 
         async refreshProfile() {

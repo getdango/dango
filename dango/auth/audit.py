@@ -71,8 +71,6 @@ class AuditEvent(str, Enum):
     INSIGHTS_VIEWED              = "monitoring_viewed"  # deprecated alias
     AI_CATALOG_VIEWED            = "ai_catalog_viewed"
     DEPLOYMENT_HISTORY_VIEWED    = "deployment_history_viewed"
-    GOVERNANCE_PII_OVERRIDE_SET     = "governance_pii_override_set"
-    GOVERNANCE_PII_OVERRIDE_DELETED = "governance_pii_override_deleted"
     GOVERNANCE_DRIFT_ACCEPTED   = "governance_drift_accepted"
     QUERY_EXECUTED              = "query_executed"
     # fmt: on
