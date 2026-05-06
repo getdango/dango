@@ -214,14 +214,45 @@ async def run_sync_task(
             }
         )
 
-        # Run sync with the complete flow (data load -> dbt -> docs -> metabase)
-        summary = run_sync(
-            project_root=get_project_root(),
-            sources=[source_config],
-            start_date=start_date_obj,
-            end_date=end_date_obj,
-            full_refresh=full_refresh,
-        )
+        # Run sync in executor so the event loop stays free for WebSocket broadcasts
+        _project_root = get_project_root()
+
+        async def _sync_heartbeat() -> None:
+            """Broadcast progress every 30s while sync runs."""
+            try:
+                while True:
+                    await asyncio.sleep(30)
+                    elapsed = int(time.time() - start_time)
+                    await ws_manager.broadcast(
+                        {
+                            "event": "sync_progress",
+                            "source": source_name,
+                            "message": f"Sync in progress ({elapsed}s elapsed)",
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                    )
+            except asyncio.CancelledError:
+                pass
+
+        heartbeat = asyncio.create_task(_sync_heartbeat())
+        try:
+            loop = asyncio.get_running_loop()
+            summary = await loop.run_in_executor(
+                None,
+                lambda: run_sync(
+                    project_root=_project_root,
+                    sources=[source_config],
+                    start_date=start_date_obj,
+                    end_date=end_date_obj,
+                    full_refresh=full_refresh,
+                ),
+            )
+        finally:
+            heartbeat.cancel()
+            try:
+                await heartbeat
+            except asyncio.CancelledError:
+                pass
 
         success = summary["failed_count"] == 0
         # Also check that we actually have successful sources (not just zero failures)
@@ -292,6 +323,15 @@ async def run_sync_task(
         # Get row count after sync (only if successful)
         if success:
             rows_processed = get_source_row_count(source_name) or 0
+            await ws_manager.broadcast(
+                {
+                    "event": "data_load_complete",
+                    "source": source_name,
+                    "message": f"Data loaded: {rows_processed:,} rows",
+                    "timestamp": datetime.now().isoformat(),
+                    "rows_loaded": rows_processed,
+                }
+            )
 
         # Calculate duration
         duration = time.time() - start_time
@@ -346,6 +386,8 @@ async def run_sync_task(
                 else (error_message or "Sync failed"),
                 "timestamp": datetime.now().isoformat(),
                 "error": error_message if not success else None,
+                "rows_loaded": rows_processed if success else 0,
+                "duration_seconds": round(duration, 2),
             }
         )
 

@@ -105,7 +105,7 @@ class NotificationConfig(BaseModel):
 
     webhooks: list[WebhookConfig] = []
     on_failure: bool = True
-    on_success: bool = False
+    on_success: bool = True
     on_stale: bool = True
     on_governance: bool = True
     on_analysis: bool = True

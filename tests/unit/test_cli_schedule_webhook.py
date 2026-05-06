@@ -92,11 +92,14 @@ class TestWebhookAdd:
         mock_root.return_value = project_root
         _write_schedules_yaml(project_root, {})
 
-        mock_prompt.return_value = {
-            "name": "my_hook",
-            "url": "https://example.com/hook",
-            "format": "generic",
-        }
+        mock_prompt.side_effect = [
+            {
+                "name": "my_hook",
+                "url": "https://example.com/hook",
+                "format": "generic",
+            },
+            {"events": ["success", "failure", "stale"]},
+        ]
 
         runner = CliRunner()
         result = runner.invoke(cli, ["schedule", "webhook", "add"])
@@ -107,6 +110,50 @@ class TestWebhookAdd:
         webhooks = data["notifications"]["webhooks"]
         assert len(webhooks) == 1
         assert webhooks[0]["name"] == "my_hook"
+        # Verify event settings were written
+        assert data["notifications"]["on_success"] is True
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_second_webhook_skips_event_prompt(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path
+    ) -> None:
+        """Adding a second webhook does NOT prompt for events (settings already exist)."""
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        # Pre-existing webhook + event settings
+        _write_schedules_yaml(
+            project_root,
+            {
+                "notifications": {
+                    "webhooks": [{"name": "existing", "url": "https://example.com/a"}],
+                    "on_success": True,
+                    "on_failure": True,
+                    "on_stale": False,
+                }
+            },
+        )
+
+        # Only one prompt call needed (name/url/format) — no event prompt
+        mock_prompt.return_value = {
+            "name": "second_hook",
+            "url": "https://example.com/b",
+            "format": "slack",
+        }
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "webhook", "add"])
+        plain = _strip_ansi(result.output)
+        assert "added" in plain
+
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        webhooks = data["notifications"]["webhooks"]
+        assert len(webhooks) == 2
+        assert webhooks[1]["name"] == "second_hook"
+        # Event settings unchanged
+        assert data["notifications"]["on_stale"] is False
+        # Only one prompt call (no event prompt)
+        assert mock_prompt.call_count == 1
 
 
 @pytest.mark.unit

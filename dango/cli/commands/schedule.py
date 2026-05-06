@@ -625,7 +625,7 @@ def schedule_add(ctx: click.Context) -> None:
                     "notify_on",
                     message="Notify on (select events)",
                     choices=["failure", "success", "stale"],
-                    default=["failure"],
+                    default=["failure", "success", "stale"],
                 )
             ]
         )
