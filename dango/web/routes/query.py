@@ -98,7 +98,7 @@ def _validate_sql(sql: str) -> None:
 
     try:
         statements = sqlglot.parse(sql, dialect="duckdb")
-    except sqlglot.errors.SqlglotError:
+    except sqlglot.errors.SqlglotError as exc:
         # sqlglot could not parse — fall back to keyword check.
         # read_only=True is defense-in-depth for DB writes, but does not
         # prevent file-system writes (COPY TO, EXPORT), so we reject
@@ -106,12 +106,12 @@ def _validate_sql(sql: str) -> None:
         logger.warning("sqlglot_parse_failed", sql_length=len(sql))
         if not _looks_like_select(sql):
             raise ValueError("Only SELECT queries are allowed") from None
-        return
+        raise ValueError(f"Invalid SQL syntax: {exc}") from None
     except Exception:
         logger.warning("sqlglot_parse_failed", sql_length=len(sql))
         if not _looks_like_select(sql):
             raise ValueError("Only SELECT queries are allowed") from None
-        return
+        raise ValueError("Invalid SQL syntax") from None
 
     # Filter out None entries (blank trailing semicolons)
     statements = [s for s in statements if s is not None]
