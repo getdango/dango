@@ -37,7 +37,8 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query` | `remote_status()`, `remote_logs()` |
 | `commands/schedule.py` (743 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
 | `commands/governance.py` (208 lines) | `governance` group (drift-report, pii-report, pii-set, pii-list) | `governance`, `drift_report()`, `pii_report()`, `pii_set()`, `pii_list()` |
-| `commands/notebook.py` (179 lines) | `notebook` group (new, open) + `snapshot` top-level | `notebook`, `notebook_new()`, `notebook_open()`, `snapshot()` |
+| `commands/notebook.py` | `notebook` group (new, open) | `notebook`, `notebook_new()`, `notebook_open()` |
+| `commands/snapshot.py` | `snapshot` group (add, list, run, db) | `snapshot`, `snapshot_add()`, `snapshot_list()`, `snapshot_run()`, `snapshot_db()` |
 | `commands/analyze.py` (~95 lines) | `monitor` group + `analyze` alias | `monitor` (group), `monitor_run()`, `analyze()` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
@@ -111,7 +112,8 @@ dango (top-level group)
 ├── analyze                     ← commands/analyze.py (alias for monitor run)
 ├── monitor (group)             ← commands/analyze.py
 │   ├── run
-├── snapshot                    ← commands/notebook.py
+├── snapshot (group)            ← commands/snapshot.py
+│   ├── add, list, run, db
 ├── governance (group)          ← commands/governance.py
 │   ├── drift-report, pii-report, pii-set, pii-list
 ├── notebook (group)            ← commands/notebook.py
