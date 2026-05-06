@@ -20,7 +20,7 @@ Shared utilities for process management, activity logging, sync history tracking
 | `data_validation.py` | Schema/data integrity checks against DuckDB | `validate_cursor_field()`, `detect_schema_changes()`, `validate_data_completeness()`, `print_validation_report()` |
 | `env_file.py` | .env file parsing and serialization | `parse_env_file()`, `serialize_env_file()` |
 | `dango_db.py` (~179 lines) | SQLite context manager for `.dango/dango.db` + schema init | `connect()`, `get_connection()` |
-| `post_sync.py` (~554 lines) | Post-sync hook dispatcher + sync notification | `dispatch_post_sync_hooks()`, `_run_profiling()`, `_run_pii_scan()`, `_run_analysis()`, `_ensure_default_metrics()`, `_send_sync_notification()` |
+| `post_sync.py` (~618 lines) | Post-sync hook dispatcher + sync notification | `dispatch_post_sync_hooks()`, `_run_profiling()`, `_enrich_staging_tests()`, `_run_pii_scan()`, `_run_analysis()`, `_ensure_default_metrics()`, `_send_sync_notification()` |
 | `git_info.py` | Git repository info and deployment guardrails | `GitInfo`, `GitGuardrailResult`, `collect_git_info()`, `check_git_guardrails()` |
 | `driver.py` | Metabase DuckDB driver version management + version alignment check | `METABASE_DUCKDB_DRIVER_VERSION`, `METABASE_DUCKDB_DRIVER_URL`, `get_duckdb_driver_url()`, `read_driver_version()`, `write_driver_version()`, `driver_needs_update()`, `check_version_alignment()` |
 

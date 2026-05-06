@@ -75,6 +75,41 @@
                 </div>
             </template>
         </div>
+        <!-- Data Quality Checks -->
+        <div x-show="!loading && dbtTests.length > 0" class="mt-6">
+            <div class="bg-white shadow rounded-lg p-5">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-900">Data Quality Checks</h3>
+                    <span class="text-xs text-gray-500">
+                        <span x-text="dbtTestsPassing"></span>/<span x-text="dbtTests.length"></span> tests passing
+                    </span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-xs">
+                        <thead>
+                            <tr>
+                                <th class="text-left py-1.5 text-gray-500 font-medium">Test Name</th>
+                                <th class="text-left py-1.5 text-gray-500 font-medium">Model</th>
+                                <th class="text-left py-1.5 text-gray-500 font-medium">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="t in dbtTests" :key="t.test_name">
+                                <tr class="border-t border-gray-100">
+                                    <td class="py-1.5 text-gray-700 font-mono" x-text="t.test_name"></td>
+                                    <td class="py-1.5 text-gray-500" x-text="t.model_name || '-'"></td>
+                                    <td class="py-1.5">
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold"
+                                              :class="t.status === 'pass' ? 'bg-green-100 text-green-800' : t.status === 'fail' || t.status === 'error' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'"
+                                              x-text="t.status || 'pending'"></span>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
         <!-- History panel -->
         <div x-show="historyMetric" x-cloak class="mt-6 bg-white shadow rounded-lg p-5">
             <div class="flex items-center justify-between mb-3">
@@ -107,6 +142,7 @@ function monitoringPage() {
     return {
         metrics: [], flaggedCount: 0, loading: true, running: false, error: null,
         historyMetric: null, historyData: [], historyLoading: false,
+        dbtTests: [], dbtTestsPassing: 0,
         async init() {
             try {
                 const res = await fetch('/api/monitoring', {headers: {'X-Requested-With': 'XMLHttpRequest'}});
@@ -114,6 +150,8 @@ function monitoringPage() {
                     const data = await res.json();
                     this.metrics = data.metrics.map(m => ({...m, _expanded: false}));
                     this.flaggedCount = data.flagged;
+                    this.dbtTests = data.dbt_tests || [];
+                    this.dbtTestsPassing = this.dbtTests.filter(t => t.status === 'pass').length;
                 } else { this.error = 'Failed to load monitors.'; }
             } catch (e) { this.error = 'Failed to load monitors.'; }
             finally { this.loading = false; }
@@ -126,6 +164,8 @@ function monitoringPage() {
                     const data = await res.json();
                     this.metrics = data.metrics.map(m => ({...m, _expanded: false}));
                     this.flaggedCount = data.flagged;
+                    this.dbtTests = data.dbt_tests || [];
+                    this.dbtTestsPassing = this.dbtTests.filter(t => t.status === 'pass').length;
                 } else { this.error = 'Analysis failed.'; }
             } catch (e) { this.error = 'Analysis failed.'; }
             finally { this.running = false; }
