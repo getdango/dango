@@ -111,7 +111,8 @@ class DbtModelGenerator:
                 if is_nullable == "NO":
                     tests.append("not_null")
 
-                # Common patterns for unique columns
+                # Common patterns for unique columns (exact primary key names only;
+                # _id suffix columns are typically foreign keys and NOT unique)
                 if column_name.lower() in ["id", "uuid", "key"]:
                     tests.append("unique")
 
@@ -342,6 +343,36 @@ class DbtModelGenerator:
         template = self.jinja_env.get_template("sources.yml.j2")
         return template.render(**context)
 
+    def _enrich_columns_from_profiling(
+        self, source_name: str, table_name: str, columns: list[dict[str, Any]]
+    ) -> None:
+        """Add ``not_null`` tests for columns with 0% null rate from profiling stats.
+
+        Mutates *columns* in place.
+
+        Args:
+            source_name: Source name (used to query profiling_stats).
+            table_name: Table name within the source schema.
+            columns: Column dicts from ``get_table_schema()``.
+        """
+        from dango.utils.dango_db import connect
+
+        try:
+            with connect(self.project_root) as conn:
+                rows = conn.execute(
+                    "SELECT column_name FROM profiling_stats "
+                    "WHERE source = ? AND table_name = ? "
+                    "AND stat_type = 'null_pct' AND stat_value = '0.0'",
+                    (source_name, table_name),
+                ).fetchall()
+            zero_null_cols = {row[0] for row in rows}
+        except Exception:
+            return
+
+        for col in columns:
+            if col["name"] in zero_null_cols and "not_null" not in col.get("tests", []):
+                col.setdefault("tests", []).append("not_null")
+
     def generate_staging_schema_yml(
         self,
         source: DataSource,
@@ -523,12 +554,14 @@ class DbtModelGenerator:
                     # Uses staging_columns (excludes _dlt_*/_dango_* internal columns)
                     staging_models_for_yml = []
                     for table in tables_for_yml:
+                        stg_cols = table.get("staging_columns", table["columns"])
+                        self._enrich_columns_from_profiling(source.name, table["name"], stg_cols)
                         staging_models_for_yml.append(
                             {
                                 "name": f"stg_{source.name}__{table['name']}",
                                 "table_name": table["name"],
                                 "schema_name": schema_name,
-                                "columns": table.get("staging_columns", table["columns"]),
+                                "columns": stg_cols,
                             }
                         )
 

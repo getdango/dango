@@ -43,7 +43,9 @@ def generate_metrics_for_source(
     }
     generator = generators.get(source_type)
     if generator is not None:
-        return generator(source_name)
+        result = generator(source_name)
+        if result:
+            return result
     # Fallback: auto-discover tables and generate generic metrics
     return _generic_metrics(source_name, project_root)
 

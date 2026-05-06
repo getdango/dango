@@ -308,6 +308,7 @@ def dispatch_post_sync_hooks(
     logger.info("post_sync_hooks_start", sources=sources)
 
     _run_profiling(project_root, sources)
+    _enrich_staging_tests(project_root, sources)
     _run_pii_scan(project_root, sources)
     _run_analysis(project_root, sources)
 
@@ -315,6 +316,83 @@ def dispatch_post_sync_hooks(
         _send_sync_notification(project_root, sources, sync_result, trigger=trigger)
 
     logger.info("post_sync_hooks_complete", sources=sources)
+
+
+def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
+    """Enrich existing staging schema.yml files with ``not_null`` tests from profiling.
+
+    After profiling runs, columns with 0% null rate can safely receive a
+    ``not_null`` test.  This handles the first-sync case where profiling data
+    was not available during initial model generation.
+
+    Queries profiling stats per model/table to avoid cross-table column name
+    collisions (e.g. ``customer_id`` might be nullable in one table but not
+    another).
+
+    Args:
+        project_root: Path to the Dango project root.
+        sources: Names of sources that synced successfully.
+    """
+    import yaml
+
+    staging_dir = project_root / "dbt" / "models" / "staging"
+    if not staging_dir.exists():
+        return
+
+    for source in sources:
+        schema_file = staging_dir / f"stg_{source}.yml"
+        if not schema_file.exists():
+            continue
+
+        try:
+            content = schema_file.read_text()
+            data = yaml.safe_load(content)
+            if not data or "models" not in data:
+                continue
+
+            changed = False
+            for model in data["models"]:
+                # Extract table name from model name: stg_{source}__{table} → table
+                model_name = model.get("name", "")
+                prefix = f"stg_{source}__"
+                table_name = model_name[len(prefix) :] if model_name.startswith(prefix) else None
+                if not table_name:
+                    continue
+
+                # Query profiling for this specific table
+                with connect(project_root) as conn:
+                    rows = conn.execute(
+                        "SELECT column_name FROM profiling_stats "
+                        "WHERE source = ? AND table_name = ? "
+                        "AND stat_type = 'null_pct' AND stat_value = '0.0'",
+                        (source, table_name),
+                    ).fetchall()
+                zero_null_cols = {row[0] for row in rows}
+                if not zero_null_cols:
+                    continue
+
+                for col in model.get("columns", []):
+                    if col["name"] in zero_null_cols:
+                        tests = col.get("tests", [])
+                        if "not_null" not in tests:
+                            tests.append("not_null")
+                            col["tests"] = tests
+                            changed = True
+
+            if changed:
+                # Preserve the auto-generated header comment block
+                header_lines: list[str] = []
+                for line in content.splitlines(keepends=True):
+                    if line.startswith("#") or (header_lines and line.strip() == ""):
+                        header_lines.append(line)
+                    else:
+                        break
+                header = "".join(header_lines)
+                yml_body = yaml.dump(data, default_flow_style=False, sort_keys=False)
+                schema_file.write_text(header + yml_body)
+                logger.debug("staging_tests_enriched", source=source)
+        except Exception:
+            logger.warning("staging_test_enrichment_error", source=source, exc_info=True)
 
 
 def _run_profiling(project_root: Path, sources: list[str]) -> None:
@@ -385,12 +463,12 @@ def _run_pii_scan(project_root: Path, sources: list[str]) -> None:
 def _run_analysis(project_root: Path, sources: list[str]) -> None:
     """Run automated analysis on freshly synced sources.
 
-    Also auto-generates GA4 metric templates after first sync (column names
+    Also auto-generates metric templates after first sync (column names
     are only known once DuckDB has data).
     """
     try:
-        # Auto-generate GA4 metric templates now that columns exist in DuckDB
-        _ensure_ga4_metrics(project_root, sources)
+        # Auto-generate metric templates now that columns exist in DuckDB
+        _ensure_default_metrics(project_root, sources)
 
         from dango.analysis.metrics import run_analysis
 
@@ -402,8 +480,8 @@ def _run_analysis(project_root: Path, sources: list[str]) -> None:
         logger.warning("analysis_hook_error", sources=sources, exc_info=True)
 
 
-def _ensure_ga4_metrics(project_root: Path, sources: list[str]) -> None:
-    """Generate GA4 metric templates if not already present.  Never raises."""
+def _ensure_default_metrics(project_root: Path, sources: list[str]) -> None:
+    """Generate metric templates for synced sources if not already present.  Never raises."""
     try:
         from dango.analysis.config import add_monitors_to_config, load_monitors_config
         from dango.analysis.templates import generate_metrics_for_source
@@ -412,20 +490,21 @@ def _ensure_ga4_metrics(project_root: Path, sources: list[str]) -> None:
         config = get_config(project_root)
         existing_names = {m.name for m in load_monitors_config(project_root).monitors}
         for source in config.sources.sources:
-            if source.type.value != "google_analytics" or source.name not in sources:
+            if source.name not in sources:
                 continue
             new = [
                 m
                 for m in generate_metrics_for_source(
-                    "google_analytics", source.name, project_root=project_root
+                    source.type.value, source.name, project_root=project_root
                 )
                 if m.name not in existing_names
             ]
             if new:
                 add_monitors_to_config(project_root, new)
-                logger.info("ga4_metrics_auto_generated", source=source.name, count=len(new))
+                existing_names.update(m.name for m in new)
+                logger.info("metrics_auto_generated", source=source.name, count=len(new))
     except Exception:
-        logger.debug("ga4_metrics_auto_generate_skipped", exc_info=True)
+        logger.debug("metrics_auto_generate_skipped", exc_info=True)
 
 
 def _deliver_to_webhooks(
