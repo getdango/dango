@@ -8,7 +8,7 @@ Click-based command-line interface for all Dango operations — project init, so
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| `main.py` (121 lines) | CLI entry point, registers all commands | `cli` (Click group), `main()` |
+| `main.py` (125 lines) | CLI entry point, registers all commands | `cli` (Click group), `main()` |
 | `__init__.py` (12 lines) | Shared `console` (Rich Console) instance | `console` |
 | **commands/** | | |
 | `commands/__init__.py` (4 lines) | Package marker | — |
@@ -40,6 +40,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/notebook.py` | `notebook` group (new, open) | `notebook`, `notebook_new()`, `notebook_open()` |
 | `commands/snapshot.py` | `snapshot` group (add, list, run, db) | `snapshot`, `snapshot_add()`, `snapshot_list()`, `snapshot_run()`, `snapshot_db()` |
 | `commands/analyze.py` (~95 lines) | `monitor` group + `analyze` alias | `monitor` (group), `monitor_run()`, `analyze()` |
+| `commands/dev.py` (~310 lines) | `dev` group (default run + clean) — branch-based dbt development | `dev` (group), `dev_clean()` |
 | `commands/web.py` (66 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
 | `init.py` (1324 lines) | Project initialization wizard | `ProjectInitializer` |
@@ -109,6 +110,9 @@ dango (top-level group)
 │   ├── (default)  interactive wizard (DO or BYOS) → deploy_wizard.py + deploy_provision.py
 │   ├── --byos     deploy to existing server (any provider)
 │   └── destroy    tear down cloud infrastructure (DO resources or BYOS config)
+├── dev (group)                 ← commands/dev.py
+│   ├── (default)  run dbt against copy of production DB
+│   └── clean      remove dev artifacts (.dango/dev/)
 ├── analyze                     ← commands/analyze.py (alias for monitor run)
 ├── monitor (group)             ← commands/analyze.py
 │   ├── run
