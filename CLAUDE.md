@@ -100,7 +100,8 @@ dango/                          # Python package source
 │   │   ├── remote_mgmt.py      # remote status/logs/ssh/query
 │   │   ├── schedule.py         # schedule group (add/list/remove/status/enable/disable/webhook)
 │   │   ├── governance.py       # governance group (drift-report/pii-report)
-│   │   ├── notebook.py         # notebook group (new/open) + snapshot
+│   │   ├── notebook.py         # notebook group (new/open)
+│   │   ├── snapshot.py         # snapshot group (add/list/run/db) — dbt snapshots + DuckDB snapshots
 │   │   └── analyze.py          # monitor group + analyze alias
 │   ├── init.py                 # Project initialization wizard
 │   ├── wizard.py               # Interactive setup wizards

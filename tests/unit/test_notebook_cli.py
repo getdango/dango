@@ -221,9 +221,9 @@ class TestSnapshotCommand:
             mock_create.return_value = snap_path
 
             with patch("dango.cli.utils.find_project_root", return_value=project_root):
-                from dango.cli.commands.notebook import snapshot
+                from dango.cli.commands.snapshot import snapshot
 
-                result = runner.invoke(snapshot, [])
+                result = runner.invoke(snapshot, ["db"])
 
             assert result.exit_code == 0
             assert "Snapshot created" in result.output

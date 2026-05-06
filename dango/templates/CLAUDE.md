@@ -16,6 +16,7 @@ Jinja2 templates and Dockerfiles used by CLI project scaffolding and dbt model g
 | `dbt/sources.yml.j2` | dbt source definition template | Rendered by `transformation/generator.py` |
 | `dbt/staging_model.sql.j2` | dbt staging model SQL template | Rendered by `transformation/generator.py` |
 | `dbt/staging_schema.yml.j2` | dbt staging schema YAML template | Rendered by `transformation/generator.py` |
+| `dbt/snapshot.sql.j2` | dbt snapshot SQL template (SCD Type 2) | Rendered by `cli/commands/snapshot.py` |
 
 ## Common Tasks
 
@@ -35,6 +36,7 @@ Jinja2 templates and Dockerfiles used by CLI project scaffolding and dbt model g
 **Used by:**
 - `cli/init.py` — renders `docker-compose.yml.j2`, copies `Dockerfile.metabase` and `entrypoint.sh` during project scaffolding (via `jinja2.PackageLoader('dango', 'templates')`)
 - `transformation/generator.py` — renders `dbt/*.j2` templates for dbt model generation (via `jinja2.FileSystemLoader`)
+- `cli/commands/snapshot.py` — renders `dbt/snapshot.sql.j2` for dbt snapshot generation (via `jinja2.FileSystemLoader`)
 
 ## Testing
 

@@ -1,6 +1,6 @@
 """dango/cli/commands/notebook.py
 
-Notebook management CLI commands and snapshot top-level command.
+Notebook management CLI commands.
 """
 
 from __future__ import annotations
@@ -155,25 +155,3 @@ def notebook_open(ctx: click.Context, name: str) -> None:
     port = status.get("port") or 7805
     url = f"http://localhost:{port}/?file={name}.py"
     console.print(f"\n  [bold]Open in browser:[/bold] {url}\n")
-
-
-@click.command()
-@click.option("--user", "-u", default="default", help="Username for the snapshot.")
-@click.pass_context
-def snapshot(ctx: click.Context, user: str) -> None:
-    """Create a DuckDB snapshot for notebook use."""
-    from dango.cli.utils import require_project_context
-    from dango.notebooks.snapshot import create_snapshot
-
-    project_root = require_project_context(ctx)
-
-    try:
-        snap_path = create_snapshot(project_root, username=user)
-    except FileNotFoundError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise SystemExit(1) from e
-
-    size_mb = snap_path.stat().st_size / (1024 * 1024)
-    console.print(f"[green]✓[/green] Snapshot created: [bold]{snap_path.name}[/bold]")
-    console.print(f"  Path: {snap_path}")
-    console.print(f"  Size: {size_mb:.1f} MB")
