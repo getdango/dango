@@ -103,6 +103,10 @@ async def run_sync_task(
     sync_timestamp = datetime.now().isoformat()
     project_root = get_project_root()
 
+    # Create execution history record (passed to subprocess to avoid double records)
+    db_path = get_scheduler_db_path(project_root)
+    record_id = record_start(db_path, "ui", sources=[source_name])
+
     # Immediate UI feedback
     await ws_manager.broadcast(
         {
@@ -131,6 +135,7 @@ async def run_sync_task(
             start_date=start_date,
             end_date=end_date,
             source_label="ui",
+            record_id=record_id,
         )
 
         # Poll until completion (broadcasts WS events + heartbeat internally)
@@ -195,6 +200,9 @@ async def run_sync_task(
                 "message": f"Sync failed: {error_message}",
             }
         )
+
+        # Record execution history failure (subprocess may not have had the chance)
+        record_failure(db_path, record_id, error_message)
 
         history_entry = {
             "timestamp": sync_timestamp,
@@ -339,14 +347,12 @@ async def _run_manual_sync(
             project_root, process, display_name, sync_id=sync_id
         )
 
-        # Subprocess already records completion/failure via record_id.
-        # Only record here if the subprocess crashed without doing so.
-        if (
-            _result
-            and _result.get("phase") == "failed"
-            and "unexpectedly" in _result.get("error", "")
-        ):
-            record_failure(db_path, record_id, _result["error"])
+        # Subprocess records its own completion/failure via record_id for normal
+        # exits. Record failure here for cases where the subprocess didn't get
+        # the chance (crash, timeout, poller-detected failure).
+        if not success:
+            error = _result.get("error", "Unknown error") if _result else "Unknown error"
+            record_failure(db_path, record_id, error)
 
         cleanup_sync_status(project_root, sync_id=sync_id)
     except Exception as exc:
