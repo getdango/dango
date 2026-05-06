@@ -71,7 +71,7 @@ dango/                          # Python package source
 ├── logging.py                  # Level 0 — Structured logging (structlog + stdlib)
 ├── cli/                        # Level 3 — Click CLI (primary user interface)
 │   ├── __init__.py             # Shared Console instance
-│   ├── main.py                 # Slim entry point (~121 lines) — registers commands
+│   ├── main.py                 # Slim entry point (~125 lines) — registers commands
 │   ├── commands/               # Command modules (extracted from main.py by TASK-005)
 │   │   ├── __init__.py         # Package marker
 │   │   ├── auth.py             # auth group (13 subcommands, 660 lines)
@@ -92,6 +92,7 @@ dango/                          # Python package source
 │   │   ├── deploy.py           # deploy group (wizard default, --byos, destroy)
 │   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (808 lines)
 │   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (813 lines)
+│   │   ├── dev.py              # dev group (default run + clean) — branch-based dbt dev
 │   │   ├── migrate.py          # migrate group (status, run)
 │   │   ├── remote.py           # remote group + push/rollback/firewall/domain (698 lines)
 │   │   ├── remote_env.py       # remote env subgroup (set/get/list/delete)
