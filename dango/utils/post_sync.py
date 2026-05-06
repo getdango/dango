@@ -325,6 +325,10 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
     ``not_null`` test.  This handles the first-sync case where profiling data
     was not available during initial model generation.
 
+    Queries profiling stats per model/table to avoid cross-table column name
+    collisions (e.g. ``customer_id`` might be nullable in one table but not
+    another).
+
     Args:
         project_root: Path to the Dango project root.
         sources: Names of sources that synced successfully.
@@ -341,17 +345,6 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
             continue
 
         try:
-            # Query profiling for columns with 0% null rate
-            with connect(project_root) as conn:
-                rows = conn.execute(
-                    "SELECT column_name FROM profiling_stats "
-                    "WHERE source = ? AND stat_type = 'null_pct' AND stat_value = '0.0'",
-                    (source,),
-                ).fetchall()
-            zero_null_cols = {row[0] for row in rows}
-            if not zero_null_cols:
-                continue
-
             content = schema_file.read_text()
             data = yaml.safe_load(content)
             if not data or "models" not in data:
@@ -359,6 +352,25 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
 
             changed = False
             for model in data["models"]:
+                # Extract table name from model name: stg_{source}__{table} → table
+                model_name = model.get("name", "")
+                prefix = f"stg_{source}__"
+                table_name = model_name[len(prefix) :] if model_name.startswith(prefix) else None
+                if not table_name:
+                    continue
+
+                # Query profiling for this specific table
+                with connect(project_root) as conn:
+                    rows = conn.execute(
+                        "SELECT column_name FROM profiling_stats "
+                        "WHERE source = ? AND table_name = ? "
+                        "AND stat_type = 'null_pct' AND stat_value = '0.0'",
+                        (source, table_name),
+                    ).fetchall()
+                zero_null_cols = {row[0] for row in rows}
+                if not zero_null_cols:
+                    continue
+
                 for col in model.get("columns", []):
                     if col["name"] in zero_null_cols:
                         tests = col.get("tests", [])
@@ -368,13 +380,14 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
                             changed = True
 
             if changed:
-                # Preserve the auto-generated header comment
-                header = ""
+                # Preserve the auto-generated header comment block
+                header_lines: list[str] = []
                 for line in content.splitlines(keepends=True):
-                    if line.startswith("#"):
-                        header += line
+                    if line.startswith("#") or (header_lines and line.strip() == ""):
+                        header_lines.append(line)
                     else:
                         break
+                header = "".join(header_lines)
                 yml_body = yaml.dump(data, default_flow_style=False, sort_keys=False)
                 schema_file.write_text(header + yml_body)
                 logger.debug("staging_tests_enriched", source=source)

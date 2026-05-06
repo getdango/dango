@@ -180,7 +180,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/transformation/generator.py
-    lines: 611
+    lines: 610
     category: exempt
     reason: "DbtModelGenerator — generates dbt models from source configs. R10-G2 added _enrich_columns_from_profiling for dbt test enrichment."
     review_by: "v1.1"
@@ -311,7 +311,7 @@ exemptions:
   # --- Phase 4 scheduling ---
 
   - file: dango/utils/post_sync.py
-    lines: 618
+    lines: 631
     category: exempt
     reason: "R10-G2: Added _enrich_staging_tests for post-sync dbt test enrichment from profiling data."
     review_by: "v1.1"
