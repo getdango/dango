@@ -11,7 +11,7 @@ User authentication and access control for Dango. Handles password-based login w
 | `__init__.py` | 238 | Re-exports 95 public symbols | All public API |
 | `models.py` | 172 | Pydantic models | `Role`, `User`, `UserCreate`, `UserUpdate`, `UserResponse`, `Session`, `APIKey` |
 | `database.py` | 529 | SQLite CRUD (WAL mode, FK enforcement) | `create_user()`, `get_user_by_*()`, `list_users()`, `update_user()`, `create_session()`, `get_session_by_token()`, `create_api_key()` |
-| `security.py` | 375 | Pure crypto utilities | `hash_password()`, `verify_password()`, `check_password_strength()`, `generate_session_token()`, `generate_api_key()`, `generate_invite_token()`, `generate_recovery_codes()` |
+| `security.py` | 386 | Pure crypto utilities | `hash_password()`, `verify_password()`, `check_password_strength()`, `generate_session_token()`, `generate_api_key()`, `generate_invite_token()`, `generate_recovery_codes()` |
 | `sessions.py` | 289 | High-level session + API key lifecycle | `create_session()`, `validate_session()`, `validate_partial_session()`, `create_api_key()`, `validate_api_key()` |
 | `permissions.py` | 195 | 29 permissions, 3 role mappings | `PERMISSIONS`, `ROLE_PERMISSIONS`, `has_permission()`, `require_permission()` |
 | `lockout.py` | 181 | Brute-force protection (5 attempts / 15-min) | `record_failed_login()`, `check_account_locked()`, `unlock_account()` |
@@ -19,7 +19,7 @@ User authentication and access control for Dango. Handles password-based login w
 | `admin.py` | 124 | Bootstrap + path helpers | `ensure_admin()`, `is_auth_enabled()`, `get_auth_db_path()` |
 | `totp.py` | 220 | TOTP 2FA: setup/verify/enable/disable, recovery codes | `generate_totp_secret()`, `verify_totp_code()`, `setup_totp()`, `enable_totp()`, `consume_recovery_code()` |
 | `oauth_login.py` | 307 | OAuth provider ABC + Google/GitHub implementations | `OAuthLoginProvider`, `GoogleOAuthProvider`, `GitHubOAuthProvider`, `get_provider()` |
-| `metabase_sync.py` | 498 | Sync users/roles to Metabase (encrypted passwords) | `sync_user_to_metabase()`, `sync_all_users_to_metabase()`, `sync_user_role()`, `decrypt_metabase_password()` |
+| `metabase_sync.py` | 552 | Sync users/roles to Metabase (encrypted passwords) | `sync_user_to_metabase()`, `sync_all_users_to_metabase()`, `sync_user_role()`, `decrypt_metabase_password()` |
 | `metabase_bridge.py` | 152 | Async SSO session bridging on login/logout | `bridge_metabase_login()`, `bridge_metabase_logout()`, `ensure_metabase_synced()` |
 
 ## Architecture
@@ -233,14 +233,14 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 **External packages:** `pwdlib[bcrypt]`, `pyotp`, `httpx`, `requests`, `pydantic`, `rich`
 
 **Used by:**
-- `web/middleware/auth.py` (325 lines) — session/API key validation on every request
-- `web/routes/auth.py` (~854 lines) — login, password change, OAuth, invite accept. Defines `_bridge_metabase_session()` helper (shared with auth_2fa.py).
-- `web/routes/auth_2fa.py` (~328 lines) — TOTP setup/verify/disable. Imports `_bridge_metabase_session` from auth.py.
-- `web/routes/users.py` (525 lines) — user CRUD, invite creation, reinvite
-- `web/routes/ui.py` (183 lines) — login/account/invite page rendering
-- `web/routes/metabase_proxy.py` (268 lines) — SSO re-bridging on 401
-- `web/app.py` (~370 lines) — first-run admin bootstrap in `lifespan()`
-- `cli/commands/auth.py` (660 lines) — 13 auth subcommands (add-user, list-users, change-role, unlock, etc.)
+- `web/middleware/auth.py` (324 lines) — session/API key validation on every request
+- `web/routes/auth.py` (~852 lines) — login, password change, OAuth, invite accept. Defines `_bridge_metabase_session()` helper (shared with auth_2fa.py).
+- `web/routes/auth_2fa.py` (~340 lines) — TOTP setup/verify/disable. Imports `_bridge_metabase_session` from auth.py.
+- `web/routes/users.py` (527 lines) — user CRUD, invite creation, reinvite
+- `web/routes/ui.py` (324 lines) — login/account/invite page rendering
+- `web/routes/metabase_proxy.py` (321 lines) — SSO re-bridging on 401
+- `web/app.py` (~449 lines) — first-run admin bootstrap in `lifespan()`
+- `cli/commands/auth.py` (661 lines) — 13 auth subcommands (add-user, list-users, change-role, unlock, etc.)
 
 ## Testing
 

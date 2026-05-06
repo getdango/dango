@@ -12,51 +12,51 @@ Click-based command-line interface for all Dango operations — project init, so
 | `__init__.py` (12 lines) | Shared `console` (Rich Console) instance | `console` |
 | **commands/** | | |
 | `commands/__init__.py` (4 lines) | Package marker | — |
-| `commands/project.py` (292 lines) | `init`, `rename`, `info` | `init()`, `rename()`, `info()` |
-| `commands/source.py` (828 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
+| `commands/project.py` (307 lines) | `init`, `rename`, `info` | `init()`, `rename()`, `info()` |
+| `commands/source.py` (829 lines) | `source` group (`add`, `list`, `remove`, `edit`) + `sync` | `source`, `sync()` |
 | `commands/platform.py` (1034 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
-| `commands/auth.py` (660 lines) | `auth` group (13 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, change-role, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_change_role()`, `auth_status()`, etc. |
-| `commands/cleanup.py` (322 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
+| `commands/auth.py` (661 lines) | `auth` group (13 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, change-role, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_change_role()`, `auth_status()`, etc. |
+| `commands/cleanup.py` (388 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
 | `commands/oauth.py` (813 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
-| `commands/transform.py` (326 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
+| `commands/transform.py` (343 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
 | `commands/upgrade.py` (236 lines) | `upgrade` command — local Dango upgrade via pip + migrations | `upgrade()`, `get_latest_version_cached()` |
-| `commands/data.py` (360 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
-| `commands/config_cmd.py` (179 lines) | `config` group (`validate`, `show`) | `config` |
+| `commands/data.py` (388 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
+| `commands/config_cmd.py` (240 lines) | `config` group (`validate`, `show`) | `config` |
 | `commands/metabase_cmd.py` (412 lines) | `metabase` group (`save`, `load`, `refresh`) | `metabase` |
-| `commands/model.py` (212 lines) | `model` group (`add`, `remove`) | `model` |
-| `commands/dashboard.py` (125 lines) | `dashboard` group (`provision`) | `dashboard` |
+| `commands/model.py` (258 lines) | `model` group (`add`, `remove`) | `model` |
+| `commands/dashboard.py` (153 lines) | `dashboard` group (`provision`) | `dashboard` |
 | `commands/remote.py` (698 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
-| `commands/serve.py` (~203 lines) | `serve` production foreground server with `--workers` option. Metabase setup failure is non-fatal (prints warning, continues to uvicorn). | `serve()` |
+| `commands/serve.py` (~205 lines) | `serve` production foreground server with `--workers` option. Metabase setup failure is non-fatal (prints warning, continues to uvicorn). | `serve()` |
 | `commands/deploy.py` (705 lines) | `deploy` group (wizard default, --byos, destroy) | `deploy`, `deploy_destroy()` |
-| `commands/deploy_wizard.py` (808 lines) | Interactive wizard steps 1-8 + BYOS wizard + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig`, `run_byos_wizard()`, `run_byos_non_interactive()`, `BYOSConfig` |
-| `commands/deploy_provision.py` (813 lines) | Provisioning orchestration (DO + BYOS) + cleanup | `run_provisioning()`, `run_byos_setup()`, `ProvisionResult`, `BYOSResult`, `_ResourceTracker` |
+| `commands/deploy_wizard.py` (813 lines) | Interactive wizard steps 1-8 + BYOS wizard + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig`, `run_byos_wizard()`, `run_byos_non_interactive()`, `BYOSConfig` |
+| `commands/deploy_provision.py` (846 lines) | Provisioning orchestration (DO + BYOS) + cleanup | `run_provisioning()`, `run_byos_setup()`, `ProvisionResult`, `BYOSResult`, `_ResourceTracker` |
 | `commands/remote_env.py` | `remote env` subgroup (set, get, list, delete) | `env` (Click group) |
 | `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
 | `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore) | `backup_group` |
 | `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query` | `remote_status()`, `remote_logs()` |
 | `commands/schedule.py` (743 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
-| `commands/governance.py` (208 lines) | `governance` group (drift-report, pii-report, pii-set, pii-list) | `governance`, `drift_report()`, `pii_report()`, `pii_set()`, `pii_list()` |
-| `commands/notebook.py` | `notebook` group (new, open) | `notebook`, `notebook_new()`, `notebook_open()` |
-| `commands/snapshot.py` | `snapshot` group (add, list, run, db) | `snapshot`, `snapshot_add()`, `snapshot_list()`, `snapshot_run()`, `snapshot_db()` |
-| `commands/analyze.py` (~95 lines) | `monitor` group + `analyze` alias | `monitor` (group), `monitor_run()`, `analyze()` |
-| `commands/dev.py` (~310 lines) | `dev` group (default run + clean) — branch-based dbt development | `dev` (group), `dev_clean()` |
-| `commands/web.py` (66 lines) | `web` dev server command | `web()` |
+| `commands/governance.py` (220 lines) | `governance` group (drift-report, pii-report, pii-set, pii-list) | `governance`, `drift_report()`, `pii_report()`, `pii_set()`, `pii_list()` |
+| `commands/notebook.py` (157 lines) | `notebook` group (new, open) | `notebook`, `notebook_new()`, `notebook_open()` |
+| `commands/snapshot.py` (383 lines) | `snapshot` group (add, list, run, db) | `snapshot`, `snapshot_add()`, `snapshot_list()`, `snapshot_run()`, `snapshot_db()` |
+| `commands/analyze.py` (~97 lines) | `monitor` group + `analyze` alias | `monitor` (group), `monitor_run()`, `analyze()` |
+| `commands/dev.py` (~429 lines) | `dev` group (default run + clean) — branch-based dbt development | `dev` (group), `dev_clean()` |
+| `commands/web.py` (69 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
-| `init.py` (1324 lines) | Project initialization wizard | `ProjectInitializer` |
-| `wizard.py` (296 lines) | Interactive setup wizards | `ProjectWizard` |
+| `init.py` (1334 lines) | Project initialization wizard | `ProjectInitializer` |
+| `wizard.py` (307 lines) | Interactive setup wizards | `ProjectWizard` |
 | `source_wizard.py` (2306 lines) | Source configuration wizard | `add_source()` |
 | `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |
 | **Helpers** | | |
-| `utils.py` (129 lines) | Display helpers + project context | `require_project_context()` |
+| `utils.py` (164 lines) | Display helpers + project context | `require_project_context()` |
 | `validate.py` (652 lines) | Project validation logic | `validate_project()` |
-| `db_helpers.py` (129 lines) | Schema/table matching for db commands | `build_schema_table_mapping()`, `is_table_configured()` |
+| `db_helpers.py` (140 lines) | Schema/table matching for db commands | `build_schema_table_mapping()`, `is_table_configured()` |
 | `env_helpers.py` (319 lines) | `.env` file management | `create_env_template()`, `validate_env_file()`, `guide_env_setup()` |
-| `oauth.py` (428 lines) | OAuth CLI flows | `authenticate_facebook()`, `authenticate_google()`, `check_token_expiry()` |
-| `schema_manager.py` (335 lines) | dbt `schema.yml` auto-generation | `update_model_schemas()` |
+| `oauth.py` (439 lines) | OAuth CLI flows | `authenticate_facebook()`, `authenticate_google()`, `check_token_expiry()` |
+| `schema_manager.py` (338 lines) | dbt `schema.yml` auto-generation | `update_model_schemas()` |
 | `helpers/__init__.py` (6 lines) | Package marker | — |
-| `helpers/port_manager.py` (48 lines) | Port checking | `check_port_in_use()` |
-| `helpers/process_manager.py` (336 lines) | FastAPI server process management | `start_fastapi_server()` |
+| `helpers/port_manager.py` (49 lines) | Port checking | `check_port_in_use()` |
+| `helpers/process_manager.py` (345 lines) | FastAPI server process management | `start_fastapi_server()` |
 
 ## Architecture
 
@@ -74,7 +74,7 @@ dango (top-level group)
 ├── validate                    ← commands/data.py
 ├── web                         ← commands/web.py
 ├── source (group)              ← commands/source.py
-│   ├── add, list, remove
+│   ├── add, list, remove, edit
 ├── config (group)              ← commands/config_cmd.py
 │   ├── validate, show
 ├── db (group)                  ← commands/data.py

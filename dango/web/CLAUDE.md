@@ -12,8 +12,8 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `models.py` | Pydantic request/response DTOs | `TableInfo`, `SourceStatus`, `ServiceHealth`, `SyncRequest`, `SyncResponse`, `LogEntry`, `WatcherStatus`, `LoginRequest`, `AcceptInviteRequest`, `TwoFAVerifyRequest` |
 | `helpers.py` | Shared helpers: DuckDB queries, config loading, service health, logging (851 lines) | `get_project_root()`, `load_sources_config()`, `get_duckdb_path()`, `get_dbt_models()`, `mask_sensitive_config()`, `get_source_freshness()`, `append_log_entry()`, `load_all_logs()`, `check_service_status_async()`, `get_platform_health_data()`, `get_source_status_data()` |
 | `__init__.py` | Public exports | `app` module |
-| `middleware/auth.py` | Session/API key auth + CSRF check on every request (~325 lines) | `AuthMiddleware`, `is_secure_request()`, `COOKIE_NAME` |
-| `middleware/rate_limit.py` | Rate limiting (login 10/min, API 200/min, localhost exempt, ~212 lines) | `RateLimitMiddleware` |
+| `middleware/auth.py` | Session/API key auth + CSRF check on every request (~324 lines) | `AuthMiddleware`, `is_secure_request()`, `COOKIE_NAME` |
+| `middleware/rate_limit.py` | Rate limiting (login 10/min, API 200/min, localhost exempt, ~235 lines) | `RateLimitMiddleware` |
 | `templates/base.html` | Shared Jinja2 layout: head (compiled Tailwind CSS), header, nav bar (9-item flat: Overview/Sources/Models/Schedules/Catalog/Query/Dashboards/Notebooks/Monitoring + gear dropdown), responsive hamburger menu, footer, script blocks | Blocks: `title`, `subtitle_attrs`, `header_right`, `nav`, `content`, `footer`, `scripts` |
 | `templates/error.html` | HTML error page (extends `base.html`) — status code, title, message, back/home links | Rendered by `dango_error_handler()` for browser 401/403 requests |
 | `templates/dashboard.html` | Overview page (extends `base.html`) — health widget, service cards, activity log | Loads `app.js` |
@@ -28,13 +28,13 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `templates/invite.html` | Invite acceptance page — set password for invited users | — |
 | `templates/secrets.html` | Secrets management page (env vars + OAuth credentials) | — |
 | `routes/__init__.py` | Package marker | — |
-| `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~854 lines) | `_bridge_metabase_session()`, `_set_session_cookie()` |
-| `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery (~328 lines) | — |
-| `routes/users.py` | Admin user CRUD: create, edit, deactivate, delete, unlock, invite (525 lines) | — |
+| `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~852 lines) | `_bridge_metabase_session()`, `_set_session_cookie()` |
+| `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery (~340 lines) | — |
+| `routes/users.py` | Admin user CRUD: create, edit, deactivate, delete, unlock, invite (527 lines) | — |
 | `routes/health.py` | `/api/status`, `/api/watcher/status`, `/api/health/platform` (incl. DuckDB capacity gauge, OAuth token health, component disk breakdown, cloud resource metrics, backup staleness, deployment info), `/api/deployments/history` (admin-only) | — |
 | `routes/config.py` | `/api/config`, `/api/metabase-config` | — |
 | `routes/sources.py` | `/api/sources`, `/api/sources/{name}/details` | — |
-| `routes/sync.py` | `/api/sources/{name}/sync`, `/api/sync/trigger` (remote), `/api/sync/status/{id}` + background `run_sync_task()` (~558 lines) | `run_sync_task()` |
+| `routes/sync.py` | `/api/sources/{name}/sync`, `/api/sync/trigger` (remote), `/api/sync/status/{id}` + background `run_sync_task()` (~602 lines) | `run_sync_task()` |
 | `routes/logs.py` | `/api/logs`, `/api/sources/{name}/logs` | — |
 | `routes/dbt.py` | `/api/dbt/models`, `/api/dbt/models/{name}/run` + dbt docs proxy (`/manifest.json`, `/catalog.json`, `/dbt-docs/*`) | `run_dbt_model_task()` |
 | `routes/upload.py` | CSV upload/list/delete + background `run_dbt_after_delete()` | `run_dbt_after_delete()` |
@@ -46,7 +46,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/schedules.py` | Schedule list/get, trigger, reload, cancel, history, notification config/test, `/schedules` page (read-only, ~518 lines). Config mutations removed by R10-C (BUG-175) — use CLI instead. | `router` |
 | `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~506 lines) | `router` |
 | `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact, model list/detail, search (~1336 lines) | `router` |
-| `routes/governance.py` | Schema drift + PII results API (~120 lines) | `router` |
+| `routes/governance.py` | Schema drift + PII results API (~203 lines) | `router` |
 | `routes/monitoring.py` | Monitor results, run trigger, history, dbt test results + backward-compat redirects for old `/api/insights*` paths (~398 lines) | `router` |
 | `routes/ai.py` | Agent/AI interface: /api/catalog/summary, /api/tools (~496 lines) | `router` |
 | `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |

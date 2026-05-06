@@ -75,6 +75,7 @@ def source() -> None:
       dango source add      Add a new data source
       dango source list     List all sources
       dango source remove   Remove a source
+      dango source edit     Open sources.yml in $EDITOR
     """
     pass
 
