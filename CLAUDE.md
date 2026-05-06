@@ -257,7 +257,7 @@ dango/                          # Python package source
 │
 ├── transformation/             # Level 1 — dbt model generation & execution
 │   ├── __init__.py             # run_dbt_models(), generate_dbt_docs()
-│   └── generator.py            # DbtModelGenerator (593 lines)
+│   └── generator.py            # DbtModelGenerator (610 lines)
 │
 ├── oauth/                      # Level 1 — OAuth flows
 │   ├── __init__.py             # OAuthManager
@@ -286,7 +286,7 @@ dango/                          # Python package source
 │   ├── data_validation.py      # Data validation utilities
 │   ├── env_file.py             # .env file parsing and serialization
 │   ├── dango_db.py             # SQLite context manager for .dango/dango.db + schema init
-│   ├── post_sync.py            # Post-sync hook dispatcher (~554 lines)
+│   ├── post_sync.py            # Post-sync hook dispatcher (~632 lines)
 │   └── git_info.py             # Git repository info + deployment guardrails
 │
 ├── migrations/                 # Level 0 — Database migration framework
@@ -344,7 +344,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/helpers.py` | 819 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
 | `platform/scheduling/jobs.py` | 895 | — (module-level job functions) |
-| `utils/post_sync.py` | 554 | — (post-sync hooks + sync notification) |
+| `utils/post_sync.py` | 632 | — (post-sync hooks + sync notification) |
 | `web/routes/schedules.py` | 518 | — (schedule read-only, history, trigger, notifications) |
 | `web/routes/notebooks.py` | 506 | — (notebook management API + heartbeat lock expiry + WS notify) |
 | `web/routes/upload.py` | 701 | — (extracted from app.py by TASK-085) |
@@ -357,7 +357,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/validate.py` | 651 | — |
 | `config/models.py` | 600 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 813 | — (interactive deploy wizard + BYOS) |
-| `transformation/generator.py` | 577 | — |
+| `transformation/generator.py` | 610 | — |
 | `web/routes/catalog.py` | 1336 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/deploy_provision.py` | 846 | — (provisioning orchestration + BYOS) |

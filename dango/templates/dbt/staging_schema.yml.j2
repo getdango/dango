@@ -28,5 +28,11 @@ models:
     columns:
 {% for column in model.columns %}
       - name: {{ column.name }}
+{% if column.tests %}
+        tests:
+{% for test in column.tests %}
+          - {{ test }}
+{% endfor %}
+{% endif %}
 {% endfor %}
 {% endfor %}

@@ -180,9 +180,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/transformation/generator.py
-    lines: 577
+    lines: 610
     category: exempt
-    reason: "DbtModelGenerator — generates dbt models from source configs. R10-F3 added _find_dlt_nested_table for double-underscore table discovery (BUG-152)."
+    reason: "DbtModelGenerator — generates dbt models from source configs. R10-G2 added _enrich_columns_from_profiling for dbt test enrichment."
     review_by: "v1.1"
 
   - file: dango/platform/local/watcher.py
@@ -311,9 +311,9 @@ exemptions:
   # --- Phase 4 scheduling ---
 
   - file: dango/utils/post_sync.py
-    lines: 554
+    lines: 632
     category: exempt
-    reason: "R9-I: Added _deliver_to_webhooks shared helper and _send_sync_notification for CLI sync webhook delivery. Marginally over limit."
+    reason: "R10-G2: Added _enrich_staging_tests for post-sync dbt test enrichment from profiling data."
     review_by: "v1.1"
 
   - file: dango/web/routes/schedules.py

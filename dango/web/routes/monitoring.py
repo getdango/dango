@@ -58,6 +58,17 @@ class MonitorMetric(BaseModel):
 InsightMetric = MonitorMetric
 
 
+class DbtTestResult(BaseModel):
+    """A single dbt test result."""
+
+    model_config = ConfigDict(frozen=True)
+
+    test_name: str
+    status: str | None = None  # "pass" | "fail" | "error" | None
+    model_name: str | None = None
+    execution_time: float | None = None
+
+
 class MonitoringResponse(BaseModel):
     """Response for monitoring endpoints."""
 
@@ -66,6 +77,7 @@ class MonitoringResponse(BaseModel):
     metrics: list[MonitorMetric]
     total: int
     flagged: int
+    dbt_tests: list[DbtTestResult] = []
 
 
 # Backward-compatible alias
@@ -96,18 +108,92 @@ class MetricHistoryResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _build_monitoring_response(categorized: list[dict]) -> MonitoringResponse:  # type: ignore[type-arg]
+def _read_dbt_test_results(project_root: Path) -> list[DbtTestResult]:
+    """Parse dbt test results from ``run_results.json`` + ``manifest.json``.
+
+    Extracts test nodes from the manifest and maps each to its execution
+    status from the most recent ``run_results.json``.
+
+    Args:
+        project_root: Path to the Dango project root.
+
+    Returns:
+        List of :class:`DbtTestResult` entries.  Empty if files are missing.
+    """
+    manifest_path = project_root / "dbt" / "target" / "manifest.json"
+    results_path = project_root / "dbt" / "target" / "run_results.json"
+
+    if not manifest_path.exists():
+        return []
+
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except Exception:
+        return []
+
+    # Build status + timing lookup from run_results
+    result_status: dict[str, str] = {}
+    result_time: dict[str, float] = {}
+    if results_path.exists():
+        try:
+            run_results = json.loads(results_path.read_text())
+            for r in run_results.get("results", []):
+                uid = r.get("unique_id", "")
+                if uid:
+                    result_status[uid] = r.get("status", "")
+                    result_time[uid] = r.get("execution_time", 0.0)
+        except Exception:
+            pass
+
+    tests: list[DbtTestResult] = []
+    for uid, node in manifest.get("nodes", {}).items():
+        if node.get("resource_type") != "test":
+            continue
+        test_name = node.get("name", uid)
+        status = result_status.get(uid)
+        exec_time = result_time.get(uid)
+
+        # Derive model name from test dependencies
+        model_name: str | None = None
+        for dep in node.get("depends_on", {}).get("nodes", []):
+            if dep.startswith("model."):
+                parts = dep.split(".")
+                model_name = parts[-1] if len(parts) >= 2 else dep
+                break
+
+        tests.append(
+            DbtTestResult(
+                test_name=test_name,
+                status=status,
+                model_name=model_name,
+                execution_time=exec_time,
+            )
+        )
+
+    return tests
+
+
+def _build_monitoring_response(
+    categorized: list[dict],  # type: ignore[type-arg]
+    dbt_tests: list[DbtTestResult] | None = None,
+) -> MonitoringResponse:
     """Build a ``MonitoringResponse`` from categorised result dicts.
 
     Args:
         categorized: Output of ``categorize_results()``.
+        dbt_tests: Optional list of dbt test results.
 
     Returns:
         A ``MonitoringResponse`` with metric list, total, and flagged count.
     """
     metrics = [MonitorMetric(**m) for m in categorized]
     flagged_count = sum(1 for m in metrics if m.status == "flagged")
-    return MonitoringResponse(metrics=metrics, total=len(metrics), flagged=flagged_count)
+    return MonitoringResponse(
+        metrics=metrics,
+        total=len(metrics),
+        flagged=flagged_count,
+        dbt_tests=dbt_tests or [],
+    )
 
 
 def _read_cached_results(project_root: Path) -> list[dict[str, Any]]:
@@ -219,7 +305,8 @@ async def get_monitoring(
 
     project_root = get_project_root()
     categorized = await asyncio.to_thread(_read_cached_results, project_root)
-    return _build_monitoring_response(categorized)
+    dbt_tests = await asyncio.to_thread(_read_dbt_test_results, project_root)
+    return _build_monitoring_response(categorized, dbt_tests=dbt_tests)
 
 
 @router.post("/api/monitoring/run")
@@ -245,7 +332,8 @@ async def run_monitoring(
 
     results = await asyncio.to_thread(run_analysis, project_root, source_filter=source_filter)
     categorized = categorize_results(results)
-    return _build_monitoring_response(categorized)
+    dbt_tests = await asyncio.to_thread(_read_dbt_test_results, project_root)
+    return _build_monitoring_response(categorized, dbt_tests=dbt_tests)
 
 
 @router.get("/api/monitoring/history")
