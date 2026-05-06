@@ -10,6 +10,7 @@ import pytest
 from dango.web.routes.query import _validate_sql
 
 
+@pytest.mark.unit
 class TestValidateSQL:
     """Tests for _validate_sql()."""
 
