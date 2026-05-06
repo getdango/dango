@@ -206,7 +206,7 @@ def scan_sources_for_pii(
             existing_keys = _get_existing_keys(project_root, source)
 
             schema = f"raw_{source}"
-            conn = duckdb.connect(str(db_path), read_only=True)
+            conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
             try:
                 tables = conn.execute(
                     "SELECT table_name FROM information_schema.tables "
@@ -276,7 +276,7 @@ def scan_table_for_pii(
     db_path = project_root / "data" / "warehouse.duckdb"
     schema = f"raw_{source}"
 
-    conn = duckdb.connect(str(db_path), read_only=True)
+    conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
     try:
         columns = conn.execute(
             "SELECT column_name, data_type "
@@ -298,7 +298,7 @@ def scan_table_for_pii(
         try:
             col_name = validate_identifier(col_name)
 
-            conn = duckdb.connect(str(db_path), read_only=True)
+            conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
             try:
                 values = conn.execute(
                     f'SELECT DISTINCT "{col_name}"::VARCHAR '

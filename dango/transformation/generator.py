@@ -88,46 +88,47 @@ class DbtModelGenerator:
             return []
 
         try:
-            conn = duckdb.connect(str(self.duckdb_path), read_only=True)
+            conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
+            try:
+                # Query table schema
+                result = conn.execute(f"""
+                    SELECT
+                        column_name,
+                        data_type,
+                        is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema = '{schema}'
+                      AND table_name = '{table_name}'
+                    ORDER BY ordinal_position
+                """).fetchall()
 
-            # Query table schema
-            result = conn.execute(f"""
-                SELECT
-                    column_name,
-                    data_type,
-                    is_nullable
-                FROM information_schema.columns
-                WHERE table_schema = '{schema}'
-                  AND table_name = '{table_name}'
-                ORDER BY ordinal_position
-            """).fetchall()
+                columns = []
+                for row in result:
+                    column_name, data_type, is_nullable = row
 
-            columns = []
-            for row in result:
-                column_name, data_type, is_nullable = row
+                    # Generate tests based on column properties
+                    tests = []
+                    if is_nullable == "NO":
+                        tests.append("not_null")
 
-                # Generate tests based on column properties
-                tests = []
-                if is_nullable == "NO":
-                    tests.append("not_null")
+                    # Common patterns for unique columns (exact primary key names only;
+                    # _id suffix columns are typically foreign keys and NOT unique)
+                    if column_name.lower() in ["id", "uuid", "key"]:
+                        tests.append("unique")
 
-                # Common patterns for unique columns (exact primary key names only;
-                # _id suffix columns are typically foreign keys and NOT unique)
-                if column_name.lower() in ["id", "uuid", "key"]:
-                    tests.append("unique")
+                    columns.append(
+                        {
+                            "name": column_name,
+                            "type": data_type,
+                            "nullable": is_nullable == "YES",
+                            "tests": tests,
+                            "description": f"{column_name} column",
+                        }
+                    )
 
-                columns.append(
-                    {
-                        "name": column_name,
-                        "type": data_type,
-                        "nullable": is_nullable == "YES",
-                        "tests": tests,
-                        "description": f"{column_name} column",
-                    }
-                )
-
-            conn.close()
-            return columns
+                return columns
+            finally:
+                conn.close()
 
         except Exception:
             # Table might not exist yet - return empty
@@ -234,17 +235,19 @@ class DbtModelGenerator:
             List of user data table names
         """
         try:
-            conn = duckdb.connect(str(self.duckdb_path), read_only=True)
-            result = conn.execute(
-                """
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = ?
-                ORDER BY table_name
-            """,
-                [schema_name],
-            ).fetchall()
-            conn.close()
+            conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
+            try:
+                result = conn.execute(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = ?
+                    ORDER BY table_name
+                """,
+                    [schema_name],
+                ).fetchall()
+            finally:
+                conn.close()
 
             # Filter out dlt internal tables and metadata tables
             skip_prefixes = ("_dlt_", "dimensions", "metrics")

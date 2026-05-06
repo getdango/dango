@@ -478,12 +478,12 @@ def remote_query(ctx: click.Context, sql: str, timeout: int) -> None:
     # server. shlex.quote handles local quoting; SSH passes through one
     # additional shell layer, but since the quoted argument contains no
     # unquoted metacharacters this is safe for standard SQL input.
-    # DuckDB's read_only=True provides defense-in-depth against writes.
+    # DuckDB's access_mode=read_only provides defense-in-depth against writes.
     escaped_sql = shlex.quote(sql)
     cmd = (
         f"{_VENV_PYTHON} -c "
         f"'import duckdb,sys; "
-        f'db=duckdb.connect("{_DUCKDB_PATH}",read_only=True); '
+        f'db=duckdb.connect("{_DUCKDB_PATH}",config={{"access_mode":"read_only"}}); '
         f"r=db.sql(sys.argv[1]); "
         f'r.show() if r.description else print("OK")\' '
         f"{escaped_sql}"

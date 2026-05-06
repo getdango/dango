@@ -215,77 +215,77 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
         duckdb_path = project_root / "data" / "warehouse.duckdb"
         if duckdb_path.exists():
             try:
-                conn = duckdb.connect(str(duckdb_path), read_only=True)
+                conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
+                try:
+                    # Method 1: Check _dlt_loads tables for dlt-based sources
+                    # Each source has raw_{source_name}._dlt_loads with inserted_at timestamp
+                    for src in sources:
+                        raw_schema = f"raw_{src.name}"
+                        try:
+                            # Check if _dlt_loads table exists for this source
+                            result = conn.execute(f"""
+                                SELECT MAX(inserted_at) as last_sync
+                                FROM "{raw_schema}"._dlt_loads
+                                WHERE status = 0
+                            """).fetchone()
+                            if result and result[0]:
+                                # Convert to naive datetime if timezone-aware
+                                last_sync_dt = result[0]
+                                if hasattr(last_sync_dt, "replace") and last_sync_dt.tzinfo:
+                                    last_sync_dt = last_sync_dt.replace(tzinfo=None)
+                                last_sync_times[src.name] = last_sync_dt
+                        except Exception:
+                            # Table doesn't exist for this source, continue
+                            pass
 
-                # Method 1: Check _dlt_loads tables for dlt-based sources
-                # Each source has raw_{source_name}._dlt_loads with inserted_at timestamp
-                for src in sources:
-                    raw_schema = f"raw_{src.name}"
-                    try:
-                        # Check if _dlt_loads table exists for this source
-                        result = conn.execute(f"""
-                            SELECT MAX(inserted_at) as last_sync
-                            FROM "{raw_schema}"._dlt_loads
-                            WHERE status = 0
-                        """).fetchone()
-                        if result and result[0]:
-                            # Convert to naive datetime if timezone-aware
-                            last_sync_dt = result[0]
-                            if hasattr(last_sync_dt, "replace") and last_sync_dt.tzinfo:
-                                last_sync_dt = last_sync_dt.replace(tzinfo=None)
-                            last_sync_times[src.name] = last_sync_dt
-                    except Exception:
-                        # Table doesn't exist for this source, continue
-                        pass
-
-                # Method 2: Check CSV metadata table (may override with more recent time)
-                tables = conn.execute("""
-                    SELECT table_name FROM information_schema.tables
-                    WHERE table_schema = 'main' AND table_name = '_dango_file_metadata'
-                """).fetchall()
-
-                if tables:
-                    result = conn.execute("""
-                        SELECT source_name, MAX(loaded_at) as last_sync
-                        FROM _dango_file_metadata
-                        WHERE status = 'loaded'
-                        GROUP BY source_name
+                    # Method 2: Check CSV metadata table (may override with more recent time)
+                    tables = conn.execute("""
+                        SELECT table_name FROM information_schema.tables
+                        WHERE table_schema = 'main' AND table_name = '_dango_file_metadata'
                     """).fetchall()
 
-                    for source_name, last_sync in result:
-                        # Only update if more recent than dlt load time
-                        if (
-                            source_name not in last_sync_times
-                            or last_sync > last_sync_times[source_name]
-                        ):
-                            last_sync_times[source_name] = last_sync
+                    if tables:
+                        result = conn.execute("""
+                            SELECT source_name, MAX(loaded_at) as last_sync
+                            FROM _dango_file_metadata
+                            WHERE status = 'loaded'
+                            GROUP BY source_name
+                        """).fetchall()
 
-                # Get row counts per source
-                for src in sources:
-                    raw_schema = f"raw_{src.name}"
-                    try:
-                        schema_tables = conn.execute(
-                            """
-                            SELECT table_name FROM information_schema.tables
-                            WHERE table_schema = ?
-                              AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'
-                              AND table_name NOT LIKE '\\_dango\\_%' ESCAPE '\\'
-                            """,
-                            [raw_schema],
-                        ).fetchall()
-                        total = 0
-                        for (tbl,) in schema_tables:
-                            cnt = conn.execute(
-                                f'SELECT COUNT(*) FROM "{raw_schema}"."{tbl}"'
-                            ).fetchone()
-                            if cnt:
-                                total += cnt[0]
-                        if total > 0:
-                            row_counts[src.name] = total
-                    except Exception:
-                        pass
+                        for source_name, last_sync in result:
+                            # Only update if more recent than dlt load time
+                            if (
+                                source_name not in last_sync_times
+                                or last_sync > last_sync_times[source_name]
+                            ):
+                                last_sync_times[source_name] = last_sync
 
-                conn.close()
+                    # Get row counts per source
+                    for src in sources:
+                        raw_schema = f"raw_{src.name}"
+                        try:
+                            schema_tables = conn.execute(
+                                """
+                                SELECT table_name FROM information_schema.tables
+                                WHERE table_schema = ?
+                                  AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'
+                                  AND table_name NOT LIKE '\\_dango\\_%' ESCAPE '\\'
+                                """,
+                                [raw_schema],
+                            ).fetchall()
+                            total = 0
+                            for (tbl,) in schema_tables:
+                                cnt = conn.execute(
+                                    f'SELECT COUNT(*) FROM "{raw_schema}"."{tbl}"'
+                                ).fetchone()
+                                if cnt:
+                                    total += cnt[0]
+                            if total > 0:
+                                row_counts[src.name] = total
+                        except Exception:
+                            pass
+                finally:
+                    conn.close()
             except Exception:
                 # If we can't read metadata, just skip - last_sync will show "never"
                 pass

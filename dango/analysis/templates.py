@@ -173,7 +173,7 @@ def _generic_metrics(name: str, project_root: Path | None) -> list[MonitorConfig
     try:
         import duckdb
 
-        conn = duckdb.connect(str(db_path), read_only=True)
+        conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
         try:
             tables = conn.execute(
                 "SELECT table_name FROM information_schema.tables "
@@ -251,7 +251,7 @@ def _get_table_columns(schema: str, table: str, project_root: Path | None) -> li
     try:
         import duckdb
 
-        conn = duckdb.connect(str(db_path), read_only=True)
+        conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
         try:
             rows = conn.execute(
                 """

@@ -13,7 +13,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | **commands/** | | |
 | `commands/__init__.py` (4 lines) | Package marker | — |
 | `commands/project.py` (292 lines) | `init`, `rename`, `info` | `init()`, `rename()`, `info()` |
-| `commands/source.py` (785 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
+| `commands/source.py` (828 lines) | `source` group (`add`, `list`, `remove`) + `sync` | `source`, `sync()` |
 | `commands/platform.py` (1034 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
 | `commands/auth.py` (660 lines) | `auth` group (13 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, change-role, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_change_role()`, `auth_status()`, etc. |
 | `commands/cleanup.py` (322 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
@@ -47,7 +47,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |
 | **Helpers** | | |
 | `utils.py` (129 lines) | Display helpers + project context | `require_project_context()` |
-| `validate.py` (651 lines) | Project validation logic | `validate_project()` |
+| `validate.py` (652 lines) | Project validation logic | `validate_project()` |
 | `db_helpers.py` (129 lines) | Schema/table matching for db commands | `build_schema_table_mapping()`, `is_table_configured()` |
 | `env_helpers.py` (319 lines) | `.env` file management | `create_env_template()`, `validate_env_file()`, `guide_env_setup()` |
 | `oauth.py` (428 lines) | OAuth CLI flows | `authenticate_facebook()`, `authenticate_google()`, `check_token_expiry()` |

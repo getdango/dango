@@ -60,7 +60,7 @@ def detect_drift_for_sources(
             logger.debug("drift_source_start", source=source)
             schema = f"raw_{source}"
 
-            conn = duckdb.connect(str(db_path), read_only=True)
+            conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
             try:
                 tables = conn.execute(
                     "SELECT table_name FROM information_schema.tables "
@@ -304,7 +304,7 @@ def _get_current_schema(
     db_path = project_root / "data" / "warehouse.duckdb"
     schema = f"raw_{source}"
 
-    conn = duckdb.connect(str(db_path), read_only=True)
+    conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
     try:
         columns = conn.execute(
             "SELECT column_name, data_type "

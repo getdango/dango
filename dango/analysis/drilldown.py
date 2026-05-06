@@ -103,7 +103,7 @@ def _query_dimension_breakdown(
     sql += f" GROUP BY {dimension} ORDER BY ABS({metric.value_expression}) DESC LIMIT {MAX_GROUPS}"
 
     try:
-        conn = duckdb.connect(str(duckdb_path), read_only=True)
+        conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
         try:
             rows = conn.execute(sql).fetchall()
         finally:

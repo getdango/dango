@@ -12,7 +12,7 @@ limit: 500  # Informational — scripts/check_file_sizes.py owns the enforced th
 exemptions:
   # --- Post-TASK-085 split results (from web/app.py 3032 → web/routes/) ---
   - file: dango/web/helpers.py
-    lines: 819
+    lines: 840
     category: exempt
     reason: "Shared helper functions for web routes. Consolidates DuckDB queries, config loading, service health checks, and log management. Extracted from web/app.py by TASK-085. Mirrors cli/utils.py pattern."
     review_by: "v1.1"
@@ -93,7 +93,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 785
+    lines: 828
     category: exempt
     reason: "Source management commands (add/list/remove) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation."
     review_by: "v1.1"
@@ -174,13 +174,13 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/validate.py
-    lines: 651
+    lines: 652
     category: exempt
     reason: "Validation commands (config, sources, connections). Each validator is independent."
     review_by: "v1.1"
 
   - file: dango/transformation/generator.py
-    lines: 610
+    lines: 613
     category: exempt
     reason: "DbtModelGenerator — generates dbt models from source configs. R10-G2 added _enrich_columns_from_profiling for dbt test enrichment."
     review_by: "v1.1"

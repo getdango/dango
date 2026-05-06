@@ -108,7 +108,7 @@ def check_duckdb_health(duckdb_path: Path) -> dict[str, Any]:
 
         for attempt in range(max_retries):
             try:
-                conn = duckdb.connect(str(duckdb_path), read_only=True)
+                conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
                 break
             except Exception as e:
                 last_error = e
@@ -302,7 +302,7 @@ def get_component_disk_usage(project_root: Path) -> dict[str, Any]:
             duckdb_info["file_size_mb"] = round(duckdb_path.stat().st_size / (1024**2), 2)
             # Per-schema estimated sizes (read-only connection)
             try:
-                conn = duckdb.connect(str(duckdb_path), read_only=True)
+                conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
                 try:
                     rows = conn.execute(
                         "SELECT schema_name, COALESCE(SUM(estimated_size), 0) "

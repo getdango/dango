@@ -44,87 +44,84 @@ def validate_cursor_field(
     }
 
     try:
-        conn = duckdb.connect(str(duckdb_path), read_only=True)
+        conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
+        try:
+            # Check if table exists
+            table_exists_row = conn.execute(f"""
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema='{schema}' AND table_name='{source_name}'
+            """).fetchone()
 
-        # Check if table exists
-        table_exists_row = conn.execute(f"""
-            SELECT COUNT(*)
-            FROM information_schema.tables
-            WHERE table_schema='{schema}' AND table_name='{source_name}'
-        """).fetchone()
+            if table_exists_row is None:
+                issues.append(f"Failed to check if table {schema}.{source_name} exists")
+                return result
 
-        if table_exists_row is None:
-            issues.append(f"Failed to check if table {schema}.{source_name} exists")
-            conn.close()
+            table_exists = table_exists_row[0]
+
+            if not table_exists:
+                issues.append(f"Table {schema}.{source_name} does not exist")
+                return result
+
+            # Check if cursor field exists
+            column_info = conn.execute(f"""
+                SELECT column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema='{schema}'
+                  AND table_name='{source_name}'
+                  AND column_name='{cursor_field}'
+            """).fetchone()
+
+            if not column_info:
+                issues.append(f"Cursor field '{cursor_field}' not found in table")
+                result["exists"] = False
+                return result
+
+            result["exists"] = True
+            result["data_type"] = column_info[1]
+
+            # Get sample values to verify format
+            sample_query = f"""
+                SELECT "{cursor_field}"
+                FROM "{schema}"."{source_name}"
+                WHERE "{cursor_field}" IS NOT NULL
+                ORDER BY "{cursor_field}" DESC
+                LIMIT 5
+            """
+            samples = conn.execute(sample_query).fetchall()
+            result["sample_values"] = [str(row[0]) for row in samples]
+
+            # Validate data type is appropriate for cursor
+            valid_types = ["TIMESTAMP", "DATE", "INTEGER", "BIGINT", "VARCHAR"]
+            data_type = result["data_type"]
+            if isinstance(data_type, str) and not any(
+                vtype in data_type.upper() for vtype in valid_types
+            ):
+                issues.append(
+                    f"Cursor field has unexpected type '{data_type}'. "
+                    f"Expected: {', '.join(valid_types)}"
+                )
+
+            # Check if cursor field has NULL values
+            null_count_row = conn.execute(f"""
+                SELECT COUNT(*)
+                FROM "{schema}"."{source_name}"
+                WHERE "{cursor_field}" IS NULL
+            """).fetchone()
+
+            if null_count_row is None:
+                issues.append("Failed to check for NULL values in cursor field")
+            else:
+                null_count = null_count_row[0]
+                if null_count > 0:
+                    issues.append(f"{null_count} NULL values found in cursor field")
+
+            # Overall validation
+            result["valid"] = result["exists"] and len(issues) == 0
+
             return result
-
-        table_exists = table_exists_row[0]
-
-        if not table_exists:
-            issues.append(f"Table {schema}.{source_name} does not exist")
+        finally:
             conn.close()
-            return result
-
-        # Check if cursor field exists
-        column_info = conn.execute(f"""
-            SELECT column_name, data_type
-            FROM information_schema.columns
-            WHERE table_schema='{schema}'
-              AND table_name='{source_name}'
-              AND column_name='{cursor_field}'
-        """).fetchone()
-
-        if not column_info:
-            issues.append(f"Cursor field '{cursor_field}' not found in table")
-            result["exists"] = False
-            conn.close()
-            return result
-
-        result["exists"] = True
-        result["data_type"] = column_info[1]
-
-        # Get sample values to verify format
-        sample_query = f"""
-            SELECT "{cursor_field}"
-            FROM "{schema}"."{source_name}"
-            WHERE "{cursor_field}" IS NOT NULL
-            ORDER BY "{cursor_field}" DESC
-            LIMIT 5
-        """
-        samples = conn.execute(sample_query).fetchall()
-        result["sample_values"] = [str(row[0]) for row in samples]
-
-        # Validate data type is appropriate for cursor
-        valid_types = ["TIMESTAMP", "DATE", "INTEGER", "BIGINT", "VARCHAR"]
-        data_type = result["data_type"]
-        if isinstance(data_type, str) and not any(
-            vtype in data_type.upper() for vtype in valid_types
-        ):
-            issues.append(
-                f"Cursor field has unexpected type '{data_type}'. "
-                f"Expected: {', '.join(valid_types)}"
-            )
-
-        # Check if cursor field has NULL values
-        null_count_row = conn.execute(f"""
-            SELECT COUNT(*)
-            FROM "{schema}"."{source_name}"
-            WHERE "{cursor_field}" IS NULL
-        """).fetchone()
-
-        if null_count_row is None:
-            issues.append("Failed to check for NULL values in cursor field")
-        else:
-            null_count = null_count_row[0]
-            if null_count > 0:
-                issues.append(f"{null_count} NULL values found in cursor field")
-
-        conn.close()
-
-        # Overall validation
-        result["valid"] = result["exists"] and len(issues) == 0
-
-        return result
 
     except Exception as e:
         issues.append(f"Validation error: {e}")
@@ -166,32 +163,33 @@ def detect_schema_changes(
     }
 
     try:
-        conn = duckdb.connect(str(duckdb_path), read_only=True)
+        conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
+        try:
+            # Get current schema
+            columns = conn.execute(f"""
+                SELECT column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema='{schema}' AND table_name='{source_name}'
+                ORDER BY ordinal_position
+            """).fetchall()
 
-        # Get current schema
-        columns = conn.execute(f"""
-            SELECT column_name, data_type
-            FROM information_schema.columns
-            WHERE table_schema='{schema}' AND table_name='{source_name}'
-            ORDER BY ordinal_position
-        """).fetchall()
+            current_columns.extend(col[0] for col in columns)
+            result["column_types"] = {col[0]: col[1] for col in columns}
 
-        current_columns.extend(col[0] for col in columns)
-        result["column_types"] = {col[0]: col[1] for col in columns}
+            # Compare with expected schema if provided
+            if expected_schema:
+                current_set = set(current_columns)
+                expected_set = set(expected_schema)
 
-        # Compare with expected schema if provided
-        if expected_schema:
-            current_set = set(current_columns)
-            expected_set = set(expected_schema)
+                added_columns = list(current_set - expected_set)
+                removed_columns = list(expected_set - current_set)
+                result["added_columns"] = added_columns
+                result["removed_columns"] = removed_columns
+                result["changed"] = len(added_columns) > 0 or len(removed_columns) > 0
 
-            added_columns = list(current_set - expected_set)
-            removed_columns = list(expected_set - current_set)
-            result["added_columns"] = added_columns
-            result["removed_columns"] = removed_columns
-            result["changed"] = len(added_columns) > 0 or len(removed_columns) > 0
-
-        conn.close()
-        return result
+            return result
+        finally:
+            conn.close()
 
     except Exception as e:
         console.print(f"[yellow]⚠️  Schema detection error: {e}[/yellow]")
@@ -221,50 +219,50 @@ def validate_data_completeness(
     result = {"row_count": 0, "has_data": False, "last_loaded": None, "health_score": "unknown"}
 
     try:
-        conn = duckdb.connect(str(duckdb_path), read_only=True)
-
-        # Get row count
-        count_row = conn.execute(f"""
-            SELECT COUNT(*)
-            FROM "{schema}"."{source_name}"
-        """).fetchone()
-
-        if count_row is None:
-            result["row_count"] = 0
-            result["has_data"] = False
-            conn.close()
-            return result
-
-        count = count_row[0]
-        result["row_count"] = count
-        result["has_data"] = count > 0
-
-        # Try to get last load time from dlt metadata
+        conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
         try:
-            last_load = conn.execute(f"""
-                SELECT MAX(_dango_loaded_at)
+            # Get row count
+            count_row = conn.execute(f"""
+                SELECT COUNT(*)
                 FROM "{schema}"."{source_name}"
             """).fetchone()
 
-            if last_load and last_load[0]:
-                result["last_loaded"] = str(last_load[0])
-        except Exception:
-            pass
+            if count_row is None:
+                result["row_count"] = 0
+                result["has_data"] = False
+                return result
 
-        # Determine health score
-        if count == 0:
-            result["health_score"] = "empty"
-        elif count < 10:
-            result["health_score"] = "very_low"
-        elif count < 100:
-            result["health_score"] = "low"
-        elif count < 10000:
-            result["health_score"] = "good"
-        else:
-            result["health_score"] = "excellent"
+            count = count_row[0]
+            result["row_count"] = count
+            result["has_data"] = count > 0
 
-        conn.close()
-        return result
+            # Try to get last load time from dlt metadata
+            try:
+                last_load = conn.execute(f"""
+                    SELECT MAX(_dango_loaded_at)
+                    FROM "{schema}"."{source_name}"
+                """).fetchone()
+
+                if last_load and last_load[0]:
+                    result["last_loaded"] = str(last_load[0])
+            except Exception:
+                pass
+
+            # Determine health score
+            if count == 0:
+                result["health_score"] = "empty"
+            elif count < 10:
+                result["health_score"] = "very_low"
+            elif count < 100:
+                result["health_score"] = "low"
+            elif count < 10000:
+                result["health_score"] = "good"
+            else:
+                result["health_score"] = "excellent"
+
+            return result
+        finally:
+            conn.close()
 
     except Exception as e:
         console.print(f"[yellow]⚠️  Completeness check error: {e}[/yellow]")
