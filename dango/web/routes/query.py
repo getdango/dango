@@ -6,7 +6,7 @@ Security layers (defense-in-depth):
 1. RBAC: ``require_permission("query.execute")`` — Editor + Admin only
 2. Length limit: 100 KB max SQL
 3. sqlglot whitelist: only ``exp.Select`` allowed
-4. DuckDB ``read_only=True``: rejects writes even if validation bypassed
+4. DuckDB ``config={"access_mode": "read_only"}``: rejects writes even if validation bypassed
 5. Timeout: 30 s via ``asyncio.wait_for``
 6. Row limit: 10 000 rows max
 7. Audit logging: every query execution logged
@@ -70,7 +70,7 @@ def _looks_like_select(sql: str) -> bool:
     """Return True if *sql* starts with SELECT or WITH (case-insensitive).
 
     Used as a basic keyword guard when sqlglot is unavailable or fails to
-    parse.  ``read_only=True`` prevents database writes but does NOT prevent
+    parse.  Read-only access mode prevents database writes but does NOT prevent
     file-system writes (``COPY TO``, ``EXPORT DATABASE``), so we need this
     check as an additional layer.
     """
@@ -100,7 +100,7 @@ def _validate_sql(sql: str) -> None:
         statements = sqlglot.parse(sql, dialect="duckdb")
     except sqlglot.errors.SqlglotError as exc:
         # sqlglot could not parse — fall back to keyword check.
-        # read_only=True is defense-in-depth for DB writes, but does not
+        # Read-only access mode is defense-in-depth for DB writes, but does not
         # prevent file-system writes (COPY TO, EXPORT), so we reject
         # anything that doesn't look like a SELECT.
         logger.warning("sqlglot_parse_failed", sql_length=len(sql))
@@ -141,7 +141,7 @@ def _execute_query(
     This is a blocking function intended to be called via
     ``asyncio.to_thread``.
     """
-    conn = duckdb.connect(db_path, read_only=True)
+    conn = duckdb.connect(db_path, config={"access_mode": "read_only"})
     try:
         result = conn.execute(sql)
         columns = [desc[0] for desc in result.description]

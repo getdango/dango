@@ -50,27 +50,29 @@ def db_status(ctx: click.Context) -> None:
             return
 
         # Connect to database
-        conn = duckdb.connect(str(duckdb_path), read_only=True)
+        conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
+        try:
+            # Get all tables from relevant schemas (without row counts first)
+            # Include: raw, raw_*, staging, intermediate, marts
+            tables = conn.execute("""
+                SELECT table_schema, table_name
+                FROM information_schema.tables
+                WHERE table_schema IN ('raw', 'staging', 'intermediate', 'marts')
+                   OR table_schema LIKE 'raw_%'
+                ORDER BY table_schema, table_name
+            """).fetchall()
 
-        # Get all tables from relevant schemas (without row counts first)
-        # Include: raw, raw_*, staging, intermediate, marts
-        tables = conn.execute("""
-            SELECT table_schema, table_name
-            FROM information_schema.tables
-            WHERE table_schema IN ('raw', 'staging', 'intermediate', 'marts')
-               OR table_schema LIKE 'raw_%'
-            ORDER BY table_schema, table_name
-        """).fetchall()
-
-        # Get row counts for each table individually
-        result = []
-        for schema, table in tables:
-            try:
-                row = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()
-                count = row[0] if row else 0
-                result.append((schema, table, f"{count:,} rows"))
-            except Exception:
-                result.append((schema, table, "Error"))
+            # Get row counts for each table individually
+            result = []
+            for schema, table in tables:
+                try:
+                    row = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()
+                    count = row[0] if row else 0
+                    result.append((schema, table, f"{count:,} rows"))
+                except Exception:
+                    result.append((schema, table, "Error"))
+        finally:
+            conn.close()
 
         # Build schema-to-table mapping from source configurations
         from ..db_helpers import build_schema_table_mapping, is_table_configured
@@ -97,8 +99,6 @@ def db_status(ctx: click.Context) -> None:
                     configured_tables.append((schema, table, size, "✅"))
             else:
                 orphaned_tables.append((schema, table, size))
-
-        conn.close()
 
         # Display configured tables
         if configured_tables:

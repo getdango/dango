@@ -89,7 +89,7 @@ class TestRemoteQuery:
         result = ssh.exec_command(
             '/srv/dango/venv/bin/python -c "'
             "import duckdb; "
-            "conn = duckdb.connect('/srv/dango/project/data/warehouse.duckdb', read_only=True); "
+            "conn = duckdb.connect('/srv/dango/project/data/warehouse.duckdb', config={'access_mode': 'read_only'}); "
             "print(conn.execute('SELECT 1 AS val').fetchone()[0]); "
             'conn.close()"',
             timeout=30,

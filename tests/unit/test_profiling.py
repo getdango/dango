@@ -314,7 +314,7 @@ class TestRunProfiling:
         _make_warehouse(tmp_path)
         call_idx = 0
 
-        def connect_se(path, read_only=False):
+        def connect_se(path, **kwargs):
             nonlocal call_idx
             call_idx += 1
             if call_idx == 1:

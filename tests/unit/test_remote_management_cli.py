@@ -405,7 +405,7 @@ class TestRemoteQueryCommand:
         assert "42" in result.output
 
     def test_query_uses_readonly(self, tmp_path):
-        """query command passes read_only=True to DuckDB."""
+        """query command passes access_mode=read_only to DuckDB."""
         mock_loader = _make_loader()
         mock_ssh_instance = MagicMock()
         mock_ssh_instance.exec_command.return_value = _make_command_result(stdout="OK")
@@ -418,7 +418,7 @@ class TestRemoteQueryCommand:
             _run(["query", "SELECT 1"], tmp_path)
 
         cmd = mock_ssh_instance.exec_command.call_args[0][0]
-        assert "read_only=True" in cmd
+        assert '"access_mode":"read_only"' in cmd
 
     def test_query_failure_shows_error(self, tmp_path):
         """query command prints stderr on failure."""

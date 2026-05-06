@@ -111,7 +111,7 @@ def profile_table(
     db_path = project_root / "data" / "warehouse.duckdb"
     schema = f"raw_{source}"
 
-    conn = duckdb.connect(str(db_path), read_only=True)
+    conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
     try:
         # Discover columns
         columns = conn.execute(
@@ -417,7 +417,7 @@ def _run_profiling(project_root: Path, sources: list[str]) -> None:
             logger.debug("profiling_source_start", source=source)
             schema = f"raw_{source}"
 
-            conn = duckdb.connect(str(db_path), read_only=True)
+            conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
             try:
                 tables = conn.execute(
                     "SELECT table_name FROM information_schema.tables "

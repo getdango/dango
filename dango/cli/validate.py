@@ -437,19 +437,20 @@ class ProjectValidator:
             try:
                 import duckdb
 
-                con = duckdb.connect(str(db_path), read_only=True)
-
-                # Check if database has tables across ALL schemas (not just main)
-                # Query information_schema to get all user tables
-                result = con.execute("""
-                    SELECT table_schema, COUNT(*) as table_count
-                    FROM information_schema.tables
-                    WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
-                      AND table_type = 'BASE TABLE'
-                      AND table_name NOT LIKE '_dlt_%'
-                    GROUP BY table_schema
-                """).fetchall()
-                con.close()
+                con = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
+                try:
+                    # Check if database has tables across ALL schemas (not just main)
+                    # Query information_schema to get all user tables
+                    result = con.execute("""
+                        SELECT table_schema, COUNT(*) as table_count
+                        FROM information_schema.tables
+                        WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
+                          AND table_type = 'BASE TABLE'
+                          AND table_name NOT LIKE '_dlt_%'
+                        GROUP BY table_schema
+                    """).fetchall()
+                finally:
+                    con.close()
 
                 # Count total tables and format schema summary
                 total_tables = sum(row[1] for row in result)
