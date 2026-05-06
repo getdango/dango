@@ -108,7 +108,7 @@ def check_duckdb_health(duckdb_path: Path) -> dict[str, Any]:
 
         for attempt in range(max_retries):
             try:
-                conn = duckdb.connect(str(duckdb_path), read_only=True)
+                conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
                 break
             except Exception as e:
                 last_error = e
@@ -244,6 +244,70 @@ def get_disk_usage_summary(project_root: Path) -> dict[str, Any]:
         return {"free_gb": 0, "total_gb": 0, "used_gb": 0, "used_pct": 0, "status": "unknown"}
 
 
+def get_duckdb_capacity(duckdb_path: Path, project_root: Path) -> dict[str, Any]:
+    """Compute DuckDB warehouse capacity relative to system resources.
+
+    Uses disk free space and total RAM to estimate a recommended maximum
+    database size, then reports what percentage of that maximum the current
+    database occupies.
+
+    Args:
+        duckdb_path: Path to the DuckDB database file.
+        project_root: Path to the project root (used for disk_usage).
+
+    Returns:
+        Dictionary with capacity information. Returns safe fallback on error.
+    """
+    try:
+        import psutil
+
+        # Current DB size
+        if duckdb_path.exists():
+            duckdb_size_bytes = duckdb_path.stat().st_size
+        else:
+            duckdb_size_bytes = 0
+
+        # System resources
+        disk = shutil.disk_usage(project_root)
+        disk_free_bytes = disk.free
+        ram_bytes = psutil.virtual_memory().total
+
+        # Recommended max: min(4x RAM, 80% of free disk)
+        # Note: DB size uses disk space that reduces disk_free, so the
+        # denominator already accounts for existing DB consumption.
+        recommended_max = min(ram_bytes * 4, int(disk_free_bytes * 0.8))
+        # Avoid division by zero
+        if recommended_max > 0:
+            capacity_pct = min(round((duckdb_size_bytes / recommended_max) * 100, 1), 100.0)
+        else:
+            capacity_pct = 100.0 if duckdb_size_bytes > 0 else 0.0
+
+        # Status thresholds
+        if capacity_pct > 75:
+            status = "critical"
+        elif capacity_pct > 50:
+            status = "warning"
+        else:
+            status = "healthy"
+
+        return {
+            "duckdb_size_bytes": duckdb_size_bytes,
+            "duckdb_capacity_pct": capacity_pct,
+            "recommended_max_db_size_bytes": recommended_max,
+            "duckdb_capacity_status": status,
+            "duckdb_capacity_warning": capacity_pct > 75,
+        }
+    except Exception:  # noqa: BLE001
+        logger.debug("duckdb_capacity_check_failed", exc_info=True)
+        return {
+            "duckdb_size_bytes": 0,
+            "duckdb_capacity_pct": 0.0,
+            "recommended_max_db_size_bytes": 0,
+            "duckdb_capacity_status": "unknown",
+            "duckdb_capacity_warning": False,
+        }
+
+
 def _dir_size_bytes(path: Path) -> int:
     """Sum file sizes in a directory tree.
 
@@ -302,7 +366,7 @@ def get_component_disk_usage(project_root: Path) -> dict[str, Any]:
             duckdb_info["file_size_mb"] = round(duckdb_path.stat().st_size / (1024**2), 2)
             # Per-schema estimated sizes (read-only connection)
             try:
-                conn = duckdb.connect(str(duckdb_path), read_only=True)
+                conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
                 try:
                     rows = conn.execute(
                         "SELECT schema_name, COALESCE(SUM(estimated_size), 0) "

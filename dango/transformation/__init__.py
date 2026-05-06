@@ -123,6 +123,83 @@ def run_dbt_models(
         return (False, f"dbt run failed: {str(e)}")
 
 
+def run_dbt_snapshots(
+    project_root: Path,
+    select: str | None = None,
+) -> tuple[bool, str]:
+    """
+    Run dbt snapshots to capture SCD Type 2 change history.
+
+    Args:
+        project_root: Path to project root
+        select: Optional snapshot name to run (e.g., "snap_shopify_orders").
+                If None, runs all snapshots.
+
+    Returns:
+        Tuple of (success, output)
+    """
+    dbt_dir = project_root / "dbt"
+
+    # Get dbt executable path
+    dbt_cmd = _get_dbt_executable()
+
+    # Build dbt command
+    cmd = [dbt_cmd, "snapshot", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)]
+    if select:
+        cmd.extend(["--select", select])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=dbt_dir,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout
+        )
+
+        if result.returncode == 0:
+            return (True, result.stdout + result.stderr)
+
+        output = result.stdout + result.stderr
+        output_lower = output.lower()
+        if "compilation error" in output_lower or "parsing error" in output_lower:
+            causes = [
+                "SQL syntax error in a snapshot file",
+                "Missing source() target",
+                "Invalid snapshot configuration",
+            ]
+            fix = "Check the snapshot SQL file indicated in the error output"
+        elif "database error" in output_lower or "duckdb" in output_lower:
+            causes = [
+                "DuckDB write lock held by another process",
+                "Database file corrupted",
+            ]
+            fix = "Stop other syncs, then retry: dango snapshot run"
+        else:
+            causes = ["Snapshot configuration error", "Missing dependency or source data"]
+            fix = "Review the error output and check snapshot files in dbt/snapshots/"
+        structured = format_structured_error(
+            what_failed="dbt snapshot failed", causes=causes, suggested_fix=fix
+        )
+        return (False, f"{structured}\n\nFull output:\n{output}")
+
+    except subprocess.TimeoutExpired:
+        return (
+            False,
+            format_structured_error(
+                what_failed="dbt snapshot timed out after 5 minutes",
+                causes=[
+                    "Large number of snapshots",
+                    "Complex SQL queries",
+                    "DuckDB lock contention",
+                ],
+                suggested_fix="Run a subset: dango snapshot run --select snapshot_name",
+            ),
+        )
+    except Exception as e:
+        return (False, f"dbt snapshot failed: {str(e)}")
+
+
 def generate_dbt_docs(project_root: Path) -> tuple[bool, str]:
     """
     Generate dbt documentation.

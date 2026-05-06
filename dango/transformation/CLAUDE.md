@@ -8,7 +8,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| `__init__.py` | dbt CLI execution functions | `run_dbt_models`, `generate_dbt_docs`, `_get_dbt_executable` |
+| `__init__.py` | dbt CLI execution functions | `run_dbt_models`, `run_dbt_snapshots`, `generate_dbt_docs`, `_get_dbt_executable` |
 | `generator.py` | Auto-generates dbt staging models from data sources | `DbtModelGenerator`, `generate_staging_models` |
 
 ## Common Tasks
@@ -28,6 +28,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 
 **Used by:**
 - `dango/cli/main.py` — `DbtModelGenerator` for `dango generate-models` command
+- `dango/cli/commands/snapshot.py` — `run_dbt_snapshots` for `dango snapshot run`
 - `dango/ingestion/dlt_runner.py` — `DbtModelGenerator`, `run_dbt_models`, `generate_dbt_docs` for post-sync auto-transform
 - `dango/web/app.py` — `run_dbt_models` via API endpoint
 - `dango/platform/watcher_runner.py` — `generate_dbt_docs` for watch-triggered doc generation

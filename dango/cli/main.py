@@ -21,13 +21,14 @@ from dango.cli.commands.governance import governance
 from dango.cli.commands.metabase_cmd import metabase
 from dango.cli.commands.migrate import migrate
 from dango.cli.commands.model import model
-from dango.cli.commands.notebook import notebook, snapshot
+from dango.cli.commands.notebook import notebook
 from dango.cli.commands.oauth import oauth
 from dango.cli.commands.platform import start, status, stop
 from dango.cli.commands.project import info, init, rename
 from dango.cli.commands.remote import remote
 from dango.cli.commands.schedule import schedule
 from dango.cli.commands.serve import serve
+from dango.cli.commands.snapshot import snapshot
 from dango.cli.commands.source import source, sync
 from dango.cli.commands.transform import docs, generate, run
 from dango.cli.commands.upgrade import upgrade
@@ -94,7 +95,6 @@ cli.add_command(web)
 cli.add_command(serve)
 cli.add_command(upgrade)
 cli.add_command(cleanup)
-cli.add_command(snapshot)
 
 # --- Register command groups ---
 cli.add_command(source)
@@ -113,6 +113,7 @@ cli.add_command(deploy)
 cli.add_command(dev)
 cli.add_command(governance)
 cli.add_command(monitor)
+cli.add_command(snapshot)
 
 
 def main() -> None:

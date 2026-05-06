@@ -146,7 +146,7 @@ def _get_column_schema(db_path: str, source: str, table: str) -> list[dict[str, 
     try:
         schema = f"raw_{validate_source_name(source)}"
         safe_table = validate_identifier(table)
-        conn = duckdb.connect(db_path, read_only=True)
+        conn = duckdb.connect(db_path, config={"access_mode": "read_only"})
         try:
             rows = conn.execute(
                 "SELECT column_name, data_type, is_nullable "

@@ -24,12 +24,13 @@ _STARTUP = "dango.platform.common.startup"
 _SERVE = "dango.cli.commands.serve"
 
 
-def _make_config_mock(port: int = 8800) -> MagicMock:
+def _make_config_mock(port: int = 8800, workers: int | None = None) -> MagicMock:
     """Return a mock ConfigLoader whose load_config() returns a config with the given port."""
     config = MagicMock()
     config.project.name = "test-project"
     config.project.organization = None
     config.platform.port = port
+    config.platform.workers = workers
     loader = MagicMock()
     loader.load_config.return_value = config
     return loader
@@ -547,3 +548,225 @@ class TestServeFailures:
             assert result.exit_code != 0
             # Called twice: once for BUG-104 pre-schema cleanup, once in uvicorn finally block
             assert mock_stop.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# 3. Workers option (FEAT-005)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestServeWorkers:
+    @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
+    @patch(f"{_STARTUP}.import_dashboards")
+    @patch(f"{_STARTUP}.setup_metabase_if_needed")
+    @patch(f"{_STARTUP}.start_docker_services")
+    @patch(f"{_STARTUP}.ensure_duckdb_driver")
+    @patch(f"{_STARTUP}.ensure_dbt_schemas")
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_workers_cli_flag(
+        self,
+        mock_ctx,
+        mock_loader_cls,
+        mock_migrate,
+        mock_schemas,
+        mock_driver,
+        mock_docker,
+        mock_metabase,
+        mock_dashboards,
+        mock_check_port,
+        mock_uvicorn_run,
+        tmp_path,
+    ):
+        """--workers 4 CLI flag passes workers=4 to uvicorn.run()."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock()
+
+        runner = CliRunner()
+        result = runner.invoke(serve, ["--workers", "4"], obj={})
+
+        assert result.exit_code == 0, result.output
+        mock_uvicorn_run.assert_called_once()
+        call_kwargs = mock_uvicorn_run.call_args
+        assert call_kwargs[1]["workers"] == 4
+
+    @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
+    @patch(f"{_STARTUP}.import_dashboards")
+    @patch(f"{_STARTUP}.setup_metabase_if_needed")
+    @patch(f"{_STARTUP}.start_docker_services")
+    @patch(f"{_STARTUP}.ensure_duckdb_driver")
+    @patch(f"{_STARTUP}.ensure_dbt_schemas")
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_config_workers_used(
+        self,
+        mock_ctx,
+        mock_loader_cls,
+        mock_migrate,
+        mock_schemas,
+        mock_driver,
+        mock_docker,
+        mock_metabase,
+        mock_dashboards,
+        mock_check_port,
+        mock_uvicorn_run,
+        tmp_path,
+    ):
+        """Config platform.workers=2 with no CLI flag passes workers to uvicorn."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock(workers=2)
+
+        runner = CliRunner()
+        result = runner.invoke(serve, [], obj={})
+
+        assert result.exit_code == 0, result.output
+        mock_uvicorn_run.assert_called_once()
+        call_kwargs = mock_uvicorn_run.call_args
+        assert call_kwargs[1]["workers"] == 2
+
+    @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
+    @patch(f"{_STARTUP}.import_dashboards")
+    @patch(f"{_STARTUP}.setup_metabase_if_needed")
+    @patch(f"{_STARTUP}.start_docker_services")
+    @patch(f"{_STARTUP}.ensure_duckdb_driver")
+    @patch(f"{_STARTUP}.ensure_dbt_schemas")
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_cli_workers_overrides_config(
+        self,
+        mock_ctx,
+        mock_loader_cls,
+        mock_migrate,
+        mock_schemas,
+        mock_driver,
+        mock_docker,
+        mock_metabase,
+        mock_dashboards,
+        mock_check_port,
+        mock_uvicorn_run,
+        tmp_path,
+    ):
+        """CLI --workers 4 overrides config workers=2."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock(workers=2)
+
+        runner = CliRunner()
+        result = runner.invoke(serve, ["--workers", "4"], obj={})
+
+        assert result.exit_code == 0, result.output
+        mock_uvicorn_run.assert_called_once()
+        call_kwargs = mock_uvicorn_run.call_args
+        assert call_kwargs[1]["workers"] == 4
+
+    @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
+    @patch(f"{_STARTUP}.import_dashboards")
+    @patch(f"{_STARTUP}.setup_metabase_if_needed")
+    @patch(f"{_STARTUP}.start_docker_services")
+    @patch(f"{_STARTUP}.ensure_duckdb_driver")
+    @patch(f"{_STARTUP}.ensure_dbt_schemas")
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_workers_1_omits_from_uvicorn(
+        self,
+        mock_ctx,
+        mock_loader_cls,
+        mock_migrate,
+        mock_schemas,
+        mock_driver,
+        mock_docker,
+        mock_metabase,
+        mock_dashboards,
+        mock_check_port,
+        mock_uvicorn_run,
+        tmp_path,
+    ):
+        """workers=1 omits 'workers' from uvicorn kwargs (avoids multiprocessing overhead)."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock(workers=1)
+
+        runner = CliRunner()
+        result = runner.invoke(serve, [], obj={})
+
+        assert result.exit_code == 0, result.output
+        mock_uvicorn_run.assert_called_once()
+        call_kwargs = mock_uvicorn_run.call_args
+        assert "workers" not in call_kwargs[1]
+
+    @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
+    @patch(f"{_STARTUP}.import_dashboards")
+    @patch(f"{_STARTUP}.setup_metabase_if_needed")
+    @patch(f"{_STARTUP}.start_docker_services")
+    @patch(f"{_STARTUP}.ensure_duckdb_driver")
+    @patch(f"{_STARTUP}.ensure_dbt_schemas")
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_workers_none_omits_from_uvicorn(
+        self,
+        mock_ctx,
+        mock_loader_cls,
+        mock_migrate,
+        mock_schemas,
+        mock_driver,
+        mock_docker,
+        mock_metabase,
+        mock_dashboards,
+        mock_check_port,
+        mock_uvicorn_run,
+        tmp_path,
+    ):
+        """workers=None (default) omits 'workers' from uvicorn kwargs."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock()
+
+        runner = CliRunner()
+        result = runner.invoke(serve, [], obj={})
+
+        assert result.exit_code == 0, result.output
+        mock_uvicorn_run.assert_called_once()
+        call_kwargs = mock_uvicorn_run.call_args
+        assert "workers" not in call_kwargs[1]
+
+    @patch("uvicorn.run")
+    @patch(f"{_SERVE}._check_port")
+    @patch(f"{_STARTUP}.import_dashboards")
+    @patch(f"{_STARTUP}.setup_metabase_if_needed")
+    @patch(f"{_STARTUP}.start_docker_services")
+    @patch(f"{_STARTUP}.ensure_duckdb_driver")
+    @patch(f"{_STARTUP}.ensure_dbt_schemas")
+    @patch(f"{_STARTUP}.run_pending_migrations", return_value={})
+    @patch(f"{_CONFIG}.ConfigLoader")
+    @patch(f"{_UTILS}.require_project_context")
+    def test_startup_message_shows_workers(
+        self,
+        mock_ctx,
+        mock_loader_cls,
+        mock_migrate,
+        mock_schemas,
+        mock_driver,
+        mock_docker,
+        mock_metabase,
+        mock_dashboards,
+        mock_check_port,
+        mock_uvicorn_run,
+        tmp_path,
+    ):
+        """Startup message shows '(4 workers)' when workers > 1."""
+        mock_ctx.return_value = tmp_path
+        mock_loader_cls.return_value = _make_config_mock()
+
+        runner = CliRunner()
+        result = runner.invoke(serve, ["--workers", "4"], obj={})
+
+        assert result.exit_code == 0, result.output
+        assert "(4 workers)" in result.output

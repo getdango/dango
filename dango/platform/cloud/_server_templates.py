@@ -48,7 +48,24 @@ def build_caddyfile(domain: str | None = None) -> str:
 # Backward-compatible alias — existing code imports ``CADDYFILE`` directly.
 CADDYFILE = build_caddyfile()
 
-SYSTEMD_UNIT = """\
+
+def build_systemd_unit(workers: int | None = None) -> str:
+    """Build a systemd unit file for the Dango web service.
+
+    Args:
+        workers: Number of uvicorn workers. When > 1, adds ``--workers N``
+            to the ExecStart line. When ``None`` or 1, uses the default
+            single-worker mode.
+
+    Returns:
+        Complete systemd unit file content as a string.
+    """
+    if workers is not None and workers > 1:
+        exec_start = f"/srv/dango/venv/bin/dango serve --workers {workers}"
+    else:
+        exec_start = "/srv/dango/venv/bin/dango serve"
+
+    return f"""\
 [Unit]
 Description=Dango Web Platform
 After=network.target docker.service
@@ -60,13 +77,17 @@ User=dango
 Group=dango
 WorkingDirectory=/srv/dango/project
 Environment=DLT_DATA_DIR=/srv/dango/project/.dlt
-ExecStart=/srv/dango/venv/bin/dango serve
+ExecStart={exec_start}
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 """
+
+
+# Backward-compatible alias — existing code imports ``SYSTEMD_UNIT`` directly.
+SYSTEMD_UNIT = build_systemd_unit()
 
 
 DOCKER_DAEMON_JSON = """\

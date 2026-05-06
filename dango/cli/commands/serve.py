@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -20,8 +21,9 @@ import click
 @click.command()
 @click.option("--host", default="0.0.0.0", help="Bind address (default: 0.0.0.0)")
 @click.option("--port", default=None, type=int, help="Port (default: config value or 8800)")
+@click.option("--workers", default=None, type=int, help="Number of uvicorn workers (default: 1)")
 @click.pass_context
-def serve(ctx: click.Context, host: str, port: int | None) -> None:
+def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) -> None:
     """Run Dango in production server mode (foreground).
 
     Intended for use under systemd on a cloud server.  Runs all startup
@@ -71,6 +73,9 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
     project_name = config.project.name
     organization = getattr(config.project, "organization", None)
     effective_port = port if port is not None else config.platform.port
+    effective_workers = workers if workers is not None else (config.platform.workers or 1)
+    if effective_workers < 1:
+        effective_workers = 1
 
     # 0. Version alignment check — must run BEFORE any DuckDB write operations
     # because write mode auto-migrates the file format irreversibly.
@@ -159,16 +164,19 @@ def serve(ctx: click.Context, host: str, port: int | None) -> None:
     # H3: Wrap uvicorn in try/finally for Docker cleanup
     import uvicorn
 
-    print(f"Starting Dango on {host}:{effective_port}")
+    worker_msg = f" ({effective_workers} workers)" if effective_workers > 1 else ""
+    print(f"Starting Dango on {host}:{effective_port}{worker_msg}")
     try:
-        uvicorn.run(
-            "dango.web.app:app",
-            host=host,
-            port=effective_port,
-            log_level="info",
-            proxy_headers=True,
-            forwarded_allow_ips="127.0.0.1",
-        )
+        uvicorn_kwargs: dict[str, Any] = {
+            "host": host,
+            "port": effective_port,
+            "log_level": "info",
+            "proxy_headers": True,
+            "forwarded_allow_ips": "127.0.0.1",
+        }
+        if effective_workers > 1:
+            uvicorn_kwargs["workers"] = effective_workers
+        uvicorn.run("dango.web.app:app", **uvicorn_kwargs)
     finally:
         _stop_docker_quiet(project_root)
 

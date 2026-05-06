@@ -5,7 +5,7 @@ Cloud deployment platform components.
 Populated by TASK-022+ (cloud provisioning, Caddy, remote sync).
 """
 
-from ._server_templates import build_caddyfile
+from ._server_templates import build_caddyfile, build_systemd_unit
 from .backup import (
     BackupManifest,
     BackupResult,
@@ -116,6 +116,7 @@ __all__ = [
     "get_local_resource_usage",
     # Domain management (TASK-027)
     "build_caddyfile",
+    "build_systemd_unit",
     "check_dns",
     "set_domain",
     "remove_domain",
