@@ -338,7 +338,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `visualization/metabase.py` | 1151 | — |
 | `cli/init.py` | 1324 | — |
 | `visualization/dashboard_manager.py` | 1112 | — |
-| `cli/commands/platform.py` | 1011 | — (extracted from main.py by TASK-005) |
+| `cli/commands/platform.py` | 1034 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 819 | — (extracted from app.py by TASK-085) |

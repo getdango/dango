@@ -383,6 +383,29 @@ def start(ctx: click.Context, yes: bool) -> None:
         # Check for duplicate port configuration
         _check_duplicate_ports(platform_config)
 
+        # Auto-clean orphaned Docker containers from previous Dango session
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "-q", "--filter", "name=metabase", "--filter", "name=dbt"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                container_ids = [c for c in result.stdout.strip().split("\n") if c]
+                console.print(
+                    f"[yellow]⚠[/yellow]  Found {len(container_ids)} orphaned Docker "
+                    "container(s) from a previous session, cleaning up..."
+                )
+                from dango.platform import DockerManager
+
+                manager = DockerManager(project_root)
+                manager.stop_services()
+                manager.stop_all_dango_containers()
+                console.print()
+        except Exception:
+            pass  # Best-effort — _check_docker_ports will catch remaining issues
+
         # Check Docker service ports (Metabase and dbt-docs)
         _check_docker_ports(platform_config)
 
