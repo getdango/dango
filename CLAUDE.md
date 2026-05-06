@@ -161,7 +161,7 @@ dango/                          # Python package source
 ├── web/                        # Level 2 — FastAPI web server
 │   ├── app.py                  # Entry point (~370 lines) — routers, middleware, admin bootstrap
 │   ├── models.py               # Pydantic request/response DTOs (incl. auth DTOs)
-│   ├── helpers.py              # Shared helpers: DuckDB queries, config, logging (840 lines)
+│   ├── helpers.py              # Shared helpers: DuckDB queries, config, logging (851 lines)
 │   ├── middleware/             # Request middleware
 │   │   ├── auth.py             # Session/API key auth + CSRF check (~325 lines)
 │   │   └── rate_limit.py       # Rate limiting (~212 lines)
@@ -342,7 +342,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/platform.py` | 1034 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
-| `web/helpers.py` | 840 | — (extracted from app.py by TASK-085) |
+| `web/helpers.py` | 851 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
 | `platform/scheduling/jobs.py` | 895 | — (module-level job functions) |
 | `utils/post_sync.py` | 632 | — (post-sync hooks + sync notification) |
@@ -356,14 +356,14 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 595 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 652 | — |
-| `config/models.py` | 600 | — (Pydantic config models) |
+| `config/models.py` | 606 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 813 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 613 | — |
 | `web/routes/catalog.py` | 1336 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/deploy_provision.py` | 846 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
-| `platform/cloud/server_setup.py` | 652 | — (server setup + install source detection) |
+| `platform/cloud/server_setup.py` | 666 | — (server setup + install source detection) |
 | `cli/commands/auth.py` | 660 | — (13 auth subcommands) |
 | `auth/database.py` | 529 | — (SQLite CRUD) |
 | `web/routes/users.py` | 527 | — (admin user CRUD + invite) |

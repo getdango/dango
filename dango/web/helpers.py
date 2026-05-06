@@ -640,6 +640,7 @@ async def get_platform_health_data():
         check_duckdb_health,
         get_component_disk_usage,
         get_disk_usage_summary,
+        get_duckdb_capacity,
     )
 
     project_root = get_project_root()
@@ -666,6 +667,9 @@ async def get_platform_health_data():
 
     disk_task = asyncio.create_task(asyncio.to_thread(get_disk_usage_summary, project_root))
     breakdown_task = asyncio.create_task(asyncio.to_thread(get_component_disk_usage, project_root))
+    capacity_task = asyncio.create_task(
+        asyncio.to_thread(get_duckdb_capacity, duckdb_path, project_root)
+    )
     sources_task = asyncio.create_task(asyncio.to_thread(load_sources_config))
 
     # Wait for all tasks
@@ -691,6 +695,12 @@ async def get_platform_health_data():
     except Exception as e:
         logger.error(f"Error getting disk breakdown: {e}")
         disk_breakdown: dict[str, Any] = {}
+
+    try:
+        duckdb_capacity = await capacity_task
+    except Exception as e:
+        logger.error(f"Error getting DuckDB capacity: {e}")
+        duckdb_capacity: dict[str, Any] = {}
 
     # Check for failed syncs
     failed_syncs = []
@@ -752,6 +762,7 @@ async def get_platform_health_data():
         "db_health": db_health,
         "disk": disk,
         "disk_breakdown": disk_breakdown,
+        "duckdb_capacity": duckdb_capacity,
         "sources_config": sources_config,
         "failed_syncs": failed_syncs,
         "failed_dbt": failed_dbt,

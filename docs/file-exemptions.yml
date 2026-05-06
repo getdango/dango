@@ -12,7 +12,7 @@ limit: 500  # Informational — scripts/check_file_sizes.py owns the enforced th
 exemptions:
   # --- Post-TASK-085 split results (from web/app.py 3032 → web/routes/) ---
   - file: dango/web/helpers.py
-    lines: 840
+    lines: 851
     category: exempt
     reason: "Shared helper functions for web routes. Consolidates DuckDB queries, config loading, service health checks, and log management. Extracted from web/app.py by TASK-085. Mirrors cli/utils.py pattern."
     review_by: "v1.1"
@@ -237,7 +237,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/config/models.py
-    lines: 600
+    lines: 606
     category: exempt
     reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
     review_by: "v1.1"
@@ -255,7 +255,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/cloud/server_setup.py
-    lines: 652
+    lines: 666
     category: exempt
     reason: "TASK-075e+R9-C: 17 idempotent setup steps + optional UFW. R9-C added resolve_install_source() and system-wide apt lock timeout config."
     review_by: "v1.1"
@@ -383,7 +383,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_serve_command.py
-    lines: 549
+    lines: 772
     category: exempt
     reason: "R8-A+R9-C: BUG-103/104/124 tests. Each test requires its own full decorator stack for startup helpers. R9-C added driver-failure-continues-if-jar-exists test."
     review_by: "v1.1"

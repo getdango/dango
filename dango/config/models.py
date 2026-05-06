@@ -477,6 +477,12 @@ class PlatformSettings(BaseModel):
         description="Seconds to wait before dbt run to coalesce multiple syncs",
     )
 
+    # uvicorn worker count for production serve command
+    workers: int | None = Field(
+        default=None,
+        description="Number of uvicorn workers for dango serve (default: 1, cloud auto-detects vCPUs)",
+    )
+
 
 class RateLimitGroupConfig(BaseModel):
     """Rate limit settings for a single route group."""

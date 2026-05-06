@@ -24,9 +24,9 @@ from dango.platform.cloud._server_templates import (
     FAIL2BAN_JAIL,
     JOURNALD_CONF,
     LOGROTATE_CONF,
-    SYSTEMD_UNIT,
     UNATTENDED_UPGRADES_CONF,
     build_caddyfile,
+    build_systemd_unit,
 )
 
 if TYPE_CHECKING:
@@ -396,12 +396,15 @@ def _setup_systemd_unit(
     ssh: SSHManager,
     result: SetupResult,
     on_progress: Callable[[str, str], None] | None,
+    *,
+    workers: int | None = None,
 ) -> None:
     """Step 13: Create and enable dango-web systemd service (NOT started)."""
     step = "systemd_unit"
     _notify(on_progress, step, "running")
+    unit_content = build_systemd_unit(workers=workers)
     changed = _write_remote_config(
-        ssh, "/etc/systemd/system/dango-web.service", SYSTEMD_UNIT, step=step
+        ssh, "/etc/systemd/system/dango-web.service", unit_content, step=step
     )
     # Always daemon-reload + enable (idempotent)
     _run_checked(ssh, "systemctl daemon-reload && systemctl enable dango-web", step=step)
@@ -632,9 +635,20 @@ def setup_server(
     """
     result = SetupResult()
 
+    # Detect vCPU count for multi-worker systemd unit
+    vcpu_count: int | None = None
+    try:
+        nproc_result = ssh.exec_command("nproc")
+        if nproc_result.success:
+            vcpu_count = int(nproc_result.stdout.strip())
+    except (ValueError, AttributeError, OSError):
+        pass  # Fall back to single worker
+
     for step_fn in _SETUP_STEPS:
         if step_fn is _setup_caddyfile:
             _setup_caddyfile(ssh, result, on_progress, domain=domain)
+        elif step_fn is _setup_systemd_unit:
+            _setup_systemd_unit(ssh, result, on_progress, workers=vcpu_count)
         elif step_fn is _setup_venv:
             _setup_venv(
                 ssh,
