@@ -10,7 +10,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 |------|---------|----------------------|
 | `app.py` | Entry point: `create_app()`, middleware, router registration, lifespan context manager (incl. first-run admin creation), global exception handlers (`DangoError` → structured JSON, generic `Exception` → 500) | `create_app()`, `app` (global FastAPI instance), `lifespan()`, `dango_error_handler()`, `unhandled_error_handler()` |
 | `models.py` | Pydantic request/response DTOs | `TableInfo`, `SourceStatus`, `ServiceHealth`, `SyncRequest`, `SyncResponse`, `LogEntry`, `WatcherStatus`, `LoginRequest`, `AcceptInviteRequest`, `TwoFAVerifyRequest` |
-| `helpers.py` | Shared helpers: DuckDB queries, config loading, service health, logging | `get_project_root()`, `load_sources_config()`, `get_duckdb_path()`, `get_dbt_models()`, `mask_sensitive_config()`, `get_source_freshness()`, `append_log_entry()`, `load_all_logs()`, `check_service_status_async()`, `get_platform_health_data()`, `get_source_status_data()` |
+| `helpers.py` | Shared helpers: DuckDB queries, config loading, service health, logging (851 lines) | `get_project_root()`, `load_sources_config()`, `get_duckdb_path()`, `get_dbt_models()`, `mask_sensitive_config()`, `get_source_freshness()`, `append_log_entry()`, `load_all_logs()`, `check_service_status_async()`, `get_platform_health_data()`, `get_source_status_data()` |
 | `__init__.py` | Public exports | `app` module |
 | `middleware/auth.py` | Session/API key auth + CSRF check on every request (~325 lines) | `AuthMiddleware`, `is_secure_request()`, `COOKIE_NAME` |
 | `middleware/rate_limit.py` | Rate limiting (login 10/min, API 200/min, localhost exempt, ~212 lines) | `RateLimitMiddleware` |
@@ -19,7 +19,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `templates/dashboard.html` | Overview page (extends `base.html`) — health widget, service cards, activity log | Loads `app.js` |
 | `templates/sources.html` | Sources page (extends `base.html`) — source table, sync controls, upload/detail modals | Loads `app.js` |
 | `templates/models.html` | Models page (extends `base.html`) — dbt models table with run controls | Loads `app.js` |
-| `templates/health.html` | Health page (extends `base.html`) — platform metrics, issues | Inline JS for health polling |
+| `templates/health.html` | Health page (extends `base.html`) — platform metrics, DuckDB capacity gauge, issues | Inline JS for health polling |
 | `templates/logs.html` | Logs page (extends `base.html`) — filterable log table | Loads `logs.js` |
 | `templates/login.html` | Login page — Alpine.js two-step state machine (`credentials` → `totp`) | Lockout display, recovery code toggle |
 | `templates/change_password.html` | First-login password change (forced by `must_change_password` flag) | — |
@@ -31,7 +31,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~854 lines) | `_bridge_metabase_session()`, `_set_session_cookie()` |
 | `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery (~328 lines) | — |
 | `routes/users.py` | Admin user CRUD: create, edit, deactivate, delete, unlock, invite (525 lines) | — |
-| `routes/health.py` | `/api/status`, `/api/watcher/status`, `/api/health/platform` (incl. OAuth token health, component disk breakdown, cloud resource metrics, backup staleness, deployment info), `/api/deployments/history` (admin-only) | — |
+| `routes/health.py` | `/api/status`, `/api/watcher/status`, `/api/health/platform` (incl. DuckDB capacity gauge, OAuth token health, component disk breakdown, cloud resource metrics, backup staleness, deployment info), `/api/deployments/history` (admin-only) | — |
 | `routes/config.py` | `/api/config`, `/api/metabase-config` | — |
 | `routes/sources.py` | `/api/sources`, `/api/sources/{name}/details` | — |
 | `routes/sync.py` | `/api/sources/{name}/sync`, `/api/sync/trigger` (remote), `/api/sync/status/{id}` + background `run_sync_task()` (~558 lines) | `run_sync_task()` |

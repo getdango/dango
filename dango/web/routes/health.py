@@ -122,6 +122,7 @@ async def get_platform_health() -> dict[str, Any]:
 
     db_health = data["db_health"]
     disk = data["disk"]
+    duckdb_capacity = data.get("duckdb_capacity", {})
     sources_config = data["sources_config"]
     failed_syncs = data["failed_syncs"]
     failed_dbt = data["failed_dbt"]
@@ -149,6 +150,9 @@ async def get_platform_health() -> dict[str, Any]:
     elif db_health["status"] == "large":
         warnings.append("Large database")
 
+    if duckdb_capacity.get("duckdb_capacity_warning"):
+        warnings.append("DuckDB using >75% of recommended capacity — consider archiving data")
+
     if failed_syncs:
         warnings.append(f"{len(failed_syncs)} source(s) with recent failures")
 
@@ -161,6 +165,7 @@ async def get_platform_health() -> dict[str, Any]:
         "database": db_health,
         "disk": disk,
         "disk_breakdown": data.get("disk_breakdown", {}),
+        "duckdb_capacity": duckdb_capacity,
         "sync_failures": failed_syncs,
         "dbt_failures": failed_dbt,
         "total_sources": len(sources_config),

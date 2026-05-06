@@ -139,6 +139,16 @@
                             <dt class="text-sm text-gray-600">Total Size (MB)</dt>
                             <dd id="db-size-mb" class="text-sm font-medium text-gray-900">-</dd>
                         </div>
+                        <div id="capacity-row" class="hidden">
+                            <div class="flex justify-between mb-1">
+                                <dt class="text-sm text-gray-600">Capacity Used</dt>
+                                <dd id="capacity-pct" class="text-sm font-medium text-gray-900">-</dd>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2">
+                                <div id="capacity-bar" class="h-2 rounded-full" style="width: 0%"></div>
+                            </div>
+                            <p id="capacity-max" class="text-xs text-gray-500 mt-1"></p>
+                        </div>
                     </dl>
                 </div>
             </div>
@@ -285,6 +295,24 @@
             document.getElementById('db-staging-tables').textContent = db.staging_tables;
             document.getElementById('db-marts-tables').textContent = db.marts_tables;
             document.getElementById('db-size-mb').textContent = `${db.size_mb} MB`;
+
+            // DuckDB Capacity Gauge
+            const cap = health.duckdb_capacity;
+            if (cap && cap.recommended_max_db_size_bytes > 0) {
+                document.getElementById('capacity-row').classList.remove('hidden');
+                document.getElementById('capacity-pct').textContent = `${cap.duckdb_capacity_pct}%`;
+                const bar = document.getElementById('capacity-bar');
+                bar.style.width = `${Math.min(cap.duckdb_capacity_pct, 100)}%`;
+                if (cap.duckdb_capacity_pct > 75) {
+                    bar.className = 'h-2 rounded-full bg-red-500';
+                } else if (cap.duckdb_capacity_pct > 50) {
+                    bar.className = 'h-2 rounded-full bg-yellow-500';
+                } else {
+                    bar.className = 'h-2 rounded-full bg-green-500';
+                }
+                const maxGb = (cap.recommended_max_db_size_bytes / (1024 * 1024 * 1024)).toFixed(1);
+                document.getElementById('capacity-max').textContent = `Recommended max: ${maxGb} GB`;
+            }
 
             const dbBadge = document.getElementById('db-status-badge');
             dbBadge.className = 'px-2 py-1 text-xs rounded-full ';
