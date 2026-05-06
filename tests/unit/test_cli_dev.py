@@ -5,6 +5,7 @@ Tests for dango.cli.commands.dev — branch-based dbt development.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -132,6 +133,63 @@ class TestDevNoProject:
 
         assert result.exit_code != 0
         assert "Production database not found" in result.output
+
+
+@pytest.mark.unit
+class TestParseRunResults:
+    """Tests for ``_parse_run_results`` helper."""
+
+    def test_parses_model_results(self, tmp_path):
+        """Extracts model name, status, and execution_time from run_results.json."""
+        target_dir = tmp_path / "dbt" / "target"
+        target_dir.mkdir(parents=True)
+        run_results = {
+            "results": [
+                {
+                    "unique_id": "model.my_project.stg_orders",
+                    "status": "success",
+                    "execution_time": 1.234,
+                },
+                {
+                    "unique_id": "model.my_project.stg_customers",
+                    "status": "error",
+                    "execution_time": 0.5,
+                },
+                {
+                    "unique_id": "test.my_project.not_null_orders_id",
+                    "status": "pass",
+                    "execution_time": 0.1,
+                },
+            ]
+        }
+        (target_dir / "run_results.json").write_text(json.dumps(run_results))
+
+        from dango.cli.commands.dev import _parse_run_results
+
+        results = _parse_run_results(tmp_path)
+
+        assert len(results) == 2  # test entry filtered out
+        assert results[0]["name"] == "stg_orders"
+        assert results[0]["status"] == "success"
+        assert results[0]["execution_time"] == 1.23
+        assert results[1]["name"] == "stg_customers"
+        assert results[1]["status"] == "error"
+
+    def test_returns_empty_on_missing_file(self, tmp_path):
+        """Returns empty list when run_results.json does not exist."""
+        from dango.cli.commands.dev import _parse_run_results
+
+        assert _parse_run_results(tmp_path) == []
+
+    def test_returns_empty_on_invalid_json(self, tmp_path):
+        """Returns empty list when run_results.json is malformed."""
+        target_dir = tmp_path / "dbt" / "target"
+        target_dir.mkdir(parents=True)
+        (target_dir / "run_results.json").write_text("not valid json{")
+
+        from dango.cli.commands.dev import _parse_run_results
+
+        assert _parse_run_results(tmp_path) == []
 
 
 @pytest.mark.unit

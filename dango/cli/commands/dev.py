@@ -6,9 +6,6 @@ database so that the real warehouse is never modified.
 
 from __future__ import annotations
 
-import json
-import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -46,8 +43,7 @@ def _read_dbt_profile_name(project_root: Path) -> str:
         with open(dbt_project_path) as f:
             data = yaml.safe_load(f)
         profile_name: str = data["profile"]
-        # Strip surrounding quotes that may be in the YAML value
-        return profile_name.strip("'\"")
+        return profile_name
     except Exception as exc:
         raise click.ClickException(
             f"Could not read profile name from {dbt_project_path}: {exc}"
@@ -63,6 +59,8 @@ def _create_dev_database(project_root: Path, dev_dir: Path) -> Path:
     Raises:
         click.ClickException: If the production database does not exist.
     """
+    import shutil
+
     prod_db = project_root / "data" / "warehouse.duckdb"
     if not prod_db.exists():
         raise click.ClickException(
@@ -119,8 +117,10 @@ def _run_dev_dbt(project_root: Path, dev_dir: Path, select: str | None) -> int:
     """Run ``dbt run`` against the dev profile.
 
     Returns:
-        The subprocess return code.
+        The subprocess return code.  Returns ``-1`` on timeout.
     """
+    import subprocess
+
     from dango.transformation import _get_dbt_executable
 
     dbt_cmd = _get_dbt_executable()
@@ -132,8 +132,15 @@ def _run_dev_dbt(project_root: Path, dev_dir: Path, select: str | None) -> int:
 
     console.print(f"[dim]Running: {' '.join(cmd)}[/dim]\n")
 
-    result = subprocess.run(cmd, cwd=str(dbt_dir), timeout=300)
-    return result.returncode
+    try:
+        result = subprocess.run(cmd, cwd=str(dbt_dir), timeout=300)
+        return result.returncode
+    except subprocess.TimeoutExpired:
+        console.print(
+            "[red]dbt run timed out after 5 minutes.[/red]\n"
+            "[dim]Try running a subset: dango dev --select model_name[/dim]"
+        )
+        return -1
 
 
 def _parse_run_results(project_root: Path) -> list[dict[str, Any]]:
@@ -142,6 +149,8 @@ def _parse_run_results(project_root: Path) -> list[dict[str, Any]]:
     Each entry has keys: ``name``, ``status``, ``execution_time``.
     Returns an empty list if the file is missing or unparseable.
     """
+    import json
+
     run_results_path = project_root / "dbt" / "target" / "run_results.json"
     if not run_results_path.exists():
         return []
@@ -230,6 +239,7 @@ def _show_row_count_diff(project_root: Path, dev_dir: Path) -> None:
                     continue
                 for (table_name,) in tables:
                     try:
+                        # Safe: schema from hardcoded tuple, table_name from information_schema
                         row = conn.execute(
                             f'SELECT COUNT(*) FROM "{schema}"."{table_name}"'
                         ).fetchone()
@@ -359,6 +369,8 @@ def dev(ctx: click.Context, select: str | None, show_diff: bool) -> None:
 
     except click.Abort:
         raise
+    except click.ClickException:
+        raise
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled.[/yellow]")
         raise click.Abort() from None
@@ -380,6 +392,8 @@ def dev_clean(ctx: click.Context) -> None:
 
     Deletes the .dango/dev/ directory created by 'dango dev'.
     """
+    import shutil
+
     from dango.cli.utils import require_project_context
 
     try:
@@ -398,6 +412,8 @@ def dev_clean(ctx: click.Context) -> None:
         console.print("[green]✓[/green] Dev artifacts removed.")
 
     except click.Abort:
+        raise
+    except click.ClickException:
         raise
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled.[/yellow]")
