@@ -38,6 +38,10 @@ ENTITY_MIN_MATCH_RATIO: dict[str, float] = {
 
 _STRING_TYPES = frozenset({"VARCHAR", "TEXT", "STRING", "CHAR", "BPCHAR"})
 
+# BUG-185: Structured data heuristic constants
+_STRUCTURED_DATA_MIN_AVG_LEN = 100
+_STRUCTURED_DATA_DELIMITERS = frozenset({"[", "]", "{", "\n"})
+
 _analyzer: Any = None
 
 _SPACY_MODEL = "en_core_web_sm"
@@ -464,6 +468,14 @@ def _scan_column(values: list[str], total_values: int = 0) -> dict[str, dict[str
                 detections[entity]["count"] += 1
                 if result.score > detections[entity]["confidence"]:
                     detections[entity]["confidence"] = result.score
+
+    # BUG-185: Suppress PERSON on structured data columns
+    if "PERSON" in detections and values:
+        avg_len = sum(len(v) for v in values) / len(values)
+        if avg_len > _STRUCTURED_DATA_MIN_AVG_LEN:
+            has_delimiters = any(any(d in v for d in _STRUCTURED_DATA_DELIMITERS) for v in values)
+            if has_delimiters:
+                del detections["PERSON"]
 
     # Filter entities that don't meet the minimum match ratio
     if total_values > 0:

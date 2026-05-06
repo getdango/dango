@@ -81,7 +81,7 @@ exemptions:
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
-    lines: 1011
+    lines: 1034
     category: exempt
     reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic."
     review_by: "v1.1"
@@ -180,9 +180,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/transformation/generator.py
-    lines: 577
+    lines: 610
     category: exempt
-    reason: "DbtModelGenerator — generates dbt models from source configs. R10-F3 added _find_dlt_nested_table for double-underscore table discovery (BUG-152)."
+    reason: "DbtModelGenerator — generates dbt models from source configs. R10-G2 added _enrich_columns_from_profiling for dbt test enrichment."
     review_by: "v1.1"
 
   - file: dango/platform/local/watcher.py
@@ -311,9 +311,9 @@ exemptions:
   # --- Phase 4 scheduling ---
 
   - file: dango/utils/post_sync.py
-    lines: 554
+    lines: 632
     category: exempt
-    reason: "R9-I: Added _deliver_to_webhooks shared helper and _send_sync_notification for CLI sync webhook delivery. Marginally over limit."
+    reason: "R10-G2: Added _enrich_staging_tests for post-sync dbt test enrichment from profiling data."
     review_by: "v1.1"
 
   - file: dango/web/routes/schedules.py
@@ -365,9 +365,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/governance/pii_detector.py
-    lines: 602
+    lines: 614
     category: exempt
-    reason: "BUG-027/BUG-133/BUG-139: grew to 602 lines adding spaCy fallback, PERSON threshold, intl phone recognizer, and PII override application. Single-responsibility module, not worth splitting."
+    reason: "BUG-027/BUG-133/BUG-139/BUG-185: grew to 614 lines adding spaCy fallback, PERSON threshold, intl phone recognizer, PII override application, and structured data heuristic. Single-responsibility module, not worth splitting."
     review_by: "v1.1"
 
   - file: tests/unit/test_drift_detection.py

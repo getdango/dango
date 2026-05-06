@@ -110,7 +110,14 @@
                     </template>
                 </tbody>
                 <tbody x-show="notebooks.length === 0" x-cloak>
-                    <tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500">No notebooks yet. Create one to get started.</td></tr>
+                    <tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500">
+                        <template x-if="canExecute">
+                            <span>No notebooks yet. Create one to get started.</span>
+                        </template>
+                        <template x-if="!canExecute">
+                            <span>No notebooks available.</span>
+                        </template>
+                    </td></tr>
                 </tbody>
             </table>
         </div>

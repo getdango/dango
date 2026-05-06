@@ -47,13 +47,13 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~506 lines) | `router` |
 | `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact, model list/detail, search (~1336 lines) | `router` |
 | `routes/governance.py` | Schema drift + PII results API (~120 lines) | `router` |
-| `routes/monitoring.py` | Monitor results, run trigger, history + backward-compat redirects for old `/api/insights*` paths (~295 lines) | `router` |
+| `routes/monitoring.py` | Monitor results, run trigger, history, dbt test results + backward-compat redirects for old `/api/insights*` paths (~398 lines) | `router` |
 | `routes/ai.py` | Agent/AI interface: /api/catalog/summary, /api/tools (~496 lines) | `router` |
 | `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |
 | `templates/schedules.html` | Schedule management page (extends `base.html`) — table, modals, WebSocket | Alpine.js `schedulesPage()` component |
 | `templates/notebooks.html` | Notebook management page (extends `base.html`) — table, create/delete modals, locking | Alpine.js `notebooksPage()` component |
 | `templates/catalog.html` | Data catalog page (extends `base.html`) — model browser, search, detail view, code view, profiling, lineage (872 lines) | Alpine.js `catalogPage()` component |
-| `templates/monitoring.html` | Monitoring page (extends `base.html`) — monitor results, trends (~153 lines) | Alpine.js `monitoringPage()` component |
+| `templates/monitoring.html` | Monitoring page (extends `base.html`) — monitor results, trends, dbt test results (~193 lines) | Alpine.js `monitoringPage()` component |
 | `static/` | CSS and JS assets (`css/tailwind.min.css` (compiled), `css/main.css`, `css/catalog.css`, `css/input.css` (Tailwind source), `js/app.js`, `js/logs.js`, `js/lineage.js`, `js/catalog.js`) | — |
 
 ## Architecture

@@ -187,3 +187,43 @@ class TestAttentionEndpoint:
 
         assert resp.status_code == 200
         assert resp.json() == []
+
+
+@pytest.mark.unit
+class TestPiiOverrideEndpointsRemoved:
+    """BUG-161: PUT/DELETE PII override endpoints removed (CLI-only)."""
+
+    def test_put_override_not_available(self, tmp_path: Path) -> None:
+        """PUT /api/governance/pii/override no longer routable."""
+        client, _ = _setup_client(tmp_path, Role.ADMIN)
+        with (
+            patch("dango.web.routes.governance.log_auth_event"),
+            patch("dango.web.routes.governance.get_project_root", return_value=tmp_path),
+        ):
+            resp = client.put(
+                "/api/governance/pii/override",
+                json={
+                    "source": "chess",
+                    "table_name": "games",
+                    "column_name": "pgn",
+                    "pii_status": "not_pii",
+                },
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+        # Route is completely removed — FastAPI returns 405 or 404 depending
+        # on whether any route exists at that path with a different method.
+        # Since /overrides (GET) is at a different path, this returns 404.
+        assert resp.status_code in (404, 405)
+
+    def test_delete_override_not_available(self, tmp_path: Path) -> None:
+        """DELETE /api/governance/pii/override no longer routable."""
+        client, _ = _setup_client(tmp_path, Role.ADMIN)
+        with (
+            patch("dango.web.routes.governance.log_auth_event"),
+            patch("dango.web.routes.governance.get_project_root", return_value=tmp_path),
+        ):
+            resp = client.delete(
+                "/api/governance/pii/override?source=chess&table=games&column=pgn",
+                headers={"X-Requested-With": "XMLHttpRequest"},
+            )
+        assert resp.status_code in (404, 405)

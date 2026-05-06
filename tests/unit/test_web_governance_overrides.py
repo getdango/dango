@@ -1,6 +1,7 @@
 """tests/unit/test_web_governance_overrides.py
 
 Tests for PII override web endpoints in dango/web/routes/governance.py.
+PUT/DELETE endpoints removed (BUG-161) — PII management is CLI-only.
 """
 
 from __future__ import annotations
@@ -73,24 +74,16 @@ def _make_client(app: FastAPI) -> TestClient:
     return TestClient(app, raise_server_exceptions=False)
 
 
-def _init_db(tmp_path: Path) -> None:
-    from dango.utils.dango_db import connect
-
-    with connect(tmp_path):
-        pass
-
-
 # ---------------------------------------------------------------------------
-# Tests: PUT /api/governance/pii/override
+# Tests: PUT /api/governance/pii/override (removed — BUG-161)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestSetPiiOverrideEndpoint:
-    """Tests for PUT /api/governance/pii/override."""
+    """PUT endpoint was removed. Verify it returns 404."""
 
-    def test_set_override_success(self, tmp_path: Path) -> None:
-        _init_db(tmp_path)
+    def test_set_override_not_available(self, tmp_path: Path) -> None:
         admin = _make_user(Role.ADMIN)
         client = _make_client(_make_app(tmp_path, admin))
         resp = client.put(
@@ -104,89 +97,30 @@ class TestSetPiiOverrideEndpoint:
             },
             headers=_HEADERS,
         )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
-
-    def test_set_override_invalid_status(self, tmp_path: Path) -> None:
-        _init_db(tmp_path)
-        admin = _make_user(Role.ADMIN)
-        client = _make_client(_make_app(tmp_path, admin))
-        resp = client.put(
-            "/api/governance/pii/override",
-            json={
-                "source": "chess",
-                "table_name": "games",
-                "column_name": "pgn",
-                "pii_status": "maybe",
-            },
-            headers=_HEADERS,
-        )
-        assert resp.status_code == 422
-
-    def test_set_override_viewer_forbidden(self, tmp_path: Path) -> None:
-        _init_db(tmp_path)
-        viewer = _make_user(Role.VIEWER)
-        client = _make_client(_make_app(tmp_path, viewer))
-        resp = client.put(
-            "/api/governance/pii/override",
-            json={
-                "source": "chess",
-                "table_name": "games",
-                "column_name": "pgn",
-                "pii_status": "not_pii",
-            },
-            headers=_HEADERS,
-        )
-        assert resp.status_code == 403
+        assert resp.status_code in (404, 405)
 
 
 # ---------------------------------------------------------------------------
-# Tests: DELETE /api/governance/pii/override
+# Tests: DELETE /api/governance/pii/override (removed — BUG-161)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestDeletePiiOverrideEndpoint:
-    """Tests for DELETE /api/governance/pii/override."""
+    """DELETE endpoint was removed. Verify it returns 404."""
 
-    def test_delete_existing(self, tmp_path: Path) -> None:
-        _init_db(tmp_path)
-        from dango.governance.pii_overrides import set_pii_override
-
-        set_pii_override(tmp_path, "chess", "games", "pgn", "not_pii", "test@test.com")
+    def test_delete_not_available(self, tmp_path: Path) -> None:
         admin = _make_user(Role.ADMIN)
         client = _make_client(_make_app(tmp_path, admin))
         resp = client.delete(
             "/api/governance/pii/override?source=chess&table=games&column=pgn",
             headers=_HEADERS,
         )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
-
-    def test_delete_nonexistent(self, tmp_path: Path) -> None:
-        _init_db(tmp_path)
-        admin = _make_user(Role.ADMIN)
-        client = _make_client(_make_app(tmp_path, admin))
-        resp = client.delete(
-            "/api/governance/pii/override?source=chess&table=games&column=pgn",
-            headers=_HEADERS,
-        )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "not_found"
-
-    def test_delete_viewer_forbidden(self, tmp_path: Path) -> None:
-        _init_db(tmp_path)
-        viewer = _make_user(Role.VIEWER)
-        client = _make_client(_make_app(tmp_path, viewer))
-        resp = client.delete(
-            "/api/governance/pii/override?source=chess&table=games&column=pgn",
-            headers=_HEADERS,
-        )
-        assert resp.status_code == 403
+        assert resp.status_code in (404, 405)
 
 
 # ---------------------------------------------------------------------------
-# Tests: GET /api/governance/pii/overrides
+# Tests: GET /api/governance/pii/overrides (still exists)
 # ---------------------------------------------------------------------------
 
 
@@ -195,7 +129,6 @@ class TestListPiiOverridesEndpoint:
     """Tests for GET /api/governance/pii/overrides."""
 
     def test_list_empty(self, tmp_path: Path) -> None:
-        _init_db(tmp_path)
         admin = _make_user(Role.ADMIN)
         client = _make_client(_make_app(tmp_path, admin))
         resp = client.get("/api/governance/pii/overrides")
@@ -205,7 +138,6 @@ class TestListPiiOverridesEndpoint:
         assert data["count"] == 0
 
     def test_list_with_data(self, tmp_path: Path) -> None:
-        _init_db(tmp_path)
         from dango.governance.pii_overrides import set_pii_override
 
         set_pii_override(tmp_path, "chess", "games", "pgn", "not_pii", "test@test.com")
@@ -219,7 +151,6 @@ class TestListPiiOverridesEndpoint:
 
     def test_list_viewer_allowed(self, tmp_path: Path) -> None:
         """governance.view is available to viewers."""
-        _init_db(tmp_path)
         viewer = _make_user(Role.VIEWER)
         client = _make_client(_make_app(tmp_path, viewer))
         resp = client.get("/api/governance/pii/overrides")

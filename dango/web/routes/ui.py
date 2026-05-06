@@ -197,6 +197,12 @@ async def insights_redirect() -> RedirectResponse:
     return RedirectResponse(url="/monitoring", status_code=301)
 
 
+@router.get("/query")
+async def query_redirect() -> RedirectResponse:
+    """Redirect /query to Metabase query builder."""
+    return RedirectResponse(url="/metabase/question/new", status_code=301)
+
+
 @router.get("/api")
 async def api_info() -> dict[str, str]:
     """API information endpoint."""

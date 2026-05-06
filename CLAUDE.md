@@ -136,7 +136,7 @@ dango/                          # Python package source
 │   ├── __init__.py             # Re-exports public API
 │   ├── models.py               # Pydantic V2 response models
 │   ├── schema_drift.py         # Schema drift detection engine (654 lines)
-│   ├── pii_detector.py         # PII scanning engine (602 lines)
+│   ├── pii_detector.py         # PII scanning engine (614 lines)
 │   └── pii_overrides.py        # PII override CRUD
 │
 ├── notebooks/                  # Level 1 — Marimo notebook management
@@ -257,7 +257,7 @@ dango/                          # Python package source
 │
 ├── transformation/             # Level 1 — dbt model generation & execution
 │   ├── __init__.py             # run_dbt_models(), generate_dbt_docs()
-│   └── generator.py            # DbtModelGenerator (593 lines)
+│   └── generator.py            # DbtModelGenerator (610 lines)
 │
 ├── oauth/                      # Level 1 — OAuth flows
 │   ├── __init__.py             # OAuthManager
@@ -286,7 +286,7 @@ dango/                          # Python package source
 │   ├── data_validation.py      # Data validation utilities
 │   ├── env_file.py             # .env file parsing and serialization
 │   ├── dango_db.py             # SQLite context manager for .dango/dango.db + schema init
-│   ├── post_sync.py            # Post-sync hook dispatcher (~554 lines)
+│   ├── post_sync.py            # Post-sync hook dispatcher (~632 lines)
 │   └── git_info.py             # Git repository info + deployment guardrails
 │
 ├── migrations/                 # Level 0 — Database migration framework
@@ -338,13 +338,13 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `visualization/metabase.py` | 1151 | — |
 | `cli/init.py` | 1324 | — |
 | `visualization/dashboard_manager.py` | 1112 | — |
-| `cli/commands/platform.py` | 1011 | — (extracted from main.py by TASK-005) |
+| `cli/commands/platform.py` | 1034 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 854 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 819 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
 | `platform/scheduling/jobs.py` | 895 | — (module-level job functions) |
-| `utils/post_sync.py` | 554 | — (post-sync hooks + sync notification) |
+| `utils/post_sync.py` | 632 | — (post-sync hooks + sync notification) |
 | `web/routes/schedules.py` | 518 | — (schedule read-only, history, trigger, notifications) |
 | `web/routes/notebooks.py` | 506 | — (notebook management API + heartbeat lock expiry + WS notify) |
 | `web/routes/upload.py` | 701 | — (extracted from app.py by TASK-085) |
@@ -357,7 +357,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/validate.py` | 651 | — |
 | `config/models.py` | 600 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 813 | — (interactive deploy wizard + BYOS) |
-| `transformation/generator.py` | 577 | — |
+| `transformation/generator.py` | 610 | — |
 | `web/routes/catalog.py` | 1336 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
 | `web/routes/sync.py` | 558 | — (sync endpoints + background task) |
 | `cli/commands/deploy_provision.py` | 846 | — (provisioning orchestration + BYOS) |
@@ -371,7 +371,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/model_wizard.py` | 507 | — |
 | `platform/cloud/scheduled_backup.py` | 505 | — (server-side scheduled backup) |
 | `governance/schema_drift.py` | 654 | — (R9-D: breaking drift protection + accept flow) |
-| `governance/pii_detector.py` | 602 | — (BUG-027/BUG-133/BUG-139: spaCy fallback + PERSON threshold + override application) |
+| `governance/pii_detector.py` | 614 | — (BUG-027/BUG-133/BUG-139/BUG-185: spaCy fallback + PERSON threshold + override application + structured data heuristic) |
 
 ## Module Documentation Index
 
