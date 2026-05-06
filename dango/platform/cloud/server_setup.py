@@ -641,7 +641,7 @@ def setup_server(
         nproc_result = ssh.exec_command("nproc")
         if nproc_result.success:
             vcpu_count = int(nproc_result.stdout.strip())
-    except (ValueError, Exception):
+    except (ValueError, AttributeError, OSError):
         pass  # Fall back to single worker
 
     for step_fn in _SETUP_STEPS:

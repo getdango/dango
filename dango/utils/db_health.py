@@ -273,12 +273,14 @@ def get_duckdb_capacity(duckdb_path: Path, project_root: Path) -> dict[str, Any]
         ram_bytes = psutil.virtual_memory().total
 
         # Recommended max: min(4x RAM, 80% of free disk)
+        # Note: DB size uses disk space that reduces disk_free, so the
+        # denominator already accounts for existing DB consumption.
         recommended_max = min(ram_bytes * 4, int(disk_free_bytes * 0.8))
         # Avoid division by zero
         if recommended_max > 0:
-            capacity_pct = round((duckdb_size_bytes / recommended_max) * 100, 1)
+            capacity_pct = min(round((duckdb_size_bytes / recommended_max) * 100, 1), 100.0)
         else:
-            capacity_pct = 0.0
+            capacity_pct = 100.0 if duckdb_size_bytes > 0 else 0.0
 
         # Status thresholds
         if capacity_pct > 75:

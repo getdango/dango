@@ -74,6 +74,8 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
     organization = getattr(config.project, "organization", None)
     effective_port = port if port is not None else config.platform.port
     effective_workers = workers if workers is not None else (config.platform.workers or 1)
+    if effective_workers < 1:
+        effective_workers = 1
 
     # 0. Version alignment check — must run BEFORE any DuckDB write operations
     # because write mode auto-migrates the file format irreversibly.
