@@ -183,8 +183,30 @@ def config_show(ctx: click.Context) -> None:
             console.print("[bold cyan]sources.yml:[/bold cyan]")
             syntax = Syntax(sources_yaml, "yaml", theme="monokai", line_numbers=True)
             console.print(syntax)
+            console.print()
         else:
             console.print("[dim]sources.yml not found (no sources configured yet)[/dim]")
+
+        # Show schedules.yml
+        if loader.schedules_file.exists():
+            with open(loader.schedules_file) as f:
+                schedules_yaml = f.read()
+
+            console.print("[bold cyan]schedules.yml:[/bold cyan]")
+            syntax = Syntax(schedules_yaml, "yaml", theme="monokai", line_numbers=True)
+            console.print(syntax)
+            console.print()
+
+        # Show monitors.yml
+        monitors_file = loader.dango_dir / "monitors.yml"
+        if monitors_file.exists():
+            with open(monitors_file) as f:
+                monitors_yaml = f.read()
+
+            console.print("[bold cyan]monitors.yml:[/bold cyan]")
+            syntax = Syntax(monitors_yaml, "yaml", theme="monokai", line_numbers=True)
+            console.print(syntax)
+            console.print()
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")

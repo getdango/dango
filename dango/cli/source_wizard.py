@@ -1388,8 +1388,9 @@ def {module_name}_resource(api_key: str):
 
             # 4c. Data selector
             ds_default = data_suggestion or ""
+            console.print("  [dim]e.g., data.items — JSON path to your results array[/dim]")
             data_selector_val = inquirer.text(
-                message=f"Response data path (e.g., data.items){' [suggested: ' + ds_default + ']' if ds_default else ''}, leave blank for auto-detect",
+                message=f"Data path{' [' + ds_default + ']' if ds_default else ''} (blank=auto-detect)",
                 default=ds_default,
             )
             if data_selector_val is None:  # Ctrl+C
@@ -1643,7 +1644,7 @@ def {module_name}_resource(api_key: str):
         optional_params = metadata.get("optional_params", [])
         if optional_params:
             console.print(
-                "\n[bold]Optional settings[/bold] [dim](press Enter to use defaults, edit .dango/sources.yml to change later)[/dim]"
+                "\n[bold]Optional settings[/bold] [dim](Enter=defaults, edit sources.yml later)[/dim]"
             )
             for param in optional_params:
                 # Skip auth credential params when user selected "none" auth
@@ -1776,7 +1777,7 @@ def {module_name}_resource(api_key: str):
             questions = [
                 inquirer.Checkbox(
                     param_name,
-                    message=f"{prompt} (Space to select/deselect, Enter to continue)",
+                    message=f"{prompt} (Space=toggle, Enter=done)",
                     choices=choices,
                     default=default if default else [],
                 )

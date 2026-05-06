@@ -977,7 +977,7 @@ def status(ctx: click.Context) -> None:
             console.print("[bold]Access your platform:[/bold]")
             console.print(f"  Dashboard:  {base_url}")
             console.print(f"  Metabase:   {base_url}/metabase")
-            console.print(f"  dbt Docs:   {base_url}/docs")
+            console.print(f"  dbt Docs:   {base_url}/dbt-docs")
             console.print(f"  API:        {base_url}/api")
             console.print()
 
