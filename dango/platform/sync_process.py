@@ -7,12 +7,12 @@ in a subprocess, keeping the DuckDB write lock out of the web server process.
 This allows notebooks and the web UI to coexist without lock conflicts.
 
 Public API:
-    get_sync_status_path(project_root) -- path to sync status file
-    read_sync_status(project_root)     -- read current status (or None)
-    cleanup_sync_status(project_root)  -- remove stale status file
-    launch_sync_subprocess(...)        -- spawn sync subprocess
-    poll_sync_status(...)              -- async poll with WS broadcasts
-    poll_sync_status_blocking(...)     -- sync poll for scheduler threads
+    get_sync_status_path(project_root, sync_id) -- path to sync status file
+    read_sync_status(project_root, sync_id)     -- read current status (or None)
+    cleanup_sync_status(project_root, sync_id)  -- remove stale status file
+    launch_sync_subprocess(...)                  -- spawn sync subprocess
+    poll_sync_status(...)                        -- async poll with WS broadcasts
+    poll_sync_status_blocking(...)               -- sync poll for scheduler threads
 """
 
 from __future__ import annotations
@@ -26,20 +26,22 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from dango.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-def get_sync_status_path(project_root: Path) -> Path:
-    """Return .dango/state/sync_status.json path."""
-    return project_root / ".dango" / "state" / "sync_status.json"
+def get_sync_status_path(project_root: Path, sync_id: str | None = None) -> Path:
+    """Return .dango/state/sync_status_{sync_id}.json path."""
+    filename = f"sync_status_{sync_id}.json" if sync_id else "sync_status.json"
+    return project_root / ".dango" / "state" / filename
 
 
-def read_sync_status(project_root: Path) -> dict[str, Any] | None:
+def read_sync_status(project_root: Path, sync_id: str | None = None) -> dict[str, Any] | None:
     """Read current sync status file. Returns None if missing or unparseable."""
-    path = get_sync_status_path(project_root)
+    path = get_sync_status_path(project_root, sync_id)
     try:
         if not path.exists():
             return None
@@ -59,13 +61,13 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
-def cleanup_sync_status(project_root: Path) -> None:
+def cleanup_sync_status(project_root: Path, sync_id: str | None = None) -> None:
     """Remove stale status file (dead PID or completed).
 
     Safe to call any time — only removes the file if the referenced
     process is no longer running or the sync has a terminal phase.
     """
-    status = read_sync_status(project_root)
+    status = read_sync_status(project_root, sync_id)
     if status is None:
         return
 
@@ -74,7 +76,7 @@ def cleanup_sync_status(project_root: Path) -> None:
     terminal_phases = {"completed", "failed"}
 
     if phase in terminal_phases or (pid is not None and not _is_pid_alive(pid)):
-        path = get_sync_status_path(project_root)
+        path = get_sync_status_path(project_root, sync_id)
         try:
             path.unlink(missing_ok=True)
         except OSError:
@@ -91,13 +93,19 @@ def launch_sync_subprocess(
     skip_dbt: bool = False,
     source_label: str = "ui",
     max_lock_wait: int = 0,
-) -> subprocess.Popen:
-    """Spawn sync subprocess via sys.executable. Returns Popen handle.
+    record_id: int | None = None,
+) -> tuple[subprocess.Popen, str]:
+    """Spawn sync subprocess via sys.executable.
+
+    Returns (Popen handle, sync_id). The sync_id uniquely identifies the
+    status file so concurrent syncs don't clobber each other.
 
     The subprocess runs ``python -m dango.platform.scheduling.sync_trigger``
-    with write_progress=True, so it writes status to .dango/state/sync_status.json.
+    with write_progress=True.
     """
-    # Clean up any stale status file before launching
+    sync_id = uuid4().hex[:12]
+
+    # Clean up any stale status file for the default path (legacy)
     cleanup_sync_status(project_root)
 
     args_dict: dict[str, Any] = {
@@ -108,6 +116,7 @@ def launch_sync_subprocess(
         "source_label": source_label,
         "skip_dbt": skip_dbt,
         "max_lock_wait": max_lock_wait,
+        "sync_id": sync_id,
     }
     if start_date is not None:
         args_dict["start_date"] = start_date
@@ -115,14 +124,16 @@ def launch_sync_subprocess(
         args_dict["end_date"] = end_date
     if backfill_days is not None:
         args_dict["backfill_days"] = backfill_days
+    if record_id is not None:
+        args_dict["record_id"] = record_id
 
     json_args = json.dumps(args_dict)
 
     process = subprocess.Popen(
         [sys.executable, "-m", "dango.platform.scheduling.sync_trigger", json_args],
         cwd=str(project_root),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
     logger.info(
@@ -130,37 +141,55 @@ def launch_sync_subprocess(
         pid=process.pid,
         sources=sources,
         source_label=source_label,
+        sync_id=sync_id,
     )
-    return process
+    return process, sync_id
 
 
 async def poll_sync_status(
     project_root: Path,
     process: subprocess.Popen,
     source_name: str,
+    sync_id: str | None = None,
     poll_interval: float = 2.0,
     heartbeat_interval: float = 30.0,
+    max_poll_time: float = 3600.0,
 ) -> tuple[bool, dict[str, Any] | None]:
     """Async poll — reads status file, broadcasts WS events on transitions.
 
     Emits heartbeat every ``heartbeat_interval`` seconds. Detects subprocess
-    crash via ``process.poll()``. Returns (success, result_dict).
+    crash via ``process.poll()``. Times out after ``max_poll_time`` seconds.
+    Returns (success, result_dict).
     """
     from dango.web.routes.websocket import ws_manager
 
     last_phase: str | None = None
     last_heartbeat = time.time()
     start_time = time.time()
-    final_status: dict[str, Any] | None = None
 
     while True:
         await asyncio.sleep(poll_interval)
+
+        # Check timeout
+        elapsed = time.time() - start_time
+        if elapsed >= max_poll_time:
+            process.terminate()
+            error_msg = f"Sync timed out after {int(elapsed)}s"
+            await ws_manager.broadcast(
+                {
+                    "event": "sync_failed",
+                    "source": source_name,
+                    "message": error_msg,
+                    "timestamp": _ts(),
+                }
+            )
+            return False, {"error": error_msg, "phase": "failed"}
 
         # Check if subprocess has exited
         exit_code = process.poll()
 
         # Read current status
-        status = read_sync_status(project_root)
+        status = read_sync_status(project_root, sync_id)
 
         if status is not None:
             current_phase = status.get("phase", "")
@@ -172,19 +201,17 @@ async def poll_sync_status(
 
             # Detect terminal state
             if current_phase in ("completed", "failed"):
-                final_status = status
-                success = current_phase == "completed"
-                return success, final_status
+                return current_phase == "completed", status
 
         # Heartbeat
         now = time.time()
         if now - last_heartbeat >= heartbeat_interval:
-            elapsed = int(now - start_time)
+            elapsed_int = int(now - start_time)
             await ws_manager.broadcast(
                 {
                     "event": "sync_progress",
                     "source": source_name,
-                    "message": f"Sync in progress ({elapsed}s elapsed)",
+                    "message": f"Sync in progress ({elapsed_int}s elapsed)",
                     "timestamp": _ts(),
                 }
             )
@@ -209,20 +236,40 @@ async def poll_sync_status(
 def poll_sync_status_blocking(
     project_root: Path,
     process: subprocess.Popen,
+    source_name: str = "",
+    sync_id: str | None = None,
     broadcast_fn: Callable[[dict[str, Any]], None] | None = None,
     poll_interval: float = 2.0,
+    max_poll_time: float = 3600.0,
 ) -> tuple[bool, dict[str, Any] | None]:
     """Synchronous version for APScheduler thread pool. Returns (success, result_dict).
 
     Uses time.sleep() for polling. Calls optional broadcast_fn on phase transitions.
     """
     last_phase: str | None = None
+    start_time = time.time()
 
     while True:
         time.sleep(poll_interval)
 
+        # Check timeout
+        elapsed = time.time() - start_time
+        if elapsed >= max_poll_time:
+            process.terminate()
+            error_msg = f"Sync timed out after {int(elapsed)}s"
+            if broadcast_fn is not None:
+                broadcast_fn(
+                    {
+                        "event": "sync_failed",
+                        "source": source_name,
+                        "message": error_msg,
+                        "timestamp": _ts(),
+                    }
+                )
+            return False, {"error": error_msg, "phase": "failed"}
+
         exit_code = process.poll()
-        status = read_sync_status(project_root)
+        status = read_sync_status(project_root, sync_id)
 
         if status is not None:
             current_phase = status.get("phase", "")
@@ -232,6 +279,7 @@ def poll_sync_status_blocking(
                 broadcast_fn(
                     {
                         "event": _phase_to_event(current_phase),
+                        "source": source_name,
                         "phase": current_phase,
                         "message": status.get("message", ""),
                         "timestamp": _ts(),
@@ -253,6 +301,7 @@ def poll_sync_status_blocking(
                 broadcast_fn(
                     {
                         "event": "sync_failed",
+                        "source": source_name,
                         "message": error_msg,
                         "timestamp": _ts(),
                     }

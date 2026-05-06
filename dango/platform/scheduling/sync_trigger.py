@@ -46,13 +46,14 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _write_status(state_dir: Path, **fields: Any) -> None:
-    """Atomically write sync status to state_dir/sync_status.json.
+def _write_status(state_dir: Path, sync_id: str | None = None, **fields: Any) -> None:
+    """Atomically write sync status to state_dir/sync_status_{sync_id}.json.
 
-    Uses write-to-temp + os.replace() for crash-safe atomic updates.
+    Uses write-to-temp + fsync + os.replace() for crash-safe atomic updates.
     """
     state_dir.mkdir(parents=True, exist_ok=True)
-    status_path = state_dir / "sync_status.json"
+    filename = f"sync_status_{sync_id}.json" if sync_id else "sync_status.json"
+    status_path = state_dir / filename
 
     data = {
         "pid": os.getpid(),
@@ -61,7 +62,7 @@ def _write_status(state_dir: Path, **fields: Any) -> None:
     }
 
     # Write to temp file in same directory, then atomic rename
-    fd = tempfile.NamedTemporaryFile(
+    tmp_f = tempfile.NamedTemporaryFile(
         mode="w",
         dir=state_dir,
         prefix=".sync_status_",
@@ -69,14 +70,16 @@ def _write_status(state_dir: Path, **fields: Any) -> None:
         delete=False,
     )
     try:
-        json.dump(data, fd)
-        fd.close()
-        os.replace(fd.name, status_path)
+        json.dump(data, tmp_f)
+        tmp_f.flush()
+        os.fsync(tmp_f.fileno())
+        tmp_f.close()
+        os.replace(tmp_f.name, status_path)
     except Exception:
         # Clean up temp file on failure
-        fd.close()
+        tmp_f.close()
         try:
-            os.unlink(fd.name)
+            os.unlink(tmp_f.name)
         except OSError:
             pass
         raise
@@ -98,6 +101,8 @@ def run_manual_sync(
     source_label: str = "manual",
     skip_dbt: bool = False,
     max_lock_wait: int = 0,
+    sync_id: str | None = None,
+    record_id: int | None = None,
 ) -> dict[str, Any]:
     """Execute a manual sync with execution history tracking.
 
@@ -112,9 +117,12 @@ def run_manual_sync(
         source_label: Label for the sync trigger (e.g., "ui", "scheduler", "manual").
         skip_dbt: If True, skip dbt run after data load.
         max_lock_wait: Max seconds to wait for lock (0 = fail immediately).
+        sync_id: Unique identifier for the status file (avoids concurrent clobber).
+        record_id: Existing execution history record ID to reuse (avoids double records).
 
     Returns:
-        Dict with ``record_id``, ``status``, and ``duration_seconds``.
+        Dict with ``record_id``, ``status``, ``duration_seconds``, and optionally
+        ``rows_loaded``.
     """
     from dango.config.helpers import load_config
     from dango.ingestion import run_sync
@@ -122,13 +130,15 @@ def run_manual_sync(
 
     state_dir = project_root / ".dango" / "state"
     db_path = get_scheduler_db_path(project_root)
-    record_id = record_start(db_path, source_label, sources=sources)
+    if record_id is None:
+        record_id = record_start(db_path, source_label, sources=sources)
     start_time = time.time()
 
     def _progress(phase: str, message: str, **extra: Any) -> None:
         if write_progress:
             _write_status(
                 state_dir,
+                sync_id=sync_id,
                 phase=phase,
                 message=message,
                 sources=sources,
@@ -242,7 +252,7 @@ def run_manual_sync(
 
         _progress("data_load", "Loading data from source")
 
-        run_sync(
+        sync_result = run_sync(
             project_root=project_root,
             sources=resolved,
             full_refresh=full_refresh,
@@ -251,15 +261,25 @@ def run_manual_sync(
             skip_dbt=skip_dbt,
         )
 
-        _progress("data_load_complete", "Data load completed")
+        # Extract rows loaded from sync result
+        rows_loaded = 0
+        if isinstance(sync_result, dict):
+            rows_loaded = sum(
+                r.get("rows_loaded", 0)
+                for r in sync_result.get("results", [])
+                if isinstance(r, dict)
+            )
+
+        _progress("data_load_complete", "Data load completed", rows_loaded=rows_loaded)
 
         record_completion(db_path, record_id)
         duration = round(time.time() - start_time, 1)
-        _progress("completed", "Sync completed successfully")
+        _progress("completed", "Sync completed successfully", rows_loaded=rows_loaded)
         return {
             "record_id": record_id,
             "status": "success",
             "duration_seconds": duration,
+            "rows_loaded": rows_loaded,
         }
     except Exception as exc:
         logger.warning("manual_sync_failed", error=str(exc), exc_info=True)
@@ -302,5 +322,7 @@ if __name__ == "__main__":
         source_label=args.get("source_label", "manual"),
         skip_dbt=args.get("skip_dbt", False),
         max_lock_wait=args.get("max_lock_wait", 0),
+        sync_id=args.get("sync_id"),
+        record_id=args.get("record_id"),
     )
     print(json.dumps(result))

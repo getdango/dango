@@ -438,6 +438,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         from dango.utils.sync_history import save_sync_history_entry
 
         job_id = f"schedule:{schedule_name}"
+        total_rows = 0
 
         # Sync each source in a subprocess with skip_dbt=True
         # (dbt coalesced after all sources)
@@ -447,7 +448,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
 
             src_t0 = time.monotonic()
 
-            process = launch_sync_subprocess(
+            process, sync_id = launch_sync_subprocess(
                 project_root,
                 sources=[src.name],
                 full_refresh=full_refresh,
@@ -459,6 +460,8 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             success, _result = poll_sync_status_blocking(
                 project_root,
                 process,
+                source_name=src.name,
+                sync_id=sync_id,
                 broadcast_fn=_broadcast,
             )
 
@@ -467,6 +470,10 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                     _result.get("error", "Unknown error") if _result else "Subprocess failed"
                 )
                 raise RuntimeError(f"Sync failed for {src.name}: {error_msg}")
+
+            # Accumulate rows_loaded from subprocess result
+            if _result and isinstance(_result, dict):
+                total_rows += _result.get("rows_loaded", 0)
 
             save_sync_history_entry(
                 project_root,
@@ -480,7 +487,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 },
             )
             _add_pending_dbt_source(project_root, src.name)
-            cleanup_sync_status(project_root)
+            cleanup_sync_status(project_root, sync_id=sync_id)
 
         # Run coalesced dbt (waits for coalesce window, merges pending sources)
         dbt_ok = _run_coalesced_dbt(project_root)
@@ -524,6 +531,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             schedule_name=schedule_name,
             sources=source_names,
             duration_seconds=round(elapsed, 2),
+            rows_loaded=total_rows,
             dashboard_url=dashboard_url,
         )
         _check_freshness(project_root, schedule_name, source_names, sender)

@@ -23,7 +23,6 @@ from dango.logging import get_logger
 from dango.platform.scheduling.history import (
     get_execution_record,
     get_scheduler_db_path,
-    record_completion,
     record_failure,
     record_start,
 )
@@ -82,11 +81,6 @@ async def trigger_sync(source_name: str, sync_request: SyncRequest) -> SyncRespo
         )
     )
 
-    # Broadcast sync started event via WebSocket
-    await ws_manager.broadcast(
-        {"event": "sync_started", "source": source_name, "timestamp": datetime.now().isoformat()}
-    )
-
     return SyncResponse(
         success=True,
         message=f"Sync started for {source_name}",
@@ -127,9 +121,10 @@ async def run_sync_task(
         }
     )
 
+    sync_id: str | None = None
     try:
         # Launch subprocess (DbtLock acquired inside subprocess)
-        process = launch_sync_subprocess(
+        process, sync_id = launch_sync_subprocess(
             project_root=project_root,
             sources=[source_name],
             full_refresh=full_refresh,
@@ -139,7 +134,9 @@ async def run_sync_task(
         )
 
         # Poll until completion (broadcasts WS events + heartbeat internally)
-        success, result = await poll_sync_status(project_root, process, source_name)
+        success, result = await poll_sync_status(
+            project_root, process, source_name, sync_id=sync_id
+        )
 
         # Calculate duration
         duration = time.time() - start_time
@@ -183,7 +180,7 @@ async def run_sync_task(
             )
 
         # Cleanup status file
-        cleanup_sync_status(project_root)
+        cleanup_sync_status(project_root, sync_id=sync_id)
 
     except Exception as e:
         _logger.warning("sync_task_error", source=source_name, error=str(e), exc_info=True)
@@ -218,6 +215,10 @@ async def run_sync_task(
             }
         )
 
+        # Cleanup status file even on exception
+        if sync_id is not None:
+            cleanup_sync_status(project_root, sync_id=sync_id)
+
 
 # ---------------------------------------------------------------------------
 # Remote sync trigger API (TASK-040c)
@@ -236,10 +237,12 @@ async def trigger_manual_sync(
     """
     project_root = get_project_root()
 
-    # Validate sources exist
+    # Validate sources exist (sanitize names like trigger_sync does)
     sources_config = load_sources_config()
     known_names = {s.get("name") for s in sources_config}
+    validated_sources = []
     for src in body.sources:
+        src = validate_source_name(src)
         if src not in known_names:
             return JSONResponse(
                 status_code=404,
@@ -248,6 +251,7 @@ async def trigger_manual_sync(
                     "message": f"Source {src!r} not found.",
                 },
             )
+        validated_sources.append(src)
 
     # Parse backfill duration
     backfill_days: int | None = None
@@ -263,15 +267,15 @@ async def trigger_manual_sync(
                 },
             )
 
-    # Create execution history record
+    # Create execution history record (passed to subprocess to avoid double records)
     db_path = get_scheduler_db_path(project_root)
-    job_id = record_start(db_path, "manual", sources=body.sources)
+    job_id = record_start(db_path, "manual", sources=validated_sources)
 
     # Launch background sync via subprocess
     asyncio.create_task(
         _run_manual_sync(
             project_root,
-            body.sources,
+            validated_sources,
             body.full_refresh,
             backfill_days,
             job_id,
@@ -286,7 +290,7 @@ async def trigger_manual_sync(
         email=user.email,
         ip=request.client.host if request.client else None,
         details={
-            "sources": body.sources,
+            "sources": validated_sources,
             "full_refresh": body.full_refresh,
             "backfill": body.backfill,
             "job_id": job_id,
@@ -296,7 +300,7 @@ async def trigger_manual_sync(
     return JSONResponse(
         content={
             "job_id": job_id,
-            "sources": body.sources,
+            "sources": validated_sources,
             "status": "started",
         },
     )
@@ -317,29 +321,39 @@ async def _run_manual_sync(
         poll_sync_status,
     )
 
+    sync_id: str | None = None
     try:
-        process = launch_sync_subprocess(
+        # Pass record_id so subprocess reuses it (avoids double history records)
+        process, sync_id = launch_sync_subprocess(
             project_root=project_root,
             sources=source_names,
             full_refresh=full_refresh,
             backfill_days=backfill_days,
             source_label="manual",
+            record_id=record_id,
         )
 
         # Use first source name for WS events (manual sync may have multiple)
         display_name = source_names[0] if source_names else "manual"
-        success, _result = await poll_sync_status(project_root, process, display_name)
+        success, _result = await poll_sync_status(
+            project_root, process, display_name, sync_id=sync_id
+        )
 
-        if success:
-            record_completion(db_path, record_id)
-        else:
-            error = _result.get("error", "Unknown error") if _result else "Unknown error"
-            record_failure(db_path, record_id, error)
+        # Subprocess already records completion/failure via record_id.
+        # Only record here if the subprocess crashed without doing so.
+        if (
+            _result
+            and _result.get("phase") == "failed"
+            and "unexpectedly" in _result.get("error", "")
+        ):
+            record_failure(db_path, record_id, _result["error"])
 
-        cleanup_sync_status(project_root)
+        cleanup_sync_status(project_root, sync_id=sync_id)
     except Exception as exc:
         _logger.warning("manual_sync_failed", error=str(exc), exc_info=True)
         record_failure(db_path, record_id, str(exc))
+        if sync_id is not None:
+            cleanup_sync_status(project_root, sync_id=sync_id)
 
 
 @router.get("/api/sync/status/{record_id}")

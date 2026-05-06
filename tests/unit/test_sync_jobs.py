@@ -153,7 +153,8 @@ class TestRunScheduledSync:
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
             patch(
-                f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=mock_process
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
+                return_value=(mock_process, "test_id"),
             ) as mock_launch,
             patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
             patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
@@ -182,7 +183,9 @@ class TestRunScheduledSync:
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=MagicMock()),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=(MagicMock(), "test_id")
+            ),
             patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
             patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
             patch(f"{_HIST_MOD}.save_sync_history_entry"),
@@ -207,7 +210,9 @@ class TestRunScheduledSync:
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=MagicMock()),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=(MagicMock(), "test_id")
+            ),
             patch(
                 f"{_SYNC_PROC_MOD}.poll_sync_status_blocking",
                 return_value=(False, {"error": "boom"}),
@@ -229,7 +234,9 @@ class TestRunScheduledSync:
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=MagicMock()),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=(MagicMock(), "test_id")
+            ),
             patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
             patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
             patch(f"{_HIST_MOD}.save_sync_history_entry") as mock_hist,
@@ -253,7 +260,9 @@ class TestRunScheduledSync:
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=MagicMock()),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=(MagicMock(), "test_id")
+            ),
             patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
             patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
             patch(f"{_HIST_MOD}.save_sync_history_entry"),
