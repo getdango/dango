@@ -108,12 +108,33 @@ def webhook_add(ctx: click.Context) -> None:
     if answers is None:
         return
 
+    # Prompt for event toggles only when no notification settings exist yet
+    # (i.e., first webhook being added). Subsequent webhooks inherit existing settings.
+    has_event_settings = "on_success" in notifications or "on_failure" in notifications
+    if not has_event_settings:
+        event_answers = inquirer.prompt(
+            [
+                inquirer.Checkbox(
+                    "events",
+                    message="Notify on events (space to toggle)",
+                    choices=["success", "failure", "stale"],
+                    default=["success", "failure", "stale"],
+                ),
+            ]
+        )
+        if event_answers is None:
+            return
+        notifications["on_success"] = "success" in event_answers["events"]
+        notifications["on_failure"] = "failure" in event_answers["events"]
+        notifications["on_stale"] = "stale" in event_answers["events"]
+
     entry: dict[str, str] = {
         "name": answers["name"],
         "url": answers["url"],
         "format": answers["format"],
     }
     webhooks.append(entry)
+
     _save_schedules_yaml(project_root, data)
     console.print(f"[green]Webhook '{answers['name']}' added.[/green]")
 

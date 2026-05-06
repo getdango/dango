@@ -38,7 +38,7 @@ def _make_config(**overrides: Any) -> NotificationConfig:
             {"name": "test-hook", "url": "https://example.com/hook"},
         ],
         "on_failure": True,
-        "on_success": False,
+        "on_success": True,
         "on_stale": True,
     }
     defaults.update(overrides)
@@ -105,7 +105,12 @@ class TestShouldNotify:
         config = _make_config(on_failure=True)
         assert should_notify(EventType.SYNC_FAILED, config) is True
 
-    def test_default_success_disabled(self) -> None:
+    def test_default_success_enabled(self) -> None:
+        """NotificationConfig() now defaults to on_success=True."""
+        config = NotificationConfig()
+        assert config.on_success is True
+
+    def test_explicit_success_disabled(self) -> None:
         config = _make_config(on_success=False)
         assert should_notify(EventType.SYNC_COMPLETED, config) is False
 

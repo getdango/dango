@@ -32,6 +32,7 @@ let loadSourcesRetryTimeout = null;
 let activeFileOperations = new Map();
 // Track elapsed time intervals for active syncs: Map<sourceName, intervalId>
 let syncTimers = new Map();
+let syncResults = new Map();  // Stores sync_completed data for in-place updates
 
 /**
  * Format a file size in bytes to a human-readable string (B/KB/MB/GB).
@@ -415,13 +416,25 @@ async function handleWebSocketMessage(data) {
 
         case 'sync_progress':
             addLogEntry('info', message, source);
-            // Update progress if we add progress bars in the future
+            break;
+
+        case 'data_load_complete':
+            addLogEntry('success', message || 'Data load complete', source);
             break;
 
         case 'sync_completed':
             console.log('✅ [WS] sync_completed - Source:', source);
             stopSyncTimer(source);
             addLogEntry('success', message || `Sync completed`, source);
+
+            // Store sync result for in-place update after dbt completes
+            if (data.rows_loaded !== undefined) {
+                syncResults.set(source, {
+                    rows_loaded: data.rows_loaded,
+                    timestamp: data.timestamp,
+                    duration_seconds: data.duration_seconds,
+                });
+            }
 
             // Suppress success toast during batch operations (multi-file uploads)
             // The final toast will show when dbt completes
@@ -556,14 +569,18 @@ async function handleWebSocketMessage(data) {
                 if (triggeredSource) {
                     activeSyncs.delete(triggeredSource);
                     console.log('🟢 [WS] [DELAYED] Cleared activeSyncs for:', triggeredSource);
+                    const result = syncResults.get(triggeredSource);
+                    if (result) {
+                        updateSourceRowAfterSync(triggeredSource, result);
+                        syncResults.delete(triggeredSource);
+                    } else {
+                        // Fallback if sync_completed didn't include data
+                        if (!isLoadingSources) loadSources();
+                    }
+                } else {
+                    if (!isLoadingSources) loadSources();
                 }
                 updateSyncCounter();
-
-                // Refresh sources list
-                if (!isLoadingSources) {
-                    console.log('🟢 [WS] [DELAYED] Calling loadSources() after user saw syncing state');
-                    loadSources();
-                }
             }, 500);  // Wait 500ms so user sees the syncing badge
             break;
 
@@ -1210,13 +1227,13 @@ function renderSourcesTable() {
                 </span>
                 <div class="text-xs text-gray-400 mt-0.5">${source.sync_mode === 'full_refresh' ? 'Full Refresh' : 'Incremental'}${source.lookback_days ? ` (${source.lookback_days}d)` : ''}</div>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap cursor-pointer" onclick="event.stopPropagation(); openSyncHistory('${source.name}')" title="Click to view sync history">
+            <td class="px-6 py-4 whitespace-nowrap cursor-pointer" data-col="status" onclick="event.stopPropagation(); openSyncHistory('${source.name}')" title="Click to view sync history">
                 ${renderStatusPill(source, isSyncing, hasFileOps)}
             </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" data-col="rows">
                 ${renderRowCount(source)}
             </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" data-col="last-sync">
                 ${formatRelativeTime(source.last_sync)}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
@@ -1233,8 +1250,8 @@ function renderSourcesTable() {
 function getStatusBadge(status) {
     const badges = {
         'synced': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Synced</span>',
-        'syncing': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 animate-pulse">Syncing...</span>',
-        'processing': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800 animate-pulse">Processing...</span>',
+        'syncing': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 animate-pulse">⏳ Syncing...</span>',
+        'processing': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800 animate-pulse">⚙️ Processing...</span>',
         'empty': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Empty</span>',
         'not_synced': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">Not Synced</span>',
         'failed': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">Failed</span>',
@@ -1330,7 +1347,7 @@ function updateSourceStatus(sourceName, newStatus) {
     console.log(`🔄 [updateSourceStatus] Row element found:`, !!row);
 
     if (row) {
-        const statusCell = row.querySelector('td:nth-child(3)');
+        const statusCell = row.querySelector('td[data-col="status"]');
         if (statusCell) {
             statusCell.innerHTML = getStatusBadge(newStatus);
         }
@@ -1347,6 +1364,49 @@ function updateSourceStatus(sourceName, newStatus) {
         if (sources && sources.length > 0) {
             renderSourcesTable();
         }
+    }
+}
+
+function updateSourceRowAfterSync(sourceName, result) {
+    const row = document.getElementById(`source-${sourceName}`);
+    if (!row) {
+        loadSources();
+        return;
+    }
+
+    // Update status pill to Synced
+    const statusCell = row.querySelector('td[data-col="status"]');
+    if (statusCell) {
+        statusCell.innerHTML = '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">✓ Synced</span>';
+    }
+
+    // Update row count
+    if (result.rows_loaded !== undefined && result.rows_loaded !== null) {
+        const rowCountCell = row.querySelector('td[data-col="rows"]');
+        if (rowCountCell) {
+            rowCountCell.textContent = result.rows_loaded.toLocaleString();
+        }
+    }
+
+    // Update last sync time
+    const lastSyncCell = row.querySelector('td[data-col="last-sync"]');
+    if (lastSyncCell) {
+        lastSyncCell.textContent = 'Just now';
+    }
+
+    // Re-enable sync button
+    const syncBtn = document.getElementById(`sync-btn-${sourceName}`);
+    if (syncBtn) {
+        syncBtn.disabled = false;
+        syncBtn.innerHTML = 'Sync Now &#9662;';
+    }
+
+    // Update sources array for consistency with future renders
+    const sourceObj = sources.find(s => s.name === sourceName);
+    if (sourceObj) {
+        sourceObj.freshness = { status: 'synced', last_sync_time: result.timestamp };
+        sourceObj.last_sync = result.timestamp;
+        if (result.rows_loaded !== undefined) sourceObj.row_count = result.rows_loaded;
     }
 }
 
