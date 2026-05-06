@@ -142,6 +142,8 @@ class TestDispatchPostSyncHooks:
         assert not hasattr(ps, "_run_drift_detection")
 
 
+# Patch at source modules because _ensure_default_metrics uses lazy imports
+# inside the function body (fresh `from X import Y` each call).
 _CFG = "dango.config"
 _ANALYSIS_CFG = "dango.analysis.config"
 _ANALYSIS_TPL = "dango.analysis.templates"
@@ -256,6 +258,7 @@ class TestEnsureDefaultMetrics:
 
         # Only the non-duplicate metric should be added
         mock_add.assert_called_once()
+        assert mock_add.call_args[0][0] == tmp_path  # project_root passed correctly
         added = mock_add.call_args[0][1]
         assert len(added) == 1
         assert added[0].name == "hs_deals_row_count"

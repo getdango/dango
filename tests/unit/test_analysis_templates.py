@@ -129,10 +129,19 @@ class TestGenerateMetricsForSource:
         sessions_metric = next(m for m in metrics if "sessions" in m.name)
         assert "engaged" not in sessions_metric.value_expression
 
-    def test_csv_generates_no_metrics(self) -> None:
-        """CSV template returns empty (table name unknown at add time)."""
+    def test_csv_generates_no_metrics_without_warehouse(self) -> None:
+        """CSV without project_root returns empty (table name unknown at add time)."""
         metrics = generate_metrics_for_source("csv", "uploads")
         assert len(metrics) == 0
+
+    def test_csv_falls_through_to_generic_after_sync(self, tmp_path: Path) -> None:
+        """CSV with warehouse falls through to generic metrics (BUG-174)."""
+        _create_generic_warehouse(tmp_path, "uploads", {"sales_2024": ["id", "amount"]})
+
+        metrics = generate_metrics_for_source("csv", "uploads", project_root=tmp_path)
+
+        assert len(metrics) >= 1
+        assert any("sales_2024" in m.source_table for m in metrics)
 
     def test_unknown_source_returns_empty(self) -> None:
         """Unknown source type returns an empty list."""
