@@ -36,7 +36,7 @@
 
                 <div x-show="locked" x-cloak class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
                     <p class="text-sm text-yellow-700">
-                        Account temporarily locked. Try again in <span x-text="lockoutRemaining"></span> seconds.
+                        Account temporarily locked. Try again in <span x-text="formatTime(lockoutRemaining)"></span>.
                     </p>
                 </div>
 
@@ -189,6 +189,11 @@ function loginForm() {
                 this.totpError = 'Unable to connect to server';
             }
             this.loading = false;
+        },
+        formatTime(secs) {
+            if (secs >= 120) return Math.ceil(secs / 60) + ' minutes';
+            if (secs >= 60) return '1 minute';
+            return secs + ' seconds';
         },
         startCountdown() {
             if (this._timer) clearInterval(this._timer);

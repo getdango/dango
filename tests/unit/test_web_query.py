@@ -443,13 +443,13 @@ class TestSQLValidation:
             with pytest.raises(ValueError, match="SELECT"):
                 _validate_sql("COPY (SELECT 1) TO '/tmp/out.csv'")
 
-    def test_sqlglot_parse_failure_allows_select(self) -> None:
-        """When sqlglot fails to parse, keyword guard should allow SELECT."""
+    def test_sqlglot_parse_failure_rejects_select_with_syntax_error(self) -> None:
+        """When sqlglot fails to parse SELECT-like SQL, raise syntax error."""
         from dango.web.routes.query import _validate_sql
 
         with patch("sqlglot.parse", side_effect=Exception("parse boom")):
-            # Should not raise — starts with SELECT
-            _validate_sql("SELECT some_duckdb_specific_syntax()")
+            with pytest.raises(ValueError, match="Invalid SQL syntax"):
+                _validate_sql("SELECT some_duckdb_specific_syntax()")
 
     def test_fallback_rejects_non_select(self) -> None:
         """When sqlglot is unavailable, keyword guard should reject non-SELECT."""
