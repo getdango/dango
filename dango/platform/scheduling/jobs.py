@@ -377,11 +377,12 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
 def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) -> None:
     """Run a scheduled data sync for the given sources.
 
-    Called by APScheduler from a thread-pool executor.  Wraps ``run_sync()``
-    with DbtLock serialization, WebSocket broadcasting, webhook notifications,
-    and execution history recording.
+    Called by APScheduler from a thread-pool executor.  Launches each source
+    sync in a subprocess (via ``sync_process.launch_sync_subprocess``),
+    keeping the DbtLock out of the web server process.
 
     Sources are synced individually with cancellation checks between each source.
+    dbt is coalesced after all sources complete.
 
     Args:
         schedule_name: Human-readable schedule identifier.
@@ -392,80 +393,24 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
     full_refresh = bool(kwargs.get("full_refresh", False))
     t0 = time.monotonic()
 
-    from dango.exceptions import DbtLockError, JobCancelledError, JobTimeoutError
+    from dango.exceptions import JobCancelledError, JobTimeoutError
     from dango.platform.notifications.webhook import (
         EventType,
         WebhookSender,
         load_notification_config,
     )
-    from dango.utils.dbt_lock import DbtLock
+    from dango.platform.sync_process import (
+        cleanup_sync_status,
+        launch_sync_subprocess,
+        poll_sync_status_blocking,
+    )
 
     sender = WebhookSender(load_notification_config(project_root))
     source_names = list(sources)
-    lock = DbtLock(project_root, source="scheduler", operation=f"sync:{schedule_name}")
 
     record_id: int | None = None
 
     try:
-        # Acquire lock with retry (wait up to 5 minutes, retry every 5 seconds)
-        max_wait = 300
-        retry_interval = 5
-        acquired = False
-        wait_start = time.monotonic()
-        queued_broadcast = False
-
-        while not acquired:
-            try:
-                lock.acquire()
-                acquired = True
-            except DbtLockError:
-                elapsed_wait = time.monotonic() - wait_start
-                if elapsed_wait >= max_wait:
-                    elapsed = time.monotonic() - t0
-                    logger.warning(
-                        "scheduler_lock_timeout",
-                        schedule=schedule_name,
-                        sources=source_names,
-                    )
-                    _broadcast(
-                        {
-                            "event": "sync_failed",
-                            "schedule": schedule_name,
-                            "sources": source_names,
-                            "error": "Could not acquire lock after 5 minutes",
-                            "timestamp": _ts(),
-                        }
-                    )
-                    _notify(
-                        sender,
-                        event_type=EventType.SYNC_FAILED,
-                        schedule_name=schedule_name,
-                        sources=source_names,
-                        error="Could not acquire lock after 5 minutes",
-                        duration_seconds=elapsed,
-                    )
-                    _log_execution_event(
-                        schedule_name=schedule_name,
-                        job_type="sync",
-                        status="lock_failed",
-                        duration_seconds=elapsed,
-                        error="Lock timeout after 5 minutes",
-                        sources=source_names,
-                    )
-                    return
-                if not queued_broadcast:
-                    _broadcast(
-                        {
-                            "event": "job_queued",
-                            "schedule": schedule_name,
-                            "sources": source_names,
-                            "message": "Waiting for lock...",
-                            "timestamp": _ts(),
-                        }
-                    )
-                    queued_broadcast = True
-                time.sleep(retry_interval)
-
         resolved = _resolve_sources(project_root, source_names)
         if not resolved:
             elapsed = time.monotonic() - t0
@@ -490,28 +435,39 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             }
         )
 
-        from dango.ingestion.dlt_runner import run_sync
         from dango.utils.sync_history import save_sync_history_entry
 
         job_id = f"schedule:{schedule_name}"
-        total_rows = 0
-        # Sync each source with skip_dbt=True (dbt coalesced after all sources)
+
+        # Sync each source in a subprocess with skip_dbt=True
+        # (dbt coalesced after all sources)
         for src in resolved:
             if _scheduler_service is not None and _scheduler_service.is_cancelled(job_id):
                 raise JobCancelledError(f"Sync cancelled between sources for {schedule_name}")
+
             src_t0 = time.monotonic()
-            sync_result = run_sync(
+
+            process = launch_sync_subprocess(
                 project_root,
-                [src],
+                sources=[src.name],
                 full_refresh=full_refresh,
                 skip_dbt=True,
-                skip_sync_notification=True,
+                source_label="scheduler",
+                max_lock_wait=300,
             )
-            total_rows += sum(
-                r.get("rows_loaded", 0)
-                for r in sync_result.get("results", [])
-                if isinstance(r, dict)
+
+            success, _result = poll_sync_status_blocking(
+                project_root,
+                process,
+                broadcast_fn=_broadcast,
             )
+
+            if not success:
+                error_msg = (
+                    _result.get("error", "Unknown error") if _result else "Subprocess failed"
+                )
+                raise RuntimeError(f"Sync failed for {src.name}: {error_msg}")
+
             save_sync_history_entry(
                 project_root,
                 src.name,
@@ -524,6 +480,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 },
             )
             _add_pending_dbt_source(project_root, src.name)
+            cleanup_sync_status(project_root)
 
         # Run coalesced dbt (waits for coalesce window, merges pending sources)
         dbt_ok = _run_coalesced_dbt(project_root)
@@ -567,7 +524,6 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             schedule_name=schedule_name,
             sources=source_names,
             duration_seconds=round(elapsed, 2),
-            rows_loaded=total_rows,
             dashboard_url=dashboard_url,
         )
         _check_freshness(project_root, schedule_name, source_names, sender)
@@ -668,8 +624,6 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             error=error_msg,
             duration_seconds=elapsed,
         )
-    finally:
-        lock.release()
 
 
 def run_scheduled_dbt(

@@ -23,7 +23,7 @@ _JOBS_MOD = "dango.platform.scheduling.jobs"
 
 # Lazy imports in job functions → patch at origin
 _NOTIF_MOD = "dango.platform.notifications.webhook"
-_SYNC_MOD = "dango.ingestion.dlt_runner"
+_SYNC_PROC_MOD = "dango.platform.sync_process"
 _DBT_MOD = "dango.transformation"
 _HIST_MOD = "dango.utils.sync_history"
 _CFG_MOD = "dango.config.helpers"
@@ -141,18 +141,22 @@ class TestBroadcastHelper:
 
 @pytest.mark.unit
 class TestRunScheduledSync:
-    """Test run_scheduled_sync() job function."""
+    """Test run_scheduled_sync() job function (subprocess-based)."""
 
-    def test_acquires_and_releases_lock(self, tmp_path):
-        mock_lock = MagicMock()
+    def test_launches_subprocess_per_source(self, tmp_path):
         config = _make_config_with_sources("src1")
 
+        mock_process = MagicMock()
+
         with (
-            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_MOD}.run_sync", return_value={}),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=mock_process
+            ) as mock_launch,
+            patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
+            patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
             patch(f"{_HIST_MOD}.save_sync_history_entry"),
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._notify"),
@@ -164,52 +168,23 @@ class TestRunScheduledSync:
 
             run_scheduled_sync("daily", ["src1"], project_root=str(tmp_path))
 
-        mock_lock.acquire.assert_called_once()
-        mock_lock.release.assert_called_once()
-
-    def test_lock_failure_broadcasts_and_notifies(self, tmp_path):
-        from dango.exceptions import DbtLockError
-
-        mock_lock = MagicMock()
-        mock_lock.acquire.side_effect = DbtLockError("busy")
-
-        # Simulate time passing beyond max_wait to exit the retry loop quickly
-        elapsed = [0.0]
-
-        def fake_monotonic():
-            elapsed[0] += 301  # Jump past 300s max_wait
-            return elapsed[0]
-
-        with (
-            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
-            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
-            patch(f"{_NOTIF_MOD}.WebhookSender"),
-            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
-            patch(f"{_JOBS_MOD}._notify") as mock_notify,
-            patch(f"{_JOBS_MOD}._log_execution_event") as mock_record,
-            patch(f"{_JOBS_MOD}.time.sleep"),
-            patch(f"{_JOBS_MOD}.time.monotonic", side_effect=fake_monotonic),
-        ):
-            from dango.platform.scheduling.jobs import run_scheduled_sync
-
-            run_scheduled_sync("daily", ["src1"], project_root=str(tmp_path))
-
-        events = [c.args[0]["event"] for c in mock_bc.call_args_list]
-        assert "sync_failed" in events
-        mock_notify.assert_called_once()
-        mock_record.assert_called_once()
-        assert mock_record.call_args[1]["status"] == "lock_failed"
+        mock_launch.assert_called_once()
+        call_kwargs = mock_launch.call_args[1]
+        assert call_kwargs["sources"] == ["src1"]
+        assert call_kwargs["skip_dbt"] is True
+        assert call_kwargs["source_label"] == "scheduler"
+        assert call_kwargs["max_lock_wait"] == 300
 
     def test_broadcasts_sync_started_and_completed(self, tmp_path):
-        mock_lock = MagicMock()
         config = _make_config_with_sources("src1")
 
         with (
-            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_MOD}.run_sync", return_value={}),
+            patch(f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=MagicMock()),
+            patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
+            patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
             patch(f"{_HIST_MOD}.save_sync_history_entry"),
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._notify"),
@@ -225,19 +200,20 @@ class TestRunScheduledSync:
         assert "sync_started" in events
         assert "sync_completed" in events
 
-    def test_exception_broadcasts_sync_failed(self, tmp_path):
-        mock_lock = MagicMock()
+    def test_subprocess_failure_broadcasts_sync_failed(self, tmp_path):
         config = _make_config_with_sources("src1")
 
         with (
-            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_MOD}.run_sync", side_effect=RuntimeError("boom")),
+            patch(f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=MagicMock()),
+            patch(
+                f"{_SYNC_PROC_MOD}.poll_sync_status_blocking",
+                return_value=(False, {"error": "boom"}),
+            ),
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._notify"),
-            patch(f"{_JOBS_MOD}._add_pending_dbt_source"),
         ):
             from dango.platform.scheduling.jobs import run_scheduled_sync
 
@@ -245,18 +221,17 @@ class TestRunScheduledSync:
 
         events = [c.args[0]["event"] for c in mock_bc.call_args_list]
         assert "sync_failed" in events
-        mock_lock.release.assert_called_once()
 
     def test_records_history_per_source(self, tmp_path):
-        mock_lock = MagicMock()
         config = _make_config_with_sources("src1", "src2")
 
         with (
-            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_MOD}.run_sync", return_value={}),
+            patch(f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=MagicMock()),
+            patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
+            patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
             patch(f"{_HIST_MOD}.save_sync_history_entry") as mock_hist,
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._notify"),
@@ -272,15 +247,15 @@ class TestRunScheduledSync:
 
     def test_notifies_on_success(self, tmp_path):
         """Notification should be dispatched on successful sync."""
-        mock_lock = MagicMock()
         config = _make_config_with_sources("src1")
 
         with (
-            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_MOD}.run_sync", return_value={}),
+            patch(f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=MagicMock()),
+            patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
+            patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
             patch(f"{_HIST_MOD}.save_sync_history_entry"),
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._notify") as mock_notify,
@@ -296,16 +271,14 @@ class TestRunScheduledSync:
 
     def test_no_sources_resolved_records_and_returns(self, tmp_path):
         """When all source names are unknown, record no_sources and return early."""
-        mock_lock = MagicMock()
         config = MagicMock()
         config.sources.get_source.return_value = None  # all unknown
 
         with (
-            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_MOD}.run_sync") as mock_run,
+            patch(f"{_SYNC_PROC_MOD}.launch_sync_subprocess") as mock_launch,
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._log_execution_event") as mock_record,
         ):
@@ -313,7 +286,7 @@ class TestRunScheduledSync:
 
             run_scheduled_sync("daily", ["bogus"], project_root=str(tmp_path))
 
-        mock_run.assert_not_called()
+        mock_launch.assert_not_called()
         mock_bc.assert_not_called()
         mock_record.assert_called_once()
         assert mock_record.call_args[1]["status"] == "no_sources"
