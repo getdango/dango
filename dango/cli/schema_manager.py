@@ -117,21 +117,21 @@ class SchemaManager:
             List of dicts with 'name' and 'type' keys
         """
         try:
-            conn = duckdb.connect(str(self.duckdb_path), read_only=True)
+            conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
+            try:
+                # Query information schema for columns
+                query = f"""
+                    SELECT column_name, data_type
+                    FROM information_schema.columns
+                    WHERE table_schema = '{layer}'
+                      AND table_name = '{model_name}'
+                    ORDER BY ordinal_position
+                """
 
-            # Query information schema for columns
-            query = f"""
-                SELECT column_name, data_type
-                FROM information_schema.columns
-                WHERE table_schema = '{layer}'
-                  AND table_name = '{model_name}'
-                ORDER BY ordinal_position
-            """
-
-            result = conn.execute(query).fetchall()
-            conn.close()
-
-            return [{"name": col_name, "type": col_type} for col_name, col_type in result]
+                result = conn.execute(query).fetchall()
+                return [{"name": col_name, "type": col_type} for col_name, col_type in result]
+            finally:
+                conn.close()
 
         except Exception:
             # Model might not exist yet

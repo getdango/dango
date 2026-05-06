@@ -125,7 +125,7 @@ def _execute_metric(duckdb_path: Path, metric: MonitorConfig) -> MetricValue:
     sql = _build_metric_sql(metric)
 
     try:
-        conn = duckdb.connect(str(duckdb_path), read_only=True)
+        conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
         try:
             row = conn.execute(sql).fetchone()
         finally:

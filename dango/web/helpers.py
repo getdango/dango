@@ -79,25 +79,25 @@ def get_dbt_model_row_count(schema: str, model_name: str) -> int | None:
         return None
 
     try:
-        conn = duckdb.connect(str(db_path), read_only=True)
+        conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
+        try:
+            # Check if table exists
+            result = conn.execute(f"""
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema = '{schema}' AND table_name = '{model_name}'
+            """).fetchone()
 
-        # Check if table exists
-        result = conn.execute(f"""
-            SELECT COUNT(*)
-            FROM information_schema.tables
-            WHERE table_schema = '{schema}' AND table_name = '{model_name}'
-        """).fetchone()
+            if result and result[0] > 0:
+                # Table exists, get row count
+                count_result = conn.execute(
+                    f'SELECT COUNT(*) FROM "{schema}"."{model_name}"'
+                ).fetchone()
+                return count_result[0] if count_result else 0
 
-        if result and result[0] > 0:
-            # Table exists, get row count
-            count_result = conn.execute(
-                f'SELECT COUNT(*) FROM "{schema}"."{model_name}"'
-            ).fetchone()
+            return None
+        finally:
             conn.close()
-            return count_result[0] if count_result else 0
-
-        conn.close()
-        return None
 
     except Exception as e:
         logger.error(f"Error getting row count for {schema}.{model_name}: {e}")
@@ -223,69 +223,67 @@ def get_source_row_count(source_name: str) -> int | None:
 
     try:
         with timeout_context(2):  # 2 second timeout
-            conn = duckdb.connect(str(db_path), read_only=True)
-
-            # Check for multi-resource schema first (raw_{source_name})
-            multi_schema = f"raw_{source_name}"
-            result = conn.execute(f"""
-                SELECT COUNT(*)
-                FROM information_schema.tables
-                WHERE table_schema = '{multi_schema}'
-                  AND table_name NOT LIKE '_dlt_%'
-                  AND table_name NOT IN ('spreadsheet', 'spreadsheet_info')
-            """).fetchone()
-
-            if result and result[0] > 0:
-                # Multi-resource source: sum rows across all tables in schema
-                tables = conn.execute(f"""
-                    SELECT table_name
+            conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
+            try:
+                # Check for multi-resource schema first (raw_{source_name})
+                multi_schema = f"raw_{source_name}"
+                result = conn.execute(f"""
+                    SELECT COUNT(*)
                     FROM information_schema.tables
                     WHERE table_schema = '{multi_schema}'
                       AND table_name NOT LIKE '_dlt_%'
                       AND table_name NOT IN ('spreadsheet', 'spreadsheet_info')
-                """).fetchall()
+                """).fetchone()
 
-                total_rows = 0
-                for (table_name,) in tables:
+                if result and result[0] > 0:
+                    # Multi-resource source: sum rows across all tables in schema
+                    tables = conn.execute(f"""
+                        SELECT table_name
+                        FROM information_schema.tables
+                        WHERE table_schema = '{multi_schema}'
+                          AND table_name NOT LIKE '_dlt_%'
+                          AND table_name NOT IN ('spreadsheet', 'spreadsheet_info')
+                    """).fetchall()
+
+                    total_rows = 0
+                    for (table_name,) in tables:
+                        count_result = conn.execute(
+                            f'SELECT COUNT(*) FROM "{multi_schema}"."{table_name}"'
+                        ).fetchone()
+                        if count_result:
+                            total_rows += count_result[0]
+
+                    return total_rows
+
+                # Single-resource source: check raw.{source_name} table
+                result = conn.execute(f"""
+                    SELECT COUNT(*)
+                    FROM information_schema.tables
+                    WHERE table_schema = 'raw' AND table_name = '{source_name}'
+                """).fetchone()
+
+                if result and result[0] > 0:
                     count_result = conn.execute(
-                        f'SELECT COUNT(*) FROM "{multi_schema}"."{table_name}"'
+                        f'SELECT COUNT(*) FROM "raw"."{source_name}"'
                     ).fetchone()
-                    if count_result:
-                        total_rows += count_result[0]
+                    return count_result[0] if count_result else 0
 
+                # Fall back to staging table
+                result = conn.execute(f"""
+                    SELECT COUNT(*)
+                    FROM information_schema.tables
+                    WHERE table_schema = 'staging' AND table_name = 'stg_{source_name}'
+                """).fetchone()
+
+                if result and result[0] > 0:
+                    count_result = conn.execute(
+                        f'SELECT COUNT(*) FROM "staging"."stg_{source_name}"'
+                    ).fetchone()
+                    return count_result[0] if count_result else 0
+
+                return None
+            finally:
                 conn.close()
-                return total_rows
-
-            # Single-resource source: check raw.{source_name} table
-            result = conn.execute(f"""
-                SELECT COUNT(*)
-                FROM information_schema.tables
-                WHERE table_schema = 'raw' AND table_name = '{source_name}'
-            """).fetchone()
-
-            if result and result[0] > 0:
-                count_result = conn.execute(
-                    f'SELECT COUNT(*) FROM "raw"."{source_name}"'
-                ).fetchone()
-                conn.close()
-                return count_result[0] if count_result else 0
-
-            # Fall back to staging table
-            result = conn.execute(f"""
-                SELECT COUNT(*)
-                FROM information_schema.tables
-                WHERE table_schema = 'staging' AND table_name = 'stg_{source_name}'
-            """).fetchone()
-
-            if result and result[0] > 0:
-                count_result = conn.execute(
-                    f'SELECT COUNT(*) FROM "staging"."stg_{source_name}"'
-                ).fetchone()
-                conn.close()
-                return count_result[0] if count_result else 0
-
-            conn.close()
-            return None
 
     except TimeoutError:
         logger.warning(
@@ -316,72 +314,75 @@ def get_source_tables_info(source_name: str) -> dict[str, Any] | None:
         return None
 
     try:
-        conn = duckdb.connect(str(db_path), read_only=True)
-
-        # All sources use raw_{source_name} schema
-        schema_name = f"raw_{source_name}"
-        result = conn.execute(f"""
-            SELECT COUNT(*)
-            FROM information_schema.tables
-            WHERE table_schema = '{schema_name}'
-              AND table_name NOT LIKE '_dlt_%'
-              AND table_name NOT IN ('spreadsheet', 'spreadsheet_info')
-        """).fetchone()
-
-        if result and result[0] > 0:
-            # Get per-table breakdown
-            tables_result = conn.execute(f"""
-                SELECT table_name
+        conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
+        try:
+            # All sources use raw_{source_name} schema
+            schema_name = f"raw_{source_name}"
+            result = conn.execute(f"""
+                SELECT COUNT(*)
                 FROM information_schema.tables
                 WHERE table_schema = '{schema_name}'
                   AND table_name NOT LIKE '_dlt_%'
                   AND table_name NOT IN ('spreadsheet', 'spreadsheet_info')
-                ORDER BY table_name
-            """).fetchall()
+            """).fetchone()
 
-            tables = []
-            total_rows = 0
-            for (table_name,) in tables_result:
+            if result and result[0] > 0:
+                # Get per-table breakdown
+                tables_result = conn.execute(f"""
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = '{schema_name}'
+                      AND table_name NOT LIKE '_dlt_%'
+                      AND table_name NOT IN ('spreadsheet', 'spreadsheet_info')
+                    ORDER BY table_name
+                """).fetchall()
+
+                tables = []
+                total_rows = 0
+                for (table_name,) in tables_result:
+                    count_result = conn.execute(
+                        f'SELECT COUNT(*) FROM "{schema_name}"."{table_name}"'
+                    ).fetchone()
+                    if count_result:
+                        row_count = count_result[0]
+                        total_rows += row_count
+                        tables.append(
+                            {"name": table_name, "row_count": row_count, "schema": schema_name}
+                        )
+
+                return {
+                    "total_rows": total_rows,
+                    "tables": tables,
+                    "has_multiple_tables": len(tables) > 1,
+                }
+
+            # Fall back to staging table (for backward compatibility)
+            result = conn.execute(f"""
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'staging' AND table_name = 'stg_{source_name}'
+            """).fetchone()
+
+            if result and result[0] > 0:
                 count_result = conn.execute(
-                    f'SELECT COUNT(*) FROM "{schema_name}"."{table_name}"'
+                    f'SELECT COUNT(*) FROM "staging"."stg_{source_name}"'
                 ).fetchone()
-                if count_result:
-                    row_count = count_result[0]
-                    total_rows += row_count
-                    tables.append(
-                        {"name": table_name, "row_count": row_count, "schema": schema_name}
-                    )
+                row_count = count_result[0] if count_result else 0
+                return {
+                    "total_rows": row_count,
+                    "tables": [
+                        {
+                            "name": f"stg_{source_name}",
+                            "row_count": row_count,
+                            "schema": "staging",
+                        }
+                    ],
+                    "has_multiple_tables": False,
+                }
 
+            return None
+        finally:
             conn.close()
-            return {
-                "total_rows": total_rows,
-                "tables": tables,
-                "has_multiple_tables": len(tables) > 1,
-            }
-
-        # Fall back to staging table (for backward compatibility)
-        result = conn.execute(f"""
-            SELECT COUNT(*)
-            FROM information_schema.tables
-            WHERE table_schema = 'staging' AND table_name = 'stg_{source_name}'
-        """).fetchone()
-
-        if result and result[0] > 0:
-            count_result = conn.execute(
-                f'SELECT COUNT(*) FROM "staging"."stg_{source_name}"'
-            ).fetchone()
-            row_count = count_result[0] if count_result else 0
-            conn.close()
-            return {
-                "total_rows": row_count,
-                "tables": [
-                    {"name": f"stg_{source_name}", "row_count": row_count, "schema": "staging"}
-                ],
-                "has_multiple_tables": False,
-            }
-
-        conn.close()
-        return None
 
     except Exception as e:
         logger.error(f"Error getting table info for {source_name}: {e}")

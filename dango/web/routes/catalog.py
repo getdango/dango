@@ -48,7 +48,7 @@ def _get_column_schema(
         List of ``{"name": ..., "type": ..., "nullable": bool}``.
     """
     schema = f"raw_{source}"
-    conn = duckdb.connect(str(db_path), read_only=True)
+    conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
     try:
         rows = conn.execute(
             "SELECT column_name, data_type, is_nullable "
@@ -130,7 +130,7 @@ def _get_row_count(db_path: Path, source: str, table: str) -> int:
         Number of rows.
     """
     schema = f"raw_{source}"
-    conn = duckdb.connect(str(db_path), read_only=True)
+    conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
     try:
         result = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()
     finally:
@@ -149,7 +149,7 @@ def _source_schema_exists(db_path: Path, source: str) -> bool:
         ``True`` if the schema exists.
     """
     schema = f"raw_{source}"
-    conn = duckdb.connect(str(db_path), read_only=True)
+    conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
     try:
         result = conn.execute(
             f"SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '{schema}'"
@@ -171,7 +171,7 @@ def _table_exists(db_path: Path, source: str, table: str) -> bool:
         ``True`` if the table exists.
     """
     schema = f"raw_{source}"
-    conn = duckdb.connect(str(db_path), read_only=True)
+    conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
     try:
         result = conn.execute(
             "SELECT COUNT(*) FROM information_schema.tables "
@@ -192,7 +192,7 @@ def _get_raw_tables_from_duckdb(db_path: Path) -> list[dict[str, str]]:
     Returns:
         List of ``{"schema": ..., "table": ..., "source_name": ...}``.
     """
-    conn = duckdb.connect(str(db_path), read_only=True)
+    conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
     try:
         rows = conn.execute(
             "SELECT table_schema, table_name FROM information_schema.tables "
@@ -341,7 +341,7 @@ def _get_model_column_schema(
         List of ``{"name": ..., "type": ..., "nullable": bool}``,
         or empty list if the table does not exist.
     """
-    conn = duckdb.connect(str(db_path), read_only=True)
+    conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
     try:
         rows = conn.execute(
             "SELECT column_name, data_type, is_nullable "
@@ -1039,7 +1039,7 @@ async def get_catalog_model(
 
         def _count_rows() -> int | None:
             try:
-                conn = duckdb.connect(str(db_path), read_only=True)
+                conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
                 try:
                     row = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()
                     return row[0] if row else 0
