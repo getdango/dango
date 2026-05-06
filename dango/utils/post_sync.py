@@ -385,12 +385,12 @@ def _run_pii_scan(project_root: Path, sources: list[str]) -> None:
 def _run_analysis(project_root: Path, sources: list[str]) -> None:
     """Run automated analysis on freshly synced sources.
 
-    Also auto-generates GA4 metric templates after first sync (column names
+    Also auto-generates metric templates after first sync (column names
     are only known once DuckDB has data).
     """
     try:
-        # Auto-generate GA4 metric templates now that columns exist in DuckDB
-        _ensure_ga4_metrics(project_root, sources)
+        # Auto-generate metric templates now that columns exist in DuckDB
+        _ensure_default_metrics(project_root, sources)
 
         from dango.analysis.metrics import run_analysis
 
@@ -402,8 +402,8 @@ def _run_analysis(project_root: Path, sources: list[str]) -> None:
         logger.warning("analysis_hook_error", sources=sources, exc_info=True)
 
 
-def _ensure_ga4_metrics(project_root: Path, sources: list[str]) -> None:
-    """Generate GA4 metric templates if not already present.  Never raises."""
+def _ensure_default_metrics(project_root: Path, sources: list[str]) -> None:
+    """Generate metric templates for synced sources if not already present.  Never raises."""
     try:
         from dango.analysis.config import add_monitors_to_config, load_monitors_config
         from dango.analysis.templates import generate_metrics_for_source
@@ -412,20 +412,21 @@ def _ensure_ga4_metrics(project_root: Path, sources: list[str]) -> None:
         config = get_config(project_root)
         existing_names = {m.name for m in load_monitors_config(project_root).monitors}
         for source in config.sources.sources:
-            if source.type.value != "google_analytics" or source.name not in sources:
+            if source.name not in sources:
                 continue
             new = [
                 m
                 for m in generate_metrics_for_source(
-                    "google_analytics", source.name, project_root=project_root
+                    source.type.value, source.name, project_root=project_root
                 )
                 if m.name not in existing_names
             ]
             if new:
                 add_monitors_to_config(project_root, new)
-                logger.info("ga4_metrics_auto_generated", source=source.name, count=len(new))
+                existing_names.update(m.name for m in new)
+                logger.info("metrics_auto_generated", source=source.name, count=len(new))
     except Exception:
-        logger.debug("ga4_metrics_auto_generate_skipped", exc_info=True)
+        logger.debug("metrics_auto_generate_skipped", exc_info=True)
 
 
 def _deliver_to_webhooks(

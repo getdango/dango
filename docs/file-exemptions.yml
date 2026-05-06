@@ -311,7 +311,7 @@ exemptions:
   # --- Phase 4 scheduling ---
 
   - file: dango/utils/post_sync.py
-    lines: 553
+    lines: 554
     category: exempt
     reason: "R9-I: Added _deliver_to_webhooks shared helper and _send_sync_notification for CLI sync webhook delivery. Marginally over limit."
     review_by: "v1.1"

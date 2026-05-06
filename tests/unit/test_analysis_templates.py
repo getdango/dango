@@ -182,13 +182,15 @@ class TestGA4DynamicMetrics:
         assert len(metrics) == 1
         assert metrics[0].name == "ga_daily_sessions"
 
-    def test_no_matching_columns_returns_empty(self, tmp_path: Path) -> None:
-        """No matching columns → no metrics."""
+    def test_no_matching_columns_falls_through_to_generic(self, tmp_path: Path) -> None:
+        """No matching GA4 columns → falls through to generic row_count metrics."""
         _create_ga4_warehouse(tmp_path, ["other_column", "another_column"])
 
         metrics = generate_metrics_for_source("google_analytics", "ga", project_root=tmp_path)
 
-        assert len(metrics) == 0
+        # Generic fallback discovers the traffic table and generates row_count
+        assert len(metrics) >= 1
+        assert any("row_count" in m.name for m in metrics)
 
     def test_duckdb_error_returns_empty(self, tmp_path: Path) -> None:
         """DuckDB errors are swallowed gracefully."""

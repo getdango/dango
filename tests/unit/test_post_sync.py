@@ -6,7 +6,7 @@ Tests for the post-sync dispatcher (dango/utils/post_sync.py).
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -140,3 +140,189 @@ class TestDispatchPostSyncHooks:
         import dango.utils.post_sync as ps
 
         assert not hasattr(ps, "_run_drift_detection")
+
+
+_CFG = "dango.config"
+_ANALYSIS_CFG = "dango.analysis.config"
+_ANALYSIS_TPL = "dango.analysis.templates"
+
+
+def _make_source(name: str, source_type: str) -> MagicMock:
+    """Create a mock DataSource with name and type."""
+    src = MagicMock()
+    src.name = name
+    src.type.value = source_type
+    return src
+
+
+@pytest.mark.unit
+class TestEnsureDefaultMetrics:
+    """Unit tests for _ensure_default_metrics (BUG-174)."""
+
+    def test_non_ga4_source_triggers_generate(self, tmp_path: Path) -> None:
+        """Non-GA4 source (hubspot) triggers generate_metrics_for_source with correct type."""
+        from dango.utils.post_sync import _ensure_default_metrics
+
+        mock_config = MagicMock()
+        mock_config.sources.sources = [_make_source("hs", "hubspot")]
+        mock_monitors_config = MagicMock()
+        mock_monitors_config.monitors = []
+
+        with (
+            patch(f"{_CFG}.get_config", return_value=mock_config),
+            patch(f"{_ANALYSIS_CFG}.load_monitors_config", return_value=mock_monitors_config),
+            patch(f"{_ANALYSIS_TPL}.generate_metrics_for_source", return_value=[]) as mock_gen,
+            patch(f"{_ANALYSIS_CFG}.add_monitors_to_config"),
+        ):
+            _ensure_default_metrics(tmp_path, ["hs"])
+
+        mock_gen.assert_called_once_with("hubspot", "hs", project_root=tmp_path)
+
+    def test_ga4_source_still_passes_google_analytics(self, tmp_path: Path) -> None:
+        """GA4 source passes 'google_analytics' type (no regression)."""
+        from dango.utils.post_sync import _ensure_default_metrics
+
+        mock_config = MagicMock()
+        mock_config.sources.sources = [_make_source("ga", "google_analytics")]
+        mock_monitors_config = MagicMock()
+        mock_monitors_config.monitors = []
+
+        with (
+            patch(f"{_CFG}.get_config", return_value=mock_config),
+            patch(f"{_ANALYSIS_CFG}.load_monitors_config", return_value=mock_monitors_config),
+            patch(f"{_ANALYSIS_TPL}.generate_metrics_for_source", return_value=[]) as mock_gen,
+            patch(f"{_ANALYSIS_CFG}.add_monitors_to_config"),
+        ):
+            _ensure_default_metrics(tmp_path, ["ga"])
+
+        mock_gen.assert_called_once_with("google_analytics", "ga", project_root=tmp_path)
+
+    def test_multiple_sources_each_processed(self, tmp_path: Path) -> None:
+        """Multiple sources in single sync each get processed."""
+        from dango.utils.post_sync import _ensure_default_metrics
+
+        mock_config = MagicMock()
+        mock_config.sources.sources = [
+            _make_source("hs", "hubspot"),
+            _make_source("stripe1", "stripe"),
+        ]
+        mock_monitors_config = MagicMock()
+        mock_monitors_config.monitors = []
+
+        with (
+            patch(f"{_CFG}.get_config", return_value=mock_config),
+            patch(f"{_ANALYSIS_CFG}.load_monitors_config", return_value=mock_monitors_config),
+            patch(f"{_ANALYSIS_TPL}.generate_metrics_for_source", return_value=[]) as mock_gen,
+            patch(f"{_ANALYSIS_CFG}.add_monitors_to_config"),
+        ):
+            _ensure_default_metrics(tmp_path, ["hs", "stripe1"])
+
+        assert mock_gen.call_count == 2
+
+    def test_dedup_against_existing_monitors(self, tmp_path: Path) -> None:
+        """Monitors already in config are not re-added."""
+        from dango.analysis.models import MonitorConfig
+        from dango.utils.post_sync import _ensure_default_metrics
+
+        existing_monitor = MagicMock()
+        existing_monitor.name = "hs_contacts_row_count"
+
+        mock_config = MagicMock()
+        mock_config.sources.sources = [_make_source("hs", "hubspot")]
+        mock_monitors_config = MagicMock()
+        mock_monitors_config.monitors = [existing_monitor]
+
+        new_metric = MonitorConfig(
+            name="hs_deals_row_count",
+            source_table="raw_hs.deals",
+            value_expression="COUNT(*)",
+        )
+        dup_metric = MonitorConfig(
+            name="hs_contacts_row_count",
+            source_table="raw_hs.contacts",
+            value_expression="COUNT(*)",
+        )
+
+        with (
+            patch(f"{_CFG}.get_config", return_value=mock_config),
+            patch(f"{_ANALYSIS_CFG}.load_monitors_config", return_value=mock_monitors_config),
+            patch(
+                f"{_ANALYSIS_TPL}.generate_metrics_for_source",
+                return_value=[new_metric, dup_metric],
+            ),
+            patch(f"{_ANALYSIS_CFG}.add_monitors_to_config") as mock_add,
+        ):
+            _ensure_default_metrics(tmp_path, ["hs"])
+
+        # Only the non-duplicate metric should be added
+        mock_add.assert_called_once()
+        added = mock_add.call_args[0][1]
+        assert len(added) == 1
+        assert added[0].name == "hs_deals_row_count"
+
+    def test_never_raises(self, tmp_path: Path) -> None:
+        """Function never raises — catches exceptions."""
+        from dango.utils.post_sync import _ensure_default_metrics
+
+        with patch(f"{_CFG}.get_config", side_effect=RuntimeError("boom")):
+            # Should not raise
+            _ensure_default_metrics(tmp_path, ["hs"])
+
+    def test_non_synced_sources_skipped(self, tmp_path: Path) -> None:
+        """Only synced sources are processed (non-synced sources skipped)."""
+        from dango.utils.post_sync import _ensure_default_metrics
+
+        mock_config = MagicMock()
+        mock_config.sources.sources = [
+            _make_source("hs", "hubspot"),
+            _make_source("other", "stripe"),
+        ]
+        mock_monitors_config = MagicMock()
+        mock_monitors_config.monitors = []
+
+        with (
+            patch(f"{_CFG}.get_config", return_value=mock_config),
+            patch(f"{_ANALYSIS_CFG}.load_monitors_config", return_value=mock_monitors_config),
+            patch(f"{_ANALYSIS_TPL}.generate_metrics_for_source", return_value=[]) as mock_gen,
+            patch(f"{_ANALYSIS_CFG}.add_monitors_to_config"),
+        ):
+            # Only "hs" was synced, not "other"
+            _ensure_default_metrics(tmp_path, ["hs"])
+
+        mock_gen.assert_called_once_with("hubspot", "hs", project_root=tmp_path)
+
+    def test_cross_source_dedup(self, tmp_path: Path) -> None:
+        """Monitors added by source A are not duplicated by source B."""
+        from dango.analysis.models import MonitorConfig
+        from dango.utils.post_sync import _ensure_default_metrics
+
+        mock_config = MagicMock()
+        mock_config.sources.sources = [
+            _make_source("src_a", "hubspot"),
+            _make_source("src_b", "stripe"),
+        ]
+        mock_monitors_config = MagicMock()
+        mock_monitors_config.monitors = []
+
+        shared_metric = MonitorConfig(
+            name="shared_metric",
+            source_table="raw_src_a.table",
+            value_expression="COUNT(*)",
+        )
+
+        with (
+            patch(f"{_CFG}.get_config", return_value=mock_config),
+            patch(f"{_ANALYSIS_CFG}.load_monitors_config", return_value=mock_monitors_config),
+            patch(
+                f"{_ANALYSIS_TPL}.generate_metrics_for_source",
+                return_value=[shared_metric],
+            ),
+            patch(f"{_ANALYSIS_CFG}.add_monitors_to_config") as mock_add,
+        ):
+            _ensure_default_metrics(tmp_path, ["src_a", "src_b"])
+
+        # First source adds it, second source should skip it (dedup)
+        assert mock_add.call_count == 1
+        added = mock_add.call_args[0][1]
+        assert len(added) == 1
+        assert added[0].name == "shared_metric"
