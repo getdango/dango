@@ -18,14 +18,14 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/upload.py
-    lines: 701
+    lines: 705
     category: exempt
     reason: "CSV upload/list/delete endpoints. Extracted from web/app.py by TASK-085. DELETE endpoint alone has ~300 lines of DuckDB cleanup logic."
     review_by: "v1.1"
 
   # --- Phase 2 auth additions ---
   - file: dango/web/routes/auth.py
-    lines: 854
+    lines: 852
     category: exempt
     reason: "Login/logout, OAuth flows, invite accept, API key CRUD. DOC-025 evaluated split (auth_api.py + auth_oauth.py) — rejected: breaks all test patches, scatters security-critical code. Bridge helper extracted to reduce duplication."
     review_by: "v1.1"
@@ -37,7 +37,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/auth/metabase_sync.py
-    lines: 521
+    lines: 552
     category: exempt
     reason: "BUG-011 added find_metabase_user_by_email() and email-exists fallback in sync_user_to_metabase() (+23 lines). Planned split in TASK-075b."
     review_by: "v1.1"
@@ -49,7 +49,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/auth.py
-    lines: 660
+    lines: 661
     category: exempt
     reason: "R7-E added change-role command and audit logging to all user management commands (+122 lines)."
     review_by: "v1.1"
@@ -93,7 +93,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 828
+    lines: 829
     category: exempt
     reason: "Source management commands (add/list/remove) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation."
     review_by: "v1.1"
@@ -154,7 +154,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/init.py
-    lines: 1324
+    lines: 1334
     category: exempt
     reason: "Project initialization wizard. Sequential setup flow — splitting adds indirection without benefit. P7-014 added COMPATIBILITY.md + SCALABILITY.md generation (+133 lines). P7-011 added metrics config generation. P8-003 added CI workflow generation. P8-round2 added ICU extension install, auth YAML write, password auto-gen."
     review_by: "v1.1"
@@ -207,7 +207,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_catalog_lineage.py
-    lines: 599
+    lines: 631
     category: exempt
     reason: "P7-002: 16 tests covering lineage DAG (7) + impact analysis (9). Separate file from test_catalog_api.py per STANDARDS.md §7 split-at-creation rule."
     review_by: "v1.1"
@@ -219,7 +219,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_digitalocean_client.py
-    lines: 628
+    lines: 629
     category: exempt
     reason: "TASK-022+023+025: 36 tests covering DigitalOceanClient init, retry/backoff logic (9 cases), Droplet/SSH Key/Firewall CRUD (incl. get_firewall, update_firewall), and error handling. Retry tests require per-test mock setup for call sequencing — each is self-contained for readability."
     review_by: "v1.1"
@@ -323,7 +323,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/sync.py
-    lines: 558
+    lines: 602
     category: exempt
     reason: "TASK-040c: Added remote sync trigger API (POST /api/sync/trigger, GET /api/sync/status/{id}) with background task + execution history. Extends existing per-source sync endpoint."
     review_by: "v1.1"
@@ -377,7 +377,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_pii_detection.py
-    lines: 632
+    lines: 717
     category: exempt
     reason: "BUG-027/BUG-133/BUG-139: added tests for PERSON threshold, intl phone, and override application. Test coverage for complex detection logic."
     review_by: "v1.1"
@@ -389,7 +389,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_platform_startup.py
-    lines: 601
+    lines: 623
     category: exempt
     reason: "R9-B: BUG-115/118 tests added metabase.yml write-back assertions and refresh_metabase_connection container-name tests. Each test class requires independent auth DB setup and multi-layer mocking."
     review_by: "v1.1"

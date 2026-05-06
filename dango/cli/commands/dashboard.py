@@ -21,11 +21,13 @@ def dashboard(ctx: click.Context) -> None:
 
 
 @dashboard.command("provision")
-@click.option("--url", default="http://localhost:3001", help="Metabase URL")
-@click.option("--username", default="admin@example.com", help="Metabase admin username")
+@click.option("--url", default="http://localhost:3000", help="Metabase URL")
+@click.option(
+    "--username", default=None, help="Metabase admin username (auto-detected from auth DB)"
+)
 @click.option("--password", prompt=True, hide_input=True, help="Metabase admin password")
 @click.pass_context
-def dashboard_provision(ctx: click.Context, url: str, username: str, password: str) -> None:
+def dashboard_provision(ctx: click.Context, url: str, username: str | None, password: str) -> None:
     """
     Provision Data Pipeline Health dashboard in Metabase.
 
@@ -39,13 +41,36 @@ def dashboard_provision(ctx: click.Context, url: str, username: str, password: s
     The dashboard provides instant visibility into your data pipeline.
 
     Examples:
-      dango dashboard provision                  # Use defaults (localhost:3001)
+      dango dashboard provision                  # Use defaults (localhost:3000)
       dango dashboard provision --url http://metabase.local
     """
     from rich.panel import Panel
     from rich.table import Table
 
     from dango.visualization import provision_dashboard
+
+    # Resolve admin email: env var → auth DB → fallback
+    if username is None:
+        import os
+
+        username = os.environ.get("DANGO_ADMIN_EMAIL", "")
+        if not username:
+            try:
+                from dango.auth.admin import get_auth_db_path
+                from dango.auth.database import list_users
+                from dango.auth.models import Role
+
+                project_root = ctx.obj["project_root"]
+                db_path = get_auth_db_path(project_root)
+                if db_path.exists():
+                    users = list_users(db_path, active_only=True)
+                    admins = [u for u in users if u.role == Role.ADMIN]
+                    if admins and admins[0].email != "admin@localhost":
+                        username = admins[0].email
+            except Exception:
+                pass
+        if not username:
+            username = "admin@example.com"
 
     console.print("\n🍡 [bold]Provisioning Metabase Dashboard[/bold]\n")
 

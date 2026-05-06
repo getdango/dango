@@ -54,7 +54,7 @@ jobs:
 
   security:
     name: Security (pip-audit)
-    # Known unresolvable CVE in black (dbt-core dep) — revisit when dbt-core supports pydantic v2
+    # Known CVE-2026-32274 in black (dbt-core dep) — revisit when dbt-core supports pydantic v2
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
@@ -65,7 +65,7 @@ jobs:
           cache: pip
       - run: pip install -c constraints.txt -e ".[dev]"
       - name: pip-audit
-        run: pip-audit
+        run: pip-audit --ignore-vuln CVE-2026-32274
 
   llm-checks:
     name: LLM checks

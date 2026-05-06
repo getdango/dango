@@ -9,8 +9,8 @@ Webhook notification infrastructure for sync event notifications. Sends configur
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
 | `__init__.py` (28 lines) | Re-exports public API from `webhook.py` | `WebhookSender`, `WebhookConfig`, `NotificationConfig`, `EventType`, `EventCategory`, `WebhookPayload`, `load_notification_config`, `should_notify` |
-| `webhook.py` (365 lines) | Event types, config models, event filtering, async sender with retry | `WebhookSender`, `WebhookConfig`, `NotificationConfig`, `EventType`, `EventCategory`, `WebhookPayload`, `EVENT_TO_CATEGORY`, `load_notification_config`, `should_notify` |
-| `slack.py` (124 lines) | Slack Block Kit formatter for webhook payloads | `format_slack_message` |
+| `webhook.py` (377 lines) | Event types, config models, event filtering, async sender with retry | `WebhookSender`, `WebhookConfig`, `NotificationConfig`, `EventType`, `EventCategory`, `WebhookPayload`, `EVENT_TO_CATEGORY`, `load_notification_config`, `should_notify` |
+| `slack.py` (145 lines) | Slack Block Kit formatter for webhook payloads | `format_slack_message` |
 
 ## Key Conventions
 
