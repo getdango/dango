@@ -1,14 +1,16 @@
 """dango/web/routes/sync.py
 
 Source sync trigger endpoint, background sync task, and remote sync trigger API.
+
+Syncs run in a subprocess via sync_process.py — the web server process never
+holds the DuckDB write lock, so notebooks and the UI remain responsive.
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -21,7 +23,6 @@ from dango.logging import get_logger
 from dango.platform.scheduling.history import (
     get_execution_record,
     get_scheduler_db_path,
-    record_completion,
     record_failure,
     record_start,
 )
@@ -40,7 +41,6 @@ from dango.web.helpers import (
 from dango.web.models import SyncRequest, SyncResponse, SyncTriggerRequest
 from dango.web.routes.websocket import ws_manager
 
-logger = logging.getLogger(__name__)
 _logger = get_logger(__name__)
 
 router = APIRouter(tags=["sync"])
@@ -81,11 +81,6 @@ async def trigger_sync(source_name: str, sync_request: SyncRequest) -> SyncRespo
         )
     )
 
-    # Broadcast sync started event via WebSocket
-    await ws_manager.broadcast(
-        {"event": "sync_started", "source": source_name, "timestamp": datetime.now().isoformat()}
-    )
-
     return SyncResponse(
         success=True,
         message=f"Sync started for {source_name}",
@@ -97,244 +92,65 @@ async def trigger_sync(source_name: str, sync_request: SyncRequest) -> SyncRespo
 async def run_sync_task(
     source_name: str, full_refresh: bool, start_date: str | None, end_date: str | None
 ) -> None:
-    """Run sync task in background.
-
-    This function imports and runs the dlt sync process, broadcasting updates via WebSocket
-    """
-    from dango.utils import DbtLock, DbtLockError
+    """Run sync task in a subprocess, polling for status and broadcasting updates."""
+    from dango.platform.sync_process import (
+        cleanup_sync_status,
+        launch_sync_subprocess,
+        poll_sync_status,
+    )
 
     start_time = time.time()
     sync_timestamp = datetime.now().isoformat()
-    success = False
-    error_message = None
-    rows_processed = 0
     project_root = get_project_root()
 
-    # Try to acquire lock before running sync (which includes dbt)
-    lock = None
+    # Create execution history record (passed to subprocess to avoid double records)
+    db_path = get_scheduler_db_path(project_root)
+    record_id = record_start(db_path, "ui", sources=[source_name])
+
+    # Immediate UI feedback
+    await ws_manager.broadcast(
+        {
+            "event": "sync_started",
+            "source": source_name,
+            "message": f"Starting sync for {source_name}",
+            "timestamp": sync_timestamp,
+        }
+    )
+    append_log_entry(
+        {
+            "timestamp": sync_timestamp,
+            "level": "info",
+            "source": source_name,
+            "message": f"Starting sync for {source_name}",
+        }
+    )
+
+    sync_id: str | None = None
     try:
-        lock = DbtLock(
+        # Launch subprocess (DbtLock acquired inside subprocess)
+        process, sync_id = launch_sync_subprocess(
             project_root=project_root,
-            source="ui",
-            operation=f"sync {source_name} (includes dbt run)",
-        )
-        lock.acquire()
-    except DbtLockError as e:
-        # Lock is held by another process - broadcast error and return
-        error_msg = str(e).split("\n")[0]
-        await ws_manager.broadcast(
-            {
-                "event": "sync_failed",
-                "source": source_name,
-                "message": error_msg,
-                "timestamp": datetime.now().isoformat(),
-            }
-        )
-        append_log_entry(
-            {
-                "timestamp": datetime.now().isoformat(),
-                "level": "error",
-                "source": source_name,
-                "message": f"Sync blocked: {error_msg}",
-            }
-        )
-        logger.warning(f"Could not acquire dbt lock for sync {source_name}: {e}")
-        return
-
-    try:
-        from dango.config.helpers import load_config
-
-        # Log sync start
-        append_log_entry(
-            {
-                "timestamp": sync_timestamp,
-                "level": "info",
-                "source": source_name,
-                "message": f"Starting sync for {source_name}",
-            }
+            sources=[source_name],
+            full_refresh=full_refresh,
+            start_date=start_date,
+            end_date=end_date,
+            source_label="ui",
+            record_id=record_id,
         )
 
-        # Broadcast sync started
-        await ws_manager.broadcast(
-            {
-                "event": "sync_started",
-                "source": source_name,
-                "message": f"Starting sync for {source_name}",
-                "timestamp": sync_timestamp,
-            }
+        # Poll until completion (broadcasts WS events + heartbeat internally)
+        success, result = await poll_sync_status(
+            project_root, process, source_name, sync_id=sync_id
         )
-
-        # Load config and get source
-        config = load_config(get_project_root())
-        source_config = config.sources.get_source(source_name)
-
-        if not source_config:
-            raise ValueError(f"Source '{source_name}' not found in configuration")
-
-        # Pre-sync OAuth token validation
-        from dango.exceptions import OAuthTokenExpiredError, OAuthTokenRevokedError
-        from dango.oauth.validation import validate_before_sync
-
-        try:
-            validate_before_sync(source_config.type.value, project_root)
-        except (OAuthTokenRevokedError, OAuthTokenExpiredError) as oauth_err:
-            await ws_manager.broadcast(
-                {
-                    "event": "sync_failed",
-                    "source": source_name,
-                    "message": oauth_err.user_message,
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-            append_log_entry(
-                {
-                    "timestamp": datetime.now().isoformat(),
-                    "level": "error",
-                    "source": source_name,
-                    "message": f"OAuth validation failed: {oauth_err.user_message}",
-                }
-            )
-            return
-
-        # Use the same run_sync function as CLI for consistent behavior
-        # This ensures: data load -> dbt run -> docs generation -> Metabase sync
-        from dango.ingestion import run_sync
-
-        # Parse dates if provided (validate_date_string raises InvalidDateFormatError)
-        start_date_obj = validate_date_string(start_date) if start_date else None
-        end_date_obj = validate_date_string(end_date) if end_date else None
-
-        # Log before running sync
-        append_log_entry(
-            {
-                "timestamp": datetime.now().isoformat(),
-                "level": "info",
-                "source": source_name,
-                "message": "Loading data from source",
-            }
-        )
-
-        # Run sync in executor so the event loop stays free for WebSocket broadcasts
-        _project_root = get_project_root()
-
-        async def _sync_heartbeat() -> None:
-            """Broadcast progress every 30s while sync runs."""
-            try:
-                while True:
-                    await asyncio.sleep(30)
-                    elapsed = int(time.time() - start_time)
-                    await ws_manager.broadcast(
-                        {
-                            "event": "sync_progress",
-                            "source": source_name,
-                            "message": f"Sync in progress ({elapsed}s elapsed)",
-                            "timestamp": datetime.now().isoformat(),
-                        }
-                    )
-            except asyncio.CancelledError:
-                pass
-
-        heartbeat = asyncio.create_task(_sync_heartbeat())
-        try:
-            loop = asyncio.get_running_loop()
-            summary = await loop.run_in_executor(
-                None,
-                lambda: run_sync(
-                    project_root=_project_root,
-                    sources=[source_config],
-                    start_date=start_date_obj,
-                    end_date=end_date_obj,
-                    full_refresh=full_refresh,
-                ),
-            )
-        finally:
-            heartbeat.cancel()
-            try:
-                await heartbeat
-            except asyncio.CancelledError:
-                pass
-
-        success = summary["failed_count"] == 0
-        # Also check that we actually have successful sources (not just zero failures)
-        has_successful_sources = len(summary.get("success_sources", [])) > 0
-
-        # Extract error message if sync failed
-        if not success and summary.get("failed_sources"):
-            # Get error from first failed source (there should only be one when syncing single source)
-            error_message = summary["failed_sources"][0].get("error", "Unknown error")
-        else:
-            error_message = None
-
-        # Log after data load
-        append_log_entry(
-            {
-                "timestamp": datetime.now().isoformat(),
-                "level": "success" if success else "error",
-                "source": source_name,
-                "message": f"Data load {'completed' if success else 'failed'}"
-                + (f": {error_message}" if error_message else ""),
-            }
-        )
-
-        # Broadcast and log dbt run (which happens inside run_sync AFTER data load)
-        # ONLY broadcast dbt messages if sync actually succeeded AND we have successful sources
-        if success and has_successful_sources:
-            # Build helpful message about what dbt will run
-            dbt_message = f"Running dbt models for source: {source_name}"
-            dbt_detail = f"Processing staging.{source_name} and downstream models"
-
-            # Broadcast dbt started (happens after data load, before dbt actually runs in run_sync)
-            await ws_manager.broadcast(
-                {
-                    "event": "dbt_run_all_started",
-                    "source": f"dbt (triggered by {source_name})",
-                    "message": dbt_message,
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-            append_log_entry(
-                {
-                    "timestamp": datetime.now().isoformat(),
-                    "level": "info",
-                    "source": f"dbt (triggered by {source_name})",
-                    "message": dbt_detail,
-                }
-            )
-
-            append_log_entry(
-                {
-                    "timestamp": datetime.now().isoformat(),
-                    "level": "success",
-                    "source": f"dbt (triggered by {source_name})",
-                    "message": f"dbt models completed: staging.{source_name} and downstream",
-                }
-            )
-
-            # Broadcast dbt run completed
-            await ws_manager.broadcast(
-                {
-                    "event": "dbt_run_all_completed",
-                    "source": f"dbt (triggered by {source_name})",
-                    "message": f"dbt models completed for {source_name}",
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
-
-        # Get row count after sync (only if successful)
-        if success:
-            rows_processed = get_source_row_count(source_name) or 0
-            await ws_manager.broadcast(
-                {
-                    "event": "data_load_complete",
-                    "source": source_name,
-                    "message": f"Data loaded: {rows_processed:,} rows",
-                    "timestamp": datetime.now().isoformat(),
-                    "rows_loaded": rows_processed,
-                }
-            )
 
         # Calculate duration
         duration = time.time() - start_time
+        error_message = result.get("error") if result else None
+
+        # Get row count after sync (only if successful)
+        rows_processed = 0
+        if success:
+            rows_processed = get_source_row_count(source_name) or 0
 
         # Save sync history
         history_entry = {
@@ -347,7 +163,7 @@ async def run_sync_task(
         }
         save_sync_history_entry(source_name, history_entry)
 
-        # Log completion (conditional based on success/failure)
+        # Log completion
         if success:
             append_log_entry(
                 {
@@ -357,15 +173,7 @@ async def run_sync_task(
                     "message": f"Sync completed in {round(duration, 1)}s - {rows_processed:,} rows",
                 }
             )
-
-            # Trigger Metabase schema sync to ensure new tables are discoverable
-            # This matches CLI behavior (main.py:1265-1275) which calls sync_metabase_schema
-            # after run_sync() as a backup in case the internal call was skipped
-            from dango.visualization.metabase import sync_metabase_schema
-
-            sync_metabase_schema(project_root)
         else:
-            # For failures, log with error details
             append_log_entry(
                 {
                     "timestamp": datetime.now().isoformat(),
@@ -376,26 +184,14 @@ async def run_sync_task(
                 }
             )
 
-        # Broadcast completion with detailed error message if failed
-        await ws_manager.broadcast(
-            {
-                "event": "sync_completed" if success else "sync_failed",
-                "source": source_name,
-                "message": "Sync completed successfully"
-                if success
-                else (error_message or "Sync failed"),
-                "timestamp": datetime.now().isoformat(),
-                "error": error_message if not success else None,
-                "rows_loaded": rows_processed if success else 0,
-                "duration_seconds": round(duration, 2),
-            }
-        )
+        # Cleanup status file
+        cleanup_sync_status(project_root, sync_id=sync_id)
 
     except Exception as e:
-        logger.error(f"Error running sync for {source_name}: {e}")
+        _logger.warning("sync_task_error", source=source_name, error=str(e), exc_info=True)
         error_message = str(e)
 
-        # Log error
+        duration = time.time() - start_time
         append_log_entry(
             {
                 "timestamp": datetime.now().isoformat(),
@@ -405,10 +201,9 @@ async def run_sync_task(
             }
         )
 
-        # Calculate duration
-        duration = time.time() - start_time
+        # Record execution history failure (subprocess may not have had the chance)
+        record_failure(db_path, record_id, error_message)
 
-        # Save failed sync history
         history_entry = {
             "timestamp": sync_timestamp,
             "status": "failed",
@@ -419,7 +214,6 @@ async def run_sync_task(
         }
         save_sync_history_entry(source_name, history_entry)
 
-        # Broadcast error
         await ws_manager.broadcast(
             {
                 "event": "sync_failed",
@@ -428,12 +222,10 @@ async def run_sync_task(
                 "timestamp": datetime.now().isoformat(),
             }
         )
-    finally:
-        if lock is not None:
-            try:
-                lock.release()
-            except Exception:
-                pass
+
+        # Cleanup status file even on exception
+        if sync_id is not None:
+            cleanup_sync_status(project_root, sync_id=sync_id)
 
 
 # ---------------------------------------------------------------------------
@@ -453,10 +245,12 @@ async def trigger_manual_sync(
     """
     project_root = get_project_root()
 
-    # Validate sources exist
+    # Validate sources exist (sanitize names like trigger_sync does)
     sources_config = load_sources_config()
     known_names = {s.get("name") for s in sources_config}
+    validated_sources = []
     for src in body.sources:
+        src = validate_source_name(src)
         if src not in known_names:
             return JSONResponse(
                 status_code=404,
@@ -465,6 +259,7 @@ async def trigger_manual_sync(
                     "message": f"Source {src!r} not found.",
                 },
             )
+        validated_sources.append(src)
 
     # Parse backfill duration
     backfill_days: int | None = None
@@ -480,16 +275,15 @@ async def trigger_manual_sync(
                 },
             )
 
-    # Create execution history record
+    # Create execution history record (passed to subprocess to avoid double records)
     db_path = get_scheduler_db_path(project_root)
-    job_id = record_start(db_path, "manual", sources=body.sources)
+    job_id = record_start(db_path, "manual", sources=validated_sources)
 
-    # Launch background sync — use asyncio.create_task so the async
-    # coroutine runs on the event loop (WebSocket broadcasts work correctly).
+    # Launch background sync via subprocess
     asyncio.create_task(
         _run_manual_sync(
             project_root,
-            body.sources,
+            validated_sources,
             body.full_refresh,
             backfill_days,
             job_id,
@@ -504,7 +298,7 @@ async def trigger_manual_sync(
         email=user.email,
         ip=request.client.host if request.client else None,
         details={
-            "sources": body.sources,
+            "sources": validated_sources,
             "full_refresh": body.full_refresh,
             "backfill": body.backfill,
             "job_id": job_id,
@@ -514,7 +308,7 @@ async def trigger_manual_sync(
     return JSONResponse(
         content={
             "job_id": job_id,
-            "sources": body.sources,
+            "sources": validated_sources,
             "status": "started",
         },
     )
@@ -528,58 +322,44 @@ async def _run_manual_sync(
     record_id: int,
     db_path: Any,
 ) -> None:
-    """Background task that executes a manual sync and records the result."""
-    from dango.config.helpers import load_config
-    from dango.ingestion import run_sync
-    from dango.utils import DbtLock, DbtLockError
+    """Background task that executes a manual sync in a subprocess and records the result."""
+    from dango.platform.sync_process import (
+        cleanup_sync_status,
+        launch_sync_subprocess,
+        poll_sync_status,
+    )
 
-    lock = None
+    sync_id: str | None = None
     try:
-        lock = DbtLock(
+        # Pass record_id so subprocess reuses it (avoids double history records)
+        process, sync_id = launch_sync_subprocess(
             project_root=project_root,
-            source="manual",
-            operation=f"sync:{','.join(source_names)}",
-        )
-        lock.acquire()
-    except DbtLockError as exc:
-        record_failure(db_path, record_id, f"Lock unavailable: {exc}")
-        return
-
-    try:
-        config = load_config(project_root)
-        resolved = []
-        for name in source_names:
-            src = config.sources.get_source(name)
-            if src is not None:
-                resolved.append(src)
-
-        if not resolved:
-            msg = f"No valid sources found for: {', '.join(source_names)}"
-            _logger.warning("manual_sync_no_sources", source_names=source_names)
-            record_failure(db_path, record_id, msg)
-            return
-
-        start_date = None
-        if backfill_days is not None:
-            start_date = datetime.now(tz=timezone.utc) - timedelta(days=backfill_days)
-
-        run_sync(
-            project_root=project_root,
-            sources=resolved,
+            sources=source_names,
             full_refresh=full_refresh,
-            start_date=start_date,
+            backfill_days=backfill_days,
+            source_label="manual",
+            record_id=record_id,
         )
 
-        record_completion(db_path, record_id)
+        # Use first source name for WS events (manual sync may have multiple)
+        display_name = source_names[0] if source_names else "manual"
+        success, _result = await poll_sync_status(
+            project_root, process, display_name, sync_id=sync_id
+        )
+
+        # Subprocess records its own completion/failure via record_id for normal
+        # exits. Record failure here for cases where the subprocess didn't get
+        # the chance (crash, timeout, poller-detected failure).
+        if not success:
+            error = _result.get("error", "Unknown error") if _result else "Unknown error"
+            record_failure(db_path, record_id, error)
+
+        cleanup_sync_status(project_root, sync_id=sync_id)
     except Exception as exc:
         _logger.warning("manual_sync_failed", error=str(exc), exc_info=True)
         record_failure(db_path, record_id, str(exc))
-    finally:
-        if lock is not None:
-            try:
-                lock.release()
-            except Exception:
-                pass
+        if sync_id is not None:
+            cleanup_sync_status(project_root, sync_id=sync_id)
 
 
 @router.get("/api/sync/status/{record_id}")

@@ -345,7 +345,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 851 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
-| `platform/scheduling/jobs.py` | 895 | — (module-level job functions) |
+| `platform/scheduling/jobs.py` | 849 | — (module-level job functions) |
 | `utils/post_sync.py` | 632 | — (post-sync hooks + sync notification) |
 | `web/routes/schedules.py` | 518 | — (schedule read-only, history, trigger, notifications) |
 | `web/routes/notebooks.py` | 506 | — (notebook management API + heartbeat lock expiry + WS notify) |
@@ -361,7 +361,6 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/deploy_wizard.py` | 813 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 613 | — |
 | `web/routes/catalog.py` | 1336 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
-| `web/routes/sync.py` | 602 | — (sync endpoints + background task) |
 | `cli/commands/deploy_provision.py` | 846 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
 | `platform/cloud/server_setup.py` | 666 | — (server setup + install source detection) |

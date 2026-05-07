@@ -26,6 +26,7 @@ platform/
 │   ├── watcher_lifecycle.py  # start/stop/status for watcher subprocess
 │   └── watcher_runner.py    # Background watcher process entry point
 │
+├── sync_process.py      # Subprocess launch + polling for process-isolated syncs (R10-N)
 ├── scheduling/          # APScheduler-based job scheduling (TASK-036+)
 │   ├── __init__.py      # Re-exports SchedulerService, ResilienceConfig, run_with_resilience, history functions
 │   ├── CLAUDE.md        # Scheduling module navigation doc
@@ -33,7 +34,7 @@ platform/
 │   ├── resilience.py    # Resilience: retry, timeout, cancellation (extracted from scheduler.py)
 │   ├── history.py       # Execution history tracking (TASK-039)
 │   ├── jobs.py          # Module-level job functions (pickle-safe)
-│   └── sync_trigger.py  # Server-side manual sync runner (dango remote sync)
+│   └── sync_trigger.py  # Subprocess entrypoint for manual + UI + scheduler syncs
 │
 ├── notifications/       # Webhook notification infrastructure (TASK-043+)
 │   ├── __init__.py      # Re-exports WebhookSender, EventType, etc.
@@ -82,7 +83,8 @@ platform/
 | `scheduling/resilience.py` | Resilience: retry with backoff, timeout via thread kill, cancellation | `ResilienceConfig`, `run_with_resilience`, `_execute_with_timeout`, `_raise_in_thread` |
 | `scheduling/history.py` | Execution history tracking for scheduled jobs | `record_start`, `record_completion`, `record_failure`, `get_schedule_history`, `get_recent_history`, `get_average_duration`, `get_last_run`, `cleanup_old_records` |
 | `scheduling/jobs.py` | Module-level job functions (pickle-safe) | `configure_jobs`, `run_scheduled_sync`, `run_scheduled_dbt` |
-| `scheduling/sync_trigger.py` | Server-side manual sync runner (invoked via SSH) | `main()`, `_run_sync()` |
+| `scheduling/sync_trigger.py` | Subprocess entrypoint for sync operations (progress writing, lock, OAuth) | `run_manual_sync()`, `_write_status()` |
+| `sync_process.py` | Subprocess launch + polling for process-isolated syncs | `launch_sync_subprocess`, `poll_sync_status`, `poll_sync_status_blocking`, `read_sync_status`, `cleanup_sync_status` |
 | `notifications/webhook.py` | Event types, config models, event filtering, async sender with retry | `WebhookSender`, `WebhookConfig`, `NotificationConfig`, `EventType`, `EventCategory`, `WebhookPayload` |
 | `notifications/slack.py` | Slack Block Kit formatter for webhook payloads | `format_slack_message` |
 | `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |
@@ -169,6 +171,11 @@ from dango.platform.cloud import migrate_server, MigrateResult
 # Upgrade (TASK-106)
 from dango.platform.cloud import upgrade_dango, UpgradeResult, validate_version_string
 from dango.platform.cloud.upgrade import check_versions
+```
+
+# Sync subprocess (R10-N)
+from dango.platform.sync_process import launch_sync_subprocess, poll_sync_status
+from dango.platform.sync_process import poll_sync_status_blocking, cleanup_sync_status
 ```
 
 ### Also valid (backwards-compatible shims):

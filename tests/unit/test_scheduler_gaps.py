@@ -23,7 +23,7 @@ _dbt_lock_module = sys.modules["dango.utils.dbt_lock"]
 _SCHEDULER_MOD = "dango.platform.scheduling.scheduler"
 _JOBS_MOD = "dango.platform.scheduling.jobs"
 _NOTIF_MOD = "dango.platform.notifications.webhook"
-_SYNC_MOD = "dango.ingestion.dlt_runner"
+_SYNC_PROC_MOD = "dango.platform.sync_process"
 _CFG_MOD = "dango.config.helpers"
 _HIST_MOD = "dango.utils.sync_history"
 
@@ -214,16 +214,21 @@ class TestMultiSourceDbtLock:
     """Second schedule gets lock contention on shared sources."""
 
     def test_lock_contention_reported(self, tmp_path):
-        """When DbtLock.acquire raises, the job broadcasts lock_failed."""
-        from dango.exceptions import DbtLockError
-
-        mock_lock = MagicMock()
-        mock_lock.acquire.side_effect = DbtLockError("held by another schedule")
+        """When subprocess fails due to lock, the job broadcasts sync_failed."""
+        config = _make_config_with_sources("src1")
 
         with (
-            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
+                return_value=(MagicMock(), "test_id"),
+            ),
+            patch(
+                f"{_SYNC_PROC_MOD}.poll_sync_status_blocking",
+                return_value=(False, {"error": "Lock unavailable", "phase": "failed"}),
+            ),
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._notify"),
             patch(f"{_JOBS_MOD}._log_execution_event") as mock_log,
@@ -233,8 +238,8 @@ class TestMultiSourceDbtLock:
             run_scheduled_sync("hourly", ["src1"], project_root=str(tmp_path))
 
         events = [c.args[0]["event"] for c in mock_bc.call_args_list]
-        assert "job_queued" in events
-        assert mock_log.call_args[1]["status"] == "lock_failed"
+        assert "sync_failed" in events
+        assert mock_log.call_args[1]["status"] == "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -251,8 +256,7 @@ class TestCancellationBetweenSources:
         import dango.platform.scheduling.jobs as jobs_mod
 
         config = _make_config_with_sources("src1", "src2", "src3")
-        mock_lock = MagicMock()
-        synced_sources: list[str] = []
+        launched_sources: list[str] = []
 
         mock_svc = MagicMock()
         cancel_count = 0
@@ -267,25 +271,29 @@ class TestCancellationBetweenSources:
         mock_svc._running_records = {}
         mock_svc.register_execution = MagicMock()
 
-        def mock_run_sync(root, sources, **kw):
-            synced_sources.append(sources[0].name)
+        def mock_launch(project_root, sources, **kw):
+            launched_sources.append(sources[0])
+            return MagicMock(), "test_id"
 
         old_svc = jobs_mod._scheduler_service
         try:
             jobs_mod._scheduler_service = mock_svc
 
             with (
-                patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
                 patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
                 patch(f"{_NOTIF_MOD}.WebhookSender"),
                 patch(f"{_CFG_MOD}.load_config", return_value=config),
-                patch(f"{_SYNC_MOD}.run_sync", side_effect=mock_run_sync),
+                patch(f"{_SYNC_PROC_MOD}.launch_sync_subprocess", side_effect=mock_launch),
+                patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
+                patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
                 patch(f"{_HIST_MOD}.save_sync_history_entry"),
                 patch(f"{_JOBS_MOD}._broadcast"),
                 patch(f"{_JOBS_MOD}._notify"),
                 patch(f"{_JOBS_MOD}._log_execution_event"),
                 patch(f"{_JOBS_MOD}._try_record_start", return_value=None),
                 patch(f"{_JOBS_MOD}._try_finish_record"),
+                patch(f"{_JOBS_MOD}._add_pending_dbt_source"),
+                patch(f"{_JOBS_MOD}._run_coalesced_dbt"),
             ):
                 from dango.platform.scheduling.jobs import run_scheduled_sync
 
@@ -293,8 +301,8 @@ class TestCancellationBetweenSources:
         finally:
             jobs_mod._scheduler_service = old_svc
 
-        # src1 synced, then cancelled before src2
-        assert synced_sources == ["src1"]
+        # src1 launched, then cancelled before src2
+        assert launched_sources == ["src1"]
 
 
 # ---------------------------------------------------------------------------
@@ -353,18 +361,23 @@ class TestRecordStartWiring:
     def test_record_start_called_on_sync(self, tmp_path):
         """run_scheduled_sync should call _try_record_start when scheduler is available."""
         config = _make_config_with_sources("src1")
-        mock_lock = MagicMock()
 
         with (
-            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_MOD}.run_sync"),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
+                return_value=(MagicMock(), "test_id"),
+            ),
+            patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
+            patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
             patch(f"{_HIST_MOD}.save_sync_history_entry"),
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._notify"),
             patch(f"{_JOBS_MOD}._check_freshness"),
+            patch(f"{_JOBS_MOD}._add_pending_dbt_source"),
+            patch(f"{_JOBS_MOD}._run_coalesced_dbt"),
             patch(f"{_JOBS_MOD}._try_record_start", return_value=42) as mock_start,
             patch(f"{_JOBS_MOD}._try_finish_record") as mock_finish,
         ):
@@ -411,14 +424,15 @@ class TestTimeoutDistinctStatus:
     def test_timeout_records_timeout_status(self, tmp_path):
         """When JobTimeoutError is raised, execution log should show 'timeout'."""
         config = _make_config_with_sources("src1")
-        mock_lock = MagicMock()
 
         with (
-            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_MOD}.run_sync", side_effect=JobTimeoutError("timed out")),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
+                side_effect=JobTimeoutError("timed out"),
+            ),
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._notify"),
             patch(f"{_JOBS_MOD}._log_execution_event") as mock_log,
@@ -434,14 +448,15 @@ class TestTimeoutDistinctStatus:
     def test_cancellation_records_cancelled_status(self, tmp_path):
         """When JobCancelledError is raised, execution log should show 'cancelled'."""
         config = _make_config_with_sources("src1")
-        mock_lock = MagicMock()
 
         with (
-            patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
             patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
             patch(f"{_NOTIF_MOD}.WebhookSender"),
             patch(f"{_CFG_MOD}.load_config", return_value=config),
-            patch(f"{_SYNC_MOD}.run_sync", side_effect=JobCancelledError("cancelled")),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
+                side_effect=JobCancelledError("cancelled"),
+            ),
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._log_execution_event") as mock_log,
             patch(f"{_JOBS_MOD}._try_record_start", return_value=None),

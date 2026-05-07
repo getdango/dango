@@ -34,7 +34,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/health.py` | `/api/status`, `/api/watcher/status`, `/api/health/platform` (incl. DuckDB capacity gauge, OAuth token health, component disk breakdown, cloud resource metrics, backup staleness, deployment info), `/api/deployments/history` (admin-only) | — |
 | `routes/config.py` | `/api/config`, `/api/metabase-config` | — |
 | `routes/sources.py` | `/api/sources`, `/api/sources/{name}/details` | — |
-| `routes/sync.py` | `/api/sources/{name}/sync`, `/api/sync/trigger` (remote), `/api/sync/status/{id}` + background `run_sync_task()` (~602 lines) | `run_sync_task()` |
+| `routes/sync.py` | `/api/sources/{name}/sync`, `/api/sync/trigger` (remote), `/api/sync/status/{id}` + subprocess-based `run_sync_task()` (~370 lines) | `run_sync_task()` |
 | `routes/logs.py` | `/api/logs`, `/api/sources/{name}/logs` | — |
 | `routes/dbt.py` | `/api/dbt/models`, `/api/dbt/models/{name}/run` + dbt docs proxy (`/manifest.json`, `/catalog.json`, `/dbt-docs/*`) | `run_dbt_model_task()` |
 | `routes/upload.py` | CSV upload/list/delete + background `run_dbt_after_delete()` | `run_dbt_after_delete()` |
@@ -98,7 +98,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 - **Rename-via-PUT guard:** Any CRUD API where the resource name is in both URL path and request body must check `body.name != url_name → 400`. Without this, renames silently orphan related records (e.g., execution history keyed by schedule name).
 - **`load_sources_config()` patching:** `load_sources_config()` in `helpers.py` internally calls `get_project_root()`. Patching `get_project_root` at the route module level doesn't reach the call inside `load_sources_config()`. Patch `load_sources_config` directly at the route module level instead.
 - **Alpine.js object reactivity:** Proxy doesn't track `delete obj[key]` or direct property mutation. Must use object spread reassignment (`this.obj = {...updated}`) for reactive updates. Arrays with `.push()`/`.splice()` work fine; objects do not.
-- **Dual logger debt in `routes/sync.py`:** Uses both stdlib `logging` and structlog `get_logger`. Known debt — consolidate when touching the file.
+- **`routes/sync.py` uses subprocess model (R10-N):** Syncs run in a subprocess via `sync_process.py` — the web server process never holds the DuckDB write lock. `run_sync_task()` launches subprocess + polls status file.
 
 ## Adding a New Page
 
