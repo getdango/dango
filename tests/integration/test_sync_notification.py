@@ -21,7 +21,7 @@ _dbt_lock_module = sys.modules["dango.utils.dbt_lock"]
 
 _JOBS_MOD = "dango.platform.scheduling.jobs"
 _CFG_MOD = "dango.config.helpers"
-_SYNC_MOD = "dango.ingestion.dlt_runner"
+_SYNC_PROC_MOD = "dango.platform.sync_process"
 _HTTPX_CLIENT = "dango.platform.notifications.webhook.httpx.AsyncClient"
 _ASYNC_SLEEP = "dango.platform.notifications.webhook.asyncio.sleep"
 
@@ -48,8 +48,7 @@ class TestSyncFailureNotification:
         }
         (dango_dir / "schedules.yml").write_text(yaml.safe_dump(schedules_data))
 
-        # 2. Mock infrastructure: lock, config, run_sync (raises)
-        mock_lock = MagicMock()
+        # 2. Mock infrastructure: config, subprocess (fails)
         src = MagicMock()
         src.name = "src1"
         config = MagicMock()
@@ -85,9 +84,15 @@ class TestSyncFailureNotification:
             jobs_mod._event_loop = MagicMock(spec=asyncio.AbstractEventLoop)
 
             with (
-                patch.object(_dbt_lock_module, "DbtLock", return_value=mock_lock),
                 patch(f"{_CFG_MOD}.load_config", return_value=config),
-                patch(f"{_SYNC_MOD}.run_sync", side_effect=RuntimeError("Connection refused")),
+                patch(
+                    f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
+                    return_value=(MagicMock(), "test_id"),
+                ),
+                patch(
+                    f"{_SYNC_PROC_MOD}.poll_sync_status_blocking",
+                    return_value=(False, {"error": "Connection refused", "phase": "failed"}),
+                ),
                 patch(f"{_JOBS_MOD}._broadcast"),
                 patch(f"{_JOBS_MOD}.asyncio") as mock_asyncio_mod,
                 patch(_HTTPX_CLIENT, return_value=mock_client),
