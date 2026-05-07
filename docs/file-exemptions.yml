@@ -124,7 +124,7 @@ exemptions:
 
   # --- Exempt (stable, not modified in v1) ---
   - file: dango/ingestion/dlt_runner.py
-    lines: 2472
+    lines: 2473
     category: exempt
     reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage. Post-sync hook dispatch added in P7-000. P5c grew +480 lines (credential unification, resource selection, local_files routing). P8-001 added headers/data_selector/params passthrough (+8 lines). R9-I added skip_sync_notification param + sync_result passthrough to post_sync hooks. R10-F3 added _get_source_total_rows + rewrote anomaly check to use DB totals (BUG-182). R10-S added progress_callback parameter (+12 lines)."
     review_by: "v1.1"
@@ -297,7 +297,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_sync_process.py
-    lines: 644
+    lines: 674
     category: exempt
     reason: "R10-S: Added watcher tests (locally_polled, mtime efficiency, start_returns_task). Test files are verbose by design."
     review_by: "v1.1"

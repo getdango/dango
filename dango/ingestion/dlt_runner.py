@@ -2237,7 +2237,7 @@ def run_sync(
             (used by scheduler which sends its own notifications)
         progress_callback: Optional callback invoked at sync milestones with
             (phase, message). Phases: ``data_load_complete``, ``dbt_started``,
-            ``dbt_complete``.
+            ``dbt_complete`` (on success), ``dbt_failed`` (on failure).
 
     Returns:
         Summary dictionary with success/failed counts
@@ -2400,6 +2400,8 @@ def run_sync(
                 dbt_success, dbt_output = run_dbt_models(project_root)
 
             if dbt_success:
+                if progress_callback is not None:
+                    progress_callback("dbt_complete", "dbt models complete")
                 # Parse and display dbt model execution details
                 _display_dbt_output(dbt_output)
                 console.print("[green]✓ dbt models executed successfully[/green]")
@@ -2431,12 +2433,11 @@ def run_sync(
                 else:
                     console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
             else:
+                if progress_callback is not None:
+                    progress_callback("dbt_failed", "dbt run failed")
                 console.print("[red]✗ dbt run failed[/red]")
                 console.print(f"[dim]{dbt_output}[/dim]")
                 console.print("[yellow]⚠️  Staging/marts tables were not created[/yellow]")
-
-            if progress_callback is not None:
-                progress_callback("dbt_complete", "dbt models complete")
             console.print()
         else:
             console.print("[dim]⏭  Skipping dbt run (will be coalesced)[/dim]\n")

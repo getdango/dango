@@ -343,6 +343,7 @@ def _phase_to_event(phase: str) -> str:
         "data_load_complete": "data_load_complete",
         "dbt_started": "dbt_run_all_started",
         "dbt_complete": "dbt_run_all_completed",
+        "dbt_failed": "dbt_run_all_failed",
         "completed": "sync_completed",
         "failed": "sync_failed",
     }
@@ -370,6 +371,8 @@ async def _broadcast_phase_transition(
     elif phase == "dbt_started":
         message["source"] = f"dbt (triggered by {source_name})"
     elif phase == "dbt_complete":
+        message["source"] = f"dbt (triggered by {source_name})"
+    elif phase == "dbt_failed":
         message["source"] = f"dbt (triggered by {source_name})"
     elif phase == "completed":
         message["rows_loaded"] = status.get("rows_loaded", 0)
@@ -472,10 +475,6 @@ async def _sync_status_watcher_loop(
                     )
 
                 known_states[sync_id] = (current_phase, mtime)
-
-                # Clean up tracking for terminal phases
-                if current_phase in ("completed", "failed"):
-                    known_states.pop(sync_id, None)
 
             # Remove tracking for files that have disappeared
             stale_ids = set(known_states) - seen_ids

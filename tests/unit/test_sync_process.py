@@ -620,6 +620,36 @@ class TestSyncStatusWatcher:
         assert mock_ws.broadcast.call_count == 1
 
     @pytest.mark.anyio
+    async def test_watcher_no_rebroadcast_terminal_phase(self, tmp_path):
+        """Watcher should NOT re-broadcast a terminal phase on subsequent iterations."""
+        import asyncio
+
+        from dango.platform.sync_process import _sync_status_watcher_loop
+
+        sid = "term1"
+        _write_status_file(tmp_path, phase="completed", sync_id=sid)
+
+        mock_ws = MagicMock()
+        mock_ws.broadcast = AsyncMock()
+
+        iteration = [0]
+
+        async def _counting_sleep(n):
+            iteration[0] += 1
+            if iteration[0] >= 4:
+                raise asyncio.CancelledError
+
+        with (
+            patch(f"{_WS_MOD}.ws_manager", mock_ws),
+            patch(f"{_MOD}.asyncio.sleep", side_effect=_counting_sleep),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await _sync_status_watcher_loop(tmp_path, poll_interval=0.1)
+
+        # Should broadcast "completed" once, not on every subsequent iteration
+        assert mock_ws.broadcast.call_count == 1
+
+    @pytest.mark.anyio
     async def test_start_returns_task(self, tmp_path):
         """start_sync_status_watcher should return a cancellable asyncio.Task."""
         import asyncio

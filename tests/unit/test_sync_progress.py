@@ -128,6 +128,47 @@ class TestProgressCallback:
 
         assert result["success_count"] == 1
 
+    @patch(f"{_PATCH_POST_SYNC}.dispatch_post_sync_hooks")
+    @patch(f"{_PATCH_TRANSFORM}.run_dbt_models", return_value=(False, "compilation error"))
+    @patch(f"{_PATCH_GOVERNANCE}.detect_drift_for_sources", return_value=[])
+    @patch(f"{_PATCH_TRANSFORM_GEN}.DbtModelGenerator")
+    def test_callback_dbt_failed_on_dbt_failure(
+        self,
+        mock_gen_cls,
+        mock_drift,
+        mock_dbt,
+        mock_post_sync,
+        tmp_path,
+    ):
+        """When dbt fails, callback should fire dbt_failed instead of dbt_complete."""
+        from dango.ingestion.dlt_runner import run_sync
+
+        mock_gen_cls.return_value.generate_all_models.return_value = {
+            "generated": [],
+            "skipped": [],
+        }
+
+        callback = MagicMock()
+        src = _make_source()
+
+        with patch("dango.ingestion.dlt_runner.DltPipelineRunner") as mock_runner_cls:
+            mock_runner_cls.return_value.run_source.return_value = {
+                "status": "success",
+                "rows_loaded": 10,
+            }
+            mock_runner_cls.return_value.allow_schema_changes = False
+            run_sync(
+                project_root=tmp_path,
+                sources=[src],
+                progress_callback=callback,
+            )
+
+        phases_called = [call.args[0] for call in callback.call_args_list]
+        assert "data_load_complete" in phases_called
+        assert "dbt_started" in phases_called
+        assert "dbt_failed" in phases_called
+        assert "dbt_complete" not in phases_called
+
     def test_no_callback_when_no_success_sources(self, tmp_path):
         """Callback should not be called when all sources are disabled."""
         from dango.ingestion.dlt_runner import run_sync
