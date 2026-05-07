@@ -252,6 +252,9 @@ def run_manual_sync(
 
         _progress("data_load", "Loading data from source")
 
+        def _sync_progress_cb(phase: str, message: str) -> None:
+            _progress(phase, message)
+
         sync_result = run_sync(
             project_root=project_root,
             sources=resolved,
@@ -259,6 +262,7 @@ def run_manual_sync(
             start_date=start_date_obj,
             end_date=end_date_obj,
             skip_dbt=skip_dbt,
+            progress_callback=_sync_progress_cb,
         )
 
         # Extract rows loaded from sync result
@@ -269,8 +273,6 @@ def run_manual_sync(
                 for r in sync_result.get("results", [])
                 if isinstance(r, dict)
             )
-
-        _progress("data_load_complete", "Data load completed", rows_loaded=rows_loaded)
 
         record_completion(db_path, record_id)
         duration = round(time.time() - start_time, 1)

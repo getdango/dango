@@ -75,6 +75,10 @@ class TestRunManualSync:
         mock_lock_cls.return_value.release.assert_called_once()
         mock_sync.assert_called_once()
         mock_complete.assert_called_once()
+        # Verify progress_callback is passed to run_sync
+        call_kwargs = mock_sync.call_args[1]
+        assert "progress_callback" in call_kwargs
+        assert callable(call_kwargs["progress_callback"])
 
     @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
     @patch(f"{_PATCH_CONFIG}.load_config")
@@ -217,6 +221,9 @@ class TestRunManualSync:
         assert result["status"] == "success"
         call_kwargs = mock_sync.call_args[1]
         assert call_kwargs["skip_dbt"] is True
+        # Verify progress_callback is always passed
+        assert "progress_callback" in call_kwargs
+        assert callable(call_kwargs["progress_callback"])
 
     @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
     @patch(f"{_PATCH_CONFIG}.load_config")

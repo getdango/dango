@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -2218,6 +2219,7 @@ def run_sync(
     allow_schema_changes: bool = False,
     *,
     skip_sync_notification: bool = False,
+    progress_callback: Callable[[str, str], None] | None = None,
 ) -> dict[str, Any]:
     """
     Sync multiple sources and return summary
@@ -2233,6 +2235,9 @@ def run_sync(
         allow_schema_changes: If True, allow CSV schema evolution (add cols, NULL missing)
         skip_sync_notification: If True, skip sending sync webhooks in post-sync hooks
             (used by scheduler which sends its own notifications)
+        progress_callback: Optional callback invoked at sync milestones with
+            (phase, message). Phases: ``data_load_complete``, ``dbt_started``,
+            ``dbt_complete`` (on success), ``dbt_failed`` (on failure).
 
     Returns:
         Summary dictionary with success/failed counts
@@ -2371,9 +2376,14 @@ def run_sync(
 
                 _drift_log.getLogger(__name__).debug("pre_dbt_drift_check_failed", exc_info=True)
 
+        if progress_callback is not None:
+            progress_callback("data_load_complete", "Data load completed")
+
         # Run dbt to create staging/marts tables (unless caller handles dbt separately)
         if not skip_dbt:
             # Use selective runs to only process models dependent on synced sources
+            if progress_callback is not None:
+                progress_callback("dbt_started", "Running dbt models")
             console.print("🔄 [bold]Running dbt models...[/bold]\n")
             from dango.transformation import run_dbt_models
 
@@ -2390,6 +2400,8 @@ def run_sync(
                 dbt_success, dbt_output = run_dbt_models(project_root)
 
             if dbt_success:
+                if progress_callback is not None:
+                    progress_callback("dbt_complete", "dbt models complete")
                 # Parse and display dbt model execution details
                 _display_dbt_output(dbt_output)
                 console.print("[green]✓ dbt models executed successfully[/green]")
@@ -2421,10 +2433,11 @@ def run_sync(
                 else:
                     console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
             else:
+                if progress_callback is not None:
+                    progress_callback("dbt_failed", "dbt run failed")
                 console.print("[red]✗ dbt run failed[/red]")
                 console.print(f"[dim]{dbt_output}[/dim]")
                 console.print("[yellow]⚠️  Staging/marts tables were not created[/yellow]")
-
             console.print()
         else:
             console.print("[dim]⏭  Skipping dbt run (will be coalesced)[/dim]\n")
