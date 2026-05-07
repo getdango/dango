@@ -84,7 +84,7 @@ platform/
 | `scheduling/history.py` | Execution history tracking for scheduled jobs | `record_start`, `record_completion`, `record_failure`, `get_schedule_history`, `get_recent_history`, `get_average_duration`, `get_last_run`, `cleanup_old_records` |
 | `scheduling/jobs.py` | Module-level job functions (pickle-safe) | `configure_jobs`, `run_scheduled_sync`, `run_scheduled_dbt` |
 | `scheduling/sync_trigger.py` | Subprocess entrypoint for sync operations (progress writing, lock, OAuth) | `run_manual_sync()`, `_write_status()` |
-| `sync_process.py` | Subprocess launch + polling for process-isolated syncs | `launch_sync_subprocess`, `poll_sync_status`, `poll_sync_status_blocking`, `read_sync_status`, `cleanup_sync_status` |
+| `sync_process.py` | Subprocess launch + polling for process-isolated syncs | `launch_sync_subprocess`, `poll_sync_status`, `poll_sync_status_blocking`, `read_sync_status`, `cleanup_sync_status`, `start_sync_status_watcher` |
 | `notifications/webhook.py` | Event types, config models, event filtering, async sender with retry | `WebhookSender`, `WebhookConfig`, `NotificationConfig`, `EventType`, `EventCategory`, `WebhookPayload` |
 | `notifications/slack.py` | Slack Block Kit formatter for webhook payloads | `format_slack_message` |
 | `cloud/digitalocean.py` | DigitalOcean REST API v2 client | `DigitalOceanClient` |

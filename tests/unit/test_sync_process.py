@@ -445,6 +445,21 @@ class TestPollSyncStatusBlocking:
         call_msg = broadcast_fn.call_args[0][0]
         assert call_msg["source"] == "hubspot"
 
+    def test_locally_polled_registration(self, tmp_path):
+        """poll_sync_status_blocking does not use _locally_polled (only async does)."""
+        from dango.platform.sync_process import poll_sync_status_blocking
+
+        _write_status_file(tmp_path, phase="completed", sync_id="blk1")
+        process = MagicMock()
+        process.poll.return_value = 0
+
+        with patch(f"{_MOD}.time.sleep"):
+            success, _ = poll_sync_status_blocking(
+                tmp_path, process, sync_id="blk1", poll_interval=0.01
+            )
+
+        assert success is True
+
     def test_timeout_terminates_process(self, tmp_path):
         """Blocking poller should terminate process after max_poll_time."""
         from dango.platform.sync_process import poll_sync_status_blocking
@@ -473,3 +488,157 @@ class TestPollSyncStatusBlocking:
         assert success is False
         assert "timed out" in result["error"]
         process.terminate.assert_called_once()
+
+
+@pytest.mark.unit
+class TestPollSyncStatusLocallyPolled:
+    """Tests for _locally_polled registration in async poll_sync_status."""
+
+    @pytest.mark.anyio
+    async def test_registers_and_unregisters(self, tmp_path):
+        """poll_sync_status should add sync_id to _locally_polled during polling."""
+        from dango.platform.sync_process import _locally_polled, poll_sync_status
+
+        sid = "reg_test"
+        _write_status_file(tmp_path, phase="completed", sync_id=sid)
+        process = MagicMock()
+        process.poll.return_value = 0
+
+        mock_ws = MagicMock()
+        mock_ws.broadcast = AsyncMock()
+
+        with patch(f"{_WS_MOD}.ws_manager", mock_ws):
+            assert sid not in _locally_polled
+            await poll_sync_status(
+                tmp_path, process, "test_source", sync_id=sid, poll_interval=0.01
+            )
+
+        # Should be unregistered after poll completes
+        assert sid not in _locally_polled
+
+
+@pytest.mark.unit
+class TestSyncStatusWatcher:
+    """Tests for start_sync_status_watcher and _sync_status_watcher_loop."""
+
+    @pytest.mark.anyio
+    async def test_watcher_broadcasts_on_phase_change(self, tmp_path):
+        """Watcher should broadcast when a status file has a new phase."""
+        import asyncio
+
+        from dango.platform.sync_process import _sync_status_watcher_loop
+
+        sid = "watch1"
+        _write_status_file(tmp_path, phase="data_load", sync_id=sid)
+
+        mock_ws = MagicMock()
+        mock_ws.broadcast = AsyncMock()
+
+        iteration = [0]
+
+        async def _counting_sleep(n):
+            iteration[0] += 1
+            if iteration[0] >= 2:
+                raise asyncio.CancelledError
+
+        with (
+            patch(f"{_WS_MOD}.ws_manager", mock_ws),
+            patch(f"{_MOD}.asyncio.sleep", side_effect=_counting_sleep),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await _sync_status_watcher_loop(tmp_path, poll_interval=0.1)
+
+        # Should have broadcast at least once
+        assert mock_ws.broadcast.call_count >= 1
+
+    @pytest.mark.anyio
+    async def test_watcher_skips_locally_polled(self, tmp_path):
+        """Watcher should NOT broadcast for sync_ids in _locally_polled."""
+        import asyncio
+
+        from dango.platform.sync_process import (
+            _locally_polled,
+            _sync_status_watcher_loop,
+        )
+
+        sid = "polled1"
+        _write_status_file(tmp_path, phase="data_load", sync_id=sid)
+        _locally_polled.add(sid)
+
+        mock_ws = MagicMock()
+        mock_ws.broadcast = AsyncMock()
+
+        iteration = [0]
+
+        async def _counting_sleep(n):
+            iteration[0] += 1
+            if iteration[0] >= 2:
+                raise asyncio.CancelledError
+
+        try:
+            with (
+                patch(f"{_WS_MOD}.ws_manager", mock_ws),
+                patch(f"{_MOD}.asyncio.sleep", side_effect=_counting_sleep),
+            ):
+                with pytest.raises(asyncio.CancelledError):
+                    await _sync_status_watcher_loop(tmp_path, poll_interval=0.1)
+
+            # Should NOT have broadcast since sync_id is in _locally_polled
+            mock_ws.broadcast.assert_not_called()
+        finally:
+            _locally_polled.discard(sid)
+
+    @pytest.mark.anyio
+    async def test_watcher_uses_mtime_for_efficiency(self, tmp_path):
+        """Watcher should not re-broadcast if file mtime hasn't changed."""
+        import asyncio
+
+        from dango.platform.sync_process import _sync_status_watcher_loop
+
+        sid = "mtime1"
+        _write_status_file(tmp_path, phase="data_load", sync_id=sid)
+
+        mock_ws = MagicMock()
+        mock_ws.broadcast = AsyncMock()
+
+        iteration = [0]
+
+        async def _counting_sleep(n):
+            iteration[0] += 1
+            if iteration[0] >= 3:
+                raise asyncio.CancelledError
+
+        with (
+            patch(f"{_WS_MOD}.ws_manager", mock_ws),
+            patch(f"{_MOD}.asyncio.sleep", side_effect=_counting_sleep),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                await _sync_status_watcher_loop(tmp_path, poll_interval=0.1)
+
+        # Should broadcast on first detection, but NOT re-broadcast on
+        # subsequent iterations (same mtime, same phase)
+        assert mock_ws.broadcast.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_start_returns_task(self, tmp_path):
+        """start_sync_status_watcher should return a cancellable asyncio.Task."""
+        import asyncio
+
+        from dango.platform.sync_process import start_sync_status_watcher
+
+        mock_ws = MagicMock()
+        mock_ws.broadcast = AsyncMock()
+
+        with patch(f"{_WS_MOD}.ws_manager", mock_ws):
+            task = await start_sync_status_watcher(tmp_path, poll_interval=0.01)
+
+        assert isinstance(task, asyncio.Task)
+        assert not task.done()
+
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        assert task.done()

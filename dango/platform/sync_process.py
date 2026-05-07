@@ -13,6 +13,7 @@ Public API:
     launch_sync_subprocess(...)                  -- spawn sync subprocess
     poll_sync_status(...)                        -- async poll with WS broadcasts
     poll_sync_status_blocking(...)               -- sync poll for scheduler threads
+    start_sync_status_watcher(project_root)      -- background watcher for multi-worker
 """
 
 from __future__ import annotations
@@ -31,6 +32,9 @@ from uuid import uuid4
 from dango.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Sync IDs being actively polled by this worker (skip in background watcher)
+_locally_polled: set[str] = set()
 
 
 def get_sync_status_path(project_root: Path, sync_id: str | None = None) -> Path:
@@ -163,74 +167,83 @@ async def poll_sync_status(
     """
     from dango.web.routes.websocket import ws_manager
 
+    if sync_id:
+        _locally_polled.add(sync_id)
+
     last_phase: str | None = None
     last_heartbeat = time.time()
     start_time = time.time()
 
-    while True:
-        await asyncio.sleep(poll_interval)
+    try:
+        while True:
+            await asyncio.sleep(poll_interval)
 
-        # Check timeout
-        elapsed = time.time() - start_time
-        if elapsed >= max_poll_time:
-            process.terminate()
-            error_msg = f"Sync timed out after {int(elapsed)}s"
-            await ws_manager.broadcast(
-                {
-                    "event": "sync_failed",
-                    "source": source_name,
-                    "message": error_msg,
-                    "timestamp": _ts(),
-                }
-            )
-            return False, {"error": error_msg, "phase": "failed"}
+            # Check timeout
+            elapsed = time.time() - start_time
+            if elapsed >= max_poll_time:
+                process.terminate()
+                error_msg = f"Sync timed out after {int(elapsed)}s"
+                await ws_manager.broadcast(
+                    {
+                        "event": "sync_failed",
+                        "source": source_name,
+                        "message": error_msg,
+                        "timestamp": _ts(),
+                    }
+                )
+                return False, {"error": error_msg, "phase": "failed"}
 
-        # Check if subprocess has exited
-        exit_code = process.poll()
+            # Check if subprocess has exited
+            exit_code = process.poll()
 
-        # Read current status
-        status = read_sync_status(project_root, sync_id)
+            # Read current status
+            status = read_sync_status(project_root, sync_id)
 
-        if status is not None:
-            current_phase = status.get("phase", "")
+            if status is not None:
+                current_phase = status.get("phase", "")
 
-            # Broadcast on phase transitions
-            if current_phase != last_phase:
-                await _broadcast_phase_transition(ws_manager, source_name, current_phase, status)
-                last_phase = current_phase
+                # Broadcast on phase transitions
+                if current_phase != last_phase:
+                    await _broadcast_phase_transition(
+                        ws_manager, source_name, current_phase, status
+                    )
+                    last_phase = current_phase
 
-            # Detect terminal state
-            if current_phase in ("completed", "failed"):
-                return current_phase == "completed", status
+                # Detect terminal state
+                if current_phase in ("completed", "failed"):
+                    return current_phase == "completed", status
 
-        # Heartbeat
-        now = time.time()
-        if now - last_heartbeat >= heartbeat_interval:
-            elapsed_int = int(now - start_time)
-            await ws_manager.broadcast(
-                {
-                    "event": "sync_progress",
-                    "source": source_name,
-                    "message": f"Sync in progress ({elapsed_int}s elapsed)",
-                    "timestamp": _ts(),
-                }
-            )
-            last_heartbeat = now
+            # Heartbeat
+            now = time.time()
+            if now - last_heartbeat >= heartbeat_interval:
+                elapsed_int = int(now - start_time)
+                await ws_manager.broadcast(
+                    {
+                        "event": "sync_progress",
+                        "source": source_name,
+                        "message": f"Sync in progress ({elapsed_int}s elapsed)",
+                        "timestamp": _ts(),
+                    }
+                )
+                last_heartbeat = now
 
-        # Process crashed without writing final status
-        if exit_code is not None and (
-            status is None or status.get("phase") not in ("completed", "failed")
-        ):
-            error_msg = f"Sync process terminated unexpectedly (exit code {exit_code})"
-            await ws_manager.broadcast(
-                {
-                    "event": "sync_failed",
-                    "source": source_name,
-                    "message": error_msg,
-                    "timestamp": _ts(),
-                }
-            )
-            return False, {"error": error_msg, "phase": "failed"}
+            # Process crashed without writing final status
+            if exit_code is not None and (
+                status is None or status.get("phase") not in ("completed", "failed")
+            ):
+                error_msg = f"Sync process terminated unexpectedly (exit code {exit_code})"
+                await ws_manager.broadcast(
+                    {
+                        "event": "sync_failed",
+                        "source": source_name,
+                        "message": error_msg,
+                        "timestamp": _ts(),
+                    }
+                )
+                return False, {"error": error_msg, "phase": "failed"}
+    finally:
+        if sync_id:
+            _locally_polled.discard(sync_id)
 
 
 def poll_sync_status_blocking(
@@ -365,3 +378,111 @@ async def _broadcast_phase_transition(
         message["error"] = status.get("error")
 
     await ws_manager.broadcast(message)
+
+
+# ---------------------------------------------------------------------------
+# Background sync status watcher (multi-worker support)
+# ---------------------------------------------------------------------------
+
+
+async def start_sync_status_watcher(
+    project_root: Path,
+    poll_interval: float = 2.0,
+) -> asyncio.Task:
+    """Start a background asyncio task that watches sync status files.
+
+    In a multi-worker uvicorn deployment, only the worker that triggered
+    a sync runs ``poll_sync_status()``.  Other workers need this watcher
+    to pick up status-file changes and broadcast them to their own
+    WebSocket clients.
+
+    Returns the ``asyncio.Task`` so the caller can cancel it on shutdown.
+    """
+    task = asyncio.create_task(
+        _sync_status_watcher_loop(project_root, poll_interval),
+        name="sync_status_watcher",
+    )
+    logger.debug("sync_status_watcher_started", project_root=str(project_root))
+    return task
+
+
+async def _sync_status_watcher_loop(
+    project_root: Path,
+    poll_interval: float,
+) -> None:
+    """Continuously scan status files and broadcast phase transitions.
+
+    Skips sync_ids in ``_locally_polled`` (already handled by
+    ``poll_sync_status()`` in this worker).  Uses file mtime to avoid
+    re-broadcasting unchanged states.
+    """
+    from dango.web.routes.websocket import ws_manager
+
+    state_dir = project_root / ".dango" / "state"
+    # Track (last_phase, last_mtime) per sync_id
+    known_states: dict[str, tuple[str, float]] = {}
+
+    while True:
+        try:
+            await asyncio.sleep(poll_interval)
+
+            if not state_dir.exists():
+                continue
+
+            # Discover active status files
+            seen_ids: set[str] = set()
+            for path in state_dir.iterdir():
+                if not path.name.startswith("sync_status_") or not path.name.endswith(".json"):
+                    continue
+
+                # Extract sync_id from filename
+                # sync_status_{sync_id}.json → sync_id
+                sync_id = path.name[len("sync_status_") : -len(".json")]
+                if not sync_id:
+                    continue
+
+                seen_ids.add(sync_id)
+
+                # Skip if this worker is already polling this sync
+                if sync_id in _locally_polled:
+                    continue
+
+                # Check mtime for efficiency
+                try:
+                    mtime = path.stat().st_mtime
+                except OSError:
+                    continue
+
+                prev = known_states.get(sync_id)
+                if prev is not None and prev[1] == mtime:
+                    continue  # file unchanged
+
+                # Read and broadcast
+                status = read_sync_status(project_root, sync_id)
+                if status is None:
+                    continue
+
+                current_phase = status.get("phase", "")
+                source_name = ",".join(status.get("sources", ["unknown"]))
+
+                prev_phase = prev[0] if prev else None
+                if current_phase != prev_phase:
+                    await _broadcast_phase_transition(
+                        ws_manager, source_name, current_phase, status
+                    )
+
+                known_states[sync_id] = (current_phase, mtime)
+
+                # Clean up tracking for terminal phases
+                if current_phase in ("completed", "failed"):
+                    known_states.pop(sync_id, None)
+
+            # Remove tracking for files that have disappeared
+            stale_ids = set(known_states) - seen_ids
+            for sid in stale_ids:
+                known_states.pop(sid, None)
+
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.debug("sync_status_watcher_error", exc_info=True)

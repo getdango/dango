@@ -144,10 +144,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error("scheduler_startup_failed", exc_info=True)
         app.state.scheduler = None
 
+    # Start background sync status watcher (multi-worker support)
+    try:
+        from dango.platform.sync_process import start_sync_status_watcher
+
+        sync_watcher_task = await start_sync_status_watcher(project_root)
+        app.state.sync_watcher_task = sync_watcher_task
+    except Exception:
+        logger.debug("sync_status_watcher_start_failed", exc_info=True)
+        app.state.sync_watcher_task = None
+
     yield
 
     # Shutdown
     import asyncio
+
+    sync_task = getattr(app.state, "sync_watcher_task", None)
+    if sync_task is not None:
+        sync_task.cancel()
+        try:
+            await sync_task
+        except asyncio.CancelledError:
+            pass
 
     sched = getattr(app.state, "scheduler", None)
     if sched is not None:
