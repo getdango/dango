@@ -396,6 +396,13 @@ exemptions:
     reason: "R9-B: BUG-115/118 tests added metabase.yml write-back assertions and refresh_metabase_connection container-name tests. Each test class requires independent auth DB setup and multi-layer mocking."
     review_by: "v1.1"
 
+  # --- Scripts ---
+  - file: scripts/smoke_test.sh
+    lines: 594
+    category: exempt
+    reason: "R10-P: v1.5 with 66 checks across 9 categories. Grew past 500 adding Category 9 (R10 feature checks). Linear structure — each category is independent."
+    review_by: "v1.1"
+
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:
   - file: dango/ingestion/dlt_sources/mongodb/helpers.py

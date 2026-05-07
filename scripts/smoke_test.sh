@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/smoke_test.sh — v1.4 (2026-05-02)
+# scripts/smoke_test.sh — v1.5 (2026-05-07)
 #
 # Automated smoke test for a running Dango instance.
 # Requires: dango start running in a test project, venv activated.
@@ -131,7 +131,7 @@ category_end() {
     if [ "$CAT_SKIP" -gt 0 ]; then
         extra=" ($CAT_SKIP SKIP)"
     fi
-    printf "[%s/8] %-28s %d/%d %s%s\n" "$num" "$name" "$CAT_PASS" "$CAT_TOTAL" "$status" "$extra"
+    printf "[%s/9] %-28s %d/%d %s%s\n" "$num" "$name" "$CAT_PASS" "$CAT_TOTAL" "$status" "$extra"
 }
 
 # Run a command, pass if exit code is 0
@@ -145,13 +145,12 @@ run_cmd_test() {
     fi
 }
 
-# Curl an API endpoint, pass if HTTP status matches expected
-curl_api_test() {
-    local name="$1"
-    local method="$2"
-    local path="$3"
-    local expected="${4:-200}"
-    local data="${5:-}"
+# Execute an authenticated API curl, print the HTTP status code.
+# Supports GET (default), POST, PUT, DELETE methods.
+_curl_api_status() {
+    local method="$1"
+    local path="$2"
+    local data="${3:-}"
 
     local args=(-s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $API_KEY")
     args+=(-H "X-Requested-With: XMLHttpRequest")
@@ -161,12 +160,28 @@ curl_api_test() {
         if [ -n "$data" ]; then
             args+=(-d "$data")
         fi
+    elif [ "$method" = "PUT" ]; then
+        args+=(-X PUT -H "Content-Type: application/json")
+        if [ -n "$data" ]; then
+            args+=(-d "$data")
+        fi
     elif [ "$method" = "DELETE" ]; then
         args+=(-X DELETE)
     fi
 
+    curl "${args[@]}" "${BASE_URL}${path}"
+}
+
+# Curl an API endpoint, pass if HTTP status matches expected
+curl_api_test() {
+    local name="$1"
+    local method="$2"
+    local path="$3"
+    local expected="${4:-200}"
+    local data="${5:-}"
+
     local status
-    status=$(curl "${args[@]}" "${BASE_URL}${path}")
+    status=$(_curl_api_status "$method" "$path" "$data")
 
     if [ "$status" = "$expected" ]; then
         pass_test
@@ -184,6 +199,48 @@ curl_page_test() {
     local body
     local status
     body=$(curl -s -H "Authorization: Bearer $API_KEY" -w "\n%{http_code}" "${BASE_URL}${path}")
+    status=$(tail -n1 <<< "$body")
+    body=$(sed '$d' <<< "$body")
+
+    if [ "$status" != "200" ]; then
+        fail_test "$name" "Expected HTTP 200, got $status"
+        return
+    fi
+
+    if grep -qi "$expected_content" <<< "$body"; then
+        pass_test
+    else
+        fail_test "$name" "Response missing expected content: $expected_content"
+    fi
+}
+
+# Curl an API endpoint, pass if HTTP status is any 4xx (400-499)
+curl_api_test_blocked() {
+    local name="$1"
+    local method="$2"
+    local path="$3"
+    local data="${4:-}"
+
+    local status
+    status=$(_curl_api_status "$method" "$path" "$data")
+
+    if [[ "$status" =~ ^4[0-9]{2}$ ]]; then
+        pass_test
+    else
+        fail_test "$name" "Expected HTTP 4xx, got $status"
+    fi
+}
+
+# Curl an API endpoint with auth, pass if HTTP 200 and body contains expected substring
+curl_api_body_test() {
+    local name="$1"
+    local path="$2"
+    local expected_content="$3"
+
+    local body
+    local status
+    body=$(curl -s -H "Authorization: Bearer $API_KEY" -H "X-Requested-With: XMLHttpRequest" \
+        -w "\n%{http_code}" "${BASE_URL}${path}")
     status=$(tail -n1 <<< "$body")
     body=$(sed '$d' <<< "$body")
 
@@ -481,6 +538,39 @@ curl_api_test "POST /api/monitoring/run" POST "/api/monitoring/run"
 curl_api_test "GET /api/insights → 301" GET "/api/insights" "301"
 
 category_end "8" "R9 Feature Checks"
+
+# ---------------------------------------------------------------------------
+# Category 9: R10 Feature Checks
+# ---------------------------------------------------------------------------
+
+category_start 13
+
+# --- Config mutation blocked (R10-C / BUG-175) ---
+curl_api_test_blocked "POST /api/schedules blocked" POST "/api/schedules"
+curl_api_test_blocked "PUT /api/schedules/test blocked" PUT "/api/schedules/test"
+curl_api_test_blocked "DELETE /api/schedules/test blocked" DELETE "/api/schedules/test"
+curl_api_test_blocked "POST /api/notifications/webhooks blocked" POST "/api/notifications/webhooks"
+curl_api_test_blocked "DELETE /api/notifications/webhooks/test blocked" DELETE "/api/notifications/webhooks/test"
+
+# --- PII override writes blocked (R10-H / BUG-161) ---
+curl_api_test_blocked "PUT /api/governance/pii/overrides blocked" PUT "/api/governance/pii/overrides"
+curl_api_test_blocked "DELETE /api/governance/pii/overrides blocked" DELETE "/api/governance/pii/overrides"
+
+# --- Monitoring dbt_tests field (R10-G2) ---
+curl_api_body_test "dbt_tests in /api/monitoring" "/api/monitoring" "dbt_tests"
+
+# --- CLI commands (R10-K, R10-M) ---
+run_cmd_test "dango dev --help" dango dev --help
+run_cmd_test "dango snapshot --help" dango snapshot --help
+run_cmd_test "dango snapshot list --help" dango snapshot list --help
+
+# --- Health DuckDB capacity (R10-L) ---
+curl_api_body_test "duckdb_size_bytes in /api/health/platform" "/api/health/platform" "duckdb_size_bytes"
+
+# --- /query redirect (R10-J2 / BUG-173) ---
+curl_api_test "/query → 301" GET "/query" "301"
+
+category_end "9" "R10 Feature Checks"
 
 # ---------------------------------------------------------------------------
 # Summary
