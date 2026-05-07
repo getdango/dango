@@ -398,7 +398,7 @@ exemptions:
 
   # --- Scripts ---
   - file: scripts/smoke_test.sh
-    lines: 596
+    lines: 594
     category: exempt
     reason: "R10-P: v1.5 with 66 checks across 9 categories. Grew past 500 adding Category 9 (R10 feature checks). Linear structure — each category is independent."
     review_by: "v1.1"

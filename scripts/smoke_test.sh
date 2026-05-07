@@ -145,13 +145,12 @@ run_cmd_test() {
     fi
 }
 
-# Curl an API endpoint, pass if HTTP status matches expected
-curl_api_test() {
-    local name="$1"
-    local method="$2"
-    local path="$3"
-    local expected="${4:-200}"
-    local data="${5:-}"
+# Execute an authenticated API curl, print the HTTP status code.
+# Supports GET (default), POST, PUT, DELETE methods.
+_curl_api_status() {
+    local method="$1"
+    local path="$2"
+    local data="${3:-}"
 
     local args=(-s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $API_KEY")
     args+=(-H "X-Requested-With: XMLHttpRequest")
@@ -161,12 +160,28 @@ curl_api_test() {
         if [ -n "$data" ]; then
             args+=(-d "$data")
         fi
+    elif [ "$method" = "PUT" ]; then
+        args+=(-X PUT -H "Content-Type: application/json")
+        if [ -n "$data" ]; then
+            args+=(-d "$data")
+        fi
     elif [ "$method" = "DELETE" ]; then
         args+=(-X DELETE)
     fi
 
+    curl "${args[@]}" "${BASE_URL}${path}"
+}
+
+# Curl an API endpoint, pass if HTTP status matches expected
+curl_api_test() {
+    local name="$1"
+    local method="$2"
+    local path="$3"
+    local expected="${4:-200}"
+    local data="${5:-}"
+
     local status
-    status=$(curl "${args[@]}" "${BASE_URL}${path}")
+    status=$(_curl_api_status "$method" "$path" "$data")
 
     if [ "$status" = "$expected" ]; then
         pass_test
@@ -206,25 +221,8 @@ curl_api_test_blocked() {
     local path="$3"
     local data="${4:-}"
 
-    local args=(-s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $API_KEY")
-    args+=(-H "X-Requested-With: XMLHttpRequest")
-
-    if [ "$method" = "POST" ]; then
-        args+=(-X POST -H "Content-Type: application/json")
-        if [ -n "$data" ]; then
-            args+=(-d "$data")
-        fi
-    elif [ "$method" = "PUT" ]; then
-        args+=(-X PUT -H "Content-Type: application/json")
-        if [ -n "$data" ]; then
-            args+=(-d "$data")
-        fi
-    elif [ "$method" = "DELETE" ]; then
-        args+=(-X DELETE)
-    fi
-
     local status
-    status=$(curl "${args[@]}" "${BASE_URL}${path}")
+    status=$(_curl_api_status "$method" "$path" "$data")
 
     if [[ "$status" =~ ^4[0-9]{2}$ ]]; then
         pass_test
