@@ -779,7 +779,7 @@ async def get_source_status_data(source: dict) -> SourceStatus:
     tables_info = await asyncio.to_thread(get_source_tables_info, source_name)
     last_sync = await asyncio.to_thread(get_last_sync_time, source_name)
     last_sync_status = await asyncio.to_thread(get_last_sync_status, source_name)
-    history = await asyncio.to_thread(load_sync_history, source_name, 1)
+    history = await asyncio.to_thread(load_sync_history, source_name, 5)
     freshness = await asyncio.to_thread(get_source_freshness, source_name)
 
     # Extract row count and tables list
@@ -822,9 +822,26 @@ async def get_source_status_data(source: dict) -> SourceStatus:
     supports_incremental = capabilities.get("incremental", True) if capabilities else True
     supports_date_range = capabilities.get("date_range", False) if capabilities else False
 
-    # Derive sync mode and lookback from capabilities + config
-    sync_mode = "incremental" if supports_incremental else "full_refresh"
-    write_disposition = "merge" if supports_incremental else "replace"
+    # Derive sync mode from actual sync history, then fall back to registry.
+    # Registry `incremental` flag is often wrong (e.g., chess says False but
+    # actually uses incremental cursors).  Sync history records the real
+    # `full_refresh` boolean set by _detect_write_disposition() at runtime.
+    sync_mode_from_history: str | None = None
+    if history:
+        # Check if the most recent successful sync was incremental or full refresh
+        for entry in history:
+            if entry.get("status") == "success":
+                if entry.get("full_refresh", False):
+                    sync_mode_from_history = "full_refresh"
+                else:
+                    sync_mode_from_history = "incremental"
+                break
+
+    if sync_mode_from_history is not None:
+        sync_mode = sync_mode_from_history
+    else:
+        sync_mode = "incremental" if supports_incremental else "full_refresh"
+    write_disposition = "replace" if sync_mode == "full_refresh" else "merge"
 
     lookback_days = source.get("lookback_days")
     if lookback_days is None:
