@@ -162,7 +162,7 @@ def force_release_lock(project_root: Path, notebook_id: str) -> bool:
         return True
 
 
-def expire_stale_locks(project_root: Path, timeout_seconds: int = 120) -> int:
+def expire_stale_locks(project_root: Path, timeout_seconds: int = 900) -> int:
     """Remove locks whose last heartbeat exceeds the timeout.
 
     Locks with NULL ``last_heartbeat_at`` (pre-migration) are skipped —

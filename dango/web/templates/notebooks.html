@@ -84,7 +84,7 @@
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
                                 <div class="flex items-center justify-end space-x-2">
-                                    <template x-if="canExecute && nb.file_exists">
+                                    <template x-if="canExecute && nb.file_exists && !nb.lock">
                                         <button @click="openNotebook(nb)"
                                                 class="text-blue-600 hover:text-blue-800 text-xs font-medium">Open</button>
                                     </template>
