@@ -25,7 +25,7 @@ exemptions:
 
   # --- Phase 2 auth additions ---
   - file: dango/web/routes/auth.py
-    lines: 871
+    lines: 886
     category: exempt
     reason: "Login/logout, OAuth flows, invite accept, API key CRUD. DOC-025 evaluated split (auth_api.py + auth_oauth.py) — rejected: breaks all test patches, scatters security-critical code. Bridge helper extracted to reduce duplication. BUG-235 added IP-based lockout calls (+19 lines)."
     review_by: "v1.1"

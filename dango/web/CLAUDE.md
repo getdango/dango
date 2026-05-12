@@ -28,7 +28,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `templates/invite.html` | Invite acceptance page — set password for invited users | — |
 | `templates/secrets.html` | Secrets management page (env vars + OAuth credentials) | — |
 | `routes/__init__.py` | Package marker | — |
-| `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~871 lines) | `_bridge_metabase_session()`, `_set_session_cookie()` |
+| `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~886 lines) | `_bridge_metabase_session()`, `_set_session_cookie()` |
 | `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery (~340 lines) | — |
 | `routes/users.py` | Admin user CRUD: create, edit, deactivate, delete, unlock, invite (531 lines) | — |
 | `routes/health.py` | `/api/status`, `/api/watcher/status`, `/api/health/platform` (incl. DuckDB capacity gauge, OAuth token health, component disk breakdown, cloud resource metrics, backup staleness, deployment info), `/api/deployments/history` (admin-only) | — |
