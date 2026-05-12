@@ -309,9 +309,15 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_sync_process.py
-    lines: 674
+    lines: 740
     category: exempt
-    reason: "R10-S: Added watcher tests (locally_polled, mtime efficiency, start_returns_task). Test files are verbose by design."
+    reason: "R10-S+R12-C: Watcher tests + BUG-230 dbt_error broadcast tests. Test files are verbose by design."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_sync_trigger.py
+    lines: 618
+    category: exempt
+    reason: "R12-C: BUG-230 dbt failure handling tests (3 new test classes). Test files are verbose by design."
     review_by: "v1.1"
 
   - file: tests/unit/test_sync_jobs.py

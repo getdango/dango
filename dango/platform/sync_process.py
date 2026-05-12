@@ -289,15 +289,17 @@ def poll_sync_status_blocking(
 
             # Broadcast on phase transitions
             if current_phase != last_phase and broadcast_fn is not None:
-                broadcast_fn(
-                    {
-                        "event": _phase_to_event(current_phase),
-                        "source": source_name,
-                        "phase": current_phase,
-                        "message": status.get("message", ""),
-                        "timestamp": _ts(),
-                    }
-                )
+                msg = {
+                    "event": _phase_to_event(current_phase),
+                    "source": source_name,
+                    "phase": current_phase,
+                    "message": status.get("message", ""),
+                    "timestamp": _ts(),
+                }
+                if current_phase == "failed" and status.get("dbt_error"):
+                    msg["event"] = "dbt_run_all_failed"
+                    msg["source"] = f"dbt (triggered by {source_name})"
+                broadcast_fn(msg)
                 last_phase = current_phase
 
             # Detect terminal state
@@ -378,6 +380,9 @@ async def _broadcast_phase_transition(
         message["rows_loaded"] = status.get("rows_loaded", 0)
         message["duration_seconds"] = status.get("elapsed_seconds", 0)
     elif phase == "failed":
+        if status.get("dbt_error"):
+            message["event"] = "dbt_run_all_failed"
+            message["source"] = f"dbt (triggered by {source_name})"
         message["error"] = status.get("error")
 
     await ws_manager.broadcast(message)

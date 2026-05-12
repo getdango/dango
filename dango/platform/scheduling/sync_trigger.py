@@ -252,7 +252,12 @@ def run_manual_sync(
 
         _progress("data_load", "Loading data from source")
 
+        _dbt_failed = False
+
         def _sync_progress_cb(phase: str, message: str) -> None:
+            nonlocal _dbt_failed
+            if phase == "dbt_failed":
+                _dbt_failed = True
             _progress(phase, message)
 
         sync_result = run_sync(
@@ -274,8 +279,21 @@ def run_manual_sync(
                 if isinstance(r, dict)
             )
 
-        record_completion(db_path, record_id)
         duration = round(time.time() - start_time, 1)
+
+        if _dbt_failed:
+            error_msg = "dbt models failed"
+            record_failure(db_path, record_id, error_msg)
+            _progress("failed", error_msg, rows_loaded=rows_loaded, dbt_error=True)
+            return {
+                "record_id": record_id,
+                "status": "failed",
+                "duration_seconds": duration,
+                "error": error_msg,
+                "rows_loaded": rows_loaded,
+            }
+
+        record_completion(db_path, record_id)
         _progress("completed", "Sync completed successfully", rows_loaded=rows_loaded)
         return {
             "record_id": record_id,

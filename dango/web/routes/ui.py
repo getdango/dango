@@ -3,10 +3,13 @@
 UI page endpoints and API documentation.
 """
 
+import base64
 import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import yaml
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -198,9 +201,32 @@ async def insights_redirect() -> RedirectResponse:
 
 
 @router.get("/query")
-async def query_redirect() -> RedirectResponse:
-    """Redirect /query to Metabase query builder."""
-    return RedirectResponse(url="/metabase/question/new", status_code=301)
+async def query_redirect(request: Request) -> RedirectResponse:
+    """Redirect /query to Metabase native SQL editor with database pre-selected."""
+    try:
+        project_root = Path(request.app.state.project_root)
+        metabase_yml = project_root / ".dango" / "metabase.yml"
+        if metabase_yml.exists():
+            metabase_config = yaml.safe_load(metabase_yml.read_text(encoding="utf-8"))
+            database_id = (metabase_config or {}).get("database", {}).get("id")
+            if database_id:
+                query_state = json.dumps(
+                    {
+                        "dataset_query": {
+                            "database": database_id,
+                            "type": "native",
+                            "native": {"query": "", "template-tags": {}},
+                        },
+                        "display": "table",
+                        "visualization_settings": {},
+                        "type": "question",
+                    }
+                )
+                encoded = base64.b64encode(query_state.encode()).decode()
+                return RedirectResponse(url=f"/metabase/question#{encoded}", status_code=302)
+    except Exception:
+        pass  # Fall through to generic redirect
+    return RedirectResponse(url="/metabase/", status_code=302)
 
 
 @router.get("/api")

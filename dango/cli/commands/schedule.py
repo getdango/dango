@@ -530,19 +530,29 @@ def schedule_add(ctx: click.Context) -> None:
     schedules = data.setdefault("schedules", [])
     existing_names = {s.get("name") for s in schedules}
 
-    # 1. Name
-    answers = inquirer.prompt(
-        [
-            inquirer.Text(
-                "name",
-                message="Schedule name (lowercase, alphanumeric + underscore)",
-                validate=lambda _, x: bool(_SLUG_RE.match(x)) and x not in existing_names,
-            ),
-        ]
-    )
-    if answers is None:
-        return
-    name: str = answers["name"]
+    # 1. Name (validate after prompt to avoid per-keystroke flicker)
+    while True:
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "name",
+                    message="Schedule name (lowercase, alphanumeric + underscore)",
+                ),
+            ]
+        )
+        if answers is None:
+            return
+        name: str = answers["name"]
+        if not _SLUG_RE.match(name):
+            console.print(
+                "[red]Invalid name.[/red] Must be lowercase, start with a letter, "
+                "and contain only letters, digits, and underscores."
+            )
+            continue
+        if name in existing_names:
+            console.print(f"[red]Name '{name}' already exists.[/red] Choose a different name.")
+            continue
+        break
 
     # 2. Type (BUG-037: friendly labels, default to sync)
     type_labels = [label for label, _ in _TYPE_CHOICES]
@@ -568,12 +578,22 @@ def schedule_add(ctx: click.Context) -> None:
             sources = [available[0]]
             console.print(f"[green]Auto-selected source: {available[0]}[/green]")
         elif available:
-            answers = inquirer.prompt(
-                [inquirer.Checkbox("sources", message="Select sources to sync", choices=available)]
-            )
-            if answers is None:
-                return
-            sources = answers["sources"]
+            while True:
+                answers = inquirer.prompt(
+                    [
+                        inquirer.Checkbox(
+                            "sources",
+                            message="Select sources to sync (SPACE to toggle, ENTER to confirm)",
+                            choices=available,
+                        )
+                    ]
+                )
+                if answers is None:
+                    return
+                sources = answers["sources"]
+                if sources:
+                    break
+                console.print("[red]Please select at least one source.[/red]")
         if not sources:
             console.print("[red]Error:[/red] Sync schedules require at least one source.")
             return

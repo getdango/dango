@@ -672,3 +672,69 @@ class TestSyncStatusWatcher:
             pass
 
         assert task.done()
+
+
+@pytest.mark.unit
+class TestBroadcastDbtError:
+    """Tests for BUG-230: dbt_error flag in broadcast functions."""
+
+    @pytest.mark.anyio
+    async def test_broadcast_dbt_error_sends_dbt_run_all_failed(self):
+        """_broadcast_phase_transition with dbt_error should emit dbt_run_all_failed."""
+        from dango.platform.sync_process import _broadcast_phase_transition
+
+        mock_ws = MagicMock()
+        mock_ws.broadcast = AsyncMock()
+
+        status = {"message": "dbt models failed", "error": "dbt models failed", "dbt_error": True}
+        await _broadcast_phase_transition(mock_ws, "hubspot", "failed", status)
+
+        call_msg = mock_ws.broadcast.call_args[0][0]
+        assert call_msg["event"] == "dbt_run_all_failed"
+        assert call_msg["source"] == "dbt (triggered by hubspot)"
+        assert call_msg["error"] == "dbt models failed"
+
+    @pytest.mark.anyio
+    async def test_broadcast_generic_failure_sends_sync_failed(self):
+        """_broadcast_phase_transition without dbt_error should emit sync_failed."""
+        from dango.platform.sync_process import _broadcast_phase_transition
+
+        mock_ws = MagicMock()
+        mock_ws.broadcast = AsyncMock()
+
+        status = {"message": "DuckDB crash", "error": "DuckDB crash"}
+        await _broadcast_phase_transition(mock_ws, "hubspot", "failed", status)
+
+        call_msg = mock_ws.broadcast.call_args[0][0]
+        assert call_msg["event"] == "sync_failed"
+        assert call_msg["source"] == "hubspot"
+
+    def test_blocking_poll_dbt_error_overrides_event(self, tmp_path):
+        """poll_sync_status_blocking with dbt_error should emit dbt_run_all_failed."""
+        from dango.platform.sync_process import poll_sync_status_blocking
+
+        _write_status_file(
+            tmp_path,
+            phase="failed",
+            sync_id="dbt_err",
+            error="dbt models failed",
+            dbt_error=True,
+        )
+        process = MagicMock()
+        process.poll.return_value = 1
+        broadcast_fn = MagicMock()
+
+        with patch(f"{_MOD}.time.sleep"):
+            success, result = poll_sync_status_blocking(
+                tmp_path,
+                process,
+                source_name="hubspot",
+                sync_id="dbt_err",
+                broadcast_fn=broadcast_fn,
+                poll_interval=0.01,
+            )
+
+        assert success is False
+        call_msg = broadcast_fn.call_args[0][0]
+        assert call_msg["event"] == "dbt_run_all_failed"
+        assert call_msg["source"] == "dbt (triggered by hubspot)"

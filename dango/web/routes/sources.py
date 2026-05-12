@@ -150,12 +150,24 @@ async def get_source_details(source_name: str) -> dict[str, object]:
     if tables_info and tables_info.get("has_multiple_tables"):
         tables = [TableInfo(**t) for t in tables_info["tables"]]
 
-    # Derive sync mode and lookback
+    # Derive sync mode from actual history, then fall back to registry
     from dango.ingestion.sources.registry import get_source_capabilities, get_source_metadata
 
     capabilities = get_source_capabilities(source_config.get("type", ""))
     supports_incremental = capabilities.get("incremental", True) if capabilities else True
-    sync_mode = "incremental" if supports_incremental else "full_refresh"
+
+    sync_mode_from_history: str | None = None
+    for entry in history:
+        if entry.get("status") == "success":
+            sync_mode_from_history = (
+                "full_refresh" if entry.get("full_refresh", False) else "incremental"
+            )
+            break
+    sync_mode = (
+        sync_mode_from_history
+        if sync_mode_from_history is not None
+        else ("incremental" if supports_incremental else "full_refresh")
+    )
 
     lookback_days = source_config.get("lookback_days")
     if lookback_days is None:

@@ -583,3 +583,33 @@ class TestIPBasedLockout:
         # Verify entry is gone
         row = _get_login_attempt_row(db_path, key)
         assert row is None
+
+    def test_cleanup_login_attempts_job(self, tmp_path: Path) -> None:
+        """cleanup_login_attempts_job wrapper works end-to-end."""
+        from dango.auth.lockout import _make_attempt_key, cleanup_login_attempts_job
+
+        # _make_db(dango_dir) creates .dango/auth.db — matches get_auth_db_path(tmp_path)
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        db_path = _make_db(dango_dir)
+
+        key = _make_attempt_key("1.2.3.4", "old@example.com")
+
+        # Insert an old entry (48 hours ago)
+        old_time = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        conn = _connect(db_path)
+        try:
+            conn.execute(
+                "INSERT INTO login_attempts (key, email, attempts, locked_until, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (key, "old@example.com", 3, None, old_time),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Call the scheduler-compatible wrapper
+        cleanup_login_attempts_job(str(tmp_path))
+
+        # Verify entry is gone
+        row = _get_login_attempt_row(db_path, key)
+        assert row is None

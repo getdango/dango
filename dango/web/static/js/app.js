@@ -437,18 +437,35 @@ async function handleWebSocketMessage(data) {
             }
 
             // Suppress success toast during batch operations (multi-file uploads)
-            // The final toast will show when dbt completes
             if (!activeFileOperations.has(source)) {
                 showToast(`${source} synced successfully`, 'success');
             } else {
                 console.log('✅ [WS] Suppressing toast - batch upload operation in progress');
             }
 
-            // DON'T clear activeSyncs here - dbt will run next and dbt_run_all_completed will clear it
-            // New flow: all files uploaded to disk → sync once → dbt once
-            console.log('✅ [WS] Sync completed, but keeping activeSyncs (dbt will run next)');
+            // sync_completed is the terminal event — clear sync state and update row
+            // (dbt_run_all_completed may have already done this; checks are idempotent)
+            if (activeSyncs.has(source)) {
+                activeSyncs.delete(source);
+                stopSyncTimer(source);
+                const btn = document.getElementById(`sync-btn-${source}`);
+                if (btn) btn.textContent = 'Sync Now';
+                updateSyncCounter();
+            }
 
-            // Don't call loadSources() - wait for dbt to complete
+            // Update row with sync results
+            if (data.rows_loaded !== undefined) {
+                updateSourceRowAfterSync(source, {
+                    rows_loaded: data.rows_loaded,
+                    timestamp: data.timestamp,
+                    duration_seconds: data.duration_seconds,
+                });
+                syncResults.delete(source);
+            } else {
+                // No rows_loaded in event — refresh from backend
+                // Safe to call here: sync_completed is terminal, data is committed
+                if (!isLoadingSources) loadSources();
+            }
             break;
 
         case 'sync_failed':
@@ -576,10 +593,8 @@ async function handleWebSocketMessage(data) {
                     if (result) {
                         updateSourceRowAfterSync(triggeredSource, result);
                         syncResults.delete(triggeredSource);
-                    } else {
-                        // Fallback if sync_completed didn't include data
-                        if (!isLoadingSources) loadSources();
                     }
+                    // No loadSources() fallback — sync_completed handles final row update
                 } else {
                     // Reset ALL sync buttons when no specific source
                     for (const src of activeSyncs.keys()) {
@@ -1207,24 +1222,47 @@ function renderSourcesTable() {
             : 'Click to view details';
 
         // Action column: sync button for editors/admins, dash for viewers
-        const actionColumn = canSync ? `
-                <div class="relative inline-block text-left" id="sync-menu-${source.name}">
+        let actionColumn;
+        if (!canSync) {
+            actionColumn = '<span class="inline-block w-full text-center text-gray-300">—</span>';
+        } else if (isFileSource) {
+            // File sources: single "Sync Now" button, no dropdown
+            actionColumn = `
+                <button
+                    onclick="event.stopPropagation(); triggerSync('${source.name}')"
+                    class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150"
+                    id="sync-btn-${source.name}"
+                    ${buttonDisabled}
+                >
+                    ${buttonText}
+                </button>`;
+        } else {
+            // API sources: split button — main click syncs, chevron opens dropdown
+            actionColumn = `
+                <div class="relative inline-flex" id="sync-menu-${source.name}">
                     <button
-                        onclick="event.stopPropagation(); toggleSyncMenu('${source.name}')"
-                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150"
+                        onclick="event.stopPropagation(); triggerSync('${source.name}')"
+                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150 rounded-l-md"
                         id="sync-btn-${source.name}"
                         ${buttonDisabled}
                     >
-                        ${buttonText} ▾
+                        ${buttonText}
+                    </button>
+                    <button
+                        onclick="event.stopPropagation(); toggleSyncMenu('${source.name}')"
+                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150 border-l border-blue-300 pl-1 ml-1 rounded-r-md"
+                        ${buttonDisabled}
+                    >
+                        ▾
                     </button>
                     <div id="sync-dropdown-${source.name}" class="hidden fixed w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
                         <div class="py-1">
-                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerSync('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">${isFileSource ? 'Sync Now' : (source.supports_incremental ? 'Incremental Sync' : 'Sync Now')}</a>
-                            ${isFileSource ? '' : `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerFullRefresh('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Full Refresh</a>
-                            ${source.supports_date_range ? `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); openDateRangeModal('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Custom Date Range...</a>` : ''}`}
+                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerFullRefresh('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Full Refresh</a>
+                            ${source.supports_date_range ? `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); openDateRangeModal('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Custom Date Range...</a>` : ''}
                         </div>
                     </div>
-                </div>` : '<span class="inline-block w-full text-center text-gray-300">—</span>';
+                </div>`;
+        }
 
         return `
         <tr id="source-${source.name}" class="hover:bg-gray-50 transition-colors duration-150">
@@ -2163,11 +2201,11 @@ async function openSyncHistory(sourceName) {
                     ? 'bg-green-100 text-green-800'
                     : 'bg-red-100 text-red-800';
                 const statusLabel = entry.status === 'success' ? 'OK' : 'Fail';
-                const duration = entry.duration != null ? entry.duration.toFixed(1) + 's' : '-';
-                const rows = entry.row_count != null ? entry.row_count.toLocaleString() : '-';
+                const duration = entry.duration_seconds != null ? entry.duration_seconds.toFixed(1) + 's' : '-';
+                const rows = entry.rows_processed != null ? entry.rows_processed.toLocaleString() : '-';
                 const time = formatRelativeTime(entry.timestamp);
                 return `<tr class="border-t border-gray-100">
-                    <td class="px-4 py-2 text-sm text-gray-600">${escapeHtml(time)}</td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${time}</td>
                     <td class="px-4 py-2"><span class="px-2 py-0.5 text-xs font-medium rounded-full ${statusClass}">${statusLabel}</span></td>
                     <td class="px-4 py-2 text-sm text-gray-600">${escapeHtml(duration)}</td>
                     <td class="px-4 py-2 text-sm text-gray-600">${escapeHtml(rows)}</td>
