@@ -68,7 +68,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy_provision.py
-    lines: 846
+    lines: 848
     category: exempt
     reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery. R8-F added _generate_cloud_profiles + DANGO_ADMIN_EMAIL persistence. R9-C added _confirm_secrets_push, install source detection, empty error handling."
     review_by: "v1.1"
@@ -93,7 +93,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 829
+    lines: 834
     category: exempt
     reason: "Source management commands (add/list/remove) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation."
     review_by: "v1.1"
@@ -124,7 +124,7 @@ exemptions:
 
   # --- Exempt (stable, not modified in v1) ---
   - file: dango/ingestion/dlt_runner.py
-    lines: 2473
+    lines: 2485
     category: exempt
     reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage. Post-sync hook dispatch added in P7-000. P5c grew +480 lines (credential unification, resource selection, local_files routing). P8-001 added headers/data_selector/params passthrough (+8 lines). R9-I added skip_sync_notification param + sync_result passthrough to post_sync hooks. R10-F3 added _get_source_total_rows + rewrote anomaly check to use DB totals (BUG-182). R10-S added progress_callback parameter (+12 lines)."
     review_by: "v1.1"
@@ -291,7 +291,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_deploy_provision.py
-    lines: 722
+    lines: 761
     category: exempt
     reason: "TASK-029+R9-C: 14 test classes covering ResourceTracker, IP extraction, secrets push, admin creation, health check, provisioning sequence, backup setup, metadata persistence, sync trigger, admin email persistence, cloud profiles generation, confirm_secrets_push, and error handling."
     review_by: "v1.1"

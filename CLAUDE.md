@@ -84,14 +84,14 @@ dango/                          # Python package source
 │   │   ├── model.py            # model group (add/remove)
 │   │   ├── platform.py         # start/stop/status + port helpers (1034 lines)
 │   │   ├── project.py          # init/rename/info
-│   │   ├── source.py           # source group (add/list/remove/edit) + sync (829 lines)
+│   │   ├── source.py           # source group (add/list/remove/edit) + sync (834 lines)
 │   │   ├── transform.py        # run/docs/generate
 │   │   ├── upgrade.py          # local Dango upgrade via pip + migrations
 │   │   ├── web.py              # web dev server
 │   │   ├── serve.py            # serve production foreground server
 │   │   ├── deploy.py           # deploy group (wizard default, --byos, destroy)
 │   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (813 lines)
-│   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (846 lines)
+│   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (848 lines)
 │   │   ├── dev.py              # dev group (default run + clean) — branch-based dbt dev
 │   │   ├── migrate.py          # migrate group (status, run)
 │   │   ├── remote.py           # remote group + push/rollback/firewall/domain (698 lines)
@@ -334,7 +334,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
-| `ingestion/dlt_runner.py` | 2473 | — (exempt, too risky) |
+| `ingestion/dlt_runner.py` | 2485 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2008 | — (metadata-only) |
 | `cli/source_wizard.py` | 2306 | — |
 | `visualization/metabase.py` | 1151 | — |
@@ -352,7 +352,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/routes/upload.py` | 705 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 670 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
-| `cli/commands/source.py` | 829 | — (extracted from main.py by TASK-005) |
+| `cli/commands/source.py` | 834 | — (extracted from main.py by TASK-005) |
 | `cli/commands/remote.py` | 698 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 595 | — (push deploy workflow + deploy lock + journal) |
@@ -361,7 +361,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/deploy_wizard.py` | 813 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 613 | — |
 | `web/routes/catalog.py` | 1336 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
-| `cli/commands/deploy_provision.py` | 846 | — (provisioning orchestration + BYOS) |
+| `cli/commands/deploy_provision.py` | 848 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
 | `platform/cloud/server_setup.py` | 666 | — (server setup + install source detection) |
 | `cli/commands/auth.py` | 661 | — (13 auth subcommands) |
