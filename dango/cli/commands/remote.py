@@ -691,8 +691,10 @@ def domain_remove(ctx: click.Context) -> None:
 import dango.cli.commands.remote_mgmt as _remote_mgmt  # noqa: E402, F401
 import dango.cli.commands.remote_ops as _remote_ops  # noqa: E402, F401
 import dango.cli.commands.remote_sync as _remote_sync  # noqa: E402, F401
+from dango.cli.commands.remote_auth import auth_group  # noqa: E402
 from dango.cli.commands.remote_backup import backup_group  # noqa: E402
 from dango.cli.commands.remote_env import env  # noqa: E402
 
+remote.add_command(auth_group)
 remote.add_command(backup_group)
 remote.add_command(env)
