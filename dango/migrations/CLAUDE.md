@@ -24,7 +24,8 @@ migrations/
 │   ├── 001_initial_auth.py
 │   ├── 002_complete_auth_schema.py
 │   ├── 003_metabase_password.py
-│   └── 004_invite_tokens.py
+│   ├── 004_invite_tokens.py
+│   └── 005_login_attempts.py
 └── scheduler/      # Created by TASK-039 (Phase 4)
     └── 001_execution_history.py
 ```
