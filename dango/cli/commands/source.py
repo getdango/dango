@@ -702,6 +702,10 @@ def sync(
 
         if full_refresh:
             console.print("[yellow]⚠️  Full refresh mode: existing data will be dropped[/yellow]")
+            if not yes and not click.confirm(
+                "Full refresh will reload all data. Continue?", default=False
+            ):
+                raise click.Abort()
 
         if limit:
             console.print(f"[yellow]⚠️  Dev mode: limiting to {limit} rows per source[/yellow]")

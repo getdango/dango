@@ -720,3 +720,52 @@ class TestEmptyExceptionMessage:
         exc2 = TimeoutError()
         err_msg2 = str(exc2) or f"{type(exc2).__name__} (no detail)"
         assert err_msg2 == "TimeoutError (no detail)"
+
+
+# ---------------------------------------------------------------------------
+# 14. BUG-239: Admin password race condition — upsert semantics
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestAdminUpsertSemantics:
+    """BUG-239: When admin already exists, deploy must update password, not silently skip."""
+
+    def test_no_bare_except_pass_in_admin_script(self):
+        """Admin creation script must not have bare 'except Exception: pass'."""
+        import inspect
+
+        source = inspect.getsource(_create_admin_and_enable_auth)
+
+        # The script string should not contain pass after except Exception
+        assert "pass  # user may already exist" not in source, (
+            "Found bare 'except Exception: pass' — admin creation must use upsert semantics"
+        )
+
+    def test_catches_user_exists_error_not_broad_exception(self):
+        """Admin script must catch UserExistsError specifically, not broad Exception."""
+        import inspect
+
+        source = inspect.getsource(_create_admin_and_enable_auth)
+        assert "except UserExistsError:" in source, (
+            "Must catch UserExistsError specifically — broad except Exception swallows real errors"
+        )
+        assert "from dango.exceptions import UserExistsError" in source
+
+    def test_script_contains_update_user_import(self):
+        """Admin script string must import update_user for upsert."""
+        import inspect
+
+        source = inspect.getsource(_create_admin_and_enable_auth)
+        assert "update_user" in source
+        assert "get_user_by_email" in source
+        assert "UserUpdate" in source
+
+    def test_script_updates_password_when_user_exists(self):
+        """Script must update password_hash when admin already exists."""
+        import inspect
+
+        source = inspect.getsource(_create_admin_and_enable_auth)
+        assert "UserUpdate(password_hash=pw_hash)" in source, (
+            "Must update password_hash with wizard-provided password on race condition"
+        )

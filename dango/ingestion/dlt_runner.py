@@ -750,6 +750,14 @@ class DltPipelineRunner:
             # Always restore original working directory
             os.chdir(original_cwd)
 
+        # Backup dlt state BEFORE drop (so backup captures pre-drop state)
+        state_backup = self._backup_dlt_state(pipeline_name)
+
+        # Capture pre-refresh row count for data loss detection
+        pre_refresh_rows: int | None = None
+        if full_refresh:
+            pre_refresh_rows = self._get_source_total_rows(source_name)
+
         # Full refresh: drop pipeline state
         if full_refresh:
             console.print("  🔄 Full refresh: dropping pipeline state")
@@ -757,9 +765,6 @@ class DltPipelineRunner:
                 pipeline.drop()
             except Exception as e:
                 console.print(f"  ⚠️  Could not drop pipeline: {e}")
-
-        # Backup dlt state before running
-        state_backup = self._backup_dlt_state(pipeline_name)
 
         try:
             # Run pipeline with retry logic
@@ -770,8 +775,15 @@ class DltPipelineRunner:
             rows_loaded = stats.get("rows_loaded", 0)
 
             if rows_loaded >= 0:
-                # Success
-                self._cleanup_state_backup(state_backup)
+                # Success — check for data loss on full refresh
+                if full_refresh and pre_refresh_rows is not None and rows_loaded < pre_refresh_rows:
+                    console.print(
+                        f"  [yellow]⚠️  Full refresh loaded {rows_loaded:,} rows "
+                        f"vs previous {pre_refresh_rows:,}. "
+                        f"State backup preserved at {state_backup}.[/yellow]"
+                    )
+                else:
+                    self._cleanup_state_backup(state_backup)
                 console.print(f"  ✓ Loaded {rows_loaded:,} rows")
             else:
                 # rows_loaded == -1 means we got a valid LoadInfo but couldn't extract stats
@@ -792,7 +804,7 @@ class DltPipelineRunner:
             # Restore state on failure
             if state_backup:
                 console.print("  ⚠️  Restoring pipeline state (failed load)")
-                self._restore_dlt_state(source_name, state_backup)
+                self._restore_dlt_state(state_backup)
             raise
 
     def _detect_write_disposition(self, source: Any) -> bool:
@@ -1038,6 +1050,14 @@ class DltPipelineRunner:
             # Always restore original working directory
             os.chdir(original_cwd)
 
+        # Backup dlt state BEFORE drop (so backup captures pre-drop state)
+        state_backup = self._backup_dlt_state(source_name)
+
+        # Capture pre-refresh row count for data loss detection
+        pre_refresh_rows: int | None = None
+        if full_refresh:
+            pre_refresh_rows = self._get_source_total_rows(source_name)
+
         # Full refresh: drop pipeline state
         if full_refresh:
             console.print("  🔄 Full refresh: dropping pipeline state")
@@ -1045,9 +1065,6 @@ class DltPipelineRunner:
                 pipeline.drop()
             except Exception as e:
                 console.print(f"  ⚠️  Could not drop pipeline: {e}")
-
-        # Backup dlt state before running (protects against partial failures)
-        state_backup = self._backup_dlt_state(source_name)
 
         try:
             # Run pipeline with retry logic
@@ -1070,8 +1087,15 @@ class DltPipelineRunner:
                     stats["anomaly"] = anomaly
 
             if rows_loaded >= 0:
-                # Success - we got a valid row count (including 0)
-                self._cleanup_state_backup(state_backup)
+                # Success — check for data loss on full refresh
+                if full_refresh and pre_refresh_rows is not None and rows_loaded < pre_refresh_rows:
+                    console.print(
+                        f"  [yellow]⚠️  Full refresh loaded {rows_loaded:,} rows "
+                        f"vs previous {pre_refresh_rows:,}. "
+                        f"State backup preserved at {state_backup}.[/yellow]"
+                    )
+                else:
+                    self._cleanup_state_backup(state_backup)
                 console.print(f"  ✓ Loaded {rows_loaded:,} rows")
 
                 result = {
