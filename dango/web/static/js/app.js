@@ -461,6 +461,10 @@ async function handleWebSocketMessage(data) {
                     duration_seconds: data.duration_seconds,
                 });
                 syncResults.delete(source);
+            } else {
+                // No rows_loaded in event — refresh from backend
+                // Safe to call here: sync_completed is terminal, data is committed
+                if (!isLoadingSources) loadSources();
             }
             break;
 
