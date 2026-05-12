@@ -447,7 +447,7 @@ def wait_for_metabase_ready(metabase_url: str = "http://localhost:3000", timeout
             if response.status_code == 200:
                 return True
         except Exception:
-            pass
+            logger.debug("metabase_health_poll_error", exc_info=True)
         time.sleep(2)
     return False
 
@@ -574,10 +574,11 @@ def setup_metabase(
         summary["errors"].append("Metabase already configured (credentials file exists)")
         return summary
 
-    # Wait for Metabase to be ready
+    # Wait for Metabase to be ready (longer timeout for cloud cold start)
+    ready_timeout = 300 if cloud_mode else 60
     print("  ⏳ Waiting for Metabase to be ready...")
-    if not wait_for_metabase_ready(metabase_url):
-        summary["errors"].append("Metabase not ready after 60 seconds")
+    if not wait_for_metabase_ready(metabase_url, timeout=ready_timeout):
+        summary["errors"].append(f"Metabase not ready after {ready_timeout} seconds")
         return summary
 
     print("  ✓ Metabase is ready")
