@@ -495,3 +495,124 @@ class TestMainEntrypoint:
         assert parsed["sources"] == ["src1"]
         assert parsed.get("sync_id") == "abc123"
         assert parsed.get("record_id") == 42
+
+
+@pytest.mark.unit
+class TestDbtFailureHandling:
+    """Tests for BUG-230: dbt failure should record failure, not completion."""
+
+    @patch(f"{_PATCH_CONFIG}.load_config")
+    @patch(f"{_PATCH_UTILS}.DbtLock")
+    @patch(f"{_PATCH_HISTORY}.record_failure")
+    @patch(f"{_PATCH_HISTORY}.record_completion")
+    @patch(f"{_PATCH_HISTORY}.record_start", return_value=20)
+    @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
+    @patch(f"{_PATCH_OAUTH}.validate_before_sync")
+    def test_dbt_failed_records_failure_not_completion(
+        self,
+        mock_oauth,
+        mock_db_path,
+        mock_start,
+        mock_complete,
+        mock_failure,
+        mock_lock_cls,
+        mock_config,
+        tmp_path,
+    ):
+        """When dbt fails, run_manual_sync should record failure, not completion."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+
+        mock_config.return_value = _make_config(["src1"])
+
+        def _fake_sync(**kwargs):
+            # Simulate dbt failure via progress callback
+            cb = kwargs.get("progress_callback")
+            if cb:
+                cb("dbt_failed", "dbt models failed")
+            return {"results": [{"rows_loaded": 50}], "failed_count": 1}
+
+        with patch(f"{_PATCH_INGESTION}.run_sync", side_effect=_fake_sync):
+            result = run_manual_sync(tmp_path, sources=["src1"])
+
+        assert result["status"] == "failed"
+        assert result["error"] == "dbt models failed"
+        assert result["rows_loaded"] == 50
+        mock_failure.assert_called_once()
+        mock_complete.assert_not_called()
+
+    @patch(f"{_PATCH_CONFIG}.load_config")
+    @patch(f"{_PATCH_UTILS}.DbtLock")
+    @patch(f"{_PATCH_HISTORY}.record_failure")
+    @patch(f"{_PATCH_HISTORY}.record_completion")
+    @patch(f"{_PATCH_HISTORY}.record_start", return_value=21)
+    @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
+    @patch(f"{_PATCH_OAUTH}.validate_before_sync")
+    def test_dbt_failed_writes_dbt_error_flag(
+        self,
+        mock_oauth,
+        mock_db_path,
+        mock_start,
+        mock_complete,
+        mock_failure,
+        mock_lock_cls,
+        mock_config,
+        tmp_path,
+    ):
+        """Status file should have phase='failed' and dbt_error=True on dbt failure."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+
+        mock_config.return_value = _make_config(["src1"])
+
+        def _fake_sync(**kwargs):
+            cb = kwargs.get("progress_callback")
+            if cb:
+                cb("dbt_failed", "dbt models failed")
+            return {"results": [{"rows_loaded": 30}], "failed_count": 1}
+
+        with patch(f"{_PATCH_INGESTION}.run_sync", side_effect=_fake_sync):
+            result = run_manual_sync(
+                tmp_path, sources=["src1"], write_progress=True, sync_id="dbt_err1"
+            )
+
+        assert result["status"] == "failed"
+        status_file = tmp_path / ".dango" / "state" / "sync_status_dbt_err1.json"
+        assert status_file.exists()
+        data = json.loads(status_file.read_text())
+        assert data["phase"] == "failed"
+        assert data["dbt_error"] is True
+        assert data["rows_loaded"] == 30
+
+    @patch(
+        f"{_PATCH_INGESTION}.run_sync",
+        return_value={"results": [{"rows_loaded": 75}], "failed_count": 0},
+    )
+    @patch(f"{_PATCH_CONFIG}.load_config")
+    @patch(f"{_PATCH_UTILS}.DbtLock")
+    @patch(f"{_PATCH_HISTORY}.record_completion")
+    @patch(f"{_PATCH_HISTORY}.record_start", return_value=22)
+    @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
+    @patch(f"{_PATCH_OAUTH}.validate_before_sync")
+    def test_dbt_success_writes_completed(
+        self,
+        mock_oauth,
+        mock_db_path,
+        mock_start,
+        mock_complete,
+        mock_lock_cls,
+        mock_config,
+        mock_sync,
+        tmp_path,
+    ):
+        """Successful sync should write phase='completed' with no dbt_error."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+
+        mock_config.return_value = _make_config(["src1"])
+
+        result = run_manual_sync(tmp_path, sources=["src1"], write_progress=True, sync_id="dbt_ok1")
+
+        assert result["status"] == "success"
+        status_file = tmp_path / ".dango" / "state" / "sync_status_dbt_ok1.json"
+        assert status_file.exists()
+        data = json.loads(status_file.read_text())
+        assert data["phase"] == "completed"
+        assert "dbt_error" not in data
