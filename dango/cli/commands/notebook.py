@@ -161,14 +161,6 @@ def notebook_open(ctx: click.Context, name: str) -> None:
         console.print(f"[red]Error:[/red] Notebook '{name}' is locked by {holder}.")
         raise SystemExit(1)
 
-    # Create snapshot
-    snapshot_path = None
-    try:
-        snapshot_path = create_snapshot(project_root, "cli")
-        console.print(f"[green]✓[/green] Created DuckDB snapshot at {snapshot_path.name}")
-    except FileNotFoundError:
-        pass  # no warehouse yet — notebooks will use default path
-
     # Start heartbeat thread
     stop_event = threading.Event()
 
@@ -184,7 +176,15 @@ def notebook_open(ctx: click.Context, name: str) -> None:
 
     try:
         status = get_marimo_status(project_root)
+        snapshot_path = None
         if not status["running"]:
+            # Create snapshot so notebooks use a read-only copy
+            try:
+                snapshot_path = create_snapshot(project_root, "cli")
+                console.print(f"[green]✓[/green] Created DuckDB snapshot at {snapshot_path.name}")
+            except FileNotFoundError:
+                pass  # no warehouse yet — notebooks will use default path
+
             console.print("[cyan]Starting Marimo server...[/cyan]")
             pid = start_marimo(project_root, snapshot_path=snapshot_path)
             if pid:
