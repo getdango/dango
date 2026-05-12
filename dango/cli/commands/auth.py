@@ -469,8 +469,7 @@ def auth_status(ctx: click.Context) -> None:
 @click.pass_context
 def auth_unlock(ctx: click.Context, email: str) -> None:
     """Unlock a locked-out user account."""
-    from dango.auth.database import get_user_by_email, update_user
-    from dango.auth.models import UserUpdate
+    from dango.auth.database import get_user_by_email
     from dango.cli.utils import print_error, print_info, print_success
 
     try:
@@ -482,11 +481,11 @@ def auth_unlock(ctx: click.Context, email: str) -> None:
         if user.locked_until is None and user.failed_login_attempts == 0:
             print_info(f"User '{user.email}' is not locked.")
             return
-        update_user(
-            db_path,
-            user.id,
-            UserUpdate(failed_login_attempts=0, locked_until=None),
-        )
+        # unlock_account resets users table (failed_login_attempts, locked_until)
+        # AND clears all IP-based lockouts for this email
+        from dango.auth.lockout import unlock_account
+
+        unlock_account(db_path, user.email)
         print_success(f"User '{user.email}' unlocked.")
         from dango.auth.audit import AuditEvent, log_auth_event
 

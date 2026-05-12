@@ -44,6 +44,7 @@ from dango.auth.database import (
 )
 from dango.auth.lockout import (
     check_account_locked,
+    cleanup_expired_login_attempts,
     record_failed_login,
     reset_failed_logins,
     unlock_account,
@@ -182,6 +183,7 @@ __all__ = [
     "update_api_key_last_used",
     # Lockout functions
     "check_account_locked",
+    "cleanup_expired_login_attempts",
     "record_failed_login",
     "reset_failed_logins",
     "unlock_account",

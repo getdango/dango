@@ -14,6 +14,7 @@ import pytest
 from dango.auth.database import _connect, create_user
 from dango.auth.lockout import (
     check_account_locked,
+    cleanup_expired_login_attempts,
     record_failed_login,
     reset_failed_logins,
     unlock_account,
@@ -326,3 +327,259 @@ class TestUnlockAccount:
         db_path = _make_db(tmp_path)
         result = unlock_account(db_path, "nobody@example.com")
         assert result is False
+
+
+def _get_login_attempt_row(db_path: Path, key: str) -> dict[str, Any] | None:
+    """Read raw login_attempts row for assertions."""
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT attempts, locked_until FROM login_attempts WHERE key = ?",
+            (key,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "attempts": row["attempts"],
+            "locked_until": row["locked_until"],
+        }
+    finally:
+        conn.close()
+
+
+@pytest.mark.unit
+class TestIPBasedLockout:
+    """Tests for IP-based lockout tracking (BUG-235)."""
+
+    def test_unknown_email_locked_after_max_attempts(self, tmp_path: Path) -> None:
+        """Unknown email + IP gets locked after max_attempts (no user required)."""
+        db_path = _make_db(tmp_path)
+
+        for _ in range(4):
+            is_locked, _ = record_failed_login(
+                db_path,
+                "nobody@example.com",
+                client_ip="1.2.3.4",
+                max_attempts=5,
+            )
+            assert is_locked is False
+
+        is_locked, remaining = record_failed_login(
+            db_path,
+            "nobody@example.com",
+            client_ip="1.2.3.4",
+            max_attempts=5,
+        )
+        assert is_locked is True
+        assert remaining > 0
+
+    def test_known_email_locked_after_max_attempts(self, tmp_path: Path) -> None:
+        """Existing email + IP gets locked after max_attempts (both tables updated)."""
+        db_path = _make_db(tmp_path)
+        create_user(db_path, _make_user())
+
+        for _ in range(4):
+            is_locked, _ = record_failed_login(
+                db_path,
+                "test@example.com",
+                client_ip="1.2.3.4",
+                max_attempts=5,
+            )
+            assert is_locked is False
+
+        is_locked, remaining = record_failed_login(
+            db_path,
+            "test@example.com",
+            client_ip="1.2.3.4",
+            max_attempts=5,
+        )
+        assert is_locked is True
+        assert remaining > 0
+
+        # Users table should also be updated for admin visibility
+        row = _get_user_row(db_path, "test@example.com")
+        assert row["failed_login_attempts"] == 5
+        assert row["locked_until"] is not None
+
+    def test_different_ips_independent(self, tmp_path: Path) -> None:
+        """Same email from different IPs tracks independently."""
+        db_path = _make_db(tmp_path)
+
+        for _ in range(4):
+            record_failed_login(
+                db_path,
+                "test@example.com",
+                client_ip="1.1.1.1",
+                max_attempts=5,
+            )
+
+        # Different IP should start fresh
+        is_locked, _ = record_failed_login(
+            db_path,
+            "test@example.com",
+            client_ip="2.2.2.2",
+            max_attempts=5,
+        )
+        assert is_locked is False
+
+    def test_different_emails_same_ip_independent(self, tmp_path: Path) -> None:
+        """Same IP with different emails tracks independently."""
+        db_path = _make_db(tmp_path)
+
+        for _ in range(4):
+            record_failed_login(
+                db_path,
+                "alice@example.com",
+                client_ip="1.2.3.4",
+                max_attempts=5,
+            )
+
+        # Different email from same IP should start fresh
+        is_locked, _ = record_failed_login(
+            db_path,
+            "bob@example.com",
+            client_ip="1.2.3.4",
+            max_attempts=5,
+        )
+        assert is_locked is False
+
+    def test_check_locked_with_ip_unknown_email(self, tmp_path: Path) -> None:
+        """check_account_locked returns True for locked IP+unknown email."""
+        db_path = _make_db(tmp_path)
+
+        # Lock out via IP-based tracking
+        for _ in range(5):
+            record_failed_login(
+                db_path,
+                "nobody@example.com",
+                client_ip="1.2.3.4",
+                max_attempts=5,
+            )
+
+        is_locked, remaining = check_account_locked(
+            db_path,
+            "nobody@example.com",
+            client_ip="1.2.3.4",
+        )
+        assert is_locked is True
+        assert remaining > 0
+
+    def test_reset_clears_ip_entry(self, tmp_path: Path) -> None:
+        """reset_failed_logins with client_ip deletes the specific entry."""
+        db_path = _make_db(tmp_path)
+
+        for _ in range(3):
+            record_failed_login(
+                db_path,
+                "test@example.com",
+                client_ip="1.2.3.4",
+                max_attempts=5,
+            )
+
+        reset_failed_logins(db_path, "test@example.com", client_ip="1.2.3.4")
+
+        # IP-based entry should be gone
+        is_locked, _ = check_account_locked(
+            db_path,
+            "test@example.com",
+            client_ip="1.2.3.4",
+        )
+        assert is_locked is False
+
+    def test_unlock_clears_all_ip_entries(self, tmp_path: Path) -> None:
+        """unlock_account clears ALL IP entries for the email."""
+        db_path = _make_db(tmp_path)
+        create_user(db_path, _make_user())
+
+        # Lock from two different IPs
+        for _ in range(5):
+            record_failed_login(
+                db_path,
+                "test@example.com",
+                client_ip="1.1.1.1",
+                max_attempts=5,
+            )
+            record_failed_login(
+                db_path,
+                "test@example.com",
+                client_ip="2.2.2.2",
+                max_attempts=5,
+            )
+
+        unlock_account(db_path, "test@example.com")
+
+        # Both IP entries should be cleared
+        is_locked1, _ = check_account_locked(
+            db_path,
+            "test@example.com",
+            client_ip="1.1.1.1",
+        )
+        is_locked2, _ = check_account_locked(
+            db_path,
+            "test@example.com",
+            client_ip="2.2.2.2",
+        )
+        assert is_locked1 is False
+        assert is_locked2 is False
+
+    def test_expired_ip_lockout_resets(self, tmp_path: Path) -> None:
+        """After IP-based lockout expires, new attempts start fresh."""
+        db_path = _make_db(tmp_path)
+        from dango.auth.lockout import _make_attempt_key
+
+        key = _make_attempt_key("1.2.3.4", "test@example.com")
+
+        # Insert an expired lockout directly
+        past_lockout = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        conn = _connect(db_path)
+        try:
+            conn.execute(
+                "INSERT INTO login_attempts (key, email, attempts, locked_until, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (key, "test@example.com", 5, past_lockout, past_lockout),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Should start fresh (not locked)
+        is_locked, _ = record_failed_login(
+            db_path,
+            "test@example.com",
+            client_ip="1.2.3.4",
+            max_attempts=5,
+        )
+        assert is_locked is False
+
+    def test_no_ip_backwards_compatible(self, tmp_path: Path) -> None:
+        """Without client_ip, all functions use legacy users-table behaviour."""
+        db_path = _make_db(tmp_path)
+        # Unknown email without client_ip returns (False, 0) — no error
+        is_locked, remaining = record_failed_login(db_path, "nobody@example.com")
+        assert is_locked is False
+        assert remaining == 0
+
+    def test_cleanup_expired(self, tmp_path: Path) -> None:
+        """cleanup_expired_login_attempts removes old entries."""
+        db_path = _make_db(tmp_path)
+        from dango.auth.lockout import _make_attempt_key
+
+        key = _make_attempt_key("1.2.3.4", "old@example.com")
+
+        # Insert an old entry (48 hours ago)
+        old_time = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        conn = _connect(db_path)
+        try:
+            conn.execute(
+                "INSERT INTO login_attempts (key, email, attempts, locked_until, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (key, "old@example.com", 3, None, old_time),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        deleted = cleanup_expired_login_attempts(db_path, max_age_hours=24)
+        assert deleted == 1
+
+        # Verify entry is gone
+        row = _get_login_attempt_row(db_path, key)
+        assert row is None

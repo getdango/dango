@@ -25,9 +25,9 @@ exemptions:
 
   # --- Phase 2 auth additions ---
   - file: dango/web/routes/auth.py
-    lines: 852
+    lines: 886
     category: exempt
-    reason: "Login/logout, OAuth flows, invite accept, API key CRUD. DOC-025 evaluated split (auth_api.py + auth_oauth.py) — rejected: breaks all test patches, scatters security-critical code. Bridge helper extracted to reduce duplication."
+    reason: "Login/logout, OAuth flows, invite accept, API key CRUD. DOC-025 evaluated split (auth_api.py + auth_oauth.py) — rejected: breaks all test patches, scatters security-critical code. Bridge helper extracted to reduce duplication. BUG-235 added IP-based lockout calls (+19 lines)."
     review_by: "v1.1"
 
   - file: dango/auth/database.py
@@ -43,21 +43,33 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/users.py
-    lines: 527
+    lines: 531
     category: exempt
-    reason: "TASK-100 added invite-based user creation and reinvite endpoint (+77 lines over base)."
+    reason: "TASK-100 added invite-based user creation and reinvite endpoint (+77 lines over base). BUG-235 added unlock_account call (+4 lines)."
     review_by: "v1.1"
 
   - file: dango/cli/commands/auth.py
-    lines: 661
+    lines: 660
     category: exempt
-    reason: "R7-E added change-role command and audit logging to all user management commands (+122 lines)."
+    reason: "R7-E added change-role command and audit logging to all user management commands (+122 lines). BUG-235 replaced update_user with unlock_account for IP-based lockout cleanup."
     review_by: "v1.1"
 
   - file: tests/unit/test_cli_auth.py
     lines: 532
     category: exempt
     reason: "R7-E review: added TestAuthChangeRole (4 tests) and change-role to TestAuthHelp. Test files track source file growth."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_auth_lockout.py
+    lines: 585
+    category: exempt
+    reason: "BUG-235: added TestIPBasedLockout class (11 tests) for IP-based lockout tracking."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_web_auth.py
+    lines: 527
+    category: exempt
+    reason: "BUG-235: added TestLoginLockoutEnumeration class (3 tests) for username enumeration prevention."
     review_by: "v1.1"
 
   # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
