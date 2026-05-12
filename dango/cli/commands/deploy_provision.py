@@ -24,6 +24,9 @@ import click
 from dango.cli import console
 from dango.cli.commands.deploy_wizard import _EMAIL_RE, BYOSConfig, WizardConfig
 from dango.exceptions import CloudProvisioningError
+from dango.logging import get_logger
+
+_logger = get_logger(__name__)
 
 
 @dataclass
@@ -825,17 +828,13 @@ def _start_services(ssh: Any) -> None:
     ssh.exec_command("systemctl start dango-web", timeout=30)
 
 
-def _health_check(url: str, timeout: int = 30, interval: int = 3) -> bool:
+def _health_check(url: str, timeout: int = 60, interval: int = 5) -> bool:
     """Poll server health endpoint until it responds 200.
 
     Returns:
         True if healthy, False if timeout.
     """
     import httpx
-
-    from dango.logging import get_logger
-
-    _logger = get_logger(__name__)
 
     attempts = timeout // interval
     for _ in range(attempts):
@@ -856,10 +855,6 @@ def _trigger_initial_sync(url: str, deploy_token: str) -> bool:
     """
     import httpx
 
-    from dango.logging import get_logger
-
-    _logger = get_logger(__name__)
-
     try:
         resp = httpx.post(
             f"{url}/api/initial-sync/start",
@@ -870,9 +865,9 @@ def _trigger_initial_sync(url: str, deploy_token: str) -> bool:
             timeout=10,
             verify=False,
         )
-        if resp.status_code == 200:
+        if resp.is_success:
             return True
-        _logger.warning("initial_sync_trigger_non_200", status=resp.status_code)
+        _logger.warning("initial_sync_trigger_failed_status", status=resp.status_code)
         return False
     except Exception:
         _logger.warning("initial_sync_trigger_failed", exc_info=True)

@@ -588,14 +588,10 @@ class TestIPBasedLockout:
         """cleanup_login_attempts_job wrapper works end-to-end."""
         from dango.auth.lockout import _make_attempt_key, cleanup_login_attempts_job
 
-        # Create auth.db in the expected .dango/ subdirectory
+        # _make_db(dango_dir) creates .dango/auth.db — matches get_auth_db_path(tmp_path)
         dango_dir = tmp_path / ".dango"
         dango_dir.mkdir()
         db_path = _make_db(dango_dir)
-        # _make_db creates at dango_dir/auth.db — move to .dango/auth.db
-        # Actually _make_db(dango_dir) already creates dango_dir/auth.db
-        # but get_auth_db_path expects tmp_path/.dango/auth.db
-        # Since dango_dir IS tmp_path/.dango, pass tmp_path as project_root
 
         key = _make_attempt_key("1.2.3.4", "old@example.com")
 

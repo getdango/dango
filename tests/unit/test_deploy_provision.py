@@ -525,9 +525,9 @@ class TestSaveExtraMetadata:
 class TestTriggerInitialSync:
     @patch("httpx.post")
     def test_posts_with_token_returns_true(self, mock_post):
-        """Trigger sends POST with deploy token and returns True on 200."""
+        """Trigger sends POST with deploy token and returns True on success."""
         mock_resp = MagicMock()
-        mock_resp.status_code = 200
+        mock_resp.is_success = True
         mock_post.return_value = mock_resp
 
         result = _trigger_initial_sync("http://1.2.3.4", "test-token-123")
@@ -540,9 +540,10 @@ class TestTriggerInitialSync:
         assert headers["Authorization"] == "Bearer test-token-123"
 
     @patch("httpx.post")
-    def test_non_200_returns_false(self, mock_post):
-        """Trigger returns False on non-200 response."""
+    def test_non_success_returns_false(self, mock_post):
+        """Trigger returns False on non-success response."""
         mock_resp = MagicMock()
+        mock_resp.is_success = False
         mock_resp.status_code = 500
         mock_post.return_value = mock_resp
 
