@@ -137,7 +137,7 @@ def auth_add_user(ctx: click.Context, email: str, role: str) -> None:
     _cloud_cfg, ssh = _connect_ssh_or_fail(ctx)
     try:
         safe_email = shlex.quote(email)
-        args = f"add-user {safe_email} --role {role} --password"
+        args = f"add-user {safe_email} --role {shlex.quote(role)} --password"
         if not _run_remote_auth_cmd(ssh, args):
             raise SystemExit(1)
     finally:
