@@ -341,7 +341,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/init.py` | 1334 | — |
 | `visualization/dashboard_manager.py` | 1112 | — |
 | `cli/commands/platform.py` | 1038 | — (extracted from main.py by TASK-005) |
-| `web/routes/auth.py` | 852 | — (split evaluated in DOC-025: exempt, security-critical) |
+| `web/routes/auth.py` | 886 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 851 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
@@ -364,9 +364,9 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/deploy_provision.py` | 849 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
 | `platform/cloud/server_setup.py` | 666 | — (server setup + install source detection) |
-| `cli/commands/auth.py` | 661 | — (13 auth subcommands) |
+| `cli/commands/auth.py` | 660 | — (13 auth subcommands) |
 | `auth/database.py` | 529 | — (SQLite CRUD) |
-| `web/routes/users.py` | 527 | — (admin user CRUD + invite) |
+| `web/routes/users.py` | 531 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 518 | — |
 | `cli/commands/schedule.py` | 743 | — (schedule wizard + time customization) |
 | `cli/model_wizard.py` | 507 | — |

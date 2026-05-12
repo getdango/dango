@@ -218,7 +218,7 @@ async def login(request: Request) -> JSONResponse:
         session_max_days = auth_config.session_max_days
 
     # Check lockout
-    is_locked, remaining = check_account_locked(db_path, login_data.email)
+    is_locked, remaining = check_account_locked(db_path, login_data.email, client_ip=ip)
     if is_locked:
         return JSONResponse(
             status_code=423,
@@ -233,19 +233,53 @@ async def login(request: Request) -> JSONResponse:
     if user is None:
         # Equalize timing: run bcrypt even for unknown emails
         verify_password("dummy", _DUMMY_PASSWORD_HASH)
+        locked, remaining = record_failed_login(
+            db_path,
+            login_data.email,
+            client_ip=ip,
+            max_attempts=max_attempts,
+            lockout_minutes=lockout_minutes,
+        )
         log_auth_event(AuditEvent.LOGIN_FAILURE, email=login_data.email, ip=ip)
+        if locked:
+            return JSONResponse(
+                status_code=423,
+                content={
+                    "message": "Account is temporarily locked",
+                    "remaining_seconds": remaining,
+                },
+            )
         return JSONResponse(status_code=400, content={"message": "Invalid email or password"})
 
     # Check active — use same path as unknown email to prevent enumeration
     if not user.is_active:
         verify_password("dummy", _DUMMY_PASSWORD_HASH)
+        locked, remaining = record_failed_login(
+            db_path,
+            login_data.email,
+            client_ip=ip,
+            max_attempts=max_attempts,
+            lockout_minutes=lockout_minutes,
+        )
         log_auth_event(AuditEvent.LOGIN_FAILURE, user_id=user.id, email=login_data.email, ip=ip)
+        if locked:
+            return JSONResponse(
+                status_code=423,
+                content={
+                    "message": "Account is temporarily locked",
+                    "remaining_seconds": remaining,
+                },
+            )
         return JSONResponse(status_code=400, content={"message": "Invalid email or password"})
 
     # Verify password
     if user.password_hash is None or not verify_password(login_data.password, user.password_hash):
         locked, remaining = record_failed_login(
-            db_path, login_data.email, max_attempts=max_attempts, lockout_minutes=lockout_minutes
+            db_path,
+            login_data.email,
+            client_ip=ip,
+            max_attempts=max_attempts,
+            lockout_minutes=lockout_minutes,
         )
         log_auth_event(AuditEvent.LOGIN_FAILURE, user_id=user.id, email=login_data.email, ip=ip)
         if locked:
@@ -259,7 +293,7 @@ async def login(request: Request) -> JSONResponse:
         return JSONResponse(status_code=400, content={"message": "Invalid email or password"})
 
     # Success
-    reset_failed_logins(db_path, login_data.email)
+    reset_failed_logins(db_path, login_data.email, client_ip=ip)
 
     # 2FA required — create partial session
     if user.totp_enabled:
@@ -781,7 +815,7 @@ async def _resolve_oauth_user(
         )
 
     # Success — create session
-    reset_failed_logins(db_path, user.email)
+    reset_failed_logins(db_path, user.email, client_ip=ip)
     auth_config = _get_auth_config(request)
     session_max_days = auth_config.session_max_days if auth_config else DEFAULT_SESSION_MAX_DAYS
 

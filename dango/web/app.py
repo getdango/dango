@@ -100,6 +100,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.warning("first_run_admin_check_failed", exc_info=True)
 
+    # Clean up stale login attempt records (IP-based lockout, BUG-235)
+    try:
+        from dango.auth.admin import get_auth_db_path
+        from dango.auth.lockout import cleanup_expired_login_attempts
+
+        auth_db = get_auth_db_path(project_root)
+        if auth_db.exists():
+            cleaned = cleanup_expired_login_attempts(auth_db)
+            if cleaned:
+                logger.info("login_attempts_cleaned", count=cleaned)
+    except Exception:
+        logger.debug("login_attempts_cleanup_failed", exc_info=True)
+
     # Cloud security warnings
     try:
         from dango.web.helpers import is_cloud_deployment
