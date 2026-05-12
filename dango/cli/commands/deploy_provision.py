@@ -277,13 +277,20 @@ def run_provisioning(
             ssh.disconnect()
 
         url = f"https://{config.domain}" if config.domain else f"http://{droplet_ip}"
-        health_ok = _health_check(url)
+        health_ok = _health_check(url, timeout=60, interval=5)
         if not health_ok:
             warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
 
         # Trigger initial sync
         if not config.skip_initial_sync and health_ok:
-            _trigger_initial_sync(url, deploy_token)
+            sync_started = _trigger_initial_sync(url, deploy_token)
+            if sync_started:
+                _status("Initial sync started. Check status at the dashboard.")
+            else:
+                warnings.append(
+                    "Initial sync could not be started automatically. "
+                    "Run 'dango remote sync' manually after deployment."
+                )
 
         return ProvisionResult(
             droplet_ip=droplet_ip,
@@ -428,13 +435,20 @@ def run_byos_setup(
             ssh.disconnect()
 
         url = f"https://{config.domain}" if config.domain else f"http://{config.server_ip}"
-        health_ok = _health_check(url)
+        health_ok = _health_check(url, timeout=60, interval=5)
         if not health_ok:
             warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
 
         # Trigger initial sync
         if not config.skip_initial_sync and health_ok:
-            _trigger_initial_sync(url, deploy_token)
+            sync_started = _trigger_initial_sync(url, deploy_token)
+            if sync_started:
+                _status("Initial sync started. Check status at the dashboard.")
+            else:
+                warnings.append(
+                    "Initial sync could not be started automatically. "
+                    "Run 'dango remote sync' manually after deployment."
+                )
 
         return BYOSResult(
             server_ip=config.server_ip,
@@ -819,6 +833,10 @@ def _health_check(url: str, timeout: int = 30, interval: int = 3) -> bool:
     """
     import httpx
 
+    from dango.logging import get_logger
+
+    _logger = get_logger(__name__)
+
     attempts = timeout // interval
     for _ in range(attempts):
         try:
@@ -826,17 +844,24 @@ def _health_check(url: str, timeout: int = 30, interval: int = 3) -> bool:
             if resp.status_code == 200:
                 return True
         except Exception:
-            pass
+            _logger.debug("health_check_poll_error", url=url)
         time.sleep(interval)
     return False
 
 
-def _trigger_initial_sync(url: str, deploy_token: str) -> None:
-    """POST to /api/initial-sync/start to trigger background sync."""
+def _trigger_initial_sync(url: str, deploy_token: str) -> bool:
+    """POST to /api/initial-sync/start to trigger background sync.
+
+    Returns True if the sync was triggered successfully.
+    """
     import httpx
 
+    from dango.logging import get_logger
+
+    _logger = get_logger(__name__)
+
     try:
-        httpx.post(
+        resp = httpx.post(
             f"{url}/api/initial-sync/start",
             headers={
                 "X-Requested-With": "XMLHttpRequest",
@@ -845,5 +870,10 @@ def _trigger_initial_sync(url: str, deploy_token: str) -> None:
             timeout=10,
             verify=False,
         )
+        if resp.status_code == 200:
+            return True
+        _logger.warning("initial_sync_trigger_non_200", status=resp.status_code)
+        return False
     except Exception:
-        pass  # Non-critical — user can trigger from dashboard
+        _logger.warning("initial_sync_trigger_failed", exc_info=True)
+        return False

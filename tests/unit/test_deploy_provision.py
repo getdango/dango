@@ -524,21 +524,38 @@ class TestSaveExtraMetadata:
 @pytest.mark.unit
 class TestTriggerInitialSync:
     @patch("httpx.post")
-    def test_posts_with_token(self, mock_post):
-        """Trigger sends POST with deploy token."""
-        _trigger_initial_sync("http://1.2.3.4", "test-token-123")
+    def test_posts_with_token_returns_true(self, mock_post):
+        """Trigger sends POST with deploy token and returns True on 200."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_post.return_value = mock_resp
 
+        result = _trigger_initial_sync("http://1.2.3.4", "test-token-123")
+
+        assert result is True
         mock_post.assert_called_once()
         call_kwargs = mock_post.call_args
         assert call_kwargs[0][0] == "http://1.2.3.4/api/initial-sync/start"
         headers = call_kwargs[1]["headers"]
         assert headers["Authorization"] == "Bearer test-token-123"
 
+    @patch("httpx.post")
+    def test_non_200_returns_false(self, mock_post):
+        """Trigger returns False on non-200 response."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_post.return_value = mock_resp
+
+        result = _trigger_initial_sync("http://1.2.3.4", "test-token-123")
+
+        assert result is False
+
     @patch("httpx.post", side_effect=ConnectionError("refused"))
-    def test_swallows_errors(self, mock_post):
-        """Trigger does not raise on connection failure."""
-        # Should not raise
-        _trigger_initial_sync("http://1.2.3.4", "test-token-123")
+    def test_connection_error_returns_false(self, mock_post):
+        """Trigger returns False on connection failure (does not raise)."""
+        result = _trigger_initial_sync("http://1.2.3.4", "test-token-123")
+
+        assert result is False
 
 
 # ---------------------------------------------------------------------------
