@@ -320,7 +320,7 @@ def dispatch_post_sync_hooks(
     """Run post-sync hooks for successfully synced sources.
 
     Invokes each hook in order: profiling, PII scanning, analysis,
-    and (optionally) sync notification.
+    dbt snapshots, and (optionally) sync notification.
 
     Args:
         project_root: Path to the Dango project root.

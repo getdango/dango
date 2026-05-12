@@ -26,10 +26,6 @@ class TestExecuteQueryRetry:
         from dango.web.routes.query import _execute_query
 
         result = self._make_result()
-        mock_conn = MagicMock()
-        mock_conn.execute.side_effect = [duckdb.IOException("locked"), None]
-        mock_conn.execute.side_effect = None
-        mock_conn.execute.return_value = result
 
         # First call raises IOException, second succeeds
         call_count = 0

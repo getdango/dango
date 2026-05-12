@@ -1917,7 +1917,14 @@ Error details: {str(error)}
         # contain "connection" which would trigger the wrong handler)
         if any(
             keyword in error_str
-            for keyword in ["lock", "locked", "already open", "another process"]
+            for keyword in [
+                "is locked",
+                "could not set lock",
+                "write lock",
+                "file lock",
+                "already open",
+                "another process",
+            ]
         ):
             return f"""
 DuckDB Lock Error: Database is locked for '{source_name}'
