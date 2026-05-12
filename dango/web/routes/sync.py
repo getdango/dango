@@ -136,6 +136,7 @@ async def run_sync_task(
             end_date=end_date,
             source_label="ui",
             record_id=record_id,
+            max_lock_wait=300,
         )
 
         # Poll until completion (broadcasts WS events + heartbeat internally)
@@ -339,6 +340,7 @@ async def _run_manual_sync(
             backfill_days=backfill_days,
             source_label="manual",
             record_id=record_id,
+            max_lock_wait=300,
         )
 
         # Use first source name for WS events (manual sync may have multiple)

@@ -1913,6 +1913,43 @@ Fix commands:
 Error details: {str(error)}
 """
 
+        # DuckDB lock errors (must be checked before connection — lock messages
+        # contain "connection" which would trigger the wrong handler)
+        if any(
+            keyword in error_str
+            for keyword in [
+                "is locked",
+                "could not set lock",
+                "write lock",
+                "file lock",
+                "already open",
+                "another process",
+            ]
+        ):
+            return f"""
+DuckDB Lock Error: Database is locked for '{source_name}'
+
+Possible causes:
+  • Another sync is currently running
+  • A Marimo notebook has the database open
+  • Metabase is holding a write lock
+  • A previous process did not release the lock
+
+How to fix:
+  1. Close any open notebooks (Marimo)
+  2. Wait for any running syncs to complete
+  3. Restart Dango if the issue persists
+
+Fix commands:
+  # Check running processes
+  dango status
+
+  # Restart services
+  dango stop && dango start
+
+Error details: {str(error)}
+"""
+
         # Connection/network errors
         if any(
             keyword in error_str
