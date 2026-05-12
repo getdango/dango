@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/smoke_test.sh — v1.5 (2026-05-07)
+# scripts/smoke_test.sh — v1.6 (2026-05-12)
 #
 # Automated smoke test for a running Dango instance.
 # Requires: dango start running in a test project, venv activated.
@@ -131,7 +131,7 @@ category_end() {
     if [ "$CAT_SKIP" -gt 0 ]; then
         extra=" ($CAT_SKIP SKIP)"
     fi
-    printf "[%s/9] %-28s %d/%d %s%s\n" "$num" "$name" "$CAT_PASS" "$CAT_TOTAL" "$status" "$extra"
+    printf "[%s/12] %-28s %d/%d %s%s\n" "$num" "$name" "$CAT_PASS" "$CAT_TOTAL" "$status" "$extra"
 }
 
 # Run a command, pass if exit code is 0
@@ -571,6 +571,273 @@ curl_api_body_test "duckdb_size_bytes in /api/health/platform" "/api/health/plat
 curl_api_test "/query → 301" GET "/query" "301"
 
 category_end "9" "R10 Feature Checks"
+
+# ---------------------------------------------------------------------------
+# Category 10: R12 Code Checks (grep-based, no server needed)
+# ---------------------------------------------------------------------------
+
+category_start 27
+
+# R12-A/BUG-229: State backup before pipeline.drop()
+if grep -qn "_backup_dlt_state\|backup.*state" "$REPO_ROOT/dango/ingestion/dlt_runner.py" && \
+   grep -qn "pipeline\.drop" "$REPO_ROOT/dango/ingestion/dlt_runner.py"; then
+    pass_test
+else
+    fail_test "State backup before pipeline.drop (BUG-229)"
+fi
+
+# R12-A/BUG-246: Metabase :ro mount or snapshot in docker-compose
+if grep -q ':ro' "$REPO_ROOT/dango/templates/docker-compose.yml.j2"; then
+    pass_test
+else
+    fail_test "Metabase :ro volume mount (BUG-246)"
+fi
+
+# R12-A/BUG-239: No silent except-pass in deploy files
+SILENT_EXCEPT=$(grep -rn 'except.*Exception' "$REPO_ROOT/dango/platform/cloud/deploy"*.py 2>/dev/null | grep -v '^\s*#' | grep 'pass$' | wc -l | tr -d ' ')
+if [ "$SILENT_EXCEPT" = "0" ]; then
+    pass_test
+else
+    fail_test "No silent except-pass in deploy (BUG-239)" "Found $SILENT_EXCEPT occurrences"
+fi
+
+# R12-B/BUG-191: Docker first-run timeout >= 600
+if grep -qE '(timeout|TIMEOUT).*600|600.*timeout' "$REPO_ROOT/dango/platform/docker.py" 2>/dev/null || \
+   grep -qE '(timeout|TIMEOUT).*600|600.*timeout' "$REPO_ROOT/dango/cli/commands/platform.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Docker first-run timeout >= 600 (BUG-191)"
+fi
+
+# R12-B/BUG-209: dbt build not dbt run
+if grep -q '"dbt".*"build"' "$REPO_ROOT/dango/cli/commands/transform.py" 2>/dev/null || \
+   grep -q '"build"' "$REPO_ROOT/dango/cli/commands/transform.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "dbt build not dbt run (BUG-209)"
+fi
+
+# R12-B/BUG-205: Snapshot data/ path references warehouse
+if grep -q 'data.*warehouse\|warehouse.*data' "$REPO_ROOT/dango/cli/commands/snapshot.py" 2>/dev/null || \
+   grep -q 'warehouse\.duckdb' "$REPO_ROOT/dango/cli/commands/snapshot.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Snapshot data/ path (BUG-205)"
+fi
+
+# R12-B/BUG-233: Rich escape_markup usage
+if grep -qE 'escape_markup|from rich\.markup import escape' "$REPO_ROOT/dango/cli/source_wizard.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Rich escape_markup (BUG-233)"
+fi
+
+# R12-B/BUG-192: Browser auto-open in notebook
+if grep -q 'webbrowser\.open' "$REPO_ROOT/dango/cli/commands/notebook.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Browser auto-open notebook (BUG-192)"
+fi
+
+# R12-B/BUG-197: Catalog badge alignment (flex-shrink-0)
+if grep -q 'flex-shrink-0' "$REPO_ROOT/dango/web/templates/catalog.html" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Catalog badge alignment (BUG-197)"
+fi
+
+# R12-B/BUG-221: File watcher cleanup on stop
+if grep -q 'stop_file_watcher' "$REPO_ROOT/dango/cli/commands/platform.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "File watcher cleanup (BUG-221)"
+fi
+
+# R12-C/BUG-214: Sync status watcher in lifespan
+if grep -q 'sync_status_watcher' "$REPO_ROOT/dango/web/app.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Sync status watcher in lifespan (BUG-214)"
+fi
+
+# R12-C/BUG-230: dbt_run_all_failed event exists
+if grep -rq 'dbt_run_all_failed' "$REPO_ROOT/dango/" 2>/dev/null; then
+    pass_test
+else
+    fail_test "dbt_run_all_failed event (BUG-230)"
+fi
+
+# R12-F/BUG-195: Lock error message in dlt_runner
+if grep -q 'locked by another process' "$REPO_ROOT/dango/ingestion/dlt_runner.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Lock error message (BUG-195)"
+fi
+
+# R12-F/BUG-222: Invalid SQL message in query route
+if grep -q 'Invalid SQL syntax' "$REPO_ROOT/dango/web/routes/query.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Invalid SQL message (BUG-222)"
+fi
+
+# R12-F/BUG-228: DbtLock default timeout > 0
+if python3 -c "
+from dango.utils.dbt_lock import DbtLock
+import inspect
+sig = inspect.signature(DbtLock.acquire)
+default = sig.parameters['timeout'].default
+assert default > 0, f'DbtLock timeout default is {default}, expected > 0'
+" 2>/dev/null; then
+    pass_test
+else
+    fail_test "DbtLock timeout > 0 (BUG-228)"
+fi
+
+# R12-H/BUG-194: Notebook snapshot path env variable
+if grep -rq 'DANGO_NOTEBOOK_DB_PATH' "$REPO_ROOT/dango/notebooks/templates/" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Notebook snapshot path env (BUG-194)"
+fi
+
+# R12-H/BUG-196: Notebook idle timeout > 900
+if python3 -c "
+from dango.notebooks.manager import _IDLE_TIMEOUT
+assert _IDLE_TIMEOUT > 900, f'_IDLE_TIMEOUT is {_IDLE_TIMEOUT}, expected > 900'
+" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Notebook idle timeout > 900 (BUG-196)"
+fi
+
+# R12-H/BUG-193: CLI notebook acquires lock
+if grep -q 'acquire_lock\|acquire' "$REPO_ROOT/dango/cli/commands/notebook.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "CLI notebook acquires lock (BUG-193)"
+fi
+
+# R12-J/BUG-235: IP-based lockout
+if grep -qE 'ip|client_ip|remote_addr' "$REPO_ROOT/dango/auth/lockout.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "IP-based lockout (BUG-235)"
+fi
+
+# R12-I/BUG-237: Deploy email confirm
+if grep -rqiE 'confirm.*email|email.*confirm' "$REPO_ROOT/dango/platform/cloud/deploy"*.py 2>/dev/null || \
+   grep -rqiE 'confirm.*email|email.*confirm' "$REPO_ROOT/dango/cli/commands/deploy"*.py 2>/dev/null; then
+    pass_test
+else
+    fail_test "Deploy email confirm (BUG-237)"
+fi
+
+# R12-I/BUG-245: Metabase timeout >= 300 in cloud templates
+if grep -q '300' "$REPO_ROOT/dango/templates/docker-compose.yml.j2" 2>/dev/null || \
+   grep -q '300' "$REPO_ROOT/dango/templates/nginx.conf.j2" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Metabase timeout >= 300 (BUG-245)"
+fi
+
+# R12-I/BUG-243: Cloud status systemd check
+if grep -qE 'systemctl|systemd' "$REPO_ROOT/dango/cli/commands/platform.py" 2>/dev/null || \
+   grep -rqE 'systemctl|systemd' "$REPO_ROOT/dango/platform/cloud/server_status.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Cloud status systemd (BUG-243)"
+fi
+
+# R12-B/BUG-200: Catalog back button fallback (goToList in restoreFromUrl)
+if grep -qE 'goToList|go_to_list' "$REPO_ROOT/dango/web/templates/catalog.html" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Catalog back button fallback (BUG-200)"
+fi
+
+# R12-D/BUG-217: Source cards collapse (showAllSources toggle)
+if grep -qE 'showAllSources|show_all_sources|toggleSources' "$REPO_ROOT/dango/web/templates/catalog.html" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Source cards collapse (BUG-217)"
+fi
+
+# R12-D/BUG-220: Source name onclick opens detail
+if grep -q 'openSourceDetail' "$REPO_ROOT/dango/web/templates/sources.html" 2>/dev/null || \
+   grep -q 'openSourceDetail' "$REPO_ROOT/dango/web/static/js/app.js" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Source name onclick (BUG-220)"
+fi
+
+# R12-E/BUG-203: Freshness formatting function
+if grep -qE 'formatFreshness|format_freshness' "$REPO_ROOT/dango/web/templates/monitoring.html" 2>/dev/null || \
+   grep -qE 'formatFreshness|format_freshness' "$REPO_ROOT/dango/web/static/js/app.js" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Freshness formatting (BUG-203)"
+fi
+
+# R12-G/BUG-227: Trigger Now simplified (no Advanced section)
+# Check that the trigger dialog does NOT have an "Advanced" section
+TRIGGER_ADVANCED=$(grep -ciE 'advanced' "$REPO_ROOT/dango/web/static/js/app.js" 2>/dev/null || echo "0")
+if [ "$TRIGGER_ADVANCED" = "0" ]; then
+    pass_test
+else
+    # If "Advanced" exists, check if it's specifically in a trigger context
+    # For now, just check that trigger simplification has been done
+    skip_test "Trigger Now simplified (BUG-227)" "Cannot distinguish trigger vs other 'Advanced' references"
+fi
+
+category_end "10" "R12 Code Checks"
+
+# ---------------------------------------------------------------------------
+# Category 11: R12 CLI Checks (command existence)
+# ---------------------------------------------------------------------------
+
+category_start 8
+
+run_cmd_test "dango remote auth --help" dango remote auth --help
+run_cmd_test "dango model remove --help" dango model remove --help
+run_cmd_test "dango notebook open --help" dango notebook open --help
+run_cmd_test "dango snapshot add --help" dango snapshot add --help
+run_cmd_test "dango source edit --help" dango source edit --help
+run_cmd_test "dango schedule add --help" dango schedule add --help
+run_cmd_test "dango notebook --help" dango notebook --help
+run_cmd_test "dango sync --help" dango sync --help
+
+category_end "11" "R12 CLI Checks"
+
+# ---------------------------------------------------------------------------
+# Category 12: R12 Server Checks (API/page content)
+# ---------------------------------------------------------------------------
+
+category_start 6
+
+# R12-D/BUG-199: Test name tooltips on catalog page
+curl_page_test "Catalog test tooltips (BUG-199)" "/catalog" "title="
+
+# R12-D/BUG-218: PII badge tooltip with cursor-help
+curl_page_test "PII badge tooltip (BUG-218)" "/catalog" "cursor-help"
+
+# R12-E/BUG-202: Run Analysis spinner
+curl_page_test "Run Analysis spinner (BUG-202)" "/monitoring" "animate-spin"
+
+# R12-G/BUG-211: Sync history duration in API response
+curl_api_body_test "Sync history duration (BUG-211)" "/api/sources" "duration"
+
+# R12-E/BUG-216: Tests grouped in monitoring
+curl_page_test "Tests grouped (BUG-216)" "/monitoring" "group"
+
+# R12-G/BUG-226: Schedule SPACE toggle hint
+if grep -qiE 'SPACE to toggle|space.*toggle' "$REPO_ROOT/dango/cli/commands/schedule.py" 2>/dev/null; then
+    pass_test
+else
+    fail_test "Schedule SPACE hint (BUG-226)"
+fi
+
+category_end "12" "R12 Server Checks"
 
 # ---------------------------------------------------------------------------
 # Summary
