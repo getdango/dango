@@ -148,7 +148,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
     if name:
         try:
             data = yaml.safe_load(sources_file.read_text()) or {}
-            source_names = [s.get("name") for s in data.get("sources", [])]
+            source_names = [s.get("name") for s in data.get("sources", []) if s.get("name")]
             if name not in source_names:
                 console.print(f"[red]Error:[/red] Source '{name}' not found")
                 if source_names:
@@ -162,7 +162,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
 
     if edited is None:
         if name:
-            console.print("[yellow]No editor available.[/yellow]")
+            console.print("[yellow]No editor or no changes.[/yellow]")
             # Print just the named source section
             try:
                 data = yaml.safe_load(original) or {}
@@ -194,7 +194,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
     console.print("[green]sources.yml updated[/green]")
 
     if name:
-        console.print(f"[dim]Hint: Look for the '{name}:' section[/dim]")
+        console.print(f"[dim]Hint: Look for 'name: {name}' in the sources list[/dim]")
 
 
 @source.command("list")
@@ -621,6 +621,8 @@ def sync(
     from ..utils import require_project_context
 
     # Resolve source: positional arg takes precedence over --source option
+    if source_option and not source_name:
+        console.print("[yellow]Note:[/yellow] --source is deprecated, use: dango sync <name>")
     source = source_name or source_option
 
     console.print("🍡 [bold]Syncing data...[/bold]")

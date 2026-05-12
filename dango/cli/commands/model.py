@@ -3,6 +3,8 @@
 dbt model management commands (add, remove).
 """
 
+import re
+
 import click
 
 from dango.cli import console
@@ -64,7 +66,7 @@ def model_add(ctx: click.Context) -> None:
         raise click.Abort() from e
 
 
-_VALID_MODEL_NAME_RE = __import__("re").compile(r"^[a-z][a-z0-9_]*$")
+_VALID_MODEL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _VALID_LAYERS = ("intermediate", "marts")
 
 
@@ -179,10 +181,11 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
 
         # Dry run: show what would be removed and exit
         if dry_run:
+            if layer is None:
+                raise click.Abort()  # unreachable — defensive guard
             console.print("[bold cyan]Dry run — no changes will be made[/bold cyan]\n")
             console.print("[bold]Would remove:[/bold]")
             console.print(f"  • Model file: {model_file.relative_to(project_root)}")
-            assert layer is not None
             schema_path = dbt_dir / layer / "schema.yml"
             if schema_path.exists():
                 console.print(f"  • schema.yml entry in {schema_path.relative_to(project_root)}")
@@ -236,8 +239,9 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
             f"[green]✓[/green] Deleted model file: {model_file.relative_to(project_root)}"
         )
 
-        # Remove model entry from schema.yml
-        assert layer is not None  # guaranteed by model_file check above
+        # Remove model entry from schema.yml (layer guaranteed set by model_file check)
+        if layer is None:
+            raise click.Abort()  # unreachable — defensive guard
         schema_path = dbt_dir / layer / "schema.yml"
         if schema_path.exists():
             import yaml
