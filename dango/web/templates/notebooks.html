@@ -203,7 +203,6 @@ function notebooksPage() {
         // Active editing
         activeNotebook: null,
         heartbeatInterval: null,
-        _boundBeforeUnload: null,
 
         // Lock revocation
         lockRevoked: false,
@@ -270,22 +269,12 @@ function notebooksPage() {
                     });
                 } catch (e) { /* ignore heartbeat failures */ }
             }, 60000);
-            this._boundBeforeUnload = () => {
-                fetch(`/api/notebooks/${name}/release`, {
-                    method: 'POST', headers, keepalive: true, body: '{}'
-                });
-            };
-            window.addEventListener('beforeunload', this._boundBeforeUnload);
         },
 
         stopHeartbeat() {
             if (this.heartbeatInterval) {
                 clearInterval(this.heartbeatInterval);
                 this.heartbeatInterval = null;
-            }
-            if (this._boundBeforeUnload) {
-                window.removeEventListener('beforeunload', this._boundBeforeUnload);
-                this._boundBeforeUnload = null;
             }
         },
 
