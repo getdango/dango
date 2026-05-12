@@ -334,7 +334,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
-| `ingestion/dlt_runner.py` | 2497 | — (exempt, too risky) |
+| `ingestion/dlt_runner.py` | PLACEHOLDER | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2008 | — (metadata-only) |
 | `cli/source_wizard.py` | 2311 | — |
 | `visualization/metabase.py` | 1151 | — |
@@ -346,7 +346,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/helpers.py` | 851 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
 | `platform/scheduling/jobs.py` | 849 | — (module-level job functions) |
-| `utils/post_sync.py` | 632 | — (post-sync hooks + sync notification) |
+| `utils/post_sync.py` | 661 | — (post-sync hooks + sync notification) |
 | `web/routes/schedules.py` | 518 | — (schedule read-only, history, trigger, notifications) |
 | `web/routes/notebooks.py` | 506 | — (notebook management API + heartbeat lock expiry + WS notify) |
 | `web/routes/upload.py` | 705 | — (extracted from app.py by TASK-085) |

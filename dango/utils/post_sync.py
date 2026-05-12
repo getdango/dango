@@ -276,6 +276,34 @@ def _cache_stats(
         conn.commit()
 
 
+def _run_dbt_snapshots(project_root: Path) -> None:
+    """Run dbt snapshots if any snapshot SQL files exist.
+
+    Snapshots capture SCD Type 2 change history.  They auto-run after every
+    sync when ``.sql`` files are present in the ``dbt/snapshots/`` directory.
+    Failures are logged but do not fail the sync.
+    """
+    snapshot_dir = project_root / "dbt" / "snapshots"
+    if not snapshot_dir.exists():
+        return
+
+    sql_files = list(snapshot_dir.glob("*.sql"))
+    if not sql_files:
+        return
+
+    logger.info("dbt_snapshots_start", snapshot_count=len(sql_files))
+    try:
+        from dango.transformation import run_dbt_snapshots
+
+        success, output = run_dbt_snapshots(project_root)
+        if success:
+            logger.info("dbt_snapshots_complete")
+        else:
+            logger.warning("dbt_snapshots_failed", output=output[:500])
+    except Exception:
+        logger.warning("dbt_snapshots_error", exc_info=True)
+
+
 # ---------------------------------------------------------------------------
 # Post-sync dispatcher
 # ---------------------------------------------------------------------------
@@ -311,6 +339,7 @@ def dispatch_post_sync_hooks(
     _enrich_staging_tests(project_root, sources)
     _run_pii_scan(project_root, sources)
     _run_analysis(project_root, sources)
+    _run_dbt_snapshots(project_root)
 
     if not skip_sync_notification and sync_result is not None:
         _send_sync_notification(project_root, sources, sync_result, trigger=trigger)

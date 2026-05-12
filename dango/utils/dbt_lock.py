@@ -187,7 +187,7 @@ class DbtLock:
                 pid = lock_info.get("pid", "unknown")
 
                 message = (
-                    f"Another dbt operation is currently running.\n"
+                    f"Another sync operation is currently running.\n"
                     f"Source: {source}\n"
                     f"Operation: {operation}\n"
                     f"Started at: {started_at}\n"
@@ -196,7 +196,7 @@ class DbtLock:
                 )
             else:
                 message = (
-                    "Another dbt operation is currently running. "
+                    "Another sync operation is currently running. "
                     "Please wait for it to complete before starting a new operation."
                 )
 

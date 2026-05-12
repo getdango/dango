@@ -15,6 +15,7 @@ Security layers (defense-in-depth):
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 import duckdb
@@ -98,7 +99,7 @@ def _validate_sql(sql: str) -> None:
 
     try:
         statements = sqlglot.parse(sql, dialect="duckdb")
-    except sqlglot.errors.SqlglotError as exc:
+    except sqlglot.errors.SqlglotError:
         # sqlglot could not parse — fall back to keyword check.
         # Read-only access mode is defense-in-depth for DB writes, but does not
         # prevent file-system writes (COPY TO, EXPORT), so we reject
@@ -106,7 +107,7 @@ def _validate_sql(sql: str) -> None:
         logger.warning("sqlglot_parse_failed", sql_length=len(sql))
         if not _looks_like_select(sql):
             raise ValueError("Only SELECT queries are allowed") from None
-        raise ValueError(f"Invalid SQL syntax: {exc}") from None
+        raise ValueError("Invalid SQL syntax. Please check your query and try again.") from None
     except Exception:
         logger.warning("sqlglot_parse_failed", sql_length=len(sql))
         if not _looks_like_select(sql):
@@ -139,23 +140,32 @@ def _execute_query(
     """Execute a read-only SQL query against DuckDB.
 
     This is a blocking function intended to be called via
-    ``asyncio.to_thread``.
+    ``asyncio.to_thread``.  Retries up to 3 times on ``duckdb.IOException``
+    (e.g. when a sync holds the write lock) with exponential backoff.
     """
-    conn = duckdb.connect(db_path, config={"access_mode": "read_only"})
-    try:
-        result = conn.execute(sql)
-        columns = [desc[0] for desc in result.description]
-        raw_rows = result.fetchmany(max_rows + 1)
-        truncated = len(raw_rows) > max_rows
-        rows = [list(r) for r in raw_rows[:max_rows]]
-        return {
-            "columns": columns,
-            "rows": rows,
-            "row_count": len(rows),
-            "truncated": truncated,
-        }
-    finally:
-        conn.close()
+    last_exc: duckdb.IOException | None = None
+    for attempt in range(3):
+        try:
+            conn = duckdb.connect(db_path, config={"access_mode": "read_only"})
+            try:
+                result = conn.execute(sql)
+                columns = [desc[0] for desc in result.description]
+                raw_rows = result.fetchmany(max_rows + 1)
+                truncated = len(raw_rows) > max_rows
+                rows = [list(r) for r in raw_rows[:max_rows]]
+                return {
+                    "columns": columns,
+                    "rows": rows,
+                    "row_count": len(rows),
+                    "truncated": truncated,
+                }
+            finally:
+                conn.close()
+        except duckdb.IOException as exc:
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(0.1 * (2**attempt))
+    raise last_exc  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
