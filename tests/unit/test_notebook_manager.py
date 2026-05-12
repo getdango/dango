@@ -6,7 +6,8 @@ Tests for dango.notebooks.manager — Marimo process lifecycle and idle shutdown
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -27,9 +28,10 @@ class TestGetMarimoPidFilePath:
 
 @pytest.mark.unit
 class TestStartMarimo:
+    @patch("dango.notebooks.manager._get_idle_timeout", return_value=7200)
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
     @patch("dango.notebooks.manager.subprocess.Popen")
-    def test_start_creates_pid_file(self, mock_popen, mock_running, tmp_path):
+    def test_start_creates_pid_file(self, mock_popen, mock_running, mock_timeout, tmp_path):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         mock_proc.poll.return_value = None
@@ -55,9 +57,10 @@ class TestStartMarimo:
         with pytest.raises(RuntimeError, match="already running"):
             self._call(tmp_path, port=7805)
 
+    @patch("dango.notebooks.manager._get_idle_timeout", return_value=7200)
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
     @patch("dango.notebooks.manager.subprocess.Popen")
-    def test_start_cleans_stale_pid(self, mock_popen, mock_running, tmp_path):
+    def test_start_cleans_stale_pid(self, mock_popen, mock_running, mock_timeout, tmp_path):
         pid_file = tmp_path / ".dango" / "marimo.pid"
         pid_file.parent.mkdir(parents=True, exist_ok=True)
         pid_file.write_text("99999")
@@ -72,9 +75,12 @@ class TestStartMarimo:
 
         assert pid == 11111
 
+    @patch("dango.notebooks.manager._get_idle_timeout", return_value=7200)
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
     @patch("dango.notebooks.manager.subprocess.Popen")
-    def test_start_raises_if_process_exits_immediately(self, mock_popen, mock_running, tmp_path):
+    def test_start_raises_if_process_exits_immediately(
+        self, mock_popen, mock_running, mock_timeout, tmp_path
+    ):
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         mock_proc.poll.return_value = 1  # Exited with error
@@ -288,3 +294,128 @@ class TestStopIdleChecker:
         mgr._idle_checker_task = None
         mgr.stop_idle_checker()
         assert mgr._idle_checker_task is None
+
+
+@pytest.mark.unit
+class TestGetIdleTimeout:
+    """Tests for _get_idle_timeout() deployment mode logic."""
+
+    @patch("dango.config.helpers.is_cloud_mode", return_value=False)
+    def test_local_mode_returns_7200(self, mock_cloud: MagicMock) -> None:
+        from dango.notebooks.manager import _get_idle_timeout
+
+        result = _get_idle_timeout(Path("/fake"))
+        assert result == 7200
+        mock_cloud.assert_called_once_with(Path("/fake"))
+
+    @patch("dango.config.helpers.is_cloud_mode", return_value=True)
+    def test_cloud_mode_returns_3600(self, mock_cloud: MagicMock) -> None:
+        from dango.notebooks.manager import _get_idle_timeout
+
+        result = _get_idle_timeout(Path("/fake"))
+        assert result == 3600
+
+
+@pytest.mark.unit
+class TestStartMarimoSnapshotPath:
+    """Tests for snapshot_path env var in start_marimo()."""
+
+    @patch("dango.notebooks.manager._get_idle_timeout", return_value=7200)
+    @patch("dango.notebooks.manager.is_process_running", return_value=True)
+    def test_with_snapshot_path_sets_env_var(
+        self, mock_running: MagicMock, mock_timeout: MagicMock, tmp_path: Path
+    ) -> None:
+        from dango.notebooks.manager import start_marimo
+
+        (tmp_path / ".dango").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "notebooks").mkdir(parents=True, exist_ok=True)
+
+        snapshot = tmp_path / ".dango" / "snapshots" / "warehouse_cli_20260101_120000.duckdb"
+        snapshot.parent.mkdir(parents=True)
+        snapshot.touch()
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            mock_proc.pid = 12345
+            mock_popen.return_value = mock_proc
+
+            with patch("dango.notebooks.manager.time.sleep"):
+                result = start_marimo(tmp_path, port=7805, snapshot_path=snapshot)
+
+            assert result == 12345
+            call_kwargs = mock_popen.call_args
+            env = call_kwargs.kwargs.get("env") or call_kwargs[1].get("env")
+            assert env is not None
+            assert env["DANGO_NOTEBOOK_DB_PATH"] == str(snapshot)
+
+    @patch("dango.notebooks.manager._get_idle_timeout", return_value=7200)
+    @patch("dango.notebooks.manager.is_process_running", return_value=True)
+    def test_without_snapshot_no_env_var(
+        self, mock_running: MagicMock, mock_timeout: MagicMock, tmp_path: Path
+    ) -> None:
+        from dango.notebooks.manager import start_marimo
+
+        (tmp_path / ".dango").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "notebooks").mkdir(parents=True, exist_ok=True)
+
+        with patch("subprocess.Popen") as mock_popen:
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            mock_proc.pid = 12345
+            mock_popen.return_value = mock_proc
+
+            with patch("dango.notebooks.manager.time.sleep"):
+                start_marimo(tmp_path, port=7805)
+
+            call_kwargs = mock_popen.call_args
+            env = call_kwargs.kwargs.get("env") or call_kwargs[1].get("env")
+            assert env is not None
+            assert "DANGO_NOTEBOOK_DB_PATH" not in env
+
+
+@pytest.mark.unit
+class TestBroadcastIdleWarning:
+    """Tests for _broadcast_idle_warning() WebSocket notification."""
+
+    def test_broadcasts_warning_event(self) -> None:
+        from dango.notebooks.manager import _broadcast_idle_warning
+
+        mock_broadcast = AsyncMock()
+        mock_ws = MagicMock()
+        mock_ws.broadcast = mock_broadcast
+
+        with patch(
+            "dango.web.routes.websocket.ws_manager",
+            mock_ws,
+        ):
+            asyncio.run(_broadcast_idle_warning(300))
+
+        mock_broadcast.assert_called_once()
+        event = mock_broadcast.call_args[0][0]
+        assert event["event"] == "notebook_idle_warning"
+        assert event["remaining_seconds"] == 300
+        assert "5 minutes" in event["message"]
+
+    def test_swallows_exception_when_no_web_server(self) -> None:
+        from dango.notebooks.manager import _broadcast_idle_warning
+
+        mock_ws = MagicMock()
+        mock_ws.broadcast = AsyncMock(side_effect=RuntimeError("no web server"))
+
+        with patch(
+            "dango.web.routes.websocket.ws_manager",
+            mock_ws,
+        ):
+            # Should not raise
+            asyncio.run(_broadcast_idle_warning(300))
+
+
+@pytest.mark.unit
+class TestIdleTimeoutModuleLevel:
+    """Verify module-level _IDLE_TIMEOUT is > 900 (smoke test compat)."""
+
+    def test_idle_timeout_above_900(self) -> None:
+        from dango.notebooks.manager import _IDLE_TIMEOUT
+
+        assert _IDLE_TIMEOUT > 900

@@ -132,9 +132,18 @@ def notebook_new(ctx: click.Context, template: str, name: str) -> None:
 @click.argument("name")
 @click.pass_context
 def notebook_open(ctx: click.Context, name: str) -> None:
-    """Open a notebook in Marimo (starts server if needed)."""
+    """Open a notebook in Marimo (starts server if needed).
+
+    Acquires a lock, creates a DuckDB snapshot, and starts Marimo.
+    Press Ctrl+C to release the lock and exit.
+    """
+    import threading
+    import webbrowser
+
     from dango.cli.utils import require_project_context
+    from dango.notebooks.locking import acquire_lock, get_lock_info, refresh_lock, release_lock
     from dango.notebooks.manager import get_marimo_status, start_marimo
+    from dango.notebooks.snapshot import create_snapshot
 
     project_root = require_project_context(ctx)
     notebooks_dir = project_root / "notebooks"
@@ -144,18 +153,53 @@ def notebook_open(ctx: click.Context, name: str) -> None:
         console.print(f"[red]Error:[/red] Notebook '{name}' not found at {nb_path}")
         raise SystemExit(1)
 
-    status = get_marimo_status(project_root)
-    if not status["running"]:
-        console.print("[cyan]Starting Marimo server...[/cyan]")
-        pid = start_marimo(project_root)
-        if pid:
-            console.print(f"[green]✓[/green] Marimo started (PID {pid})")
+    # Acquire lock
+    acquired = acquire_lock(project_root, name, "cli")
+    if not acquired:
+        lock = get_lock_info(project_root, name)
+        holder = lock["locked_by"] if lock else "another user"
+        console.print(f"[red]Error:[/red] Notebook '{name}' is locked by {holder}.")
+        raise SystemExit(1)
+
+    # Create snapshot
+    snapshot_path = None
+    try:
+        snapshot_path = create_snapshot(project_root, "cli")
+        console.print(f"[green]✓[/green] Created DuckDB snapshot at {snapshot_path.name}")
+    except FileNotFoundError:
+        pass  # no warehouse yet — notebooks will use default path
+
+    # Start heartbeat thread
+    stop_event = threading.Event()
+
+    def _heartbeat() -> None:
+        while not stop_event.wait(timeout=300):
+            refresh_lock(project_root, name, "cli")
+
+    heartbeat = threading.Thread(target=_heartbeat, daemon=True)
+    heartbeat.start()
+
+    try:
         status = get_marimo_status(project_root)
+        if not status["running"]:
+            console.print("[cyan]Starting Marimo server...[/cyan]")
+            pid = start_marimo(project_root, snapshot_path=snapshot_path)
+            if pid:
+                console.print(f"[green]✓[/green] Marimo started (PID {pid})")
+            status = get_marimo_status(project_root)
 
-    port = status.get("port") or 7805
-    url = f"http://localhost:{port}/?file={name}.py"
-    console.print(f"\n  [bold]Open in browser:[/bold] {url}\n")
+        port = status.get("port") or 7805
+        url = f"http://localhost:{port}/?file={name}.py"
+        console.print(f"\n  [bold]Open in browser:[/bold] {url}")
 
-    import webbrowser
+        webbrowser.open(url)
 
-    webbrowser.open(url)
+        console.print("\n[dim]Press Ctrl+C to release lock and exit.[/dim]")
+        stop_event.wait()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop_event.set()
+        heartbeat.join(timeout=2)
+        release_lock(project_root, name, "cli")
+        console.print("[green]✓[/green] Lock released.")

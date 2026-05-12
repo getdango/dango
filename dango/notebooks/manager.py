@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
 
 from dango.utils.dango_db import connect
@@ -20,7 +22,18 @@ logger = logging.getLogger(__name__)
 # --- Idle auto-shutdown state ---
 _idle_checker_task: asyncio.Task[None] | None = None
 _IDLE_CHECK_INTERVAL = 300  # 5 minutes
-_IDLE_TIMEOUT = 900  # 15 minutes
+_IDLE_TIMEOUT_LOCAL = 7200  # 2 hours
+_IDLE_TIMEOUT_CLOUD = 3600  # 1 hour
+_IDLE_TIMEOUT = _IDLE_TIMEOUT_LOCAL  # backward compat for smoke test
+
+
+def _get_idle_timeout(project_root: Path) -> int:
+    """Return the idle timeout in seconds based on deployment mode."""
+    from dango.config.helpers import is_cloud_mode
+
+    if is_cloud_mode(project_root):
+        return _IDLE_TIMEOUT_CLOUD
+    return _IDLE_TIMEOUT_LOCAL
 
 
 def get_marimo_pid_file_path(project_root: Path) -> Path:
@@ -35,12 +48,18 @@ def get_marimo_pid_file_path(project_root: Path) -> Path:
     return project_root / ".dango" / "marimo.pid"
 
 
-def start_marimo(project_root: Path, port: int | None = None) -> int | None:
+def start_marimo(
+    project_root: Path,
+    port: int | None = None,
+    snapshot_path: Path | None = None,
+) -> int | None:
     """Start Marimo notebook server in background.
 
     Args:
         project_root: Project root directory.
         port: Port to listen on.  Defaults to ``PlatformSettings.marimo_port``.
+        snapshot_path: If provided, set ``DANGO_NOTEBOOK_DB_PATH`` env var so
+            templates connect to a read-only snapshot instead of the live warehouse.
 
     Returns:
         PID of started process, or ``None`` if failed.
@@ -76,6 +95,12 @@ def start_marimo(project_root: Path, port: int | None = None) -> int | None:
     log_file = project_root / ".dango" / "marimo.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
+    timeout_minutes = _get_idle_timeout(project_root) // 60
+
+    env = os.environ.copy()
+    if snapshot_path is not None:
+        env["DANGO_NOTEBOOK_DB_PATH"] = str(snapshot_path)
+
     log_handle = None
     try:
         log_handle = open(log_file, "w")  # noqa: SIM115
@@ -93,13 +118,14 @@ def start_marimo(project_root: Path, port: int | None = None) -> int | None:
                 "--host",
                 "127.0.0.1",
                 "--timeout",
-                "30",
+                str(timeout_minutes),
                 "--skip-update-check",
                 str(notebooks_dir),
             ],
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            env=env,
         )
 
         time.sleep(1)
@@ -222,9 +248,31 @@ def _release_all_locks(project_root: Path) -> None:
     logger.info("Released all notebook locks (idle shutdown)")
 
 
+async def _broadcast_idle_warning(remaining_seconds: int) -> None:
+    """Broadcast a WebSocket warning that Marimo will shut down soon."""
+    try:
+        from dango.web.routes.websocket import ws_manager
+
+        await ws_manager.broadcast(
+            {
+                "event": "notebook_idle_warning",
+                "message": (
+                    f"Notebook server will shut down in {remaining_seconds // 60} minutes "
+                    "due to inactivity."
+                ),
+                "remaining_seconds": remaining_seconds,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+    except Exception:
+        pass  # web server may not be running for CLI-launched notebooks
+
+
 async def _idle_check_loop(project_root: Path) -> None:
-    """Background loop: shut down Marimo when idle for ``_IDLE_TIMEOUT`` seconds."""
+    """Background loop: shut down Marimo when idle for the configured timeout."""
     idle_since: float = time.monotonic()
+    timeout = _get_idle_timeout(project_root)
+    warning_sent = False
 
     while True:
         await asyncio.sleep(_IDLE_CHECK_INTERVAL)
@@ -232,13 +280,22 @@ async def _idle_check_loop(project_root: Path) -> None:
         has_locks = await asyncio.to_thread(_has_active_locks, project_root)
         if has_locks:
             idle_since = 0.0  # reset — will be set on next no-lock check
+            warning_sent = False
             continue
 
         if idle_since == 0.0:
             idle_since = time.monotonic()
 
-        if time.monotonic() - idle_since >= _IDLE_TIMEOUT:
-            logger.info("Marimo idle for %ds — shutting down", _IDLE_TIMEOUT)
+        elapsed = time.monotonic() - idle_since
+
+        # Warn ~5 min before shutdown
+        if not warning_sent and elapsed >= timeout - 300:
+            remaining = max(0, int(timeout - elapsed))
+            await _broadcast_idle_warning(remaining)
+            warning_sent = True
+
+        if elapsed >= timeout:
+            logger.info("Marimo idle for %ds — shutting down", timeout)
             # Clean up any locks created in the narrow window since last check
             if await asyncio.to_thread(_has_active_locks, project_root):
                 await asyncio.to_thread(_release_all_locks, project_root)

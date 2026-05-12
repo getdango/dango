@@ -237,7 +237,7 @@ async def get_csv_files(source_name: str):
         files_loaded = {}
         duckdb_path = get_duckdb_path()
         if duckdb_path.exists():
-            conn = duckdb.connect(str(duckdb_path))
+            conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
 
             # Check if metadata table exists
             result = conn.execute("""

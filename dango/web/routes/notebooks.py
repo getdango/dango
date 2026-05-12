@@ -31,6 +31,7 @@ from dango.notebooks.locking import (
     release_lock,
 )
 from dango.notebooks.manager import get_marimo_status, start_idle_checker, start_marimo
+from dango.notebooks.snapshot import create_snapshot
 from dango.utils.dango_db import connect
 from dango.validation import validate_identifier
 from dango.web.helpers import get_project_root
@@ -375,10 +376,17 @@ async def lock_notebook(
             },
         )
 
+    # Create DuckDB snapshot so notebooks use a read-only copy
+    snapshot_path = None
+    try:
+        snapshot_path = await asyncio.to_thread(create_snapshot, project_root, user.email)
+    except FileNotFoundError:
+        pass  # no warehouse yet
+
     status = await asyncio.to_thread(get_marimo_status, project_root)
     if not status["running"]:
         try:
-            await asyncio.to_thread(start_marimo, project_root)
+            await asyncio.to_thread(start_marimo, project_root, snapshot_path=snapshot_path)
             status = await asyncio.to_thread(get_marimo_status, project_root)
         except RuntimeError:
             # Already running (race condition) — get status again

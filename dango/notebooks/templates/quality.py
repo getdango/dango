@@ -31,9 +31,12 @@ WHERE clause in `null_analysis` to inspect a specific table.
 @app.cell
 def setup():
     """Connect to the local DuckDB warehouse in read-only mode."""
+    import os
+
     import duckdb
 
-    conn = duckdb.connect("data/warehouse.duckdb", config={"access_mode": "read_only"})
+    db_path = os.environ.get("DANGO_NOTEBOOK_DB_PATH", "data/warehouse.duckdb")
+    conn = duckdb.connect(db_path, config={"access_mode": "read_only"})
     return (conn,)
 
 
