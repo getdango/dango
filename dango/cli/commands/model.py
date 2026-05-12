@@ -275,15 +275,16 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
         if monitor_refs:
             try:
                 from dango.analysis.config import load_monitors_config, save_monitors_config
+                from dango.analysis.models import MonitorsConfig
 
                 monitors_cfg = load_monitors_config(project_root)
                 original_count = len(monitors_cfg.monitors)
-                monitors_cfg.monitors = [
-                    m for m in monitors_cfg.monitors if m.name not in monitor_refs
-                ]
-                if len(monitors_cfg.monitors) < original_count:
-                    save_monitors_config(project_root, monitors_cfg)
-                    removed_count = original_count - len(monitors_cfg.monitors)
+                filtered = [m for m in monitors_cfg.monitors if m.name not in monitor_refs]
+                if len(filtered) < original_count:
+                    # MonitorsConfig is frozen — create a new instance
+                    updated = MonitorsConfig(monitors=filtered)
+                    save_monitors_config(project_root, updated)
+                    removed_count = original_count - len(filtered)
                     console.print(
                         f"[green]✓[/green] Removed {removed_count} monitor(s) from monitors.yml"
                     )
