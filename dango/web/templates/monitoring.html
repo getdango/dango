@@ -101,7 +101,7 @@
                             <p class="text-xs text-red-700" x-text="historyError"></p>
                         </div>
                         <template x-if="!historyLoading && !historyError && historyData.length > 0">
-                            <table class="min-w-full text-xs">
+                            <div class="overflow-x-auto"><table class="min-w-full text-xs">
                                 <thead><tr>
                                     <th class="text-left py-1 text-gray-500">Recorded</th>
                                     <th class="text-right py-1 text-gray-500">Value</th>
@@ -114,7 +114,7 @@
                                         </tr>
                                     </template>
                                 </tbody>
-                            </table>
+                            </table></div>
                         </template>
                         <template x-if="!historyLoading && !historyError && historyData.length === 0">
                             <div class="text-xs text-gray-400 py-3 text-center">No history available.</div>
@@ -134,7 +134,7 @@
                 </div>
                 <!-- Grouped by model (BUG-216) -->
                 <div class="space-y-2">
-                    <template x-for="group in getGroupedTests()" :key="group.model">
+                    <template x-for="group in groupedTests" :key="group.model">
                         <div class="border border-gray-100 rounded-md">
                             <button @click="toggleGroup(group.model)"
                                     class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-50 transition-colors">
@@ -181,6 +181,7 @@ function monitoringPage() {
         success: '',
         historyMetric: null, historyData: [], historyLoading: false, historyError: '',
         dbtTests: [], dbtTestsPassing: 0, dbtTestsFailing: 0, dbtTestsNotRun: 0,
+        groupedTests: [],
         expandedGroups: {},
         async init() {
             try {
@@ -217,32 +218,9 @@ function monitoringPage() {
             this.dbtTestsPassing = this.dbtTests.filter(t => t.status === 'pass').length;
             this.dbtTestsFailing = this.dbtTests.filter(t => t.status === 'fail' || t.status === 'error').length;
             this.dbtTestsNotRun = this.dbtTests.filter(t => !t.status).length;
+            this._rebuildGroupedTests();
         },
-        _autoExpandFailingGroups() {
-            const groups = this.getGroupedTests();
-            const updated = {...this.expandedGroups};
-            for (const g of groups) {
-                if (g.fail > 0) updated[g.model] = true;
-            }
-            this.expandedGroups = updated;
-        },
-        async toggleHistory(metricName) {
-            if (this.historyMetric === metricName) { this.historyMetric = null; this.historyData = []; this.historyError = ''; return; }
-            this.historyMetric = metricName; this.historyLoading = true; this.historyData = []; this.historyError = '';
-            try {
-                const res = await fetch('/api/monitoring/history?metric=' + encodeURIComponent(metricName) + '&days=30', {headers: {'X-Requested-With': 'XMLHttpRequest'}});
-                if (res.ok) {
-                    const data = await res.json();
-                    this.historyData = data.data_points;
-                } else {
-                    this.historyError = 'Failed to load history (HTTP ' + res.status + ').';
-                }
-            } catch (e) {
-                this.historyError = 'Failed to load history.';
-            }
-            finally { this.historyLoading = false; }
-        },
-        getGroupedTests() {
+        _rebuildGroupedTests() {
             const groups = {};
             for (const t of this.dbtTests) {
                 const model = t.model_name || '(no model)';
@@ -252,10 +230,35 @@ function monitoringPage() {
                 else if (t.status === 'fail' || t.status === 'error') groups[model].fail++;
                 else groups[model].notRun++;
             }
-            return Object.values(groups).sort((a, b) => {
+            this.groupedTests = Object.values(groups).sort((a, b) => {
                 if (a.fail !== b.fail) return b.fail - a.fail;
                 return a.model.localeCompare(b.model);
             });
+        },
+        _autoExpandFailingGroups() {
+            const updated = {...this.expandedGroups};
+            for (const g of this.groupedTests) {
+                if (g.fail > 0) updated[g.model] = true;
+            }
+            this.expandedGroups = updated;
+        },
+        async toggleHistory(metricName) {
+            if (this.historyMetric === metricName) { this.historyMetric = null; this.historyData = []; this.historyError = ''; return; }
+            this.historyMetric = metricName; this.historyLoading = true; this.historyData = []; this.historyError = '';
+            try {
+                const res = await fetch('/api/monitoring/history?metric=' + encodeURIComponent(metricName) + '&days=30', {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+                if (this.historyMetric !== metricName) return;
+                if (res.ok) {
+                    const data = await res.json();
+                    this.historyData = data.data_points;
+                } else {
+                    this.historyError = 'Failed to load history (HTTP ' + res.status + ').';
+                }
+            } catch (e) {
+                if (this.historyMetric !== metricName) return;
+                this.historyError = 'Failed to load history.';
+            }
+            finally { this.historyLoading = false; }
         },
         toggleGroup(model) {
             this.expandedGroups = {...this.expandedGroups, [model]: !this.expandedGroups[model]};
