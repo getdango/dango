@@ -386,6 +386,18 @@ class TestSchedulerServiceHistoryIntegration:
         assert call_kwargs[1]["id"] == "dango-internal:history-cleanup"
         assert call_kwargs[1]["hours"] == 24
 
+    def test_setup_login_attempts_cleanup_registers_job(self, tmp_path):
+        """_setup_login_attempts_cleanup should register a 6-hourly cleanup job."""
+        svc = _make_service(tmp_path)
+        svc._project_root = tmp_path
+
+        svc._setup_login_attempts_cleanup()
+
+        svc._scheduler.add_job.assert_called_once()
+        call_kwargs = svc._scheduler.add_job.call_args
+        assert call_kwargs[1]["id"] == "dango-internal:login-attempts-cleanup"
+        assert call_kwargs[1]["hours"] == 6
+
 
 @pytest.mark.unit
 class TestSchedulerServiceCoroutineBridge:

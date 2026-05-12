@@ -446,3 +446,14 @@ def cleanup_expired_login_attempts(
         return cursor.rowcount
     finally:
         conn.close()
+
+
+def cleanup_login_attempts_job(project_root: str) -> None:
+    """APScheduler-compatible wrapper for periodic login attempt cleanup."""
+    from dango.auth.admin import get_auth_db_path
+
+    auth_db = get_auth_db_path(Path(project_root))
+    if auth_db.exists():
+        deleted = cleanup_expired_login_attempts(auth_db)
+        if deleted:
+            logger.info("periodic_login_attempts_cleaned", count=deleted)
