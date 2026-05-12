@@ -364,7 +364,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/deploy_provision.py` | 849 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
 | `platform/cloud/server_setup.py` | 666 | — (server setup + install source detection) |
-| `cli/commands/auth.py` | 665 | — (13 auth subcommands) |
+| `cli/commands/auth.py` | 660 | — (13 auth subcommands) |
 | `auth/database.py` | 529 | — (SQLite CRUD) |
 | `web/routes/users.py` | 531 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 518 | — |

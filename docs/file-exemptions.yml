@@ -49,9 +49,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/auth.py
-    lines: 665
+    lines: 660
     category: exempt
-    reason: "R7-E added change-role command and audit logging to all user management commands (+122 lines). BUG-235 added unlock_account call (+4 lines)."
+    reason: "R7-E added change-role command and audit logging to all user management commands (+122 lines). BUG-235 replaced update_user with unlock_account for IP-based lockout cleanup."
     review_by: "v1.1"
 
   - file: tests/unit/test_cli_auth.py

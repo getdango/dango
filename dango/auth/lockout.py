@@ -136,7 +136,16 @@ def _record_ip_based(
         conn.commit()
 
         # Best-effort update of users table for admin visibility
-        _update_user_table_best_effort(conn, normalized_email, new_attempts, locked_until_val, now)
+        try:
+            _update_user_table_best_effort(
+                conn,
+                normalized_email,
+                new_attempts,
+                locked_until_val,
+                now,
+            )
+        except Exception:
+            logger.debug("best_effort_user_update_failed", email=normalized_email)
 
         if is_locked:
             remaining = int(timedelta(minutes=lockout_minutes).total_seconds())
