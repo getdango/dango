@@ -705,7 +705,6 @@ def sync(
             if not yes and not click.confirm(
                 "Full refresh will reload all data. Continue?", default=False
             ):
-                lock.release()
                 raise click.Abort()
 
         if limit:

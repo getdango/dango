@@ -742,6 +742,16 @@ class TestAdminUpsertSemantics:
             "Found bare 'except Exception: pass' — admin creation must use upsert semantics"
         )
 
+    def test_catches_user_exists_error_not_broad_exception(self):
+        """Admin script must catch UserExistsError specifically, not broad Exception."""
+        import inspect
+
+        source = inspect.getsource(_create_admin_and_enable_auth)
+        assert "except UserExistsError:" in source, (
+            "Must catch UserExistsError specifically — broad except Exception swallows real errors"
+        )
+        assert "from dango.exceptions import UserExistsError" in source
+
     def test_script_contains_update_user_import(self):
         """Admin script string must import update_user for upsert."""
         import inspect

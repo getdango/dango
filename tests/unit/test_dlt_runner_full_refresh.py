@@ -86,71 +86,108 @@ class TestRestoreDltStateCallSignature:
 class TestFullRefreshRowCountWarning:
     """Verify row count comparison detects data loss on full refresh."""
 
-    @patch("dango.ingestion.dlt_runner.console")
-    def test_backup_preserved_when_row_count_drops(self, mock_console, tmp_path):
-        """When full refresh loads fewer rows, backup should NOT be cleaned up."""
+    def _make_runner(self, tmp_path):
+        """Create a DltPipelineRunner with mocked internals for testing."""
         from dango.ingestion.dlt_runner import DltPipelineRunner
 
         runner = DltPipelineRunner.__new__(DltPipelineRunner)
         runner.project_root = tmp_path
         runner.duckdb_path = tmp_path / "data" / "warehouse.duckdb"
+        runner.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
         runner._current_oauth_warning = None
+        return runner
 
+    def _make_native_source_config(self):
+        """Create a minimal source config for _run_dlt_native_source."""
+        config = MagicMock()
+        config.name = "test_source"
+        config.type.value = "dlt_native"
+        config.dlt_native.source_module = "test_module"
+        config.dlt_native.source_function = "test_func"
+        config.dlt_native.pipeline_name = "test_pipeline"
+        config.dlt_native.dataset_name = "raw_test"
+        config.dlt_native.source_args = {}
+        return config
+
+    @patch("dango.ingestion.dlt_runner.console")
+    @patch("dango.ingestion.dlt_runner.dlt")
+    @patch("dango.ingestion.dlt_runner.importlib")
+    @patch("os.chdir")
+    @patch("os.getcwd", return_value="/tmp")
+    def test_backup_preserved_when_row_count_drops(
+        self, mock_getcwd, mock_chdir, mock_importlib, mock_dlt, mock_console, tmp_path
+    ):
+        """When full refresh loads fewer rows, backup should NOT be cleaned up."""
+        runner = self._make_runner(tmp_path)
+        config = self._make_native_source_config()
         backup_dir = tmp_path / "test_backup_20260512"
+
+        # Mock the source loading
+        mock_source = MagicMock()
+        mock_module = MagicMock()
+        mock_module.test_func.return_value = mock_source
+        mock_importlib.import_module.return_value = mock_module
+
+        # Mock pipeline
+        mock_pipeline = MagicMock()
+        mock_dlt.pipeline.return_value = mock_pipeline
+
+        # Pre-drop: 68k rows. Post-sync: 19 rows.
         runner._backup_dlt_state = MagicMock(return_value=backup_dir)
         runner._get_source_total_rows = MagicMock(return_value=68000)
         runner._cleanup_state_backup = MagicMock()
         runner._run_with_retry = MagicMock(return_value=MagicMock())
         runner._extract_load_stats = MagicMock(return_value={"rows_loaded": 19})
 
-        # Simulate the success path logic from _run_dlt_source
-        full_refresh = True
-        state_backup = runner._backup_dlt_state("test")
-        pre_refresh_rows = runner._get_source_total_rows("test") if full_refresh else None
+        result = runner._run_dlt_native_source(config, full_refresh=True)
 
-        stats = runner._extract_load_stats(MagicMock())
-        rows_loaded = stats.get("rows_loaded", 0)
-
-        # Replicate the conditional cleanup logic
-        if rows_loaded >= 0:
-            if full_refresh and pre_refresh_rows is not None and rows_loaded < pre_refresh_rows:
-                # Should NOT clean up backup
-                cleanup_called = False
-            else:
-                runner._cleanup_state_backup(state_backup)
-                cleanup_called = True
-
-        assert not cleanup_called, "Backup should be preserved when row count drops"
+        # Backup should NOT have been cleaned up (row count dropped)
+        runner._cleanup_state_backup.assert_not_called()
+        assert result["status"] == "success"
+        assert result["rows_loaded"] == 19
 
     @patch("dango.ingestion.dlt_runner.console")
-    def test_backup_cleaned_up_when_row_count_ok(self, mock_console, tmp_path):
+    @patch("dango.ingestion.dlt_runner.dlt")
+    @patch("dango.ingestion.dlt_runner.importlib")
+    @patch("os.chdir")
+    @patch("os.getcwd", return_value="/tmp")
+    def test_backup_cleaned_up_when_row_count_ok(
+        self, mock_getcwd, mock_chdir, mock_importlib, mock_dlt, mock_console, tmp_path
+    ):
         """When full refresh loads same/more rows, backup should be cleaned up."""
-        from dango.ingestion.dlt_runner import DltPipelineRunner
-
-        runner = DltPipelineRunner.__new__(DltPipelineRunner)
-        runner._cleanup_state_backup = MagicMock()
-
+        runner = self._make_runner(tmp_path)
+        config = self._make_native_source_config()
         backup_dir = tmp_path / "test_backup"
-        state_backup = backup_dir
-        full_refresh = True
-        pre_refresh_rows = 100
-        rows_loaded = 150
 
-        if rows_loaded >= 0:
-            if full_refresh and pre_refresh_rows is not None and rows_loaded < pre_refresh_rows:
-                pass  # preserve backup
-            else:
-                runner._cleanup_state_backup(state_backup)
+        mock_source = MagicMock()
+        mock_module = MagicMock()
+        mock_module.test_func.return_value = mock_source
+        mock_importlib.import_module.return_value = mock_module
 
+        mock_pipeline = MagicMock()
+        mock_dlt.pipeline.return_value = mock_pipeline
+
+        # Pre-drop: 100 rows. Post-sync: 150 rows (normal).
+        runner._backup_dlt_state = MagicMock(return_value=backup_dir)
+        runner._get_source_total_rows = MagicMock(return_value=100)
+        runner._cleanup_state_backup = MagicMock()
+        runner._run_with_retry = MagicMock(return_value=MagicMock())
+        runner._extract_load_stats = MagicMock(return_value={"rows_loaded": 150})
+
+        result = runner._run_dlt_native_source(config, full_refresh=True)
+
+        # Backup SHOULD be cleaned up (row count is fine)
         runner._cleanup_state_backup.assert_called_once_with(backup_dir)
+        assert result["status"] == "success"
 
-    def test_row_count_warning_in_source_code(self):
-        """Verify the row count warning logic exists in run_source."""
+    @pytest.mark.parametrize("method_name", ["_run_dlt_native_source", "_run_dlt_source"])
+    def test_row_count_warning_in_source_code(self, method_name):
+        """Verify the row count warning logic exists in both methods."""
         import inspect
 
         from dango.ingestion.dlt_runner import DltPipelineRunner
 
-        source = inspect.getsource(DltPipelineRunner._run_dlt_native_source)
+        source = inspect.getsource(getattr(DltPipelineRunner, method_name))
         assert "pre_refresh_rows" in source
         assert "rows_loaded < pre_refresh_rows" in source
         assert "State backup preserved" in source
