@@ -437,18 +437,31 @@ async function handleWebSocketMessage(data) {
             }
 
             // Suppress success toast during batch operations (multi-file uploads)
-            // The final toast will show when dbt completes
             if (!activeFileOperations.has(source)) {
                 showToast(`${source} synced successfully`, 'success');
             } else {
                 console.log('✅ [WS] Suppressing toast - batch upload operation in progress');
             }
 
-            // DON'T clear activeSyncs here - dbt will run next and dbt_run_all_completed will clear it
-            // New flow: all files uploaded to disk → sync once → dbt once
-            console.log('✅ [WS] Sync completed, but keeping activeSyncs (dbt will run next)');
+            // sync_completed is the terminal event — clear sync state and update row
+            // (dbt_run_all_completed may have already done this; checks are idempotent)
+            if (activeSyncs.has(source)) {
+                activeSyncs.delete(source);
+                stopSyncTimer(source);
+                const btn = document.getElementById(`sync-btn-${source}`);
+                if (btn) btn.textContent = 'Sync Now';
+                updateSyncCounter();
+            }
 
-            // Don't call loadSources() - wait for dbt to complete
+            // Update row with sync results
+            if (data.rows_loaded !== undefined) {
+                updateSourceRowAfterSync(source, {
+                    rows_loaded: data.rows_loaded,
+                    timestamp: data.timestamp,
+                    duration_seconds: data.duration_seconds,
+                });
+                syncResults.delete(source);
+            }
             break;
 
         case 'sync_failed':
@@ -576,10 +589,8 @@ async function handleWebSocketMessage(data) {
                     if (result) {
                         updateSourceRowAfterSync(triggeredSource, result);
                         syncResults.delete(triggeredSource);
-                    } else {
-                        // Fallback if sync_completed didn't include data
-                        if (!isLoadingSources) loadSources();
                     }
+                    // No loadSources() fallback — sync_completed handles final row update
                 } else {
                     // Reset ALL sync buttons when no specific source
                     for (const src of activeSyncs.keys()) {
