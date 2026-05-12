@@ -576,18 +576,20 @@ category_end "9" "R10 Feature Checks"
 # Category 10: R12 Code Checks (grep-based, no server needed)
 # ---------------------------------------------------------------------------
 
-category_start 27
+category_start 28
 
 # R12-A/BUG-229: State backup before pipeline.drop()
-if grep -qn "_backup_dlt_state\|backup.*state" "$REPO_ROOT/dango/ingestion/dlt_runner.py" && \
-   grep -qn "pipeline\.drop" "$REPO_ROOT/dango/ingestion/dlt_runner.py"; then
+# Presence check: both backup mechanism and pipeline.drop() exist in dlt_runner.
+# Ordering (backup < drop) verified by unit tests, not grep.
+if grep -qn "_backup_dlt_state\|backup.*state" "$REPO_ROOT/dango/ingestion/dlt_runner.py" 2>/dev/null && \
+   grep -qn "pipeline\.drop" "$REPO_ROOT/dango/ingestion/dlt_runner.py" 2>/dev/null; then
     pass_test
 else
     fail_test "State backup before pipeline.drop (BUG-229)"
 fi
 
 # R12-A/BUG-246: Metabase :ro mount or snapshot in docker-compose
-if grep -q ':ro' "$REPO_ROOT/dango/templates/docker-compose.yml.j2"; then
+if grep -q ':ro' "$REPO_ROOT/dango/templates/docker-compose.yml.j2" 2>/dev/null; then
     pass_test
 else
     fail_test "Metabase :ro volume mount (BUG-246)"
@@ -610,16 +612,14 @@ else
 fi
 
 # R12-B/BUG-209: dbt build not dbt run
-if grep -q '"dbt".*"build"' "$REPO_ROOT/dango/cli/commands/transform.py" 2>/dev/null || \
-   grep -q '"build"' "$REPO_ROOT/dango/cli/commands/transform.py" 2>/dev/null; then
+if grep -qE '"dbt".*"build"|dbt.*build' "$REPO_ROOT/dango/cli/commands/transform.py" 2>/dev/null; then
     pass_test
 else
     fail_test "dbt build not dbt run (BUG-209)"
 fi
 
-# R12-B/BUG-205: Snapshot data/ path references warehouse
-if grep -q 'data.*warehouse\|warehouse.*data' "$REPO_ROOT/dango/cli/commands/snapshot.py" 2>/dev/null || \
-   grep -q 'warehouse\.duckdb' "$REPO_ROOT/dango/cli/commands/snapshot.py" 2>/dev/null; then
+# R12-B/BUG-205: Snapshot data/ path references warehouse inside data dir
+if grep -qE 'data.*warehouse|data_dir.*warehouse|warehouse.*data' "$REPO_ROOT/dango/cli/commands/snapshot.py" 2>/dev/null; then
     pass_test
 else
     fail_test "Snapshot data/ path (BUG-205)"
@@ -711,15 +711,15 @@ else
     fail_test "Notebook idle timeout > 900 (BUG-196)"
 fi
 
-# R12-H/BUG-193: CLI notebook acquires lock
-if grep -q 'acquire_lock\|acquire' "$REPO_ROOT/dango/cli/commands/notebook.py" 2>/dev/null; then
+# R12-H/BUG-193: CLI notebook acquires lock before writing
+if grep -qE 'acquire_lock|DbtLock|notebook_lock' "$REPO_ROOT/dango/cli/commands/notebook.py" 2>/dev/null; then
     pass_test
 else
     fail_test "CLI notebook acquires lock (BUG-193)"
 fi
 
-# R12-J/BUG-235: IP-based lockout
-if grep -qE 'ip|client_ip|remote_addr' "$REPO_ROOT/dango/auth/lockout.py" 2>/dev/null; then
+# R12-J/BUG-235: IP-based lockout (record_failed_login tracks client IP)
+if grep -qE 'client_ip|ip_address|remote_addr' "$REPO_ROOT/dango/auth/lockout.py" 2>/dev/null; then
     pass_test
 else
     fail_test "IP-based lockout (BUG-235)"
@@ -734,8 +734,8 @@ else
 fi
 
 # R12-I/BUG-245: Metabase timeout >= 300 in cloud templates
-if grep -q '300' "$REPO_ROOT/dango/templates/docker-compose.yml.j2" 2>/dev/null || \
-   grep -q '300' "$REPO_ROOT/dango/templates/nginx.conf.j2" 2>/dev/null; then
+if grep -qE 'timeout.*300|300s|300.*timeout' "$REPO_ROOT/dango/templates/docker-compose.yml.j2" 2>/dev/null || \
+   grep -qE 'timeout.*300|300s|300.*timeout' "$REPO_ROOT/dango/templates/nginx.conf.j2" 2>/dev/null; then
     pass_test
 else
     fail_test "Metabase timeout >= 300 (BUG-245)"
@@ -749,8 +749,16 @@ else
     fail_test "Cloud status systemd (BUG-243)"
 fi
 
-# R12-B/BUG-200: Catalog back button fallback (goToList in restoreFromUrl)
-if grep -qE 'goToList|go_to_list' "$REPO_ROOT/dango/web/templates/catalog.html" 2>/dev/null; then
+# R12-B/BUG-200: Catalog back button fallback (goToList called from restoreFromUrl)
+# Check that restoreFromUrl references goToList as fallback
+if python3 -c "
+with open('$REPO_ROOT/dango/web/templates/catalog.html') as f:
+    text = f.read()
+# Find restoreFromUrl function body and check it contains goToList
+import re
+m = re.search(r'restoreFromUrl.*?\{(.*?)\n\s{8}\}', text, re.DOTALL)
+assert m and 'goToList' in m.group(1), 'goToList not found as fallback in restoreFromUrl'
+" 2>/dev/null; then
     pass_test
 else
     fail_test "Catalog back button fallback (BUG-200)"
@@ -779,15 +787,21 @@ else
     fail_test "Freshness formatting (BUG-203)"
 fi
 
-# R12-G/BUG-227: Trigger Now simplified (no Advanced section)
-# Check that the trigger dialog does NOT have an "Advanced" section
-TRIGGER_ADVANCED=$(grep -ciE 'advanced' "$REPO_ROOT/dango/web/static/js/app.js" 2>/dev/null || echo "0")
-if [ "$TRIGGER_ADVANCED" = "0" ]; then
+# R12-G/BUG-227: Trigger Now simplified (no Advanced options in trigger dialog)
+# The fix removes "Advanced" toggle from trigger/sync dialog.
+# Check that no trigger-adjacent code references "Advanced" or "advanced options".
+if grep -qiE 'triggerAdvanced|trigger.*advanced|advanced.*trigger|advancedOptions.*trigger' \
+   "$REPO_ROOT/dango/web/static/js/app.js" 2>/dev/null; then
+    fail_test "Trigger Now simplified (BUG-227)" "Found Advanced references in trigger dialog"
+else
+    pass_test
+fi
+
+# R12-G/BUG-226: Schedule SPACE toggle hint
+if grep -qiE 'SPACE to toggle|space.*toggle' "$REPO_ROOT/dango/cli/commands/schedule.py" 2>/dev/null; then
     pass_test
 else
-    # If "Advanced" exists, check if it's specifically in a trigger context
-    # For now, just check that trigger simplification has been done
-    skip_test "Trigger Now simplified (BUG-227)" "Cannot distinguish trigger vs other 'Advanced' references"
+    fail_test "Schedule SPACE hint (BUG-226)"
 fi
 
 category_end "10" "R12 Code Checks"
@@ -813,7 +827,7 @@ category_end "11" "R12 CLI Checks"
 # Category 12: R12 Server Checks (API/page content)
 # ---------------------------------------------------------------------------
 
-category_start 6
+category_start 5
 
 # R12-D/BUG-199: Test name tooltips on catalog page
 curl_page_test "Catalog test tooltips (BUG-199)" "/catalog" "title="
@@ -829,13 +843,6 @@ curl_api_body_test "Sync history duration (BUG-211)" "/api/sources" "duration"
 
 # R12-E/BUG-216: Tests grouped in monitoring
 curl_page_test "Tests grouped (BUG-216)" "/monitoring" "group"
-
-# R12-G/BUG-226: Schedule SPACE toggle hint
-if grep -qiE 'SPACE to toggle|space.*toggle' "$REPO_ROOT/dango/cli/commands/schedule.py" 2>/dev/null; then
-    pass_test
-else
-    fail_test "Schedule SPACE hint (BUG-226)"
-fi
 
 category_end "12" "R12 Server Checks"
 
