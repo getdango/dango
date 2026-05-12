@@ -21,6 +21,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from dango.exceptions import CloudProvisioningError
+from dango.logging import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from dango.platform.cloud.backup import BackupResult
@@ -365,11 +368,11 @@ def _write_deploy_journal(
     try:
         write_local_journal(local_project_root, record)
     except Exception:  # noqa: BLE001
-        pass
+        logger.debug("deploy_journal_local_write_failed", exc_info=True)
     try:
         write_remote_journal(ssh, record)
     except Exception:  # noqa: BLE001
-        pass
+        logger.debug("deploy_journal_remote_write_failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -580,7 +583,7 @@ def push_deploy(
                     duration_seconds=round(time.monotonic() - start_time, 1),
                 )
             except Exception:  # noqa: BLE001
-                pass
+                logger.debug("deploy_journal_write_failed", exc_info=True)
 
     return DeployResult(
         sync_result=sync_result,
