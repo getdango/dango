@@ -581,8 +581,8 @@ category_start 28
 # R12-A/BUG-229: State backup before pipeline.drop()
 # Presence check: both backup mechanism and pipeline.drop() exist in dlt_runner.
 # Ordering (backup < drop) verified by unit tests, not grep.
-if grep -qn "_backup_dlt_state\|backup.*state" "$REPO_ROOT/dango/ingestion/dlt_runner.py" 2>/dev/null && \
-   grep -qn "pipeline\.drop" "$REPO_ROOT/dango/ingestion/dlt_runner.py" 2>/dev/null; then
+if grep -q "_backup_dlt_state\|backup.*state" "$REPO_ROOT/dango/ingestion/dlt_runner.py" 2>/dev/null && \
+   grep -q "pipeline\.drop" "$REPO_ROOT/dango/ingestion/dlt_runner.py" 2>/dev/null; then
     pass_test
 else
     fail_test "State backup before pipeline.drop (BUG-229)"
@@ -750,13 +750,13 @@ else
 fi
 
 # R12-B/BUG-200: Catalog back button fallback (goToList called from restoreFromUrl)
-# Check that restoreFromUrl references goToList as fallback
+# Check that restoreFromUrl function body contains goToList as fallback
 if python3 -c "
+import re
 with open('$REPO_ROOT/dango/web/templates/catalog.html') as f:
     text = f.read()
-# Find restoreFromUrl function body and check it contains goToList
-import re
-m = re.search(r'restoreFromUrl.*?\{(.*?)\n\s{8}\}', text, re.DOTALL)
+# Match restoreFromUrl through its function body (greedy brace match)
+m = re.search(r'restoreFromUrl[^{]*\{([^}]*)', text)
 assert m and 'goToList' in m.group(1), 'goToList not found as fallback in restoreFromUrl'
 " 2>/dev/null; then
     pass_test
