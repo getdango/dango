@@ -398,9 +398,9 @@ exemptions:
 
   # --- Scripts ---
   - file: scripts/smoke_test.sh
-    lines: 594
+    lines: 868
     category: exempt
-    reason: "R10-P: v1.5 with 66 checks across 9 categories. Grew past 500 adding Category 9 (R10 feature checks). Linear structure — each category is independent."
+    reason: "R12-L: v1.6 with 107 checks across 12 categories. Categories 10-12 cover R12 fix regression tests. Linear structure — each category is independent."
     review_by: "v1.1"
 
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
