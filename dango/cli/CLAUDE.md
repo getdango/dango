@@ -14,7 +14,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/__init__.py` (4 lines) | Package marker | — |
 | `commands/project.py` (307 lines) | `init`, `rename`, `info` | `init()`, `rename()`, `info()` |
 | `commands/source.py` (833 lines) | `source` group (`add`, `list`, `remove`, `edit`) + `sync` | `source`, `sync()` |
-| `commands/platform.py` (1034 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
+| `commands/platform.py` (1038 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
 | `commands/auth.py` (661 lines) | `auth` group (13 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, change-role, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_change_role()`, `auth_status()`, etc. |
 | `commands/cleanup.py` (388 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
 | `commands/oauth.py` (813 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
@@ -37,7 +37,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query` | `remote_status()`, `remote_logs()` |
 | `commands/schedule.py` (743 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
 | `commands/governance.py` (220 lines) | `governance` group (drift-report, pii-report, pii-set, pii-list) | `governance`, `drift_report()`, `pii_report()`, `pii_set()`, `pii_list()` |
-| `commands/notebook.py` (157 lines) | `notebook` group (new, open) | `notebook`, `notebook_new()`, `notebook_open()` |
+| `commands/notebook.py` (161 lines) | `notebook` group (new, open) | `notebook`, `notebook_new()`, `notebook_open()` |
 | `commands/snapshot.py` (383 lines) | `snapshot` group (add, list, run, db) | `snapshot`, `snapshot_add()`, `snapshot_list()`, `snapshot_run()`, `snapshot_db()` |
 | `commands/analyze.py` (~97 lines) | `monitor` group + `analyze` alias | `monitor` (group), `monitor_run()`, `analyze()` |
 | `commands/dev.py` (~429 lines) | `dev` group (default run + clean) — branch-based dbt development | `dev` (group), `dev_clean()` |
@@ -45,7 +45,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | **Wizards** | | |
 | `init.py` (1334 lines) | Project initialization wizard | `ProjectInitializer` |
 | `wizard.py` (307 lines) | Interactive setup wizards | `ProjectWizard` |
-| `source_wizard.py` (2306 lines) | Source configuration wizard | `add_source()` |
+| `source_wizard.py` (2311 lines) | Source configuration wizard | `add_source()` |
 | `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |
 | **Helpers** | | |
 | `utils.py` (164 lines) | Display helpers + project context | `require_project_context()` |

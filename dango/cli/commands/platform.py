@@ -568,8 +568,12 @@ def start(ctx: click.Context, yes: bool) -> None:
         if platform_config.auto_sync:
             console.print("[cyan]Starting file watcher...[/cyan]")
             try:
-                from dango.platform.watcher_lifecycle import start_file_watcher
+                from dango.platform.watcher_lifecycle import (
+                    start_file_watcher,
+                    stop_file_watcher,
+                )
 
+                stop_file_watcher(project_root)  # Clean up any orphaned watcher
                 watcher_pid = start_file_watcher(project_root)
                 console.print(f"[green]✓[/green] File watcher started (PID {watcher_pid})")
 

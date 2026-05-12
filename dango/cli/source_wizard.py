@@ -9,6 +9,7 @@ from typing import Any
 import inquirer
 from inquirer import themes
 from rich.console import Console
+from rich.markup import escape
 from rich.prompt import Confirm
 
 from dango.cli.env_helpers import (
@@ -404,7 +405,7 @@ class SourceWizard:
             console.print("\n\n[yellow]Wizard cancelled[/yellow]")
             return False
         except Exception as e:
-            console.print(f"\n[red]❌ Error: {e}[/red]")
+            console.print(f"\n[red]❌ Error: {escape(str(e))}[/red]")
             return False
 
     def _select_source_flat(self) -> str | None:
@@ -1935,7 +1936,7 @@ def {module_name}_resource(api_key: str):
             try:
                 value = json.loads(value)
             except json.JSONDecodeError:
-                console.print(f"[red]Invalid JSON: {value}[/red]")
+                console.print(f"[red]Invalid JSON: {escape(str(value))}[/red]")
                 return None
 
         # Cast integer/number type params with retry on invalid input
@@ -1945,7 +1946,9 @@ def {module_name}_resource(api_key: str):
                     value = int(value)
                     break
                 except ValueError:
-                    console.print(f"[red]Invalid integer: {value}. Please try again.[/red]")
+                    console.print(
+                        f"[red]Invalid integer: {escape(str(value))}. Please try again.[/red]"
+                    )
                     retry = inquirer.prompt(
                         [inquirer.Text(param_name, message=prompt)],
                         theme=themes.GreenPassion(),
@@ -1962,7 +1965,9 @@ def {module_name}_resource(api_key: str):
                     value = int(num) if num.is_integer() else num
                     break
                 except ValueError:
-                    console.print(f"[red]Invalid number: {value}. Please try again.[/red]")
+                    console.print(
+                        f"[red]Invalid number: {escape(str(value))}. Please try again.[/red]"
+                    )
                     retry = inquirer.prompt(
                         [inquirer.Text(param_name, message=prompt)],
                         theme=themes.GreenPassion(),

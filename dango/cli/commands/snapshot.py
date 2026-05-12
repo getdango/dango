@@ -47,11 +47,11 @@ def snapshot_add(ctx: click.Context) -> None:
     from dango.cli.utils import require_project_context
 
     project_root = require_project_context(ctx)
-    db_path = project_root / "warehouse.duckdb"
+    db_path = project_root / "data" / "warehouse.duckdb"
 
     if not db_path.exists():
         console.print(
-            "[red]Error:[/red] No warehouse.duckdb found. Run [bold]dango sync[/bold] first."
+            "[red]Error:[/red] No data/warehouse.duckdb found. Run [bold]dango sync[/bold] first."
         )
         raise SystemExit(1)
 

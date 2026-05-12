@@ -78,7 +78,7 @@
                                     <span x-text="sd.estimated_row_total.toLocaleString()"></span> rows
                                 </div>
                             </div>
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0"
                                   :class="sd.freshness_status === 'fresh' ? 'bg-green-100 text-green-800' : sd.freshness_status === 'stale' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'"
                                   x-text="sd.freshness_status || 'unknown'"></span>
                         </div>
@@ -633,6 +633,8 @@ function catalogPage() {
                 this.$nextTick(() => { this.$nextTick(() => this.renderLineage()); });
             } else if (filter && ['source', 'staging', 'intermediate', 'marts'].includes(filter)) {
                 this.activeTab = filter;
+            } else {
+                this.goToList();
             }
         },
 

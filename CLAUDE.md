@@ -82,7 +82,7 @@ dango/                          # Python package source
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
 │   │   ├── model.py            # model group (add/remove)
-│   │   ├── platform.py         # start/stop/status + port helpers (1034 lines)
+│   │   ├── platform.py         # start/stop/status + port helpers (1038 lines)
 │   │   ├── project.py          # init/rename/info
 │   │   ├── source.py           # source group (add/list/remove/edit) + sync (833 lines)
 │   │   ├── transform.py        # run/docs/generate
@@ -336,11 +336,11 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 |------|-------|-----------------|
 | `ingestion/dlt_runner.py` | 2497 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2008 | — (metadata-only) |
-| `cli/source_wizard.py` | 2306 | — |
+| `cli/source_wizard.py` | 2311 | — |
 | `visualization/metabase.py` | 1151 | — |
 | `cli/init.py` | 1334 | — |
 | `visualization/dashboard_manager.py` | 1112 | — |
-| `cli/commands/platform.py` | 1034 | — (extracted from main.py by TASK-005) |
+| `cli/commands/platform.py` | 1038 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 852 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 851 | — (extracted from app.py by TASK-085) |
