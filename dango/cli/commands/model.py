@@ -64,27 +64,41 @@ def model_add(ctx: click.Context) -> None:
         raise click.Abort() from e
 
 
+_VALID_MODEL_NAME_RE = __import__("re").compile(r"^[a-z][a-z0-9_]*$")
+_VALID_LAYERS = ("intermediate", "marts")
+
+
 @model.command("remove")
 @click.argument("model_name")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+@click.option("--dry-run", is_flag=True, help="Show what would be removed without executing")
 @click.pass_context
-def model_remove(ctx: click.Context, model_name: str, yes: bool) -> None:
+def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) -> None:
     """
-    Remove a custom dbt model.
+    Remove a custom dbt model and cascade cleanup.
 
-    Deletes the model SQL file. Does NOT drop the table from DuckDB -
-    run 'dbt run' to rebuild without the removed model, or manually
-    drop the table.
+    Removes the model SQL file, schema.yml entry, monitors.yml references,
+    and optionally drops the DuckDB table and refreshes Metabase schema.
 
     Examples:
       dango model remove fct_daily_sales
       dango model remove int_orders --yes
+      dango model remove fct_daily_sales --dry-run
     """
+    import duckdb
     from rich.prompt import Confirm
 
     from ..utils import require_project_context
 
     console.print(f"🍡 [bold]Removing Model: {model_name}[/bold]\n")
+
+    # Validate model_name to prevent injection in SQL/filesystem
+    if not _VALID_MODEL_NAME_RE.match(model_name):
+        console.print(
+            "[red]Error:[/red] Invalid model name. "
+            "Must be lowercase, start with a letter, and contain only letters, digits, underscores."
+        )
+        raise click.Abort()
 
     try:
         project_root = require_project_context(ctx)
@@ -94,7 +108,7 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool) -> None:
         model_file = None
         layer = None
 
-        for layer_name in ["intermediate", "marts"]:
+        for layer_name in _VALID_LAYERS:
             potential_path = dbt_dir / layer_name / f"{model_name}.sql"
             if potential_path.exists():
                 model_file = potential_path
@@ -113,19 +127,20 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool) -> None:
         console.print(f"  File: {model_file.relative_to(project_root)}")
         console.print()
 
-        # Check if table exists in DuckDB
-        import duckdb
-
+        # Check if table exists in DuckDB (read-only connection)
         duckdb_path = project_root / "data" / "warehouse.duckdb"
         table_exists = False
 
         if duckdb_path.exists():
             try:
-                conn = duckdb.connect(str(duckdb_path))
-                result = conn.execute(f"""
+                conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
+                result = conn.execute(
+                    """
                     SELECT COUNT(*) FROM information_schema.tables
-                    WHERE table_schema = '{layer}' AND table_name = '{model_name}'
-                """).fetchone()
+                    WHERE table_schema = ? AND table_name = ?
+                    """,
+                    [layer, model_name],
+                ).fetchone()
                 table_exists = (result[0] > 0) if result else False
                 conn.close()
             except Exception:
@@ -133,7 +148,7 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool) -> None:
 
         # Check for downstream dependencies
         downstream_models = []
-        for layer_to_check in ["intermediate", "marts"]:
+        for layer_to_check in _VALID_LAYERS:
             layer_dir = dbt_dir / layer_to_check
             if layer_dir.exists():
                 for sql_file in layer_dir.glob("*.sql"):
@@ -148,6 +163,39 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool) -> None:
                                 downstream_models.append(f"{layer_to_check}.{sql_file.stem}")
                         except Exception:
                             pass
+
+        # Check monitors.yml for references
+        monitor_refs: list[str] = []
+        try:
+            from dango.analysis.config import load_monitors_config
+
+            monitors_cfg = load_monitors_config(project_root)
+            for m in monitors_cfg.monitors:
+                # source_table is "layer.table_name", check if model_name matches
+                if m.source_table.endswith(f".{model_name}"):
+                    monitor_refs.append(m.name)
+        except Exception:
+            pass
+
+        # Dry run: show what would be removed and exit
+        if dry_run:
+            console.print("[bold cyan]Dry run — no changes will be made[/bold cyan]\n")
+            console.print("[bold]Would remove:[/bold]")
+            console.print(f"  • Model file: {model_file.relative_to(project_root)}")
+            assert layer is not None
+            schema_path = dbt_dir / layer / "schema.yml"
+            if schema_path.exists():
+                console.print(f"  • schema.yml entry in {schema_path.relative_to(project_root)}")
+            if monitor_refs:
+                console.print(f"  • Monitor references: {', '.join(monitor_refs)}")
+            if table_exists:
+                console.print(f"  • DuckDB table: {layer}.{model_name}")
+            if downstream_models:
+                console.print("\n[yellow]⚠️  Downstream models that would break:[/yellow]")
+                for dep in downstream_models:
+                    console.print(f"    • {dep}")
+            console.print()
+            return
 
         # Warn about dependencies
         if downstream_models:
@@ -219,15 +267,38 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool) -> None:
             except Exception:
                 pass  # Non-critical — don't block removal
 
+        # Remove monitor references from monitors.yml
+        if monitor_refs:
+            try:
+                from dango.analysis.config import load_monitors_config, save_monitors_config
+
+                monitors_cfg = load_monitors_config(project_root)
+                original_count = len(monitors_cfg.monitors)
+                monitors_cfg.monitors = [
+                    m for m in monitors_cfg.monitors if m.name not in monitor_refs
+                ]
+                if len(monitors_cfg.monitors) < original_count:
+                    save_monitors_config(project_root, monitors_cfg)
+                    removed_count = original_count - len(monitors_cfg.monitors)
+                    console.print(
+                        f"[green]✓[/green] Removed {removed_count} monitor(s) from monitors.yml"
+                    )
+            except Exception:
+                pass  # Non-critical
+
         # Handle table deletion if it exists
+        dropped_table = False
         if table_exists:
             console.print()
-            if Confirm.ask(f"Also drop the table from DuckDB ({layer}.{model_name})?"):
+            if yes or Confirm.ask(f"Also drop the table from DuckDB ({layer}.{model_name})?"):
                 try:
+                    # layer and model_name are validated: layer from _VALID_LAYERS,
+                    # model_name matches _VALID_MODEL_NAME_RE — safe to interpolate
                     conn = duckdb.connect(str(duckdb_path))
-                    conn.execute(f"DROP TABLE IF EXISTS {layer}.{model_name}")
+                    conn.execute(f'DROP TABLE IF EXISTS "{layer}"."{model_name}"')
                     conn.close()
                     console.print(f"[green]✓[/green] Dropped table: {layer}.{model_name}")
+                    dropped_table = True
                 except Exception as e:
                     console.print(f"[red]✗[/red] Failed to drop table: {e}")
                     from dango.exceptions import is_debug_mode
@@ -244,9 +315,21 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool) -> None:
                     "[dim]    Run 'cd dbt && dbt run' to rebuild project without this model[/dim]"
                 )
 
+        # Refresh Metabase schema if table was dropped
+        if dropped_table:
+            try:
+                from dango.visualization.metabase import sync_metabase_schema
+
+                if sync_metabase_schema(project_root):
+                    console.print("[green]✓[/green] Metabase schema refreshed")
+            except Exception:
+                pass  # Non-critical — Metabase may not be running
+
         console.print()
         console.print(f"[green]✅ Model '{model_name}' removed successfully[/green]")
 
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode

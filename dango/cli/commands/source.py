@@ -118,10 +118,20 @@ def source_add(ctx: click.Context) -> None:
 
 
 @source.command("edit")
+@click.argument("name", required=False)
 @click.pass_context
-def source_edit(ctx: click.Context) -> None:
-    """Open sources.yml in your default editor ($EDITOR)."""
+def source_edit(ctx: click.Context, name: str | None) -> None:
+    """Open sources.yml in your default editor ($EDITOR).
+
+    Optionally specify a source NAME to focus on that section.
+
+    Examples:
+      dango source edit            Edit full sources.yml
+      dango source edit chess      Edit sources.yml (hints at chess section)
+    """
     from pathlib import Path
+
+    import yaml
 
     project_root = ctx.obj.get("project_root")
     if not project_root:
@@ -134,10 +144,36 @@ def source_edit(ctx: click.Context) -> None:
         console.print("[dim]Run 'dango source add' first[/dim]")
         return
 
+    # If a name is given, validate it exists
+    if name:
+        try:
+            data = yaml.safe_load(sources_file.read_text()) or {}
+            source_names = [s.get("name") for s in data.get("sources", [])]
+            if name not in source_names:
+                console.print(f"[red]Error:[/red] Source '{name}' not found")
+                if source_names:
+                    console.print(f"[dim]Available sources: {', '.join(source_names)}[/dim]")
+                return
+        except Exception:
+            pass  # Fall through to editor
+
     original = sources_file.read_text()
     edited = click.edit(original, extension=".yml")
 
     if edited is None:
+        if name:
+            console.print("[yellow]No editor available.[/yellow]")
+            # Print just the named source section
+            try:
+                data = yaml.safe_load(original) or {}
+                for src in data.get("sources", []):
+                    if src.get("name") == name:
+                        console.print(f"\n[bold]Source '{name}':[/bold]")
+                        console.print(yaml.dump({"sources": [src]}, default_flow_style=False))
+                        console.print(f"[dim]File: {sources_file}[/dim]")
+                        return
+            except Exception:
+                pass
         console.print("[yellow]No editor or no changes.[/yellow]")
         console.print(f"[dim]Edit manually: {sources_file}[/dim]")
         return
@@ -147,8 +183,6 @@ def source_edit(ctx: click.Context) -> None:
         return
 
     # Validate YAML syntax
-    import yaml
-
     try:
         yaml.safe_load(edited)
     except yaml.YAMLError as e:
@@ -158,6 +192,9 @@ def source_edit(ctx: click.Context) -> None:
 
     sources_file.write_text(edited)
     console.print("[green]sources.yml updated[/green]")
+
+    if name:
+        console.print(f"[dim]Hint: Look for the '{name}:' section[/dim]")
 
 
 @source.command("list")
@@ -527,7 +564,10 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
 
 
 @click.command()
-@click.option("--source", help="Sync specific source only")
+@click.argument("source_name", required=False, default=None)
+@click.option(
+    "--source", "source_option", help="Sync specific source (deprecated, use positional arg)"
+)
 @click.option("--since", help="Start date for incremental loading (YYYY-MM-DD)")
 @click.option("--until", help="End date for incremental loading (YYYY-MM-DD)")
 @click.option("--backfill", help="Backfill duration (e.g. '7d', '2w', '1m')")
@@ -543,7 +583,8 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
 @click.pass_context
 def sync(
     ctx: click.Context,
-    source: str | None,
+    source_name: str | None,
+    source_option: str | None,
     since: str | None,
     until: str | None,
     backfill: str | None,
@@ -558,7 +599,8 @@ def sync(
 
     Examples:
       dango sync                               Sync all enabled sources
-      dango sync --source orders               Sync only 'orders' source
+      dango sync chess                         Sync only 'chess' source
+      dango sync --source orders               Sync only 'orders' (deprecated form)
       dango sync --since 2024-01-01            Override start date
       dango sync --backfill 30d                Backfill last 30 days
       dango sync --limit 1000                  Dev mode: limit rows per source
@@ -577,6 +619,9 @@ def sync(
     from dango.utils import DbtLock, DbtLockError
 
     from ..utils import require_project_context
+
+    # Resolve source: positional arg takes precedence over --source option
+    source = source_name or source_option
 
     console.print("🍡 [bold]Syncing data...[/bold]")
     console.print()
