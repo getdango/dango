@@ -786,8 +786,12 @@ def sync(
                     console.print(
                         f"    Module: {src.dlt_native.source_module if src.dlt_native else 'N/A'}"
                     )
-                elif src.dlt_config:
-                    console.print(f"    dlt source: {src.dlt_config.source_name}")
+                else:
+                    from dango.ingestion.sources.registry import get_source_metadata
+
+                    meta = get_source_metadata(src.type.value)
+                    if meta:
+                        console.print(f"    dlt source: {meta.get('dlt_package', src.type.value)}")
 
             console.print()
             console.print("[dim]Options:[/dim]")
