@@ -6,6 +6,10 @@
         <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
             <p class="text-sm text-red-700" x-text="error"></p>
         </div>
+        <!-- Success banner (BUG-202) -->
+        <div x-show="success" x-cloak class="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+            <p class="text-sm text-green-700" x-text="success"></p>
+        </div>
         <!-- Header -->
         <div class="flex items-center justify-between mb-6">
             <div>
@@ -17,7 +21,13 @@
             <button @click="runAnalysis()" :disabled="running"
                     class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors disabled:opacity-50">
                 <span x-show="!running">Run Analysis</span>
-                <span x-show="running" x-cloak>Running...</span>
+                <span x-show="running" x-cloak class="inline-flex items-center space-x-1">
+                    <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                    <span>Running...</span>
+                </span>
             </button>
         </div>
         <div x-show="loading" x-cloak class="flex items-center justify-center py-12">
@@ -40,11 +50,12 @@
                             <span class="text-sm font-medium text-gray-900 truncate" x-text="m.name"></span>
                         </div>
                         <div class="flex items-center space-x-4 text-sm text-right flex-shrink-0">
-                            <span class="text-gray-900 font-mono" x-text="m.value != null ? m.value.toLocaleString(undefined, {maximumFractionDigits: 2}) : '-'"></span>
+                            <span class="text-gray-900 font-mono" x-text="formatValue(m)"></span>
                             <span :class="m.change_pct != null && m.change_pct > 0 ? 'text-red-600' : m.change_pct != null && m.change_pct < 0 ? 'text-green-600' : 'text-gray-400'"
                                   x-text="formatChange(m.change_pct)"></span>
                             <span class="text-gray-400 hidden sm:inline" x-text="m.trend_direction || '-'"></span>
-                            <button @click="toggleHistory(m.name)" class="text-blue-600 hover:text-blue-800 text-xs hidden sm:inline">History</button>
+                            <button @click="toggleHistory(m.name)" class="text-blue-600 hover:text-blue-800 text-xs hidden sm:inline"
+                                    x-text="historyMetric === m.name ? 'Hide history' : 'History'"></button>
                             <template x-if="m.drill_down && m.drill_down.length > 0">
                                 <button @click="m._expanded = !m._expanded" class="text-blue-600 hover:text-blue-800 text-xs">
                                     <span x-text="m._expanded ? 'Hide' : 'Drill-down'"></span>
@@ -72,66 +83,92 @@
                             </div>
                         </template>
                     </div>
+                    <!-- Inline history (BUG-215) -->
+                    <div x-show="historyMetric === m.name" x-cloak class="mt-3 pt-3 border-t border-gray-100">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-xs font-semibold text-gray-700">History (30 days)</span>
+                            <div class="flex items-center space-x-3 text-xs text-gray-500">
+                                <template x-if="m.comparison_type">
+                                    <span>Comparison: <span class="font-medium text-gray-700" x-text="m.comparison_type.replace(/_/g, ' ')"></span></span>
+                                </template>
+                                <template x-if="m.baseline_value != null">
+                                    <span>Baseline: <span class="font-medium text-gray-700 font-mono" x-text="formatBaseline(m)"></span></span>
+                                </template>
+                            </div>
+                        </div>
+                        <div x-show="historyLoading" class="text-xs text-gray-400 py-3 text-center">Loading...</div>
+                        <div x-show="historyError" x-cloak class="p-2 bg-red-50 border border-red-200 rounded-md">
+                            <p class="text-xs text-red-700" x-text="historyError"></p>
+                        </div>
+                        <template x-if="!historyLoading && !historyError && historyData.length > 0">
+                            <div class="overflow-x-auto"><table class="min-w-full text-xs">
+                                <thead><tr>
+                                    <th class="text-left py-1 text-gray-500">Recorded</th>
+                                    <th class="text-right py-1 text-gray-500">Value</th>
+                                </tr></thead>
+                                <tbody>
+                                    <template x-for="pt in historyData" :key="pt.recorded_at">
+                                        <tr>
+                                            <td class="py-1 text-gray-600" x-text="formatFullTimestamp(pt.recorded_at)"></td>
+                                            <td class="py-1 text-right font-mono" x-text="formatHistoryValue(pt)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table></div>
+                        </template>
+                        <template x-if="!historyLoading && !historyError && historyData.length === 0">
+                            <div class="text-xs text-gray-400 py-3 text-center">No history available.</div>
+                        </template>
+                    </div>
                 </div>
             </template>
         </div>
-        <!-- Data Quality Checks -->
+        <!-- Data Quality Checks (BUG-201 + BUG-216) -->
         <div x-show="!loading && dbtTests.length > 0" class="mt-6">
             <div class="bg-white shadow rounded-lg p-5">
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="text-sm font-semibold text-gray-900">Data Quality Checks</h3>
                     <span class="text-xs text-gray-500">
-                        <span x-text="dbtTestsPassing"></span>/<span x-text="dbtTests.length"></span> tests passing
+                        <span x-text="dbtTestsPassing"></span> passing<template x-if="dbtTestsFailing > 0">, <span class="text-red-600 font-medium" x-text="dbtTestsFailing + ' failing'"></span></template><template x-if="dbtTestsNotRun > 0">, <span class="text-gray-400" x-text="dbtTestsNotRun + ' not run'"></span></template>
                     </span>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-xs">
-                        <thead>
-                            <tr>
-                                <th class="text-left py-1.5 text-gray-500 font-medium">Test Name</th>
-                                <th class="text-left py-1.5 text-gray-500 font-medium">Model</th>
-                                <th class="text-left py-1.5 text-gray-500 font-medium">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <template x-for="t in dbtTests" :key="t.test_name">
-                                <tr class="border-t border-gray-100">
-                                    <td class="py-1.5 text-gray-700 font-mono" x-text="t.test_name"></td>
-                                    <td class="py-1.5 text-gray-500" x-text="t.model_name || '-'"></td>
-                                    <td class="py-1.5">
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold"
+                <!-- Grouped by model (BUG-216) -->
+                <div class="space-y-2">
+                    <template x-for="group in groupedTests" :key="group.model">
+                        <div class="border border-gray-100 rounded-md">
+                            <button @click="toggleGroup(group.model)"
+                                    class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-50 transition-colors">
+                                <div class="flex items-center space-x-2">
+                                    <svg class="h-3 w-3 text-gray-400 transition-transform" :class="expandedGroups[group.model] ? 'rotate-90' : ''"
+                                         xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                    <span class="text-xs font-medium text-gray-700" x-text="group.model"></span>
+                                </div>
+                                <div class="flex items-center space-x-2 text-xs">
+                                    <span class="text-green-600" x-text="group.pass + ' pass'"></span>
+                                    <template x-if="group.fail > 0">
+                                        <span class="text-red-600 font-medium" x-text="group.fail + ' fail'"></span>
+                                    </template>
+                                    <template x-if="group.notRun > 0">
+                                        <span class="text-gray-400" x-text="group.notRun + ' not run'"></span>
+                                    </template>
+                                </div>
+                            </button>
+                            <div x-show="expandedGroups[group.model]" x-cloak class="border-t border-gray-100">
+                                <template x-for="t in group.tests" :key="t.test_name">
+                                    <div class="flex items-center justify-between px-3 py-1.5 text-xs">
+                                        <span class="text-gray-700 font-mono truncate" x-text="t.test_name"></span>
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold flex-shrink-0 ml-2"
                                               :class="t.status === 'pass' ? 'bg-green-100 text-green-800' : t.status === 'fail' || t.status === 'error' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'"
-                                              x-text="t.status || 'pending'"></span>
-                                    </td>
-                                </tr>
-                            </template>
-                        </tbody>
-                    </table>
+                                              x-text="t.status || 'not run'"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
                 </div>
             </div>
-        </div>
-        <!-- History panel -->
-        <div x-show="historyMetric" x-cloak class="mt-6 bg-white shadow rounded-lg p-5">
-            <div class="flex items-center justify-between mb-3">
-                <h3 class="text-sm font-semibold text-gray-900">History: <span x-text="historyMetric"></span></h3>
-                <button @click="historyMetric = null; historyData = []" class="text-xs text-gray-400 hover:text-gray-600">Close</button>
-            </div>
-            <div x-show="historyLoading" class="text-sm text-gray-400 py-4 text-center">Loading...</div>
-            <template x-if="!historyLoading && historyData.length > 0">
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-xs">
-                        <thead><tr><th class="text-left py-1 text-gray-500">Time</th><th class="text-right py-1 text-gray-500">Value</th></tr></thead>
-                        <tbody>
-                            <template x-for="pt in historyData" :key="pt.recorded_at">
-                                <tr><td class="py-1 text-gray-600" x-text="pt.recorded_at"></td><td class="py-1 text-right font-mono" x-text="pt.value != null ? pt.value.toLocaleString(undefined, {maximumFractionDigits: 2}) : '-'"></td></tr>
-                            </template>
-                        </tbody>
-                    </table>
-                </div>
-            </template>
-            <template x-if="!historyLoading && historyData.length === 0">
-                <div class="text-sm text-gray-400 py-4 text-center">No history available.</div>
-            </template>
         </div>
     </div>
 </main>
@@ -141,8 +178,11 @@
 function monitoringPage() {
     return {
         metrics: [], flaggedCount: 0, loading: true, running: false, error: null,
-        historyMetric: null, historyData: [], historyLoading: false,
-        dbtTests: [], dbtTestsPassing: 0,
+        success: '',
+        historyMetric: null, historyData: [], historyLoading: false, historyError: '',
+        dbtTests: [], dbtTestsPassing: 0, dbtTestsFailing: 0, dbtTestsNotRun: 0,
+        groupedTests: [],
+        expandedGroups: {},
         async init() {
             try {
                 const res = await fetch('/api/monitoring', {headers: {'X-Requested-With': 'XMLHttpRequest'}});
@@ -151,13 +191,14 @@ function monitoringPage() {
                     this.metrics = data.metrics.map(m => ({...m, _expanded: false}));
                     this.flaggedCount = data.flagged;
                     this.dbtTests = data.dbt_tests || [];
-                    this.dbtTestsPassing = this.dbtTests.filter(t => t.status === 'pass').length;
+                    this._updateTestCounts();
+                    this._autoExpandFailingGroups();
                 } else { this.error = 'Failed to load monitors.'; }
             } catch (e) { this.error = 'Failed to load monitors.'; }
             finally { this.loading = false; }
         },
         async runAnalysis() {
-            this.running = true; this.error = null;
+            this.running = true; this.error = null; this.success = '';
             try {
                 const res = await fetch('/api/monitoring/run', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}});
                 if (res.ok) {
@@ -165,19 +206,62 @@ function monitoringPage() {
                     this.metrics = data.metrics.map(m => ({...m, _expanded: false}));
                     this.flaggedCount = data.flagged;
                     this.dbtTests = data.dbt_tests || [];
-                    this.dbtTestsPassing = this.dbtTests.filter(t => t.status === 'pass').length;
+                    this._updateTestCounts();
+                    this._autoExpandFailingGroups();
+                    this.success = 'Analysis complete \u2014 ' + data.metrics.length + ' metrics updated';
+                    setTimeout(() => { this.success = ''; }, 5000);
                 } else { this.error = 'Analysis failed.'; }
             } catch (e) { this.error = 'Analysis failed.'; }
             finally { this.running = false; }
         },
+        _updateTestCounts() {
+            this.dbtTestsPassing = this.dbtTests.filter(t => t.status === 'pass').length;
+            this.dbtTestsFailing = this.dbtTests.filter(t => t.status === 'fail' || t.status === 'error').length;
+            this.dbtTestsNotRun = this.dbtTests.filter(t => !t.status).length;
+            this._rebuildGroupedTests();
+        },
+        _rebuildGroupedTests() {
+            const groups = {};
+            for (const t of this.dbtTests) {
+                const model = t.model_name || '(no model)';
+                if (!groups[model]) groups[model] = {model, tests: [], pass: 0, fail: 0, notRun: 0};
+                groups[model].tests.push(t);
+                if (t.status === 'pass') groups[model].pass++;
+                else if (t.status === 'fail' || t.status === 'error') groups[model].fail++;
+                else groups[model].notRun++;
+            }
+            this.groupedTests = Object.values(groups).sort((a, b) => {
+                if (a.fail !== b.fail) return b.fail - a.fail;
+                return a.model.localeCompare(b.model);
+            });
+        },
+        _autoExpandFailingGroups() {
+            const updated = {...this.expandedGroups};
+            for (const g of this.groupedTests) {
+                if (g.fail > 0) updated[g.model] = true;
+            }
+            this.expandedGroups = updated;
+        },
         async toggleHistory(metricName) {
-            if (this.historyMetric === metricName) { this.historyMetric = null; this.historyData = []; return; }
-            this.historyMetric = metricName; this.historyLoading = true; this.historyData = [];
+            if (this.historyMetric === metricName) { this.historyMetric = null; this.historyData = []; this.historyError = ''; return; }
+            this.historyMetric = metricName; this.historyLoading = true; this.historyData = []; this.historyError = '';
             try {
                 const res = await fetch('/api/monitoring/history?metric=' + encodeURIComponent(metricName) + '&days=30', {headers: {'X-Requested-With': 'XMLHttpRequest'}});
-                if (res.ok) { const data = await res.json(); this.historyData = data.data_points; }
-            } catch (e) { /* silent */ }
+                if (this.historyMetric !== metricName) return;
+                if (res.ok) {
+                    const data = await res.json();
+                    this.historyData = data.data_points;
+                } else {
+                    this.historyError = 'Failed to load history (HTTP ' + res.status + ').';
+                }
+            } catch (e) {
+                if (this.historyMetric !== metricName) return;
+                this.historyError = 'Failed to load history.';
+            }
             finally { this.historyLoading = false; }
+        },
+        toggleGroup(model) {
+            this.expandedGroups = {...this.expandedGroups, [model]: !this.expandedGroups[model]};
         },
         statusClass(status) {
             return {flagged: 'bg-red-100 text-red-800', trending: 'bg-yellow-100 text-yellow-800', normal: 'bg-green-100 text-green-800', error: 'bg-gray-100 text-gray-600'}[status] || 'bg-gray-100 text-gray-600';
@@ -186,6 +270,37 @@ function monitoringPage() {
             if (pct == null) return '-';
             const sign = pct > 0 ? '+' : '';
             return sign + pct.toFixed(1) + '%';
+        },
+        formatValue(m) {
+            if (m.value == null) return '-';
+            if (m.name.endsWith('_freshness')) return new Date(m.value * 1000).toLocaleString();
+            return m.value.toLocaleString(undefined, {maximumFractionDigits: 2});
+        },
+        formatFullTimestamp(iso) {
+            if (!iso) return '-';
+            try {
+                const d = new Date(iso);
+                const now = new Date();
+                const diff = (now - d) / 1000;
+                let relative;
+                if (diff < 60) relative = 'just now';
+                else if (diff < 3600) relative = Math.floor(diff / 60) + 'm ago';
+                else if (diff < 86400) relative = Math.floor(diff / 3600) + 'h ago';
+                else relative = Math.floor(diff / 86400) + 'd ago';
+                return d.toLocaleString(undefined, {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}) + ' (' + relative + ')';
+            } catch (e) { return iso; }
+        },
+        formatBaseline(m) {
+            if (m.baseline_value == null) return '-';
+            if (m.name.endsWith('_freshness')) return new Date(m.baseline_value * 1000).toLocaleString();
+            return m.baseline_value.toLocaleString(undefined, {maximumFractionDigits: 2});
+        },
+        formatHistoryValue(pt) {
+            if (pt.value == null) return '-';
+            if (this.historyMetric && this.historyMetric.endsWith('_freshness')) {
+                return new Date(pt.value * 1000).toLocaleString();
+            }
+            return pt.value.toLocaleString(undefined, {maximumFractionDigits: 2});
         },
     };
 }
