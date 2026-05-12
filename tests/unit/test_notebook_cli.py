@@ -163,7 +163,7 @@ class TestNotebookNew:
 
 @pytest.mark.unit
 class TestNotebookOpen:
-    def test_open_starts_marimo(self):
+    def test_open_acquires_lock(self):
         runner = CliRunner()
         with runner.isolated_filesystem() as td:
             project_root = Path(td)
@@ -173,8 +173,16 @@ class TestNotebookOpen:
 
             with (
                 patch("dango.cli.utils.find_project_root", return_value=project_root),
+                patch("dango.notebooks.locking.acquire_lock", return_value=True) as mock_acquire,
+                patch(
+                    "dango.notebooks.snapshot.create_snapshot",
+                    side_effect=FileNotFoundError,
+                ),
                 patch("dango.notebooks.manager.get_marimo_status") as mock_status,
                 patch("dango.notebooks.manager.start_marimo", return_value=12345),
+                patch("dango.notebooks.locking.release_lock") as mock_release,
+                patch("dango.notebooks.locking.refresh_lock"),
+                patch("webbrowser.open", side_effect=KeyboardInterrupt),
             ):
                 mock_status.side_effect = [
                     {"running": False},
@@ -183,14 +191,98 @@ class TestNotebookOpen:
 
                 from dango.cli.commands.notebook import notebook
 
+                runner.invoke(notebook, ["open", "test"])
+
+            mock_acquire.assert_called_once_with(project_root, "test", "cli")
+            mock_release.assert_called_once_with(project_root, "test", "cli")
+
+    def test_open_locked_by_other(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem() as td:
+            project_root = Path(td)
+            nb_dir = project_root / "notebooks"
+            nb_dir.mkdir()
+            (nb_dir / "test.py").write_text("# notebook")
+
+            with (
+                patch("dango.cli.utils.find_project_root", return_value=project_root),
+                patch("dango.notebooks.locking.acquire_lock", return_value=False),
+                patch(
+                    "dango.notebooks.locking.get_lock_info",
+                    return_value={"locked_by": "alice@example.com"},
+                ),
+            ):
+                from dango.cli.commands.notebook import notebook
+
                 result = runner.invoke(notebook, ["open", "test"])
 
-            assert "localhost:7805" in result.output
-            # Rich inserts ANSI escape codes in URLs; strip before checking
-            import re
+            assert result.exit_code != 0
+            assert "alice@example.com" in result.output
 
-            plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
-            assert "?file=test.py" in plain
+    def test_open_releases_lock_on_exit(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem() as td:
+            project_root = Path(td)
+            nb_dir = project_root / "notebooks"
+            nb_dir.mkdir()
+            (nb_dir / "test.py").write_text("# notebook")
+
+            with (
+                patch("dango.cli.utils.find_project_root", return_value=project_root),
+                patch("dango.notebooks.locking.acquire_lock", return_value=True),
+                patch(
+                    "dango.notebooks.snapshot.create_snapshot",
+                    side_effect=FileNotFoundError,
+                ),
+                patch("dango.notebooks.manager.get_marimo_status") as mock_status,
+                patch("dango.notebooks.manager.start_marimo", return_value=12345),
+                patch("dango.notebooks.locking.release_lock") as mock_release,
+                patch("dango.notebooks.locking.refresh_lock"),
+                patch("webbrowser.open", side_effect=KeyboardInterrupt),
+            ):
+                mock_status.return_value = {"running": True, "port": 7805}
+
+                from dango.cli.commands.notebook import notebook
+
+                runner.invoke(notebook, ["open", "test"])
+
+            mock_release.assert_called_once_with(project_root, "test", "cli")
+
+    def test_open_creates_snapshot(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem() as td:
+            project_root = Path(td)
+            nb_dir = project_root / "notebooks"
+            nb_dir.mkdir()
+            (nb_dir / "test.py").write_text("# notebook")
+            snap_path = Path(td) / ".dango" / "snapshots" / "warehouse_cli.duckdb"
+            snap_path.parent.mkdir(parents=True)
+            snap_path.touch()
+
+            with (
+                patch("dango.cli.utils.find_project_root", return_value=project_root),
+                patch("dango.notebooks.locking.acquire_lock", return_value=True),
+                patch(
+                    "dango.notebooks.snapshot.create_snapshot",
+                    return_value=snap_path,
+                ) as mock_snapshot,
+                patch("dango.notebooks.manager.get_marimo_status") as mock_status,
+                patch("dango.notebooks.manager.start_marimo", return_value=12345) as mock_start,
+                patch("dango.notebooks.locking.release_lock"),
+                patch("dango.notebooks.locking.refresh_lock"),
+                patch("webbrowser.open", side_effect=KeyboardInterrupt),
+            ):
+                mock_status.side_effect = [
+                    {"running": False},
+                    {"running": True, "port": 7805},
+                ]
+
+                from dango.cli.commands.notebook import notebook
+
+                runner.invoke(notebook, ["open", "test"])
+
+            mock_snapshot.assert_called_once_with(project_root, "cli")
+            mock_start.assert_called_once_with(project_root, snapshot_path=snap_path)
 
     def test_open_nonexistent_notebook(self):
         runner = CliRunner()

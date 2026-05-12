@@ -84,7 +84,7 @@
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
                                 <div class="flex items-center justify-end space-x-2">
-                                    <template x-if="canExecute && nb.file_exists">
+                                    <template x-if="canExecute && nb.file_exists && !nb.lock">
                                         <button @click="openNotebook(nb)"
                                                 class="text-blue-600 hover:text-blue-800 text-xs font-medium">Open</button>
                                     </template>
@@ -203,7 +203,6 @@ function notebooksPage() {
         // Active editing
         activeNotebook: null,
         heartbeatInterval: null,
-        _boundBeforeUnload: null,
 
         // Lock revocation
         lockRevoked: false,
@@ -270,22 +269,12 @@ function notebooksPage() {
                     });
                 } catch (e) { /* ignore heartbeat failures */ }
             }, 60000);
-            this._boundBeforeUnload = () => {
-                fetch(`/api/notebooks/${name}/release`, {
-                    method: 'POST', headers, keepalive: true, body: '{}'
-                });
-            };
-            window.addEventListener('beforeunload', this._boundBeforeUnload);
         },
 
         stopHeartbeat() {
             if (this.heartbeatInterval) {
                 clearInterval(this.heartbeatInterval);
                 this.heartbeatInterval = null;
-            }
-            if (this._boundBeforeUnload) {
-                window.removeEventListener('beforeunload', this._boundBeforeUnload);
-                this._boundBeforeUnload = null;
             }
         },
 
