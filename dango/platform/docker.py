@@ -53,6 +53,19 @@ class DockerManager:
         env["COMPOSE_PROJECT_NAME"] = self.compose_project_name
         return env
 
+    def _metabase_image_exists(self) -> bool:
+        """Check if the dango-metabase Docker image already exists locally."""
+        try:
+            result = subprocess.run(
+                ["docker", "images", "--filter", "reference=dango-metabase", "-q"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return result.returncode == 0 and bool(result.stdout.strip())
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+
     def is_docker_available(self) -> bool:
         """Check if Docker is available"""
         try:
@@ -153,13 +166,20 @@ class DockerManager:
 
         cmd = self.get_compose_command() + ["-f", str(self.compose_file), "up", "-d"]
 
+        first_run = not self._metabase_image_exists()
+        if first_run:
+            console.print(
+                "[cyan]Building Metabase image (first run, may take 5-10 minutes)...[/cyan]"
+            )
+        timeout = 600 if first_run else 120
+
         try:
             result = subprocess.run(
                 cmd,
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=timeout,
                 env=self._compose_env(),
             )
 
@@ -194,13 +214,16 @@ class DockerManager:
                 return False
 
         except subprocess.TimeoutExpired:
+            causes = [
+                "Docker image download is slow",
+                "Insufficient system resources",
+                "Docker daemon is unresponsive",
+            ]
+            if first_run:
+                causes.insert(0, "First-run Metabase image build can take 5-10 minutes")
             msg = format_structured_error(
                 what_failed="Timeout starting Docker services",
-                causes=[
-                    "Docker image download is slow",
-                    "Insufficient system resources",
-                    "Docker daemon is unresponsive",
-                ],
+                causes=causes,
                 suggested_fix="Check Docker status with 'docker ps' and retry",
             )
             console.print(f"[red]Error:[/red]\n{msg}")

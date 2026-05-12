@@ -50,7 +50,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
             raise click.Abort()
 
         # Build dbt command
-        cmd = ["dbt", "run", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)]
+        cmd = ["dbt", "build", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)]
         if dbt_args:
             cmd.extend(dbt_args)
 
@@ -59,7 +59,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
             lock = DbtLock(
                 project_root=project_root,
                 source="cli",
-                operation=f"dbt run {' '.join(dbt_args) if dbt_args else ''}",
+                operation=f"dbt build {' '.join(dbt_args) if dbt_args else ''}",
             )
             lock.acquire()
         except DbtLockError as e:
@@ -72,7 +72,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
         result = subprocess.run(cmd, cwd=str(dbt_dir))
 
         if result.returncode != 0:
-            console.print(f"\n[red]dbt run failed with exit code {result.returncode}[/red]")
+            console.print(f"\n[red]dbt build failed with exit code {result.returncode}[/red]")
             raise click.Abort()
 
         # Update persistent model status

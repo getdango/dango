@@ -568,6 +568,9 @@ async function handleWebSocketMessage(data) {
             setTimeout(() => {
                 if (triggeredSource) {
                     activeSyncs.delete(triggeredSource);
+                    stopSyncTimer(triggeredSource);
+                    const btn = document.getElementById(`sync-btn-${triggeredSource}`);
+                    if (btn) btn.textContent = 'Sync Now';
                     console.log('🟢 [WS] [DELAYED] Cleared activeSyncs for:', triggeredSource);
                     const result = syncResults.get(triggeredSource);
                     if (result) {
@@ -578,6 +581,13 @@ async function handleWebSocketMessage(data) {
                         if (!isLoadingSources) loadSources();
                     }
                 } else {
+                    // Reset ALL sync buttons when no specific source
+                    for (const src of activeSyncs.keys()) {
+                        stopSyncTimer(src);
+                        const btn = document.getElementById(`sync-btn-${src}`);
+                        if (btn) btn.textContent = 'Sync Now';
+                    }
+                    activeSyncs.clear();
                     if (!isLoadingSources) loadSources();
                 }
                 updateSyncCounter();
@@ -616,6 +626,9 @@ async function handleWebSocketMessage(data) {
                 // DO clear activeSyncs since the operation failed
                 if (activeSyncs.has(triggeredSource)) {
                     activeSyncs.delete(triggeredSource);
+                    stopSyncTimer(triggeredSource);
+                    const btn = document.getElementById(`sync-btn-${triggeredSource}`);
+                    if (btn) btn.textContent = 'Sync Now';
                     updateSyncCounter();
                     console.log('🔴 [WS] Cleared activeSyncs for:', triggeredSource);
                 }
