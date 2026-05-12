@@ -441,3 +441,87 @@ class TestCookieMaxAge:
         assert resp.status_code == 200
         max_age = _get_cookie_max_age(resp, COOKIE_NAME)
         assert max_age == DEFAULT_SESSION_MAX_DAYS * 86400
+
+
+@pytest.mark.unit
+class TestLoginLockoutEnumeration:
+    """Tests for username enumeration prevention via lockout (BUG-235)."""
+
+    def test_login_unknown_email_lockout_after_max_attempts(self, tmp_path: Path) -> None:
+        """5+ attempts to unknown email → 423 (not always 400)."""
+        db_path = _make_db(tmp_path)
+        client = _make_client(_make_app(db_path))
+
+        # First 4 attempts should return 400
+        for _ in range(4):
+            resp = client.post(
+                "/api/auth/login",
+                json={"email": "nonexistent@example.com", "password": "wrong"},
+            )
+            assert resp.status_code == 400
+
+        # 5th attempt should trigger lockout → 423
+        resp = client.post(
+            "/api/auth/login",
+            json={"email": "nonexistent@example.com", "password": "wrong"},
+        )
+        assert resp.status_code == 423
+        data = resp.json()
+        assert "remaining_seconds" in data
+        assert data["remaining_seconds"] > 0
+
+    def test_login_inactive_user_lockout(self, tmp_path: Path) -> None:
+        """Inactive user path also triggers lockout after max attempts."""
+        db_path = _make_db(tmp_path)
+        _make_user(db_path, is_active=False)
+        client = _make_client(_make_app(db_path))
+
+        for _ in range(4):
+            resp = client.post(
+                "/api/auth/login",
+                json={"email": "test@example.com", "password": "wrong"},
+            )
+            assert resp.status_code == 400
+
+        resp = client.post(
+            "/api/auth/login",
+            json={"email": "test@example.com", "password": "wrong"},
+        )
+        assert resp.status_code == 423
+
+    def test_login_lockout_response_identical(self, tmp_path: Path) -> None:
+        """423 response body is identical for known vs unknown emails."""
+        db_path = _make_db(tmp_path)
+        _make_user(db_path, email="known@example.com")
+        client = _make_client(_make_app(db_path))
+
+        # Lock out known email (wrong password path)
+        for _ in range(5):
+            client.post(
+                "/api/auth/login",
+                json={"email": "known@example.com", "password": "wrong"},
+            )
+
+        # Lock out unknown email
+        for _ in range(5):
+            client.post(
+                "/api/auth/login",
+                json={"email": "unknown@example.com", "password": "wrong"},
+            )
+
+        resp_known = client.post(
+            "/api/auth/login",
+            json={"email": "known@example.com", "password": "wrong"},
+        )
+        resp_unknown = client.post(
+            "/api/auth/login",
+            json={"email": "unknown@example.com", "password": "wrong"},
+        )
+
+        assert resp_known.status_code == 423
+        assert resp_unknown.status_code == 423
+        # Same message text
+        assert resp_known.json()["message"] == resp_unknown.json()["message"]
+        # Both have remaining_seconds
+        assert "remaining_seconds" in resp_known.json()
+        assert "remaining_seconds" in resp_unknown.json()

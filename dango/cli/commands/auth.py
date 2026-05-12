@@ -487,6 +487,10 @@ def auth_unlock(ctx: click.Context, email: str) -> None:
             user.id,
             UserUpdate(failed_login_attempts=0, locked_until=None),
         )
+        # Also clear IP-based lockouts so the user can log in from any IP
+        from dango.auth.lockout import unlock_account
+
+        unlock_account(db_path, user.email)
         print_success(f"User '{user.email}' unlocked.")
         from dango.auth.audit import AuditEvent, log_auth_event
 

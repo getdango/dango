@@ -8,13 +8,13 @@ User authentication and access control for Dango. Handles password-based login w
 
 | File | Lines | Purpose | Key Exports |
 |------|-------|---------|-------------|
-| `__init__.py` | 238 | Re-exports 95 public symbols | All public API |
+| `__init__.py` | 244 | Re-exports 96 public symbols | All public API |
 | `models.py` | 172 | Pydantic models | `Role`, `User`, `UserCreate`, `UserUpdate`, `UserResponse`, `Session`, `APIKey` |
 | `database.py` | 529 | SQLite CRUD (WAL mode, FK enforcement) | `create_user()`, `get_user_by_*()`, `list_users()`, `update_user()`, `create_session()`, `get_session_by_token()`, `create_api_key()` |
 | `security.py` | 386 | Pure crypto utilities | `hash_password()`, `verify_password()`, `check_password_strength()`, `generate_session_token()`, `generate_api_key()`, `generate_invite_token()`, `generate_recovery_codes()` |
 | `sessions.py` | 289 | High-level session + API key lifecycle | `create_session()`, `validate_session()`, `validate_partial_session()`, `create_api_key()`, `validate_api_key()` |
 | `permissions.py` | 195 | 29 permissions, 3 role mappings | `PERMISSIONS`, `ROLE_PERMISSIONS`, `has_permission()`, `require_permission()` |
-| `lockout.py` | 181 | Brute-force protection (5 attempts / 15-min) | `record_failed_login()`, `check_account_locked()`, `unlock_account()` |
+| `lockout.py` | 436 | Brute-force protection (5 attempts / 15-min, IP-based + user-based) | `record_failed_login()`, `check_account_locked()`, `unlock_account()`, `cleanup_expired_login_attempts()` |
 | `audit.py` | 207 | 24 event types to `.dango/logs/audit.jsonl` | `AuditEvent`, `log_auth_event()`, `query_audit_log()` |
 | `admin.py` | 124 | Bootstrap + path helpers | `ensure_admin()`, `is_auth_enabled()`, `get_auth_db_path()` |
 | `totp.py` | 220 | TOTP 2FA: setup/verify/enable/disable, recovery codes | `generate_totp_secret()`, `verify_totp_code()`, `setup_totp()`, `enable_totp()`, `consume_recovery_code()` |
@@ -39,7 +39,7 @@ User authentication and access control for Dango. Handles password-based login w
 
 - **Login returns 400** for bad credentials (not 401). The 401 status is reserved for "you need to authenticate" (missing/expired session). This prevents browsers from showing native auth dialogs.
 - **Timing oracle prevention:** `verify_password("dummy", DUMMY_HASH)` called on all login failure paths to equalize bcrypt timing.
-- **Lockout is identity-blind:** unknown and inactive emails get identical 400 responses (no user enumeration).
+- **Lockout is identity-blind:** unknown and inactive emails get identical lockout behaviour (HTTP 423 after 5 attempts from the same IP). IP-based tracking in ``login_attempts`` table prevents username enumeration via lockout-timing side channels (BUG-235).
 - **Metabase bridge:** `_bridge_metabase_session()` in `web/routes/auth.py` consolidates Metabase SSO cookie bridging. Called from 4 login paths (password, OAuth×2, 2FA verify).
 - **Read-modify-write must clear stale trigger fields** — skipping a time-based field in a SQL UPDATE means the stale DB value re-triggers logic on the next read (e.g., `invite_expires_at`, `locked_until`).
 - **Audit event copy-paste bugs:** Grep-verify each `AuditEvent` member is used in the correct semantic context when touching audit calls. Copy-paste from a nearby call often carries the wrong event type.

@@ -452,6 +452,10 @@ async def admin_unlock_user(
         return JSONResponse(status_code=404, content={"message": "User not found"})
 
     update_user(db_path, user_id, UserUpdate(failed_login_attempts=0, locked_until=None))
+    # Also clear IP-based lockouts so the user can log in from any IP
+    from dango.auth.lockout import unlock_account
+
+    unlock_account(db_path, target.email)
     log_auth_event(
         AuditEvent.ACCOUNT_UNLOCKED,
         user_id=user_id,
