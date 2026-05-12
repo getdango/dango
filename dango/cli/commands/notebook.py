@@ -165,7 +165,8 @@ def notebook_open(ctx: click.Context, name: str) -> None:
     stop_event = threading.Event()
 
     def _heartbeat() -> None:
-        while not stop_event.wait(timeout=300):
+        # Interval must be shorter than expire_stale_locks timeout (120s)
+        while not stop_event.wait(timeout=60):
             try:
                 refresh_lock(project_root, name, "cli")
             except Exception:
