@@ -163,12 +163,6 @@ class TestNotebookNew:
 
 @pytest.mark.unit
 class TestNotebookOpen:
-    def _common_patches(self, project_root):
-        """Return a stack of patches needed by notebook_open tests."""
-        import contextlib
-
-        return contextlib.ExitStack()
-
     def test_open_acquires_lock(self):
         runner = CliRunner()
         with runner.isolated_filesystem() as td:

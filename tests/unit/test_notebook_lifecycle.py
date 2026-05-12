@@ -106,11 +106,13 @@ class TestLockCreatesSnapshot:
         mock_idle: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Acquiring a lock should call create_snapshot with user email."""
+        """Acquiring a lock should call create_snapshot when Marimo is not running."""
         mock_root.return_value = tmp_path
         snap_path = tmp_path / ".dango" / "snapshots" / "warehouse_test_20260101.duckdb"
         mock_snapshot.return_value = snap_path
-        mock_status.return_value = {"running": True, "port": 7805, "pid": 123, "log_file": None}
+        not_running = {"running": False, "port": None, "pid": None, "log_file": None}
+        running = {"running": True, "port": 7805, "pid": 123, "log_file": None}
+        mock_status.side_effect = [not_running, running]
         _init_db(tmp_path)
         _seed_notebook(tmp_path, "test_nb")
 
@@ -134,13 +136,37 @@ class TestLockCreatesSnapshot:
     ) -> None:
         """Lock should succeed even if warehouse doesn't exist (no snapshot)."""
         mock_root.return_value = tmp_path
-        mock_status.return_value = {"running": True, "port": 7805, "pid": 123, "log_file": None}
+        not_running = {"running": False, "port": None, "pid": None, "log_file": None}
+        running = {"running": True, "port": 7805, "pid": 123, "log_file": None}
+        mock_status.side_effect = [not_running, running]
         _init_db(tmp_path)
         _seed_notebook(tmp_path, "test_nb")
 
         resp = _client(tmp_path).post("/api/notebooks/test_nb/lock", json={})
         assert resp.status_code == 200
         assert resp.json()["locked"] is True
+
+    @patch(f"{_P}.start_idle_checker")
+    @patch(f"{_P}.get_marimo_status")
+    @patch(f"{_P}.create_snapshot")
+    @patch(f"{_P}.get_project_root")
+    def test_lock_skips_snapshot_when_marimo_already_running(
+        self,
+        mock_root: MagicMock,
+        mock_snapshot: MagicMock,
+        mock_status: MagicMock,
+        mock_idle: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Snapshot creation is skipped when Marimo is already running."""
+        mock_root.return_value = tmp_path
+        mock_status.return_value = {"running": True, "port": 7805, "pid": 123, "log_file": None}
+        _init_db(tmp_path)
+        _seed_notebook(tmp_path, "test_nb")
+
+        resp = _client(tmp_path).post("/api/notebooks/test_nb/lock", json={})
+        assert resp.status_code == 200
+        mock_snapshot.assert_not_called()
 
     @patch(f"{_P}.start_idle_checker")
     @patch(f"{_P}.start_marimo")

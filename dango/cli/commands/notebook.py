@@ -174,7 +174,10 @@ def notebook_open(ctx: click.Context, name: str) -> None:
 
     def _heartbeat() -> None:
         while not stop_event.wait(timeout=300):
-            refresh_lock(project_root, name, "cli")
+            try:
+                refresh_lock(project_root, name, "cli")
+            except Exception:
+                console.print("[yellow]Warning:[/yellow] Failed to refresh notebook lock.")
 
     heartbeat = threading.Thread(target=_heartbeat, daemon=True)
     heartbeat.start()

@@ -376,21 +376,23 @@ async def lock_notebook(
             },
         )
 
-    # Create DuckDB snapshot so notebooks use a read-only copy
-    snapshot_path = None
-    try:
-        snapshot_path = await asyncio.to_thread(create_snapshot, project_root, user.email)
-    except FileNotFoundError:
-        pass  # no warehouse yet
-
     status = await asyncio.to_thread(get_marimo_status, project_root)
     if not status["running"]:
+        # Create DuckDB snapshot so notebooks use a read-only copy
+        snapshot_path = None
+        try:
+            snapshot_path = await asyncio.to_thread(create_snapshot, project_root, user.email)
+        except FileNotFoundError:
+            pass  # no warehouse yet
+
         try:
             await asyncio.to_thread(start_marimo, project_root, snapshot_path=snapshot_path)
             status = await asyncio.to_thread(get_marimo_status, project_root)
         except RuntimeError:
             # Already running (race condition) — get status again
             status = await asyncio.to_thread(get_marimo_status, project_root)
+    else:
+        logger.debug("Marimo already running — skipping snapshot creation")
 
     port = status.get("port") or _DEFAULT_MARIMO_PORT  # type: ignore[assignment]
 

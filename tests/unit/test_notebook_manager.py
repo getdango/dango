@@ -397,6 +397,23 @@ class TestBroadcastIdleWarning:
         assert event["remaining_seconds"] == 300
         assert "5 minutes" in event["message"]
 
+    def test_warning_shows_at_least_1_minute(self) -> None:
+        from dango.notebooks.manager import _broadcast_idle_warning
+
+        mock_broadcast = AsyncMock()
+        mock_ws = MagicMock()
+        mock_ws.broadcast = mock_broadcast
+
+        with patch(
+            "dango.web.routes.websocket.ws_manager",
+            mock_ws,
+        ):
+            asyncio.run(_broadcast_idle_warning(30))
+
+        event = mock_broadcast.call_args[0][0]
+        assert "1 minutes" in event["message"]
+        assert event["remaining_seconds"] == 30
+
     def test_swallows_exception_when_no_web_server(self) -> None:
         from dango.notebooks.manager import _broadcast_idle_warning
 

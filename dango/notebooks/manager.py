@@ -95,6 +95,8 @@ def start_marimo(
     log_file = project_root / ".dango" / "marimo.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
+    # Marimo's --timeout and Dango's _idle_check_loop use the same value
+    # intentionally — Marimo is a fallback if the Dango checker fails.
     timeout_minutes = _get_idle_timeout(project_root) // 60
 
     env = os.environ.copy()
@@ -253,12 +255,12 @@ async def _broadcast_idle_warning(remaining_seconds: int) -> None:
     try:
         from dango.web.routes.websocket import ws_manager
 
+        minutes_left = max(1, remaining_seconds // 60)
         await ws_manager.broadcast(
             {
                 "event": "notebook_idle_warning",
                 "message": (
-                    f"Notebook server will shut down in {remaining_seconds // 60} minutes "
-                    "due to inactivity."
+                    f"Notebook server will shut down in {minutes_left} minutes due to inactivity."
                 ),
                 "remaining_seconds": remaining_seconds,
                 "timestamp": datetime.now().isoformat(),
