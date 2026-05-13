@@ -54,6 +54,7 @@ REMOTE_PROJECT_DIR = "/srv/dango/project"
 SYNC_CONFIG_FILES: list[tuple[str, str]] = [
     (".dango/sources.yml", f"{REMOTE_PROJECT_DIR}/.dango/sources.yml"),
     (".dango/schedules.yml", f"{REMOTE_PROJECT_DIR}/.dango/schedules.yml"),
+    (".dango/monitors.yml", f"{REMOTE_PROJECT_DIR}/.dango/monitors.yml"),
     (".dango/project.yml", f"{REMOTE_PROJECT_DIR}/.dango/project.yml"),
     ("dbt/dbt_project.yml", f"{REMOTE_PROJECT_DIR}/dbt/dbt_project.yml"),
     ("dbt/packages.yml", f"{REMOTE_PROJECT_DIR}/dbt/packages.yml"),

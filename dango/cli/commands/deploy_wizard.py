@@ -87,11 +87,27 @@ def _step_prereqs(project_root: Path) -> None:
     Raises:
         SystemExit: If a prerequisite is missing.
     """
-    # Check DIGITALOCEAN_TOKEN — env var > stored credential > prompt
+    # Check DIGITALOCEAN_TOKEN — env var > project credential > user credential > prompt
     from dango.config.cloud_credentials import get_do_token, save_do_token
 
-    token = get_do_token()
-    if not token:
+    # Env var takes highest priority — no confirmation needed
+    token_from_env = bool(os.environ.get("DIGITALOCEAN_TOKEN"))
+    token = get_do_token(project_root=project_root)
+    if token and not token_from_env:
+        # BUG-238a: Show token suffix and allow changing (stored credential)
+        masked = f"...{token[-4:]}"
+        change = click.confirm(
+            f"  Using DigitalOcean token ending in {masked}. Change?",
+            default=False,
+        )
+        if change:
+            new_token = click.prompt("  Enter new DigitalOcean API token", hide_input=True)
+            if new_token.strip():
+                token = new_token.strip()
+                save_do_token(token)
+    elif token and token_from_env:
+        console.print("  [dim]Using DigitalOcean token from environment variable.[/dim]")
+    else:
         console.print("[yellow]DigitalOcean API token not found.[/yellow]")
         console.print(
             "\n  Create an API token at: "
@@ -104,6 +120,29 @@ def _step_prereqs(project_root: Path) -> None:
         token = token.strip()
         # BUG-127: Persist token so subsequent commands don't re-prompt
         save_do_token(token)
+
+    # BUG-238c: Validate token upfront with lightweight API call
+    import httpx
+
+    try:
+        resp = httpx.get(
+            "https://api.digitalocean.com/v2/account",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10.0,
+        )
+        if resp.status_code == 401:
+            console.print("[red]Token authentication failed.[/red]")
+            console.print(
+                "  Generate a new token at: https://cloud.digitalocean.com/account/api/tokens"
+            )
+            raise SystemExit(1)
+        resp.raise_for_status()
+        console.print("[green]  \u2713 DigitalOcean token validated[/green]")
+    except httpx.HTTPError:
+        console.print(
+            "[yellow]  Warning: Could not validate token (network error). Proceeding...[/yellow]"
+        )
+
     os.environ["DIGITALOCEAN_TOKEN"] = token
 
     # Check project has sources
@@ -235,12 +274,16 @@ def _step_admin() -> tuple[str, str]:
     console.print("\n[bold]Step 4: Admin Account[/bold]")
     console.print("  Create the first admin user for your deployment.\n")
 
-    # Email
+    # Email (with confirmation — BUG-237)
     while True:
         email = click.prompt("  Admin email")
-        if _EMAIL_RE.match(email):
+        if not _EMAIL_RE.match(email):
+            console.print("  [red]Invalid email format.[/red]")
+            continue
+        confirm = click.prompt("  Confirm admin email")
+        if confirm == email:
             break
-        console.print("  [red]Invalid email format.[/red]")
+        console.print("  [red]Emails do not match. Please try again.[/red]")
 
     # Password (from env or auto-generated)
     env_password = os.environ.get("DANGO_ADMIN_PASSWORD")

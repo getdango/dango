@@ -18,6 +18,17 @@ from dango.cli.commands.deploy_wizard import (
     run_non_interactive,
 )
 
+
+@pytest.fixture(autouse=True)
+def _mock_do_api_validation():
+    """BUG-238c: Mock httpx.get for DO API token validation in all tests."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.raise_for_status = MagicMock()
+    with patch("httpx.get", return_value=mock_resp):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

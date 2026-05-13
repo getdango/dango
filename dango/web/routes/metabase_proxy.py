@@ -216,6 +216,12 @@ def _build_response(proxy_response: httpx.Response) -> Response:
         if lower in _SKIP_HEADERS:
             continue
         if lower == "set-cookie":
+            # BUG-247: Filter out Metabase session cookies — the Dango proxy
+            # manages these via _set_mb_session_cookie() with correct domain.
+            # Forwarding Metabase's raw Set-Cookie causes domain mismatches
+            # on cloud deployments (e.g., Domain=localhost vs actual domain).
+            if _MB_SESSION_COOKIE in value:
+                continue
             set_cookie_values.append(value)
         else:
             response_headers[key] = value

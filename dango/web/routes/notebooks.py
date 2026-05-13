@@ -396,7 +396,13 @@ async def lock_notebook(
 
     port = status.get("port") or _DEFAULT_MARIMO_PORT  # type: ignore[assignment]
 
-    marimo_url = f"http://localhost:{port}/?file={name}.py"
+    # BUG-241: Cloud mode routes through FastAPI notebook proxy (auth-protected)
+    from dango.config.helpers import is_cloud_mode
+
+    if is_cloud_mode(project_root):
+        marimo_url = f"/notebooks/marimo/?file={name}.py"
+    else:
+        marimo_url = f"http://localhost:{port}/?file={name}.py"
 
     start_idle_checker(project_root)
 
@@ -514,3 +520,49 @@ async def copy_notebook(
         status_code=201,
         content={"copy_name": copy_name},
     )
+
+
+# ---------------------------------------------------------------------------
+# Notebook proxy routes — BUG-241: Cloud mode proxies Marimo through FastAPI
+# ---------------------------------------------------------------------------
+
+
+@router.api_route(
+    "/notebooks/marimo/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+)
+async def notebook_marimo_proxy(
+    request: Request,
+    path: str,
+    _user: User = Depends(require_permission("notebooks.execute")),
+) -> Any:
+    """Proxy HTTP requests to the local Marimo server (cloud mode)."""
+    from dango.notebooks.proxy import proxy_to_marimo
+
+    project_root = get_project_root()
+    status = await asyncio.to_thread(get_marimo_status, project_root)
+    if not status.get("running"):
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Notebook server not running"},
+        )
+    port = int(str(status["port"]))
+    target_path = f"/{path}" if path else "/"
+    return await proxy_to_marimo(request, target_path, port)
+
+
+@router.websocket("/notebooks/marimo/ws")
+async def notebook_marimo_ws_proxy(websocket: Any) -> None:
+    """Proxy WebSocket connections to Marimo (cloud mode)."""
+    from fastapi import WebSocket as _WebSocket
+
+    from dango.notebooks.proxy import proxy_websocket_to_marimo
+
+    ws: _WebSocket = websocket
+    project_root = get_project_root()
+    status = await asyncio.to_thread(get_marimo_status, project_root)
+    if not status.get("running"):
+        await ws.close(code=1011, reason="Notebook server not running")
+        return
+    port = int(str(status["port"]))
+    await proxy_websocket_to_marimo(ws, "/ws", port)

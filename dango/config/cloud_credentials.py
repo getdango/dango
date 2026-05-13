@@ -44,17 +44,30 @@ def _write_config(config: configparser.ConfigParser) -> None:
         config.write(f)
 
 
-def get_do_token() -> str | None:
+def get_do_token(project_root: Path | None = None) -> str | None:
     """Return the DigitalOcean API token.
 
     Resolution order:
     1. ``DIGITALOCEAN_TOKEN`` environment variable
-    2. Stored credential in ``~/.dango/credentials``
+    2. Project-level credential in ``<project>/.dango/credentials`` (BUG-238b)
+    3. User-level credential in ``~/.dango/credentials``
     """
     env_token = os.environ.get("DIGITALOCEAN_TOKEN")
     if env_token:
         return env_token
 
+    # BUG-238b: Check project-level credentials first
+    if project_root is not None:
+        project_creds = project_root / ".dango" / "credentials"
+        if project_creds.is_file():
+            project_config = configparser.ConfigParser()
+            project_config.read(str(project_creds))
+            if project_config.has_option(_SECTION, _TOKEN_KEY):
+                val = project_config.get(_SECTION, _TOKEN_KEY)
+                if val:
+                    return val
+
+    # Fall back to user-level credentials
     config = _read_config()
     if config.has_option(_SECTION, _TOKEN_KEY):
         return config.get(_SECTION, _TOKEN_KEY) or None

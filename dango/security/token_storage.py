@@ -63,8 +63,15 @@ class SecureTokenStorage:
             return key_str.encode("utf-8")
 
         except Exception as e:
+            import logging
+
+            _logger = logging.getLogger(__name__)
+            _logger.info("OS keychain unavailable, using file-based encryption key: %s", e)
             console.print(f"[yellow]Warning: Could not access OS keychain: {e}[/yellow]")
-            console.print("[yellow]Falling back to unencrypted storage (not recommended)[/yellow]")
+            console.print(
+                "[yellow]Using file-based encryption key "
+                "(key stored at .dlt/.encryption_key with restricted permissions)[/yellow]"
+            )
             # Fallback: Use a project-specific key (less secure but works)
             key_file = self.dlt_dir / ".encryption_key"
             if key_file.exists():
