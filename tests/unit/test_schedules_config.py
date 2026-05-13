@@ -19,12 +19,13 @@ class TestScheduleType:
         from dango.config.schedules import ScheduleType
 
         assert ScheduleType.SYNC.value == "sync"
+        assert ScheduleType.SYNC_ONLY.value == "sync_only"
         assert ScheduleType.DBT.value == "dbt"
 
     def test_enum_count(self):
         from dango.config.schedules import ScheduleType
 
-        assert len(ScheduleType) == 2
+        assert len(ScheduleType) == 3
 
 
 @pytest.mark.unit
@@ -99,6 +100,30 @@ class TestScheduleConfig:
 
         with pytest.raises(Exception, match="Invalid notify_on"):
             ScheduleConfig(name="bad_notify", cron="daily", sources=["s"], notify_on=["invalid"])
+
+    def test_valid_sync_only_config(self):
+        from dango.config.schedules import ScheduleConfig, ScheduleType
+
+        cfg = ScheduleConfig(
+            name="sync_no_dbt",
+            type=ScheduleType.SYNC_ONLY,
+            cron="daily",
+            sources=["google_sheets"],
+        )
+        assert cfg.type == ScheduleType.SYNC_ONLY
+        assert cfg.sources == ["google_sheets"]
+        assert cfg.dbt_command is None
+
+    def test_sync_only_requires_sources(self):
+        from dango.config.schedules import ScheduleConfig, ScheduleType
+
+        with pytest.raises(Exception, match="at least one source"):
+            ScheduleConfig(
+                name="no_sources",
+                type=ScheduleType.SYNC_ONLY,
+                cron="daily",
+                sources=[],
+            )
 
     def test_sync_requires_sources(self):
         from dango.config.schedules import ScheduleConfig

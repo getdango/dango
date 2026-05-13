@@ -42,6 +42,7 @@ _FREQUENCY_CHOICES = [
 
 _TYPE_CHOICES = [
     ("Sync & Transform (recommended)", "sync"),
+    ("Sync only (no transform)", "sync_only"),
     ("Transform only (dbt)", "dbt"),
 ]
 
@@ -564,7 +565,7 @@ def schedule_add(ctx: click.Context) -> None:
     # 3a. Sources (sync only) / 3b. dbt command
     sources: list[str] = []
     dbt_command: str | None = None
-    if sched_type == "sync":
+    if sched_type in ("sync", "sync_only"):
         try:
             from dango.config.loader import ConfigLoader
 
@@ -599,7 +600,13 @@ def schedule_add(ctx: click.Context) -> None:
             return
     else:
         answers = inquirer.prompt(
-            [inquirer.Text("dbt_command", message="dbt command", default="run")]
+            [
+                inquirer.Text(
+                    "dbt_command",
+                    message="dbt command (e.g., run +model+, run --select tag:daily)",
+                    default="run",
+                )
+            ]
         )
         if answers is None:
             return
