@@ -912,22 +912,22 @@ def status(ctx: click.Context) -> None:
 
         cloud_mode = is_cloud_mode(project_root)
         if cloud_mode:
-            import subprocess as _sp
+            import subprocess
 
             try:
-                _result = _sp.run(
+                systemd_result = subprocess.run(
                     ["systemctl", "is-active", "dango-web"],
                     capture_output=True,
                     text=True,
                     timeout=5,
                 )
-                _state = _result.stdout.strip()
-                if _state == "active":
+                state = systemd_result.stdout.strip()
+                if state == "active":
                     table.add_row("Web UI (systemd)", "[green]● Running[/green]")
                 else:
                     table.add_row(
                         "Web UI (systemd)",
-                        f"[red]● {_state.capitalize() if _state else 'Unknown'}[/red]",
+                        f"[red]● {state.capitalize() if state else 'Unknown'}[/red]",
                     )
             except Exception:
                 table.add_row("Web UI (systemd)", "[yellow]● Unknown[/yellow]")

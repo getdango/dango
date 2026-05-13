@@ -396,7 +396,10 @@ async def lock_notebook(
 
     port = status.get("port") or _DEFAULT_MARIMO_PORT  # type: ignore[assignment]
 
-    # BUG-241: Cloud mode routes through FastAPI notebook proxy (auth-protected)
+    # BUG-241: Cloud mode routes through FastAPI notebook proxy (auth-protected).
+    # TODO(R12-M): Marimo needs --base-url /notebooks/marimo for subpath
+    # proxying to work correctly (asset paths, WebSocket URL). Add the flag
+    # in manager.py start_marimo() when is_cloud_mode(). Verify on cloud VM.
     from dango.config.helpers import is_cloud_mode
 
     if is_cloud_mode(project_root):
@@ -553,7 +556,12 @@ async def notebook_marimo_proxy(
 
 @router.websocket("/notebooks/marimo/ws")
 async def notebook_marimo_ws_proxy(websocket: Any) -> None:
-    """Proxy WebSocket connections to Marimo (cloud mode)."""
+    """Proxy WebSocket connections to Marimo (cloud mode).
+
+    Auth is handled by AuthMiddleware on the WebSocket upgrade request
+    (session cookie validated before the connection is accepted), consistent
+    with the main ``/ws`` endpoint in ``routes/websocket.py``.
+    """
     from fastapi import WebSocket as _WebSocket
 
     from dango.notebooks.proxy import proxy_websocket_to_marimo

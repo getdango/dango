@@ -269,14 +269,20 @@ class TestMetabaseAdminLinkRetry:
         assert callable(_link_metabase_admin)
 
     def test_retry_pattern_in_source(self) -> None:
-        """Verify the retry loop is present in setup_metabase_if_needed."""
+        """Verify the retry loop is present in setup_metabase_if_needed.
+
+        Uses source inspection because behavioral testing would require
+        mocking the entire Metabase setup chain (setup_metabase, ConfigLoader,
+        is_cloud_mode, etc.) which is fragile and already covered by
+        integration tests.
+        """
         import inspect
 
         from dango.platform.common.startup import setup_metabase_if_needed
 
         source = inspect.getsource(setup_metabase_if_needed)
         # Verify retry loop for _link_metabase_admin
-        assert "for _attempt in range(3)" in source
+        assert "for attempt in range(3)" in source
         assert "_link_metabase_admin" in source
         assert "retrying in 5s" in source
 

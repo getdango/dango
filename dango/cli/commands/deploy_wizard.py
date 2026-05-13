@@ -138,9 +138,15 @@ def _step_prereqs(project_root: Path) -> None:
             raise SystemExit(1)
         resp.raise_for_status()
         console.print("[green]  \u2713 DigitalOcean token validated[/green]")
+    except (httpx.ConnectError, httpx.TimeoutException):
+        console.print(
+            "[yellow]  Warning: Could not reach DigitalOcean API "
+            "(network error). Proceeding...[/yellow]"
+        )
     except httpx.HTTPError:
         console.print(
-            "[yellow]  Warning: Could not validate token (network error). Proceeding...[/yellow]"
+            "[yellow]  Warning: Could not validate token "
+            "(unexpected API response). Proceeding...[/yellow]"
         )
 
     os.environ["DIGITALOCEAN_TOKEN"] = token
