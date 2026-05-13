@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
+from dango.logging import get_logger
 from dango.platform.cloud._server_templates import (
     DOCKER_DAEMON_JSON,
     FAIL2BAN_JAIL,
@@ -31,6 +32,8 @@ from dango.platform.cloud._server_templates import (
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
+
+_logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -146,15 +149,20 @@ def _setup_apt_packages(
         'DPkg::Lock::Timeout "120";\n',
         step=step,
     )
+    # BUG-250: Wait for any cloud-init apt locks before running apt commands.
+    # fuser is pre-installed on Ubuntu 22.04; if absent, the while loop exits
+    # immediately (safe fallback).
     _run_checked(
         ssh,
-        "add-apt-repository -y universe 2>/dev/null || true"
+        "while fuser /var/lib/apt/lists/lock /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend"
+        " >/dev/null 2>&1; do sleep 5; done"
+        " && add-apt-repository -y universe 2>/dev/null || true"
         " && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 update -qq"
         " && DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y -qq"
         " python3-pip python3-venv fail2ban unattended-upgrades"
         " logrotate curl",
         step=step,
-        timeout=300,
+        timeout=420,
     )
     result.steps_completed.append(step)
     _notify(on_progress, step, "done")
@@ -495,8 +503,22 @@ def _setup_ufw(
 
 
 # ---------------------------------------------------------------------------
-# Install source detection (BUG-123)
+# Install source detection (BUG-123 / BUG-249)
 # ---------------------------------------------------------------------------
+
+
+def _normalize_git_url(url: str) -> str:
+    """Convert SSH-format Git URLs to pip-compatible ``ssh://`` URLs.
+
+    ``git@github.com:org/repo.git`` → ``ssh://git@github.com/org/repo.git``
+
+    HTTPS and already-normalized URLs are returned unchanged.
+    """
+    # SSH shorthand: user@host:path (no ://)
+    if "://" not in url and ":" in url and "@" in url.split(":")[0]:
+        host_part, path_part = url.split(":", 1)
+        return f"ssh://{host_part}/{path_part}"
+    return url
 
 
 def resolve_install_source() -> tuple[str, str]:
@@ -543,9 +565,9 @@ def resolve_install_source() -> tuple[str, str]:
         url = data.get("url", "")
         commit = vcs_info.get("commit_id", "")
         if url and commit:
-            return ("git", f"{vcs}+{url}@{commit}#egg=getdango")
+            return ("git", f"{vcs}+{_normalize_git_url(url)}@{commit}#egg=getdango")
         if url:
-            return ("git", f"{vcs}+{url}#egg=getdango")
+            return ("git", f"{vcs}+{_normalize_git_url(url)}#egg=getdango")
 
     # Editable install (pip install -e .)
     dir_info = data.get("dir_info", {})
@@ -568,9 +590,9 @@ def resolve_install_source() -> tuple[str, str]:
                 if remote.returncode == 0 and head.returncode == 0:
                     url = remote.stdout.strip()
                     commit = head.stdout.strip()
-                    return ("git", f"git+{url}@{commit}#egg=getdango")
+                    return ("git", f"git+{_normalize_git_url(url)}@{commit}#egg=getdango")
             except Exception:
-                pass
+                _logger.debug("editable_install_git_info_failed", exc_info=True)
 
     return ("editable", "getdango")
 

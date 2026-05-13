@@ -787,3 +787,64 @@ class TestAdminUpsertSemantics:
         assert "UserUpdate(password_hash=pw_hash)" in source, (
             "Must update password_hash with wizard-provided password on race condition"
         )
+
+
+# ---------------------------------------------------------------------------
+# 15. BUG-252: Non-interactive mode auto-confirms secrets push
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestNonInteractiveConfirm:
+    def test_auto_confirms_in_non_interactive(self, project_root):
+        """BUG-252: non_interactive=True skips click.confirm and returns True."""
+        dlt_dir = project_root / ".dlt"
+        dlt_dir.mkdir()
+        (dlt_dir / "secrets.toml").write_text("[sources]\n")
+
+        warnings: list[str] = []
+        # Should NOT call click.confirm at all
+        with patch("dango.cli.commands.deploy_provision.click.confirm") as mock_confirm:
+            result = _confirm_secrets_push(project_root, warnings, non_interactive=True)
+
+        assert result is True
+        assert warnings == []
+        mock_confirm.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 16. BUG-251: Project root resolved for hostname
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestProjectRootResolved:
+    def test_project_root_resolved(self):
+        """BUG-251: Path('.') is resolved to produce a non-empty hostname."""
+        from pathlib import Path
+
+        # Path(".").name is "" which produces empty hostname.
+        # After .resolve(), the name is the actual directory name.
+        dot_path = Path(".")
+        assert dot_path.name == "", "Path('.').name should be empty (the bug)"
+        resolved = dot_path.resolve()
+        assert resolved.name != "", "resolved path should have a non-empty name"
+        assert resolved.name != ".", "resolved path should not be '.'"
+
+    def test_run_provisioning_resolves_root(self):
+        """BUG-251: run_provisioning() calls .resolve() on project_root."""
+        import inspect
+
+        from dango.cli.commands.deploy_provision import run_provisioning
+
+        source = inspect.getsource(run_provisioning)
+        assert "project_root = project_root.resolve()" in source
+
+    def test_run_byos_setup_resolves_root(self):
+        """BUG-251: run_byos_setup() calls .resolve() on project_root."""
+        import inspect
+
+        from dango.cli.commands.deploy_provision import run_byos_setup
+
+        source = inspect.getsource(run_byos_setup)
+        assert "project_root = project_root.resolve()" in source

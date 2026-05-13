@@ -22,6 +22,21 @@ import click
 from dango.cli import console
 
 # ---------------------------------------------------------------------------
+# BUG-252: Non-interactive confirm helper
+# ---------------------------------------------------------------------------
+
+
+def _safe_confirm(prompt: str, default: bool = True, *, non_interactive: bool = False) -> bool:
+    """Wrap ``click.confirm`` with a non-interactive bypass.
+
+    When *non_interactive* is ``True``, returns *default* without prompting.
+    """
+    if non_interactive:
+        return default
+    return click.confirm(prompt, default=default)
+
+
+# ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
 
@@ -195,7 +210,7 @@ def _step_size() -> tuple[str, Any | None]:
                 console.print(
                     "  [red]Invalid slug format.[/red] Expected format: s-{vcpus}vcpu-{ram}gb"
                 )
-                if not click.confirm("  Try again?", default=True):
+                if not _safe_confirm("  Try again?", default=True):
                     console.print(f"  Using default: {DEFAULT_TIER.name}")
                     return DEFAULT_TIER.slug, DEFAULT_TIER
 
@@ -327,7 +342,7 @@ def _step_backups() -> tuple[bool, str | None, str | None]:
     console.print("\n[bold]Step 7: Automated Backups[/bold]")
     console.print("  Daily backups to DigitalOcean Spaces ($5/mo for storage).\n")
 
-    enable = click.confirm("  Enable automated backups?", default=True)
+    enable = _safe_confirm("  Enable automated backups?", default=True)
     if not enable:
         return False, None, None
 
@@ -413,7 +428,7 @@ def _step_cost_summary(
         " not through Dango.[/dim]\n"
     )
 
-    if not click.confirm("  Proceed with deployment?", default=True):
+    if not _safe_confirm("  Proceed with deployment?", default=True):
         console.print("[yellow]Aborted.[/yellow]")
         raise SystemExit(0)
 
@@ -709,7 +724,7 @@ def run_byos_wizard(project_root: Path) -> BYOSConfig:
     console.print(f"  Admin:     {admin_email}")
     console.print()
 
-    if not click.confirm("  Proceed with deployment?", default=True):
+    if not _safe_confirm("  Proceed with deployment?", default=True):
         console.print("[yellow]Aborted.[/yellow]")
         raise SystemExit(0)
 

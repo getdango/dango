@@ -245,7 +245,9 @@ def setup_metabase_if_needed(
                 if admins and admins[0].email != "admin@localhost":
                     admin_email = admins[0].email
         except Exception:
-            pass
+            from dango.logging import get_logger as _get_logger_admin
+
+            _get_logger_admin(__name__).debug("admin_email_lookup_failed", exc_info=True)
     if not admin_email:
         from dango.logging import get_logger as _get_logger
 

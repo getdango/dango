@@ -90,8 +90,8 @@ dango/                          # Python package source
 │   │   ├── web.py              # web dev server
 │   │   ├── serve.py            # serve production foreground server
 │   │   ├── deploy.py           # deploy group (wizard default, --byos, destroy)
-│   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (813 lines)
-│   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (849 lines)
+│   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (828 lines)
+│   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (897 lines)
 │   │   ├── dev.py              # dev group (default run + clean) — branch-based dbt dev
 │   │   ├── migrate.py          # migrate group (status, run)
 │   │   ├── remote.py           # remote group + push/rollback/firewall/domain (698 lines)
@@ -239,7 +239,7 @@ dango/                          # Python package source
 │   │   ├── file_sync.py        # Project file sync (SFTP + rsync)
 │   │   ├── deployer.py         # Push deploy workflow + deploy lock (595 lines)
 │   │   ├── deploy_journal.py   # Append-only JSONL deployment history
-│   │   ├── scheduled_backup.py # Server-side scheduled backup (505 lines)
+│   │   ├── scheduled_backup.py # Server-side scheduled backup (508 lines)
 │   │   ├── resize.py           # In-place droplet resize
 │   │   ├── migrate.py          # Server migration via Spaces
 │   │   ├── upgrade.py          # Remote Dango version upgrade
@@ -358,19 +358,19 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `platform/cloud/deployer.py` | 595 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 652 | — |
 | `config/models.py` | 606 | — (Pydantic config models) |
-| `cli/commands/deploy_wizard.py` | 813 | — (interactive deploy wizard + BYOS) |
+| `cli/commands/deploy_wizard.py` | 828 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 613 | — |
 | `web/routes/catalog.py` | 1336 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
-| `cli/commands/deploy_provision.py` | 849 | — (provisioning orchestration + BYOS) |
+| `cli/commands/deploy_provision.py` | 897 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
-| `platform/cloud/server_setup.py` | 666 | — (server setup + install source detection) |
+| `platform/cloud/server_setup.py` | 688 | — (server setup + install source detection) |
 | `cli/commands/auth.py` | 660 | — (13 auth subcommands) |
 | `auth/database.py` | 529 | — (SQLite CRUD) |
 | `web/routes/users.py` | 531 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 518 | — |
 | `cli/commands/schedule.py` | 743 | — (schedule wizard + time customization) |
 | `cli/model_wizard.py` | 507 | — |
-| `platform/cloud/scheduled_backup.py` | 505 | — (server-side scheduled backup) |
+| `platform/cloud/scheduled_backup.py` | 508 | — (server-side scheduled backup) |
 | `governance/schema_drift.py` | 654 | — (R9-D: breaking drift protection + accept flow) |
 | `governance/pii_detector.py` | 614 | — (BUG-027/BUG-133/BUG-139/BUG-185: spaCy fallback + PERSON threshold + override application + structured data heuristic) |
 

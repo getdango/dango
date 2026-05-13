@@ -225,7 +225,7 @@ def _handle_byos(
     )
 
     try:
-        result = run_byos_setup(project_root, config)
+        result = run_byos_setup(project_root, config, non_interactive=True)
     except Exception:
         raise SystemExit(1) from None
 
@@ -256,15 +256,20 @@ def _handle_do_deploy(
         skip_backups=skip_backups,
         skip_initial_sync=skip_initial_sync,
     )
-    _handle_do_deploy_with_config(project_root, config)
+    _handle_do_deploy_with_config(project_root, config, non_interactive=True)
 
 
-def _handle_do_deploy_with_config(project_root: Path, config: Any) -> None:
+def _handle_do_deploy_with_config(
+    project_root: Path,
+    config: Any,
+    *,
+    non_interactive: bool = False,
+) -> None:
     """Execute DO provisioning with a completed WizardConfig."""
     from dango.cli.commands.deploy_provision import run_provisioning
 
     try:
-        result = run_provisioning(project_root, config)
+        result = run_provisioning(project_root, config, non_interactive=non_interactive)
     except Exception:
         raise SystemExit(1) from None
 

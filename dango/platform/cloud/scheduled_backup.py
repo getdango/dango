@@ -19,6 +19,9 @@ from pathlib import Path
 from typing import Any
 
 from dango.exceptions import CloudProvisioningError
+from dango.logging import get_logger
+
+_logger = get_logger(__name__)
 
 PROJECT_DIR = Path("/srv/dango/project")
 BACKUP_DIR = Path("/srv/dango/backups/deploy")
@@ -321,7 +324,7 @@ def _apply_retention(spaces_config: dict[str, Any]) -> int:
                 client.delete(obj["Key"].replace(".tar.gz", ".json"))
                 deleted += 1
             except Exception:
-                pass
+                _logger.debug("backup_rotation_delete_failed", key=obj["Key"], exc_info=True)
     return deleted
 
 

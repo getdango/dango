@@ -733,3 +733,118 @@ class TestResolveInstallSource:
 
         assert source_type == "editable"
         assert pip_arg == "getdango"
+
+
+# ---------------------------------------------------------------------------
+# BUG-249: _normalize_git_url
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestNormalizeGitUrl:
+    """BUG-249: SSH shorthand URLs must be converted to pip-compatible ssh:// form."""
+
+    def test_ssh_shorthand_converted(self):
+        from dango.platform.cloud.server_setup import _normalize_git_url
+
+        result = _normalize_git_url("git@github.com:getdango/dango.git")
+        assert result == "ssh://git@github.com/getdango/dango.git"
+
+    def test_https_unchanged(self):
+        from dango.platform.cloud.server_setup import _normalize_git_url
+
+        url = "https://github.com/getdango/dango"
+        assert _normalize_git_url(url) == url
+
+    def test_ssh_protocol_unchanged(self):
+        from dango.platform.cloud.server_setup import _normalize_git_url
+
+        url = "ssh://git@github.com/getdango/dango.git"
+        assert _normalize_git_url(url) == url
+
+    def test_no_at_sign_unchanged(self):
+        from dango.platform.cloud.server_setup import _normalize_git_url
+
+        url = "github.com:getdango/dango.git"
+        assert _normalize_git_url(url) == url
+
+
+@pytest.mark.unit
+class TestSshRemoteConversion:
+    """BUG-249: SSH remotes in vcs_info and editable installs produce ssh:// URLs."""
+
+    def test_ssh_remote_converted_in_vcs_info(self):
+        """SSH shorthand in vcs_info is normalized to ssh://."""
+        import json
+        from unittest.mock import MagicMock, patch
+
+        from dango.platform.cloud.server_setup import resolve_install_source
+
+        direct_url = json.dumps(
+            {
+                "url": "git@github.com:getdango/dango.git",
+                "vcs_info": {"vcs": "git", "commit_id": "abc123"},
+            }
+        )
+        mock_dist = MagicMock()
+        mock_dist.read_text.return_value = direct_url
+
+        with patch("importlib.metadata.distribution", return_value=mock_dist):
+            source_type, pip_arg = resolve_install_source()
+
+        assert source_type == "git"
+        assert pip_arg == "git+ssh://git@github.com/getdango/dango.git@abc123#egg=getdango"
+
+    def test_ssh_remote_converted_in_editable(self):
+        """SSH shorthand in editable install is normalized to ssh://."""
+        import json
+        from unittest.mock import MagicMock, patch
+
+        from dango.platform.cloud.server_setup import resolve_install_source
+
+        direct_url = json.dumps(
+            {
+                "url": "file:///home/user/code/dango",
+                "dir_info": {"editable": True},
+            }
+        )
+        mock_dist = MagicMock()
+        mock_dist.read_text.return_value = direct_url
+
+        mock_remote = MagicMock(returncode=0, stdout="git@github.com:getdango/dango.git\n")
+        mock_head = MagicMock(returncode=0, stdout="def456\n")
+
+        with (
+            patch("importlib.metadata.distribution", return_value=mock_dist),
+            patch("subprocess.run", side_effect=[mock_remote, mock_head]),
+        ):
+            source_type, pip_arg = resolve_install_source()
+
+        assert source_type == "git"
+        assert pip_arg == "git+ssh://git@github.com/getdango/dango.git@def456#egg=getdango"
+
+
+# ---------------------------------------------------------------------------
+# BUG-250: apt lock wait
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestAptLockWait:
+    """BUG-250: apt step waits for fuser lock before running apt commands."""
+
+    def test_apt_packages_waits_for_locks(self):
+        from dango.platform.cloud.server_setup import SetupResult, _setup_apt_packages
+
+        ssh = _make_ssh_mock()
+        result = SetupResult()
+        _setup_apt_packages(ssh, result, None)
+
+        cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
+        apt_cmds = [c for c in cmds if "apt-get" in c and "install" in c]
+        assert apt_cmds
+        cmd = apt_cmds[0]
+        assert "fuser" in cmd
+        assert "/var/lib/apt/lists/lock" in cmd
+        assert "/var/lib/dpkg/lock" in cmd
+        assert "sleep 5" in cmd
