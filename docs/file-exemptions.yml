@@ -267,7 +267,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/cloud/server_setup.py
-    lines: 688
+    lines: 690
     category: exempt
     reason: "TASK-075e+R9-C: 17 idempotent setup steps + optional UFW. R9-C added resolve_install_source() and system-wide apt lock timeout config. R12-N1 added _normalize_git_url, fuser wait loop, logging."
     review_by: "v1.1"
@@ -303,7 +303,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_deploy_provision.py
-    lines: 850
+    lines: 971
     category: exempt
     reason: "TASK-029+R9-C+R12-N1: 16 test classes covering ResourceTracker, IP extraction, secrets push, admin creation, health check, provisioning sequence, backup setup, metadata persistence, sync trigger, admin email persistence, cloud profiles generation, confirm_secrets_push, error handling, non-interactive confirm, and project root resolution."
     review_by: "v1.1"

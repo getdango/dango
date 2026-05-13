@@ -152,6 +152,8 @@ def _setup_apt_packages(
     # BUG-250: Wait for any cloud-init apt locks before running apt commands.
     # fuser is pre-installed on Ubuntu 22.04; if absent, the while loop exits
     # immediately (safe fallback).
+    # Note: "|| true" scopes to add-apt-repository only (left-to-right
+    # associativity), so apt-get update/install still fail on real errors.
     _run_checked(
         ssh,
         "while fuser /var/lib/apt/lists/lock /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend"
@@ -664,7 +666,7 @@ def setup_server(
         if nproc_result.success:
             vcpu_count = int(nproc_result.stdout.strip())
     except (ValueError, AttributeError, OSError):
-        pass  # Fall back to single worker
+        _logger.debug("nproc_detection_failed", exc_info=True)
 
     for step_fn in _SETUP_STEPS:
         if step_fn is _setup_caddyfile:
