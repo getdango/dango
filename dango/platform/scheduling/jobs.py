@@ -391,6 +391,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
     """
     project_root = Path(kwargs.get("project_root", "."))
     full_refresh = bool(kwargs.get("full_refresh", False))
+    skip_dbt = bool(kwargs.get("skip_dbt", False))
     t0 = time.monotonic()
 
     from dango.exceptions import JobCancelledError, JobTimeoutError
@@ -486,22 +487,24 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                     "duration_seconds": round(time.monotonic() - src_t0, 2),
                 },
             )
-            _add_pending_dbt_source(project_root, src.name)
+            if not skip_dbt:
+                _add_pending_dbt_source(project_root, src.name)
             cleanup_sync_status(project_root, sync_id=sync_id)
 
         # Run coalesced dbt (waits for coalesce window, merges pending sources)
-        dbt_ok = _run_coalesced_dbt(project_root)
+        if not skip_dbt:
+            dbt_ok = _run_coalesced_dbt(project_root)
 
-        if not dbt_ok:
-            _broadcast(
-                {
-                    "event": "dbt_run_all_failed",
-                    "schedule": schedule_name,
-                    "sources": source_names,
-                    "message": "Coalesced dbt run failed after sync",
-                    "timestamp": _ts(),
-                }
-            )
+            if not dbt_ok:
+                _broadcast(
+                    {
+                        "event": "dbt_run_all_failed",
+                        "schedule": schedule_name,
+                        "sources": source_names,
+                        "message": "Coalesced dbt run failed after sync",
+                        "timestamp": _ts(),
+                    }
+                )
 
         elapsed = time.monotonic() - t0
 

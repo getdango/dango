@@ -77,6 +77,7 @@ class ScheduleType(str, Enum):
     """Type of scheduled job."""
 
     SYNC = "sync"
+    SYNC_ONLY = "sync_only"
     DBT = "dbt"
 
 
@@ -132,8 +133,11 @@ class ScheduleConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_type_fields(self) -> ScheduleConfig:
-        if self.type == ScheduleType.SYNC and not self.sources:
+        if self.type in (ScheduleType.SYNC, ScheduleType.SYNC_ONLY) and not self.sources:
             msg = "Sync schedules must specify at least one source"
+            raise ValueError(msg)
+        if self.type == ScheduleType.SYNC_ONLY and self.dbt_command:
+            msg = "sync_only schedules must not specify a dbt_command"
             raise ValueError(msg)
         if self.type == ScheduleType.DBT and not self.dbt_command:
             msg = "dbt schedules must specify a dbt_command"
@@ -264,7 +268,7 @@ def validate_schedules(
     # 3. Interval vs duration check
     if average_durations:
         for sched in schedules:
-            if sched.type != ScheduleType.SYNC:
+            if sched.type not in (ScheduleType.SYNC, ScheduleType.SYNC_ONLY):
                 continue
             interval = _get_cron_interval_seconds(sched.cron)
             for src in sched.sources:
@@ -313,7 +317,7 @@ def _detect_overlaps(
     # Build source→schedule mapping (only enabled sync schedules)
     source_schedules: dict[str, list[ScheduleConfig]] = {}
     for sched in schedules:
-        if not sched.enabled or sched.type != ScheduleType.SYNC:
+        if not sched.enabled or sched.type not in (ScheduleType.SYNC, ScheduleType.SYNC_ONLY):
             continue
         for src in sched.sources:
             source_schedules.setdefault(src, []).append(sched)
@@ -460,12 +464,13 @@ def reload_schedules(
 
         func: Any
         func_kwargs: dict[str, Any]
-        if sched.type == ScheduleType.SYNC:
+        if sched.type in (ScheduleType.SYNC, ScheduleType.SYNC_ONLY):
             func = run_scheduled_sync
             func_kwargs = {
                 "schedule_name": sched.name,
                 "sources": list(sched.sources),
                 "project_root": str(project_root),
+                "skip_dbt": sched.type == ScheduleType.SYNC_ONLY,
             }
         else:
             func = run_scheduled_dbt

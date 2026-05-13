@@ -300,6 +300,34 @@ class TestRunScheduledSync:
         mock_record.assert_called_once()
         assert mock_record.call_args[1]["status"] == "no_sources"
 
+    def test_sync_only_skips_coalesced_dbt(self, tmp_path):
+        """skip_dbt=True skips _add_pending_dbt_source and _run_coalesced_dbt."""
+        config = _make_config_with_sources("src1")
+
+        with (
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
+                return_value=(MagicMock(), "test_id"),
+            ),
+            patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
+            patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
+            patch(f"{_HIST_MOD}.save_sync_history_entry"),
+            patch(f"{_JOBS_MOD}._broadcast"),
+            patch(f"{_JOBS_MOD}._notify"),
+            patch(f"{_JOBS_MOD}._check_freshness"),
+            patch(f"{_JOBS_MOD}._add_pending_dbt_source") as mock_pending,
+            patch(f"{_JOBS_MOD}._run_coalesced_dbt") as mock_dbt,
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["src1"], project_root=str(tmp_path), skip_dbt=True)
+
+        mock_pending.assert_not_called()
+        mock_dbt.assert_not_called()
+
     def test_is_pickle_serializable(self):
         """Job function must be pickle-serializable (APScheduler requirement)."""
         import pickle
