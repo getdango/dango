@@ -71,7 +71,7 @@ def run_analysis(
         _store_metric_value(project_root, metric_value)
 
         comparison: ComparisonResult | None = None
-        if metric_value.error is None:
+        if metric_value.error is None and metric.compare is not None:
             comparison = compute_comparison(
                 project_root,
                 metric_value,

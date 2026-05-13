@@ -107,23 +107,32 @@ def start_marimo(
     try:
         log_handle = open(log_file, "w")  # noqa: SIM115
 
+        cmd = [
+            sys.executable,
+            "-m",
+            "marimo",
+            "edit",
+            "--headless",
+            "--no-token",
+            "--port",
+            str(port),
+            "--host",
+            "127.0.0.1",
+            "--timeout",
+            str(timeout_minutes),
+            "--skip-update-check",
+        ]
+
+        # Add base-url for cloud proxy so SPA assets use correct prefix
+        from dango.config.helpers import is_cloud_mode
+
+        if is_cloud_mode(project_root):
+            cmd.extend(["--base-url", "/notebooks/marimo"])
+
+        cmd.append(str(notebooks_dir))
+
         proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "marimo",
-                "edit",
-                "--headless",
-                "--no-token",
-                "--port",
-                str(port),
-                "--host",
-                "127.0.0.1",
-                "--timeout",
-                str(timeout_minutes),
-                "--skip-update-check",
-                str(notebooks_dir),
-            ],
+            cmd,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,

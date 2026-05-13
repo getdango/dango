@@ -46,7 +46,7 @@ class MonitorConfig(BaseModel):
     source_table: str
     value_expression: str
     filter: str | None = None
-    compare: ComparisonType = ComparisonType.week_over_week
+    compare: ComparisonType | None = ComparisonType.week_over_week
     alert_threshold: float | None = Field(
         default=None,
         validation_alias=AliasChoices("alert_threshold", "warn_threshold"),

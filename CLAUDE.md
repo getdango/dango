@@ -82,22 +82,23 @@ dango/                          # Python package source
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
 │   │   ├── model.py            # model group (add/remove)
-│   │   ├── platform.py         # start/stop/status + port helpers (1038 lines)
+│   │   ├── platform.py         # start/stop/status + port helpers (1061 lines)
 │   │   ├── project.py          # init/rename/info
-│   │   ├── source.py           # source group (add/list/remove/edit) + sync (833 lines)
+│   │   ├── source.py           # source group (add/list/remove/edit) + sync (884 lines)
 │   │   ├── transform.py        # run/docs/generate
 │   │   ├── upgrade.py          # local Dango upgrade via pip + migrations
 │   │   ├── web.py              # web dev server
 │   │   ├── serve.py            # serve production foreground server
 │   │   ├── deploy.py           # deploy group (wizard default, --byos, destroy)
-│   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (828 lines)
+│   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (877 lines)
 │   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (897 lines)
 │   │   ├── dev.py              # dev group (default run + clean) — branch-based dbt dev
 │   │   ├── migrate.py          # migrate group (status, run)
-│   │   ├── remote.py           # remote group + push/rollback/firewall/domain (698 lines)
+│   │   ├── remote.py           # remote group + push/rollback/firewall/domain (700 lines)
 │   │   ├── remote_env.py       # remote env subgroup (set/get/list/delete)
 │   │   ├── remote_ops.py       # remote upgrade/resize/migrate
 │   │   ├── remote_backup.py    # remote backup subgroup
+│   │   ├── remote_auth.py      # remote auth subgroup (reset-password, reset-2fa)
 │   │   ├── remote_mgmt.py      # remote status/logs/ssh/query
 │   │   ├── schedule.py         # schedule group (add/list/remove/status/enable/disable/webhook)
 │   │   ├── governance.py       # governance group (drift-report/pii-report)
@@ -143,7 +144,7 @@ dango/                          # Python package source
 │
 ├── notebooks/                  # Level 1 — Marimo notebook management
 │   ├── __init__.py             # Re-exports public symbols
-│   ├── manager.py              # Marimo process lifecycle (262 lines)
+│   ├── manager.py              # Marimo process lifecycle (330 lines)
 │   ├── locking.py              # File-level notebook locking (285 lines)
 │   ├── snapshot.py             # DuckDB snapshot management
 │   ├── proxy.py                # HTTP + WebSocket reverse proxy (186 lines)
@@ -160,17 +161,17 @@ dango/                          # Python package source
 │   └── formatter.py            # Result categorization + display formatting
 │
 ├── web/                        # Level 2 — FastAPI web server
-│   ├── app.py                  # Entry point (~449 lines) — routers, middleware, admin bootstrap
+│   ├── app.py                  # Entry point (~480 lines) — routers, middleware, admin bootstrap
 │   ├── models.py               # Pydantic request/response DTOs (incl. auth DTOs)
-│   ├── helpers.py              # Shared helpers: DuckDB queries, config, logging (851 lines)
+│   ├── helpers.py              # Shared helpers: DuckDB queries, config, logging (868 lines)
 │   ├── middleware/             # Request middleware
 │   │   ├── auth.py             # Session/API key auth + CSRF check (~324 lines)
 │   │   └── rate_limit.py       # Rate limiting (~235 lines)
 │   ├── routes/                 # Route modules
 │   │   ├── __init__.py         # Package marker
-│   │   ├── auth.py             # Login/logout, OAuth, invite, API keys (~852 lines)
+│   │   ├── auth.py             # Login/logout, OAuth, invite, API keys (~886 lines)
 │   │   ├── auth_2fa.py         # TOTP 2FA endpoints (~340 lines)
-│   │   ├── users.py            # Admin user CRUD (527 lines)
+│   │   ├── users.py            # Admin user CRUD (531 lines)
 │   │   ├── health.py           # /api/status, /api/watcher/status, /api/health/platform
 │   │   ├── config.py           # /api/config, /api/metabase-config
 │   │   ├── sources.py          # /api/sources, /api/sources/{name}/details
@@ -197,12 +198,12 @@ dango/                          # Python package source
 │   │   ├── secrets.html        # Secrets management page
 │   │   ├── schedules.html      # Schedule management page
 │   │   ├── notebooks.html      # Notebook management page
-│   │   ├── catalog.html        # Data catalog page (495 lines)
+│   │   ├── catalog.html        # Data catalog page (929 lines)
 │   │   └── monitoring.html     # Monitoring page
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
-│   ├── metabase.py             # Metabase API (1151 lines)
+│   ├── metabase.py             # Metabase API (1152 lines)
 │   └── dashboard_manager.py    # Dashboard export/import (1112 lines)
 │
 ├── platform/                   # Level 2 — Docker, network, file watcher, scheduling
@@ -220,7 +221,7 @@ dango/                          # Python package source
 │   │   ├── scheduler.py        # SchedulerService (lifecycle, events, cancellation)
 │   │   ├── resilience.py       # Retry, timeout, cancellation
 │   │   ├── history.py          # Execution history tracking
-│   │   ├── jobs.py             # Module-level job functions (895 lines)
+│   │   ├── jobs.py             # Module-level job functions (860 lines)
 │   │   └── sync_trigger.py     # Server-side manual sync runner
 │   ├── notifications/          # Webhook notifications (TASK-043+)
 │   │   ├── webhook.py          # Event types, config, async sender
@@ -237,7 +238,7 @@ dango/                          # Python package source
 │   │   ├── domain.py           # DNS check, domain set/remove
 │   │   ├── backup.py           # Backup + rollback + service lifecycle
 │   │   ├── file_sync.py        # Project file sync (SFTP + rsync)
-│   │   ├── deployer.py         # Push deploy workflow + deploy lock (595 lines)
+│   │   ├── deployer.py         # Push deploy workflow + deploy lock (598 lines)
 │   │   ├── deploy_journal.py   # Append-only JSONL deployment history
 │   │   ├── scheduled_backup.py # Server-side scheduled backup (508 lines)
 │   │   ├── resize.py           # In-place droplet resize
@@ -251,7 +252,7 @@ dango/                          # Python package source
 │   └── watcher_runner.py       # → local/watcher_runner.py
 │
 ├── ingestion/                  # Level 1 — Data loading
-│   ├── dlt_runner.py           # ⚠ 2460 lines — orchestrates full sync pipeline
+│   ├── dlt_runner.py           # ⚠ 2534 lines — orchestrates full sync pipeline
 │   ├── csv_loader.py           # Multi-format file loading with dedup (922 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (33 source types)
@@ -288,7 +289,7 @@ dango/                          # Python package source
 │   ├── data_validation.py      # Data validation utilities
 │   ├── env_file.py             # .env file parsing and serialization
 │   ├── dango_db.py             # SQLite context manager for .dango/dango.db + schema init
-│   ├── post_sync.py            # Post-sync hook dispatcher (~632 lines)
+│   ├── post_sync.py            # Post-sync hook dispatcher (~661 lines)
 │   └── git_info.py             # Git repository info + deployment guardrails
 │
 ├── migrations/                 # Level 0 — Database migration framework
@@ -337,28 +338,28 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `ingestion/dlt_runner.py` | 2534 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2008 | — (metadata-only) |
 | `cli/source_wizard.py` | 2311 | — |
-| `visualization/metabase.py` | 1151 | — |
+| `visualization/metabase.py` | 1152 | — |
 | `cli/init.py` | 1334 | — |
 | `visualization/dashboard_manager.py` | 1112 | — |
-| `cli/commands/platform.py` | 1038 | — (extracted from main.py by TASK-005) |
+| `cli/commands/platform.py` | 1061 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 886 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
-| `web/helpers.py` | 851 | — (extracted from app.py by TASK-085) |
+| `web/helpers.py` | 868 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
-| `platform/scheduling/jobs.py` | 849 | — (module-level job functions) |
+| `platform/scheduling/jobs.py` | 860 | — (module-level job functions) |
 | `utils/post_sync.py` | 661 | — (post-sync hooks + sync notification) |
-| `web/routes/schedules.py` | 518 | — (schedule read-only, history, trigger, notifications) |
-| `web/routes/notebooks.py` | 506 | — (notebook management API + heartbeat lock expiry + WS notify) |
+| `web/routes/schedules.py` | 519 | — (schedule read-only, history, trigger, notifications) |
+| `web/routes/notebooks.py` | 576 | — (notebook management API + heartbeat lock expiry + WS notify) |
 | `web/routes/upload.py` | 705 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 670 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
-| `cli/commands/source.py` | 833 | — (extracted from main.py by TASK-005) |
-| `cli/commands/remote.py` | 698 | — (remote group + push/rollback/firewall/domain) |
+| `cli/commands/source.py` | 884 | — (extracted from main.py by TASK-005) |
+| `cli/commands/remote.py` | 700 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
-| `platform/cloud/deployer.py` | 595 | — (push deploy workflow + deploy lock + journal) |
+| `platform/cloud/deployer.py` | 598 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 652 | — |
 | `config/models.py` | 606 | — (Pydantic config models) |
-| `cli/commands/deploy_wizard.py` | 828 | — (interactive deploy wizard + BYOS) |
+| `cli/commands/deploy_wizard.py` | 877 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 613 | — |
 | `web/routes/catalog.py` | 1336 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
 | `cli/commands/deploy_provision.py` | 897 | — (provisioning orchestration + BYOS) |
@@ -368,7 +369,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `auth/database.py` | 529 | — (SQLite CRUD) |
 | `web/routes/users.py` | 531 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 518 | — |
-| `cli/commands/schedule.py` | 743 | — (schedule wizard + time customization) |
+| `cli/commands/schedule.py` | 770 | — (schedule wizard + time customization) |
 | `cli/model_wizard.py` | 507 | — |
 | `platform/cloud/scheduled_backup.py` | 508 | — (server-side scheduled backup) |
 | `governance/schema_drift.py` | 654 | — (R9-D: breaking drift protection + accept flow) |
