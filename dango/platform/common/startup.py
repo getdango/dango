@@ -279,10 +279,36 @@ def setup_metabase_if_needed(
         cloud_mode=is_cloud_mode(project_root),
     )
 
-    # Link Metabase admin to Dango admin for SSO bridging
-    _link_metabase_admin(project_root, admin_email)
+    # Link Metabase admin to Dango admin for SSO bridging (BUG-240: retry)
+    import time
 
-    return {"already_configured": False, **setup_result}
+    from dango.logging import get_logger
+
+    link_logger = get_logger(__name__)
+    link_warning = None
+    for attempt in range(3):
+        try:
+            _link_metabase_admin(project_root, admin_email)
+            break
+        except Exception as link_err:
+            if attempt < 2:
+                link_logger.info(
+                    "Metabase admin link attempt %d failed, retrying in 5s: %s",
+                    attempt + 1,
+                    link_err,
+                )
+                time.sleep(5)
+            else:
+                link_warning = str(link_err)
+                link_logger.warning(
+                    "Could not link Metabase admin after 3 attempts: %s",
+                    link_err,
+                )
+
+    result: dict[str, Any] = {"already_configured": False, **setup_result}
+    if link_warning:
+        result["metabase_link_warning"] = link_warning
+    return result
 
 
 def _link_metabase_admin(project_root: Path, admin_email: str) -> None:

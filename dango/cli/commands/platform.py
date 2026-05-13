@@ -907,8 +907,31 @@ def status(ctx: click.Context) -> None:
             else:
                 table.add_row("File Watcher (auto-sync)", "[dim]● Disabled[/dim]")
 
-        # Add Web UI / FastAPI
-        if fastapi_status["running"]:
+        # Add Web UI / FastAPI — BUG-243: cloud uses systemd, local uses PID file
+        from dango.config.helpers import is_cloud_mode
+
+        cloud_mode = is_cloud_mode(project_root)
+        if cloud_mode:
+            import subprocess
+
+            try:
+                systemd_result = subprocess.run(
+                    ["systemctl", "is-active", "dango-web"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                state = systemd_result.stdout.strip()
+                if state == "active":
+                    table.add_row("Web UI (systemd)", "[green]● Running[/green]")
+                else:
+                    table.add_row(
+                        "Web UI (systemd)",
+                        f"[red]● {state.capitalize() if state else 'Unknown'}[/red]",
+                    )
+            except Exception:
+                table.add_row("Web UI (systemd)", "[yellow]● Unknown[/yellow]")
+        elif fastapi_status["running"]:
             table.add_row(
                 f"Web UI (port {fastapi_status['port']})",
                 f"[green]● Running[/green] (PID {fastapi_status['pid']})",
