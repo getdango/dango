@@ -65,24 +65,32 @@
                     </div>
                 </div>
             </template>
-            <!-- BUG-155: Per-source breakdown cards -->
+            <!-- BUG-155 / BUG-217: Per-source breakdown cards (sorted stale-first, collapsed to 6) -->
             <template x-if="overview && overview.sources_detail && overview.sources_detail.length > 0">
-                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mb-4">
-                    <template x-for="sd in overview.sources_detail" :key="sd.name">
-                        <div class="bg-white shadow rounded-lg p-3 flex items-center justify-between">
-                            <div>
-                                <div class="font-medium text-gray-900 text-sm" x-text="sd.name"></div>
-                                <div class="text-xs text-gray-500">
-                                    <span x-text="sd.table_count"></span> table<span x-show="sd.table_count !== 1">s</span>
-                                    &middot;
-                                    <span x-text="sd.estimated_row_total.toLocaleString()"></span> rows
+                <div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mb-4">
+                        <template x-for="sd in sortedSourcesDetail.slice(0, showAllSources ? undefined : 6)" :key="sd.name">
+                            <div class="bg-white shadow rounded-lg p-3 flex items-center justify-between cursor-pointer hover:shadow-md transition-shadow"
+                                 @click="sourceFilter = sd.name; activeTab = 'source'; if (!_skipPush) updateUrl(false)">
+                                <div>
+                                    <div class="font-medium text-gray-900 text-sm" x-text="sd.name"></div>
+                                    <div class="text-xs text-gray-500">
+                                        <span x-text="sd.table_count"></span> table<span x-show="sd.table_count !== 1">s</span>
+                                        &middot;
+                                        <span x-text="sd.estimated_row_total.toLocaleString()"></span> rows
+                                    </div>
                                 </div>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0"
+                                      :class="sd.freshness_status === 'fresh' ? 'bg-green-100 text-green-800' : sd.freshness_status === 'stale' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'"
+                                      x-text="sd.freshness_status || 'unknown'"></span>
                             </div>
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0"
-                                  :class="sd.freshness_status === 'fresh' ? 'bg-green-100 text-green-800' : sd.freshness_status === 'stale' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'"
-                                  x-text="sd.freshness_status || 'unknown'"></span>
-                        </div>
-                    </template>
+                        </template>
+                    </div>
+                    <button x-show="sortedSourcesDetail.length > 6"
+                            @click="showAllSources = !showAllSources"
+                            class="text-sm text-indigo-600 hover:text-indigo-800 mb-4">
+                        <span x-text="showAllSources ? 'Show less' : 'Show ' + (sortedSourcesDetail.length - 6) + ' more'"></span>
+                    </button>
                 </div>
             </template>
             <!-- Type filter tabs -->
@@ -282,8 +290,8 @@
                                         <tr>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                                 <span x-text="col.name"></span>
-                                                <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800" :title="'PII: ' + (col._pii || '') + ' — Manage via CLI: dango governance pii-set'">PII</span>
-                                                <span x-show="col._pii && col._piiProvenance === 'confirmed'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800" :title="'PII confirmed: ' + (col._pii || '')">PII</span>
+                                                <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800" :title="'Auto-detected: ' + (col._pii || '') + ' — Manage via CLI: dango governance pii-set'">PII ⚑</span>
+                                                <span x-show="col._pii && col._piiProvenance === 'confirmed'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800" :title="'Confirmed: ' + (col._pii || '')">PII ✓</span>
                                                 <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800" x-text="col._drift" :title="'Schema drift: ' + (col._drift || '')"></span>
                                             </td>
                                             <td class="px-6 py-4 whitespace-nowrap"><span class="col-type text-gray-600" x-text="col.type || '--'"></span></td>
@@ -293,9 +301,10 @@
                                                 <template x-if="col.tests && col.tests.length > 0">
                                                     <div class="flex flex-wrap gap-1">
                                                         <template x-for="t in col.tests" :key="t.name">
-                                                            <span class="text-xs px-1.5 py-0.5 rounded"
+                                                            <span class="text-xs px-1.5 py-0.5 rounded truncate inline-block align-middle" style="max-width: 200px"
                                                                   :class="t.status === 'pass' ? 'bg-green-100 text-green-800' : t.status === 'fail' || t.status === 'error' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'"
-                                                                  x-text="t.name.replace(/^(not_null|unique|accepted_values)_/, '$1: ').substring(0, 30)"></span>
+                                                                  :title="t.name"
+                                                                  x-text="(t.status === 'pass' ? '✓ ' : t.status === 'fail' || t.status === 'error' ? '✗ ' : '') + t.name.replace(/^(not_null|unique|accepted_values)_/, '$1: ')"></span>
                                                         </template>
                                                     </div>
                                                 </template>
@@ -519,7 +528,7 @@ function catalogPage() {
         // Governance state
         piiFindings: [], driftEvents: [], piiOverrides: [],
         // Shared state
-        loading: true, profilingLoading: false, error: null, hasLineage: false,
+        loading: true, profilingLoading: false, error: null, hasLineage: false, showAllSources: false,
         // Guard flag: suppresses pushState during URL restoration and popstate
         // handling to prevent feedback loops (restoreFromUrl → openModel → updateUrl).
         _skipPush: false,
@@ -579,6 +588,17 @@ function catalogPage() {
         get freshSourceCount() {
             if (!this.overview?.freshness) return 0;
             return this.overview.freshness.filter(f => f.status === 'synced').length;
+        },
+
+        get sortedSourcesDetail() {
+            if (!this.overview?.sources_detail) return [];
+            const order = { stale: 0, unknown: 1, fresh: 2 };
+            return [...this.overview.sources_detail].sort((a, b) => {
+                const oa = order[a.freshness_status] ?? 1;
+                const ob = order[b.freshness_status] ?? 1;
+                if (oa !== ob) return oa - ob;
+                return (a.name || '').localeCompare(b.name || '');
+            });
         },
 
         updateUrl(replace) {
@@ -842,8 +862,14 @@ function catalogPage() {
                 }
                 frontier = next;
             }
-            const filteredNodes = this.lineageNodes.filter(n => reachable.has(n.id));
-            const filteredEdges = this.lineageEdges.filter(e => reachable.has(e.source) && reachable.has(e.target));
+            let filteredNodes = this.lineageNodes.filter(n => reachable.has(n.id));
+            if (this.lineageFocusSourceName) {
+                filteredNodes = filteredNodes.filter(n =>
+                    n.type !== 'source' || n.source_name === this.lineageFocusSourceName
+                );
+            }
+            const nodeIds = new Set(filteredNodes.map(n => n.id));
+            const filteredEdges = this.lineageEdges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
             return { nodes: filteredNodes, edges: filteredEdges };
         },
 
