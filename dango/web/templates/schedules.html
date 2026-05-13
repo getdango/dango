@@ -47,7 +47,7 @@
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
-                                      :class="sched.type === 'sync' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'"
+                                      :class="sched.type.startsWith('sync') ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'"
                                       x-text="sched.type"></span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell"

@@ -558,6 +558,45 @@ class TestIPBasedLockout:
         assert is_locked is False
         assert remaining == 0
 
+    def test_client_ip_none_uses_user_table_fallback(self, tmp_path: Path) -> None:
+        """5 failed logins with client_ip=None locks via users table."""
+        db_path = _make_db(tmp_path)
+        user = _make_user(email="lock_none@example.com")
+        create_user(db_path, user)
+
+        for _ in range(4):
+            is_locked, _ = record_failed_login(
+                db_path, "lock_none@example.com", client_ip=None, max_attempts=5
+            )
+            assert is_locked is False
+
+        # 5th attempt should lock
+        is_locked, remaining = record_failed_login(
+            db_path, "lock_none@example.com", client_ip=None, max_attempts=5
+        )
+        assert is_locked is True
+        assert remaining > 0
+
+        # Verify in users table
+        row = _get_user_row(db_path, "lock_none@example.com")
+        assert row["failed_login_attempts"] == 5
+
+    def test_check_locked_with_none_ip_uses_user_table(self, tmp_path: Path) -> None:
+        """After locking with client_ip=None, check_account_locked returns locked."""
+        db_path = _make_db(tmp_path)
+        user = _make_user(email="check_none@example.com")
+        create_user(db_path, user)
+
+        # Lock via 5 failed attempts with client_ip=None
+        for _ in range(5):
+            record_failed_login(db_path, "check_none@example.com", client_ip=None, max_attempts=5)
+
+        is_locked, remaining = check_account_locked(
+            db_path, "check_none@example.com", client_ip=None
+        )
+        assert is_locked is True
+        assert remaining > 0
+
     def test_cleanup_expired(self, tmp_path: Path) -> None:
         """cleanup_expired_login_attempts removes old entries."""
         db_path = _make_db(tmp_path)
