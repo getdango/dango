@@ -215,7 +215,7 @@ def _generic_metrics(name: str, project_root: Path | None) -> list[MonitorConfig
                     name=f"{name}_{sanitized}_freshness",
                     source_table=f"{schema}.{table_name}",
                     value_expression="MAX(_dlt_load_id)",
-                    compare=None,
+                    compare=ComparisonType.none,
                     alert_threshold=None,
                 )
             )

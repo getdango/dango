@@ -26,6 +26,7 @@ _SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 class ComparisonType(str, Enum):
     """Supported comparison strategies."""
 
+    none = "none"
     week_over_week = "week_over_week"
     rolling_7day_avg = "rolling_7day_avg"
     rolling_30day_avg = "rolling_30day_avg"
@@ -46,7 +47,7 @@ class MonitorConfig(BaseModel):
     source_table: str
     value_expression: str
     filter: str | None = None
-    compare: ComparisonType | None = ComparisonType.week_over_week
+    compare: ComparisonType = ComparisonType.week_over_week
     alert_threshold: float | None = Field(
         default=None,
         validation_alias=AliasChoices("alert_threshold", "warn_threshold"),
