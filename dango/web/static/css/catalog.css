@@ -122,6 +122,37 @@
 .test-pass { color: #059669; }
 .test-fail { color: #dc2626; }
 
+/* Instant tooltip — replaces native title (which has ~2s delay).
+   Uses max-width: min(400px, 90vw) so it never exceeds the viewport. */
+.catalog-tooltip {
+    position: relative;
+}
+.catalog-tooltip::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: 0;
+    top: 100%;
+    margin-top: 4px;
+    background: #1f2937;
+    color: #f9fafb;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.4;
+    white-space: normal;
+    word-break: break-word;
+    width: max-content;
+    max-width: min(400px, 90vw);
+    z-index: 50;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.1s;
+}
+.catalog-tooltip:hover::after {
+    opacity: 1;
+}
+
 /* Tag badges */
 .tag-badge {
     display: inline-flex;
