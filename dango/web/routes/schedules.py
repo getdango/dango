@@ -412,12 +412,13 @@ async def trigger_schedule(
     )
 
     func: Any
-    if sched.type == ScheduleType.SYNC:
+    if sched.type in (ScheduleType.SYNC, ScheduleType.SYNC_ONLY):
         func = run_scheduled_sync
         func_kwargs: dict[str, Any] = {
             "schedule_name": sched.name,
             "sources": list(sched.sources),
             "project_root": str(project_root),
+            "skip_dbt": sched.type == ScheduleType.SYNC_ONLY,
         }
     else:
         func = run_scheduled_dbt

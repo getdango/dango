@@ -136,6 +136,9 @@ class ScheduleConfig(BaseModel):
         if self.type in (ScheduleType.SYNC, ScheduleType.SYNC_ONLY) and not self.sources:
             msg = "Sync schedules must specify at least one source"
             raise ValueError(msg)
+        if self.type == ScheduleType.SYNC_ONLY and self.dbt_command:
+            msg = "sync_only schedules must not specify a dbt_command"
+            raise ValueError(msg)
         if self.type == ScheduleType.DBT and not self.dbt_command:
             msg = "dbt schedules must specify a dbt_command"
             raise ValueError(msg)

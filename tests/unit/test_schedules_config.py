@@ -125,6 +125,18 @@ class TestScheduleConfig:
                 sources=[],
             )
 
+    def test_sync_only_rejects_dbt_command(self):
+        from dango.config.schedules import ScheduleConfig, ScheduleType
+
+        with pytest.raises(Exception, match="must not specify a dbt_command"):
+            ScheduleConfig(
+                name="bad_sync_only",
+                type=ScheduleType.SYNC_ONLY,
+                cron="daily",
+                sources=["csv"],
+                dbt_command="run",
+            )
+
     def test_sync_requires_sources(self):
         from dango.config.schedules import ScheduleConfig
 
