@@ -787,3 +787,185 @@ class TestAdminUpsertSemantics:
         assert "UserUpdate(password_hash=pw_hash)" in source, (
             "Must update password_hash with wizard-provided password on race condition"
         )
+
+
+# ---------------------------------------------------------------------------
+# 15. BUG-252: Non-interactive mode auto-confirms secrets push
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestNonInteractiveConfirm:
+    def test_auto_confirms_in_non_interactive(self, project_root):
+        """BUG-252: non_interactive=True skips click.confirm and returns True."""
+        dlt_dir = project_root / ".dlt"
+        dlt_dir.mkdir()
+        (dlt_dir / "secrets.toml").write_text("[sources]\n")
+
+        warnings: list[str] = []
+        # Should NOT call click.confirm at all
+        with patch("dango.cli.commands.deploy_provision.click.confirm") as mock_confirm:
+            result = _confirm_secrets_push(project_root, warnings, non_interactive=True)
+
+        assert result is True
+        assert warnings == []
+        mock_confirm.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 16. BUG-251: Project root resolved for hostname
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestProjectRootResolved:
+    def test_project_root_resolved(self):
+        """BUG-251: Path('.') is resolved to produce a non-empty hostname."""
+        from pathlib import Path
+
+        # Path(".").name is "" which produces empty hostname.
+        # After .resolve(), the name is the actual directory name.
+        dot_path = Path(".")
+        assert dot_path.name == "", "Path('.').name should be empty (the bug)"
+        resolved = dot_path.resolve()
+        assert resolved.name != "", "resolved path should have a non-empty name"
+        assert resolved.name != ".", "resolved path should not be '.'"
+
+    def test_run_provisioning_resolves_root(self, project_root, monkeypatch):
+        """BUG-251: run_provisioning() resolves project_root so hostname is non-empty."""
+        from dango.cli.commands.deploy_provision import run_provisioning
+        from dango.cli.commands.deploy_wizard import WizardConfig
+
+        monkeypatch.setenv("DIGITALOCEAN_TOKEN", "test-token")
+
+        config = WizardConfig(
+            region="nyc1",
+            size_slug="s-2vcpu-4gb",
+            size_tier=None,
+            domain=None,
+            admin_email="admin@test.com",
+            admin_password="strongpassword123",
+            skip_oauth=True,
+            enable_backups=False,
+            skip_initial_sync=True,
+            monthly_cost=24,
+        )
+
+        # Create required files
+        dlt_dir = project_root / ".dlt"
+        dlt_dir.mkdir()
+        (dlt_dir / "secrets.toml").write_text("[sources]\n")
+
+        mock_client = MagicMock()
+        mock_client.upload_ssh_key.return_value = {"id": 111}
+        mock_ssh = MagicMock()
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+        mock_result.exit_code = 0
+        mock_ssh.exec_command.return_value = mock_result
+        mock_ssh.generate_key_pair.return_value = "ssh-ed25519 AAAA..."
+
+        droplet_dict = {
+            "id": 222,
+            "networks": {"v4": [{"type": "public", "ip_address": "1.2.3.4"}]},
+        }
+
+        captured_hostname: list[str] = []
+
+        def _capture_provision(client, *, name, region, size, ssh_key_ids):
+            captured_hostname.append(name)
+            return droplet_dict
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+
+        from pathlib import Path
+
+        with (
+            patch(
+                "dango.platform.cloud.digitalocean.DigitalOceanClient",
+                return_value=mock_client,
+            ),
+            patch("dango.platform.cloud.ssh.SSHManager", return_value=mock_ssh),
+            patch(
+                "dango.platform.cloud.provisioning.provision_droplet",
+                side_effect=_capture_provision,
+            ),
+            patch(
+                "dango.platform.cloud.firewall.create_default_firewall",
+                return_value={"id": "fw-333"},
+            ),
+            patch("dango.platform.cloud.server_setup.setup_server") as mock_setup,
+            patch("dango.platform.cloud.file_sync.sync_project_files"),
+            patch("dango.platform.cloud.provisioning.save_provisioning_metadata"),
+            patch("dango.cli.commands.deploy_provision.click.confirm", return_value=True),
+            patch("httpx.get") as mock_get,
+            patch("dango.cli.commands.deploy_provision.time.sleep"),
+        ):
+            mock_setup.return_value = MagicMock(warnings=[])
+            mock_get.return_value = mock_resp
+
+            # Pass Path(".") — before the fix, this produced empty hostname
+            run_provisioning(Path("."), config, non_interactive=True)
+
+        assert captured_hostname, "provision_droplet should have been called"
+        assert captured_hostname[0] != "", "hostname must not be empty"
+        assert captured_hostname[0] != "dango-", "hostname must not have empty project name"
+        assert captured_hostname[0].startswith("dango-")
+
+    def test_run_byos_setup_resolves_root(self, project_root, monkeypatch):
+        """BUG-251: run_byos_setup() resolves project_root so bucket name is non-empty."""
+        from dango.cli.commands.deploy_provision import run_byos_setup
+        from dango.cli.commands.deploy_wizard import BYOSConfig
+
+        mock_ssh = MagicMock()
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+        mock_result.exit_code = 0
+        mock_ssh.exec_command.return_value = mock_result
+
+        config = BYOSConfig(
+            server_ip="10.0.0.1",
+            ssh_user="root",
+            ssh_key_path=str(project_root / ".dango" / "cloud_key"),
+            domain=None,
+            admin_email="admin@test.com",
+            admin_password="strongpassword123",
+            skip_oauth=True,
+            skip_initial_sync=True,
+        )
+
+        # Create SSH key file
+        key_path = project_root / ".dango" / "cloud_key"
+        key_path.write_text("fake-key")
+
+        # Create required files
+        dlt_dir = project_root / ".dlt"
+        dlt_dir.mkdir(exist_ok=True)
+        (dlt_dir / "secrets.toml").write_text("[sources]\n")
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+
+        with (
+            patch("dango.platform.cloud.ssh.SSHManager", return_value=mock_ssh),
+            patch("dango.platform.cloud.server_setup.setup_server") as mock_setup,
+            patch(
+                "dango.platform.cloud.server_setup.resolve_install_source",
+                return_value=("pypi", "getdango==1.0.0"),
+            ),
+            patch("dango.platform.cloud.file_sync.sync_project_files"),
+            patch("httpx.get") as mock_get,
+            patch("dango.cli.commands.deploy_provision.time.sleep"),
+        ):
+            mock_setup.return_value = MagicMock(warnings=[])
+            mock_get.return_value = mock_resp
+
+            # Pass project_root (tmp_path) — resolve should work correctly
+            result = run_byos_setup(project_root, config, non_interactive=True)
+
+        assert result.server_ip == "10.0.0.1"

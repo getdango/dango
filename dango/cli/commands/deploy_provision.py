@@ -107,12 +107,15 @@ class BYOSResult:
 def run_provisioning(
     project_root: Path,
     config: WizardConfig,
+    *,
+    non_interactive: bool = False,
 ) -> ProvisionResult:
     """Execute the full provisioning pipeline (sub-steps 1-10).
 
     Args:
         project_root: Path to the local Dango project root.
         config: Wizard configuration from steps 1-9.
+        non_interactive: When ``True``, auto-confirm prompts (BUG-252).
 
     Returns:
         ``ProvisionResult`` with deployment details.
@@ -122,6 +125,9 @@ def run_provisioning(
     """
     from dango.platform.cloud.digitalocean import DigitalOceanClient
     from dango.platform.cloud.ssh import SSHManager
+
+    # BUG-251: Resolve project_root so Path(".").name is never empty
+    project_root = project_root.resolve()
 
     tracker = _ResourceTracker()
 
@@ -216,7 +222,9 @@ def run_provisioning(
         # --- Sub-step 7: Push secrets ---
         warnings: list[str] = []
         # BUG-122: Confirm BEFORE opening SSH to avoid timeout during prompt
-        secrets_confirmed = _confirm_secrets_push(project_root, warnings)
+        secrets_confirmed = _confirm_secrets_push(
+            project_root, warnings, non_interactive=non_interactive
+        )
         if secrets_confirmed:
             _status("Pushing secrets to server...")
             ssh.connect(droplet_ip, username="root")
@@ -328,6 +336,8 @@ def run_provisioning(
 def run_byos_setup(
     project_root: Path,
     config: BYOSConfig,
+    *,
+    non_interactive: bool = False,
 ) -> BYOSResult:
     """Execute server setup for BYOS deployments (no cloud provisioning).
 
@@ -337,6 +347,7 @@ def run_byos_setup(
     Args:
         project_root: Path to the local Dango project root.
         config: BYOS configuration from the wizard.
+        non_interactive: When ``True``, auto-confirm prompts (BUG-252).
 
     Returns:
         ``BYOSResult`` with deployment details.
@@ -347,6 +358,9 @@ def run_byos_setup(
     from dango.platform.cloud.file_sync import sync_project_files
     from dango.platform.cloud.server_setup import setup_server
     from dango.platform.cloud.ssh import SSHManager
+
+    # BUG-251: Resolve project_root so Path(".").name is never empty
+    project_root = project_root.resolve()
 
     warnings: list[str] = []
     key_path = Path(config.ssh_key_path).expanduser()
@@ -396,7 +410,9 @@ def run_byos_setup(
 
         # --- Sub-step 3: Push secrets ---
         # BUG-122: Confirm BEFORE opening SSH to avoid timeout during prompt
-        secrets_confirmed = _confirm_secrets_push(project_root, warnings)
+        secrets_confirmed = _confirm_secrets_push(
+            project_root, warnings, non_interactive=non_interactive
+        )
         if secrets_confirmed:
             _status("Pushing secrets to server...")
             ssh.connect(config.server_ip, username=config.ssh_user)
@@ -505,11 +521,14 @@ def _extract_ip(droplet: dict[str, Any]) -> str:
 def _confirm_secrets_push(
     project_root: Path,
     warnings: list[str],
+    *,
+    non_interactive: bool = False,
 ) -> bool:
     """List secret files and prompt for confirmation (no SSH required).
 
     BUG-122: This runs BEFORE SSH connect to avoid SSH timeout during
     interactive prompt.
+    BUG-252: When *non_interactive* is ``True``, auto-confirm.
 
     Returns:
         ``True`` if the user confirmed, ``False`` if no files or declined.
@@ -526,6 +545,10 @@ def _confirm_secrets_push(
     if not files_to_push:
         warnings.append("No .dlt/secrets.toml or .env found locally — skipped.")
         return False
+
+    # BUG-252: Skip interactive prompt in non-interactive mode
+    if non_interactive:
+        return True
 
     console.print("\n[bold]Secrets to push:[/bold]")
     for f in files_to_push:
@@ -791,7 +814,7 @@ def _generate_cloud_profiles(
             dbt_cfg = yaml.safe_load(dbt_project_path.read_text()) or {}
             project_name = dbt_cfg.get("name", "dango")
         except Exception:
-            pass
+            _logger.debug("dbt_project_yml_parse_failed", exc_info=True)
 
     if size_slug:
         # Known DO size — look up tier specs
