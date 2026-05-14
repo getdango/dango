@@ -59,7 +59,7 @@ dependencies = [
     # Data governance and notebooks
     "marimo>=0.23.0",             # CVE-2026-39987 fixed in 0.23.0
     "presidio-analyzer>=2.2.0",
-    "spacy>=3.7.0,<3.8.12",
+    "spacy>=3.8.0,<3.9",          # en_core_web_sm-3.8.0 model requires >=3.8.0,<3.9.0
 
     # Security and encryption
     "keyring>=24.0.0",    # Secure credential storage in OS keychain

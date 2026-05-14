@@ -14,10 +14,10 @@ Exit codes:
 """
 
 import importlib.metadata
+import re
 import sys
 from pathlib import Path
 
-import tomllib
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
@@ -29,17 +29,34 @@ SKIP_PACKAGES = {"getdango", "en-core-web-sm", "en-core-web-lg"}
 
 
 def _get_direct_dep_names() -> set[str]:
-    """Extract direct dependency names from pyproject.toml."""
-    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
-    with open(pyproject, "rb") as f:
-        data = tomllib.load(f)
+    """Extract direct dependency names from pyproject.toml.
 
+    Uses string parsing (not tomllib) so the script works on Python 3.10.
+    """
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    content = pyproject.read_text(encoding="utf-8")
+
+    # Extract lines between `dependencies = [` and the closing `]`
     names: set[str] = set()
-    for dep_str in data.get("project", {}).get("dependencies", []):
-        # Extract package name (everything before first version specifier or bracket)
-        name = dep_str.split(">=")[0].split("<=")[0].split("~=")[0].split("==")[0]
-        name = name.split("[")[0].strip().strip('"').strip("'")
-        names.add(name.lower().replace("-", "_").replace(".", "_"))
+    in_deps = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped == "dependencies = [":
+            in_deps = True
+            continue
+        if in_deps and stripped == "]":
+            break
+        if not in_deps:
+            continue
+        # Extract quoted dependency string
+        match = re.match(r'\s*"([^"]+)"', line)
+        if not match:
+            continue
+        dep_str = match.group(1)
+        # Package name is everything before the first version specifier or bracket
+        name = re.split(r"[>=<~!\[]", dep_str)[0].strip()
+        if name:
+            names.add(_normalize(name))
     return names
 
 
