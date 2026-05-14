@@ -5,32 +5,12 @@ Unit tests for dango/platform/cloud/backup.py.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from dango.exceptions import CloudProvisioningError
-
-
-def _make_ssh_mock(
-    *,
-    exec_results: dict[str, tuple[str, str, int]] | None = None,
-) -> MagicMock:
-    """Return a mock SSHManager with configurable exec_command results."""
-    from dango.platform.cloud.ssh import CommandResult
-
-    results = exec_results or {}
-
-    def _exec_side_effect(command, timeout=None):
-        for substr, (stdout, stderr, exit_code) in results.items():
-            if substr in command:
-                return CommandResult(stdout=stdout, stderr=stderr, exit_code=exit_code)
-        return CommandResult(stdout="", stderr="", exit_code=0)
-
-    ssh = MagicMock()
-    ssh.exec_command.side_effect = _exec_side_effect
-    ssh.write_remote_file = MagicMock()
-    return ssh
+from tests.factories.cloud_factories import make_ssh_mock_configurable
 
 
 @pytest.mark.unit
@@ -100,14 +80,18 @@ class TestBackupHelpers:
         """No error when disk space is sufficient."""
         from dango.platform.cloud.backup import _check_disk_space
 
-        ssh = _make_ssh_mock(exec_results={"df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0)})
+        ssh = make_ssh_mock_configurable(
+            exec_results={"df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0)}
+        )
         _check_disk_space(ssh)  # Should not raise
 
     def test_check_disk_space_insufficient(self):
         """Raises CloudProvisioningError when disk space is low."""
         from dango.platform.cloud.backup import _check_disk_space
 
-        ssh = _make_ssh_mock(exec_results={"df -m": ("/dev/vda1 25000 24700 300 99% /srv", "", 0)})
+        ssh = make_ssh_mock_configurable(
+            exec_results={"df -m": ("/dev/vda1 25000 24700 300 99% /srv", "", 0)}
+        )
         with pytest.raises(CloudProvisioningError, match="Insufficient disk space"):
             _check_disk_space(ssh)
 
@@ -115,7 +99,7 @@ class TestBackupHelpers:
         """stop_services stops dango-web and metabase."""
         from dango.platform.cloud.backup import stop_services
 
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock_configurable()
         stop_services(ssh)
 
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
@@ -126,7 +110,7 @@ class TestBackupHelpers:
         """start_services starts metabase first, then dango-web."""
         from dango.platform.cloud.backup import start_services
 
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock_configurable()
         start_services(ssh)
 
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
@@ -138,7 +122,7 @@ class TestBackupHelpers:
         """_checkpoint_duckdb runs CHECKPOINT when file exists."""
         from dango.platform.cloud.backup import _checkpoint_duckdb
 
-        ssh = _make_ssh_mock(exec_results={"test -f": ("", "", 0)})
+        ssh = make_ssh_mock_configurable(exec_results={"test -f": ("", "", 0)})
         result = _checkpoint_duckdb(ssh)
 
         assert result is True
@@ -149,7 +133,7 @@ class TestBackupHelpers:
         """_checkpoint_duckdb returns False when file doesn't exist."""
         from dango.platform.cloud.backup import _checkpoint_duckdb
 
-        ssh = _make_ssh_mock(exec_results={"test -f": ("", "", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"test -f": ("", "", 1)})
         result = _checkpoint_duckdb(ssh)
         assert result is False
 
@@ -157,7 +141,7 @@ class TestBackupHelpers:
         """_checkpoint_auth_db runs WAL checkpoint when file exists."""
         from dango.platform.cloud.backup import _checkpoint_auth_db
 
-        ssh = _make_ssh_mock(exec_results={"test -f": ("", "", 0)})
+        ssh = make_ssh_mock_configurable(exec_results={"test -f": ("", "", 0)})
         result = _checkpoint_auth_db(ssh)
 
         assert result is True
@@ -168,7 +152,7 @@ class TestBackupHelpers:
         """_checkpoint_auth_db returns False when file doesn't exist."""
         from dango.platform.cloud.backup import _checkpoint_auth_db
 
-        ssh = _make_ssh_mock(exec_results={"test -f": ("", "", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"test -f": ("", "", 1)})
         result = _checkpoint_auth_db(ssh)
         assert result is False
 
@@ -176,7 +160,7 @@ class TestBackupHelpers:
         """Returns volume path when docker volume inspect succeeds."""
         from dango.platform.cloud.backup import _get_metabase_volume_path
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={"docker volume inspect": ("/var/lib/docker/volumes/vol/_data", "", 0)}
         )
         path = _get_metabase_volume_path(ssh)
@@ -186,7 +170,9 @@ class TestBackupHelpers:
         """Returns None when docker volume doesn't exist."""
         from dango.platform.cloud.backup import _get_metabase_volume_path
 
-        ssh = _make_ssh_mock(exec_results={"docker volume inspect": ("", "not found", 1)})
+        ssh = make_ssh_mock_configurable(
+            exec_results={"docker volume inspect": ("", "not found", 1)}
+        )
         path = _get_metabase_volume_path(ssh)
         assert path is None
 
@@ -194,7 +180,7 @@ class TestBackupHelpers:
         """verify_health returns True when endpoint responds."""
         from dango.platform.cloud.backup import verify_health
 
-        ssh = _make_ssh_mock(exec_results={"curl": ('{"status":"ok"}', "", 0)})
+        ssh = make_ssh_mock_configurable(exec_results={"curl": ('{"status":"ok"}', "", 0)})
         result = verify_health(ssh, timeout=10)
         assert result is True
 
@@ -207,7 +193,7 @@ class TestBackupHelpers:
         # Simulate timeout: first call returns start time, second call exceeds timeout
         mock_monotonic.side_effect = [0.0, 100.0]
 
-        ssh = _make_ssh_mock(exec_results={"curl": ("", "connection refused", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"curl": ("", "connection refused", 1)})
         result = verify_health(ssh, timeout=90)
         assert result is False
 
@@ -219,7 +205,7 @@ class TestCreateBackup:
         """create_backup completes all steps and returns BackupResult."""
         from dango.platform.cloud.backup import create_backup
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
                 "test -f": ("", "", 0),
@@ -242,7 +228,7 @@ class TestCreateBackup:
         """Services are restarted even when archive creation fails."""
         from dango.platform.cloud.backup import create_backup
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
                 "test -f": ("", "", 0),
@@ -263,7 +249,7 @@ class TestCreateBackup:
         """Missing DuckDB file produces a warning, not an error."""
         from dango.platform.cloud.backup import create_backup
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
                 # test -f fails for DuckDB
@@ -286,7 +272,7 @@ class TestCreateBackup:
         """on_progress callback is called for each step."""
         from dango.platform.cloud.backup import create_backup
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
                 "test -f": ("", "", 0),
@@ -313,7 +299,7 @@ class TestListLocalBackups:
         """Backups are returned newest-first from ls -1t output."""
         from dango.platform.cloud.backup import list_local_backups
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "ls -1t": (
                     "/srv/dango/backups/deploy/backup-20260224-143000.tar.gz\n"
@@ -335,7 +321,7 @@ class TestListLocalBackups:
         """Empty backup directory returns empty list."""
         from dango.platform.cloud.backup import list_local_backups
 
-        ssh = _make_ssh_mock(exec_results={"ls -1t": ("", "", 0)})
+        ssh = make_ssh_mock_configurable(exec_results={"ls -1t": ("", "", 0)})
         backups = list_local_backups(ssh)
         assert backups == []
 
@@ -346,7 +332,7 @@ class TestRollback:
         """rollback() picks the most recent backup when no path specified."""
         from dango.platform.cloud.backup import rollback
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "ls -1t": (
                     "/srv/dango/backups/deploy/backup-20260224-143000.tar.gz\n",
@@ -374,7 +360,7 @@ class TestRollback:
         from dango.platform.cloud.backup import rollback
 
         archive = "/srv/dango/backups/deploy/backup-20260223-020000.tar.gz"
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 f"test -f {archive}": ("", "", 0),
                 f"cat {archive.replace('.tar.gz', '.json')}": ("", "", 1),
@@ -391,7 +377,7 @@ class TestRollback:
         """rollback() raises when no backups exist."""
         from dango.platform.cloud.backup import rollback
 
-        ssh = _make_ssh_mock(exec_results={"ls -1t": ("", "", 0)})
+        ssh = make_ssh_mock_configurable(exec_results={"ls -1t": ("", "", 0)})
 
         with pytest.raises(CloudProvisioningError, match="No backups found"):
             rollback(ssh)
@@ -400,7 +386,7 @@ class TestRollback:
         """rollback() raises when specific path doesn't exist."""
         from dango.platform.cloud.backup import rollback
 
-        ssh = _make_ssh_mock(exec_results={"test -f": ("", "", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"test -f": ("", "", 1)})
 
         with pytest.raises(CloudProvisioningError, match="not found"):
             rollback(ssh, backup_path="/srv/dango/backups/deploy/nonexistent.tar.gz")
@@ -409,7 +395,7 @@ class TestRollback:
         """Services are restarted even when extraction fails."""
         from dango.platform.cloud.backup import rollback
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "ls -1t": (
                     "/srv/dango/backups/deploy/backup-20260224-143000.tar.gz\n",
@@ -439,7 +425,7 @@ class TestRotateLocalBackups:
         files = "\n".join(
             f"/srv/dango/backups/deploy/backup-2026022{i}-020000.tar.gz" for i in range(7)
         )
-        ssh = _make_ssh_mock(exec_results={"ls -1t": (files, "", 0)})
+        ssh = make_ssh_mock_configurable(exec_results={"ls -1t": (files, "", 0)})
 
         deleted = rotate_local_backups(ssh, keep=5)
 
@@ -449,7 +435,7 @@ class TestRotateLocalBackups:
         """No deletions when archives count is within limit."""
         from dango.platform.cloud.backup import rotate_local_backups
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "ls -1t": (
                     "/srv/dango/backups/deploy/backup-20260224-143000.tar.gz\n"
@@ -468,7 +454,7 @@ class TestRotateLocalBackups:
         """Empty directory returns zero deletions."""
         from dango.platform.cloud.backup import rotate_local_backups
 
-        ssh = _make_ssh_mock(exec_results={"ls -1t": ("", "", 0)})
+        ssh = make_ssh_mock_configurable(exec_results={"ls -1t": ("", "", 0)})
 
         deleted = rotate_local_backups(ssh, keep=5)
 

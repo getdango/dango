@@ -9,7 +9,6 @@ service restart, and dbt command decisions.
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,18 +22,11 @@ from dango.platform.cloud.deployer import (
 )
 from dango.platform.cloud.file_sync import SyncResult
 from dango.platform.cloud.ssh import CommandResult
+from tests.factories.cloud_factories import make_ssh_mock
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_ssh_mock() -> MagicMock:
-    """Return a mock SSHManager with sensible defaults."""
-    ssh = MagicMock()
-    ssh.key_path = Path("/tmp/test_key")
-    ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=0)
-    return ssh
 
 
 def _make_sync_result(**kwargs: object) -> SyncResult:
@@ -76,7 +68,7 @@ class TestPushDeploy:
     @patch("dango.platform.cloud.file_sync.sync_project_files")
     def test_dry_run(self, mock_sync, mock_backup, tmp_path):
         mock_sync.return_value = _make_sync_result(dry_run=True)
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         result = push_deploy(ssh, tmp_path, "10.0.0.1", dry_run=True)
 
@@ -94,7 +86,7 @@ class TestPushDeploy:
             packages_changed=True,
         )
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         commands: list[str] = []
 
@@ -128,7 +120,7 @@ class TestPushDeploy:
     def test_dbt_compile_failure_aborts(self, mock_sync, mock_backup, tmp_path):
         mock_sync.return_value = _make_sync_result()
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if "dbt compile" in cmd:
@@ -149,7 +141,7 @@ class TestPushDeploy:
         """dbt run failure should raise CloudProvisioningError, not just warn."""
         mock_sync.return_value = _make_sync_result(changed_models=["stg_orders"])
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if "dbt run" in cmd:
@@ -166,7 +158,7 @@ class TestPushDeploy:
     def test_no_models_changed_skips_dbt_run(self, mock_sync, mock_backup, tmp_path):
         mock_sync.return_value = _make_sync_result(changed_models=[], added_models=[])
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         result = push_deploy(ssh, tmp_path, "10.0.0.1")
 
@@ -179,7 +171,7 @@ class TestPushDeploy:
     def test_packages_not_changed_skips_dbt_deps(self, mock_sync, mock_backup, tmp_path):
         mock_sync.return_value = _make_sync_result(packages_changed=False)
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         result = push_deploy(ssh, tmp_path, "10.0.0.1")
 
@@ -195,7 +187,7 @@ class TestPushDeploy:
             changed_models=[], added_models=[], has_macro_changes=True
         )
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         result = push_deploy(ssh, tmp_path, "10.0.0.1")
 
@@ -209,7 +201,7 @@ class TestPushDeploy:
     @patch("dango.platform.cloud.file_sync.sync_project_files")
     def test_lock_released_on_error(self, mock_sync, mock_backup, tmp_path):
         mock_backup.side_effect = CloudProvisioningError("backup failed")
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         with pytest.raises(CloudProvisioningError, match="backup failed"):
             push_deploy(ssh, tmp_path, "10.0.0.1")
@@ -223,7 +215,7 @@ class TestPushDeploy:
         """Services are restarted in finally block even when deploy fails."""
         mock_backup.return_value = _make_backup_result()
         mock_sync.return_value = _make_sync_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if "dbt compile" in cmd:
@@ -244,7 +236,7 @@ class TestPushDeploy:
     def test_progress_callback(self, mock_sync, mock_backup, tmp_path):
         mock_sync.return_value = _make_sync_result()
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         steps: list[tuple[str, str]] = []
         push_deploy(ssh, tmp_path, "10.0.0.1", on_progress=lambda s, st: steps.append((s, st)))
@@ -263,7 +255,7 @@ class TestPushDeploy:
     def test_source_validation_warnings(self, mock_sync, mock_backup, tmp_path):
         mock_sync.return_value = _make_sync_result()
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if "sources.yml" in cmd and "cat" in cmd:
@@ -286,7 +278,7 @@ class TestPushDeploy:
     def test_git_info_passthrough(self, mock_sync, mock_backup, tmp_path):
         """git_info should be stored in DeployResult."""
         mock_sync.return_value = _make_sync_result(dry_run=True)
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         git_info = MagicMock()
         git_info.commit_sha = "abc12345" * 5
@@ -303,7 +295,7 @@ class TestPushDeploy:
         """Journal should be written on successful deploy with git_info."""
         mock_sync.return_value = _make_sync_result()
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         git_info = MagicMock()
         git_info.commit_sha = "a" * 40
@@ -324,7 +316,7 @@ class TestPushDeploy:
     def test_journal_not_written_on_dry_run(self, mock_sync, mock_backup, mock_journal, tmp_path):
         """Journal should NOT be written on dry-run."""
         mock_sync.return_value = _make_sync_result(dry_run=True)
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         git_info = MagicMock()
         git_info.commit_sha = "a" * 40
@@ -341,7 +333,7 @@ class TestPushDeploy:
         """Journal should be written even when git_info is None."""
         mock_sync.return_value = _make_sync_result()
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         push_deploy(ssh, tmp_path, "10.0.0.1")
 
@@ -360,7 +352,7 @@ class TestPushDeploy:
         """Deploy should succeed even if journal write raises."""
         mock_sync.return_value = _make_sync_result()
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         result = push_deploy(ssh, tmp_path, "10.0.0.1")
 
@@ -374,7 +366,7 @@ class TestPushDeploy:
         """Journal should be written with deploy_succeeded=False on failure."""
         mock_sync.return_value = _make_sync_result()
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if "dbt compile" in cmd:
@@ -410,7 +402,7 @@ class TestDockerRebuild:
 
     def test_start_all_services_rebuild_true(self):
         """With rebuild_docker=True, uses 'up --build -d'."""
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
         commands: list[str] = []
 
         def _track(cmd: str, **kwargs: object) -> CommandResult:
@@ -429,7 +421,7 @@ class TestDockerRebuild:
 
     def test_start_all_services_rebuild_false(self):
         """With rebuild_docker=False, uses 'start metabase' (no rebuild)."""
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
         commands: list[str] = []
 
         def _track(cmd: str, **kwargs: object) -> CommandResult:
@@ -451,7 +443,7 @@ class TestDockerRebuild:
             synced_files=["docker-compose.yml", "dbt/models/", ".dango/sources.yml"],
         )
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         commands: list[str] = []
 
@@ -473,7 +465,7 @@ class TestDockerRebuild:
             synced_files=["dbt/models/", ".dango/sources.yml"],
         )
         mock_backup.return_value = _make_backup_result()
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         commands: list[str] = []
 

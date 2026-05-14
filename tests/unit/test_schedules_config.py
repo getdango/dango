@@ -203,8 +203,9 @@ class TestValidateSchedules:
         from dango.config.schedules import ScheduleConfig, validate_schedules
 
         scheds = [ScheduleConfig(name="s1", cron="daily", sources=["csv"])]
-        issues = validate_schedules(scheds, {"csv"})
-        assert issues == []
+        errors, warnings = validate_schedules(scheds, {"csv"})
+        assert errors == []
+        assert warnings == []
 
     def test_duplicate_names(self):
         from dango.config.schedules import ScheduleConfig, validate_schedules
@@ -213,39 +214,39 @@ class TestValidateSchedules:
             ScheduleConfig(name="s1", cron="daily", sources=["csv"]),
             ScheduleConfig(name="s1", cron="every_hour", sources=["csv"]),
         ]
-        issues = validate_schedules(scheds, {"csv"})
-        assert any("Duplicate" in i for i in issues)
+        errors, warnings = validate_schedules(scheds, {"csv"})
+        assert any("Duplicate" in e for e in errors)
 
     def test_unknown_source(self):
         from dango.config.schedules import ScheduleConfig, validate_schedules
 
         scheds = [ScheduleConfig(name="s1", cron="daily", sources=["nonexistent"])]
-        issues = validate_schedules(scheds, {"csv"})
-        assert any("unknown source" in i for i in issues)
+        errors, warnings = validate_schedules(scheds, {"csv"})
+        assert any("unknown source" in e for e in errors)
 
     def test_interval_vs_duration_warning(self):
         from dango.config.schedules import ScheduleConfig, validate_schedules
 
         # every_15m = 900s, avg duration = 2000s → 900 < 2000*0.8 = 1600
         scheds = [ScheduleConfig(name="s1", cron="every_15m", sources=["slow_src"])]
-        issues = validate_schedules(scheds, {"slow_src"}, average_durations={"slow_src": 2000.0})
-        assert any("less than 80%" in i for i in issues)
+        errors, warnings = validate_schedules(
+            scheds, {"slow_src"}, average_durations={"slow_src": 2000.0}
+        )
+        assert any("less than 80%" in w for w in warnings)
 
     def test_interval_vs_duration_skipped_when_none(self):
         from dango.config.schedules import ScheduleConfig, validate_schedules
 
         scheds = [ScheduleConfig(name="s1", cron="every_15m", sources=["csv"])]
-        issues = validate_schedules(scheds, {"csv"}, average_durations=None)
-        # No duration warning when average_durations is None
-        assert not any("less than 80%" in i for i in issues)
+        errors, warnings = validate_schedules(scheds, {"csv"}, average_durations=None)
+        assert not any("less than 80%" in w for w in warnings)
 
     def test_interval_vs_duration_skipped_when_empty_dict(self):
         from dango.config.schedules import ScheduleConfig, validate_schedules
 
         scheds = [ScheduleConfig(name="s1", cron="every_15m", sources=["csv"])]
-        issues = validate_schedules(scheds, {"csv"}, average_durations={})
-        # Empty dict is truthy but has no entries — no duration warning
-        assert not any("less than 80%" in i for i in issues)
+        errors, warnings = validate_schedules(scheds, {"csv"}, average_durations={})
+        assert not any("less than 80%" in w for w in warnings)
 
     def test_overlap_warning(self):
         from dango.config.schedules import ScheduleConfig, validate_schedules
@@ -255,8 +256,8 @@ class TestValidateSchedules:
             ScheduleConfig(name="s1", cron="0 6 * * *", sources=["csv"]),
             ScheduleConfig(name="s2", cron="0 6 * * *", sources=["csv"]),
         ]
-        issues = validate_schedules(scheds, {"csv"})
-        assert any("overlapping" in i.lower() for i in issues)
+        errors, warnings = validate_schedules(scheds, {"csv"})
+        assert any("overlapping" in w.lower() for w in warnings)
 
 
 @pytest.mark.unit

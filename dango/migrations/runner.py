@@ -77,6 +77,7 @@ class MigrationRunner:
         self.db_path = db_path
         self.db_name = db_name
         self.migrations_dir = migrations_dir
+        self._discovered_cache: list[MigrationInfo] | None = None
 
     def _connect(self) -> sqlite3.Connection:
         """Open a connection, creating the database file if needed."""
@@ -108,14 +109,22 @@ class MigrationRunner:
     def discover_migrations(self) -> list[MigrationInfo]:
         """Scan the migrations directory for valid migration files.
 
+        Results are cached for the lifetime of this runner instance to avoid
+        redundant filesystem scanning across ``get_pending()`` and ``status()``.
+
         Returns:
             Sorted list of ``MigrationInfo`` objects.
 
         Raises:
-            MigrationDiscoveryError: On duplicate versions or malformed files.
+            MigrationDiscoveryError: On duplicate versions, malformed files,
+                or syntax errors in migration modules.
         """
+        if self._discovered_cache is not None:
+            return self._discovered_cache
+
         if not self.migrations_dir.exists():
-            return []
+            self._discovered_cache = []
+            return self._discovered_cache
 
         migrations: list[MigrationInfo] = []
         seen_versions: dict[int, Path] = {}
@@ -132,7 +141,11 @@ class MigrationRunner:
 
             filename_version = int(match.group(1))
 
-            module = _load_migration_module(path)
+            try:
+                module = _load_migration_module(path)
+            except SyntaxError as exc:
+                msg = f"Syntax error in migration {path.name}: {exc}"
+                raise MigrationDiscoveryError(msg) from exc
 
             # Validate required attributes
             for attr in ("VERSION", "DESCRIPTION", "upgrade"):
@@ -176,7 +189,8 @@ class MigrationRunner:
                 )
             )
 
-        return sorted(migrations, key=lambda m: m.version)
+        self._discovered_cache = sorted(migrations, key=lambda m: m.version)
+        return self._discovered_cache
 
     def get_pending(self) -> list[MigrationInfo]:
         """Return migrations that have not yet been applied."""
@@ -203,6 +217,7 @@ class MigrationRunner:
                     (migration.version, migration.description, now),
                 )
                 conn.commit()
+                self._discovered_cache = None  # invalidate after successful mutation
             except Exception as exc:
                 conn.rollback()
                 msg = (
@@ -242,25 +257,33 @@ class MigrationRunner:
         return versions[-1] if versions else 0
 
     def status(self) -> MigrationStatus:
-        """Return full migration status for this database."""
+        """Return full migration status for this database.
+
+        Uses a single connection to fetch applied migrations, then computes
+        pending and current_version from cached discovery + that data.
+        """
         conn = self._connect()
         try:
             self.ensure_migrations_table(conn)
             rows = conn.execute(
                 "SELECT version, description, applied_at FROM _migrations ORDER BY version"
             ).fetchall()
-            applied = [
-                AppliedMigration(version=r[0], description=r[1], applied_at=r[2]) for r in rows
-            ]
         finally:
             conn.close()
 
-        pending = self.get_pending()
+        applied: list[AppliedMigration] = []
+        applied_versions: set[int] = set()
+        current = 0
+        for r in rows:
+            applied.append(AppliedMigration(version=r[0], description=r[1], applied_at=r[2]))
+            applied_versions.add(r[0])
+            current = r[0]  # rows are ORDER BY version, so last wins
+        pending = [m for m in self.discover_migrations() if m.version not in applied_versions]
 
         return MigrationStatus(
             db_name=self.db_name,
             db_path=self.db_path,
-            current_version=self.current_version(),
+            current_version=current,
             applied=applied,
             pending=pending,
         )

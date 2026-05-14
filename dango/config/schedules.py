@@ -238,10 +238,10 @@ def validate_schedules(
     schedules: list[ScheduleConfig],
     source_names: set[str],
     average_durations: dict[str, float] | None = None,
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     """Cross-validate schedules against known sources.
 
-    Returns a list of error/warning strings (empty = all good).
+    Returns ``(errors, warnings)`` — both empty means all good.
 
     Checks:
     1. Duplicate schedule names (error)
@@ -249,7 +249,8 @@ def validate_schedules(
     3. Cron interval < avg duration * 0.8 (warning, when durations provided)
     4. Overlapping crons for shared sources (warning)
     """
-    issues: list[str] = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
     # 1. Duplicate names
     seen_names: dict[str, int] = {}
@@ -257,13 +258,13 @@ def validate_schedules(
         seen_names[sched.name] = seen_names.get(sched.name, 0) + 1
     for name, count in seen_names.items():
         if count > 1:
-            issues.append(f"Duplicate schedule name: {name!r} (appears {count} times)")
+            errors.append(f"Duplicate schedule name: {name!r} (appears {count} times)")
 
     # 2. Unknown sources
     for sched in schedules:
         for src in sched.sources:
             if src not in source_names:
-                issues.append(f"Schedule {sched.name!r} references unknown source: {src!r}")
+                errors.append(f"Schedule {sched.name!r} references unknown source: {src!r}")
 
     # 3. Interval vs duration check
     if average_durations:
@@ -274,15 +275,15 @@ def validate_schedules(
             for src in sched.sources:
                 avg = average_durations.get(src)
                 if avg is not None and interval < avg * 0.8:
-                    issues.append(
+                    warnings.append(
                         f"Schedule {sched.name!r}: cron interval ({interval:.0f}s) "
                         f"is less than 80% of avg duration for {src!r} ({avg:.0f}s)"
                     )
 
     # 4. Overlapping crons for shared sources
-    issues.extend(_detect_overlaps(schedules))
+    warnings.extend(_detect_overlaps(schedules))
 
-    return issues
+    return errors, warnings
 
 
 def _get_cron_interval_seconds(cron_expr: str, sample_count: int = 5) -> float:
