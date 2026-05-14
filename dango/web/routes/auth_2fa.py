@@ -247,6 +247,7 @@ async def verify_2fa(request: Request) -> JSONResponse:
 
     user = validate_partial_session(db_path, cookie_token)
     if user is None:
+        _2fa_attempt_counts.pop(cookie_token, None)
         return JSONResponse(status_code=401, content={"message": "Invalid or expired session"})
 
     # Re-read user for current TOTP state
