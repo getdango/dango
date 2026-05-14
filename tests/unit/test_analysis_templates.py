@@ -11,6 +11,7 @@ from unittest.mock import patch
 import duckdb
 import pytest
 
+from dango.analysis.models import ComparisonType
 from dango.analysis.templates import (
     _sanitize_table_name,
     generate_metrics_for_source,
@@ -297,6 +298,8 @@ class TestGenericMetrics:
         assert len(freshness_metrics) == 1
         assert freshness_metrics[0].name == "src_with_load_id_freshness"
         assert "MAX(_dlt_load_id)" in freshness_metrics[0].value_expression
+        assert freshness_metrics[0].compare == ComparisonType.none
+        assert freshness_metrics[0].alert_threshold is None
 
     def test_skips_dlt_internal_tables(self, tmp_path: Path) -> None:
         _create_generic_warehouse(
