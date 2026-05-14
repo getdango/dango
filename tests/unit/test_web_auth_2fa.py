@@ -28,6 +28,7 @@ from dango.auth.totp import (
 from dango.migrations.runner import MigrationRunner
 from dango.web.middleware.auth import COOKIE_NAME
 from dango.web.routes.auth import router as auth_router
+from dango.web.routes.auth_2fa import _2fa_attempt_counts
 from dango.web.routes.auth_2fa import router as auth_2fa_router
 
 _TEST_PASSWORD = "securepassword123"
@@ -253,6 +254,73 @@ class TestTwoFAVerify:
         conn.execute("UPDATE sessions SET expires_at = ? WHERE is_partial = 1", (past,))
         conn.commit()
         conn.close()
+        code = pyotp.TOTP(secret).now()
+        resp = tc.post(
+            "/api/auth/2fa/verify",
+            json={"code": code, "is_recovery": False},
+            cookies={COOKIE_NAME: cookie},
+            headers=_hdrs(),
+        )
+        assert resp.status_code == 401
+
+
+@pytest.mark.unit
+class TestTwoFABruteForce:
+    """2FA brute-force protection — lockout after 5 failed attempts."""
+
+    def _partial_login(self, tmp_path: Path) -> tuple[TestClient, Path, User, str, str]:
+        """Create user with 2FA, login to get partial session cookie."""
+        db_path = _make_db(tmp_path)
+        secret = generate_totp_secret()
+        user = _make_user(db_path, totp_secret=secret, totp_enabled=True)
+        hashed = hash_and_store_codes(["AAAA-BBBB", "CCCC-DDDD"])
+        db.update_user(db_path, user.id, UserUpdate(recovery_codes=hashed))
+        app = _make_app(db_path)
+        tc = _client(app)
+        resp = tc.post(
+            "/api/auth/login",
+            json={"email": "test@example.com", "password": _TEST_PASSWORD},
+        )
+        assert resp.status_code == 200 and resp.json()["requires_2fa"] is True
+        cookie = resp.cookies.get(COOKIE_NAME)
+        assert cookie is not None
+        # Clear any stale counters
+        _2fa_attempt_counts.clear()
+        return tc, db_path, user, secret, cookie
+
+    def test_lockout_after_5_failures(self, tmp_path: Path) -> None:
+        tc, _, _, _, cookie = self._partial_login(tmp_path)
+        # 4 failures → still 400 (invalid code)
+        for _ in range(4):
+            resp = tc.post(
+                "/api/auth/2fa/verify",
+                json={"code": "000000", "is_recovery": False},
+                cookies={COOKIE_NAME: cookie},
+                headers=_hdrs(),
+            )
+            assert resp.status_code == 400
+
+        # 5th failure → 401 lockout
+        resp = tc.post(
+            "/api/auth/2fa/verify",
+            json={"code": "000000", "is_recovery": False},
+            cookies={COOKIE_NAME: cookie},
+            headers=_hdrs(),
+        )
+        assert resp.status_code == 401
+        assert "Too many failed attempts" in resp.json()["message"]
+
+    def test_subsequent_request_after_lockout_also_401(self, tmp_path: Path) -> None:
+        tc, _, _, secret, cookie = self._partial_login(tmp_path)
+        # Exhaust attempts
+        for _ in range(5):
+            tc.post(
+                "/api/auth/2fa/verify",
+                json={"code": "000000", "is_recovery": False},
+                cookies={COOKIE_NAME: cookie},
+                headers=_hdrs(),
+            )
+        # Even a valid code should fail — session invalidated
         code = pyotp.TOTP(secret).now()
         resp = tc.post(
             "/api/auth/2fa/verify",

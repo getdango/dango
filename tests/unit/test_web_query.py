@@ -176,12 +176,12 @@ class TestInputValidation:
         assert resp.status_code == 400
         assert resp.json()["error_code"] == "DANGO-Q001"
 
-    def test_sql_too_long_returns_400(self, tmp_path: Path) -> None:
+    def test_sql_too_long_returns_422(self, tmp_path: Path) -> None:
         client, _ = _setup_client(tmp_path)
         long_sql = "SELECT " + "x" * 200_000
         resp = client.post("/api/query", json={"sql": long_sql})
-        assert resp.status_code == 400
-        assert resp.json()["error_code"] == "DANGO-Q001"
+        # Pydantic max_length validation fires before the endpoint handler
+        assert resp.status_code == 422
 
     def test_insert_rejected(self, tmp_path: Path) -> None:
         client, _ = _setup_client(tmp_path)

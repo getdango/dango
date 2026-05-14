@@ -10,7 +10,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 |------|---------|----------------------|
 | `app.py` | Entry point: `create_app()`, middleware, router registration, lifespan context manager (incl. first-run admin creation), global exception handlers (`DangoError` → structured JSON, generic `Exception` → 500) | `create_app()`, `app` (global FastAPI instance), `lifespan()`, `dango_error_handler()`, `unhandled_error_handler()` |
 | `models.py` | Pydantic request/response DTOs | `TableInfo`, `SourceStatus`, `ServiceHealth`, `SyncRequest`, `SyncResponse`, `LogEntry`, `WatcherStatus`, `LoginRequest`, `AcceptInviteRequest`, `TwoFAVerifyRequest` |
-| `helpers.py` | Shared helpers: DuckDB queries, config loading, service health, logging (851 lines) | `get_project_root()`, `load_sources_config()`, `get_duckdb_path()`, `get_dbt_models()`, `mask_sensitive_config()`, `get_source_freshness()`, `append_log_entry()`, `load_all_logs()`, `check_service_status_async()`, `get_platform_health_data()`, `get_source_status_data()` |
+| `helpers.py` | Shared helpers: DuckDB queries, config loading, service health, logging (868 lines) | `get_project_root()`, `load_sources_config()`, `get_duckdb_path()`, `get_dbt_models()`, `mask_sensitive_config()`, `get_source_freshness()`, `append_log_entry()`, `load_all_logs()`, `check_service_status_async()`, `get_platform_health_data()`, `get_source_status_data()` |
 | `__init__.py` | Public exports | `app` module |
 | `middleware/auth.py` | Session/API key auth + CSRF check on every request (~324 lines) | `AuthMiddleware`, `is_secure_request()`, `COOKIE_NAME` |
 | `middleware/rate_limit.py` | Rate limiting (login 10/min, API 200/min, localhost exempt, ~235 lines) | `RateLimitMiddleware` |
@@ -45,7 +45,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
 | `routes/schedules.py` | Schedule list/get, trigger, reload, cancel, history, notification config/test, `/schedules` page (read-only, ~518 lines). Config mutations removed by R10-C (BUG-175) — use CLI instead. | `router` |
 | `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~506 lines) | `router` |
-| `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact, model list/detail, search (~1336 lines) | `router` |
+| `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact, model list/detail, search (~1338 lines) | `router` |
 | `routes/governance.py` | Schema drift + PII results API (~203 lines) | `router` |
 | `routes/monitoring.py` | Monitor results, run trigger, history, dbt test results + backward-compat redirects for old `/api/insights*` paths (~398 lines) | `router` |
 | `routes/ai.py` | Agent/AI interface: /api/catalog/summary, /api/tools (~496 lines) | `router` |
