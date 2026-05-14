@@ -21,7 +21,7 @@ from typing import Any
 import duckdb
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
@@ -49,7 +49,7 @@ _QUERY_TIMEOUT_SECONDS = 30
 class QueryRequest(BaseModel):
     """Ad-hoc SQL query request."""
 
-    sql: str
+    sql: str = Field(max_length=102_400)
 
 
 class QueryResponse(BaseModel):

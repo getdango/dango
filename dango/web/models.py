@@ -6,7 +6,7 @@ Pydantic request/response DTOs for the web API.
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class TableInfo(BaseModel):
@@ -94,21 +94,21 @@ class WatcherStatus(BaseModel):
 class LoginRequest(BaseModel):
     """Login credentials."""
 
-    email: str
-    password: str
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=1024)
 
 
 class ChangePasswordRequest(BaseModel):
     """Password change payload."""
 
-    current_password: str
-    new_password: str
+    current_password: str = Field(max_length=1024)
+    new_password: str = Field(max_length=1024)
 
 
 class CreateApiKeyRequest(BaseModel):
     """API key creation payload."""
 
-    name: str
+    name: str = Field(max_length=128)
     expires_at: datetime | None = None
 
 
@@ -148,8 +148,8 @@ class ApiKeyCreateResponse(ApiKeyResponse):
 class CreateUserRequest(BaseModel):
     """Admin user creation payload."""
 
-    email: str
-    role: str = "viewer"
+    email: str = Field(max_length=254)
+    role: str = Field(default="viewer", max_length=32)
     generate_password: bool = False
 
     @field_validator("email", mode="before")
@@ -165,20 +165,20 @@ class CreateUserRequest(BaseModel):
 class AcceptInviteRequest(BaseModel):
     """Invite acceptance payload."""
 
-    token: str
-    password: str
+    token: str = Field(max_length=1024)
+    password: str = Field(max_length=1024)
 
 
 class ChangeRoleRequest(BaseModel):
     """Admin role change payload."""
 
-    role: str
+    role: str = Field(max_length=32)
 
 
 class DeleteUserConfirmation(BaseModel):
     """Delete user confirmation payload."""
 
-    confirm_email: str
+    confirm_email: str = Field(max_length=254)
 
 
 # ---------------------------------------------------------------------------
@@ -189,33 +189,33 @@ class DeleteUserConfirmation(BaseModel):
 class TwoFASetupRequest(BaseModel):
     """Request to begin 2FA setup (verifies current password)."""
 
-    password: str
+    password: str = Field(max_length=1024)
 
 
 class TwoFAVerifySetupRequest(BaseModel):
     """Verify a TOTP code to complete 2FA setup."""
 
-    code: str
+    code: str = Field(max_length=10)
 
 
 class TwoFAVerifyRequest(BaseModel):
     """Verify a TOTP or recovery code during login."""
 
-    code: str
+    code: str = Field(max_length=10)
     is_recovery: bool = False
 
 
 class TwoFADisableRequest(BaseModel):
     """Request to disable 2FA (verifies current password)."""
 
-    password: str
+    password: str = Field(max_length=1024)
 
 
 class TwoFARegenerateRequest(BaseModel):
     """Request to regenerate recovery codes (verifies password + TOTP)."""
 
-    password: str
-    code: str
+    password: str = Field(max_length=1024)
+    code: str = Field(max_length=10)
 
 
 # ---------------------------------------------------------------------------
