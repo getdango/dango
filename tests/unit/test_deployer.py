@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -30,18 +28,11 @@ from dango.platform.cloud.deployer import (
     _validate_remote_sources,
 )
 from dango.platform.cloud.ssh import CommandResult
+from tests.factories.cloud_factories import make_ssh_mock
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_ssh_mock() -> MagicMock:
-    """Return a mock SSHManager with sensible defaults."""
-    ssh = MagicMock()
-    ssh.key_path = Path("/tmp/test_key")
-    ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=0)
-    return ssh
 
 
 def _make_lock_json(*, expired: bool = False) -> str:
@@ -102,12 +93,12 @@ class TestLockManagement:
     """Test deploy lock acquisition and release."""
 
     def test_check_no_existing_lock(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
         ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=1)
         assert _check_existing_lock(ssh) is None
 
     def test_check_existing_lock(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
         ssh.exec_command.return_value = CommandResult(
             stdout=_make_lock_json(), stderr="", exit_code=0
         )
@@ -116,7 +107,7 @@ class TestLockManagement:
         assert lock.deployer == "testuser@testhost"
 
     def test_check_corrupt_lock(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
         ssh.exec_command.return_value = CommandResult(stdout="not json", stderr="", exit_code=0)
         assert _check_existing_lock(ssh) is None
 
@@ -149,7 +140,7 @@ class TestLockManagement:
         assert _is_lock_expired(lock) is False
 
     def test_acquire_lock_no_existing(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
         # No existing lock
         ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=0)
         lock = _acquire_lock(ssh)
@@ -157,7 +148,7 @@ class TestLockManagement:
 
     def test_acquire_lock_uses_noclobber(self):
         """Lock creation uses atomic noclobber (set -C)."""
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
         ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=0)
         _acquire_lock(ssh)
         # Find the lock creation command
@@ -168,7 +159,7 @@ class TestLockManagement:
         assert DEPLOY_LOCK_PATH in lock_cmds[0]
 
     def test_acquire_lock_active_lock_raises(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if f"cat {DEPLOY_LOCK_PATH}" in cmd:
@@ -181,7 +172,7 @@ class TestLockManagement:
             _acquire_lock(ssh)
 
     def test_acquire_lock_stale_lock_succeeds(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if f"cat {DEPLOY_LOCK_PATH}" in cmd:
@@ -193,7 +184,7 @@ class TestLockManagement:
         assert lock.deployer != ""
 
     def test_acquire_lock_force_overrides(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if f"cat {DEPLOY_LOCK_PATH}" in cmd:
@@ -206,7 +197,7 @@ class TestLockManagement:
 
     def test_acquire_lock_concurrent_race_fails(self):
         """If noclobber fails (another deployer grabbed it), raise error."""
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
         call_count = 0
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
@@ -226,7 +217,7 @@ class TestLockManagement:
             _acquire_lock(ssh)
 
     def test_release_lock(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
         _release_lock(ssh)
         ssh.exec_command.assert_called_once_with(f"rm -f {DEPLOY_LOCK_PATH}")
 
@@ -241,7 +232,7 @@ class TestSourceValidation:
     """Test _validate_remote_sources."""
 
     def test_valid_sources(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if "sources.yml" in cmd:
@@ -263,7 +254,7 @@ class TestSourceValidation:
         assert errors == []
 
     def test_missing_credentials(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
 
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if "sources.yml" in cmd:
@@ -282,7 +273,7 @@ class TestSourceValidation:
         assert "google_sheets" in errors[0]
 
     def test_no_sources_configured(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
         ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=1)
         errors = _validate_remote_sources(ssh)
         assert errors == []
@@ -326,7 +317,7 @@ class TestRunRemoteDbt:
     """Test _run_remote_dbt."""
 
     def test_basic_command(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
         _run_remote_dbt(ssh, "compile")
         cmd = ssh.exec_command.call_args[0][0]
         assert "sudo -u dango" in cmd
@@ -335,7 +326,7 @@ class TestRunRemoteDbt:
         assert "--profiles-dir" in cmd
 
     def test_extra_args(self):
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock()
         _run_remote_dbt(ssh, "run", "--select stg_orders stg_users")
         cmd = ssh.exec_command.call_args[0][0]
         assert "--select stg_orders stg_users" in cmd
