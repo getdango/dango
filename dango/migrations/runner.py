@@ -203,7 +203,6 @@ class MigrationRunner:
         Raises:
             MigrationApplicationError: If the migration's ``upgrade()`` fails.
         """
-        self._discovered_cache = None  # invalidate after mutation
         conn = self._connect()
         try:
             self.ensure_migrations_table(conn)
@@ -218,6 +217,7 @@ class MigrationRunner:
                     (migration.version, migration.description, now),
                 )
                 conn.commit()
+                self._discovered_cache = None  # invalidate after successful mutation
             except Exception as exc:
                 conn.rollback()
                 msg = (
@@ -271,10 +271,14 @@ class MigrationRunner:
         finally:
             conn.close()
 
-        applied = [AppliedMigration(version=r[0], description=r[1], applied_at=r[2]) for r in rows]
-        applied_versions = {r[0] for r in rows}
+        applied: list[AppliedMigration] = []
+        applied_versions: set[int] = set()
+        current = 0
+        for r in rows:
+            applied.append(AppliedMigration(version=r[0], description=r[1], applied_at=r[2]))
+            applied_versions.add(r[0])
+            current = r[0]  # rows are ORDER BY version, so last wins
         pending = [m for m in self.discover_migrations() if m.version not in applied_versions]
-        current = rows[-1][0] if rows else 0
 
         return MigrationStatus(
             db_name=self.db_name,

@@ -111,12 +111,12 @@ Issues = "https://github.com/getdango/dango/issues"
 [project.scripts]
 dango = "dango.cli.main:cli"
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.packages.find]
 include = ["dango", "dango.*"]
 exclude = ["tests", "tests.*"]
-
-[tool.setuptools]
-include-package-data = true
 
 [tool.setuptools.package-data]
 dango = [

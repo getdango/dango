@@ -10,7 +10,6 @@ Usage:
 """
 
 from tests.factories.cloud_factories import (
-    make_httpx_response,
     make_ssh_mock,
     make_ssh_mock_configurable,
 )
@@ -30,7 +29,6 @@ __all__ = [
     "make_dango_config",
     "make_data_source",
     "make_google_sheets_source_config",
-    "make_httpx_response",
     "make_platform_settings",
     "make_project_context",
     "make_sources_config",

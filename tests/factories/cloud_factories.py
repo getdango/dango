@@ -56,20 +56,3 @@ def make_ssh_mock_configurable(
     ssh.exec_command.side_effect = _exec_side_effect
     ssh.write_remote_file = MagicMock()
     return ssh
-
-
-def make_httpx_response(status_code: int, json_data: object = None) -> MagicMock:
-    """Return a mock httpx.Response."""
-    response = MagicMock()
-    response.status_code = status_code
-    response.json.return_value = json_data or {}
-    response.raise_for_status = MagicMock()
-    if status_code >= 400:
-        from httpx import HTTPStatusError
-
-        response.raise_for_status.side_effect = HTTPStatusError(
-            message=f"HTTP {status_code}",
-            request=MagicMock(),
-            response=response,
-        )
-    return response
