@@ -148,6 +148,12 @@ class TestMigrationDiscovery:
         with pytest.raises(MigrationDiscoveryError, match="does not match filename prefix"):
             runner.discover_migrations()
 
+    def test_syntax_error_wrapped(self, tmp_path: Path) -> None:
+        mdir, _, runner = _make_runner(tmp_path)
+        (mdir / "001_bad_syntax.py").write_text("def upgrade(conn):\n    if True\n")
+        with pytest.raises(MigrationDiscoveryError, match="Syntax error in migration"):
+            runner.discover_migrations()
+
 
 @pytest.mark.unit
 class TestMigrationRunner:
