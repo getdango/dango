@@ -53,6 +53,21 @@ from dango.web.routes.auth import _bridge_metabase_session
 router = APIRouter(tags=["auth-2fa"])
 logger = get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# 2FA brute-force protection
+#
+# Track failed verification attempts per partial session token.  After
+# _MAX_2FA_ATTEMPTS failures the partial session is invalidated, forcing
+# the user to re-authenticate with credentials.
+#
+# In-memory is acceptable: partial sessions live ≤5 min and server restart
+# clears both counters and sessions.  Multi-worker: each worker tracks
+# independently — worst case 5×N attempts across N workers, still finite.
+# ---------------------------------------------------------------------------
+
+_MAX_2FA_ATTEMPTS = 5
+_2fa_attempt_counts: dict[str, int] = {}
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers (same pattern as auth.py — small, redefined here to
@@ -217,8 +232,22 @@ async def verify_2fa(request: Request) -> JSONResponse:
     if not cookie_token:
         return JSONResponse(status_code=401, content={"message": "Invalid or expired session"})
 
+    # Check brute-force counter before validating session
+    if _2fa_attempt_counts.get(cookie_token, 0) >= _MAX_2FA_ATTEMPTS:
+        # Invalidate partial session to force re-authentication
+        token_hash = hash_token(cookie_token)
+        partial = get_session_by_token(db_path, token_hash)
+        if partial:
+            invalidate_session(db_path, partial.id)
+        _2fa_attempt_counts.pop(cookie_token, None)
+        return JSONResponse(
+            status_code=401,
+            content={"message": "Too many failed attempts. Please log in again."},
+        )
+
     user = validate_partial_session(db_path, cookie_token)
     if user is None:
+        _2fa_attempt_counts.pop(cookie_token, None)
         return JSONResponse(status_code=401, content={"message": "Invalid or expired session"})
 
     # Re-read user for current TOTP state
@@ -238,10 +267,23 @@ async def verify_2fa(request: Request) -> JSONResponse:
         verified = verify_totp_code(current_user.totp_secret, data.code)
 
     if not verified:
-        # TODO: Add failed-attempt tracking on partial sessions to prevent
-        # brute-force TOTP guessing within the 5-minute window. Requires
-        # a migration to add failed_2fa_attempts column to sessions table.
+        _2fa_attempt_counts[cookie_token] = _2fa_attempt_counts.get(cookie_token, 0) + 1
+        remaining = _MAX_2FA_ATTEMPTS - _2fa_attempt_counts[cookie_token]
+        if remaining <= 0:
+            # Invalidate partial session immediately
+            token_hash = hash_token(cookie_token)
+            partial = get_session_by_token(db_path, token_hash)
+            if partial:
+                invalidate_session(db_path, partial.id)
+            _2fa_attempt_counts.pop(cookie_token, None)
+            return JSONResponse(
+                status_code=401,
+                content={"message": "Too many failed attempts. Please log in again."},
+            )
         return JSONResponse(status_code=400, content={"message": "Invalid verification code"})
+
+    # Success — clean up brute-force counter
+    _2fa_attempt_counts.pop(cookie_token, None)
 
     # Invalidate the partial session
     token_hash = hash_token(cookie_token)

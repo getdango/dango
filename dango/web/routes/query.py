@@ -21,7 +21,7 @@ from typing import Any
 import duckdb
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
@@ -37,7 +37,6 @@ router = APIRouter(tags=["query"])
 # Constants
 # ---------------------------------------------------------------------------
 
-_MAX_SQL_LENGTH = 102_400  # 100 KB
 _MAX_ROWS = 10_000
 _QUERY_TIMEOUT_SECONDS = 30
 
@@ -49,7 +48,7 @@ _QUERY_TIMEOUT_SECONDS = 30
 class QueryRequest(BaseModel):
     """Ad-hoc SQL query request."""
 
-    sql: str
+    sql: str = Field(max_length=102_400)
 
 
 class QueryResponse(BaseModel):
@@ -187,15 +186,6 @@ async def execute_query(
         return JSONResponse(
             status_code=400,
             content={"error_code": "DANGO-Q001", "message": "SQL query is empty"},
-        )
-
-    if len(sql) > _MAX_SQL_LENGTH:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error_code": "DANGO-Q001",
-                "message": f"SQL query exceeds maximum length ({_MAX_SQL_LENGTH} bytes)",
-            },
         )
 
     try:
