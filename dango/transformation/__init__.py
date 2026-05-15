@@ -63,7 +63,7 @@ def run_dbt_models(
     dbt_cmd = _get_dbt_executable()
 
     # Build dbt command with optional selection
-    cmd = [dbt_cmd, "run", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)]
+    cmd = [dbt_cmd, "build", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)]
     if select:
         cmd.extend(["--select", select])
     if full_refresh:
@@ -102,7 +102,7 @@ def run_dbt_models(
             causes = ["dbt model logic error", "Missing dependency or configuration"]
             fix = "Review the error output and check dbt model files in dbt/models/"
         structured = format_structured_error(
-            what_failed="dbt run failed", causes=causes, suggested_fix=fix
+            what_failed="dbt build failed", causes=causes, suggested_fix=fix
         )
         return (False, f"{structured}\n\nFull output:\n{output}")
 
@@ -110,7 +110,7 @@ def run_dbt_models(
         return (
             False,
             format_structured_error(
-                what_failed="dbt run timed out after 5 minutes",
+                what_failed="dbt build timed out after 5 minutes",
                 causes=[
                     "Large number of models",
                     "Complex SQL queries",
@@ -120,7 +120,7 @@ def run_dbt_models(
             ),
         )
     except Exception as e:
-        return (False, f"dbt run failed: {str(e)}")
+        return (False, f"dbt build failed: {str(e)}")
 
 
 def run_dbt_snapshots(

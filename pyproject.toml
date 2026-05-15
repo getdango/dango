@@ -56,6 +56,10 @@ dependencies = [
     "structlog>=24.1.0",
 
     # Data governance and notebooks
+    "pandas>=2.0.0",
+    "matplotlib>=3.8.0",
+    "plotly>=5.18.0",
+    "altair>=5.2.0",
     "marimo>=0.9.0",
     "presidio-analyzer>=2.2.0",
     "spacy>=3.7.0,<3.8.12",

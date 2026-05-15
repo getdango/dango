@@ -796,6 +796,7 @@ async def get_source_status_data(source: dict) -> SourceStatus:
         tables = None
 
     rows_processed = history[0].get("rows_processed", 0) if history else None
+    last_sync_duration = history[0].get("duration_seconds") if history else None
 
     # Determine status (priority: failed > synced > empty > not_synced)
     if last_sync_status == "failed":
@@ -865,4 +866,5 @@ async def get_source_status_data(source: dict) -> SourceStatus:
         sync_mode=sync_mode,
         lookback_days=lookback_days,
         write_disposition=write_disposition,
+        last_sync_duration_seconds=last_sync_duration,
     )

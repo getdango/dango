@@ -135,12 +135,13 @@ class DbtLock:
 
         return False
 
-    def acquire(self, timeout: float = 0) -> bool:
+    def acquire(self, timeout: float = 30) -> bool:
         """
         Acquire the lock.
 
         Args:
-            timeout: Maximum time to wait for the lock (0 = don't wait)
+            timeout: Maximum time to wait for the lock (0 = don't wait).
+                Retries every 1 second until timeout is reached.
 
         Returns:
             True if lock was acquired
@@ -151,56 +152,66 @@ class DbtLock:
         if self._acquired:
             return True
 
-        # Try to clean up stale locks first
-        self._cleanup_stale_lock()
+        import time
 
-        # Try to acquire the lock
-        try:
-            self._lock_file = open(self.lock_file_path, "w")
+        deadline = time.monotonic() + timeout
 
-            # Platform-specific locking
-            if sys.platform == "win32":
-                # Windows: use msvcrt
-                msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                # Unix: use fcntl
-                fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        while True:
+            # Try to clean up stale locks first
+            self._cleanup_stale_lock()
 
-            # Successfully acquired the lock
-            self._write_lock_info()
-            self._acquired = True
-            return True
+            # Try to acquire the lock
+            try:
+                self._lock_file = open(self.lock_file_path, "w")
 
-        except OSError:
-            # Lock is held by another process
-            if self._lock_file:
-                self._lock_file.close()
-                self._lock_file = None
+                # Platform-specific locking
+                if sys.platform == "win32":
+                    # Windows: use msvcrt
+                    msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    # Unix: use fcntl
+                    fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
-            lock_info = self._read_lock_info()
+                # Successfully acquired the lock
+                self._write_lock_info()
+                self._acquired = True
+                return True
 
-            # Build a helpful error message
-            if lock_info:
-                source = lock_info.get("source", "unknown")
-                operation = lock_info.get("operation", "unknown operation")
-                started_at = lock_info.get("started_at", "unknown time")
-                pid = lock_info.get("pid", "unknown")
+            except OSError:
+                # Lock is held by another process
+                if self._lock_file:
+                    self._lock_file.close()
+                    self._lock_file = None
 
-                message = (
-                    f"Another sync operation is currently running.\n"
-                    f"Source: {source}\n"
-                    f"Operation: {operation}\n"
-                    f"Started at: {started_at}\n"
-                    f"Process ID: {pid}\n"
-                    f"Please wait for it to complete before starting a new operation."
-                )
-            else:
-                message = (
-                    "Another sync operation is currently running. "
-                    "Please wait for it to complete before starting a new operation."
-                )
+                # Retry if we still have time
+                if time.monotonic() < deadline:
+                    time.sleep(1)
+                    continue
 
-            raise DbtLockError(message, lock_info=lock_info) from None
+                lock_info = self._read_lock_info()
+
+                # Build a helpful error message
+                if lock_info:
+                    source = lock_info.get("source", "unknown")
+                    operation = lock_info.get("operation", "unknown operation")
+                    started_at = lock_info.get("started_at", "unknown time")
+                    pid = lock_info.get("pid", "unknown")
+
+                    message = (
+                        f"Another sync operation is currently running.\n"
+                        f"Source: {source}\n"
+                        f"Operation: {operation}\n"
+                        f"Started at: {started_at}\n"
+                        f"Process ID: {pid}\n"
+                        f"Please wait for it to complete before starting a new operation."
+                    )
+                else:
+                    message = (
+                        "Another sync operation is currently running. "
+                        "Please wait for it to complete before starting a new operation."
+                    )
+
+                raise DbtLockError(message, lock_info=lock_info) from None
 
     def release(self) -> None:
         """Release the lock."""

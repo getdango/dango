@@ -140,7 +140,9 @@ def _read_dbt_test_results(project_root: Path) -> list[DbtTestResult]:
             for r in run_results.get("results", []):
                 uid = r.get("unique_id", "")
                 if uid:
-                    result_status[uid] = r.get("status", "")
+                    # dbt uses "success"/"error"/"fail"; normalize to "pass"/"fail"/"error"
+                    raw = r.get("status", "")
+                    result_status[uid] = "pass" if raw == "success" else raw
                     result_time[uid] = r.get("execution_time", 0.0)
         except Exception:
             pass

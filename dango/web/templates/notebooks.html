@@ -28,6 +28,9 @@
         <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
             <p class="text-sm text-red-700" x-text="error"></p>
         </div>
+        <div id="notebook-info" class="hidden mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+            <p class="text-sm text-blue-700">Starting notebook server... the tab may take a few seconds to load.</p>
+        </div>
 
         <!-- Lock revoked banner -->
         <div x-show="lockRevoked" x-cloak class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
@@ -246,18 +249,50 @@ function notebooksPage() {
 
         async openNotebook(nb) {
             this.error = '';
+            // Open window immediately (in user gesture context) to avoid popup blockers
+            const infoEl = document.getElementById('notebook-info');
+            if (infoEl) { infoEl.textContent = 'Starting notebook server... the tab may take a few seconds to load.'; infoEl.classList.remove('hidden'); }
+            const nbWindow = window.open('about:blank', '_blank');
+            if (nbWindow) {
+                nbWindow.document.write('<html><head><title>Starting Notebook...</title></head><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f9fafb;color:#6b7280"><div style="text-align:center"><div style="font-size:2rem;margin-bottom:1rem">&#127841;</div><div>Starting notebook server...</div><div style="font-size:0.875rem;margin-top:0.5rem">This may take a few seconds</div></div></body></html>');
+            }
             try {
                 const res = await fetch(`/api/notebooks/${nb.name}/lock`, {
                     method: 'POST', headers, body: '{}'
                 });
                 const data = await res.json();
-                if (!res.ok) { this.error = data.message || 'Failed to lock notebook'; return; }
+                if (!res.ok) {
+                    if (nbWindow) nbWindow.close();
+                    if (infoEl) infoEl.classList.add('hidden');
+                    this.error = data.message || 'Failed to lock notebook';
+                    return;
+                }
 
-                window.open(data.marimo_url, '_blank');
+                // Poll until Marimo is ready, then navigate
+                if (nbWindow) {
+                    const url = data.marimo_url;
+                    const poll = async () => {
+                        for (let i = 0; i < 30; i++) {
+                            try {
+                                const r = await fetch(url, {mode: 'no-cors'});
+                                nbWindow.location.href = url;
+                                return;
+                            } catch { /* not ready yet */ }
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+                        nbWindow.location.href = url; // try anyway after 15s
+                    };
+                    poll();
+                }
                 this.activeNotebook = nb.name;
                 this.startHeartbeat(nb.name);
+                setTimeout(() => { if (infoEl) infoEl.classList.add('hidden'); }, 8000);
                 await this.loadNotebooks();
-            } catch (e) { this.error = 'Failed to open notebook'; }
+            } catch (e) {
+                if (nbWindow) nbWindow.close();
+                if (infoEl) infoEl.classList.add('hidden');
+                this.error = 'Failed to open notebook';
+            }
         },
 
         startHeartbeat(name) {

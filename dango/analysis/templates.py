@@ -159,8 +159,10 @@ def _generic_metrics(name: str, project_root: Path | None) -> list[MonitorConfig
     skipping dlt internal tables.  For each user table, creates:
 
     - ``{name}_{table}_row_count`` — ``COUNT(*)`` with week-over-week comparison
-    - ``{name}_{table}_freshness`` — ``MAX(_dlt_load_id)``
-      (only if the table has a ``_dlt_load_id`` column)
+    Freshness metrics are intentionally omitted — source freshness is already
+    shown on ``/sources`` and ``/catalog``.  Freshness in monitoring would produce
+    identical history rows between syncs (misleading) and has no meaningful
+    comparison baseline.
 
     Uses a single DuckDB connection for all queries to avoid N+1 overhead.
     """
@@ -184,13 +186,6 @@ def _generic_metrics(name: str, project_root: Path | None) -> list[MonitorConfig
             if not tables:
                 return []
 
-            # Batch-fetch columns for all tables to check for _dlt_load_id
-            cols_rows = conn.execute(
-                "SELECT table_name, column_name FROM information_schema.columns "
-                "WHERE table_schema = ? AND column_name = '_dlt_load_id'",
-                [schema],
-            ).fetchall()
-            tables_with_load_id = {r[0] for r in cols_rows}
         finally:
             conn.close()
     except Exception:
@@ -208,17 +203,10 @@ def _generic_metrics(name: str, project_root: Path | None) -> list[MonitorConfig
                 alert_threshold=25.0,
             )
         )
-        # Add freshness metric only if _dlt_load_id column exists
-        if table_name in tables_with_load_id:
-            metrics.append(
-                MonitorConfig(
-                    name=f"{name}_{sanitized}_freshness",
-                    source_table=f"{schema}.{table_name}",
-                    value_expression="MAX(_dlt_load_id)",
-                    compare=ComparisonType.none,
-                    alert_threshold=None,
-                )
-            )
+        # Freshness metrics intentionally omitted — source freshness is already
+        # displayed on /sources and /catalog pages.  In monitoring, freshness
+        # would produce identical history rows between syncs and has no
+        # meaningful comparison baseline.
     return metrics
 
 

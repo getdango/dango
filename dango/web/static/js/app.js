@@ -443,29 +443,35 @@ async function handleWebSocketMessage(data) {
                 console.log('✅ [WS] Suppressing toast - batch upload operation in progress');
             }
 
-            // sync_completed is the terminal event — clear sync state and update row
-            // (dbt_run_all_completed may have already done this; checks are idempotent)
-            if (activeSyncs.has(source)) {
-                activeSyncs.delete(source);
-                stopSyncTimer(source);
-                const btn = document.getElementById(`sync-btn-${source}`);
-                if (btn) btn.textContent = 'Sync Now';
-                updateSyncCounter();
-            }
-
-            // Update row with sync results
+            // Don't clear activeSyncs here — dbt runs after sync_completed.
+            // Let dbt_run_all_completed handle full cleanup so the timer and
+            // "Syncing..." state persist through the dbt phase.
             if (data.rows_loaded !== undefined) {
-                updateSourceRowAfterSync(source, {
+                syncResults.set(source, {
                     rows_loaded: data.rows_loaded,
                     timestamp: data.timestamp,
                     duration_seconds: data.duration_seconds,
                 });
-                syncResults.delete(source);
-            } else {
-                // No rows_loaded in event — refresh from backend
-                // Safe to call here: sync_completed is terminal, data is committed
-                if (!isLoadingSources) loadSources();
             }
+            // Fallback: if no dbt event arrives within 10s (sync-only mode),
+            // clean up the sync state so the button doesn't stay stuck.
+            setTimeout(() => {
+                if (activeSyncs.has(source)) {
+                    console.log('⏰ [WS] Fallback cleanup for sync-only:', source);
+                    activeSyncs.delete(source);
+                    stopSyncTimer(source);
+                    updateSyncCounter();
+                    const result = syncResults.get(source);
+                    if (result) {
+                        updateSourceRowAfterSync(source, result);
+                        syncResults.delete(source);
+                    } else {
+                        const btn = document.getElementById(`sync-btn-${source}`);
+                        if (btn) { btn.disabled = false; btn.textContent = 'Sync Now'; }
+                        if (!isLoadingSources) loadSources();
+                    }
+                }
+            }, 10000);
             break;
 
         case 'sync_failed':
@@ -1407,7 +1413,7 @@ function updateSourceStatus(sourceName, newStatus) {
         const syncBtn = document.getElementById(`sync-btn-${sourceName}`);
         if (syncBtn) {
             syncBtn.disabled = newStatus === 'syncing';
-            syncBtn.innerHTML = newStatus === 'syncing' ? 'Syncing...' : 'Sync Now &#9662;';
+            syncBtn.innerHTML = newStatus === 'syncing' ? 'Syncing...' : 'Sync Now';
         }
     } else {
         // Row doesn't exist yet - table hasn't been rendered
@@ -1449,7 +1455,7 @@ function updateSourceRowAfterSync(sourceName, result) {
     const syncBtn = document.getElementById(`sync-btn-${sourceName}`);
     if (syncBtn) {
         syncBtn.disabled = false;
-        syncBtn.innerHTML = 'Sync Now &#9662;';
+        syncBtn.innerHTML = 'Sync Now';
     }
 
     // Update sources array for consistency with future renders

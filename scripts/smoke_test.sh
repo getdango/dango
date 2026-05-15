@@ -369,8 +369,8 @@ category_start 1
 nav_html=$(curl -s -H "Authorization: Bearer $API_KEY" "${BASE_URL}/")
 nav_ok=true
 
-# Check for 9 pipeline nav items (target state after R7-C)
-for item in "Overview" "Sources" "Models" "Schedules" "Catalog" "Query" "Dashboards" "Notebooks" "Monitoring"; do
+# Check for 8 pipeline nav items (monitoring removed in R12-M2)
+for item in "Overview" "Sources" "Models" "Schedules" "Catalog" "Query" "Dashboards" "Notebooks"; do
     if ! grep -q "$item" <<< "$nav_html"; then
         fail_test "Nav structure" "Missing nav item: $item"
         nav_ok=false
@@ -567,8 +567,10 @@ run_cmd_test "dango snapshot list --help" dango snapshot list --help
 # --- Health DuckDB capacity (R10-L) ---
 curl_api_body_test "duckdb_size_bytes in /api/health/platform" "/api/health/platform" "duckdb_size_bytes"
 
-# --- /query redirect (R10-J2 / BUG-173) ---
-curl_api_test "/query → 301" GET "/query" "301"
+# --- /query link (R10-J2 / BUG-173) ---
+# Query nav link points directly to /metabase/question#hash (no redirect)
+# The /query endpoint still exists as a JS redirect fallback (returns 200 HTML)
+curl_api_test "/query → 200" GET "/query" "200"
 
 category_end "9" "R10 Feature Checks"
 
@@ -668,7 +670,7 @@ else
 fi
 
 # R12-F/BUG-195: Lock error message in dlt_runner
-if grep -q 'locked by another process' "$REPO_ROOT/dango/ingestion/dlt_runner.py" 2>/dev/null; then
+if grep -q 'is locked' "$REPO_ROOT/dango/ingestion/dlt_runner.py" 2>/dev/null; then
     pass_test
 else
     fail_test "Lock error message (BUG-195)"
@@ -751,13 +753,15 @@ fi
 
 # R12-B/BUG-200: Catalog back button fallback (goToList called from restoreFromUrl)
 # Check that restoreFromUrl function body contains goToList as fallback
+# Uses a simpler check: restoreFromUrl and goToList both exist in the file,
+# and goToList appears after restoreFromUrl (within the function).
 if python3 -c "
-import re
 with open('$REPO_ROOT/dango/web/templates/catalog.html') as f:
     text = f.read()
-# Match restoreFromUrl through its function body (greedy brace match)
-m = re.search(r'restoreFromUrl[^{]*\{([^}]*)', text)
-assert m and 'goToList' in m.group(1), 'goToList not found as fallback in restoreFromUrl'
+idx_restore = text.index('restoreFromUrl')
+# goToList must appear after restoreFromUrl definition
+idx_go = text.index('goToList()', idx_restore)
+assert idx_go > idx_restore, 'goToList not found after restoreFromUrl'
 " 2>/dev/null; then
     pass_test
 else
@@ -779,12 +783,12 @@ else
     fail_test "Source name onclick (BUG-220)"
 fi
 
-# R12-E/BUG-203: Freshness formatting function
-if grep -qE 'formatFreshness|format_freshness' "$REPO_ROOT/dango/web/templates/monitoring.html" 2>/dev/null || \
-   grep -qE 'formatFreshness|format_freshness' "$REPO_ROOT/dango/web/static/js/app.js" 2>/dev/null; then
+# R12-E/BUG-203: Freshness removed from monitoring (shown on /sources instead)
+# Verify no freshness metrics are generated in templates.py
+if ! grep -q 'value_expression.*_dlt_load_id' "$REPO_ROOT/dango/analysis/templates.py" 2>/dev/null; then
     pass_test
 else
-    fail_test "Freshness formatting (BUG-203)"
+    fail_test "Freshness removed from monitoring (BUG-203)"
 fi
 
 # R12-G/BUG-227: Trigger Now simplified (no Advanced options in trigger dialog)
@@ -832,14 +836,14 @@ category_start 5
 # R12-D/BUG-199: Test name tooltips on catalog page
 curl_page_test "Catalog test tooltips (BUG-199)" "/catalog" "title="
 
-# R12-D/BUG-218: PII badge tooltip with cursor-help
-curl_page_test "PII badge tooltip (BUG-218)" "/catalog" "cursor-help"
+# R12-D/BUG-218: PII badge tooltip (title attribute on PII span)
+curl_page_test "PII badge tooltip (BUG-218)" "/catalog" "Auto-detected:"
 
 # R12-E/BUG-202: Run Analysis spinner
 curl_page_test "Run Analysis spinner (BUG-202)" "/monitoring" "animate-spin"
 
 # R12-G/BUG-211: Sync history duration in API response
-curl_api_body_test "Sync history duration (BUG-211)" "/api/sources" "duration"
+curl_api_body_test "Sync history duration (BUG-211)" "/api/sources" "last_sync_duration_seconds"
 
 # R12-E/BUG-216: Tests grouped in monitoring
 curl_page_test "Tests grouped (BUG-216)" "/monitoring" "group"

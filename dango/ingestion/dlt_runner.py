@@ -2467,11 +2467,25 @@ def run_sync(
                 _display_dbt_output(dbt_output)
                 console.print("[green]✓ dbt models executed successfully[/green]")
 
+                # Preserve build results before docs generate (dbt overwrites
+                # run_results.json on every command including docs generate)
+                import shutil
+
+                build_results_path = project_root / "dbt" / "target" / "run_results.json"
+                build_results_backup = project_root / "dbt" / "target" / "build_results.json"
+                if build_results_path.exists():
+                    shutil.copy2(build_results_path, build_results_backup)
+
                 # Generate dbt docs
                 console.print("[dim]Generating dbt documentation...[/dim]")
                 from dango.transformation import generate_dbt_docs
 
                 docs_success, docs_output = generate_dbt_docs(project_root)
+
+                # Restore build results (with test data) after docs generate
+                if build_results_backup.exists():
+                    shutil.copy2(build_results_backup, build_results_path)
+                    build_results_backup.unlink()
                 if docs_success:
                     console.print("[green]✓ dbt docs generated[/green]")
                 else:

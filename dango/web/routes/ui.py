@@ -3,9 +3,7 @@
 UI page endpoints and API documentation.
 """
 
-import base64
 import hashlib
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -72,6 +70,40 @@ def _render_template(
             context["is_cloud"] = is_cloud_deployment(project_root)
         except Exception:
             context["is_cloud"] = False
+    if "query_hash" not in context:
+        try:
+            import base64
+            import json
+
+            project_root = Path(request.app.state.project_root)
+            mb_yml = project_root / ".dango" / "metabase.yml"
+            db_id = None
+            if mb_yml.exists():
+                mb_cfg = yaml.safe_load(mb_yml.read_text(encoding="utf-8"))
+                db_id = (mb_cfg or {}).get("database", {}).get("id")
+            context["query_hash"] = base64.b64encode(
+                json.dumps(
+                    {
+                        "dataset_query": {
+                            "lib/type": "mbql/query",
+                            "database": db_id,
+                            "stages": [
+                                {
+                                    "lib/type": "mbql.stage/native",
+                                    "native": "",
+                                    "template-tags": {},
+                                }
+                            ],
+                        },
+                        "display": "table",
+                        "visualization_settings": {},
+                        "type": "question",
+                    },
+                    separators=(",", ":"),
+                ).encode()
+            ).decode()
+        except Exception:
+            context["query_hash"] = ""
     try:
         return templates.TemplateResponse(
             request, template_name, context=context, status_code=status_code
@@ -201,8 +233,13 @@ async def insights_redirect() -> RedirectResponse:
 
 
 @router.get("/query")
-async def query_redirect(request: Request) -> RedirectResponse:
-    """Redirect /query to Metabase native SQL editor with database pre-selected."""
+async def query_redirect(request: Request) -> HTMLResponse:
+    """Redirect /query to Metabase native SQL editor with database pre-selected.
+
+    Uses client-side redirect because browsers strip hash fragments from
+    server-side 302 redirects.
+    """
+    target_url = "/metabase/"
     try:
         project_root = Path(request.app.state.project_root)
         metabase_yml = project_root / ".dango" / "metabase.yml"
@@ -210,23 +247,37 @@ async def query_redirect(request: Request) -> RedirectResponse:
             metabase_config = yaml.safe_load(metabase_yml.read_text(encoding="utf-8"))
             database_id = (metabase_config or {}).get("database", {}).get("id")
             if database_id:
+                import base64
+                import json
+
                 query_state = json.dumps(
                     {
                         "dataset_query": {
+                            "lib/type": "mbql/query",
                             "database": database_id,
-                            "type": "native",
-                            "native": {"query": "", "template-tags": {}},
+                            "stages": [
+                                {
+                                    "lib/type": "mbql.stage/native",
+                                    "native": "",
+                                    "template-tags": {},
+                                }
+                            ],
                         },
                         "display": "table",
                         "visualization_settings": {},
                         "type": "question",
-                    }
+                    },
+                    separators=(",", ":"),
                 )
                 encoded = base64.b64encode(query_state.encode()).decode()
-                return RedirectResponse(url=f"/metabase/question#{encoded}", status_code=302)
+                target_url = f"/metabase/question#{encoded}"
     except Exception:
-        pass  # Fall through to generic redirect
-    return RedirectResponse(url="/metabase/", status_code=302)
+        pass
+    # JavaScript redirect — meta refresh and 302 both strip hash fragments
+    return HTMLResponse(
+        f"<html><head><script>window.location.replace('{target_url}');</script></head>"
+        f'<body>Redirecting to <a href="{target_url}">SQL Editor</a>...</body></html>'
+    )
 
 
 @router.get("/api")

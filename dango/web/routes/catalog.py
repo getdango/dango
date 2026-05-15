@@ -272,9 +272,10 @@ def _build_test_status_map(
     if run_results:
         for r in run_results.get("results", []):
             uid = r.get("unique_id", "")
-            status = r.get("status", "")
-            if uid and status:
-                result_status[uid] = status
+            raw_status = r.get("status", "")
+            if uid and raw_status:
+                # dbt uses "success"; normalize to "pass" for display
+                result_status[uid] = "pass" if raw_status == "success" else raw_status
 
     test_map: dict[str, list[dict[str, str | None]]] = {}
     for uid, node in manifest.get("nodes", {}).items():
@@ -408,6 +409,8 @@ def _build_catalog_models(
         columns = src.get("columns", {})
         cols_documented = sum(1 for c in columns.values() if c.get("description"))
         tests = test_map.get(uid, [])
+        tests_passing = sum(1 for t in tests if t["status"] == "pass")
+        tests_failing = sum(1 for t in tests if t["status"] in ("fail", "error"))
 
         sources.append(
             {
@@ -418,6 +421,8 @@ def _build_catalog_models(
                 "description": src.get("description", ""),
                 "source_name": src.get("source_name", ""),
                 "test_count": len(tests),
+                "tests_passing": tests_passing,
+                "tests_failing": tests_failing,
                 "columns_total": len(columns),
                 "columns_documented": cols_documented,
             }
@@ -1022,13 +1027,19 @@ async def get_catalog_model(
     if db_path.exists() and schema and table:
         db_columns = await asyncio.to_thread(_get_model_column_schema, db_path, schema, table)
 
-    # For source tables, try to get profiled_at
+    # Get profiled_at — for source tables use source_name, for models derive from name
+    source_name = ""
     if kind == "source":
         source_name = target_node.get("source_name", "")
-        if source_name:
-            profiled_at = await asyncio.to_thread(
-                _get_profiled_at, project_root, source_name, table
-            )
+    else:
+        # Derive source from staging model name: stg_{source}__{table}
+        import re
+
+        m = re.match(r"^stg_([^_]+)__", table)
+        if m:
+            source_name = m.group(1)
+    if source_name:
+        profiled_at = await asyncio.to_thread(_get_profiled_at, project_root, source_name, table)
 
     result = _build_model_detail(
         manifest, run_results, target_uid, target_node, kind, db_columns, profiled_at
@@ -1052,8 +1063,8 @@ async def get_catalog_model(
         if row_count is not None:
             result["row_count"] = row_count
 
-    # BUG-134: Inject cached profiling stats for source tables
-    if kind == "source" and source_name and result.get("columns"):
+    # Inject cached profiling stats for any table with profiling data
+    if source_name and result.get("columns"):
         cached_stats = await asyncio.to_thread(_get_cached_stats, project_root, source_name, table)
         if cached_stats:
             for col in result["columns"]:
