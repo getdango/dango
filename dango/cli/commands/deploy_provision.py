@@ -627,21 +627,20 @@ def _create_admin_and_enable_auth(
         "sys.path.insert(0, '/srv/dango/project')\n"
         "os.chdir('/srv/dango/project')\n"
         "from pathlib import Path\n"
-        "from dango.auth.database import create_user, get_user_by_email, init_db, update_user\n"
+        "from dango.auth.database import create_user, get_user_by_email, update_user\n"
         "from dango.auth.models import Role, User, UserUpdate\n"
         "from dango.exceptions import UserExistsError\n"
         f"email = {email!r}\n"
         f"pw_hash = {pw_hash!r}\n"
         "db_path = Path('.dango/auth.db')\n"
-        "db_path.parent.mkdir(parents=True, exist_ok=True)\n"
-        "init_db(db_path)\n"
+        "# DB already initialized by server lifespan — just create/update user\n"
         "user = User(email=email, password_hash=pw_hash, role=Role.ADMIN)\n"
         "try:\n"
         "    create_user(db_path, user)\n"
         "except UserExistsError:\n"
         "    existing = get_user_by_email(db_path, email)\n"
         "    if existing:\n"
-        "        update_user(db_path, existing.id, UserUpdate(password_hash=pw_hash))\n"
+        "        update_user(db_path, existing.id, UserUpdate(password_hash=pw_hash, email=email))\n"
         # Write deploy token
         f"token = {deploy_token!r}\n"
         "state_dir = Path('.dango/state')\n"
@@ -650,11 +649,15 @@ def _create_admin_and_enable_auth(
     )
     encoded = base64.b64encode(script.encode()).decode()
 
-    ssh.exec_command(
-        f"sudo -u dango /srv/dango/venv/bin/python -c "
+    result = ssh.exec_command(
+        f"sudo -u dango /srv/dango/venv/bin/python3 -c "
         f"\"import base64; exec(base64.b64decode('{encoded}'))\"",
         timeout=30,
     )
+    if result.exit_code != 0:
+        raise CloudProvisioningError(
+            f"Admin account creation failed:\n{result.stderr or result.stdout}"
+        )
 
     # Persist admin email for systemd service (BUG-100)
     ssh.exec_command(
