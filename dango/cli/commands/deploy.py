@@ -527,11 +527,18 @@ def _destroy_do(
     import os
 
     if not os.environ.get("DIGITALOCEAN_TOKEN"):
-        console.print("[yellow]DIGITALOCEAN_TOKEN environment variable not set.[/yellow]")
-        token = click.prompt("Enter your DigitalOcean API token", hide_input=True)
-        if not token.strip():
-            raise SystemExit(1)
-        os.environ["DIGITALOCEAN_TOKEN"] = token.strip()
+        # Check saved credential before prompting
+        from dango.config.cloud_credentials import get_do_token
+
+        saved_token = get_do_token(project_root=project_root)
+        if saved_token:
+            os.environ["DIGITALOCEAN_TOKEN"] = saved_token
+        else:
+            console.print("[yellow]DIGITALOCEAN_TOKEN not found.[/yellow]")
+            token = click.prompt("Enter your DigitalOcean API token", hide_input=True)
+            if not token.strip():
+                raise SystemExit(1)
+            os.environ["DIGITALOCEAN_TOKEN"] = token.strip()
 
     from dango.platform.cloud.digitalocean import DigitalOceanClient
 
