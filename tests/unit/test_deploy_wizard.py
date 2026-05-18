@@ -366,7 +366,7 @@ class TestDomainRemoval:
         """_step_cost_summary works without domain parameter and shows billing disclaimer."""
         from dango.cli.commands.deploy_wizard import _step_cost_summary
 
-        with patch("dango.cli.commands.deploy_wizard.click.confirm", return_value=True):
+        with patch("dango.cli.commands.deploy_wizard.click.prompt", return_value="yes"):
             cost = _step_cost_summary("nyc1", "s-2vcpu-4gb", False)
         assert cost == 24
         output = capsys.readouterr().out

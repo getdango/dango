@@ -298,9 +298,9 @@
                                         <tr>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                                 <span x-text="col.name"></span>
-                                                <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800" :title="'Auto-detected: ' + (col._pii || '') + ' — Manage via CLI: dango governance pii-set'">PII ⚑</span>
-                                                <span x-show="col._pii && col._piiProvenance === 'confirmed'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800" :title="'Confirmed: ' + (col._pii || '')">PII ✓</span>
-                                                <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800" x-text="col._drift" :title="'Schema drift: ' + (col._drift || '')"></span>
+                                                <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800 catalog-tooltip" :data-tip="'Auto-detected: ' + (col._pii || '') + ' — Manage via CLI: dango governance pii-set'">PII ⚑</span>
+                                                <span x-show="col._pii && col._piiProvenance === 'confirmed'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800 catalog-tooltip" :data-tip="'Confirmed: ' + (col._pii || '')">PII ✓</span>
+                                                <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800 catalog-tooltip" x-text="col._drift" :data-tip="'Schema drift: ' + (col._drift || '')"></span>
                                             </td>
                                             <td class="px-6 py-4 whitespace-nowrap"><span class="col-type text-gray-600" x-text="col.type || '--'"></span></td>
                                             <td class="px-6 py-4 text-sm text-gray-500 hidden sm:table-cell" x-text="col.description || '--'"></td>
@@ -309,9 +309,9 @@
                                                 <template x-if="col.tests && col.tests.length > 0">
                                                     <div class="flex flex-wrap gap-1">
                                                         <template x-for="t in col.tests" :key="t.name">
-                                                            <span class="text-xs px-1.5 py-0.5 rounded truncate inline-block align-middle" style="max-width: 200px"
+                                                            <span class="text-xs px-1.5 py-0.5 rounded truncate inline-block align-middle catalog-tooltip" style="max-width: 200px"
                                                                   :class="t.status === 'pass' ? 'bg-green-100 text-green-800' : t.status === 'fail' || t.status === 'error' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'"
-                                                                  :title="t.name"
+                                                                  :data-tip="t.name"
                                                                   x-text="(t.status === 'pass' ? '✓ ' : t.status === 'fail' || t.status === 'error' ? '✗ ' : '') + t.name.replace(/^(not_null|unique|accepted_values)_/, '$1: ')"></span>
                                                         </template>
                                                     </div>

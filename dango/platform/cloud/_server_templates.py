@@ -77,6 +77,8 @@ User=dango
 Group=dango
 WorkingDirectory=/srv/dango/project
 Environment=DLT_DATA_DIR=/srv/dango/project/.dlt
+Environment=DANGO_CLOUD_MODE=true
+Environment=DANGO_SKIP_ENSURE_ADMIN=true
 ExecStart={exec_start}
 Restart=on-failure
 RestartSec=5

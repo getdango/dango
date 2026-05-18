@@ -27,27 +27,13 @@ logger = get_logger(__name__)
 def get_monitors_file_path(project_root: Path) -> Path:
     """Return the path to ``.dango/monitors.yml``.
 
-    If ``.dango/monitors.yml`` does not exist but ``.dango/metrics.yml`` does,
-    returns the legacy path for backward compatibility.  For new files,
-    returns the ``monitors.yml`` path.
-
     Args:
         project_root: Path to the Dango project root.
 
     Returns:
         Absolute path to the monitors configuration file.
     """
-    monitors_path = project_root / ".dango" / "monitors.yml"
-    if monitors_path.exists():
-        return monitors_path
-    legacy_path = project_root / ".dango" / "metrics.yml"
-    if legacy_path.exists():
-        return legacy_path
-    return monitors_path  # default for new files
-
-
-# Backward-compatible alias
-get_metrics_file_path = get_monitors_file_path
+    return project_root / ".dango" / "monitors.yml"
 
 
 def load_monitors_config(project_root: Path) -> MonitorsConfig:
@@ -78,10 +64,6 @@ def load_monitors_config(project_root: Path) -> MonitorsConfig:
         return MonitorsConfig(**data)
     except Exception as e:
         raise AnalysisConfigError(f"Invalid monitors configuration in {path}:\n{e}") from e
-
-
-# Backward-compatible alias
-load_metrics_config = load_monitors_config
 
 
 def save_monitors_config(
@@ -116,10 +98,6 @@ def save_monitors_config(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-# Backward-compatible alias
-save_metrics_config = save_monitors_config
-
-
 def add_monitors_to_config(
     project_root: Path,
     new_monitors: list[MonitorConfig],
@@ -144,7 +122,3 @@ def add_monitors_to_config(
     config = MonitorsConfig(enabled=existing.enabled, monitors=merged)
     save_monitors_config(project_root, config, header_comment=header_comment)
     return config
-
-
-# Backward-compatible alias
-add_metrics_to_config = add_monitors_to_config

@@ -15,7 +15,6 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
-from starlette.responses import RedirectResponse
 
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
@@ -54,10 +53,6 @@ class MonitorMetric(BaseModel):
     error: str | None = None
 
 
-# Backward-compatible alias
-InsightMetric = MonitorMetric
-
-
 class DbtTestResult(BaseModel):
     """A single dbt test result."""
 
@@ -78,10 +73,6 @@ class MonitoringResponse(BaseModel):
     total: int
     flagged: int
     dbt_tests: list[DbtTestResult] = []
-
-
-# Backward-compatible alias
-InsightsResponse = MonitoringResponse
 
 
 class HistoryPoint(BaseModel):
@@ -369,32 +360,3 @@ async def get_metric_history(
 
     data_points = await asyncio.to_thread(_query_history)
     return MetricHistoryResponse(metric=validated_metric, days=days, data_points=data_points)
-
-
-# ---------------------------------------------------------------------------
-# Backward-compatible redirects for old /api/insights* paths
-# ---------------------------------------------------------------------------
-
-
-@router.get("/api/insights")
-async def redirect_insights_get(
-    user: User = Depends(require_permission("governance.view")),
-) -> RedirectResponse:
-    """Redirect old GET /api/insights to /api/monitoring."""
-    return RedirectResponse(url="/api/monitoring", status_code=301)
-
-
-@router.post("/api/insights/run")
-async def redirect_insights_run(
-    user: User = Depends(require_permission("governance.view")),
-) -> RedirectResponse:
-    """Redirect old POST /api/insights/run to /api/monitoring/run."""
-    return RedirectResponse(url="/api/monitoring/run", status_code=307)
-
-
-@router.get("/api/insights/history")
-async def redirect_insights_history(
-    user: User = Depends(require_permission("governance.view")),
-) -> RedirectResponse:
-    """Redirect old GET /api/insights/history to /api/monitoring/history."""
-    return RedirectResponse(url="/api/monitoring/history", status_code=301)

@@ -31,7 +31,16 @@ def get_project_root() -> Path:
 
 
 def is_cloud_deployment(project_root: Path) -> bool:
-    """Check if this is a cloud deployment (cloud.yml exists)."""
+    """Check if this is a cloud deployment.
+
+    Returns ``True`` when the ``DANGO_CLOUD_MODE`` environment variable is
+    ``"true"`` (set in the systemd unit on the server) **or** when
+    ``.dango/cloud.yml`` exists locally.
+    """
+    import os
+
+    if os.environ.get("DANGO_CLOUD_MODE") == "true":
+        return True
     return (project_root / ".dango" / "cloud.yml").exists()
 
 
@@ -495,7 +504,8 @@ def get_source_freshness(source_name: str) -> dict[str, Any]:
     last_sync_time = last_sync.get("timestamp")
 
     # If last sync failed, mark as failed regardless of time
-    if last_sync_status != "success":
+    # "partial" still loaded some data — treat as having fresh data
+    if last_sync_status not in ("success", "partial"):
         return {
             "status": "failed",
             "hours_since_sync": None,
@@ -798,9 +808,11 @@ async def get_source_status_data(source: dict) -> SourceStatus:
     rows_processed = history[0].get("rows_processed", 0) if history else None
     last_sync_duration = history[0].get("duration_seconds") if history else None
 
-    # Determine status (priority: failed > synced > empty > not_synced)
+    # Determine status (priority: failed > partial > synced > empty > not_synced)
     if last_sync_status == "failed":
         status = "failed"
+    elif last_sync_status == "partial":
+        status = "partial"
     elif not history:
         # Never synced - no history at all
         status = "not_synced"

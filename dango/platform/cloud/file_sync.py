@@ -39,6 +39,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
+from dango.logging import get_logger
+
+_logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -244,7 +247,9 @@ def _upload_file_if_exists(
         return True
     # Ensure remote parent directory exists
     remote_dir = remote_path.rsplit("/", 1)[0]
-    ssh.exec_command(f"mkdir -p {remote_dir}")
+    mkdir_result = ssh.exec_command(f"mkdir -p {remote_dir}")
+    if mkdir_result.exit_code != 0:
+        _logger.warning("mkdir_failed", path=remote_dir, stderr=mkdir_result.stderr)
     ssh.upload_file(local_path, remote_path)
     return True
 
@@ -364,7 +369,13 @@ def sync_project_files(
         remote_dest = f"root@{remote_host}:{REMOTE_PROJECT_DIR}/{dbt_dir}"
         # Ensure remote directory exists before rsync
         if not dry_run:
-            ssh.exec_command(f"mkdir -p {REMOTE_PROJECT_DIR}/{dbt_dir}")
+            mkdir_result = ssh.exec_command(f"mkdir -p {REMOTE_PROJECT_DIR}/{dbt_dir}")
+            if mkdir_result.exit_code != 0:
+                _logger.warning(
+                    "mkdir_failed",
+                    path=f"{REMOTE_PROJECT_DIR}/{dbt_dir}",
+                    stderr=mkdir_result.stderr,
+                )
         _rsync_directory(local_dir, remote_dest, ssh_key_path, delete=True, dry_run=dry_run)
         synced_files.append(f"{dbt_dir}/")
     _notify(on_progress, "sync_dbt", "done")

@@ -165,7 +165,7 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
                 "Use --force to override."
             )
         # Remove stale or force-overridden lock before creating new one
-        ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")
+        ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")  # cleanup: silent OK
 
     now = datetime.now(tz=timezone.utc)
     expires = now + timedelta(minutes=LOCK_TIMEOUT_MINUTES)
@@ -183,7 +183,11 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
         }
     )
 
-    ssh.exec_command(f"mkdir -p {Path(DEPLOY_LOCK_PATH).parent}")
+    result = ssh.exec_command(f"mkdir -p {Path(DEPLOY_LOCK_PATH).parent}")
+    if result.exit_code != 0:
+        logger.warning(
+            "mkdir_failed", path=str(Path(DEPLOY_LOCK_PATH).parent), stderr=result.stderr
+        )
     # Atomic creation: noclobber (set -C) makes > fail if the file
     # already exists, preventing a concurrent deployer from silently
     # overwriting our lock.
@@ -201,17 +205,21 @@ def _acquire_lock(ssh: SSHManager, *, force: bool = False) -> DeployLock:
 
 def _release_lock(ssh: SSHManager) -> None:
     """Remove the deploy lock file from the remote server."""
-    ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")
+    ssh.exec_command(f"rm -f {DEPLOY_LOCK_PATH}")  # cleanup: silent OK
 
 
 def _stop_web_service(ssh: SSHManager) -> None:
     """Stop the dango-web systemd service."""
-    ssh.exec_command("systemctl stop dango-web || true", timeout=60)
+    result = ssh.exec_command("systemctl stop dango-web", timeout=60)
+    if result.exit_code != 0:
+        logger.warning("service_stop_failed", service="dango-web", stderr=result.stderr)
 
 
 def _start_web_service(ssh: SSHManager) -> None:
     """Start the dango-web systemd service."""
-    ssh.exec_command("systemctl start dango-web || true", timeout=60)
+    result = ssh.exec_command("systemctl start dango-web", timeout=60)
+    if result.exit_code != 0:
+        logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
 
 
 def _start_all_services(ssh: SSHManager, *, rebuild_docker: bool = False) -> None:
@@ -234,7 +242,9 @@ def _start_all_services(ssh: SSHManager, *, rebuild_docker: bool = False) -> Non
             "start metabase 2>/dev/null || true",
             timeout=120,
         )
-    ssh.exec_command("systemctl start dango-web || true", timeout=60)
+    result = ssh.exec_command("systemctl start dango-web", timeout=60)
+    if result.exit_code != 0:
+        logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
 
 
 def _validate_remote_sources(ssh: SSHManager) -> list[str]:
@@ -492,7 +502,11 @@ def push_deploy(
 
             # Step 5: Fix file ownership
             _notify(on_progress, "fix_ownership", "running")
-            ssh.exec_command(f"chown -R dango:dango {REMOTE_PROJECT_DIR}", timeout=60)
+            chown_result = ssh.exec_command(
+                f"chown -R dango:dango {REMOTE_PROJECT_DIR}", timeout=60
+            )
+            if chown_result.exit_code != 0:
+                logger.warning("chown_failed", path=REMOTE_PROJECT_DIR, stderr=chown_result.stderr)
             _notify(on_progress, "fix_ownership", "done")
 
             # Step 6: Validate sources

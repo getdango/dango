@@ -27,13 +27,15 @@ from dango.cli import console
 
 
 def _safe_confirm(prompt: str, default: bool = True, *, non_interactive: bool = False) -> bool:
-    """Wrap ``click.confirm`` with a non-interactive bypass.
+    """Prompt with ``(yes/no)`` format and a non-interactive bypass.
 
     When *non_interactive* is ``True``, returns *default* without prompting.
     """
     if non_interactive:
         return default
-    return click.confirm(prompt, default=default)
+    default_str = "yes" if default else "no"
+    result = click.prompt(f"{prompt} (yes/no)", default=default_str, show_default=True)
+    return str(result).lower().strip() in ("yes", "y")
 
 
 # ---------------------------------------------------------------------------
@@ -96,11 +98,8 @@ def _step_prereqs(project_root: Path) -> None:
     if token and not token_from_env:
         # BUG-238a: Show token suffix and allow changing (stored credential)
         masked = f"...{token[-4:]}"
-        change = click.confirm(
-            f"  Using DigitalOcean token ending in {masked}. Change?",
-            default=False,
-        )
-        if change:
+        keep = _safe_confirm(f"  Keep DigitalOcean token ending in {masked}?", default=True)
+        if not keep:
             new_token = click.prompt("  Enter new DigitalOcean API token", hide_input=True)
             if new_token.strip():
                 token = new_token.strip()
@@ -303,17 +302,8 @@ def _step_admin() -> tuple[str, str]:
 
     import secrets
 
-    from rich.panel import Panel
-
     password = secrets.token_urlsafe(16)
-    console.print(
-        Panel(
-            f"[bold]Admin password:[/bold] {password}\n\n"
-            "[yellow]Save this password now — it will not be shown again.[/yellow]",
-            title="Generated Admin Password",
-            border_style="green",
-        )
-    )
+    console.print("  [dim]Admin password will be shown at the end of deployment.[/dim]")
 
     return email, password
 

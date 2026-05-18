@@ -217,6 +217,30 @@ def run_manual_sync(
             "error": error_msg,
         }
 
+    # --- Stop Metabase on cloud to release DuckDB read lock ---
+    # Metabase's JDBC driver acquires fcntl read locks even on :ro Docker
+    # volumes.  These read locks block DuckDB write locks needed by dlt.
+    _cloud_mode = os.environ.get("DANGO_CLOUD_MODE") == "true"
+    if _cloud_mode:
+        _progress("metabase_stop", "Pausing Metabase for sync")
+        try:
+            import subprocess as _sp
+
+            _sp.run(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(project_root / "docker-compose.yml"),
+                    "stop",
+                    "metabase",
+                ],
+                capture_output=True,
+                timeout=60,
+            )
+        except Exception:
+            logger.debug("metabase_stop_before_sync_failed", exc_info=True)
+
     try:
         # Reload config (may have been loaded above for OAuth, but safe to reload)
         config = load_config(project_root)
@@ -319,6 +343,25 @@ def run_manual_sync(
                 lock.release()
             except Exception:
                 pass
+        # --- Restart Metabase on cloud ---
+        if _cloud_mode:
+            try:
+                import subprocess as _sp
+
+                _sp.run(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(project_root / "docker-compose.yml"),
+                        "start",
+                        "metabase",
+                    ],
+                    capture_output=True,
+                    timeout=120,
+                )
+            except Exception:
+                logger.debug("metabase_start_after_sync_failed", exc_info=True)
 
 
 if __name__ == "__main__":

@@ -204,34 +204,6 @@ async def catalog_page(
     )
 
 
-@router.get("/monitoring")
-async def monitoring_page(
-    request: Request,
-    user: User = Depends(require_permission("governance.view")),
-) -> HTMLResponse:
-    """Serve the monitoring page."""
-    log_auth_event(
-        AuditEvent.MONITORING_VIEWED,
-        user_id=user.id,
-        email=user.email,
-    )
-    return _render_template(
-        request,
-        "monitoring.html",
-        {
-            "version": dango.__version__,
-            "current_page": "monitoring",
-            "subtitle": "Monitoring",
-        },
-    )
-
-
-@router.get("/insights")
-async def insights_redirect() -> RedirectResponse:
-    """Redirect old /insights to /monitoring."""
-    return RedirectResponse(url="/monitoring", status_code=301)
-
-
 @router.get("/query")
 async def query_redirect(request: Request) -> HTMLResponse:
     """Redirect /query to Metabase native SQL editor with database pre-selected.

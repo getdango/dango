@@ -74,7 +74,9 @@ def write_remote_journal(ssh: SSHManager, record: DeploymentRecord) -> None:
         json_str = json.dumps(asdict(record))
         parent = str(Path(_REMOTE_JOURNAL).parent)
         cmd = f"mkdir -p {parent} && echo {shlex.quote(json_str)} >> {_REMOTE_JOURNAL}"
-        ssh.exec_command(cmd)
+        result = ssh.exec_command(cmd)
+        if result.exit_code != 0:
+            logger.warning("remote_journal_write_failed", stderr=result.stderr)
     except Exception:  # noqa: BLE001
         logger.warning("Failed to write remote deployment journal", exc_info=True)
 

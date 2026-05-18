@@ -21,6 +21,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from dango.exceptions import CloudError, CloudProvisioningError
+from dango.logging import get_logger
+
+_logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from dango.platform.cloud.digitalocean import DigitalOceanClient
@@ -90,7 +93,7 @@ def _upload_backup_to_spaces(
             timeout=600,
         )
     finally:
-        ssh.exec_command(f"rm -f {script_path}")
+        ssh.exec_command(f"rm -f {script_path}")  # cleanup: silent OK
 
     if not result.success:
         raise CloudProvisioningError(
@@ -137,7 +140,7 @@ def _download_backup_from_spaces(
             timeout=600,
         )
     finally:
-        ssh.exec_command(f"rm -f {script_path}")
+        ssh.exec_command(f"rm -f {script_path}")  # cleanup: silent OK
 
     if not result.success:
         raise CloudProvisioningError(
@@ -167,7 +170,9 @@ def _copy_secrets_between_servers(
             continue
         # Ensure parent directory exists on new server
         parent_dir = remote_path.rsplit("/", 1)[0]
-        new_ssh.exec_command(f"mkdir -p {parent_dir}")
+        mkdir_result = new_ssh.exec_command(f"mkdir -p {parent_dir}")
+        if mkdir_result.exit_code != 0:
+            _logger.warning("mkdir_failed", path=parent_dir, stderr=mkdir_result.stderr)
         new_ssh.write_remote_file(remote_path, content.stdout, mode=0o600)
     return warnings
 

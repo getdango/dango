@@ -277,6 +277,7 @@ def _handle_do_deploy_with_config(
         url=result.url,
         ip=result.droplet_ip,
         admin_email=config.admin_email,
+        admin_password=result.admin_password,
         warnings=result.warnings,
         skip_initial_sync=config.skip_initial_sync,
         domain=config.domain,
@@ -289,6 +290,7 @@ def _print_byos_success(result: Any, config: Any) -> None:
         url=result.url,
         ip=result.server_ip,
         admin_email=config.admin_email,
+        admin_password=result.admin_password,
         warnings=result.warnings,
         skip_initial_sync=config.skip_initial_sync,
         domain=config.domain,
@@ -300,15 +302,19 @@ def _print_deploy_success(
     url: str,
     ip: str,
     admin_email: str,
+    admin_password: str = "",
     warnings: list[str],
     skip_initial_sync: bool,
     domain: str | None = None,
 ) -> None:
     """Print deployment success output (shared by DO and BYOS paths)."""
     console.print("\n[bold green]Deployment complete![/bold green]")
-    console.print(f"  URL:    {url}")
-    console.print(f"  IP:     {ip}")
-    console.print(f"  Admin:  {admin_email}")
+    console.print(f"  URL:      {url}")
+    console.print(f"  IP:       {ip}")
+    console.print(f"  Admin:    {admin_email}")
+    if admin_password:
+        console.print(f"  Password: {admin_password}")
+        console.print("  [dim]Save this password — it will not be shown again.[/dim]")
     if domain:
         console.print(f"\n  [bold]DNS setup:[/bold] Point an A record for {domain} to {ip}")
     if warnings:
@@ -319,6 +325,10 @@ def _print_deploy_success(
         console.print("  Initial data sync is running in the background.")
     if not domain:
         console.print("\n  To add a custom domain: [bold]dango remote domain set <domain>[/bold]")
+
+    import webbrowser
+
+    webbrowser.open(url)
 
 
 def _load_deploy_config(ctx: click.Context) -> tuple[Any, Path]:

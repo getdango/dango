@@ -343,7 +343,7 @@ class TestProvisionSequence:
             patch("dango.platform.cloud.server_setup.setup_server") as mock_setup,
             patch("dango.platform.cloud.file_sync.sync_project_files"),
             patch("dango.platform.cloud.provisioning.save_provisioning_metadata"),
-            patch("dango.cli.commands.deploy_provision.click.confirm", return_value=True),
+            patch("dango.cli.commands.deploy_wizard._safe_confirm", return_value=True),
         ):
             mock_setup.return_value = MagicMock(warnings=[])
             mock_ssh.generate_key_pair.return_value = "ssh-ed25519 AAAA..."
@@ -693,7 +693,7 @@ class TestConfirmSecretsPush:
         (project_root / ".env").write_text("KEY=val\n")
 
         warnings: list[str] = []
-        with patch("dango.cli.commands.deploy_provision.click.confirm", return_value=True):
+        with patch("dango.cli.commands.deploy_wizard._safe_confirm", return_value=True):
             result = _confirm_secrets_push(project_root, warnings)
 
         assert result is True
@@ -706,7 +706,7 @@ class TestConfirmSecretsPush:
         (dlt_dir / "secrets.toml").write_text("[sources]\n")
 
         warnings: list[str] = []
-        with patch("dango.cli.commands.deploy_provision.click.confirm", return_value=False):
+        with patch("dango.cli.commands.deploy_wizard._safe_confirm", return_value=False):
             result = _confirm_secrets_push(project_root, warnings)
 
         assert result is False
@@ -784,7 +784,7 @@ class TestAdminUpsertSemantics:
         import inspect
 
         source = inspect.getsource(_create_admin_and_enable_auth)
-        assert "UserUpdate(password_hash=pw_hash)" in source, (
+        assert "UserUpdate(password_hash=pw_hash" in source, (
             "Must update password_hash with wizard-provided password on race condition"
         )
 
@@ -804,7 +804,7 @@ class TestNonInteractiveConfirm:
 
         warnings: list[str] = []
         # Should NOT call click.confirm at all
-        with patch("dango.cli.commands.deploy_provision.click.confirm") as mock_confirm:
+        with patch("dango.cli.commands.deploy_wizard._safe_confirm") as mock_confirm:
             result = _confirm_secrets_push(project_root, warnings, non_interactive=True)
 
         assert result is True
@@ -900,7 +900,7 @@ class TestProjectRootResolved:
             patch("dango.platform.cloud.server_setup.setup_server") as mock_setup,
             patch("dango.platform.cloud.file_sync.sync_project_files"),
             patch("dango.platform.cloud.provisioning.save_provisioning_metadata"),
-            patch("dango.cli.commands.deploy_provision.click.confirm", return_value=True),
+            patch("dango.cli.commands.deploy_wizard._safe_confirm", return_value=True),
             patch("httpx.get") as mock_get,
             patch("dango.cli.commands.deploy_provision.time.sleep"),
         ):

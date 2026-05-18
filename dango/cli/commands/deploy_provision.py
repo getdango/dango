@@ -19,8 +19,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import click
-
 from dango.cli import console
 from dango.cli.commands.deploy_wizard import _EMAIL_RE, BYOSConfig, WizardConfig
 from dango.exceptions import CloudProvisioningError
@@ -86,6 +84,7 @@ class ProvisionResult:
     ssh_key_id: int
     domain: str | None = None
     url: str = ""
+    admin_password: str = ""
     warnings: list[str] = field(default_factory=list)
 
 
@@ -96,6 +95,7 @@ class BYOSResult:
     server_ip: str
     domain: str | None = None
     url: str = ""
+    admin_password: str = ""
     warnings: list[str] = field(default_factory=list)
 
 
@@ -292,6 +292,16 @@ def run_provisioning(
         finally:
             ssh.disconnect()
 
+        # --- Sub-step 10c: Trigger Metabase setup ---
+        # Restart the service so lifespan setup_metabase_if_needed runs with
+        # the correct admin email (DANGO_ADMIN_EMAIL) in the environment.
+        _status("Configuring Metabase...")
+        ssh.connect(droplet_ip, username="root")
+        try:
+            _trigger_metabase_setup(ssh, config.admin_email)
+        finally:
+            ssh.disconnect()
+
         url = f"https://{config.domain}" if config.domain else f"http://{droplet_ip}"
         health_ok = _health_check(url, timeout=60, interval=5)
         if not health_ok:
@@ -315,6 +325,7 @@ def run_provisioning(
             ssh_key_id=ssh_key_id,
             domain=config.domain,
             url=url,
+            admin_password=config.admin_password,
             warnings=warnings,
         )
 
@@ -461,6 +472,14 @@ def run_byos_setup(
         finally:
             ssh.disconnect()
 
+        # --- Sub-step 6c: Trigger Metabase setup ---
+        _status("Configuring Metabase...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            _trigger_metabase_setup(ssh, config.admin_email)
+        finally:
+            ssh.disconnect()
+
         url = f"https://{config.domain}" if config.domain else f"http://{config.server_ip}"
         health_ok = _health_check(url, timeout=60, interval=5)
         if not health_ok:
@@ -481,6 +500,7 @@ def run_byos_setup(
             server_ip=config.server_ip,
             domain=config.domain,
             url=url,
+            admin_password=config.admin_password,
             warnings=warnings,
         )
 
@@ -563,7 +583,9 @@ def _confirm_secrets_push(
         console.print(f"  - {f}")
     console.print()
 
-    if not click.confirm("Push these secrets to the server?", default=True):
+    from dango.cli.commands.deploy_wizard import _safe_confirm
+
+    if not _safe_confirm("Push these secrets to the server?", default=True):
         console.print("[yellow]Skipped secrets push.[/yellow]")
         warnings.append("Secrets push skipped by user.")
         return False
@@ -634,13 +656,13 @@ def _create_admin_and_enable_auth(
         f"pw_hash = {pw_hash!r}\n"
         "db_path = Path('.dango/auth.db')\n"
         "# DB already initialized by server lifespan — just create/update user\n"
-        "user = User(email=email, password_hash=pw_hash, role=Role.ADMIN)\n"
+        "user = User(email=email, password_hash=pw_hash, role=Role.ADMIN, must_change_password=True)\n"
         "try:\n"
         "    create_user(db_path, user)\n"
         "except UserExistsError:\n"
         "    existing = get_user_by_email(db_path, email)\n"
         "    if existing:\n"
-        "        update_user(db_path, existing.id, UserUpdate(password_hash=pw_hash, email=email))\n"
+        "        update_user(db_path, existing.id, UserUpdate(password_hash=pw_hash, email=email, must_change_password=True))\n"
         # Write deploy token
         f"token = {deploy_token!r}\n"
         "state_dir = Path('.dango/state')\n"
@@ -697,6 +719,30 @@ def _create_admin_and_enable_auth(
     ssh.exec_command("chown -R dango:dango /srv/dango/project/.dango")
 
     return deploy_token
+
+
+def _trigger_metabase_setup(ssh: Any, admin_email: str) -> None:
+    """Trigger Metabase setup on the remote server.
+
+    The deploy script sets ``DANGO_ADMIN_EMAIL`` in the server ``.env`` and
+    restarts the ``dango-web`` service so that the lifespan
+    ``setup_metabase_if_needed`` runs with the correct admin email already
+    in the environment.
+    """
+    # Ensure admin email is in server .env for Metabase setup
+    ssh.exec_command(
+        f"grep -q '^DANGO_ADMIN_EMAIL=' /srv/dango/project/.env 2>/dev/null "
+        f"|| echo 'DANGO_ADMIN_EMAIL={admin_email}' >> /srv/dango/project/.env"
+    )
+    ssh.exec_command("chown dango:dango /srv/dango/project/.env 2>/dev/null; true")
+
+    # Restart dango-web so lifespan re-runs setup_metabase_if_needed
+    result = ssh.exec_command("systemctl restart dango-web", timeout=120)
+    if result.exit_code != 0:
+        _logger.warning(
+            "metabase_setup_restart_failed",
+            stderr=result.stderr,
+        )
 
 
 def _setup_backups(

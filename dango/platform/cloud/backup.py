@@ -16,6 +16,9 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from dango.exceptions import CloudProvisioningError
+from dango.logging import get_logger
+
+_logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -115,20 +118,28 @@ def stop_services(ssh: SSHManager) -> None:
 
     Best-effort — does not raise if services are already stopped.
     """
-    ssh.exec_command("systemctl stop dango-web || true", timeout=60)
-    ssh.exec_command(
+    result = ssh.exec_command("systemctl stop dango-web", timeout=60)
+    if result.exit_code != 0:
+        _logger.warning("service_stop_failed", service="dango-web", stderr=result.stderr)
+    result = ssh.exec_command(
         f"docker compose -f {PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
         timeout=120,
     )
+    if result.exit_code != 0:
+        _logger.warning("service_stop_failed", service="metabase", stderr=result.stderr)
 
 
 def start_services(ssh: SSHManager) -> None:
     """Start Metabase then dango-web (reverse order of stop)."""
-    ssh.exec_command(
+    result = ssh.exec_command(
         f"docker compose -f {PROJECT_DIR}/docker-compose.yml start metabase 2>/dev/null || true",
         timeout=120,
     )
-    ssh.exec_command("systemctl start dango-web || true", timeout=60)
+    if result.exit_code != 0:
+        _logger.warning("service_start_failed", service="metabase", stderr=result.stderr)
+    result = ssh.exec_command("systemctl start dango-web", timeout=60)
+    if result.exit_code != 0:
+        _logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
 
 
 def _checkpoint_duckdb(ssh: SSHManager) -> bool:
@@ -250,7 +261,7 @@ def _create_archive(
             step="copy_manifest",
         )
     finally:
-        ssh.exec_command(f"rm -rf {staging}")
+        ssh.exec_command(f"rm -rf {staging}")  # cleanup: silent OK
 
     return archive_path, manifest
 
@@ -458,7 +469,7 @@ def restore_from_archive(
         _run_checked(ssh, "chown -R dango:dango /srv/dango/project", step="fix_ownership")
         _notify(on_progress, "fix_ownership", "done")
 
-        ssh.exec_command(f"rm -rf {staging}")
+        ssh.exec_command(f"rm -rf {staging}")  # cleanup: silent OK
     finally:
         _notify(on_progress, "start_services", "running")
         start_services(ssh)
@@ -490,6 +501,8 @@ def rotate_local_backups(ssh: SSHManager, keep: int = MAX_LOCAL_BACKUPS) -> int:
         return 0
     deleted = 0
     for archive in archives[keep:]:
-        ssh.exec_command(f"rm -f {archive} {archive.replace('.tar.gz', '.json')}")
+        ssh.exec_command(
+            f"rm -f {archive} {archive.replace('.tar.gz', '.json')}"
+        )  # cleanup: silent OK
         deleted += 1
     return deleted

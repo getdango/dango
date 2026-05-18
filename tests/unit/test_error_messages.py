@@ -136,7 +136,7 @@ class TestDbtErrorMessages:
         success, output = run_dbt_models(Path("/tmp/fake"))
         assert not success
         _assert_structured(output)
-        assert "dbt run failed" in output
+        assert "dbt build failed" in output
 
     @patch("dango.transformation.subprocess.run")
     @patch("dango.transformation._get_dbt_executable", return_value="dbt")

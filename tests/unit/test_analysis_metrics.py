@@ -133,10 +133,10 @@ class TestRunAnalysis:
     """run_analysis orchestration."""
 
     def _write_config(self, tmp_path, yaml_content):
-        """Write metrics.yml config."""
+        """Write monitors.yml config."""
         dango_dir = tmp_path / ".dango"
         dango_dir.mkdir(exist_ok=True)
-        (dango_dir / "metrics.yml").write_text(yaml_content)
+        (dango_dir / "monitors.yml").write_text(yaml_content)
 
     def _create_warehouse(self, tmp_path):
         """Create a minimal DuckDB warehouse file."""

@@ -662,7 +662,14 @@ class TestResolveInstallSource:
         mock_dist = MagicMock()
         mock_dist.read_text.return_value = None
 
-        with patch("importlib.metadata.distribution", return_value=mock_dist):
+        # Also mock subprocess.run so the git-repo fallback doesn't trigger
+        mock_proc = MagicMock()
+        mock_proc.returncode = 128  # not a git repo
+
+        with (
+            patch("importlib.metadata.distribution", return_value=mock_dist),
+            patch("subprocess.run", return_value=mock_proc),
+        ):
             source_type, pip_arg = resolve_install_source()
 
         assert source_type == "pypi"
@@ -742,13 +749,13 @@ class TestResolveInstallSource:
 
 @pytest.mark.unit
 class TestNormalizeGitUrl:
-    """BUG-249: SSH shorthand URLs must be converted to pip-compatible ssh:// form."""
+    """BUG-249: SSH URLs must be converted to HTTPS for remote server installs."""
 
     def test_ssh_shorthand_converted(self):
         from dango.platform.cloud.server_setup import _normalize_git_url
 
         result = _normalize_git_url("git@github.com:getdango/dango.git")
-        assert result == "ssh://git@github.com/getdango/dango.git"
+        assert result == "https://github.com/getdango/dango.git"
 
     def test_https_unchanged(self):
         from dango.platform.cloud.server_setup import _normalize_git_url
@@ -756,11 +763,11 @@ class TestNormalizeGitUrl:
         url = "https://github.com/getdango/dango"
         assert _normalize_git_url(url) == url
 
-    def test_ssh_protocol_unchanged(self):
+    def test_ssh_protocol_converted_to_https(self):
         from dango.platform.cloud.server_setup import _normalize_git_url
 
         url = "ssh://git@github.com/getdango/dango.git"
-        assert _normalize_git_url(url) == url
+        assert _normalize_git_url(url) == "https://github.com/getdango/dango.git"
 
     def test_no_at_sign_unchanged(self):
         from dango.platform.cloud.server_setup import _normalize_git_url
@@ -771,10 +778,10 @@ class TestNormalizeGitUrl:
 
 @pytest.mark.unit
 class TestSshRemoteConversion:
-    """BUG-249: SSH remotes in vcs_info and editable installs produce ssh:// URLs."""
+    """BUG-249: SSH remotes in vcs_info and editable installs produce HTTPS URLs."""
 
     def test_ssh_remote_converted_in_vcs_info(self):
-        """SSH shorthand in vcs_info is normalized to ssh://."""
+        """SSH shorthand in vcs_info is normalized to HTTPS."""
         import json
         from unittest.mock import MagicMock, patch
 
@@ -793,10 +800,10 @@ class TestSshRemoteConversion:
             source_type, pip_arg = resolve_install_source()
 
         assert source_type == "git"
-        assert pip_arg == "git+ssh://git@github.com/getdango/dango.git@abc123#egg=getdango"
+        assert pip_arg == "git+https://github.com/getdango/dango.git@abc123#egg=getdango"
 
     def test_ssh_remote_converted_in_editable(self):
-        """SSH shorthand in editable install is normalized to ssh://."""
+        """SSH shorthand in editable install is normalized to HTTPS."""
         import json
         from unittest.mock import MagicMock, patch
 
@@ -821,7 +828,7 @@ class TestSshRemoteConversion:
             source_type, pip_arg = resolve_install_source()
 
         assert source_type == "git"
-        assert pip_arg == "git+ssh://git@github.com/getdango/dango.git@def456#egg=getdango"
+        assert pip_arg == "git+https://github.com/getdango/dango.git@def456#egg=getdango"
 
 
 # ---------------------------------------------------------------------------
