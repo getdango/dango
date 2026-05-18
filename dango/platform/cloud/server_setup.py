@@ -510,16 +510,25 @@ def _setup_ufw(
 
 
 def _normalize_git_url(url: str) -> str:
-    """Convert SSH-format Git URLs to pip-compatible ``ssh://`` URLs.
+    """Convert SSH-format Git URLs to HTTPS for remote server installs.
 
-    ``git@github.com:org/repo.git`` → ``ssh://git@github.com/org/repo.git``
+    ``git@github.com:org/repo.git`` → ``https://github.com/org/repo.git``
 
-    HTTPS and already-normalized URLs are returned unchanged.
+    Remote servers typically lack SSH keys for GitHub. HTTPS works for
+    public repos and repos with token auth.  Already-HTTPS URLs are
+    returned unchanged.
     """
-    # SSH shorthand: user@host:path (no ://)
+    # SSH shorthand: git@github.com:org/repo.git
     if "://" not in url and ":" in url and "@" in url.split(":")[0]:
         host_part, path_part = url.split(":", 1)
-        return f"ssh://{host_part}/{path_part}"
+        host = host_part.split("@", 1)[1] if "@" in host_part else host_part
+        return f"https://{host}/{path_part}"
+    # ssh:// URL
+    if url.startswith("ssh://"):
+        stripped = url[len("ssh://") :]
+        if "@" in stripped:
+            stripped = stripped.split("@", 1)[1]
+        return f"https://{stripped}"
     return url
 
 
@@ -548,8 +557,33 @@ def resolve_install_source() -> tuple[str, str]:
 
     raw = dist.read_text("direct_url.json")
     if raw is None:
-        # Standard PyPI install
+        # No direct_url.json — could be PyPI or an editable install without
+        # metadata (e.g., worktree installs).  Check if the package source
+        # is inside a git repo.
+        from pathlib import Path as _Path
+
         import dango
+
+        pkg_dir = str(_Path(dango.__file__).resolve().parent)
+        try:
+            remote = subprocess.run(  # noqa: S603, S607
+                ["git", "-C", pkg_dir, "remote", "get-url", "origin"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            head = subprocess.run(  # noqa: S603, S607
+                ["git", "-C", pkg_dir, "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if remote.returncode == 0 and head.returncode == 0:
+                url = remote.stdout.strip()
+                commit = head.stdout.strip()
+                return ("git", f"git+{_normalize_git_url(url)}@{commit}#egg=getdango")
+        except Exception:
+            pass
 
         return ("pypi", f"getdango=={dango.__version__}")
 
