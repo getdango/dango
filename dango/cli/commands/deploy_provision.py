@@ -233,15 +233,7 @@ def run_provisioning(
             finally:
                 ssh.disconnect()
 
-        # --- Sub-step 8: Create admin + enable auth ---
-        _status("Creating admin account and enabling auth...")
-        ssh.connect(droplet_ip, username="root")
-        try:
-            deploy_token = _create_admin_and_enable_auth(
-                ssh, config.admin_email, config.admin_password
-            )
-        finally:
-            ssh.disconnect()
+        # --- Sub-step 8: (moved after service start — see sub-step 10b) ---
 
         # --- Sub-step 9: Setup backups (if opted in) ---
         if config.enable_backups and config.spaces_access_key and config.spaces_secret_key:
@@ -284,6 +276,19 @@ def run_provisioning(
         ssh.connect(droplet_ip, username="root")
         try:
             _start_services(ssh)
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 10b: Create admin + enable auth ---
+        # Must run AFTER services start: the lifespan ensure_admin may create
+        # a default admin with a random password.  This step updates it to the
+        # wizard-chosen password (handles UserExistsError via update_user).
+        _status("Creating admin account and enabling auth...")
+        ssh.connect(droplet_ip, username="root")
+        try:
+            deploy_token = _create_admin_and_enable_auth(
+                ssh, config.admin_email, config.admin_password
+            )
         finally:
             ssh.disconnect()
 
@@ -421,15 +426,7 @@ def run_byos_setup(
             finally:
                 ssh.disconnect()
 
-        # --- Sub-step 4: Create admin + enable auth ---
-        _status("Creating admin account and enabling auth...")
-        ssh.connect(config.server_ip, username=config.ssh_user)
-        try:
-            deploy_token = _create_admin_and_enable_auth(
-                ssh, config.admin_email, config.admin_password
-            )
-        finally:
-            ssh.disconnect()
+        # --- Sub-step 4: (moved after service start — see sub-step 6b) ---
 
         # --- Sub-step 5: Save cloud.yml ---
         _status("Saving deployment configuration...")
@@ -450,6 +447,17 @@ def run_byos_setup(
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
             _start_services(ssh)
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 6b: Create admin + enable auth ---
+        # Must run AFTER services start (see DO path comment for rationale).
+        _status("Creating admin account and enabling auth...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            deploy_token = _create_admin_and_enable_auth(
+                ssh, config.admin_email, config.admin_password
+            )
         finally:
             ssh.disconnect()
 
