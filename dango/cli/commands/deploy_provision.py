@@ -303,7 +303,8 @@ def run_provisioning(
             ssh.disconnect()
 
         url = f"https://{config.domain}" if config.domain else f"http://{droplet_ip}"
-        health_ok = _health_check(url, timeout=60, interval=5)
+        _status("Waiting for server to become ready...")
+        health_ok = _health_check(url, timeout=180, interval=5)
         if not health_ok:
             warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
 
@@ -481,7 +482,8 @@ def run_byos_setup(
             ssh.disconnect()
 
         url = f"https://{config.domain}" if config.domain else f"http://{config.server_ip}"
-        health_ok = _health_check(url, timeout=60, interval=5)
+        _status("Waiting for server to become ready...")
+        health_ok = _health_check(url, timeout=180, interval=5)
         if not health_ok:
             warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
 

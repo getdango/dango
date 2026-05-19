@@ -118,7 +118,7 @@ PERFORMANCE_TIER = DropletSizeTier(
     price_monthly=48,
 )
 
-SIZE_TIERS: list[DropletSizeTier] = [BUDGET_TIER, STANDARD_TIER, PERFORMANCE_TIER]
+SIZE_TIERS: list[DropletSizeTier] = [STANDARD_TIER, PERFORMANCE_TIER]
 DEFAULT_TIER: DropletSizeTier = STANDARD_TIER
 
 _TIER_BY_SLUG: dict[str, DropletSizeTier] = {t.slug: t for t in SIZE_TIERS}

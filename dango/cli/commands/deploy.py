@@ -326,9 +326,10 @@ def _print_deploy_success(
     if not domain:
         console.print("\n  To add a custom domain: [bold]dango remote domain set <domain>[/bold]")
 
-    import webbrowser
+    if not warnings:
+        import webbrowser
 
-    webbrowser.open(url)
+        webbrowser.open(url)
 
 
 def _load_deploy_config(ctx: click.Context) -> tuple[Any, Path]:
