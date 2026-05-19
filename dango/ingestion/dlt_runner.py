@@ -585,11 +585,12 @@ class DltPipelineRunner:
         )
 
         return {
+            **result,
             "status": result.get("status", "success"),
             "source": source_config.name,
             "rows_loaded": result.get("total_rows", 0),
             "files_processed": result.get("new", 0) + result.get("updated", 0),
-            **result,
+            "uses_replace_mode": True,  # CSV sources always do full refresh
         }
 
     def _run_local_files_source(
@@ -639,11 +640,12 @@ class DltPipelineRunner:
         )
 
         return {
+            **result,
             "status": result.get("status", "success"),
             "source": source_config.name,
             "rows_loaded": result.get("total_rows", 0),
             "files_processed": result.get("new", 0) + result.get("updated", 0),
-            **result,
+            "uses_replace_mode": True,  # Local file sources always do full refresh
         }
 
     def _run_dlt_native_source(

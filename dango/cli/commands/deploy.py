@@ -321,9 +321,7 @@ def _print_deploy_success(
         for w in warnings:
             console.print(f"  [yellow]Warning:[/yellow] {w}")
     console.print("\n  Next: Visit the URL above and log in with your admin credentials.")
-    sync_failed = any("sync" in w.lower() for w in warnings)
-    if not skip_initial_sync and not sync_failed:
-        console.print("  Initial data sync is running in the background.")
+    console.print("  Sync your data sources from the Sources page.")
     if not domain:
         console.print("\n  To add a custom domain: [bold]dango remote domain set <domain>[/bold]")
 

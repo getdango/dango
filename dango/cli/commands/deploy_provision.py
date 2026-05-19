@@ -221,11 +221,8 @@ def run_provisioning(
 
         # --- Sub-step 7: Push secrets ---
         warnings: list[str] = []
-        # BUG-122: Confirm BEFORE opening SSH to avoid timeout during prompt
-        secrets_confirmed = _confirm_secrets_push(
-            project_root, warnings, non_interactive=non_interactive
-        )
-        if secrets_confirmed:
+        # Secrets confirmation moved to wizard (push_secrets field).
+        if config.push_secrets:
             _status("Pushing secrets to server...")
             ssh.connect(droplet_ip, username="root")
             try:
@@ -286,9 +283,7 @@ def run_provisioning(
         _status("Creating admin account and enabling auth...")
         ssh.connect(droplet_ip, username="root")
         try:
-            deploy_token = _create_admin_and_enable_auth(
-                ssh, config.admin_email, config.admin_password
-            )
+            _create_admin_and_enable_auth(ssh, config.admin_email, config.admin_password)
         finally:
             ssh.disconnect()
 
@@ -307,17 +302,6 @@ def run_provisioning(
         health_ok = _health_check(url, timeout=180, interval=5)
         if not health_ok:
             warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
-
-        # Trigger initial sync
-        if not config.skip_initial_sync and health_ok:
-            sync_started = _trigger_initial_sync(url, deploy_token)
-            if sync_started:
-                _status("Initial sync started. Check status at the dashboard.")
-            else:
-                warnings.append(
-                    "Initial sync could not be started automatically. "
-                    "Run 'dango remote sync' manually after deployment."
-                )
 
         return ProvisionResult(
             droplet_ip=droplet_ip,
@@ -426,11 +410,8 @@ def run_byos_setup(
             ssh.disconnect()
 
         # --- Sub-step 3: Push secrets ---
-        # BUG-122: Confirm BEFORE opening SSH to avoid timeout during prompt
-        secrets_confirmed = _confirm_secrets_push(
-            project_root, warnings, non_interactive=non_interactive
-        )
-        if secrets_confirmed:
+        # Secrets confirmation moved to wizard (push_secrets field).
+        if config.push_secrets:
             _status("Pushing secrets to server...")
             ssh.connect(config.server_ip, username=config.ssh_user)
             try:
@@ -467,9 +448,7 @@ def run_byos_setup(
         _status("Creating admin account and enabling auth...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            deploy_token = _create_admin_and_enable_auth(
-                ssh, config.admin_email, config.admin_password
-            )
+            _create_admin_and_enable_auth(ssh, config.admin_email, config.admin_password)
         finally:
             ssh.disconnect()
 
@@ -486,17 +465,6 @@ def run_byos_setup(
         health_ok = _health_check(url, timeout=180, interval=5)
         if not health_ok:
             warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
-
-        # Trigger initial sync
-        if not config.skip_initial_sync and health_ok:
-            sync_started = _trigger_initial_sync(url, deploy_token)
-            if sync_started:
-                _status("Initial sync started. Check status at the dashboard.")
-            else:
-                warnings.append(
-                    "Initial sync could not be started automatically. "
-                    "Run 'dango remote sync' manually after deployment."
-                )
 
         return BYOSResult(
             server_ip=config.server_ip,
@@ -525,8 +493,11 @@ def run_byos_setup(
 
 
 def _status(msg: str) -> None:
-    """Print a provisioning status message."""
-    console.print(f"\n[bold blue]>>>[/bold blue] {msg}")
+    """Print a provisioning status message with timestamp."""
+    from datetime import datetime
+
+    ts = datetime.now().strftime("%H:%M:%S")
+    console.print(f"\n[dim][{ts}][/dim] [bold blue]>>>[/bold blue] {msg}")
 
 
 def _setup_progress(step: str, status: str) -> None:

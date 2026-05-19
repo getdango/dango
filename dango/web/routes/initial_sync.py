@@ -322,7 +322,11 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
         source_config = config.sources.get_source(source_name)
         if source_config is None:
             raise ValueError(f"Source '{source_name}' not found in config")
-        run_sync(project_root=project_root, sources=[source_config])
+        result = run_sync(project_root=project_root, sources=[source_config])
+        # Check if any sources actually failed
+        failed = result.get("failed", [])
+        if failed:
+            raise RuntimeError(failed[0].get("error", "Sync failed"))
     finally:
         lock.release()
         if cloud_mode and _compose_env is not None:

@@ -1262,7 +1262,7 @@ function renderSourcesTable() {
                     </button>
                     <button
                         onclick="event.stopPropagation(); toggleSyncMenu('${source.name}')"
-                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150 border-l border-blue-300 pl-1 ml-1 rounded-r-md"
+                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150 pl-1 ml-1"
                         ${buttonDisabled}
                     >
                         ▾
