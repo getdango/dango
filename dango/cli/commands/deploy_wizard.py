@@ -238,7 +238,7 @@ def _step_size() -> tuple[str, Any | None]:
     console.print(f"  {len(SIZE_TIERS) + 1}. Custom slug")
     console.print()
 
-    choice = click.prompt("  Size number", default="2", show_default=True)
+    choice = click.prompt("  Size number", default="1", show_default=True)
 
     if choice.isdigit():
         idx = int(choice) - 1
