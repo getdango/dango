@@ -531,12 +531,16 @@ async def copy_notebook(
 
 
 @router.api_route(
+    "/notebooks/marimo/",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+)
+@router.api_route(
     "/notebooks/marimo/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
 )
 async def notebook_marimo_proxy(
     request: Request,
-    path: str,
+    path: str = "",
     _user: User = Depends(require_permission("notebooks.execute")),
 ) -> Any:
     """Proxy HTTP requests to the local Marimo server (cloud mode)."""

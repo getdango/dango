@@ -515,8 +515,14 @@ def get_source_freshness(source_name: str) -> dict[str, Any]:
 
     # Calculate time since last successful sync
     try:
-        timestamp = datetime.fromisoformat(last_sync_time.replace("Z", "+00:00"))
-        hours_ago = (datetime.now() - timestamp.replace(tzinfo=None)).total_seconds() / 3600
+        # Timestamps are stored as naive UTC. Treat them as UTC for comparison.
+        ts_str = last_sync_time.replace("Z", "+00:00")
+        if "+" not in ts_str and ts_str.count("-") <= 2:
+            # Naive timestamp — assume UTC
+            ts_str += "+00:00"
+        timestamp = datetime.fromisoformat(ts_str)
+        now_utc = datetime.now(tz=timestamp.tzinfo)
+        hours_ago = (now_utc - timestamp).total_seconds() / 3600
 
         # All successful syncs show as "synced"
         return {

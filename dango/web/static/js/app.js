@@ -147,7 +147,13 @@ function getTotalFileOperations() {
 function formatRelativeTime(timestamp) {
     if (!timestamp) return 'Never';
 
-    const date = new Date(timestamp);
+    // Server stores UTC timestamps without timezone suffix.
+    // Append 'Z' so the browser interprets them as UTC, not local time.
+    let ts = String(timestamp);
+    if (!ts.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ts)) {
+        ts += 'Z';
+    }
+    const date = new Date(ts);
     if (isNaN(date.getTime())) return 'Invalid date';
 
     const now = new Date();

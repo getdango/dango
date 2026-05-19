@@ -282,8 +282,9 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
     if cloud_mode:
         try:
             import subprocess
+            import time as _time
 
-            subprocess.run(
+            result = subprocess.run(
                 [
                     "docker",
                     "compose",
@@ -295,8 +296,16 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
                 capture_output=True,
                 timeout=60,
             )
+            if result.returncode != 0:
+                logger.warning(
+                    "metabase_stop_nonzero",
+                    returncode=result.returncode,
+                    stderr=result.stderr.decode(errors="replace"),
+                )
+            # Wait for Metabase to fully release DuckDB file locks
+            _time.sleep(3)
         except Exception:
-            logger.debug("metabase_stop_before_initial_sync_failed", exc_info=True)
+            logger.warning("metabase_stop_before_initial_sync_failed", exc_info=True)
 
     lock = DbtLock(
         project_root=project_root,

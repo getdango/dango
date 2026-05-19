@@ -68,11 +68,10 @@ class TestDropletSizeTier:
         assert PERFORMANCE_TIER.disk_gb == 160
         assert PERFORMANCE_TIER.price_monthly == 48
 
-    def test_size_tiers_list_has_three_entries(self):
-        """SIZE_TIERS contains exactly three tiers."""
-        assert len(SIZE_TIERS) == 3
+    def test_size_tiers_list_has_two_entries(self):
+        """SIZE_TIERS contains exactly two tiers (Standard, Performance)."""
+        assert len(SIZE_TIERS) == 2
         slugs = [t.slug for t in SIZE_TIERS]
-        assert "s-1vcpu-2gb" in slugs
         assert "s-2vcpu-4gb" in slugs
         assert "s-4vcpu-8gb" in slugs
 

@@ -226,7 +226,7 @@ def run_manual_sync(
         try:
             import subprocess as _sp
 
-            _sp.run(
+            result = _sp.run(
                 [
                     "docker",
                     "compose",
@@ -238,8 +238,16 @@ def run_manual_sync(
                 capture_output=True,
                 timeout=60,
             )
+            if result.returncode != 0:
+                logger.warning(
+                    "metabase_stop_nonzero",
+                    returncode=result.returncode,
+                    stderr=result.stderr.decode(errors="replace"),
+                )
+            # Wait for Metabase to fully release DuckDB file locks
+            time.sleep(3)
         except Exception:
-            logger.debug("metabase_stop_before_sync_failed", exc_info=True)
+            logger.warning("metabase_stop_before_sync_failed", exc_info=True)
 
     try:
         # Reload config (may have been loaded above for OAuth, but safe to reload)

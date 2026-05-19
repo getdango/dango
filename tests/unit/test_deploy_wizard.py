@@ -317,10 +317,6 @@ class TestCostSummary:
         """Standard tier without backups = $24."""
         assert _get_monthly_cost("s-2vcpu-4gb", False) == 24
 
-    def test_budget_with_backups(self):
-        """Budget tier with backups = $17."""
-        assert _get_monthly_cost("s-1vcpu-2gb", True) == 17
-
     def test_performance_no_backups(self):
         """Performance tier without backups = $48."""
         assert _get_monthly_cost("s-4vcpu-8gb", False) == 48
