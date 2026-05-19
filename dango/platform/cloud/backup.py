@@ -9,6 +9,7 @@ All functions require an already-connected ``SSHManager`` (as root).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from collections.abc import Callable
@@ -27,6 +28,11 @@ PROJECT_DIR = "/srv/dango/project"
 BACKUP_DIR = "/srv/dango/backups/deploy"
 VENV_PYTHON = "/srv/dango/venv/bin/python"
 MAX_LOCAL_BACKUPS = 5
+
+# Must match DockerManager.compose_project_name for /srv/dango/project
+_COMPOSE_PROJECT = (
+    f"dango-{hashlib.md5(PROJECT_DIR.encode(), usedforsecurity=False).hexdigest()[:8]}"
+)
 
 #: Files to back up, relative to PROJECT_DIR.
 BACKUP_FILES = [
@@ -122,7 +128,7 @@ def stop_services(ssh: SSHManager) -> None:
     if result.exit_code != 0:
         _logger.warning("service_stop_failed", service="dango-web", stderr=result.stderr)
     result = ssh.exec_command(
-        f"docker compose -f {PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
+        f"COMPOSE_PROJECT_NAME={_COMPOSE_PROJECT} docker compose -f {PROJECT_DIR}/docker-compose.yml stop metabase 2>/dev/null || true",
         timeout=120,
     )
     if result.exit_code != 0:
@@ -132,7 +138,7 @@ def stop_services(ssh: SSHManager) -> None:
 def start_services(ssh: SSHManager) -> None:
     """Start Metabase then dango-web (reverse order of stop)."""
     result = ssh.exec_command(
-        f"docker compose -f {PROJECT_DIR}/docker-compose.yml start metabase 2>/dev/null || true",
+        f"COMPOSE_PROJECT_NAME={_COMPOSE_PROJECT} docker compose -f {PROJECT_DIR}/docker-compose.yml start metabase 2>/dev/null || true",
         timeout=120,
     )
     if result.exit_code != 0:

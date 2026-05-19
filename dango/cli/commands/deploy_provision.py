@@ -902,12 +902,14 @@ def _generate_cloud_profiles(
 
 
 def _start_services(ssh: Any) -> None:
-    """Start Metabase (Docker) and dango-web (systemd) on remote server."""
-    ssh.exec_command(
-        "cd /srv/dango/project && sudo -u dango docker compose up -d",
-        timeout=120,
-    )
-    ssh.exec_command("systemctl start dango-web", timeout=30)
+    """Start dango-web (systemd) on remote server.
+
+    Docker services (Metabase, dbt-docs) are started by the dango-web lifespan
+    via DockerManager, which sets COMPOSE_PROJECT_NAME to ensure consistent
+    container naming.  Do NOT run ``docker compose up`` directly here —
+    that creates duplicate containers with a different project name.
+    """
+    ssh.exec_command("systemctl start dango-web", timeout=60)
 
 
 def _health_check(url: str, timeout: int = 60, interval: int = 5) -> bool:

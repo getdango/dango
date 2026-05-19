@@ -224,8 +224,12 @@ def run_manual_sync(
     if _cloud_mode:
         _progress("metabase_stop", "Pausing Metabase for sync")
         try:
+            import hashlib
             import subprocess as _sp
 
+            # Must match DockerManager.compose_project_name
+            _proj_name = f"dango-{hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]}"
+            _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
             result = _sp.run(
                 [
                     "docker",
@@ -237,6 +241,7 @@ def run_manual_sync(
                 ],
                 capture_output=True,
                 timeout=60,
+                env=_env,
             )
             if result.returncode != 0:
                 logger.warning(
@@ -354,8 +359,11 @@ def run_manual_sync(
         # --- Restart Metabase on cloud ---
         if _cloud_mode:
             try:
+                import hashlib
                 import subprocess as _sp
 
+                _proj_name = f"dango-{hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]}"
+                _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
                 _sp.run(
                     [
                         "docker",
@@ -365,6 +373,7 @@ def run_manual_sync(
                         "start",
                         "metabase",
                     ],
+                    env=_env,
                     capture_output=True,
                     timeout=120,
                 )

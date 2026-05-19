@@ -223,26 +223,24 @@ def _start_web_service(ssh: SSHManager) -> None:
 
 
 def _start_all_services(ssh: SSHManager, *, rebuild_docker: bool = False) -> None:
-    """Start Metabase then dango-web (same order as backup.start_services).
+    """Start dango-web (systemd), which starts Docker services via DockerManager.
+
+    Docker services (Metabase, dbt-docs) are started by the dango-web lifespan
+    via DockerManager, which sets COMPOSE_PROJECT_NAME.  Do NOT run
+    ``docker compose up`` directly — that creates duplicate containers.
 
     Args:
         ssh: Connected SSHManager.
-        rebuild_docker: If True, rebuild Docker images before starting
-            (used when Docker files changed during push deploy).
+        rebuild_docker: If True, force Docker image rebuild on next service start
+            by removing the existing image before restarting the service.
     """
     if rebuild_docker:
-        # Docker files changed — rebuild images before starting
+        # Remove existing images so DockerManager rebuilds them on startup
         ssh.exec_command(
-            f"cd {REMOTE_PROJECT_DIR} && sudo -u dango docker compose up --build -d",
-            timeout=300,
-        )
-    else:
-        ssh.exec_command(
-            f"docker compose -f {REMOTE_PROJECT_DIR}/docker-compose.yml "
-            "start metabase 2>/dev/null || true",
+            f"cd {REMOTE_PROJECT_DIR} && sudo -u dango docker compose down --rmi local 2>/dev/null || true",
             timeout=120,
         )
-    result = ssh.exec_command("systemctl start dango-web", timeout=60)
+    result = ssh.exec_command("systemctl restart dango-web", timeout=60)
     if result.exit_code != 0:
         logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
 

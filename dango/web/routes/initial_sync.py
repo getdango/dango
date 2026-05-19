@@ -279,11 +279,15 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
 
     # Stop Metabase on cloud to release DuckDB read lock (same as sync_trigger)
     cloud_mode = os.environ.get("DANGO_CLOUD_MODE") == "true"
+    _compose_env: dict[str, str] | None = None
     if cloud_mode:
         try:
+            import hashlib
             import subprocess
             import time as _time
 
+            _proj = f"dango-{hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]}"
+            _compose_env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj}
             result = subprocess.run(
                 [
                     "docker",
@@ -295,6 +299,7 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
                 ],
                 capture_output=True,
                 timeout=60,
+                env=_compose_env,
             )
             if result.returncode != 0:
                 logger.warning(
@@ -302,7 +307,6 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
                     returncode=result.returncode,
                     stderr=result.stderr.decode(errors="replace"),
                 )
-            # Wait for Metabase to fully release DuckDB file locks
             _time.sleep(3)
         except Exception:
             logger.warning("metabase_stop_before_initial_sync_failed", exc_info=True)
@@ -321,7 +325,7 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
         run_sync(project_root=project_root, sources=[source_config])
     finally:
         lock.release()
-        if cloud_mode:
+        if cloud_mode and _compose_env is not None:
             try:
                 import subprocess
 
@@ -336,6 +340,7 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
                     ],
                     capture_output=True,
                     timeout=120,
+                    env=_compose_env,
                 )
             except Exception:
                 logger.debug("metabase_start_after_initial_sync_failed", exc_info=True)
