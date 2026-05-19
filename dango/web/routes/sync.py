@@ -153,16 +153,8 @@ async def run_sync_task(
         if success:
             rows_processed = get_source_row_count(source_name) or 0
 
-        # Save sync history
-        history_entry = {
-            "timestamp": sync_timestamp,
-            "status": "success" if success else "failed",
-            "duration_seconds": round(duration, 2),
-            "rows_processed": rows_processed if success else 0,
-            "full_refresh": full_refresh,
-            "error_message": error_message,
-        }
-        save_sync_history_entry(source_name, history_entry)
+        # Sync history is saved by the subprocess (dlt_runner.py run_source).
+        # Do NOT save again here — it creates duplicate records.
 
         # Log completion
         if success:
