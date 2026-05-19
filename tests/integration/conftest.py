@@ -287,7 +287,6 @@ def deployed_server(
         admin_password=admin_password,
         skip_oauth=True,
         enable_backups=False,
-        skip_initial_sync=True,
         monthly_cost=6,
     )
 

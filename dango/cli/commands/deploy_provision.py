@@ -13,7 +13,6 @@ that were created (no orphans).
 from __future__ import annotations
 
 import base64
-import secrets
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -519,63 +518,11 @@ def _extract_ip(droplet: dict[str, Any]) -> str:
     raise RuntimeError("Droplet has no public IPv4 address")
 
 
-def _confirm_secrets_push(
-    project_root: Path,
-    warnings: list[str],
-    *,
-    non_interactive: bool = False,
-) -> bool:
-    """List secret files and prompt for confirmation (no SSH required).
-
-    BUG-122: This runs BEFORE SSH connect to avoid SSH timeout during
-    interactive prompt.
-    BUG-252: When *non_interactive* is ``True``, auto-confirm.
-
-    Returns:
-        ``True`` if the user confirmed, ``False`` if no files or declined.
-    """
-    secrets_path = project_root / ".dlt" / "secrets.toml"
-    env_path = project_root / ".env"
-
-    files_to_push: list[str] = []
-    if secrets_path.exists():
-        files_to_push.append(".dlt/secrets.toml")
-    if env_path.exists():
-        files_to_push.append(".env")
-
-    if not files_to_push:
-        warnings.append("No .dlt/secrets.toml or .env found locally — skipped.")
-        return False
-
-    # BUG-252: Skip interactive prompt in non-interactive mode
-    if non_interactive:
-        return True
-
-    console.print("\n[bold]Secrets to push:[/bold]")
-    for f in files_to_push:
-        console.print(f"  - {f}")
-    console.print()
-
-    from dango.cli.commands.deploy_wizard import _safe_confirm
-
-    if not _safe_confirm("Push these secrets to the server?", default=True):
-        console.print("[yellow]Skipped secrets push.[/yellow]")
-        warnings.append("Secrets push skipped by user.")
-        return False
-
-    return True
-
-
 def _push_secrets(
     ssh: Any,
     project_root: Path,
 ) -> None:
-    """Push .dlt/secrets.toml and .env to remote server.
-
-    Must be called only after :func:`_confirm_secrets_push` returns
-    ``True``.  Confirmation is handled separately to avoid SSH timeout
-    during interactive prompts (BUG-122).
-    """
+    """Push .dlt/secrets.toml and .env to remote server."""
     secrets_path = project_root / ".dlt" / "secrets.toml"
     env_path = project_root / ".env"
 
@@ -598,12 +545,8 @@ def _create_admin_and_enable_auth(
     ssh: Any,
     email: str,
     password: str,
-) -> str:
-    """Create admin user and enable auth on remote server.
-
-    Returns:
-        One-time deploy token for triggering initial sync.
-    """
+) -> None:
+    """Create admin user and enable auth on remote server."""
     # Validate email (shell injection prevention)
     if not _EMAIL_RE.match(email):
         raise ValueError(f"Invalid email format: {email}")
@@ -613,12 +556,9 @@ def _create_admin_and_enable_auth(
 
     pw_hash = hash_password(password)
 
-    # Generate one-time deploy token
-    deploy_token = secrets.token_urlsafe(32)
-
     # Build Python script and base64-encode it (avoids shell injection)
     script = (
-        "import sys, os, json\n"
+        "import sys, os\n"
         "sys.path.insert(0, '/srv/dango/project')\n"
         "os.chdir('/srv/dango/project')\n"
         "from pathlib import Path\n"
@@ -636,11 +576,6 @@ def _create_admin_and_enable_auth(
         "    existing = get_user_by_email(db_path, email)\n"
         "    if existing:\n"
         "        update_user(db_path, existing.id, UserUpdate(password_hash=pw_hash, email=email, must_change_password=True))\n"
-        # Write deploy token
-        f"token = {deploy_token!r}\n"
-        "state_dir = Path('.dango/state')\n"
-        "state_dir.mkdir(parents=True, exist_ok=True)\n"
-        "(state_dir / 'deploy_token').write_text(token)\n"
     )
     encoded = base64.b64encode(script.encode()).decode()
 
@@ -690,8 +625,6 @@ def _create_admin_and_enable_auth(
     # Ensure the entire .dango/ directory is owned by the dango user so it can
     # create files like dbt.lock in .dango/state/ at runtime.
     ssh.exec_command("chown -R dango:dango /srv/dango/project/.dango")
-
-    return deploy_token
 
 
 def _trigger_metabase_setup(ssh: Any, admin_email: str) -> None:
@@ -901,29 +834,3 @@ def _health_check(url: str, timeout: int = 60, interval: int = 5) -> bool:
             _logger.debug("health_check_poll_error", url=url)
         time.sleep(interval)
     return False
-
-
-def _trigger_initial_sync(url: str, deploy_token: str) -> bool:
-    """POST to /api/initial-sync/start to trigger background sync.
-
-    Returns True if the sync was triggered successfully.
-    """
-    import httpx
-
-    try:
-        resp = httpx.post(
-            f"{url}/api/initial-sync/start",
-            headers={
-                "X-Requested-With": "XMLHttpRequest",
-                "Authorization": f"Bearer {deploy_token}",
-            },
-            timeout=10,
-            verify=False,
-        )
-        if resp.is_success:
-            return True
-        _logger.warning("initial_sync_trigger_failed_status", status=resp.status_code)
-        return False
-    except Exception:
-        _logger.warning("initial_sync_trigger_failed", exc_info=True)
-        return False

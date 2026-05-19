@@ -57,7 +57,6 @@ class WizardConfig:
     admin_password: str
     skip_oauth: bool
     enable_backups: bool
-    skip_initial_sync: bool
     monthly_cost: int
     push_secrets: bool = True
     # Backup credentials (only set if enable_backups is True)
@@ -76,7 +75,6 @@ class BYOSConfig:
     admin_email: str
     admin_password: str
     skip_oauth: bool
-    skip_initial_sync: bool
     push_secrets: bool = True
 
 
@@ -554,7 +552,6 @@ def run_wizard(project_root: Path) -> WizardConfig:
         admin_password=admin_password,
         skip_oauth=skip_oauth,
         enable_backups=enable_backups,
-        skip_initial_sync=False,
         monthly_cost=monthly_cost,
         push_secrets=push_secrets,
         spaces_access_key=spaces_access_key,
@@ -571,7 +568,6 @@ def run_non_interactive(
     admin_email: str | None = None,
     admin_password: str | None = None,
     skip_backups: bool = False,
-    skip_initial_sync: bool = False,
 ) -> WizardConfig:
     """Validate CLI flags for non-interactive deployment.
 
@@ -583,7 +579,6 @@ def run_non_interactive(
         admin_email: Required admin email.
         admin_password: Required admin password (or from DANGO_ADMIN_PASSWORD env).
         skip_backups: Skip backup setup.
-        skip_initial_sync: Skip initial data sync.
 
     Returns:
         Validated ``WizardConfig``.
@@ -655,7 +650,6 @@ def run_non_interactive(
         admin_password=admin_password,
         skip_oauth=True,
         enable_backups=not skip_backups,
-        skip_initial_sync=skip_initial_sync,
         monthly_cost=monthly_cost,
     )
 
@@ -807,7 +801,6 @@ def run_byos_wizard(project_root: Path) -> BYOSConfig:
         admin_email=admin_email,
         admin_password=admin_password,
         skip_oauth=skip_oauth,
-        skip_initial_sync=False,
         push_secrets=push_secrets,
     )
 
@@ -821,7 +814,6 @@ def run_byos_non_interactive(
     domain: str | None = None,
     admin_email: str | None = None,
     admin_password: str | None = None,
-    skip_initial_sync: bool = False,
 ) -> BYOSConfig:
     """Validate params for non-interactive BYOS deployment.
 
@@ -833,7 +825,6 @@ def run_byos_non_interactive(
         domain: Optional custom domain.
         admin_email: Required admin email.
         admin_password: Required admin password (or from DANGO_ADMIN_PASSWORD env).
-        skip_initial_sync: Skip initial data sync.
 
     Returns:
         Validated ``BYOSConfig``.
@@ -896,5 +887,4 @@ def run_byos_non_interactive(
         admin_email=admin_email,
         admin_password=admin_password,
         skip_oauth=True,
-        skip_initial_sync=skip_initial_sync,
     )

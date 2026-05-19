@@ -272,15 +272,17 @@ function notebooksPage() {
                 if (nbWindow) {
                     const url = data.marimo_url;
                     const poll = async () => {
-                        for (let i = 0; i < 30; i++) {
+                        for (let i = 0; i < 60; i++) {
                             try {
-                                const r = await fetch(url, {mode: 'no-cors'});
-                                nbWindow.location.href = url;
-                                return;
+                                const r = await fetch(url);
+                                if (r.ok || r.status === 200) {
+                                    nbWindow.location.href = url;
+                                    return;
+                                }
                             } catch { /* not ready yet */ }
-                            await new Promise(r => setTimeout(r, 500));
+                            await new Promise(r => setTimeout(r, 1000));
                         }
-                        nbWindow.location.href = url; // try anyway after 15s
+                        nbWindow.location.href = url; // try anyway after 60s
                     };
                     poll();
                 }

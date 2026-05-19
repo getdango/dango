@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dango.cli.commands.deploy_provision import (
-    _confirm_secrets_push,
     _create_admin_and_enable_auth,
     _extract_ip,
     _generate_cloud_profiles,
@@ -21,7 +20,6 @@ from dango.cli.commands.deploy_provision import (
     _ResourceTracker,
     _save_extra_metadata,
     _setup_backups,
-    _trigger_initial_sync,
 )
 from dango.exceptions import CloudProvisioningError
 
@@ -189,9 +187,9 @@ class TestAdminCreation:
     def test_creates_admin_via_ssh(self):
         """Admin creation sends base64-encoded Python script over SSH."""
         ssh = _make_mock_ssh()
-        token = _create_admin_and_enable_auth(ssh, "admin@test.com", "password123")
+        result = _create_admin_and_enable_auth(ssh, "admin@test.com", "password123")
 
-        assert token  # non-empty token returned
+        assert result is None  # no longer returns a token
         # exec_command called for Python script + chown
         assert ssh.exec_command.call_count >= 1
         # write_remote_file called for auth.yml
@@ -295,7 +293,6 @@ class TestProvisionSequence:
             admin_password="strongpassword123",
             skip_oauth=True,
             enable_backups=False,
-            skip_initial_sync=True,
             monthly_cost=24,
         )
 
@@ -371,7 +368,6 @@ class TestProvisionSequence:
             admin_password="strongpassword123",
             skip_oauth=True,
             enable_backups=False,
-            skip_initial_sync=True,
             monthly_cost=24,
         )
 
@@ -426,7 +422,6 @@ class TestSetupBackups:
             admin_password="pw",
             skip_oauth=True,
             enable_backups=True,
-            skip_initial_sync=True,
             monthly_cost=29,
             spaces_access_key="DO_KEY",
             spaces_secret_key="DO_SECRET",
@@ -514,49 +509,6 @@ class TestSaveExtraMetadata:
             spaces_config=None,
         )
         assert not (project_root / ".dango" / "cloud.yml").exists()
-
-
-# ---------------------------------------------------------------------------
-# 9. Trigger initial sync
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestTriggerInitialSync:
-    @patch("httpx.post")
-    def test_posts_with_token_returns_true(self, mock_post):
-        """Trigger sends POST with deploy token and returns True on success."""
-        mock_resp = MagicMock()
-        mock_resp.is_success = True
-        mock_post.return_value = mock_resp
-
-        result = _trigger_initial_sync("http://1.2.3.4", "test-token-123")
-
-        assert result is True
-        mock_post.assert_called_once()
-        call_kwargs = mock_post.call_args
-        assert call_kwargs[0][0] == "http://1.2.3.4/api/initial-sync/start"
-        headers = call_kwargs[1]["headers"]
-        assert headers["Authorization"] == "Bearer test-token-123"
-
-    @patch("httpx.post")
-    def test_non_success_returns_false(self, mock_post):
-        """Trigger returns False on non-success response."""
-        mock_resp = MagicMock()
-        mock_resp.is_success = False
-        mock_resp.status_code = 500
-        mock_post.return_value = mock_resp
-
-        result = _trigger_initial_sync("http://1.2.3.4", "test-token-123")
-
-        assert result is False
-
-    @patch("httpx.post", side_effect=ConnectionError("refused"))
-    def test_connection_error_returns_false(self, mock_post):
-        """Trigger returns False on connection failure (does not raise)."""
-        result = _trigger_initial_sync("http://1.2.3.4", "test-token-123")
-
-        assert result is False
 
 
 # ---------------------------------------------------------------------------
@@ -679,50 +631,7 @@ class TestGenerateCloudProfiles:
 
 
 # ---------------------------------------------------------------------------
-# 12. BUG-122: Confirm secrets push (pre-SSH)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestConfirmSecretsPush:
-    def test_confirms_when_files_exist(self, project_root):
-        """Returns True when user confirms and secret files exist."""
-        dlt_dir = project_root / ".dlt"
-        dlt_dir.mkdir()
-        (dlt_dir / "secrets.toml").write_text("[sources]\n")
-        (project_root / ".env").write_text("KEY=val\n")
-
-        warnings: list[str] = []
-        with patch("dango.cli.commands.deploy_wizard._safe_confirm", return_value=True):
-            result = _confirm_secrets_push(project_root, warnings)
-
-        assert result is True
-        assert warnings == []
-
-    def test_returns_false_when_declined(self, project_root):
-        """Returns False when user declines."""
-        dlt_dir = project_root / ".dlt"
-        dlt_dir.mkdir()
-        (dlt_dir / "secrets.toml").write_text("[sources]\n")
-
-        warnings: list[str] = []
-        with patch("dango.cli.commands.deploy_wizard._safe_confirm", return_value=False):
-            result = _confirm_secrets_push(project_root, warnings)
-
-        assert result is False
-        assert "skipped by user" in warnings[0]
-
-    def test_returns_false_when_no_files(self, project_root):
-        """Returns False when no secret files exist."""
-        warnings: list[str] = []
-        result = _confirm_secrets_push(project_root, warnings)
-
-        assert result is False
-        assert "No .dlt/secrets.toml or .env found locally" in warnings[0]
-
-
-# ---------------------------------------------------------------------------
-# 13. BUG-122: Empty exception message handling
+# 12. BUG-122: Empty exception message handling
 # ---------------------------------------------------------------------------
 
 
@@ -790,30 +699,7 @@ class TestAdminUpsertSemantics:
 
 
 # ---------------------------------------------------------------------------
-# 15. BUG-252: Non-interactive mode auto-confirms secrets push
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestNonInteractiveConfirm:
-    def test_auto_confirms_in_non_interactive(self, project_root):
-        """BUG-252: non_interactive=True skips click.confirm and returns True."""
-        dlt_dir = project_root / ".dlt"
-        dlt_dir.mkdir()
-        (dlt_dir / "secrets.toml").write_text("[sources]\n")
-
-        warnings: list[str] = []
-        # Should NOT call click.confirm at all
-        with patch("dango.cli.commands.deploy_wizard._safe_confirm") as mock_confirm:
-            result = _confirm_secrets_push(project_root, warnings, non_interactive=True)
-
-        assert result is True
-        assert warnings == []
-        mock_confirm.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# 16. BUG-251: Project root resolved for hostname
+# 13. BUG-251: Project root resolved for hostname
 # ---------------------------------------------------------------------------
 
 
@@ -847,7 +733,6 @@ class TestProjectRootResolved:
             admin_password="strongpassword123",
             skip_oauth=True,
             enable_backups=False,
-            skip_initial_sync=True,
             monthly_cost=24,
         )
 
@@ -936,7 +821,6 @@ class TestProjectRootResolved:
             admin_email="admin@test.com",
             admin_password="strongpassword123",
             skip_oauth=True,
-            skip_initial_sync=True,
         )
 
         # Create SSH key file

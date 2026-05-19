@@ -66,7 +66,6 @@ class TestBYOSConfig:
             admin_email="admin@example.com",
             admin_password="SecurePassword123!",
             skip_oauth=False,
-            skip_initial_sync=False,
         )
         assert config.server_ip == "1.2.3.4"
         assert config.ssh_user == "root"
@@ -84,7 +83,6 @@ class TestBYOSConfig:
             admin_email="admin@example.com",
             admin_password="SecurePassword123!",
             skip_oauth=True,
-            skip_initial_sync=True,
         )
         assert config.domain is None
         assert config.skip_oauth is True
