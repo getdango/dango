@@ -13,6 +13,8 @@ Dango gives you a complete data stack — ingestion, warehouse, transformations,
 
 ## Quick Start
 
+**Prerequisites:** Python 3.10-3.12, [Docker](https://docs.docker.com/desktop/) (for Metabase)
+
 ```bash
 pip install getdango
 dango init
@@ -20,6 +22,12 @@ dango start
 ```
 
 Open [http://localhost:8800](http://localhost:8800) to see your data platform.
+
+Or use the install script:
+
+```bash
+curl -sSL https://getdango.dev/install.sh | bash
+```
 
 For detailed installation instructions, see the [documentation](https://docs.getdango.dev).
 
@@ -72,3 +80,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE) for details.
+
+## Links
+
+- [PyPI](https://pypi.org/project/getdango/)
+- [Changelog](CHANGELOG.md)
+- [Issues](https://github.com/getdango/dango/issues)

@@ -28,6 +28,9 @@ pip install -e ".[dev]"
 # Install pre-commit hooks
 pre-commit install
 
+# Note: always activate the venv before committing —
+# pre-commit hooks depend on it
+
 # Run locally
 dango start
 
