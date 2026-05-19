@@ -444,7 +444,7 @@ async function handleWebSocketMessage(data) {
 
             // Suppress success toast during batch operations (multi-file uploads)
             if (!activeFileOperations.has(source)) {
-                showToast(`${source} synced successfully`, 'success');
+                showToast(`${source} data loaded — running models...`, 'info');
             } else {
                 console.log('✅ [WS] Suppressing toast - batch upload operation in progress');
             }

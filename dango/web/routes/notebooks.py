@@ -554,7 +554,9 @@ async def notebook_marimo_proxy(
             content={"error": "Notebook server not running"},
         )
     port = int(str(status["port"]))
-    target_path = f"/{path}" if path else "/"
+    # Marimo runs with --base-url /notebooks/marimo in cloud mode.
+    # Forward the full prefixed path so Marimo recognizes the request.
+    target_path = f"/notebooks/marimo/{path}" if path else "/notebooks/marimo/"
     return await proxy_to_marimo(request, target_path, port)
 
 
@@ -577,4 +579,4 @@ async def notebook_marimo_ws_proxy(websocket: Any) -> None:
         await ws.close(code=1011, reason="Notebook server not running")
         return
     port = int(str(status["port"]))
-    await proxy_websocket_to_marimo(ws, "/ws", port)
+    await proxy_websocket_to_marimo(ws, "/notebooks/marimo/ws", port)

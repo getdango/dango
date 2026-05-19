@@ -495,16 +495,19 @@ def _status(msg: str) -> None:
     """Print a provisioning status message with timestamp."""
     from datetime import datetime
 
-    ts = datetime.now().strftime("%H:%M:%S")
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     console.print(f"\n[dim][{ts}][/dim] [bold blue]>>>[/bold blue] {msg}")
 
 
 def _setup_progress(step: str, status: str) -> None:
     """Progress callback for setup_server / sync_project_files."""
+    from datetime import datetime
+
+    ts = datetime.now().strftime("%H:%M:%S")
     if status == "done":
-        console.print(f"    [green]Done:[/green] {step}")
+        console.print(f"    [dim][{ts}][/dim] [green]Done:[/green] {step}")
     elif status == "skipped":
-        console.print(f"    [dim]Skipped:[/dim] {step}")
+        console.print(f"    [dim][{ts}] Skipped:[/dim] {step}")
 
 
 def _extract_ip(droplet: dict[str, Any]) -> str:
