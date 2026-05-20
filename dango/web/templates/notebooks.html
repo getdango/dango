@@ -400,7 +400,9 @@ function notebooksPage() {
 
         timeAgo(iso) {
             if (!iso) return '—';
-            const diff = (new Date() - new Date(iso)) / 1000;
+            let ts = String(iso);
+            if (!ts.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ts)) { ts += 'Z'; }
+            const diff = (new Date() - new Date(ts)) / 1000;
             if (diff < 60) return Math.round(diff) + 's ago';
             if (diff < 3600) return Math.round(diff / 60) + ' min ago';
             if (diff < 86400) return Math.round(diff / 3600) + 'h ago';

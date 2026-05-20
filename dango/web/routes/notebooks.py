@@ -579,4 +579,13 @@ async def notebook_marimo_ws_proxy(websocket: Any) -> None:
         await ws.close(code=1011, reason="Notebook server not running")
         return
     port = int(str(status["port"]))
-    await proxy_websocket_to_marimo(ws, "/notebooks/marimo/ws", port)
+    # Forward query params (session_id) and headers (Marimo-Server-Token)
+    query = str(ws.scope.get("query_string", b""), "utf-8")
+    ws_path = "/notebooks/marimo/ws"
+    if query:
+        ws_path = f"{ws_path}?{query}"
+    extra_headers = {}
+    for key, value in ws.headers.items():
+        if key.lower().startswith("marimo-"):
+            extra_headers[key] = value
+    await proxy_websocket_to_marimo(ws, ws_path, port, extra_headers=extra_headers)

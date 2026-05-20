@@ -406,7 +406,9 @@ def _step_backups() -> tuple[bool, str | None, str | None]:
     console.print("\n[bold]Step 7: Automated Backups[/bold]")
     console.print("  Daily backups at 2:00 AM UTC to DigitalOcean Spaces ($5/mo for 250GB).")
     console.print("  Backs up: DuckDB warehouse, auth database, config files, dlt credentials.")
-    console.print("  Keeps 5 most recent local backups. Spaces backups retained until deleted.\n")
+    console.print(
+        "  Keeps 14 most recent local backups (2 weeks). Spaces backups retained until deleted.\n"
+    )
 
     enable = _safe_confirm("  Enable automated backups?", default=True)
     if not enable:

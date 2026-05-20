@@ -210,6 +210,13 @@ def run_provisioning(
         finally:
             ssh.disconnect()
 
+        # Fix ownership — file sync uploads as root, dbt/dango-web run as dango
+        ssh.connect(droplet_ip, username="root")
+        try:
+            ssh.exec_command("chown -R dango:dango /srv/dango/project", timeout=30)
+        finally:
+            ssh.disconnect()
+
         # --- Sub-step 6b: Generate dbt profiles.yml for cloud ---
         _status("Generating dbt profiles...")
         ssh.connect(droplet_ip, username="root")
@@ -267,7 +274,28 @@ def run_provisioning(
             spaces_config=_build_spaces_config(config, tracker),
         )
 
-        # --- Sub-step 10: Start services + health check + trigger initial sync ---
+        # --- Sub-step 10: Pre-build Docker images ---
+        # Build Metabase Docker image BEFORE starting services so dango-web
+        # starts fast and the health check passes.  Without this, the Docker
+        # build happens during dango-web lifespan (10+ min on first deploy),
+        # causing 502s and health check failures.
+        _status("Building Docker images (this may take a few minutes)...")
+        ssh.connect(droplet_ip, username="root")
+        try:
+            import hashlib
+
+            compose_proj = (
+                f"dango-{hashlib.md5(b'/srv/dango/project', usedforsecurity=False).hexdigest()[:8]}"
+            )
+            ssh.exec_command(
+                f"cd /srv/dango/project && COMPOSE_PROJECT_NAME={compose_proj} "
+                "sudo -u dango docker compose build",
+                timeout=900,
+            )
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 10b: Start services ---
         _status("Starting services...")
         ssh.connect(droplet_ip, username="root")
         try:
@@ -400,6 +428,13 @@ def run_byos_setup(
         finally:
             ssh.disconnect()
 
+        # Fix ownership — file sync uploads as root/ssh_user, dbt/dango-web run as dango
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            ssh.exec_command("chown -R dango:dango /srv/dango/project", timeout=30)
+        finally:
+            ssh.disconnect()
+
         # --- Sub-step 2b: Generate dbt profiles.yml for cloud ---
         _status("Generating dbt profiles...")
         ssh.connect(config.server_ip, username=config.ssh_user)
@@ -434,7 +469,24 @@ def run_byos_setup(
         )
         loader.save_cloud_config(cloud_cfg)
 
-        # --- Sub-step 6: Start services + health check ---
+        # --- Sub-step 6: Pre-build Docker images ---
+        _status("Building Docker images (this may take a few minutes)...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            import hashlib
+
+            compose_proj = (
+                f"dango-{hashlib.md5(b'/srv/dango/project', usedforsecurity=False).hexdigest()[:8]}"
+            )
+            ssh.exec_command(
+                f"cd /srv/dango/project && COMPOSE_PROJECT_NAME={compose_proj} "
+                "sudo -u dango docker compose build",
+                timeout=900,
+            )
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 6a: Start services + health check ---
         _status("Starting services...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:

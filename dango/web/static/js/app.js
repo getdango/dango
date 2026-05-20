@@ -430,8 +430,9 @@ async function handleWebSocketMessage(data) {
 
         case 'sync_completed':
             console.log('✅ [WS] sync_completed - Source:', source);
-            stopSyncTimer(source);
-            addLogEntry('success', message || `Sync completed`, source);
+            // Don't stop timer here — dbt still runs after data load.
+            // Timer stops at dbt_run_all_completed or the 10s fallback.
+            addLogEntry('info', message || `Data loaded, running models...`, source);
 
             // Store sync result for in-place update after dbt completes
             if (data.rows_loaded !== undefined) {
@@ -1442,11 +1443,10 @@ function updateSourceRowAfterSync(sourceName, result) {
         return;
     }
 
-    // Update status pill to Synced
-    const statusCell = row.querySelector('td[data-col="status"]');
-    if (statusCell) {
-        statusCell.innerHTML = '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">✓ Synced</span>';
-    }
+    // Reload full source data from API to get correct status
+    // (sync may have succeeded with 0 rows = "empty", or failed)
+    loadSources();
+    return;
 
     // Update row count
     if (result.rows_loaded !== undefined && result.rows_loaded !== null) {

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 PROJECT_DIR = "/srv/dango/project"
 BACKUP_DIR = "/srv/dango/backups/deploy"
 VENV_PYTHON = "/srv/dango/venv/bin/python"
-MAX_LOCAL_BACKUPS = 5
+MAX_LOCAL_BACKUPS = 14
 
 # Must match DockerManager.compose_project_name for /srv/dango/project
 _COMPOSE_PROJECT = (
