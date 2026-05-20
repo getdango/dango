@@ -329,19 +329,22 @@ def generate_invite_token() -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def generate_temp_password(length: int = 12) -> str:
-    """Generate a temporary password using unambiguous characters.
+def generate_temp_password(length: int = 16) -> str:
+    """Generate a temporary password using URL-safe characters.
 
-    Excludes visually ambiguous characters (``0``, ``O``, ``o``,
-    ``1``, ``l``, ``I``) for readability when printed to a terminal.
+    Uses ``secrets.token_urlsafe`` which produces base64url characters
+    (``A-Z``, ``a-z``, ``0-9``, ``-``, ``_``).  These are easy to
+    double-click-select in terminals and consistent with the cloud deploy
+    password generator.
 
     Args:
-        length: Number of characters (default 12).
+        length: Approximate number of characters (actual may vary slightly
+            due to base64 encoding; ``token_urlsafe(n)`` returns ~1.3*n chars).
 
     Returns:
-        Random alphanumeric string.
+        Random URL-safe string.
     """
-    return "".join(secrets.choice(_TEMP_PASSWORD_CHARS) for _ in range(length))
+    return secrets.token_urlsafe(length)
 
 
 # ---------------------------------------------------------------------------

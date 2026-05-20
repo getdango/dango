@@ -210,9 +210,11 @@ def run_provisioning(
         finally:
             ssh.disconnect()
 
-        # Fix ownership — file sync uploads as root, dbt/dango-web run as dango
+        # Fix ownership — file sync uploads as root, dbt/dango-web run as dango.
+        # Pre-create dbt/target so Docker's bind mount doesn't recreate it as root.
         ssh.connect(droplet_ip, username="root")
         try:
+            ssh.exec_command("mkdir -p /srv/dango/project/dbt/target", timeout=10)
             ssh.exec_command("chown -R dango:dango /srv/dango/project", timeout=30)
         finally:
             ssh.disconnect()
@@ -325,10 +327,18 @@ def run_provisioning(
             ssh.disconnect()
 
         url = f"https://{config.domain}" if config.domain else f"http://{droplet_ip}"
-        _status("Waiting for server to become ready...")
+        _status("Waiting for platform to become ready...")
         health_ok = _health_check(url, timeout=180, interval=5)
         if not health_ok:
             warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
+
+        # Wait for Metabase to be ready (Java startup takes ~2 min)
+        _status("Waiting for Metabase to initialize...")
+        ssh.connect(droplet_ip, username="root")
+        try:
+            _wait_for_metabase(ssh, timeout=180)
+        finally:
+            ssh.disconnect()
 
         return ProvisionResult(
             droplet_ip=droplet_ip,
@@ -428,9 +438,11 @@ def run_byos_setup(
         finally:
             ssh.disconnect()
 
-        # Fix ownership — file sync uploads as root/ssh_user, dbt/dango-web run as dango
+        # Fix ownership — file sync uploads as root/ssh_user, dbt/dango-web run as dango.
+        # Pre-create dbt/target so Docker's bind mount doesn't recreate it as root.
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
+            ssh.exec_command("mkdir -p /srv/dango/project/dbt/target", timeout=10)
             ssh.exec_command("chown -R dango:dango /srv/dango/project", timeout=30)
         finally:
             ssh.disconnect()
@@ -512,10 +524,17 @@ def run_byos_setup(
             ssh.disconnect()
 
         url = f"https://{config.domain}" if config.domain else f"http://{config.server_ip}"
-        _status("Waiting for server to become ready...")
+        _status("Waiting for platform to become ready...")
         health_ok = _health_check(url, timeout=180, interval=5)
         if not health_ok:
             warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
+
+        _status("Waiting for Metabase to initialize...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            _wait_for_metabase(ssh, timeout=180)
+        finally:
+            ssh.disconnect()
 
         return BYOSResult(
             server_ip=config.server_ip,
@@ -869,6 +888,26 @@ def _start_services(ssh: Any) -> None:
     that creates duplicate containers with a different project name.
     """
     ssh.exec_command("systemctl start dango-web", timeout=60)
+
+
+def _wait_for_metabase(ssh: Any, timeout: int = 180) -> bool:
+    """Poll Metabase health endpoint via SSH until it responds ok.
+
+    Returns True if Metabase is ready, False if timeout.
+    """
+    attempts = timeout // 5
+    for i in range(attempts):
+        result = ssh.exec_command(
+            "curl -sf http://localhost:3000/api/health 2>/dev/null | grep -q ok",
+            timeout=10,
+        )
+        if result.exit_code == 0:
+            return True
+        if i % 6 == 0 and i > 0:
+            console.print(f"    [dim]Still waiting... ({i * 5}s)[/dim]")
+        time.sleep(5)
+    _logger.warning("metabase_health_timeout", timeout=timeout)
+    return False
 
 
 def _health_check(url: str, timeout: int = 60, interval: int = 5) -> bool:

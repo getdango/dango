@@ -509,12 +509,14 @@ class DltPipelineRunner:
             duration = (datetime.now() - start_time).total_seconds()
             error_message = str(e)
 
+            # CSV/local_files are always full refresh regardless of the flag
+            is_file_source = source_type in (SourceType.CSV, SourceType.LOCAL_FILES)
             history_entry = {
                 "timestamp": start_time.isoformat(),
                 "status": "failed",
                 "duration_seconds": round(duration, 2),
                 "rows_processed": 0,
-                "full_refresh": full_refresh,
+                "full_refresh": full_refresh or is_file_source,
                 "error_message": error_message,
             }
             save_sync_history_entry(self.project_root, source_name, history_entry)

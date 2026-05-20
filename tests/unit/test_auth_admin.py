@@ -135,7 +135,7 @@ class TestEnsureAdmin:
         assert user.email == "admin@test.com"
         assert user.role == Role.ADMIN
         assert user.must_change_password is True
-        assert len(password) == 12
+        assert len(password) >= 16  # token_urlsafe(16) produces ~22 chars
 
     def test_skips_when_admin_exists(self, tmp_path: Path) -> None:
         db_path = _make_db(tmp_path)
