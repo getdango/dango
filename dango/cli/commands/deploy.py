@@ -312,7 +312,10 @@ def _print_deploy_success(
     console.print("\n  Next: Visit the URL above and log in with your admin credentials.")
     console.print("  Sync your data sources from the Sources page.")
     if not domain:
-        console.print("\n  To add a custom domain: [bold]dango remote domain set <domain>[/bold]")
+        console.print(
+            "\n  [yellow]Warning:[/yellow] Running over HTTP (unencrypted)."
+            " Set up a domain for HTTPS: [bold]dango remote domain set <domain>[/bold]"
+        )
 
     import webbrowser
 

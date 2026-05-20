@@ -24,25 +24,30 @@ _COMMON_HEADERS = """\
 _HSTS_HEADER = '\t\tStrict-Transport-Security "max-age=63072000; includeSubDomains"'
 
 
-def build_caddyfile(domain: str | None = None) -> str:
+def build_caddyfile(domain: str | None = None, marimo_port: int = 7805) -> str:
     """Build a Caddyfile for Caddy reverse proxy.
 
     Args:
         domain: FQDN for HTTPS (e.g. ``"app.example.com"``).
             When ``None``, generates an HTTP-only config on port 80.
+        marimo_port: Port the Marimo notebook server listens on (default 7805).
 
     Returns:
         Complete Caddyfile content as a string.
     """
+    # Marimo WebSocket proxy — Caddy handles WS natively.
+    # HTTP requests still go through dango-web (auth-protected).
+    marimo_ws = f"\thandle /notebooks/marimo/ws {{\n\t\treverse_proxy localhost:{marimo_port}\n\t}}"
+
     if domain:
         # HTTPS mode — Caddy auto-obtains Let's Encrypt certs
         headers = _COMMON_HEADERS.replace(
             "\n\t}",
             f"\n{_HSTS_HEADER}\n\t}}",
         )
-        return f"{domain} {{\n\treverse_proxy localhost:8800\n{headers}\n}}\n"
+        return f"{domain} {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{headers}\n}}\n"
     # HTTP-only mode (IP access, no HSTS)
-    return f":80 {{\n\treverse_proxy localhost:8800\n{_COMMON_HEADERS}\n}}\n"
+    return f":80 {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{_COMMON_HEADERS}\n}}\n"
 
 
 # Backward-compatible alias — existing code imports ``CADDYFILE`` directly.

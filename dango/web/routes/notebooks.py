@@ -527,39 +527,11 @@ async def copy_notebook(
 
 # ---------------------------------------------------------------------------
 # Notebook proxy routes — BUG-241: Cloud mode proxies Marimo through FastAPI
-# IMPORTANT: WebSocket route MUST be registered BEFORE the HTTP catch-all
-# route, otherwise {path:path} captures "ws" as an HTTP request (→ 403).
+# WebSocket proxy for Marimo is handled by Caddy directly (not FastAPI).
+# Caddy routes /notebooks/marimo/ws to Marimo's port, bypassing dango-web.
+# This avoids FastAPI/Starlette WebSocket routing issues while keeping
+# HTTP requests auth-protected through dango-web.
 # ---------------------------------------------------------------------------
-
-
-@router.websocket("/notebooks/marimo/ws")
-async def notebook_marimo_ws_proxy(websocket: Any) -> None:
-    """Proxy WebSocket connections to Marimo (cloud mode).
-
-    Registered before the HTTP catch-all so FastAPI matches WebSocket
-    upgrade requests here instead of the ``{path:path}`` HTTP route.
-    """
-    from fastapi import WebSocket as _WebSocket
-
-    from dango.notebooks.proxy import proxy_websocket_to_marimo
-
-    ws: _WebSocket = websocket
-    project_root = get_project_root()
-    status = await asyncio.to_thread(get_marimo_status, project_root)
-    if not status.get("running"):
-        await ws.close(code=1011, reason="Notebook server not running")
-        return
-    port = int(str(status["port"]))
-    # Forward query params (session_id) and headers (Marimo-Server-Token)
-    query = str(ws.scope.get("query_string", b""), "utf-8")
-    ws_path = "/notebooks/marimo/ws"
-    if query:
-        ws_path = f"{ws_path}?{query}"
-    extra_headers = {}
-    for key, value in ws.headers.items():
-        if key.lower().startswith("marimo-"):
-            extra_headers[key] = value
-    await proxy_websocket_to_marimo(ws, ws_path, port, extra_headers=extra_headers)
 
 
 @router.api_route(
