@@ -6,7 +6,7 @@ Pydantic request/response DTOs for the web API.
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class TableInfo(BaseModel):
@@ -95,15 +95,15 @@ class WatcherStatus(BaseModel):
 class LoginRequest(BaseModel):
     """Login credentials."""
 
-    email: str
-    password: str
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=1024)
 
 
 class ChangePasswordRequest(BaseModel):
     """Password change payload."""
 
-    current_password: str
-    new_password: str
+    current_password: str = Field(max_length=1024)
+    new_password: str = Field(max_length=1024)
 
 
 class CreateApiKeyRequest(BaseModel):
@@ -202,14 +202,14 @@ class TwoFAVerifySetupRequest(BaseModel):
 class TwoFAVerifyRequest(BaseModel):
     """Verify a TOTP or recovery code during login."""
 
-    code: str
+    code: str = Field(max_length=10)
     is_recovery: bool = False
 
 
 class TwoFADisableRequest(BaseModel):
     """Request to disable 2FA (verifies current password)."""
 
-    password: str
+    password: str = Field(max_length=1024)
 
 
 class TwoFARegenerateRequest(BaseModel):

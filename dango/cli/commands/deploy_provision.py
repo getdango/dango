@@ -717,6 +717,10 @@ def _trigger_metabase_setup(ssh: Any, admin_email: str) -> None:
     ``setup_metabase_if_needed`` runs with the correct admin email already
     in the environment.
     """
+    # Validate email (shell injection prevention — same as _create_admin_and_enable_auth)
+    if not _EMAIL_RE.match(admin_email):
+        raise ValueError(f"Invalid email format: {admin_email}")
+
     # Ensure admin email is in server .env for Metabase setup
     ssh.exec_command(
         f"grep -q '^DANGO_ADMIN_EMAIL=' /srv/dango/project/.env 2>/dev/null "

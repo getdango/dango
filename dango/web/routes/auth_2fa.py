@@ -53,6 +53,13 @@ from dango.web.routes.auth import _bridge_metabase_session
 router = APIRouter(tags=["auth-2fa"])
 logger = get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# 2FA brute-force protection
+# ---------------------------------------------------------------------------
+
+_MAX_2FA_ATTEMPTS = 5
+_2fa_attempt_counts: dict[str, int] = {}
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers (same pattern as auth.py — small, redefined here to
@@ -238,9 +245,19 @@ async def verify_2fa(request: Request) -> JSONResponse:
         verified = verify_totp_code(current_user.totp_secret, data.code)
 
     if not verified:
-        # TODO: Add failed-attempt tracking on partial sessions to prevent
-        # brute-force TOTP guessing within the 5-minute window. Requires
-        # a migration to add failed_2fa_attempts column to sessions table.
+        # Track failed attempts per partial session token
+        _2fa_attempt_counts[cookie_token] = _2fa_attempt_counts.get(cookie_token, 0) + 1
+        if _2fa_attempt_counts[cookie_token] >= _MAX_2FA_ATTEMPTS:
+            # Invalidate partial session to force re-authentication
+            token_hash = hash_token(cookie_token)
+            partial_session = get_session_by_token(db_path, token_hash)
+            if partial_session:
+                invalidate_session(db_path, partial_session.id)
+            _2fa_attempt_counts.pop(cookie_token, None)
+            return JSONResponse(
+                status_code=429,
+                content={"message": "Too many failed attempts. Please log in again."},
+            )
         return JSONResponse(status_code=400, content={"message": "Invalid verification code"})
 
     # Invalidate the partial session

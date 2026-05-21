@@ -101,6 +101,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             # Wait for messages from client (ping/pong for keepalive)
             data = await websocket.receive_text()
 
+            if len(data) > 4096:
+                await websocket.send_json({"event": "error", "message": "Message too large"})
+                continue
+
             # Echo back for now (can add client commands later)
             await websocket.send_json(
                 {"event": "echo", "data": data, "timestamp": datetime.now().isoformat()}

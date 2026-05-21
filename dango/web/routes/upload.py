@@ -128,8 +128,11 @@ async def upload_csv_to_source(
                 status_code=409,
                 detail=f"File '{safe_filename}' already exists. Delete the existing file first or rename your file.",
             )
+        # Size limit: 100MB
+        content = await file.read()
+        if len(content) > 100 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File too large (max 100MB)")
         async with aiofiles.open(file_path, "wb") as buffer:
-            content = await file.read()
             await buffer.write(content)
 
         logger.info(f"Uploaded file for source '{source_name}': {file_path}")

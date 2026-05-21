@@ -53,8 +53,9 @@ def _get_column_schema(
         rows = conn.execute(
             "SELECT column_name, data_type, is_nullable "
             "FROM information_schema.columns "
-            f"WHERE table_schema = '{schema}' AND table_name = '{table}' "
-            "ORDER BY ordinal_position"
+            "WHERE table_schema = ? AND table_name = ? "
+            "ORDER BY ordinal_position",
+            [schema, table],
         ).fetchall()
     finally:
         conn.close()
@@ -152,7 +153,8 @@ def _source_schema_exists(db_path: Path, source: str) -> bool:
     conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
     try:
         result = conn.execute(
-            f"SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '{schema}'"
+            "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = ?",
+            [schema],
         ).fetchone()
     finally:
         conn.close()
@@ -175,8 +177,9 @@ def _table_exists(db_path: Path, source: str, table: str) -> bool:
     try:
         result = conn.execute(
             "SELECT COUNT(*) FROM information_schema.tables "
-            f"WHERE table_schema = '{schema}' AND table_name = '{table}' "
-            "AND table_name NOT LIKE '_dlt_%'"
+            "WHERE table_schema = ? AND table_name = ? "
+            "AND table_name NOT LIKE '_dlt_%'",
+            [schema, table],
         ).fetchone()
     finally:
         conn.close()
@@ -347,8 +350,9 @@ def _get_model_column_schema(
         rows = conn.execute(
             "SELECT column_name, data_type, is_nullable "
             "FROM information_schema.columns "
-            f"WHERE table_schema = '{schema}' AND table_name = '{table}' "
-            "ORDER BY ordinal_position"
+            "WHERE table_schema = ? AND table_name = ? "
+            "ORDER BY ordinal_position",
+            [schema, table],
         ).fetchall()
     except Exception:
         rows = []
