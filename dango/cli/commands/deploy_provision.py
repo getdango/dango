@@ -580,6 +580,10 @@ def _setup_progress(step: str, status: str) -> None:
 
     ts = datetime.now().strftime("%H:%M:%S")
     if status == "done":
+        if step == "detect_changes":
+            console.print(
+                "    [dim]Uploading files (Metabase driver ~80MB — may take several minutes on first deploy)...[/dim]"
+            )
         console.print(f"    [dim][{ts}][/dim] [green]Done:[/green] {step}")
     elif status == "skipped":
         console.print(f"    [dim][{ts}] Skipped:[/dim] {step}")

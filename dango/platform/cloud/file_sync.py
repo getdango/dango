@@ -250,8 +250,22 @@ def _upload_file_if_exists(
     mkdir_result = ssh.exec_command(f"mkdir -p {remote_dir}")
     if mkdir_result.exit_code != 0:
         _logger.warning("mkdir_failed", path=remote_dir, stderr=mkdir_result.stderr)
-    ssh.upload_file(local_path, remote_path)
-    return True
+    # Retry SFTP upload on transient network errors (EOFError, timeout)
+    last_err: Exception | None = None
+    for attempt in range(3):
+        try:
+            ssh.upload_file(local_path, remote_path)
+            return True
+        except Exception as e:
+            last_err = e
+            _logger.warning(
+                "sftp_upload_retry", path=str(local_path), attempt=attempt + 1, error=str(e)
+            )
+            if attempt < 2:
+                import time
+
+                time.sleep(2)
+    raise last_err  # type: ignore[misc]
 
 
 def _check_packages_changed(

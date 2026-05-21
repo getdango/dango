@@ -113,7 +113,7 @@
                     </template>
                     <template x-if="searchResults.length > 0">
                         <div class="bg-white shadow rounded-lg overflow-hidden">
-                            <div class="catalog-table-wrapper">
+                            <div class="catalog-table-wrapper overflow-x-auto">
                                 <table class="min-w-full divide-y divide-gray-200">
                                     <thead class="bg-gray-50">
                                         <tr>
@@ -167,7 +167,7 @@
                     </template>
                     <template x-if="filteredItems.length > 0">
                         <div class="bg-white shadow rounded-lg overflow-hidden">
-                            <div class="catalog-table-wrapper">
+                            <div class="catalog-table-wrapper overflow-x-auto">
                                 <table class="min-w-full divide-y divide-gray-200">
                                     <thead class="bg-gray-50">
                                         <tr>
@@ -278,7 +278,7 @@
             <div x-show="detailTab === 'columns'">
                 <template x-if="selectedModel.columns && selectedModel.columns.length > 0">
                     <div class="bg-white shadow rounded-lg overflow-hidden">
-                        <div class="catalog-table-wrapper">
+                        <div class="catalog-table-wrapper overflow-x-auto">
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
                                     <tr>
