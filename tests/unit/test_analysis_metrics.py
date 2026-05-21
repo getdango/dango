@@ -133,10 +133,10 @@ class TestRunAnalysis:
     """run_analysis orchestration."""
 
     def _write_config(self, tmp_path, yaml_content):
-        """Write metrics.yml config."""
+        """Write monitors.yml config."""
         dango_dir = tmp_path / ".dango"
         dango_dir.mkdir(exist_ok=True)
-        (dango_dir / "metrics.yml").write_text(yaml_content)
+        (dango_dir / "monitors.yml").write_text(yaml_content)
 
     def _create_warehouse(self, tmp_path):
         """Create a minimal DuckDB warehouse file."""
@@ -273,3 +273,32 @@ metrics:
         assert len(results) == 1
         assert results[0].metric.value is None
         assert results[0].metric.error is None
+
+    @patch("dango.analysis.metrics.duckdb")
+    def test_compare_none_skips_comparison(self, mock_duckdb, tmp_path):
+        """compare: none skips compute_comparison (freshness metrics)."""
+        self._write_config(
+            tmp_path,
+            """\
+metrics:
+  - name: freshness
+    source_table: raw_stripe.payments
+    value_expression: "MAX(_dlt_load_id)"
+    compare: none
+""",
+        )
+        warehouse_path = self._create_warehouse(tmp_path)
+        warehouse_path.touch()
+
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchone.return_value = (123456,)
+        mock_duckdb.connect.return_value = mock_conn
+        mock_duckdb.Error = Exception
+
+        with patch("dango.analysis.metrics.compute_comparison") as mock_compare:
+            results = run_analysis(tmp_path)
+
+        assert len(results) == 1
+        assert results[0].metric.value == 123456
+        assert results[0].comparison is None
+        mock_compare.assert_not_called()

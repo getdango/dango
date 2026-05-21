@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from dango.notebooks.manager import start_marimo
 from dango.utils.dango_db import _schema_initialized, connect
 
 
@@ -314,6 +315,65 @@ class TestGetIdleTimeout:
 
         result = _get_idle_timeout(Path("/fake"))
         assert result == 3600
+
+
+@pytest.mark.unit
+class TestStartMarimoCloudBaseUrl:
+    """Tests for --base-url flag when running in cloud mode."""
+
+    @patch("dango.notebooks.manager._get_idle_timeout", return_value=3600)
+    @patch("dango.notebooks.manager.is_process_running", return_value=False)
+    @patch("dango.notebooks.manager.subprocess.Popen")
+    @patch("dango.config.helpers.is_cloud_mode", return_value=True)
+    def test_cloud_mode_adds_base_url(
+        self,
+        mock_cloud: MagicMock,
+        mock_popen: MagicMock,
+        mock_running: MagicMock,
+        mock_timeout: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+
+        (tmp_path / ".dango").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "notebooks").mkdir(parents=True, exist_ok=True)
+
+        with patch("dango.notebooks.manager.time.sleep"):
+            start_marimo(tmp_path, port=7805)
+
+        cmd = mock_popen.call_args[0][0]
+        assert "--base-url" in cmd
+        idx = cmd.index("--base-url")
+        assert cmd[idx + 1] == "/notebooks/marimo"
+
+    @patch("dango.notebooks.manager._get_idle_timeout", return_value=7200)
+    @patch("dango.notebooks.manager.is_process_running", return_value=False)
+    @patch("dango.notebooks.manager.subprocess.Popen")
+    @patch("dango.config.helpers.is_cloud_mode", return_value=False)
+    def test_local_mode_no_base_url(
+        self,
+        mock_cloud: MagicMock,
+        mock_popen: MagicMock,
+        mock_running: MagicMock,
+        mock_timeout: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_proc.poll.return_value = None
+        mock_popen.return_value = mock_proc
+
+        (tmp_path / ".dango").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "notebooks").mkdir(parents=True, exist_ok=True)
+
+        with patch("dango.notebooks.manager.time.sleep"):
+            start_marimo(tmp_path, port=7805)
+
+        cmd = mock_popen.call_args[0][0]
+        assert "--base-url" not in cmd
 
 
 @pytest.mark.unit

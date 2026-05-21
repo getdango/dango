@@ -229,7 +229,6 @@ class TestRemoteResizeCommand:
         assert result.exit_code == 0
         assert "Standard" in result.output
         assert "s-2vcpu-4gb" in result.output
-        assert "Budget" in result.output
         assert "Performance" in result.output
 
     def test_invalid_slug_rejected(self, tmp_path: Path) -> None:

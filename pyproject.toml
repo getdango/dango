@@ -57,6 +57,10 @@ dependencies = [
     "tomlkit>=0.13.0",            # TOML read/write with style preservation (source_wizard, dlt_runner)
 
     # Data governance and notebooks
+    "pandas>=2.0.0",
+    "matplotlib>=3.8.0",
+    "plotly>=5.18.0",
+    "altair>=5.2.0",
     "marimo>=0.23.0",             # CVE-2026-39987 fixed in 0.23.0
     "presidio-analyzer>=2.2.0",
     "spacy>=3.8.0,<3.9",          # en_core_web_sm-3.8.0 model requires >=3.8.0,<3.9.0

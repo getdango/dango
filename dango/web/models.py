@@ -37,6 +37,7 @@ class SourceStatus(BaseModel):
     write_disposition: str | None = None  # "merge" or "replace"
     needs_attention: bool = False  # Whether source has unresolved breaking drift
     attention_reason: str | None = None  # Why source needs attention
+    last_sync_duration_seconds: float | None = None  # Duration of last sync
 
 
 class ServiceHealth(BaseModel):

@@ -285,9 +285,12 @@ class TestRunProfiling:
         mock_dc.return_value = mock_conn
         mock_profile.return_value = {}
         _run_profiling(tmp_path, ["shopify"])
-        assert mock_profile.call_count == 2
+        # 2 raw tables + 2 staging tables (mock returns same tables for both queries)
+        assert mock_profile.call_count == 4
         mock_profile.assert_any_call(tmp_path, "shopify", "orders")
         mock_profile.assert_any_call(tmp_path, "shopify", "customers")
+        mock_profile.assert_any_call(tmp_path, "shopify", "orders", schema_override="staging")
+        mock_profile.assert_any_call(tmp_path, "shopify", "customers", schema_override="staging")
 
     @patch("dango.utils.post_sync.profile_table")
     @patch("duckdb.connect")
@@ -299,9 +302,11 @@ class TestRunProfiling:
         mock_dc.return_value = mock_conn
         mock_profile.return_value = {}
         _run_profiling(tmp_path, ["shopify"])
-        sql_arg = mock_conn.execute.call_args[0][0]
-        assert "_dlt_%" in sql_arg
-        assert "spreadsheet" in sql_arg
+        # First execute call is for raw schema (has dlt exclusion),
+        # second is for staging schema.
+        raw_sql = mock_conn.execute.call_args_list[0][0][0]
+        assert "_dlt_%" in raw_sql
+        assert "spreadsheet" in raw_sql
 
     def test_missing_warehouse_graceful(self, tmp_path):
         """Missing warehouse.duckdb causes graceful early return."""
@@ -326,7 +331,10 @@ class TestRunProfiling:
         mock_dc.side_effect = connect_se
         mock_profile.return_value = {}
         _run_profiling(tmp_path, ["bad_source", "good_source"])
-        mock_profile.assert_called_once_with(tmp_path, "good_source", "orders")
+        # good_source profiles raw + staging (2 calls)
+        assert mock_profile.call_count == 2
+        mock_profile.assert_any_call(tmp_path, "good_source", "orders")
+        mock_profile.assert_any_call(tmp_path, "good_source", "orders", schema_override="staging")
 
     @patch("dango.utils.post_sync.profile_table")
     @patch("duckdb.connect")
@@ -336,7 +344,13 @@ class TestRunProfiling:
         mock_conn = MagicMock()
         mock_conn.execute.return_value.fetchall.return_value = [("bad_table",), ("good_table",)]
         mock_dc.return_value = mock_conn
-        mock_profile.side_effect = [RuntimeError("table error"), {}]
+        # 4 calls: 2 raw (bad_table errors, good_table ok) + 2 staging (same)
+        mock_profile.side_effect = [
+            RuntimeError("table error"),
+            {},
+            RuntimeError("table error"),
+            {},
+        ]
         _run_profiling(tmp_path, ["shopify"])
-        assert mock_profile.call_count == 2
+        assert mock_profile.call_count == 4
         mock_profile.assert_any_call(tmp_path, "shopify", "good_table")

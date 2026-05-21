@@ -37,7 +37,6 @@ from dango.cli import console
     "--admin-password", type=str, default=None, help="Admin password (or DANGO_ADMIN_PASSWORD env)."
 )
 @click.option("--skip-backups", is_flag=True, help="Skip automated backup setup.")
-@click.option("--skip-initial-sync", is_flag=True, help="Skip initial data sync.")
 @click.option("--byos", is_flag=True, help="Deploy to an existing server (any provider).")
 @click.option("--server-ip", type=str, default=None, help="Server IP/hostname for --byos.")
 @click.option("--ssh-user", type=str, default="root", help="SSH user for --byos.")
@@ -54,7 +53,6 @@ def deploy(  # noqa: PLR0913
     admin_email: str | None,
     admin_password: str | None,
     skip_backups: bool,
-    skip_initial_sync: bool,
     byos: bool,
     server_ip: str | None,
     ssh_user: str,
@@ -110,7 +108,6 @@ def deploy(  # noqa: PLR0913
             domain=domain,
             admin_email=admin_email,
             admin_password=admin_password,
-            skip_initial_sync=skip_initial_sync,
         )
         return
 
@@ -124,7 +121,6 @@ def deploy(  # noqa: PLR0913
             admin_email=admin_email,
             admin_password=admin_password,
             skip_backups=skip_backups,
-            skip_initial_sync=skip_initial_sync,
         )
         return
 
@@ -207,7 +203,6 @@ def _handle_byos(
     domain: str | None,
     admin_email: str | None,
     admin_password: str | None,
-    skip_initial_sync: bool,
 ) -> None:
     """Run BYOS deployment (non-interactive via --byos flag)."""
     from dango.cli.commands.deploy_provision import run_byos_setup
@@ -221,7 +216,6 @@ def _handle_byos(
         domain=domain,
         admin_email=admin_email,
         admin_password=admin_password,
-        skip_initial_sync=skip_initial_sync,
     )
 
     try:
@@ -241,7 +235,6 @@ def _handle_do_deploy(
     admin_email: str | None,
     admin_password: str | None,
     skip_backups: bool,
-    skip_initial_sync: bool,
 ) -> None:
     """Run DO deployment (non-interactive mode)."""
     from dango.cli.commands.deploy_wizard import run_non_interactive
@@ -254,7 +247,6 @@ def _handle_do_deploy(
         admin_email=admin_email,
         admin_password=admin_password,
         skip_backups=skip_backups,
-        skip_initial_sync=skip_initial_sync,
     )
     _handle_do_deploy_with_config(project_root, config, non_interactive=True)
 
@@ -277,8 +269,8 @@ def _handle_do_deploy_with_config(
         url=result.url,
         ip=result.droplet_ip,
         admin_email=config.admin_email,
+        admin_password=result.admin_password,
         warnings=result.warnings,
-        skip_initial_sync=config.skip_initial_sync,
         domain=config.domain,
     )
 
@@ -289,8 +281,8 @@ def _print_byos_success(result: Any, config: Any) -> None:
         url=result.url,
         ip=result.server_ip,
         admin_email=config.admin_email,
+        admin_password=result.admin_password,
         warnings=result.warnings,
-        skip_initial_sync=config.skip_initial_sync,
         domain=config.domain,
     )
 
@@ -300,25 +292,34 @@ def _print_deploy_success(
     url: str,
     ip: str,
     admin_email: str,
+    admin_password: str = "",
     warnings: list[str],
-    skip_initial_sync: bool,
     domain: str | None = None,
 ) -> None:
     """Print deployment success output (shared by DO and BYOS paths)."""
     console.print("\n[bold green]Deployment complete![/bold green]")
-    console.print(f"  URL:    {url}")
-    console.print(f"  IP:     {ip}")
-    console.print(f"  Admin:  {admin_email}")
+    console.print(f"  URL:      {url}")
+    console.print(f"  IP:       {ip}")
+    console.print(f"  Admin:    {admin_email}")
+    if admin_password:
+        console.print(f"  Password: {admin_password}")
+        console.print("  [dim]Save this password — it will not be shown again.[/dim]")
     if domain:
         console.print(f"\n  [bold]DNS setup:[/bold] Point an A record for {domain} to {ip}")
     if warnings:
         for w in warnings:
             console.print(f"  [yellow]Warning:[/yellow] {w}")
     console.print("\n  Next: Visit the URL above and log in with your admin credentials.")
-    if not skip_initial_sync:
-        console.print("  Initial data sync is running in the background.")
+    console.print("  Sync your data sources from the Sources page.")
     if not domain:
-        console.print("\n  To add a custom domain: [bold]dango remote domain set <domain>[/bold]")
+        console.print(
+            "\n  [yellow]Warning:[/yellow] Running over HTTP (unencrypted)."
+            " Set up a domain for HTTPS: [bold]dango remote domain set <domain>[/bold]"
+        )
+
+    import webbrowser
+
+    webbrowser.open(url)
 
 
 def _load_deploy_config(ctx: click.Context) -> tuple[Any, Path]:
@@ -527,11 +528,18 @@ def _destroy_do(
     import os
 
     if not os.environ.get("DIGITALOCEAN_TOKEN"):
-        console.print("[yellow]DIGITALOCEAN_TOKEN environment variable not set.[/yellow]")
-        token = click.prompt("Enter your DigitalOcean API token", hide_input=True)
-        if not token.strip():
-            raise SystemExit(1)
-        os.environ["DIGITALOCEAN_TOKEN"] = token.strip()
+        # Check saved credential before prompting
+        from dango.config.cloud_credentials import get_do_token
+
+        saved_token = get_do_token(project_root=project_root)
+        if saved_token:
+            os.environ["DIGITALOCEAN_TOKEN"] = saved_token
+        else:
+            console.print("[yellow]DIGITALOCEAN_TOKEN not found.[/yellow]")
+            token = click.prompt("Enter your DigitalOcean API token", hide_input=True)
+            if not token.strip():
+                raise SystemExit(1)
+            os.environ["DIGITALOCEAN_TOKEN"] = token.strip()
 
     from dango.platform.cloud.digitalocean import DigitalOceanClient
 

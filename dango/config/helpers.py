@@ -81,8 +81,14 @@ def save_config(config: DangoConfig, project_root: Path | None = None) -> None:
 def is_cloud_mode(project_root: Path) -> bool:
     """Check if this project has an active cloud deployment.
 
-    Returns True if ``.dango/cloud.yml`` exists and contains a ``droplet_ip``.
+    Returns True if the ``DANGO_CLOUD_MODE`` environment variable is set to
+    ``"true"`` (used on the server where ``cloud.yml`` does not exist), or if
+    ``.dango/cloud.yml`` exists locally and contains a ``droplet_ip``.
     """
+    import os
+
+    if os.environ.get("DANGO_CLOUD_MODE") == "true":
+        return True
     loader = ConfigLoader(project_root)
     cloud_cfg: CloudConfig | None = loader.load_cloud_config()
     return cloud_cfg is not None and cloud_cfg.droplet_ip is not None

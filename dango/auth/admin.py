@@ -18,6 +18,7 @@ from dango.auth.database import create_user, list_users
 from dango.auth.models import Role, User
 from dango.auth.security import generate_temp_password, hash_password
 from dango.config.loader import ConfigLoader
+from dango.exceptions import UserExistsError
 
 # ---------------------------------------------------------------------------
 # Path helpers
@@ -94,7 +95,11 @@ def ensure_admin(
         role=Role.ADMIN,
         must_change_password=True,
     )
-    create_user(db_path, user)
+    try:
+        create_user(db_path, user)
+    except UserExistsError:
+        # Another worker already created admin (multi-worker race)
+        return None
     return user, password
 
 

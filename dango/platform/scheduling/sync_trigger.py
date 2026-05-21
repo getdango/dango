@@ -217,6 +217,43 @@ def run_manual_sync(
             "error": error_msg,
         }
 
+    # --- Stop Metabase on cloud to release DuckDB read lock ---
+    # Metabase's JDBC driver acquires fcntl read locks even on :ro Docker
+    # volumes.  These read locks block DuckDB write locks needed by dlt.
+    _cloud_mode = os.environ.get("DANGO_CLOUD_MODE") == "true"
+    if _cloud_mode:
+        _progress("metabase_stop", "Pausing Metabase for sync")
+        try:
+            import hashlib
+            import subprocess as _sp
+
+            # Must match DockerManager.compose_project_name
+            _proj_name = f"dango-{hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]}"
+            _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
+            result = _sp.run(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(project_root / "docker-compose.yml"),
+                    "stop",
+                    "metabase",
+                ],
+                capture_output=True,
+                timeout=60,
+                env=_env,
+            )
+            if result.returncode != 0:
+                logger.warning(
+                    "metabase_stop_nonzero",
+                    returncode=result.returncode,
+                    stderr=result.stderr.decode(errors="replace"),
+                )
+            # Wait for Metabase to fully release DuckDB file locks
+            time.sleep(3)
+        except Exception:
+            logger.warning("metabase_stop_before_sync_failed", exc_info=True)
+
     try:
         # Reload config (may have been loaded above for OAuth, but safe to reload)
         config = load_config(project_root)
@@ -281,10 +318,27 @@ def run_manual_sync(
 
         duration = round(time.time() - start_time, 1)
 
+        # Check for failures: dbt failed OR any source failed
+        failed_sources = (
+            sync_result.get("failed_sources", []) if isinstance(sync_result, dict) else []
+        )
+
         if _dbt_failed:
             error_msg = "dbt models failed"
             record_failure(db_path, record_id, error_msg)
             _progress("failed", error_msg, rows_loaded=rows_loaded, dbt_error=True)
+            return {
+                "record_id": record_id,
+                "status": "failed",
+                "duration_seconds": duration,
+                "error": error_msg,
+                "rows_loaded": rows_loaded,
+            }
+
+        if failed_sources:
+            error_msg = "; ".join(f["error"] for f in failed_sources if isinstance(f, dict))
+            record_failure(db_path, record_id, error_msg)
+            _progress("failed", f"Sync failed: {error_msg}", error=error_msg)
             return {
                 "record_id": record_id,
                 "status": "failed",
@@ -319,6 +373,29 @@ def run_manual_sync(
                 lock.release()
             except Exception:
                 pass
+        # --- Restart Metabase on cloud ---
+        if _cloud_mode:
+            try:
+                import hashlib
+                import subprocess as _sp
+
+                _proj_name = f"dango-{hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]}"
+                _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
+                _sp.run(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(project_root / "docker-compose.yml"),
+                        "start",
+                        "metabase",
+                    ],
+                    env=_env,
+                    capture_output=True,
+                    timeout=120,
+                )
+            except Exception:
+                logger.debug("metabase_start_after_sync_failed", exc_info=True)
 
 
 if __name__ == "__main__":

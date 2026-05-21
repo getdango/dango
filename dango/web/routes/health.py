@@ -156,6 +156,17 @@ async def get_platform_health() -> dict[str, Any]:
     if failed_syncs:
         warnings.append(f"{len(failed_syncs)} source(s) with recent failures")
 
+    # Check for sources that have never synced
+    enabled_sources = [s for s in sources_config if s.get("enabled", True)]
+    if enabled_sources and not failed_syncs:
+        from dango.web.helpers import load_sync_history as _load_sync_history
+
+        never_synced = [
+            s["name"] for s in enabled_sources if not _load_sync_history(s["name"], limit=1)
+        ]
+        if never_synced:
+            warnings.append(f"{len(never_synced)} source(s) never synced")
+
     if failed_dbt:
         warnings.append("dbt run failures")
 

@@ -90,6 +90,8 @@ def profile_table(
     project_root: Path,
     source: str,
     table_name: str,
+    *,
+    schema_override: str | None = None,
 ) -> dict[str, dict[str, str | None]]:
     """Profile all columns of a single table and cache results.
 
@@ -99,8 +101,10 @@ def profile_table(
 
     Args:
         project_root: Path to the Dango project root.
-        source: Source name (used as ``raw_{source}`` schema).
-        table_name: Table name within the source schema.
+        source: Source name (used as cache key and default schema ``raw_{source}``).
+        table_name: Table name within the schema.
+        schema_override: Explicit schema name (e.g., ``"staging"``).
+            When set, overrides the default ``raw_{source}`` schema.
 
     Returns:
         Mapping of ``{column_name: {stat_type: stat_value}}``.  Stat values
@@ -109,7 +113,7 @@ def profile_table(
     import duckdb  # lazy import (matches dlt_runner.py pattern)
 
     db_path = project_root / "data" / "warehouse.duckdb"
-    schema = f"raw_{source}"
+    schema = schema_override or f"raw_{source}"
 
     conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
     try:
@@ -467,6 +471,33 @@ def _run_profiling(project_root: Path, sources: list[str]) -> None:
                         "profiling_table_error",
                         source=source,
                         table=tbl_name,
+                    )
+
+            # Also profile staging tables for this source
+            logger.info("profiling_staging_start", source=source)
+            conn_stg = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
+            try:
+                stg_tables = conn_stg.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = 'staging' "
+                    f"AND table_name LIKE 'stg_{source}%' "
+                    "ORDER BY table_name"
+                ).fetchall()
+            finally:
+                conn_stg.close()
+
+            logger.info("profiling_staging_tables_found", source=source, count=len(stg_tables))
+            for (stg_name,) in stg_tables:
+                try:
+                    stg_name = validate_identifier(stg_name)
+                    profile_table(project_root, source, stg_name, schema_override="staging")
+                    logger.info("profiling_staging_table_done", source=source, table=stg_name)
+                except Exception:
+                    logger.warning(
+                        "profiling_table_error",
+                        source=source,
+                        table=stg_name,
+                        exc_info=True,
                     )
 
             logger.debug("profiling_source_complete", source=source)

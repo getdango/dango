@@ -509,12 +509,14 @@ class DltPipelineRunner:
             duration = (datetime.now() - start_time).total_seconds()
             error_message = str(e)
 
+            # CSV/local_files are always full refresh regardless of the flag
+            is_file_source = source_type in (SourceType.CSV, SourceType.LOCAL_FILES)
             history_entry = {
                 "timestamp": start_time.isoformat(),
                 "status": "failed",
                 "duration_seconds": round(duration, 2),
                 "rows_processed": 0,
-                "full_refresh": full_refresh,
+                "full_refresh": full_refresh or is_file_source,
                 "error_message": error_message,
             }
             save_sync_history_entry(self.project_root, source_name, history_entry)
@@ -585,11 +587,12 @@ class DltPipelineRunner:
         )
 
         return {
+            **result,
             "status": result.get("status", "success"),
             "source": source_config.name,
             "rows_loaded": result.get("total_rows", 0),
             "files_processed": result.get("new", 0) + result.get("updated", 0),
-            **result,
+            "uses_replace_mode": True,  # CSV sources always do full refresh
         }
 
     def _run_local_files_source(
@@ -639,11 +642,12 @@ class DltPipelineRunner:
         )
 
         return {
+            **result,
             "status": result.get("status", "success"),
             "source": source_config.name,
             "rows_loaded": result.get("total_rows", 0),
             "files_processed": result.get("new", 0) + result.get("updated", 0),
-            **result,
+            "uses_replace_mode": True,  # Local file sources always do full refresh
         }
 
     def _run_dlt_native_source(
@@ -2441,6 +2445,8 @@ def run_sync(
             progress_callback("data_load_complete", "Data load completed")
 
         # Run dbt to create staging/marts tables (unless caller handles dbt separately)
+        dbt_success = False
+        dbt_output = ""
         if not skip_dbt:
             # Use selective runs to only process models dependent on synced sources
             if progress_callback is not None:
@@ -2457,8 +2463,9 @@ def run_sync(
                 )
                 dbt_success, dbt_output = run_dbt_models(project_root, select=select_criteria)
             else:
-                # No sources synced, run all models (backward compatibility)
-                dbt_success, dbt_output = run_dbt_models(project_root)
+                # All sources failed — skip dbt (no new data to transform)
+                console.print("[dim]No sources synced successfully — skipping dbt.[/dim]")
+                skip_dbt = True  # Skip docs generation below too
 
             if dbt_success:
                 if progress_callback is not None:
@@ -2467,11 +2474,25 @@ def run_sync(
                 _display_dbt_output(dbt_output)
                 console.print("[green]✓ dbt models executed successfully[/green]")
 
+                # Preserve build results before docs generate (dbt overwrites
+                # run_results.json on every command including docs generate)
+                import shutil
+
+                build_results_path = project_root / "dbt" / "target" / "run_results.json"
+                build_results_backup = project_root / "dbt" / "target" / "build_results.json"
+                if build_results_path.exists():
+                    shutil.copy2(build_results_path, build_results_backup)
+
                 # Generate dbt docs
                 console.print("[dim]Generating dbt documentation...[/dim]")
                 from dango.transformation import generate_dbt_docs
 
                 docs_success, docs_output = generate_dbt_docs(project_root)
+
+                # Restore build results (with test data) after docs generate
+                if build_results_backup.exists():
+                    shutil.copy2(build_results_backup, build_results_path)
+                    build_results_backup.unlink()
                 if docs_success:
                     console.print("[green]✓ dbt docs generated[/green]")
                 else:

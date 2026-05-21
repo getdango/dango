@@ -29,15 +29,16 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
 | `commands/serve.py` (~205 lines) | `serve` production foreground server with `--workers` option. Metabase setup failure is non-fatal (prints warning, continues to uvicorn). | `serve()` |
 | `commands/deploy.py` (710 lines) | `deploy` group (wizard default, --byos, destroy) | `deploy`, `deploy_destroy()` |
-| `commands/deploy_wizard.py` (828 lines) | Interactive wizard steps 1-8 + BYOS wizard + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig`, `run_byos_wizard()`, `run_byos_non_interactive()`, `BYOSConfig` |
+| `commands/deploy_wizard.py` (877 lines) | Interactive wizard steps 1-8 + BYOS wizard + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig`, `run_byos_wizard()`, `run_byos_non_interactive()`, `BYOSConfig` |
 | `commands/deploy_provision.py` (897 lines) | Provisioning orchestration (DO + BYOS) + cleanup | `run_provisioning()`, `run_byos_setup()`, `ProvisionResult`, `BYOSResult`, `_ResourceTracker` |
 | `commands/remote_env.py` | `remote env` subgroup (set, get, list, delete) | `env` (Click group) |
 | `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
 | `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore) | `backup_group` |
+| `commands/remote_auth.py` (~217 lines) | `remote auth` subgroup (reset-password, reset-2fa) | `auth_group` |
 | `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query` | `remote_status()`, `remote_logs()` |
-| `commands/schedule.py` (743 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
+| `commands/schedule.py` (770 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
 | `commands/governance.py` (220 lines) | `governance` group (drift-report, pii-report, pii-set, pii-list) | `governance`, `drift_report()`, `pii_report()`, `pii_set()`, `pii_list()` |
-| `commands/notebook.py` (161 lines) | `notebook` group (new, open) | `notebook`, `notebook_new()`, `notebook_open()` |
+| `commands/notebook.py` (~209 lines) | `notebook` group (new, open) | `notebook`, `notebook_new()`, `notebook_open()` |
 | `commands/snapshot.py` (383 lines) | `snapshot` group (add, list, run, db) | `snapshot`, `snapshot_add()`, `snapshot_list()`, `snapshot_run()`, `snapshot_db()` |
 | `commands/analyze.py` (~97 lines) | `monitor` group + `analyze` alias | `monitor` (group), `monitor_run()`, `analyze()` |
 | `commands/dev.py` (~429 lines) | `dev` group (default run + clean) — branch-based dbt development | `dev` (group), `dev_clean()` |
@@ -98,6 +99,8 @@ dango (top-level group)
 │   ├── upgrade, resize, migrate ← commands/remote_ops.py
 │   ├── env (subgroup)          ← commands/remote_env.py
 │   │   ├── set, get, list, delete
+│   ├── auth (subgroup)         ← commands/remote_auth.py
+│   │   ├── reset-password, reset-2fa
 │   ├── firewall (subgroup)     ← commands/remote.py
 │   │   ├── list, allow-ip, allow-all
 │   ├── domain (subgroup)       ← commands/remote.py
@@ -131,7 +134,7 @@ dango (top-level group)
 - **Lazy imports:** All command functions use `from dango.xxx import ...` inside the function body, not at module level. This prevents circular imports and speeds up CLI startup.
 - **Shared console:** All command modules import `console` from `dango.cli` for Rich terminal output.
 - **Project root via context:** `ctx.obj["project_root"]` is set by the top-level `cli` group in `main.py` (via `dango.config.helpers.find_project_root`).
-- **Cross-file command registration:** `remote_mgmt.py`, `remote_ops.py`, `remote_env.py`, and `remote_backup.py` import `remote` from `remote.py` and register commands via `@remote.command()` / `@remote.group()`. Registration is triggered by bottom-of-file imports in `remote.py`.
+- **Cross-file command registration:** `remote_auth.py`, `remote_mgmt.py`, `remote_ops.py`, `remote_env.py`, and `remote_backup.py` import `remote` from `remote.py` and register commands via `@remote.command()` / `@remote.group()`. Registration is triggered by bottom-of-file imports in `remote.py`.
 - **Two SSH users:** `root` for system ops (backup, rollback, domain, server setup) via `load_cloud_config_with_ssh()` in `cli/utils.py`. `dango` for project file ops (.env, .dlt/secrets.toml) via `_ssh_connect_or_fail()` in `remote.py`.
 
 ### Key conventions

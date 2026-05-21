@@ -14,6 +14,18 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+function formatSourceType(type) {
+    const names = {
+        'csv': 'CSV',
+        'local_files': 'Local Files',
+        'dlt_native': 'dlt Native',
+        'rest_api': 'REST API',
+        'sql_database': 'SQL Database',
+        'filesystem': 'Filesystem',
+    };
+    return names[type] || type.charAt(0).toUpperCase() + type.slice(1).replace(/_/g, ' ');
+}
+
 // Global state
 let ws = null;
 let reconnectInterval = null;
@@ -147,7 +159,13 @@ function getTotalFileOperations() {
 function formatRelativeTime(timestamp) {
     if (!timestamp) return 'Never';
 
-    const date = new Date(timestamp);
+    // Server stores UTC timestamps without timezone suffix.
+    // Append 'Z' so the browser interprets them as UTC, not local time.
+    let ts = String(timestamp);
+    if (!ts.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ts)) {
+        ts += 'Z';
+    }
+    const date = new Date(ts);
     if (isNaN(date.getTime())) return 'Invalid date';
 
     const now = new Date();
@@ -424,48 +442,42 @@ async function handleWebSocketMessage(data) {
 
         case 'sync_completed':
             console.log('✅ [WS] sync_completed - Source:', source);
-            stopSyncTimer(source);
+            // sync_completed is the FINAL event — fires after dbt and post-sync
+            // hooks complete (the subprocess has exited). This is where we do
+            // ALL cleanup: stop timer, clear activeSyncs, refresh sources.
             addLogEntry('success', message || `Sync completed`, source);
+            stopSyncTimer(source);
 
-            // Store sync result for in-place update after dbt completes
-            if (data.rows_loaded !== undefined) {
-                syncResults.set(source, {
-                    rows_loaded: data.rows_loaded,
-                    timestamp: data.timestamp,
-                    duration_seconds: data.duration_seconds,
-                });
-            }
-
-            // Suppress success toast during batch operations (multi-file uploads)
-            if (!activeFileOperations.has(source)) {
+            // Clean up upload batch operations
+            if (activeFileOperations.has(source)) {
+                const operations = activeFileOperations.get(source);
+                for (const opId of operations) {
+                    if (opId.startsWith('upload-batch-')) {
+                        removeFileOperation(source, opId);
+                    }
+                }
+                showToast(`${source}: Files synced and transformed successfully`, 'success');
+            } else {
                 showToast(`${source} synced successfully`, 'success');
-            } else {
-                console.log('✅ [WS] Suppressing toast - batch upload operation in progress');
             }
 
-            // sync_completed is the terminal event — clear sync state and update row
-            // (dbt_run_all_completed may have already done this; checks are idempotent)
-            if (activeSyncs.has(source)) {
-                activeSyncs.delete(source);
-                stopSyncTimer(source);
-                const btn = document.getElementById(`sync-btn-${source}`);
-                if (btn) btn.textContent = 'Sync Now';
-                updateSyncCounter();
-            }
-
-            // Update row with sync results
-            if (data.rows_loaded !== undefined) {
-                updateSourceRowAfterSync(source, {
-                    rows_loaded: data.rows_loaded,
-                    timestamp: data.timestamp,
-                    duration_seconds: data.duration_seconds,
-                });
-                syncResults.delete(source);
-            } else {
-                // No rows_loaded in event — refresh from backend
-                // Safe to call here: sync_completed is terminal, data is committed
-                if (!isLoadingSources) loadSources();
-            }
+            // Clean up sync state and refresh
+            activeSyncs.delete(source);
+            updateSyncCounter();
+            loadSources();  // Reload from API to get correct status
+            // Fallback: if activeSyncs wasn't set (e.g. upload-triggered sync),
+            // the cleanup above is harmless (delete on missing key is a no-op).
+            // Fallback: if activeSyncs wasn't cleared (edge case),
+            // retry cleanup after 10 seconds.
+            setTimeout(() => {
+                if (activeSyncs.has(source)) {
+                    console.log('⏰ [WS] Fallback cleanup:', source);
+                    activeSyncs.delete(source);
+                    stopSyncTimer(source);
+                    updateSyncCounter();
+                    if (!isLoadingSources) loadSources();
+                }
+            }, 10000);
             break;
 
         case 'sync_failed':
@@ -554,59 +566,14 @@ async function handleWebSocketMessage(data) {
             const sourceMatch = source?.match(/triggered by (\w+)/);
             const triggeredSource = sourceMatch ? sourceMatch[1] : null;
 
-            if (triggeredSource) {
-                console.log('🟢 [WS] dbt was triggered by source:', triggeredSource);
-
-                // Check if this was a batch upload operation
-                const hadUploadOps = activeFileOperations.has(triggeredSource);
-
-                // Clean up any upload batch operations for this source
-                if (hadUploadOps) {
-                    const operations = activeFileOperations.get(triggeredSource);
-                    for (const opId of operations) {
-                        if (opId.startsWith('upload-batch-')) {
-                            console.log(`🟢 [WS] Cleaning up upload batch operation: ${opId}`);
-                            removeFileOperation(triggeredSource, opId);
-                            // Show final success toast for the batch
-                            showToast(`${triggeredSource}: Files synced and transformed successfully`, 'success');
-                        }
-                    }
-                }
-            }
-
-            console.log('🟢 [WS] Cleared dbt flag. Showing completion...');
+            console.log('🟢 [WS] dbt complete. Refreshing models list.');
             addLogEntry('success', message, source || 'dbt');
 
-            // Refresh dbt models
+            // Refresh dbt models list only — do NOT clear activeSyncs or
+            // stop timers here.  The subprocess is still running post-sync
+            // hooks (profiling, PII scan, etc.).  sync_completed is the
+            // final event that does all cleanup.
             loadDbtModels();
-
-            // Delay clearing sync status and refreshing to ensure user sees "syncing" state
-            // Always cleanup activeSyncs, even if source matching fails
-            setTimeout(() => {
-                if (triggeredSource) {
-                    activeSyncs.delete(triggeredSource);
-                    stopSyncTimer(triggeredSource);
-                    const btn = document.getElementById(`sync-btn-${triggeredSource}`);
-                    if (btn) btn.textContent = 'Sync Now';
-                    console.log('🟢 [WS] [DELAYED] Cleared activeSyncs for:', triggeredSource);
-                    const result = syncResults.get(triggeredSource);
-                    if (result) {
-                        updateSourceRowAfterSync(triggeredSource, result);
-                        syncResults.delete(triggeredSource);
-                    }
-                    // No loadSources() fallback — sync_completed handles final row update
-                } else {
-                    // Reset ALL sync buttons when no specific source
-                    for (const src of activeSyncs.keys()) {
-                        stopSyncTimer(src);
-                        const btn = document.getElementById(`sync-btn-${src}`);
-                        if (btn) btn.textContent = 'Sync Now';
-                    }
-                    activeSyncs.clear();
-                    if (!isLoadingSources) loadSources();
-                }
-                updateSyncCounter();
-            }, 500);  // Wait 500ms so user sees the syncing badge
             break;
 
         case 'dbt_run_failed':
@@ -1250,7 +1217,7 @@ function renderSourcesTable() {
                     </button>
                     <button
                         onclick="event.stopPropagation(); toggleSyncMenu('${source.name}')"
-                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150 border-l border-blue-300 pl-1 ml-1 rounded-r-md"
+                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150 pl-1 ml-1"
                         ${buttonDisabled}
                     >
                         ▾
@@ -1274,7 +1241,7 @@ function renderSourcesTable() {
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
-                    ${source.type}
+                    ${formatSourceType(source.type)}
                 </span>
                 <div class="text-xs text-gray-400 mt-0.5">${source.sync_mode === 'full_refresh' ? 'Full Refresh' : 'Incremental'}${source.lookback_days ? ` (${source.lookback_days}d)` : ''}</div>
             </td>
@@ -1303,6 +1270,7 @@ function getStatusBadge(status) {
         'synced': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Synced</span>',
         'syncing': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 animate-pulse">⏳ Syncing...</span>',
         'processing': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800 animate-pulse">⚙️ Processing...</span>',
+        'partial': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">⚠ Partial</span>',
         'empty': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Empty</span>',
         'not_synced': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">Not Synced</span>',
         'failed': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">Failed</span>',
@@ -1369,6 +1337,10 @@ function renderStatusPill(source, isSyncing, hasFileOps) {
         return `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">❌ Failed</span>`;
     }
 
+    if (freshness.status === 'partial') {
+        return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">⚠ Partial</span>';
+    }
+
     if (freshness.status === 'empty') {
         return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">⚪ No Data</span>';
     }
@@ -1407,7 +1379,7 @@ function updateSourceStatus(sourceName, newStatus) {
         const syncBtn = document.getElementById(`sync-btn-${sourceName}`);
         if (syncBtn) {
             syncBtn.disabled = newStatus === 'syncing';
-            syncBtn.innerHTML = newStatus === 'syncing' ? 'Syncing...' : 'Sync Now &#9662;';
+            syncBtn.innerHTML = newStatus === 'syncing' ? 'Syncing...' : 'Sync Now';
         }
     } else {
         // Row doesn't exist yet - table hasn't been rendered
@@ -1425,11 +1397,10 @@ function updateSourceRowAfterSync(sourceName, result) {
         return;
     }
 
-    // Update status pill to Synced
-    const statusCell = row.querySelector('td[data-col="status"]');
-    if (statusCell) {
-        statusCell.innerHTML = '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">✓ Synced</span>';
-    }
+    // Reload full source data from API to get correct status
+    // (sync may have succeeded with 0 rows = "empty", or failed)
+    loadSources();
+    return;
 
     // Update row count
     if (result.rows_loaded !== undefined && result.rows_loaded !== null) {
@@ -1449,7 +1420,7 @@ function updateSourceRowAfterSync(sourceName, result) {
     const syncBtn = document.getElementById(`sync-btn-${sourceName}`);
     if (syncBtn) {
         syncBtn.disabled = false;
-        syncBtn.innerHTML = 'Sync Now &#9662;';
+        syncBtn.innerHTML = 'Sync Now';
     }
 
     // Update sources array for consistency with future renders

@@ -18,17 +18,25 @@
                     <span x-text="metrics.length"></span> monitors<template x-if="flaggedCount > 0">, <span class="text-red-600 font-medium" x-text="flaggedCount + ' flagged'"></span></template>
                 </p>
             </div>
-            <button @click="runAnalysis()" :disabled="running"
-                    class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors disabled:opacity-50">
-                <span x-show="!running">Run Analysis</span>
-                <span x-show="running" x-cloak class="inline-flex items-center space-x-1">
-                    <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                    </svg>
-                    <span>Running...</span>
-                </span>
-            </button>
+            <div class="flex items-center space-x-3">
+                <select x-model="sortBy" @change="sortMetrics()" class="text-xs border border-gray-300 rounded-md px-2 py-1.5 text-gray-600 bg-white">
+                    <option value="status">Sort: Status</option>
+                    <option value="change">Sort: Change %</option>
+                    <option value="name">Sort: Name</option>
+                    <option value="source">Sort: Source</option>
+                </select>
+                <button @click="runAnalysis()" :disabled="running"
+                        class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors disabled:opacity-50">
+                    <span x-show="!running">Run Analysis</span>
+                    <span x-show="running" class="inline-flex items-center space-x-1">
+                        <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        <span>Running...</span>
+                    </span>
+                </button>
+            </div>
         </div>
         <div x-show="loading" x-cloak class="flex items-center justify-center py-12">
             <div class="text-gray-400 text-sm">Loading monitors...</div>
@@ -47,7 +55,10 @@
                         <div class="flex items-center space-x-3 min-w-0">
                             <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold"
                                   :class="statusClass(m.status)" x-text="m.status"></span>
-                            <span class="text-sm font-medium text-gray-900 truncate" x-text="m.name"></span>
+                            <div class="flex flex-col min-w-0">
+                                <span class="text-sm font-medium text-gray-900 truncate" x-text="friendlyName(m)"></span>
+                                <span class="text-xs text-gray-500" x-text="m.source ? (m.source + (m.table_name ? '.' + m.table_name : '')) : ''"></span>
+                            </div>
                         </div>
                         <div class="flex items-center space-x-4 text-sm text-right flex-shrink-0">
                             <span class="text-gray-900 font-mono" x-text="formatValue(m)"></span>
@@ -64,8 +75,7 @@
                         </div>
                     </div>
                     <div class="flex items-center space-x-3 mt-1 text-xs text-gray-400">
-                        <template x-if="m.source"><a :href="'/catalog'" class="hover:text-blue-600" x-text="m.source + (m.table_name ? '.' + m.table_name : '')"></a></template>
-                        <template x-if="m.comparison_type"><span x-text="m.comparison_type.replace(/_/g, ' ')"></span></template>
+                        <template x-if="m.comparison_type && m.comparison_type !== 'none'"><span x-text="m.comparison_type.replace(/_/g, ' ')"></span></template>
                         <template x-if="m.error"><span class="text-red-500" x-text="m.error"></span></template>
                     </div>
                     <!-- Drill-down -->
@@ -88,7 +98,7 @@
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-xs font-semibold text-gray-700">History (30 days)</span>
                             <div class="flex items-center space-x-3 text-xs text-gray-500">
-                                <template x-if="m.comparison_type">
+                                <template x-if="m.comparison_type && m.comparison_type !== 'none'">
                                     <span>Comparison: <span class="font-medium text-gray-700" x-text="m.comparison_type.replace(/_/g, ' ')"></span></span>
                                 </template>
                                 <template x-if="m.baseline_value != null">
@@ -101,20 +111,21 @@
                             <p class="text-xs text-red-700" x-text="historyError"></p>
                         </div>
                         <template x-if="!historyLoading && !historyError && historyData.length > 0">
-                            <div class="overflow-x-auto"><table class="min-w-full text-xs">
-                                <thead><tr>
-                                    <th class="text-left py-1 text-gray-500">Recorded</th>
-                                    <th class="text-right py-1 text-gray-500">Value</th>
-                                </tr></thead>
-                                <tbody>
-                                    <template x-for="pt in historyData" :key="pt.recorded_at">
-                                        <tr>
-                                            <td class="py-1 text-gray-600" x-text="formatFullTimestamp(pt.recorded_at)"></td>
-                                            <td class="py-1 text-right font-mono" x-text="formatHistoryValue(pt)"></td>
-                                        </tr>
-                                    </template>
-                                </tbody>
-                            </table></div>
+                            <div class="space-y-0.5 max-h-64 overflow-y-auto">
+                                <template x-for="(pt, idx) in historyData" :key="pt.recorded_at">
+                                    <div class="flex items-center justify-between text-xs px-2 py-0.5 hover:bg-gray-50 rounded">
+                                        <div class="flex items-center space-x-2 flex-shrink-0">
+                                            <span class="text-gray-500 tabular-nums" x-text="formatFullTimestamp(pt.recorded_at)"></span>
+                                            <template x-if="idx < historyData.length - 1">
+                                                <span class="w-3 text-center"
+                                                      :class="pt.value > historyData[idx+1].value ? 'text-green-500' : pt.value < historyData[idx+1].value ? 'text-red-500' : 'text-gray-300'"
+                                                      x-text="pt.value > historyData[idx+1].value ? '▲' : pt.value < historyData[idx+1].value ? '▼' : '–'"></span>
+                                            </template>
+                                        </div>
+                                        <span class="text-gray-900 font-mono text-right flex-shrink-0 ml-4" x-text="formatHistoryValue(pt)"></span>
+                                    </div>
+                                </template>
+                            </div>
                         </template>
                         <template x-if="!historyLoading && !historyError && historyData.length === 0">
                             <div class="text-xs text-gray-400 py-3 text-center">No history available.</div>
@@ -132,6 +143,9 @@
                         <span x-text="dbtTestsPassing"></span> passing<template x-if="dbtTestsFailing > 0">, <span class="text-red-600 font-medium" x-text="dbtTestsFailing + ' failing'"></span></template><template x-if="dbtTestsNotRun > 0">, <span class="text-gray-400" x-text="dbtTestsNotRun + ' not run'"></span></template>
                     </span>
                 </div>
+                <template x-if="dbtTestsNotRun === dbtTests.length && dbtTests.length > 0">
+                    <p class="text-xs text-gray-400 mb-3">Tests have not been executed yet. Run <code class="bg-gray-100 px-1 rounded">dango transform run --test</code> or wait for the next scheduled sync to populate results.</p>
+                </template>
                 <!-- Grouped by model (BUG-216) -->
                 <div class="space-y-2">
                     <template x-for="group in groupedTests" :key="group.model">
@@ -146,7 +160,9 @@
                                     <span class="text-xs font-medium text-gray-700" x-text="group.model"></span>
                                 </div>
                                 <div class="flex items-center space-x-2 text-xs">
-                                    <span class="text-green-600" x-text="group.pass + ' pass'"></span>
+                                    <template x-if="group.pass > 0">
+                                        <span class="text-green-600" x-text="group.pass + ' pass'"></span>
+                                    </template>
                                     <template x-if="group.fail > 0">
                                         <span class="text-red-600 font-medium" x-text="group.fail + ' fail'"></span>
                                     </template>
@@ -158,7 +174,7 @@
                             <div x-show="expandedGroups[group.model]" x-cloak class="border-t border-gray-100">
                                 <template x-for="t in group.tests" :key="t.test_name">
                                     <div class="flex items-center justify-between px-3 py-1.5 text-xs">
-                                        <span class="text-gray-700 font-mono truncate" x-text="t.test_name"></span>
+                                        <span class="text-gray-700 font-mono truncate" :title="t.test_name" x-text="t.test_name"></span>
                                         <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold flex-shrink-0 ml-2"
                                               :class="t.status === 'pass' ? 'bg-green-100 text-green-800' : t.status === 'fail' || t.status === 'error' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'"
                                               x-text="t.status || 'not run'"></span>
@@ -178,7 +194,7 @@
 function monitoringPage() {
     return {
         metrics: [], flaggedCount: 0, loading: true, running: false, error: null,
-        success: '',
+        success: '', sortBy: 'status',
         historyMetric: null, historyData: [], historyLoading: false, historyError: '',
         dbtTests: [], dbtTestsPassing: 0, dbtTestsFailing: 0, dbtTestsNotRun: 0,
         groupedTests: [],
@@ -193,14 +209,19 @@ function monitoringPage() {
                     this.dbtTests = data.dbt_tests || [];
                     this._updateTestCounts();
                     this._autoExpandFailingGroups();
+                    this.sortMetrics();
                 } else { this.error = 'Failed to load monitors.'; }
             } catch (e) { this.error = 'Failed to load monitors.'; }
             finally { this.loading = false; }
         },
         async runAnalysis() {
             this.running = true; this.error = null; this.success = '';
+            const startTime = Date.now();
             try {
                 const res = await fetch('/api/monitoring/run', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}});
+                // Ensure spinner visible for at least 1s
+                const elapsed = Date.now() - startTime;
+                if (elapsed < 1000) await new Promise(r => setTimeout(r, 1000 - elapsed));
                 if (res.ok) {
                     const data = await res.json();
                     this.metrics = data.metrics.map(m => ({...m, _expanded: false}));
@@ -208,11 +229,30 @@ function monitoringPage() {
                     this.dbtTests = data.dbt_tests || [];
                     this._updateTestCounts();
                     this._autoExpandFailingGroups();
+                    this.sortMetrics();
                     this.success = 'Analysis complete \u2014 ' + data.metrics.length + ' metrics updated';
                     setTimeout(() => { this.success = ''; }, 5000);
                 } else { this.error = 'Analysis failed.'; }
             } catch (e) { this.error = 'Analysis failed.'; }
             finally { this.running = false; }
+        },
+        sortMetrics() {
+            const m = [...this.metrics];
+            const statusOrder = {flagged: 0, trending: 1, normal: 2, error: 3};
+            if (this.sortBy === 'status') {
+                m.sort((a, b) => {
+                    const s = (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9);
+                    if (s !== 0) return s;
+                    return Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0);
+                });
+            } else if (this.sortBy === 'change') {
+                m.sort((a, b) => Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0));
+            } else if (this.sortBy === 'name') {
+                m.sort((a, b) => a.name.localeCompare(b.name));
+            } else if (this.sortBy === 'source') {
+                m.sort((a, b) => (a.source || '').localeCompare(b.source || '') || a.name.localeCompare(b.name));
+            }
+            this.metrics = m;
         },
         _updateTestCounts() {
             this.dbtTestsPassing = this.dbtTests.filter(t => t.status === 'pass').length;
@@ -266,6 +306,19 @@ function monitoringPage() {
         statusClass(status) {
             return {flagged: 'bg-red-100 text-red-800', trending: 'bg-yellow-100 text-yellow-800', normal: 'bg-green-100 text-green-800', error: 'bg-gray-100 text-gray-600'}[status] || 'bg-gray-100 text-gray-600';
         },
+        friendlyName(m) {
+            // Turn chess_players_games_row_count → Row Count (players_games)
+            let name = m.name;
+            const table = m.table_name;
+            const source = m.source;
+            // Strip source prefix
+            if (source && name.startsWith(source + '_')) name = name.slice(source.length + 1);
+            // Strip table prefix
+            if (table && name.startsWith(table + '_')) name = name.slice(table.length + 1);
+            // Humanize remainder
+            const label = name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            return table ? label + ' (' + table + ')' : label;
+        },
         formatChange(pct) {
             if (pct == null) return '-';
             const sign = pct > 0 ? '+' : '';
@@ -273,7 +326,6 @@ function monitoringPage() {
         },
         formatValue(m) {
             if (m.value == null) return '-';
-            if (m.name.endsWith('_freshness')) return new Date(m.value * 1000).toLocaleString();
             return m.value.toLocaleString(undefined, {maximumFractionDigits: 2});
         },
         formatFullTimestamp(iso) {
@@ -292,14 +344,10 @@ function monitoringPage() {
         },
         formatBaseline(m) {
             if (m.baseline_value == null) return '-';
-            if (m.name.endsWith('_freshness')) return new Date(m.baseline_value * 1000).toLocaleString();
             return m.baseline_value.toLocaleString(undefined, {maximumFractionDigits: 2});
         },
         formatHistoryValue(pt) {
             if (pt.value == null) return '-';
-            if (this.historyMetric && this.historyMetric.endsWith('_freshness')) {
-                return new Date(pt.value * 1000).toLocaleString();
-            }
             return pt.value.toLocaleString(undefined, {maximumFractionDigits: 2});
         },
     };

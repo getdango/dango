@@ -106,7 +106,7 @@ class TestGetDiskWarning:
     def test_downgrade_warns(self) -> None:
         from dango.platform.cloud.resize import get_disk_warning
 
-        warning = get_disk_warning("s-4vcpu-8gb", "s-1vcpu-2gb")
+        warning = get_disk_warning("s-4vcpu-8gb", "s-2vcpu-4gb")
         assert warning is not None
         assert "does not shrink" in warning
 

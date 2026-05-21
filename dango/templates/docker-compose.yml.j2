@@ -7,7 +7,7 @@ services:
       context: .
       dockerfile: Dockerfile.metabase
     ports:
-      - "{{ metabase_port }}:3000"
+      - "127.0.0.1:{{ metabase_port }}:3000"
     volumes:
       - metabase-data:/metabase-data
       # :ro prevents Metabase JDBC driver from acquiring DuckDB write lock.
@@ -18,7 +18,7 @@ services:
       MB_DB_TYPE: h2
       MB_DB_FILE: /metabase-data/metabase.db
       MB_SITE_NAME: "{{ project_name }}"
-      MB_ENABLE_PUBLIC_SHARING: true
+      MB_ENABLE_PUBLIC_SHARING: false
       MB_ANON_TRACKING_ENABLED: false
       MB_PLUGINS_DIR: /app/plugins
     healthcheck:
@@ -33,7 +33,7 @@ services:
   dbt-docs:
     image: nginx:alpine
     ports:
-      - "{{ dbt_docs_port }}:80"
+      - "127.0.0.1:{{ dbt_docs_port }}:80"
     volumes:
       - ./dbt/target:/usr/share/nginx/html:ro
     healthcheck:

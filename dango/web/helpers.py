@@ -31,7 +31,16 @@ def get_project_root() -> Path:
 
 
 def is_cloud_deployment(project_root: Path) -> bool:
-    """Check if this is a cloud deployment (cloud.yml exists)."""
+    """Check if this is a cloud deployment.
+
+    Returns ``True`` when the ``DANGO_CLOUD_MODE`` environment variable is
+    ``"true"`` (set in the systemd unit on the server) **or** when
+    ``.dango/cloud.yml`` exists locally.
+    """
+    import os
+
+    if os.environ.get("DANGO_CLOUD_MODE") == "true":
+        return True
     return (project_root / ".dango" / "cloud.yml").exists()
 
 
@@ -495,7 +504,8 @@ def get_source_freshness(source_name: str) -> dict[str, Any]:
     last_sync_time = last_sync.get("timestamp")
 
     # If last sync failed, mark as failed regardless of time
-    if last_sync_status != "success":
+    # "partial" still loaded some data — treat as having fresh data
+    if last_sync_status not in ("success", "partial"):
         return {
             "status": "failed",
             "hours_since_sync": None,
@@ -505,8 +515,14 @@ def get_source_freshness(source_name: str) -> dict[str, Any]:
 
     # Calculate time since last successful sync
     try:
-        timestamp = datetime.fromisoformat(last_sync_time.replace("Z", "+00:00"))
-        hours_ago = (datetime.now() - timestamp.replace(tzinfo=None)).total_seconds() / 3600
+        # Timestamps are stored as naive UTC. Treat them as UTC for comparison.
+        ts_str = last_sync_time.replace("Z", "+00:00")
+        if "+" not in ts_str and ts_str.count("-") <= 2:
+            # Naive timestamp — assume UTC
+            ts_str += "+00:00"
+        timestamp = datetime.fromisoformat(ts_str)
+        now_utc = datetime.now(tz=timestamp.tzinfo)
+        hours_ago = (now_utc - timestamp).total_seconds() / 3600
 
         # All successful syncs show as "synced"
         return {
@@ -796,10 +812,13 @@ async def get_source_status_data(source: dict) -> SourceStatus:
         tables = None
 
     rows_processed = history[0].get("rows_processed", 0) if history else None
+    last_sync_duration = history[0].get("duration_seconds") if history else None
 
-    # Determine status (priority: failed > synced > empty > not_synced)
+    # Determine status (priority: failed > partial > synced > empty > not_synced)
     if last_sync_status == "failed":
         status = "failed"
+    elif last_sync_status == "partial":
+        status = "partial"
     elif not history:
         # Never synced - no history at all
         status = "not_synced"
@@ -837,8 +856,12 @@ async def get_source_status_data(source: dict) -> SourceStatus:
                     sync_mode_from_history = "incremental"
                 break
 
+    # CSV and local_files sources are always full refresh
+    is_file_source = source_type in ("csv", "local_files")
     if sync_mode_from_history is not None:
         sync_mode = sync_mode_from_history
+    elif is_file_source:
+        sync_mode = "full_refresh"
     else:
         sync_mode = "incremental" if supports_incremental else "full_refresh"
     write_disposition = "replace" if sync_mode == "full_refresh" else "merge"
@@ -865,4 +888,5 @@ async def get_source_status_data(source: dict) -> SourceStatus:
         sync_mode=sync_mode,
         lookback_days=lookback_days,
         write_disposition=write_disposition,
+        last_sync_duration_seconds=last_sync_duration,
     )

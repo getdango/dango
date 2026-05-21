@@ -39,6 +39,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dango.exceptions import CloudProvisioningError
+from dango.logging import get_logger
+
+_logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
@@ -244,9 +247,25 @@ def _upload_file_if_exists(
         return True
     # Ensure remote parent directory exists
     remote_dir = remote_path.rsplit("/", 1)[0]
-    ssh.exec_command(f"mkdir -p {remote_dir}")
-    ssh.upload_file(local_path, remote_path)
-    return True
+    mkdir_result = ssh.exec_command(f"mkdir -p {remote_dir}")
+    if mkdir_result.exit_code != 0:
+        _logger.warning("mkdir_failed", path=remote_dir, stderr=mkdir_result.stderr)
+    # Retry SFTP upload on transient network errors (EOFError, timeout)
+    last_err: Exception | None = None
+    for attempt in range(3):
+        try:
+            ssh.upload_file(local_path, remote_path)
+            return True
+        except Exception as e:
+            last_err = e
+            _logger.warning(
+                "sftp_upload_retry", path=str(local_path), attempt=attempt + 1, error=str(e)
+            )
+            if attempt < 2:
+                import time
+
+                time.sleep(2)
+    raise last_err  # type: ignore[misc]
 
 
 def _check_packages_changed(
@@ -364,7 +383,13 @@ def sync_project_files(
         remote_dest = f"root@{remote_host}:{REMOTE_PROJECT_DIR}/{dbt_dir}"
         # Ensure remote directory exists before rsync
         if not dry_run:
-            ssh.exec_command(f"mkdir -p {REMOTE_PROJECT_DIR}/{dbt_dir}")
+            mkdir_result = ssh.exec_command(f"mkdir -p {REMOTE_PROJECT_DIR}/{dbt_dir}")
+            if mkdir_result.exit_code != 0:
+                _logger.warning(
+                    "mkdir_failed",
+                    path=f"{REMOTE_PROJECT_DIR}/{dbt_dir}",
+                    stderr=mkdir_result.stderr,
+                )
         _rsync_directory(local_dir, remote_dest, ssh_key_path, delete=True, dry_run=dry_run)
         synced_files.append(f"{dbt_dir}/")
     _notify(on_progress, "sync_dbt", "done")

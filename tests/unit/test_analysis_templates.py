@@ -281,7 +281,8 @@ class TestGenericMetrics:
         assert "hs_contact_row_count" in names
         assert "hs_deal_row_count" in names
 
-    def test_freshness_only_when_dlt_load_id_exists(self, tmp_path: Path) -> None:
+    def test_no_freshness_metrics_generated(self, tmp_path: Path) -> None:
+        """Freshness metrics intentionally omitted — shown on /sources instead."""
         _create_generic_warehouse(
             tmp_path,
             "src",
@@ -294,9 +295,7 @@ class TestGenericMetrics:
         metrics = generate_metrics_for_source("salesforce", "src", project_root=tmp_path)
 
         freshness_metrics = [m for m in metrics if "freshness" in m.name]
-        assert len(freshness_metrics) == 1
-        assert freshness_metrics[0].name == "src_with_load_id_freshness"
-        assert "MAX(_dlt_load_id)" in freshness_metrics[0].value_expression
+        assert len(freshness_metrics) == 0
 
     def test_skips_dlt_internal_tables(self, tmp_path: Path) -> None:
         _create_generic_warehouse(

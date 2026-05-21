@@ -5,6 +5,7 @@ mounts static files, includes all route modules, and installs global
 exception handlers.
 """
 
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -69,36 +70,37 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning("auth_yml_migration_failed", exc_info=True)
 
     # First-run admin creation (non-interactive)
-    try:
-        import os
+    # On cloud, the deploy script is the sole admin creator — skip here.
+    skip_admin = os.environ.get("DANGO_SKIP_ENSURE_ADMIN") == "true"
+    if not skip_admin:
+        try:
+            from dango.auth.admin import ensure_admin, format_credentials_panel, get_auth_db_path
+            from dango.cli.utils import console
 
-        from dango.auth.admin import ensure_admin, format_credentials_panel, get_auth_db_path
-        from dango.cli.utils import console
+            db_path = get_auth_db_path(project_root)
+            if db_path.exists():
+                email = os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
+                result = ensure_admin(db_path, email=email)
+                if result is not None:
+                    user, password = result
+                    console.print()
+                    console.print(format_credentials_panel(user.email, password))
+                    console.print()
 
-        db_path = get_auth_db_path(project_root)
-        if db_path.exists():
-            email = os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
-            result = ensure_admin(db_path, email=email)
-            if result is not None:
-                user, password = result
-                console.print()
-                console.print(format_credentials_panel(user.email, password))
-                console.print()
+                    # Sync newly created admin to Metabase (if Metabase is running)
+                    try:
+                        from dango.auth.metabase_bridge import (
+                            ensure_metabase_synced,
+                            get_metabase_url,
+                        )
 
-                # Sync newly created admin to Metabase (if Metabase is running)
-                try:
-                    from dango.auth.metabase_bridge import (
-                        ensure_metabase_synced,
-                        get_metabase_url,
-                    )
-
-                    mb_url = await get_metabase_url(project_root)
-                    if mb_url is not None:
-                        await ensure_metabase_synced(db_path, user.id, project_root, mb_url)
-                except Exception:
-                    logger.debug("metabase_sync_on_admin_create_skipped", exc_info=True)
-    except Exception:
-        logger.warning("first_run_admin_check_failed", exc_info=True)
+                        mb_url = await get_metabase_url(project_root)
+                        if mb_url is not None:
+                            await ensure_metabase_synced(db_path, user.id, project_root, mb_url)
+                    except Exception:
+                        logger.debug("metabase_sync_on_admin_create_skipped", exc_info=True)
+        except Exception:
+            logger.warning("first_run_admin_check_failed", exc_info=True)
 
     # Clean up stale login attempt records (IP-based lockout, BUG-235)
     try:

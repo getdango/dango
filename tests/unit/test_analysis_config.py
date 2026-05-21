@@ -25,19 +25,8 @@ class TestGetMonitorsFilePath:
         """Path is .dango/monitors.yml for new projects."""
         assert get_monitors_file_path(tmp_path) == tmp_path / ".dango" / "monitors.yml"
 
-    def test_falls_back_to_metrics_yml(self, tmp_path):
-        """Falls back to .dango/metrics.yml if it exists."""
-        metrics_dir = tmp_path / ".dango"
-        metrics_dir.mkdir()
-        (metrics_dir / "metrics.yml").write_text("enabled: true\n")
-        assert get_monitors_file_path(tmp_path) == tmp_path / ".dango" / "metrics.yml"
-
-    def test_prefers_monitors_yml(self, tmp_path):
-        """Prefers monitors.yml when both exist."""
-        dango_dir = tmp_path / ".dango"
-        dango_dir.mkdir()
-        (dango_dir / "metrics.yml").write_text("enabled: true\n")
-        (dango_dir / "monitors.yml").write_text("enabled: true\n")
+    def test_always_returns_monitors_yml(self, tmp_path):
+        """Always returns monitors.yml regardless of metrics.yml presence."""
         assert get_monitors_file_path(tmp_path) == tmp_path / ".dango" / "monitors.yml"
 
 
@@ -91,11 +80,11 @@ monitors:
         assert cfg.monitors[1].name == "user_count"
         assert cfg.monitors[1].filter is None
 
-    def test_legacy_metrics_yml_loads(self, tmp_path):
-        """Legacy .dango/metrics.yml with old field names loads correctly."""
+    def test_legacy_field_names_load(self, tmp_path):
+        """Old field names (metrics, warn_threshold) load via aliases."""
         dango_dir = tmp_path / ".dango"
         dango_dir.mkdir()
-        (dango_dir / "metrics.yml").write_text(
+        (dango_dir / "monitors.yml").write_text(
             """\
 enabled: true
 metrics:

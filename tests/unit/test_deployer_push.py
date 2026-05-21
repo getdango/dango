@@ -108,7 +108,7 @@ class TestPushDeploy:
         assert any("set -C" in c and DEPLOY_LOCK_PATH in c for c in commands)
         assert any("systemctl stop dango-web" in c for c in commands)
         assert any("chown -R dango:dango" in c for c in commands)
-        assert any("systemctl start dango-web" in c for c in commands)
+        assert any("systemctl restart dango-web" in c for c in commands)
         assert any(f"rm -f {DEPLOY_LOCK_PATH}" in c for c in commands)
 
         # Verify backup called with restart_services=False
@@ -228,8 +228,7 @@ class TestPushDeploy:
             push_deploy(ssh, tmp_path, "10.0.0.1")
 
         all_calls = [args[0][0] for args in ssh.exec_command.call_args_list]
-        assert any("systemctl start dango-web" in c for c in all_calls)
-        assert any("start metabase" in c for c in all_calls)
+        assert any("systemctl restart dango-web" in c for c in all_calls)
 
     @patch("dango.platform.cloud.backup.create_backup")
     @patch("dango.platform.cloud.file_sync.sync_project_files")
@@ -401,7 +400,7 @@ class TestDockerRebuild:
         assert "entrypoint.sh" in _DOCKER_FILES
 
     def test_start_all_services_rebuild_true(self):
-        """With rebuild_docker=True, uses 'up --build -d'."""
+        """With rebuild_docker=True, removes images then restarts systemd."""
         ssh = make_ssh_mock()
         commands: list[str] = []
 
@@ -413,14 +412,11 @@ class TestDockerRebuild:
 
         _start_all_services(ssh, rebuild_docker=True)
 
-        assert any("up --build -d" in c for c in commands)
-        # Should NOT use 'start metabase' pattern
-        assert not any("start metabase 2>/dev/null" in c for c in commands)
-        # Should still start dango-web
-        assert any("systemctl start dango-web" in c for c in commands)
+        assert any("down --rmi local" in c for c in commands)
+        assert any("systemctl restart dango-web" in c for c in commands)
 
     def test_start_all_services_rebuild_false(self):
-        """With rebuild_docker=False, uses 'start metabase' (no rebuild)."""
+        """With rebuild_docker=False, just restarts systemd (Docker started by lifespan)."""
         ssh = make_ssh_mock()
         commands: list[str] = []
 
@@ -432,8 +428,8 @@ class TestDockerRebuild:
 
         _start_all_services(ssh, rebuild_docker=False)
 
-        assert any("start metabase" in c for c in commands)
-        assert not any("up --build" in c for c in commands)
+        assert any("systemctl restart dango-web" in c for c in commands)
+        assert not any("down --rmi" in c for c in commands)
 
     @patch("dango.platform.cloud.backup.create_backup")
     @patch("dango.platform.cloud.file_sync.sync_project_files")
@@ -455,7 +451,7 @@ class TestDockerRebuild:
 
         push_deploy(ssh, tmp_path, "10.0.0.1")
 
-        assert any("up --build -d" in c for c in commands)
+        assert any("down --rmi local" in c for c in commands)
 
     @patch("dango.platform.cloud.backup.create_backup")
     @patch("dango.platform.cloud.file_sync.sync_project_files")
@@ -477,5 +473,5 @@ class TestDockerRebuild:
 
         push_deploy(ssh, tmp_path, "10.0.0.1")
 
-        assert not any("up --build" in c for c in commands)
-        assert any("start metabase" in c for c in commands)
+        assert not any("down --rmi" in c for c in commands)
+        assert any("systemctl restart dango-web" in c for c in commands)

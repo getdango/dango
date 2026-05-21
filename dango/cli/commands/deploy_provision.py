@@ -13,13 +13,10 @@ that were created (no orphans).
 from __future__ import annotations
 
 import base64
-import secrets
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-import click
 
 from dango.cli import console
 from dango.cli.commands.deploy_wizard import _EMAIL_RE, BYOSConfig, WizardConfig
@@ -86,6 +83,7 @@ class ProvisionResult:
     ssh_key_id: int
     domain: str | None = None
     url: str = ""
+    admin_password: str = ""
     warnings: list[str] = field(default_factory=list)
 
 
@@ -96,6 +94,7 @@ class BYOSResult:
     server_ip: str
     domain: str | None = None
     url: str = ""
+    admin_password: str = ""
     warnings: list[str] = field(default_factory=list)
 
 
@@ -211,6 +210,15 @@ def run_provisioning(
         finally:
             ssh.disconnect()
 
+        # Fix ownership — file sync uploads as root, dbt/dango-web run as dango.
+        # Pre-create dbt/target so Docker's bind mount doesn't recreate it as root.
+        ssh.connect(droplet_ip, username="root")
+        try:
+            ssh.exec_command("mkdir -p /srv/dango/project/dbt/target", timeout=10)
+            ssh.exec_command("chown -R dango:dango /srv/dango/project", timeout=30)
+        finally:
+            ssh.disconnect()
+
         # --- Sub-step 6b: Generate dbt profiles.yml for cloud ---
         _status("Generating dbt profiles...")
         ssh.connect(droplet_ip, username="root")
@@ -221,11 +229,8 @@ def run_provisioning(
 
         # --- Sub-step 7: Push secrets ---
         warnings: list[str] = []
-        # BUG-122: Confirm BEFORE opening SSH to avoid timeout during prompt
-        secrets_confirmed = _confirm_secrets_push(
-            project_root, warnings, non_interactive=non_interactive
-        )
-        if secrets_confirmed:
+        # Secrets confirmation moved to wizard (push_secrets field).
+        if config.push_secrets:
             _status("Pushing secrets to server...")
             ssh.connect(droplet_ip, username="root")
             try:
@@ -233,15 +238,7 @@ def run_provisioning(
             finally:
                 ssh.disconnect()
 
-        # --- Sub-step 8: Create admin + enable auth ---
-        _status("Creating admin account and enabling auth...")
-        ssh.connect(droplet_ip, username="root")
-        try:
-            deploy_token = _create_admin_and_enable_auth(
-                ssh, config.admin_email, config.admin_password
-            )
-        finally:
-            ssh.disconnect()
+        # --- Sub-step 8: (moved after service start — see sub-step 10b) ---
 
         # --- Sub-step 9: Setup backups (if opted in) ---
         if config.enable_backups and config.spaces_access_key and config.spaces_secret_key:
@@ -279,7 +276,28 @@ def run_provisioning(
             spaces_config=_build_spaces_config(config, tracker),
         )
 
-        # --- Sub-step 10: Start services + health check + trigger initial sync ---
+        # --- Sub-step 10: Pre-build Docker images ---
+        # Build Metabase Docker image BEFORE starting services so dango-web
+        # starts fast and the health check passes.  Without this, the Docker
+        # build happens during dango-web lifespan (10+ min on first deploy),
+        # causing 502s and health check failures.
+        _status("Building Docker images (this may take a few minutes)...")
+        ssh.connect(droplet_ip, username="root")
+        try:
+            import hashlib
+
+            compose_proj = (
+                f"dango-{hashlib.md5(b'/srv/dango/project', usedforsecurity=False).hexdigest()[:8]}"
+            )
+            ssh.exec_command(
+                f"cd /srv/dango/project && COMPOSE_PROJECT_NAME={compose_proj} "
+                "sudo -u dango docker compose build",
+                timeout=900,
+            )
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 10b: Start services ---
         _status("Starting services...")
         ssh.connect(droplet_ip, username="root")
         try:
@@ -287,21 +305,40 @@ def run_provisioning(
         finally:
             ssh.disconnect()
 
+        # --- Sub-step 10b: Create admin + enable auth ---
+        # Must run AFTER services start: the lifespan ensure_admin may create
+        # a default admin with a random password.  This step updates it to the
+        # wizard-chosen password (handles UserExistsError via update_user).
+        _status("Creating admin account and enabling auth...")
+        ssh.connect(droplet_ip, username="root")
+        try:
+            _create_admin_and_enable_auth(ssh, config.admin_email, config.admin_password)
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 10c: Trigger Metabase setup ---
+        # Restart the service so lifespan setup_metabase_if_needed runs with
+        # the correct admin email (DANGO_ADMIN_EMAIL) in the environment.
+        _status("Configuring Metabase...")
+        ssh.connect(droplet_ip, username="root")
+        try:
+            _trigger_metabase_setup(ssh, config.admin_email)
+        finally:
+            ssh.disconnect()
+
         url = f"https://{config.domain}" if config.domain else f"http://{droplet_ip}"
-        health_ok = _health_check(url, timeout=60, interval=5)
+        _status("Waiting for platform to become ready...")
+        health_ok = _health_check(url, timeout=180, interval=5)
         if not health_ok:
             warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
 
-        # Trigger initial sync
-        if not config.skip_initial_sync and health_ok:
-            sync_started = _trigger_initial_sync(url, deploy_token)
-            if sync_started:
-                _status("Initial sync started. Check status at the dashboard.")
-            else:
-                warnings.append(
-                    "Initial sync could not be started automatically. "
-                    "Run 'dango remote sync' manually after deployment."
-                )
+        # Wait for Metabase to be ready (Java startup takes ~2 min)
+        _status("Waiting for Metabase to initialize...")
+        ssh.connect(droplet_ip, username="root")
+        try:
+            _wait_for_metabase(ssh, timeout=180)
+        finally:
+            ssh.disconnect()
 
         return ProvisionResult(
             droplet_ip=droplet_ip,
@@ -310,6 +347,7 @@ def run_provisioning(
             ssh_key_id=ssh_key_id,
             domain=config.domain,
             url=url,
+            admin_password=config.admin_password,
             warnings=warnings,
         )
 
@@ -317,6 +355,10 @@ def run_provisioning(
         # BUG-122: Handle empty exception messages (e.g. SSH timeout)
         err_msg = str(exc) or f"{type(exc).__name__} (no detail)"
         console.print(f"\n[red]Provisioning failed:[/red] {err_msg}")
+        console.print(
+            "\n[dim]This is usually a transient infrastructure issue (not a Dango bug)."
+            "\nRun [bold]dango deploy[/bold] to retry with a fresh server.[/dim]"
+        )
         console.print("Cleaning up resources...")
         errors = tracker.cleanup()
         if errors:
@@ -400,6 +442,15 @@ def run_byos_setup(
         finally:
             ssh.disconnect()
 
+        # Fix ownership — file sync uploads as root/ssh_user, dbt/dango-web run as dango.
+        # Pre-create dbt/target so Docker's bind mount doesn't recreate it as root.
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            ssh.exec_command("mkdir -p /srv/dango/project/dbt/target", timeout=10)
+            ssh.exec_command("chown -R dango:dango /srv/dango/project", timeout=30)
+        finally:
+            ssh.disconnect()
+
         # --- Sub-step 2b: Generate dbt profiles.yml for cloud ---
         _status("Generating dbt profiles...")
         ssh.connect(config.server_ip, username=config.ssh_user)
@@ -409,11 +460,8 @@ def run_byos_setup(
             ssh.disconnect()
 
         # --- Sub-step 3: Push secrets ---
-        # BUG-122: Confirm BEFORE opening SSH to avoid timeout during prompt
-        secrets_confirmed = _confirm_secrets_push(
-            project_root, warnings, non_interactive=non_interactive
-        )
-        if secrets_confirmed:
+        # Secrets confirmation moved to wizard (push_secrets field).
+        if config.push_secrets:
             _status("Pushing secrets to server...")
             ssh.connect(config.server_ip, username=config.ssh_user)
             try:
@@ -421,15 +469,7 @@ def run_byos_setup(
             finally:
                 ssh.disconnect()
 
-        # --- Sub-step 4: Create admin + enable auth ---
-        _status("Creating admin account and enabling auth...")
-        ssh.connect(config.server_ip, username=config.ssh_user)
-        try:
-            deploy_token = _create_admin_and_enable_auth(
-                ssh, config.admin_email, config.admin_password
-            )
-        finally:
-            ssh.disconnect()
+        # --- Sub-step 4: (moved after service start — see sub-step 6b) ---
 
         # --- Sub-step 5: Save cloud.yml ---
         _status("Saving deployment configuration...")
@@ -445,7 +485,24 @@ def run_byos_setup(
         )
         loader.save_cloud_config(cloud_cfg)
 
-        # --- Sub-step 6: Start services + health check ---
+        # --- Sub-step 6: Pre-build Docker images ---
+        _status("Building Docker images (this may take a few minutes)...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            import hashlib
+
+            compose_proj = (
+                f"dango-{hashlib.md5(b'/srv/dango/project', usedforsecurity=False).hexdigest()[:8]}"
+            )
+            ssh.exec_command(
+                f"cd /srv/dango/project && COMPOSE_PROJECT_NAME={compose_proj} "
+                "sudo -u dango docker compose build",
+                timeout=900,
+            )
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 6a: Start services + health check ---
         _status("Starting services...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
@@ -453,26 +510,41 @@ def run_byos_setup(
         finally:
             ssh.disconnect()
 
+        # --- Sub-step 6b: Create admin + enable auth ---
+        # Must run AFTER services start (see DO path comment for rationale).
+        _status("Creating admin account and enabling auth...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            _create_admin_and_enable_auth(ssh, config.admin_email, config.admin_password)
+        finally:
+            ssh.disconnect()
+
+        # --- Sub-step 6c: Trigger Metabase setup ---
+        _status("Configuring Metabase...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            _trigger_metabase_setup(ssh, config.admin_email)
+        finally:
+            ssh.disconnect()
+
         url = f"https://{config.domain}" if config.domain else f"http://{config.server_ip}"
-        health_ok = _health_check(url, timeout=60, interval=5)
+        _status("Waiting for platform to become ready...")
+        health_ok = _health_check(url, timeout=180, interval=5)
         if not health_ok:
             warnings.append(f"Health check failed. Server may still be starting. Try: {url}")
 
-        # Trigger initial sync
-        if not config.skip_initial_sync and health_ok:
-            sync_started = _trigger_initial_sync(url, deploy_token)
-            if sync_started:
-                _status("Initial sync started. Check status at the dashboard.")
-            else:
-                warnings.append(
-                    "Initial sync could not be started automatically. "
-                    "Run 'dango remote sync' manually after deployment."
-                )
+        _status("Waiting for Metabase to initialize...")
+        ssh.connect(config.server_ip, username=config.ssh_user)
+        try:
+            _wait_for_metabase(ssh, timeout=180)
+        finally:
+            ssh.disconnect()
 
         return BYOSResult(
             server_ip=config.server_ip,
             domain=config.domain,
             url=url,
+            admin_password=config.admin_password,
             warnings=warnings,
         )
 
@@ -495,16 +567,26 @@ def run_byos_setup(
 
 
 def _status(msg: str) -> None:
-    """Print a provisioning status message."""
-    console.print(f"\n[bold blue]>>>[/bold blue] {msg}")
+    """Print a provisioning status message with timestamp."""
+    from datetime import datetime
+
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    console.print(f"\n[dim][{ts}][/dim] [bold blue]>>>[/bold blue] {msg}")
 
 
 def _setup_progress(step: str, status: str) -> None:
     """Progress callback for setup_server / sync_project_files."""
+    from datetime import datetime
+
+    ts = datetime.now().strftime("%H:%M:%S")
     if status == "done":
-        console.print(f"    [green]Done:[/green] {step}")
+        if step == "detect_changes":
+            console.print(
+                "    [dim]Uploading files (Metabase driver ~80MB — may take several minutes on first deploy)...[/dim]"
+            )
+        console.print(f"    [dim][{ts}][/dim] [green]Done:[/green] {step}")
     elif status == "skipped":
-        console.print(f"    [dim]Skipped:[/dim] {step}")
+        console.print(f"    [dim][{ts}] Skipped:[/dim] {step}")
 
 
 def _extract_ip(droplet: dict[str, Any]) -> str:
@@ -518,61 +600,11 @@ def _extract_ip(droplet: dict[str, Any]) -> str:
     raise RuntimeError("Droplet has no public IPv4 address")
 
 
-def _confirm_secrets_push(
-    project_root: Path,
-    warnings: list[str],
-    *,
-    non_interactive: bool = False,
-) -> bool:
-    """List secret files and prompt for confirmation (no SSH required).
-
-    BUG-122: This runs BEFORE SSH connect to avoid SSH timeout during
-    interactive prompt.
-    BUG-252: When *non_interactive* is ``True``, auto-confirm.
-
-    Returns:
-        ``True`` if the user confirmed, ``False`` if no files or declined.
-    """
-    secrets_path = project_root / ".dlt" / "secrets.toml"
-    env_path = project_root / ".env"
-
-    files_to_push: list[str] = []
-    if secrets_path.exists():
-        files_to_push.append(".dlt/secrets.toml")
-    if env_path.exists():
-        files_to_push.append(".env")
-
-    if not files_to_push:
-        warnings.append("No .dlt/secrets.toml or .env found locally — skipped.")
-        return False
-
-    # BUG-252: Skip interactive prompt in non-interactive mode
-    if non_interactive:
-        return True
-
-    console.print("\n[bold]Secrets to push:[/bold]")
-    for f in files_to_push:
-        console.print(f"  - {f}")
-    console.print()
-
-    if not click.confirm("Push these secrets to the server?", default=True):
-        console.print("[yellow]Skipped secrets push.[/yellow]")
-        warnings.append("Secrets push skipped by user.")
-        return False
-
-    return True
-
-
 def _push_secrets(
     ssh: Any,
     project_root: Path,
 ) -> None:
-    """Push .dlt/secrets.toml and .env to remote server.
-
-    Must be called only after :func:`_confirm_secrets_push` returns
-    ``True``.  Confirmation is handled separately to avoid SSH timeout
-    during interactive prompts (BUG-122).
-    """
+    """Push .dlt/secrets.toml and .env to remote server."""
     secrets_path = project_root / ".dlt" / "secrets.toml"
     env_path = project_root / ".env"
 
@@ -595,12 +627,8 @@ def _create_admin_and_enable_auth(
     ssh: Any,
     email: str,
     password: str,
-) -> str:
-    """Create admin user and enable auth on remote server.
-
-    Returns:
-        One-time deploy token for triggering initial sync.
-    """
+) -> None:
+    """Create admin user and enable auth on remote server."""
     # Validate email (shell injection prevention)
     if not _EMAIL_RE.match(email):
         raise ValueError(f"Invalid email format: {email}")
@@ -610,43 +638,38 @@ def _create_admin_and_enable_auth(
 
     pw_hash = hash_password(password)
 
-    # Generate one-time deploy token
-    deploy_token = secrets.token_urlsafe(32)
-
     # Build Python script and base64-encode it (avoids shell injection)
     script = (
-        "import sys, os, json\n"
+        "import sys, os\n"
         "sys.path.insert(0, '/srv/dango/project')\n"
         "os.chdir('/srv/dango/project')\n"
         "from pathlib import Path\n"
-        "from dango.auth.database import create_user, get_user_by_email, init_db, update_user\n"
+        "from dango.auth.database import create_user, get_user_by_email, update_user\n"
         "from dango.auth.models import Role, User, UserUpdate\n"
         "from dango.exceptions import UserExistsError\n"
         f"email = {email!r}\n"
         f"pw_hash = {pw_hash!r}\n"
         "db_path = Path('.dango/auth.db')\n"
-        "db_path.parent.mkdir(parents=True, exist_ok=True)\n"
-        "init_db(db_path)\n"
-        "user = User(email=email, password_hash=pw_hash, role=Role.ADMIN)\n"
+        "# DB already initialized by server lifespan — just create/update user\n"
+        "user = User(email=email, password_hash=pw_hash, role=Role.ADMIN, must_change_password=True)\n"
         "try:\n"
         "    create_user(db_path, user)\n"
         "except UserExistsError:\n"
         "    existing = get_user_by_email(db_path, email)\n"
         "    if existing:\n"
-        "        update_user(db_path, existing.id, UserUpdate(password_hash=pw_hash))\n"
-        # Write deploy token
-        f"token = {deploy_token!r}\n"
-        "state_dir = Path('.dango/state')\n"
-        "state_dir.mkdir(parents=True, exist_ok=True)\n"
-        "(state_dir / 'deploy_token').write_text(token)\n"
+        "        update_user(db_path, existing.id, UserUpdate(password_hash=pw_hash, email=email, must_change_password=True))\n"
     )
     encoded = base64.b64encode(script.encode()).decode()
 
-    ssh.exec_command(
-        f"sudo -u dango /srv/dango/venv/bin/python -c "
+    result = ssh.exec_command(
+        f"sudo -u dango /srv/dango/venv/bin/python3 -c "
         f"\"import base64; exec(base64.b64decode('{encoded}'))\"",
         timeout=30,
     )
+    if result.exit_code != 0:
+        raise CloudProvisioningError(
+            f"Admin account creation failed:\n{result.stderr or result.stdout}"
+        )
 
     # Persist admin email for systemd service (BUG-100)
     ssh.exec_command(
@@ -685,7 +708,33 @@ def _create_admin_and_enable_auth(
     # create files like dbt.lock in .dango/state/ at runtime.
     ssh.exec_command("chown -R dango:dango /srv/dango/project/.dango")
 
-    return deploy_token
+
+def _trigger_metabase_setup(ssh: Any, admin_email: str) -> None:
+    """Trigger Metabase setup on the remote server.
+
+    The deploy script sets ``DANGO_ADMIN_EMAIL`` in the server ``.env`` and
+    restarts the ``dango-web`` service so that the lifespan
+    ``setup_metabase_if_needed`` runs with the correct admin email already
+    in the environment.
+    """
+    # Validate email (shell injection prevention — same as _create_admin_and_enable_auth)
+    if not _EMAIL_RE.match(admin_email):
+        raise ValueError(f"Invalid email format: {admin_email}")
+
+    # Ensure admin email is in server .env for Metabase setup
+    ssh.exec_command(
+        f"grep -q '^DANGO_ADMIN_EMAIL=' /srv/dango/project/.env 2>/dev/null "
+        f"|| echo 'DANGO_ADMIN_EMAIL={admin_email}' >> /srv/dango/project/.env"
+    )
+    ssh.exec_command("chown dango:dango /srv/dango/project/.env 2>/dev/null; true")
+
+    # Restart dango-web so lifespan re-runs setup_metabase_if_needed
+    result = ssh.exec_command("systemctl restart dango-web", timeout=120)
+    if result.exit_code != 0:
+        _logger.warning(
+            "metabase_setup_restart_failed",
+            stderr=result.stderr,
+        )
 
 
 def _setup_backups(
@@ -843,12 +892,34 @@ def _generate_cloud_profiles(
 
 
 def _start_services(ssh: Any) -> None:
-    """Start Metabase (Docker) and dango-web (systemd) on remote server."""
-    ssh.exec_command(
-        "cd /srv/dango/project && sudo -u dango docker compose up -d",
-        timeout=120,
-    )
-    ssh.exec_command("systemctl start dango-web", timeout=30)
+    """Start dango-web (systemd) on remote server.
+
+    Docker services (Metabase, dbt-docs) are started by the dango-web lifespan
+    via DockerManager, which sets COMPOSE_PROJECT_NAME to ensure consistent
+    container naming.  Do NOT run ``docker compose up`` directly here —
+    that creates duplicate containers with a different project name.
+    """
+    ssh.exec_command("systemctl start dango-web", timeout=60)
+
+
+def _wait_for_metabase(ssh: Any, timeout: int = 180) -> bool:
+    """Poll Metabase health endpoint via SSH until it responds ok.
+
+    Returns True if Metabase is ready, False if timeout.
+    """
+    attempts = timeout // 5
+    for i in range(attempts):
+        result = ssh.exec_command(
+            "curl -sf http://localhost:3000/api/health 2>/dev/null | grep -q ok",
+            timeout=10,
+        )
+        if result.exit_code == 0:
+            return True
+        if i % 6 == 0 and i > 0:
+            console.print(f"    [dim]Still waiting... ({i * 5}s)[/dim]")
+        time.sleep(5)
+    _logger.warning("metabase_health_timeout", timeout=timeout)
+    return False
 
 
 def _health_check(url: str, timeout: int = 60, interval: int = 5) -> bool:
@@ -869,29 +940,3 @@ def _health_check(url: str, timeout: int = 60, interval: int = 5) -> bool:
             _logger.debug("health_check_poll_error", url=url)
         time.sleep(interval)
     return False
-
-
-def _trigger_initial_sync(url: str, deploy_token: str) -> bool:
-    """POST to /api/initial-sync/start to trigger background sync.
-
-    Returns True if the sync was triggered successfully.
-    """
-    import httpx
-
-    try:
-        resp = httpx.post(
-            f"{url}/api/initial-sync/start",
-            headers={
-                "X-Requested-With": "XMLHttpRequest",
-                "Authorization": f"Bearer {deploy_token}",
-            },
-            timeout=10,
-            verify=False,
-        )
-        if resp.is_success:
-            return True
-        _logger.warning("initial_sync_trigger_failed_status", status=resp.status_code)
-        return False
-    except Exception:
-        _logger.warning("initial_sync_trigger_failed", exc_info=True)
-        return False

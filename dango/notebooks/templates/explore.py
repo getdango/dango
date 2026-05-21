@@ -23,6 +23,13 @@ Each cell's output appears below it — edit the SQL in `sample_query` to explor
 your data.
 
 **Tip:** Use `mo.ui.table(df)` for interactive, sortable tables.
+
+**Important:** Always append `.fetchdf()` to your queries to get a DataFrame:
+```python
+df = conn.sql("SELECT * FROM staging.my_table LIMIT 100").fetchdf()
+```
+Using `conn.sql(...)` alone returns a DuckDB relation which may cause errors
+in read-only mode.
 """
         ),
     )
@@ -48,7 +55,7 @@ def list_tables(conn):
         "FROM information_schema.tables "
         "WHERE table_schema NOT IN ('information_schema', 'pg_catalog') "
         "ORDER BY table_schema, table_name"
-    )
+    ).fetchdf()
     return (tables,)
 
 
@@ -56,5 +63,5 @@ def list_tables(conn):
 def sample_query(conn):
     """Run an ad-hoc query — edit the SQL below to explore your data."""
     # Edit the query below to explore your data
-    result = conn.sql("SELECT 1 AS hello")
+    result = conn.sql("SELECT 1 AS hello").fetchdf()
     return (result,)

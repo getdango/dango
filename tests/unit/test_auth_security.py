@@ -14,7 +14,6 @@ from pwdlib.exceptions import UnknownHashError
 
 from dango.auth.security import (
     _COMMON_PASSWORDS,
-    _TEMP_PASSWORD_CHARS,
     check_password_strength,
     generate_api_key,
     generate_recovery_codes,
@@ -225,27 +224,24 @@ class TestAPIKeys:
 
 @pytest.mark.unit
 class TestTempPasswords:
-    """Tests for generate_temp_password."""
+    """Tests for generate_temp_password (uses secrets.token_urlsafe)."""
 
     def test_default_length(self) -> None:
         pwd = generate_temp_password()
-        assert len(pwd) == 12
+        # token_urlsafe(16) produces ~22 chars (base64 encoding)
+        assert len(pwd) >= 16
 
     def test_custom_length(self) -> None:
         pwd = generate_temp_password(length=20)
-        assert len(pwd) == 20
+        assert len(pwd) >= 20
 
-    def test_no_ambiguous_chars(self) -> None:
-        ambiguous = set("0Oo1lI")
+    def test_url_safe_chars(self) -> None:
+        """Password contains only URL-safe characters (A-Z, a-z, 0-9, -, _)."""
+        import re
+
         for _ in range(100):
             pwd = generate_temp_password()
-            assert not ambiguous.intersection(pwd), f"Ambiguous char found in: {pwd}"
-
-    def test_only_allowed_chars(self) -> None:
-        allowed = set(_TEMP_PASSWORD_CHARS)
-        for _ in range(100):
-            pwd = generate_temp_password()
-            assert set(pwd).issubset(allowed), f"Unexpected char in: {pwd}"
+            assert re.fullmatch(r"[A-Za-z0-9_-]+", pwd), f"Non-URL-safe char in: {pwd}"
 
     def test_uniqueness(self) -> None:
         passwords = {generate_temp_password() for _ in range(100)}

@@ -25,7 +25,8 @@ class TestComparisonType:
     """ComparisonType enum values."""
 
     def test_all_values(self):
-        """All four comparison types exist."""
+        """All five comparison types exist."""
+        assert ComparisonType.none == "none"
         assert ComparisonType.week_over_week == "week_over_week"
         assert ComparisonType.rolling_7day_avg == "rolling_7day_avg"
         assert ComparisonType.rolling_30day_avg == "rolling_30day_avg"

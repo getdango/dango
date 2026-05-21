@@ -129,6 +129,7 @@ async def proxy_websocket_to_marimo(
     websocket: WebSocket,
     target_path: str,
     marimo_port: int,
+    extra_headers: dict[str, str] | None = None,
 ) -> None:
     """Pipe a WebSocket connection bidirectionally to Marimo.
 
@@ -137,8 +138,9 @@ async def proxy_websocket_to_marimo(
 
     Args:
         websocket: The incoming FastAPI ``WebSocket``.
-        target_path: WS path on Marimo (e.g. ``/ws``).
+        target_path: WS path on Marimo (including query string).
         marimo_port: Port the Marimo server listens on.
+        extra_headers: Additional headers to forward (e.g. Marimo-Server-Token).
     """
     import websockets
 
@@ -147,7 +149,7 @@ async def proxy_websocket_to_marimo(
     ws_url = f"ws://127.0.0.1:{marimo_port}{target_path}"
 
     try:
-        async with websockets.connect(ws_url) as marimo_ws:
+        async with websockets.connect(ws_url, additional_headers=extra_headers or {}) as marimo_ws:
 
             async def client_to_marimo() -> None:
                 """Forward frames from the client WebSocket to Marimo."""

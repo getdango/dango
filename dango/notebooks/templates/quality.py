@@ -66,5 +66,5 @@ def null_analysis(conn):
         "WHERE table_schema = 'raw' "
         "ORDER BY ordinal_position "
         "LIMIT 20"
-    )
+    ).fetchdf()
     return (result,)

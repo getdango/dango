@@ -20,6 +20,7 @@ from dango.analysis.config import load_monitors_config
 from dango.analysis.models import (
     AnalysisResult,
     ComparisonResult,
+    ComparisonType,
     DrillDownDimension,
     MetricValue,
     MonitorConfig,
@@ -71,7 +72,7 @@ def run_analysis(
         _store_metric_value(project_root, metric_value)
 
         comparison: ComparisonResult | None = None
-        if metric_value.error is None:
+        if metric_value.error is None and metric.compare != ComparisonType.none:
             comparison = compute_comparison(
                 project_root,
                 metric_value,

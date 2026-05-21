@@ -27,13 +27,15 @@ from dango.cli import console
 
 
 def _safe_confirm(prompt: str, default: bool = True, *, non_interactive: bool = False) -> bool:
-    """Wrap ``click.confirm`` with a non-interactive bypass.
+    """Prompt with ``(yes/no)`` format and a non-interactive bypass.
 
     When *non_interactive* is ``True``, returns *default* without prompting.
     """
     if non_interactive:
         return default
-    return click.confirm(prompt, default=default)
+    default_str = "yes" if default else "no"
+    result = click.prompt(f"{prompt} (yes/no)", default=default_str, show_default=True)
+    return str(result).lower().strip() in ("yes", "y")
 
 
 # ---------------------------------------------------------------------------
@@ -55,8 +57,8 @@ class WizardConfig:
     admin_password: str
     skip_oauth: bool
     enable_backups: bool
-    skip_initial_sync: bool
     monthly_cost: int
+    push_secrets: bool = True
     # Backup credentials (only set if enable_backups is True)
     spaces_access_key: str | None = None
     spaces_secret_key: str | None = None
@@ -73,7 +75,7 @@ class BYOSConfig:
     admin_email: str
     admin_password: str
     skip_oauth: bool
-    skip_initial_sync: bool
+    push_secrets: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -96,11 +98,8 @@ def _step_prereqs(project_root: Path) -> None:
     if token and not token_from_env:
         # BUG-238a: Show token suffix and allow changing (stored credential)
         masked = f"...{token[-4:]}"
-        change = click.confirm(
-            f"  Using DigitalOcean token ending in {masked}. Change?",
-            default=False,
-        )
-        if change:
+        keep = _safe_confirm(f"  Keep DigitalOcean token ending in {masked}?", default=True)
+        if not keep:
             new_token = click.prompt("  Enter new DigitalOcean API token", hide_input=True)
             if new_token.strip():
                 token = new_token.strip()
@@ -237,9 +236,10 @@ def _step_size() -> tuple[str, Any | None]:
         )
 
     console.print(f"  {len(SIZE_TIERS) + 1}. Custom slug")
+    console.print("        [dim]See https://slugs.do-api.dev/ — minimum 4GB RAM required.[/dim]")
     console.print()
 
-    choice = click.prompt("  Size number", default="2", show_default=True)
+    choice = click.prompt("  Size number", default="1", show_default=True)
 
     if choice.isdigit():
         idx = int(choice) - 1
@@ -303,17 +303,8 @@ def _step_admin() -> tuple[str, str]:
 
     import secrets
 
-    from rich.panel import Panel
-
     password = secrets.token_urlsafe(16)
-    console.print(
-        Panel(
-            f"[bold]Admin password:[/bold] {password}\n\n"
-            "[yellow]Save this password now — it will not be shown again.[/yellow]",
-            title="Generated Admin Password",
-            border_style="green",
-        )
-    )
+    console.print("  [dim]Admin password will be shown at the end of deployment.[/dim]")
 
     return email, password
 
@@ -359,6 +350,30 @@ def _step_sources(project_root: Path) -> list[dict[str, str]]:
     return sources
 
 
+def _step_secrets(project_root: Path) -> bool:
+    """Step 5b: Confirm secrets push.
+
+    Returns True if user wants to push secrets to the server.
+    """
+    secrets_path = project_root / ".dlt" / "secrets.toml"
+    env_path = project_root / ".env"
+
+    files: list[str] = []
+    if secrets_path.exists():
+        files.append(".dlt/secrets.toml")
+    if env_path.exists():
+        files.append(".env")
+
+    if not files:
+        return False
+
+    console.print("\n  [bold]Secrets to push to server:[/bold]")
+    for f in files:
+        console.print(f"    - {f}")
+
+    return _safe_confirm("  Push these secrets during deployment?", default=True)
+
+
 # ---------------------------------------------------------------------------
 # OAuth
 # ---------------------------------------------------------------------------
@@ -389,7 +404,11 @@ def _step_backups() -> tuple[bool, str | None, str | None]:
         Tuple of (enable_backups, access_key, secret_key).
     """
     console.print("\n[bold]Step 7: Automated Backups[/bold]")
-    console.print("  Daily backups to DigitalOcean Spaces ($5/mo for storage).\n")
+    console.print("  Daily backups at 2:00 AM UTC to DigitalOcean Spaces ($5/mo for 250GB).")
+    console.print("  Backs up: DuckDB warehouse, auth database, config files, dlt credentials.")
+    console.print(
+        "  Keeps 14 most recent local backups (2 weeks). Spaces backups retained until deleted.\n"
+    )
 
     enable = _safe_confirm("  Enable automated backups?", default=True)
     if not enable:
@@ -513,8 +532,9 @@ def run_wizard(project_root: Path) -> WizardConfig:
     # Step 4: Admin credentials
     admin_email, admin_password = _step_admin()
 
-    # Step 5: Sources
+    # Step 5: Sources + Secrets
     _step_sources(project_root)
+    push_secrets = _step_secrets(project_root)
 
     # Step 6: OAuth
     skip_oauth = _step_oauth()
@@ -534,8 +554,8 @@ def run_wizard(project_root: Path) -> WizardConfig:
         admin_password=admin_password,
         skip_oauth=skip_oauth,
         enable_backups=enable_backups,
-        skip_initial_sync=False,
         monthly_cost=monthly_cost,
+        push_secrets=push_secrets,
         spaces_access_key=spaces_access_key,
         spaces_secret_key=spaces_secret_key,
     )
@@ -550,7 +570,6 @@ def run_non_interactive(
     admin_email: str | None = None,
     admin_password: str | None = None,
     skip_backups: bool = False,
-    skip_initial_sync: bool = False,
 ) -> WizardConfig:
     """Validate CLI flags for non-interactive deployment.
 
@@ -562,7 +581,6 @@ def run_non_interactive(
         admin_email: Required admin email.
         admin_password: Required admin password (or from DANGO_ADMIN_PASSWORD env).
         skip_backups: Skip backup setup.
-        skip_initial_sync: Skip initial data sync.
 
     Returns:
         Validated ``WizardConfig``.
@@ -634,7 +652,6 @@ def run_non_interactive(
         admin_password=admin_password,
         skip_oauth=True,
         enable_backups=not skip_backups,
-        skip_initial_sync=skip_initial_sync,
         monthly_cost=monthly_cost,
     )
 
@@ -760,8 +777,9 @@ def run_byos_wizard(project_root: Path) -> BYOSConfig:
     # Step 3: Admin credentials
     admin_email, admin_password = _step_admin()
 
-    # Step 4: Sources
+    # Step 4: Sources + Secrets
     _step_sources(project_root)
+    push_secrets = _step_secrets(project_root)
 
     # Step 5: OAuth
     skip_oauth = _step_oauth()
@@ -785,7 +803,7 @@ def run_byos_wizard(project_root: Path) -> BYOSConfig:
         admin_email=admin_email,
         admin_password=admin_password,
         skip_oauth=skip_oauth,
-        skip_initial_sync=False,
+        push_secrets=push_secrets,
     )
 
 
@@ -798,7 +816,6 @@ def run_byos_non_interactive(
     domain: str | None = None,
     admin_email: str | None = None,
     admin_password: str | None = None,
-    skip_initial_sync: bool = False,
 ) -> BYOSConfig:
     """Validate params for non-interactive BYOS deployment.
 
@@ -810,7 +827,6 @@ def run_byos_non_interactive(
         domain: Optional custom domain.
         admin_email: Required admin email.
         admin_password: Required admin password (or from DANGO_ADMIN_PASSWORD env).
-        skip_initial_sync: Skip initial data sync.
 
     Returns:
         Validated ``BYOSConfig``.
@@ -873,5 +889,4 @@ def run_byos_non_interactive(
         admin_email=admin_email,
         admin_password=admin_password,
         skip_oauth=True,
-        skip_initial_sync=skip_initial_sync,
     )

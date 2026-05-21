@@ -11,7 +11,7 @@ Automated monitoring and comparison engine. Executes user-defined monitors again
 | File | Purpose | Key Exports |
 |------|---------|-------------|
 | `__init__.py` | Public API re-exports | `run_analysis`, `load_monitors_config`, `save_monitors_config`, `add_monitors_to_config`, `generate_metrics_for_source`, `MonitorConfig`, `MonitorsConfig`, `DimensionContributor`, `DrillDownDimension` + backward-compat aliases |
-| `models.py` | Pydantic V2 models | `ComparisonType`, `MonitorConfig` (alias: `MetricConfig`), `MonitorsConfig` (alias: `MetricsConfig`), `MetricValue`, `ComparisonResult`, `DimensionContributor`, `DrillDownDimension`, `AnalysisResult` |
+| `models.py` | Pydantic V2 models. `ComparisonType.none` skips comparison (used for freshness metrics) | `ComparisonType`, `MonitorConfig` (alias: `MetricConfig`), `MonitorsConfig` (alias: `MetricsConfig`), `MetricValue`, `ComparisonResult`, `DimensionContributor`, `DrillDownDimension`, `AnalysisResult` |
 | `config.py` | YAML config load/save | `load_monitors_config()`, `save_monitors_config()`, `add_monitors_to_config()`, `get_monitors_file_path()` + backward-compat aliases |
 | `comparisons.py` | Comparison engine + trend detection | `compute_comparison()`, `detect_trend()` |
 | `drilldown.py` | Drill-down engine: GROUP BY breakdown + contributor ranking | `run_drill_down()` |

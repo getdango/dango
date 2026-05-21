@@ -429,7 +429,9 @@ async def delete_csv_file(
             logger.info(f"Tables in database: {all_tables}")
 
             # Delete rows for this file from raw table (if table exists)
-            target_table = f'"raw"."{source_name}"'
+            # CSV sources use schema raw_{source_name}, not "raw"
+            target_schema = f"raw_{source_name}"
+            target_table = f'"{target_schema}"."{source_name}"'
             logger.info(f"Deleting from {target_table} WHERE _dango_filename = '{filename}'")
 
             # Check if table exists first
@@ -437,9 +439,9 @@ async def delete_csv_file(
                 conn.execute(
                     """
                     SELECT COUNT(*) FROM information_schema.tables
-                    WHERE table_schema = 'raw' AND table_name = ?
+                    WHERE table_schema = ? AND table_name = ?
                     """,
-                    [source_name],
+                    [target_schema, source_name],
                 ).fetchone()[0]
                 > 0
             )

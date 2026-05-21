@@ -527,16 +527,24 @@ async def copy_notebook(
 
 # ---------------------------------------------------------------------------
 # Notebook proxy routes — BUG-241: Cloud mode proxies Marimo through FastAPI
+# WebSocket proxy for Marimo is handled by Caddy directly (not FastAPI).
+# Caddy routes /notebooks/marimo/ws to Marimo's port, bypassing dango-web.
+# This avoids FastAPI/Starlette WebSocket routing issues while keeping
+# HTTP requests auth-protected through dango-web.
 # ---------------------------------------------------------------------------
 
 
+@router.api_route(
+    "/notebooks/marimo/",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+)
 @router.api_route(
     "/notebooks/marimo/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
 )
 async def notebook_marimo_proxy(
     request: Request,
-    path: str,
+    path: str = "",
     _user: User = Depends(require_permission("notebooks.execute")),
 ) -> Any:
     """Proxy HTTP requests to the local Marimo server (cloud mode)."""
@@ -550,27 +558,7 @@ async def notebook_marimo_proxy(
             content={"error": "Notebook server not running"},
         )
     port = int(str(status["port"]))
-    target_path = f"/{path}" if path else "/"
+    # Marimo runs with --base-url /notebooks/marimo in cloud mode.
+    # Forward the full prefixed path so Marimo recognizes the request.
+    target_path = f"/notebooks/marimo/{path}" if path else "/notebooks/marimo/"
     return await proxy_to_marimo(request, target_path, port)
-
-
-@router.websocket("/notebooks/marimo/ws")
-async def notebook_marimo_ws_proxy(websocket: Any) -> None:
-    """Proxy WebSocket connections to Marimo (cloud mode).
-
-    Auth is handled by AuthMiddleware on the WebSocket upgrade request
-    (session cookie validated before the connection is accepted), consistent
-    with the main ``/ws`` endpoint in ``routes/websocket.py``.
-    """
-    from fastapi import WebSocket as _WebSocket
-
-    from dango.notebooks.proxy import proxy_websocket_to_marimo
-
-    ws: _WebSocket = websocket
-    project_root = get_project_root()
-    status = await asyncio.to_thread(get_marimo_status, project_root)
-    if not status.get("running"):
-        await ws.close(code=1011, reason="Notebook server not running")
-        return
-    port = int(str(status["port"]))
-    await proxy_websocket_to_marimo(ws, "/ws", port)

@@ -59,7 +59,7 @@
                     <a href="/catalog" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'catalog' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
                         Catalog
                     </a>
-                    <a href="/query" id="nav-query-database" target="_blank" class="px-2 py-2 rounded-md text-xs font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
+                    <a href="/metabase/question#{{ query_hash }}" id="nav-query-database" target="_blank" class="px-2 py-2 rounded-md text-xs font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
                         Query
                     </a>
                     <a href="/metabase" target="_blank" class="px-2 py-2 rounded-md text-xs font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
@@ -67,9 +67,6 @@
                     </a>
                     <a href="/notebooks" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'notebooks' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
                         Notebooks
-                    </a>
-                    <a href="/monitoring" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'monitoring' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
-                        Monitoring
                     </a>
                 </div>
 
@@ -129,10 +126,9 @@
                 <a href="/models" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'models' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Models</a>
                 <a href="/schedules" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'schedules' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Schedules</a>
                 <a href="/catalog" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'catalog' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Catalog</a>
-                <a href="/query" target="_blank" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Query</a>
+                <a href="/metabase/question#{{ query_hash }}" target="_blank" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Query</a>
                 <a href="/metabase" target="_blank" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Dashboards</a>
                 <a href="/notebooks" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'notebooks' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Notebooks</a>
-                <a href="/monitoring" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'monitoring' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Monitoring</a>
             </div>
             {% if request.state.user %}
             <div class="border-t border-gray-700 px-2 pt-2 pb-3 space-y-1">
