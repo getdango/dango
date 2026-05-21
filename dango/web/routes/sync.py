@@ -156,6 +156,28 @@ async def run_sync_task(
         # Sync history is saved by the subprocess (dlt_runner.py run_source).
         # Do NOT save again here — it creates duplicate records.
 
+        # Broadcast completion via WebSocket (UI updates depend on this)
+        if success:
+            await ws_manager.broadcast(
+                {
+                    "event": "sync_completed",
+                    "source": source_name,
+                    "message": f"Sync completed: {rows_processed:,} rows",
+                    "timestamp": datetime.now().isoformat(),
+                    "rows_loaded": rows_processed,
+                    "duration_seconds": round(duration, 2),
+                }
+            )
+        else:
+            await ws_manager.broadcast(
+                {
+                    "event": "sync_failed",
+                    "source": source_name,
+                    "message": "Sync failed" + (f": {error_message}" if error_message else ""),
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
+
         # Log completion
         if success:
             append_log_entry(
