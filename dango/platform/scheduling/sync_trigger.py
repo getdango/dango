@@ -319,7 +319,9 @@ def run_manual_sync(
         duration = round(time.time() - start_time, 1)
 
         # Check for failures: dbt failed OR any source failed
-        failed_sources = sync_result.get("failed", []) if isinstance(sync_result, dict) else []
+        failed_sources = (
+            sync_result.get("failed_sources", []) if isinstance(sync_result, dict) else []
+        )
 
         if _dbt_failed:
             error_msg = "dbt models failed"
