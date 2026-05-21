@@ -355,6 +355,10 @@ def run_provisioning(
         # BUG-122: Handle empty exception messages (e.g. SSH timeout)
         err_msg = str(exc) or f"{type(exc).__name__} (no detail)"
         console.print(f"\n[red]Provisioning failed:[/red] {err_msg}")
+        console.print(
+            "\n[dim]This is usually a transient infrastructure issue (not a Dango bug)."
+            "\nRun [bold]dango deploy[/bold] to retry with a fresh server.[/dim]"
+        )
         console.print("Cleaning up resources...")
         errors = tracker.cleanup()
         if errors:
