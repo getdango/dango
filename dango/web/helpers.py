@@ -91,11 +91,11 @@ def get_dbt_model_row_count(schema: str, model_name: str) -> int | None:
         conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
         try:
             # Check if table exists
-            result = conn.execute(f"""
-                SELECT COUNT(*)
-                FROM information_schema.tables
-                WHERE table_schema = '{schema}' AND table_name = '{model_name}'
-            """).fetchone()
+            result = conn.execute(
+                "SELECT COUNT(*) FROM information_schema.tables "
+                "WHERE table_schema = ? AND table_name = ?",
+                [schema, model_name],
+            ).fetchone()
 
             if result and result[0] > 0:
                 # Table exists, get row count

@@ -178,13 +178,13 @@ dango/                          # Python package source
 │   │   ├── sync.py             # /api/sources/{name}/sync + run_sync_task()
 │   │   ├── logs.py             # /api/logs, /api/sources/{name}/logs
 │   │   ├── dbt.py              # /api/dbt/models, /api/dbt/models/{name}/run + dbt docs proxy
-│   │   ├── upload.py           # CSV upload/list/delete (705 lines)
+│   │   ├── upload.py           # CSV upload/list/delete (711 lines)
 │   │   ├── websocket.py        # ConnectionManager, ws_manager, /ws
 │   │   ├── ui.py               # /, /health, /logs, /login, /account, /admin/users
 │   │   ├── metabase_proxy.py   # Metabase reverse proxy + SSO session
 │   │   ├── secrets.py          # Secrets + OAuth credential management (admin-only)
 │   │   ├── oauth_connect.py    # Web-based OAuth connect/callback
-│   │   ├── catalog.py          # Data catalog: columns, profiling, lineage, impact, models, search (1336 lines)
+│   │   ├── catalog.py          # Data catalog: columns, profiling, lineage, impact, models, search (1338 lines)
 │   │   ├── governance.py       # Schema drift + PII results API
 │   │   ├── monitoring.py       # Monitor results, run trigger, history
 │   │   ├── notebooks.py        # Notebook management API + page route
@@ -349,8 +349,8 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `platform/scheduling/jobs.py` | 860 | — (module-level job functions) |
 | `utils/post_sync.py` | 661 | — (post-sync hooks + sync notification) |
 | `web/routes/schedules.py` | 519 | — (schedule read-only, history, trigger, notifications) |
-| `web/routes/notebooks.py` | 576 | — (notebook management API + heartbeat lock expiry + WS notify) |
-| `web/routes/upload.py` | 705 | — (extracted from app.py by TASK-085) |
+| `web/routes/notebooks.py` | 506 | — (notebook management API + heartbeat lock expiry + WS notify) |
+| `web/routes/upload.py` | 711 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 670 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
 | `cli/commands/source.py` | 884 | — (extracted from main.py by TASK-005) |
@@ -361,7 +361,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `config/models.py` | 606 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 877 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 613 | — |
-| `web/routes/catalog.py` | 1336 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
+| `web/routes/catalog.py` | 1338 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
 | `cli/commands/deploy_provision.py` | 897 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
 | `platform/cloud/server_setup.py` | 690 | — (server setup + install source detection) |

@@ -6,6 +6,9 @@ Platform lifecycle commands (start, stop, status) and port helpers.
 import click
 
 from dango.cli import console
+from dango.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def _check_duplicate_ports(platform_config: object) -> None:
@@ -94,7 +97,7 @@ def _check_docker_ports(platform_config: object) -> None:
                         if len(process_info) > 60:
                             process_info = process_info[:57] + "..."
             except Exception:
-                pass
+                logger.debug("port_process_lookup_failed", port=port, exc_info=True)
 
             conflicts.append((port, service_name, config_key, process_info))
 
@@ -404,7 +407,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                 manager.stop_all_dango_containers()
                 console.print()
         except Exception:
-            pass  # Best-effort — _check_docker_ports will catch remaining issues
+            logger.debug("orphan_docker_cleanup_failed", exc_info=True)
 
         # Check Docker service ports (Metabase and dbt-docs)
         _check_docker_ports(platform_config)
@@ -659,7 +662,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                     break
 
             except Exception:
-                pass
+                logger.debug("health_poll_failed", exc_info=True)
 
             time.sleep(1)
 
@@ -667,7 +670,7 @@ def start(ctx: click.Context, yes: bool) -> None:
             webbrowser.open(base_url)
             console.print("[dim]✨ Opening dashboard in your browser...[/dim]")
         except Exception:
-            pass  # Silently fail if browser can't be opened
+            logger.debug("browser_open_failed", exc_info=True)
 
     except click.Abort:
         # User cancelled or intentional abort - re-raise without extra cleanup
@@ -695,7 +698,7 @@ def start(ctx: click.Context, yes: bool) -> None:
 
             DockerManager(project_root).stop_services()
         except Exception:
-            pass  # Best effort cleanup
+            logger.debug("rollback_cleanup_failed", exc_info=True)
 
         console.print()
         console.print("[bold]All services have been stopped.[/bold]")
@@ -930,6 +933,7 @@ def status(ctx: click.Context) -> None:
                         f"[red]● {state.capitalize() if state else 'Unknown'}[/red]",
                     )
             except Exception:
+                logger.debug("systemd_status_check_failed", exc_info=True)
                 table.add_row("Web UI (systemd)", "[yellow]● Unknown[/yellow]")
         elif fastapi_status["running"]:
             table.add_row(
@@ -990,7 +994,7 @@ def status(ctx: click.Context) -> None:
                     )
                 console.print()
         except Exception:
-            pass  # Don't let token display errors break status output
+            logger.debug("oauth_token_display_failed", exc_info=True)
 
         # Print quick start commands
         any_running = fastapi_status["running"] or bool(docker_statuses)
@@ -1048,7 +1052,7 @@ def status(ctx: click.Context) -> None:
                         f"Run [cyan]dango upgrade[/cyan] to update."
                     )
         except Exception:  # noqa: BLE001
-            pass  # Never let version check break status output
+            logger.debug("version_check_failed", exc_info=True)
 
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")

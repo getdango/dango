@@ -18,7 +18,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/upload.py
-    lines: 705
+    lines: 711
     category: exempt
     reason: "CSV upload/list/delete endpoints. Extracted from web/app.py by TASK-085. DELETE endpoint alone has ~300 lines of DuckDB cleanup logic."
     review_by: "v1.1"
@@ -355,7 +355,7 @@ exemptions:
   # Removed: dango/web/routes/sync.py — now ~370 lines after R10-N (sync moved to subprocess)
 
   - file: dango/web/routes/catalog.py
-    lines: 1336
+    lines: 1338
     category: exempt
     reason: "P7-001+P7-002+BUG-016+R9-G+R10-E1+R10-E2: Column schema, profiling, lineage DAG, impact analysis, model list/detail/search, raw table discovery, overview summary, per-source stats. Single router file — manifest parsing helpers are private to the same module."
     review_by: "v1.1"

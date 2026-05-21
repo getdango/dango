@@ -13,3 +13,11 @@ dlt==1.24.0
 # Transitive — prevent known breakage
 starlette>=1.0.0
 pydantic-core>=2.20.0
+#
+# Transitive — CVE floor pins (2026-05-14 audit)
+aiohttp>=3.13.4         # 10 CVEs (CVE-2026-34513 through CVE-2026-22815)
+deepdiff>=8.6.2         # CVE-2026-33155
+gitpython>=3.1.50       # CVE-2026-42215, CVE-2026-42284, CVE-2026-44244, GHSA-mv93-w799-cj2w
+pyasn1>=0.6.3           # CVE-2026-30922
+pygments>=2.20.0        # CVE-2026-4539
+urllib3>=2.7.0           # CVE-2026-44431, CVE-2026-44432

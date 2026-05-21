@@ -109,7 +109,7 @@ class ChangePasswordRequest(BaseModel):
 class CreateApiKeyRequest(BaseModel):
     """API key creation payload."""
 
-    name: str
+    name: str = Field(max_length=128)
     expires_at: datetime | None = None
 
 
@@ -149,8 +149,8 @@ class ApiKeyCreateResponse(ApiKeyResponse):
 class CreateUserRequest(BaseModel):
     """Admin user creation payload."""
 
-    email: str
-    role: str = "viewer"
+    email: str = Field(max_length=254)
+    role: str = Field(default="viewer", max_length=32)
     generate_password: bool = False
 
     @field_validator("email", mode="before")
@@ -166,20 +166,20 @@ class CreateUserRequest(BaseModel):
 class AcceptInviteRequest(BaseModel):
     """Invite acceptance payload."""
 
-    token: str
-    password: str
+    token: str = Field(max_length=1024)
+    password: str = Field(max_length=1024)
 
 
 class ChangeRoleRequest(BaseModel):
     """Admin role change payload."""
 
-    role: str
+    role: str = Field(max_length=32)
 
 
 class DeleteUserConfirmation(BaseModel):
     """Delete user confirmation payload."""
 
-    confirm_email: str
+    confirm_email: str = Field(max_length=254)
 
 
 # ---------------------------------------------------------------------------
@@ -190,13 +190,13 @@ class DeleteUserConfirmation(BaseModel):
 class TwoFASetupRequest(BaseModel):
     """Request to begin 2FA setup (verifies current password)."""
 
-    password: str
+    password: str = Field(max_length=1024)
 
 
 class TwoFAVerifySetupRequest(BaseModel):
     """Verify a TOTP code to complete 2FA setup."""
 
-    code: str
+    code: str = Field(max_length=10)
 
 
 class TwoFAVerifyRequest(BaseModel):
@@ -215,8 +215,8 @@ class TwoFADisableRequest(BaseModel):
 class TwoFARegenerateRequest(BaseModel):
     """Request to regenerate recovery codes (verifies password + TOTP)."""
 
-    password: str
-    code: str
+    password: str = Field(max_length=1024)
+    code: str = Field(max_length=10)
 
 
 # ---------------------------------------------------------------------------

@@ -506,7 +506,9 @@ def schedule_status(ctx: click.Context, name: str | None = None) -> None:
 
     try:
         sched_models = [ScheduleConfig(**s) for s in schedules]
-        warnings = validate_schedules(sched_models, all_sources)
+        errors, warnings = validate_schedules(sched_models, all_sources)
+        for e in errors:
+            console.print(f"[red]Error:[/red] {e}")
         for w in warnings:
             console.print(f"[yellow]Warning:[/yellow] {w}")
     except Exception:

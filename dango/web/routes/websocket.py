@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["websocket"])
 
+_MAX_WS_MESSAGE_SIZE = 4096  # 4 KB
+
 
 class ConnectionManager:
     """Manages WebSocket connections for real-time updates."""
@@ -101,7 +103,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             # Wait for messages from client (ping/pong for keepalive)
             data = await websocket.receive_text()
 
-            if len(data) > 4096:
+            if len(data) > _MAX_WS_MESSAGE_SIZE:
                 await websocket.send_json({"event": "error", "message": "Message too large"})
                 continue
 

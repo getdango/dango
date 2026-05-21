@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from dango.exceptions import CloudProvisioningError
+from tests.factories.cloud_factories import make_ssh_mock_configurable
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -38,33 +39,6 @@ _ALL_STEP_NAMES = [
     "fail2ban",
     "unattended_upgrades",
 ]
-
-
-def _make_ssh_mock(
-    *,
-    exec_results: dict[str, tuple[str, str, int]] | None = None,
-) -> MagicMock:
-    """Return a mock SSHManager with configurable exec_command results.
-
-    Args:
-        exec_results: Map of command substring -> (stdout, stderr, exit_code).
-            If a command matches multiple substrings, the first match wins.
-            Commands not matched default to success ("", "", 0).
-    """
-    from dango.platform.cloud.ssh import CommandResult
-
-    results = exec_results or {}
-
-    def _exec_side_effect(command, timeout=None):
-        for substr, (stdout, stderr, exit_code) in results.items():
-            if substr in command:
-                return CommandResult(stdout=stdout, stderr=stderr, exit_code=exit_code)
-        return CommandResult(stdout="", stderr="", exit_code=0)
-
-    ssh = MagicMock()
-    ssh.exec_command.side_effect = _exec_side_effect
-    ssh.write_remote_file = MagicMock()
-    return ssh
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +70,7 @@ class TestSetupServer:
         from dango.platform.cloud.server_setup import setup_server
 
         # Docker/Caddy not installed, user doesn't exist, venv doesn't exist
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "id -u dango": ("", "no such user", 1),
                 "docker --version": ("", "", 1),
@@ -129,7 +103,7 @@ class TestSetupServer:
         """Docker, Caddy, user, and venv are skipped when already present."""
         from dango.platform.cloud.server_setup import setup_server
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "id -u dango": ("1001", "", 0),
                 "docker --version": ("Docker version 24.0", "", 0),
@@ -163,7 +137,7 @@ class TestSetupServer:
         """Steps execute in the correct order (L3)."""
         from dango.platform.cloud.server_setup import setup_server
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "id -u dango": ("", "", 1),
                 "docker --version": ("", "", 1),
@@ -190,7 +164,7 @@ class TestSetupServer:
         """on_progress is called with (step, status) for each step."""
         from dango.platform.cloud.server_setup import setup_server
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "id -u dango": ("1001", "", 0),
                 "docker --version": ("Docker version 24.0", "", 0),
@@ -223,7 +197,7 @@ class TestSetupServer:
         """A failing step raises CloudProvisioningError."""
         from dango.platform.cloud.server_setup import setup_server
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "apt-get -o DPkg": ("", "apt lock held", 100),
             }
@@ -244,7 +218,7 @@ class TestSetupSteps:
         """apt step runs update + install."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_apt_packages
 
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock_configurable()
         result = SetupResult()
         _setup_apt_packages(ssh, result, None)
 
@@ -263,7 +237,7 @@ class TestSetupSteps:
         """User step creates dango user when not present."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_dango_user
 
-        ssh = _make_ssh_mock(exec_results={"id -u dango": ("", "no such user", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"id -u dango": ("", "no such user", 1)})
         result = SetupResult()
         _setup_dango_user(ssh, result, None)
 
@@ -275,7 +249,7 @@ class TestSetupSteps:
         """User step skipped when dango user exists."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_dango_user
 
-        ssh = _make_ssh_mock(exec_results={"id -u dango": ("1001", "", 0)})
+        ssh = make_ssh_mock_configurable(exec_results={"id -u dango": ("1001", "", 0)})
         result = SetupResult()
         _setup_dango_user(ssh, result, None)
 
@@ -286,7 +260,9 @@ class TestSetupSteps:
         """Docker install skipped when docker is already available."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_docker
 
-        ssh = _make_ssh_mock(exec_results={"docker --version": ("Docker version 24.0", "", 0)})
+        ssh = make_ssh_mock_configurable(
+            exec_results={"docker --version": ("Docker version 24.0", "", 0)}
+        )
         result = SetupResult()
         _setup_docker(ssh, result, None)
 
@@ -296,7 +272,7 @@ class TestSetupSteps:
         """Caddy install skipped when caddy is already available."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_caddy
 
-        ssh = _make_ssh_mock(exec_results={"caddy version": ("v2.7.5", "", 0)})
+        ssh = make_ssh_mock_configurable(exec_results={"caddy version": ("v2.7.5", "", 0)})
         result = SetupResult()
         _setup_caddy(ssh, result, None)
 
@@ -306,7 +282,9 @@ class TestSetupSteps:
         """Venv step skipped when /srv/dango/venv/bin/dango exists."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_venv
 
-        ssh = _make_ssh_mock(exec_results={"test -x /srv/dango/venv/bin/dango": ("", "", 0)})
+        ssh = make_ssh_mock_configurable(
+            exec_results={"test -x /srv/dango/venv/bin/dango": ("", "", 0)}
+        )
         result = SetupResult()
         _setup_venv(ssh, result, None)
 
@@ -316,7 +294,7 @@ class TestSetupSteps:
         """Directory step creates /srv/dango structure including logs dir."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_directories
 
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock_configurable()
         result = SetupResult()
         _setup_directories(ssh, result, None)
 
@@ -330,7 +308,9 @@ class TestSetupSteps:
         """Venv step creates venv and installs getdango when not present."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_venv
 
-        ssh = _make_ssh_mock(exec_results={"test -x /srv/dango/venv/bin/dango": ("", "", 1)})
+        ssh = make_ssh_mock_configurable(
+            exec_results={"test -x /srv/dango/venv/bin/dango": ("", "", 1)}
+        )
         result = SetupResult()
         _setup_venv(ssh, result, None)
 
@@ -345,7 +325,7 @@ class TestSetupSteps:
         """SSH hardening step disables password auth and KbdInteractive."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_ssh_hardening
 
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock_configurable()
         result = SetupResult()
         _setup_ssh_hardening(ssh, result, None)
 
@@ -359,7 +339,7 @@ class TestSetupSteps:
         from dango.platform.cloud._server_templates import SYSTEMD_UNIT
         from dango.platform.cloud.server_setup import SetupResult, _setup_systemd_unit
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "cat /etc/systemd/system/dango-web.service": ("", "", 1),
             }
@@ -393,7 +373,7 @@ class TestSetupSteps:
         """setup_server(domain=...) writes an HTTPS Caddyfile."""
         from dango.platform.cloud.server_setup import setup_server
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "id -u dango": ("1001", "", 0),
                 "docker --version": ("Docker 24", "", 0),
@@ -423,7 +403,7 @@ class TestSetupSteps:
         """setup_server() without domain writes an HTTP-only Caddyfile."""
         from dango.platform.cloud.server_setup import setup_server
 
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "id -u dango": ("1001", "", 0),
                 "docker --version": ("Docker 24", "", 0),
@@ -469,7 +449,7 @@ class TestSetupSteps:
         from dango.platform.cloud.server_setup import SetupResult, _setup_docker_daemon
 
         # Return the exact config content from cat -> skips write
-        ssh = _make_ssh_mock(
+        ssh = make_ssh_mock_configurable(
             exec_results={
                 "cat /etc/docker/daemon.json": (DOCKER_DAEMON_JSON, "", 0),
             }
@@ -492,7 +472,7 @@ class TestHelpers:
         """_run_checked returns stdout on success."""
         from dango.platform.cloud.server_setup import _run_checked
 
-        ssh = _make_ssh_mock(exec_results={"echo": ("hello\n", "", 0)})
+        ssh = make_ssh_mock_configurable(exec_results={"echo": ("hello\n", "", 0)})
         result = _run_checked(ssh, "echo hello", step="test_step")
         assert result == "hello\n"
 
@@ -500,7 +480,7 @@ class TestHelpers:
         """_run_checked raises CloudProvisioningError on non-zero exit."""
         from dango.platform.cloud.server_setup import _run_checked
 
-        ssh = _make_ssh_mock(exec_results={"bad": ("", "error msg", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"bad": ("", "error msg", 1)})
         with pytest.raises(CloudProvisioningError, match="test_step"):
             _run_checked(ssh, "bad command", step="test_step")
 
@@ -508,7 +488,7 @@ class TestHelpers:
         """_write_remote_config creates parent dir and writes file."""
         from dango.platform.cloud.server_setup import _write_remote_config
 
-        ssh = _make_ssh_mock(exec_results={"cat /etc/caddy/Caddyfile": ("", "", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"cat /etc/caddy/Caddyfile": ("", "", 1)})
         changed = _write_remote_config(
             ssh, "/etc/caddy/Caddyfile", "content", step="test", mode=0o644
         )
@@ -522,7 +502,9 @@ class TestHelpers:
         """_write_remote_config returns False when content matches."""
         from dango.platform.cloud.server_setup import _write_remote_config
 
-        ssh = _make_ssh_mock(exec_results={"cat /etc/caddy/Caddyfile": ("content", "", 0)})
+        ssh = make_ssh_mock_configurable(
+            exec_results={"cat /etc/caddy/Caddyfile": ("content", "", 0)}
+        )
         changed = _write_remote_config(
             ssh, "/etc/caddy/Caddyfile", "content", step="test", mode=0o644
         )
@@ -540,7 +522,7 @@ class TestSetupVenvVersionPinning:
         """Pip install command includes pinned version."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_venv
 
-        ssh = _make_ssh_mock(exec_results={"test -x": ("", "", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"test -x": ("", "", 1)})
         result = SetupResult()
         _setup_venv(ssh, result, None, dango_version="1.2.3")
 
@@ -553,7 +535,7 @@ class TestSetupVenvVersionPinning:
         """Pip install command uses plain getdango (latest)."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_venv
 
-        ssh = _make_ssh_mock(exec_results={"test -x": ("", "", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"test -x": ("", "", 1)})
         result = SetupResult()
         _setup_venv(ssh, result, None)
 
@@ -568,7 +550,7 @@ class TestSetupVenvVersionPinning:
         from dango.platform.cloud.server_setup import setup_server
 
         # Make "test -x /srv/dango/venv/bin/dango" fail so venv step runs
-        ssh = _make_ssh_mock(exec_results={"test -x": ("", "", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"test -x": ("", "", 1)})
         setup_server(ssh, dango_version="2.0.0")
 
         # Find the pip install command containing getdango
@@ -581,7 +563,7 @@ class TestSetupVenvVersionPinning:
         """Version string with shell metacharacters is rejected."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_venv
 
-        ssh = _make_ssh_mock(exec_results={"test -x": ("", "", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"test -x": ("", "", 1)})
         result = SetupResult()
         with pytest.raises(ValueError, match="Invalid version string"):
             _setup_venv(ssh, result, None, dango_version="1.0; rm -rf /")
@@ -590,7 +572,7 @@ class TestSetupVenvVersionPinning:
         """install_source takes precedence over dango_version."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_venv
 
-        ssh = _make_ssh_mock(exec_results={"test -x": ("", "", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"test -x": ("", "", 1)})
         result = SetupResult()
         _setup_venv(
             ssh,
@@ -610,7 +592,7 @@ class TestSetupVenvVersionPinning:
         """setup_server threads install_source through to _setup_venv."""
         from dango.platform.cloud.server_setup import setup_server
 
-        ssh = _make_ssh_mock(exec_results={"test -x": ("", "", 1)})
+        ssh = make_ssh_mock_configurable(exec_results={"test -x": ("", "", 1)})
         setup_server(ssh, install_source=("pypi", "getdango==2.0.0"))
 
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
@@ -630,7 +612,7 @@ class TestAptLockTimeout:
         """BUG-121: System-wide apt lock timeout config is written before apt-get runs."""
         from dango.platform.cloud.server_setup import SetupResult, _setup_apt_packages
 
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock_configurable()
         result = SetupResult()
         _setup_apt_packages(ssh, result, None)
 
@@ -655,7 +637,7 @@ class TestAptLockTimeout:
 class TestResolveInstallSource:
     def test_pypi_install(self):
         """PyPI install returns ('pypi', 'getdango==<version>')."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         from dango.platform.cloud.server_setup import resolve_install_source
 
@@ -678,7 +660,7 @@ class TestResolveInstallSource:
     def test_git_install(self):
         """Git install returns ('git', 'git+<url>@<commit>#egg=getdango')."""
         import json
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         from dango.platform.cloud.server_setup import resolve_install_source
 
@@ -700,7 +682,7 @@ class TestResolveInstallSource:
     def test_editable_install_with_git(self):
         """Editable install resolves git remote and HEAD."""
         import json
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         from dango.platform.cloud.server_setup import resolve_install_source
 
@@ -783,7 +765,7 @@ class TestSshRemoteConversion:
     def test_ssh_remote_converted_in_vcs_info(self):
         """SSH shorthand in vcs_info is normalized to HTTPS."""
         import json
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         from dango.platform.cloud.server_setup import resolve_install_source
 
@@ -805,7 +787,7 @@ class TestSshRemoteConversion:
     def test_ssh_remote_converted_in_editable(self):
         """SSH shorthand in editable install is normalized to HTTPS."""
         import json
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         from dango.platform.cloud.server_setup import resolve_install_source
 
@@ -843,7 +825,7 @@ class TestAptLockWait:
     def test_apt_packages_waits_for_locks(self):
         from dango.platform.cloud.server_setup import SetupResult, _setup_apt_packages
 
-        ssh = _make_ssh_mock()
+        ssh = make_ssh_mock_configurable()
         result = SetupResult()
         _setup_apt_packages(ssh, result, None)
 

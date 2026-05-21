@@ -4,6 +4,7 @@ Encrypts OAuth tokens using OS keychain for key storage and Fernet for encryptio
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -78,11 +79,12 @@ class SecureTokenStorage:
                 return key_file.read_bytes()
             else:
                 key = Fernet.generate_key()
-                # TOCTOU: file is briefly world-readable between write_bytes
-                # and chmod. For a more secure pattern, use os.open() with
-                # mode at creation time (see cloud/ssh.py generate_key()).
-                key_file.write_bytes(key)
-                key_file.chmod(0o600)  # Restrict permissions
+                # Atomic: file created with 0o600 permissions from the start
+                fd = os.open(str(key_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                try:
+                    os.write(fd, key)
+                finally:
+                    os.close(fd)
                 return key
 
     def encrypt_token(self, token_data: dict[str, Any]) -> str:
