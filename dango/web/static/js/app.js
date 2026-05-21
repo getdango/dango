@@ -455,24 +455,15 @@ async function handleWebSocketMessage(data) {
             loadSources();  // Reload from API to get correct status
             // Fallback: if activeSyncs wasn't set (e.g. upload-triggered sync),
             // the cleanup above is harmless (delete on missing key is a no-op).
+            // Fallback: if activeSyncs wasn't cleared (edge case),
+            // retry cleanup after 10 seconds.
             setTimeout(() => {
-                // No-op guard — activeSyncs already cleared above.
-                // This timeout only exists for edge cases where sync_completed
-                // fires but loadSources fails silently.
                 if (activeSyncs.has(source)) {
                     console.log('⏰ [WS] Fallback cleanup:', source);
                     activeSyncs.delete(source);
                     stopSyncTimer(source);
                     updateSyncCounter();
-                    const result = syncResults.get(source);
-                    if (result) {
-                        updateSourceRowAfterSync(source, result);
-                        syncResults.delete(source);
-                    } else {
-                        const btn = document.getElementById(`sync-btn-${source}`);
-                        if (btn) { btn.disabled = false; btn.textContent = 'Sync Now'; }
-                        if (!isLoadingSources) loadSources();
-                    }
+                    if (!isLoadingSources) loadSources();
                 }
             }, 10000);
             break;

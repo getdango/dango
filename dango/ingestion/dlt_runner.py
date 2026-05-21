@@ -2445,6 +2445,8 @@ def run_sync(
             progress_callback("data_load_complete", "Data load completed")
 
         # Run dbt to create staging/marts tables (unless caller handles dbt separately)
+        dbt_success = False
+        dbt_output = ""
         if not skip_dbt:
             # Use selective runs to only process models dependent on synced sources
             if progress_callback is not None:
@@ -2463,8 +2465,6 @@ def run_sync(
             else:
                 # All sources failed — skip dbt (no new data to transform)
                 console.print("[dim]No sources synced successfully — skipping dbt.[/dim]")
-                if progress_callback is not None:
-                    progress_callback("dbt_complete", "dbt skipped (no data)")
                 skip_dbt = True  # Skip docs generation below too
 
             if dbt_success:
