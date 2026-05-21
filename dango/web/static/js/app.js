@@ -14,6 +14,18 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+function formatSourceType(type) {
+    const names = {
+        'csv': 'CSV',
+        'local_files': 'Local Files',
+        'dlt_native': 'dlt Native',
+        'rest_api': 'REST API',
+        'sql_database': 'SQL Database',
+        'filesystem': 'Filesystem',
+    };
+    return names[type] || type.charAt(0).toUpperCase() + type.slice(1).replace(/_/g, ' ');
+}
+
 // Global state
 let ws = null;
 let reconnectInterval = null;
@@ -1229,7 +1241,7 @@ function renderSourcesTable() {
             </td>
             <td class="px-6 py-4 whitespace-nowrap">
                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
-                    ${source.type}
+                    ${formatSourceType(source.type)}
                 </span>
                 <div class="text-xs text-gray-400 mt-0.5">${source.sync_mode === 'full_refresh' ? 'Full Refresh' : 'Incremental'}${source.lookback_days ? ` (${source.lookback_days}d)` : ''}</div>
             </td>
