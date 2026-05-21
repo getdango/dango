@@ -318,10 +318,25 @@ def run_manual_sync(
 
         duration = round(time.time() - start_time, 1)
 
+        # Check for failures: dbt failed OR any source failed
+        failed_sources = sync_result.get("failed", []) if isinstance(sync_result, dict) else []
+
         if _dbt_failed:
             error_msg = "dbt models failed"
             record_failure(db_path, record_id, error_msg)
             _progress("failed", error_msg, rows_loaded=rows_loaded, dbt_error=True)
+            return {
+                "record_id": record_id,
+                "status": "failed",
+                "duration_seconds": duration,
+                "error": error_msg,
+                "rows_loaded": rows_loaded,
+            }
+
+        if failed_sources:
+            error_msg = "; ".join(f["error"] for f in failed_sources if isinstance(f, dict))
+            record_failure(db_path, record_id, error_msg)
+            _progress("failed", f"Sync failed: {error_msg}", error=error_msg)
             return {
                 "record_id": record_id,
                 "status": "failed",
