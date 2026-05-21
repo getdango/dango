@@ -554,26 +554,6 @@ async function handleWebSocketMessage(data) {
             const sourceMatch = source?.match(/triggered by (\w+)/);
             const triggeredSource = sourceMatch ? sourceMatch[1] : null;
 
-            if (triggeredSource) {
-                console.log('🟢 [WS] dbt was triggered by source:', triggeredSource);
-
-                // Check if this was a batch upload operation
-                const hadUploadOps = activeFileOperations.has(triggeredSource);
-
-                // Clean up any upload batch operations for this source
-                if (hadUploadOps) {
-                    const operations = activeFileOperations.get(triggeredSource);
-                    for (const opId of operations) {
-                        if (opId.startsWith('upload-batch-')) {
-                            console.log(`🟢 [WS] Cleaning up upload batch operation: ${opId}`);
-                            removeFileOperation(triggeredSource, opId);
-                            // Show final success toast for the batch
-                            showToast(`${triggeredSource}: Files synced and transformed successfully`, 'success');
-                        }
-                    }
-                }
-            }
-
             console.log('🟢 [WS] dbt complete. Refreshing models list.');
             addLogEntry('success', message, source || 'dbt');
 
