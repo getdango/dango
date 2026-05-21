@@ -856,8 +856,12 @@ async def get_source_status_data(source: dict) -> SourceStatus:
                     sync_mode_from_history = "incremental"
                 break
 
+    # CSV and local_files sources are always full refresh
+    is_file_source = source_type in ("csv", "local_files")
     if sync_mode_from_history is not None:
         sync_mode = sync_mode_from_history
+    elif is_file_source:
+        sync_mode = "full_refresh"
     else:
         sync_mode = "incremental" if supports_incremental else "full_refresh"
     write_disposition = "replace" if sync_mode == "full_refresh" else "merge"

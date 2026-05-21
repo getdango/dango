@@ -693,20 +693,17 @@ def setup_server(
     """
     result = SetupResult()
 
-    # Detect vCPU count for multi-worker systemd unit
-    vcpu_count: int | None = None
-    try:
-        nproc_result = ssh.exec_command("nproc")
-        if nproc_result.success:
-            vcpu_count = int(nproc_result.stdout.strip())
-    except (ValueError, AttributeError, OSError):
-        _logger.debug("nproc_detection_failed", exc_info=True)
+    # Single worker for v1 — multi-worker breaks WebSocket broadcasts
+    # (ws_manager is per-process, so broadcasts only reach clients on the
+    # same worker).  Multi-worker requires Redis pub/sub for cross-worker
+    # message delivery, which is a post-v1 infrastructure change.
+    # Single worker handles small team load fine.
 
     for step_fn in _SETUP_STEPS:
         if step_fn is _setup_caddyfile:
             _setup_caddyfile(ssh, result, on_progress, domain=domain)
         elif step_fn is _setup_systemd_unit:
-            _setup_systemd_unit(ssh, result, on_progress, workers=vcpu_count)
+            _setup_systemd_unit(ssh, result, on_progress, workers=None)
         elif step_fn is _setup_venv:
             _setup_venv(
                 ssh,

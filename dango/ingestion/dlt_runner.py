@@ -2461,8 +2461,11 @@ def run_sync(
                 )
                 dbt_success, dbt_output = run_dbt_models(project_root, select=select_criteria)
             else:
-                # No sources synced, run all models (backward compatibility)
-                dbt_success, dbt_output = run_dbt_models(project_root)
+                # All sources failed — skip dbt (no new data to transform)
+                console.print("[dim]No sources synced successfully — skipping dbt.[/dim]")
+                if progress_callback is not None:
+                    progress_callback("dbt_complete", "dbt skipped (no data)")
+                skip_dbt = True  # Skip docs generation below too
 
             if dbt_success:
                 if progress_callback is not None:
