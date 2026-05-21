@@ -288,7 +288,7 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
 
             _proj = f"dango-{hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]}"
             _compose_env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj}
-            result = subprocess.run(
+            _docker_result = subprocess.run(
                 [
                     "docker",
                     "compose",
@@ -301,11 +301,11 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
                 timeout=60,
                 env=_compose_env,
             )
-            if result.returncode != 0:
+            if _docker_result.returncode != 0:
                 logger.warning(
                     "metabase_stop_nonzero",
-                    returncode=result.returncode,
-                    stderr=result.stderr.decode(errors="replace"),
+                    returncode=_docker_result.returncode,
+                    stderr=_docker_result.stderr.decode(errors="replace"),
                 )
             _time.sleep(3)
         except Exception:
