@@ -15,7 +15,7 @@ User authentication and access control for Dango. Handles password-based login w
 | `sessions.py` | 289 | High-level session + API key lifecycle | `create_session()`, `validate_session()`, `validate_partial_session()`, `create_api_key()`, `validate_api_key()` |
 | `permissions.py` | 196 | 29 permissions, 3 role mappings | `PERMISSIONS`, `ROLE_PERMISSIONS`, `has_permission()`, `require_permission()` |
 | `lockout.py` | 459 | Brute-force protection (5 attempts / 15-min, IP-based + user-based) | `record_failed_login()`, `check_account_locked()`, `unlock_account()`, `cleanup_expired_login_attempts()` |
-| `audit.py` | 210 | 45 event types to `.dango/logs/audit.jsonl` | `AuditEvent`, `log_auth_event()`, `query_audit_log()` |
+| `audit.py` | 210 | 44 event types + 1 deprecated alias to `.dango/logs/audit.jsonl` | `AuditEvent`, `log_auth_event()`, `query_audit_log()` |
 | `admin.py` | 129 | Bootstrap + path helpers | `ensure_admin()`, `is_auth_enabled()`, `get_auth_db_path()` |
 | `totp.py` | 220 | TOTP 2FA: setup/verify/enable/disable, recovery codes | `generate_totp_secret()`, `verify_totp_code()`, `setup_totp()`, `enable_totp()`, `consume_recovery_code()` |
 | `oauth_login.py` | 314 | OAuth provider ABC + Google/GitHub implementations | `OAuthLoginProvider`, `GoogleOAuthProvider`, `GitHubOAuthProvider`, `get_provider()` |
