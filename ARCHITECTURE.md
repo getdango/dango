@@ -81,7 +81,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 1. **Downward only.** Higher levels import lower levels. Never reverse.
 2. **Same-level OK if non-circular.** For example, `transformation/` can import `ingestion/sources/registry` to look up source metadata, as long as `ingestion/` never imports `transformation/` at module level.
-3. **Lazy imports for orchestration.** `dlt_runner.py` contains lazy imports from `transformation/` and `visualization/` inside function bodies (lines 1602, 1640, 1659, 1669). This is a documented pragmatic concession for the sync orchestration flow — not a pattern to follow elsewhere.
+3. **Lazy imports for orchestration.** `dlt_runner.py` contains lazy imports from `transformation/`, `visualization/`, and `governance/` inside function bodies (search for `from dango.transformation`, `from dango.visualization`, and `from dango.governance` in `dlt_runner.py`). This is a documented pragmatic concession for the sync orchestration flow — not a pattern to follow elsewhere.
 
 ## 4. Module Reference
 
@@ -194,7 +194,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | File | Description |
 |------|-------------|
 | `__init__.py` | Re-exports `DltPipelineRunner`, `run_sync`, `CSVLoader`, `SOURCE_REGISTRY` |
-| `dlt_runner.py` | `DltPipelineRunner` — orchestrates sync: load data, generate staging models, run dbt, refresh Metabase (1796 lines). Contains lazy imports from Level 1-2 modules. |
+| `dlt_runner.py` | `DltPipelineRunner` — orchestrates sync: load data, generate staging models, run dbt, refresh Metabase (2579 lines). Contains lazy imports from Level 1-2 modules. |
 | `csv_loader.py` | `CSVLoader` — incremental CSV loading with 4 dedup strategies, file metadata tracking |
 | `sources/registry.py` | `SOURCE_REGISTRY` — metadata dict for all 34 sources (auth type, params, setup guide, cost warnings) |
 | `dlt_sources/` | 29 vendored dlt source integrations (third-party code, rarely modified) |
@@ -247,7 +247,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | `sessions.py` | High-level session + API key lifecycle with timeout validation |
 | `permissions.py` | 29 permissions across 9 domains, 3 role mappings, `require_permission()` FastAPI Depends |
 | `lockout.py` | Brute-force protection: 5 attempts / 15-min lockout window |
-| `audit.py` | 22 event types to `.dango/logs/audit.jsonl` (append-only JSONL) |
+| `audit.py` | 45 event types to `.dango/logs/audit.jsonl` (append-only JSONL) |
 | `admin.py` | Bootstrap admin user, auth config path helpers |
 | `totp.py` | TOTP 2FA: setup/verify/enable/disable, 8 recovery codes |
 | `oauth_login.py` | OAuth provider ABC + Google/GitHub implementations |
@@ -265,8 +265,8 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 |------|-------------|
 | `__init__.py` | Re-exports public API |
 | `models.py` | Pydantic V2 response models: `DriftEvent`, `DriftResponse`, `PiiFinding`, `PiiResponse` |
-| `schema_drift.py` | Schema drift detection engine (490 lines): `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()` |
-| `pii_detector.py` | PII scanning engine using Presidio + spaCy (454 lines): `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()` |
+| `schema_drift.py` | Schema drift detection engine (654 lines): `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()` |
+| `pii_detector.py` | PII scanning engine using Presidio + spaCy (614 lines): `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()` |
 
 **Public API:** `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()`, `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()`
 
@@ -280,8 +280,8 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | File | Description |
 |------|-------------|
 | `__init__.py` | Re-exports public symbols |
-| `manager.py` | Marimo process lifecycle: start/stop/status (197 lines) |
-| `locking.py` | File-level notebook locking via SQLite `notebook_locks` table (249 lines) |
+| `manager.py` | Marimo process lifecycle: start/stop/status (330 lines) |
+| `locking.py` | File-level notebook locking via SQLite `notebook_locks` table (285 lines) |
 | `snapshot.py` | DuckDB snapshot management: create, list, cleanup |
 | `proxy.py` | HTTP + WebSocket reverse proxy to Marimo (186 lines) |
 | `templates/` | Starter templates: explore, quality, blank |
@@ -352,7 +352,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 | File | Description |
 |------|-------------|
-| `main.py` | Slim entry point (~109 lines) — registers command groups from `commands/` subpackage |
+| `main.py` | Slim entry point (~125 lines) — registers command groups from `commands/` subpackage |
 | `commands/` | Command modules extracted from main.py by TASK-005: `platform.py` (start/stop/status), `source.py` (add/list/remove/sync), `oauth.py` (OAuth credential management), `auth.py` (user auth placeholder, Phase 2), `project.py` (init/rename/info), `transform.py` (run/docs/generate), etc. |
 | `init.py` | Project initialization wizard — creates directory structure, config files, Docker setup |
 | `wizard.py` | Interactive setup wizards |
@@ -378,15 +378,15 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 | File | Description |
 |------|-------------|
-| `app.py` | Entry point (~370 lines) — creates FastAPI app, registers routers + middleware, admin bootstrap |
+| `app.py` | Entry point (~480 lines) — creates FastAPI app, registers routers + middleware, admin bootstrap |
 | `helpers.py` | Shared helpers: DuckDB queries, config loading, service health checks, log management |
 | `models.py` | Pydantic request/response DTOs (incl. auth DTOs: `LoginRequest`, `AcceptInviteRequest`, etc.) |
 | `middleware/auth.py` | Session/API key auth + CSRF check on every request (~325 lines) |
-| `middleware/rate_limit.py` | Rate limiting: login 10/min, API 200/min, localhost exempt (~212 lines) |
-| `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~854 lines) |
-| `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery (~328 lines) |
-| `routes/users.py` | Admin user CRUD: create, edit, deactivate, delete, unlock, invite (525 lines) |
-| `routes/` (data) | `health.py`, `config.py`, `sources.py`, `sync.py`, `logs.py`, `dbt.py`, `upload.py`, `websocket.py`, `ui.py`, `metabase_proxy.py` |
+| `middleware/rate_limit.py` | Rate limiting: login 10/min, API 200/min, localhost exempt (~235 lines) |
+| `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~886 lines) |
+| `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery (~382 lines) |
+| `routes/users.py` | Admin user CRUD: create, edit, deactivate, delete, unlock, invite (531 lines) |
+| `routes/` (data) | `health.py`, `config.py`, `sources.py`, `sync.py`, `logs.py`, `dbt.py`, `upload.py`, `websocket.py`, `ui.py`, `metabase_proxy.py`, `catalog.py`, `governance.py`, `monitoring.py`, `notebooks.py`, `schedules.py`, `secrets.py`, `oauth_connect.py`, `initial_sync.py`, `ai.py`, `query.py` |
 
 **Public API:** FastAPI `app` instance.
 
@@ -490,13 +490,10 @@ cli/commands/platform.py @click.command("start")
 ```
 CSV file dropped in data/uploads/
 
-platform/watcher.py — detect file change (watchdog)
-  → platform/watcher_runner.py — debounce (600s default)
-  → utils/dbt_lock.py: dbt_lock() — acquire write lock
-  → ingestion/dlt_runner.py: run_sync()
-      → ingestion/csv_loader.py: CSVLoader.load_all_csv_files()
-  → transformation/__init__.py: run_dbt_models()
-  → release lock
+platform/local/watcher.py — detect file change (watchdog)
+  → platform/local/watcher_runner.py — debounce (600s default)
+  → subprocess: dango sync (runs CLI sync command)
+      → Same flow as §6.1 (lock acquire → run_sync → release)
 ```
 
 ### 6.6 Web API Sync Trigger
@@ -505,11 +502,11 @@ platform/watcher.py — detect file change (watchdog)
 POST /api/sources/{source_name}/sync
 
 web/routes/sync.py @router.post("/api/sources/{source_name}/sync")
-  → utils/dbt_lock.py: dbt_lock() — acquire write lock
-  → ingestion/dlt_runner.py: run_sync() (in BackgroundTask)
+  → asyncio.create_task(run_sync_task(...))
+  → platform/sync_process.py: launch_sync_subprocess()
+      → DbtLock acquired inside subprocess
+      → ingestion/dlt_runner.py: run_sync() — same flow as §6.1
   → WebSocket /ws — broadcast progress updates to connected clients
-  → utils/sync_history.py: save_sync_history_entry()
-  → release lock
 ```
 
 ### 6.7 Adding a New Source Type
@@ -576,15 +573,18 @@ ingestion/dlt_runner.py: run_sync()
   → utils/post_sync.py: dispatch_post_sync_hooks(project_root, sources)
       → _run_profiling(project_root, sources)
           → Column stats (row count, null %, distinct count) cached in dango.db
-      → _run_drift_detection(project_root, sources)
-          → governance/schema_drift.py: detect_drift_for_sources()
-          → Drift events stored in dango.db, webhook if configured
+      → _enrich_staging_tests(project_root, sources)
+          → Adds not_null dbt tests to columns with 0% null rate
       → _run_pii_scan(project_root, sources)
           → governance/pii_detector.py: scan_sources_for_pii()
           → PII findings stored in dango.db, webhook if configured
       → _run_analysis(project_root, sources)
           → analysis/metrics.py: run_analysis()
           → Metric results stored in dango.db
+      → _run_dbt_snapshots(project_root)
+          → Runs dbt snapshots if snapshot SQL files exist in dbt/snapshots/
+      → _send_sync_notification(project_root, sources, sync_result) [conditional]
+          → Sends webhook notification if configured and not skipped
 
 Each hook is wrapped in try/except — failures are logged but never propagate.
 ```
@@ -647,7 +647,7 @@ Three-tier storage:
 
 ## 10. API Design Principles
 
-The web module (`web/routes/`) exposes REST endpoints across 18 route files, 1 WebSocket, and a Metabase reverse proxy.
+The web module (`web/routes/`) exposes REST endpoints across 23 route files, 1 WebSocket, and a Metabase reverse proxy.
 
 **Current endpoints (all under `/api/`):**
 
@@ -689,13 +689,14 @@ The web module (`web/routes/`) exposes REST endpoints across 18 route files, 1 W
 
 ### Import Violations
 
-1. **`ingestion/dlt_runner.py` lazy-imports from Level 1 and Level 2** (lines 1602, 1640, 1659, 1669):
+1. **`ingestion/dlt_runner.py` lazy-imports from Level 1 and Level 2** (search for `from dango.transformation`, `from dango.visualization`, `from dango.governance` in `dlt_runner.py`):
    - `from dango.transformation.generator import DbtModelGenerator`
    - `from dango.transformation import run_dbt_models`
    - `from dango.transformation import generate_dbt_docs`
    - `from dango.visualization.metabase import refresh_metabase_connection, sync_metabase_schema`
+   - `from dango.governance.schema_drift import detect_drift_for_sources`
 
-   These exist because `run_sync()` orchestrates the full pipeline (load → transform → visualize). Extraction to a dedicated orchestration module is planned for Phase 3.
+   These exist because `run_sync()` orchestrates the full pipeline (load → detect drift → transform → visualize). Extraction to a dedicated orchestration module is planned for Phase 3.
 
 2. ~~**`web/routes/health.py` imported `dango.cli.utils`** (Level 2 → Level 3)~~ — **Fixed in TASK-006**: `get_watcher_status` moved to `dango.platform.watcher_lifecycle` (Level 2), eliminating the violation.
 
@@ -703,9 +704,9 @@ The web module (`web/routes/`) exposes REST endpoints across 18 route files, 1 W
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
-| ~~`cli/main.py`~~ | ~~3927~~ | ~~TASK-005~~ — **Done:** split into `cli/commands/`, main.py is now ~109 lines |
-| ~~`web/app.py`~~ | ~~2900~~ | ~~TASK-085~~ — **Done:** split into `web/routes/`, app.py is now ~202 lines |
-| `ingestion/dlt_runner.py` | 1796 | Phase 3 (extract orchestration) |
+| ~~`cli/main.py`~~ | ~~3927~~ | ~~TASK-005~~ — **Done:** split into `cli/commands/`, main.py is now ~125 lines |
+| ~~`web/app.py`~~ | ~~2900~~ | ~~TASK-085~~ — **Done:** split into `web/routes/`, app.py is now ~480 lines |
+| `ingestion/dlt_runner.py` | 2579 | Phase 3 (extract orchestration) |
 
 ### Runtime Architecture
 
