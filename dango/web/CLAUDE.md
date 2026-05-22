@@ -49,6 +49,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/governance.py` | Schema drift + PII results API (~203 lines) | `router` |
 | `routes/monitoring.py` | Monitor results API (`/api/monitoring`, `/api/monitoring/run`, `/api/monitoring/history`), dbt test results. Page route removed in R12-M2 (test/freshness moved to catalog). Backward-compat `/api/insights*` redirects removed in M2 cloud fix. | `router` |
 | `routes/ai.py` | Agent/AI interface: /api/catalog/summary, /api/tools (~496 lines) | `router` |
+| `routes/query.py` | Ad-hoc SQL query execution against DuckDB (read-only, 30s timeout, 10k row limit, ~267 lines) | `router` |
 | `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |
 | `templates/schedules.html` | Schedule management page (extends `base.html`) — table, modals, WebSocket | Alpine.js `schedulesPage()` component |
 | `templates/notebooks.html` | Notebook management page (extends `base.html`) — table, create/delete modals, locking | Alpine.js `notebooksPage()` component |

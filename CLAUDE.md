@@ -61,6 +61,8 @@ When unsure which module to look at:
 - **HOW notifications are sent** → `platform/notifications/`
 - **HOW code gets deployed to the cloud** → `platform/cloud/`
 - **CLI for cloud operations** → `cli/commands/remote*.py`, `cli/commands/deploy*.py`
+- **HOW to browse the data catalog** → `web/routes/catalog.py` (data access), `web/templates/catalog.html` (UI)
+- **HOW user auth / login / sessions work** → `auth/`
 - **Still unsure** → read `ARCHITECTURE.md` §6 (Cross-Module Workflows)
 
 ## Repository Structure
