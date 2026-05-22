@@ -130,7 +130,8 @@ def main() -> int:
             print("No CLAUDE.md files found (excluding repo root).")
             return 0
     else:
-        files = args.files
+        # Filter out repo-root CLAUDE.md (different structure, managed by DOC-000)
+        files = [f for f in args.files if str(f) not in SKIP_PATHS]
 
     # Validate — skip repo-root CLAUDE.md (different structure, managed by DOC-000)
     repo_root = Path.cwd()

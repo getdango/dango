@@ -136,9 +136,9 @@ exemptions:
 
   # --- Exempt (stable, not modified in v1) ---
   - file: dango/ingestion/dlt_runner.py
-    lines: 2534
+    lines: 2579
     category: exempt
-    reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage. Post-sync hook dispatch added in P7-000. P5c grew +480 lines (credential unification, resource selection, local_files routing). P8-001 added headers/data_selector/params passthrough (+8 lines). R9-I added skip_sync_notification param + sync_result passthrough to post_sync hooks. R10-F3 added _get_source_total_rows + rewrote anomaly check to use DB totals (BUG-182). R10-S added progress_callback parameter (+12 lines). R12-F added DuckDB lock error detection in _analyze_error (+30 lines)."
+    reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage. Post-sync hook dispatch added in P7-000. P5c grew +480 lines (credential unification, resource selection, local_files routing). P8-001 added headers/data_selector/params passthrough (+8 lines). R9-I added skip_sync_notification param + sync_result passthrough to post_sync hooks. R10-F3 added _get_source_total_rows + rewrote anomaly check to use DB totals (BUG-182). R10-S added progress_callback parameter (+12 lines). R12-F added DuckDB lock error detection in _analyze_error (+30 lines). M2-final: CSV 0-row sync detection (+22 lines each in _run_csv_source and _run_local_files_source)."
     review_by: "v1.1"
 
   - file: dango/ingestion/sources/registry.py
@@ -341,9 +341,9 @@ exemptions:
   # --- Phase 4 scheduling ---
 
   - file: dango/utils/post_sync.py
-    lines: 661
+    lines: 762
     category: exempt
-    reason: "R10-G2: Added _enrich_staging_tests for post-sync dbt test enrichment from profiling data. R12-F added _run_dbt_snapshots hook (+29 lines)."
+    reason: "R10-G2: Added _enrich_staging_tests for post-sync dbt test enrichment from profiling data. R12-F added _run_dbt_snapshots hook (+29 lines). M2-final: Added _profile_dbt_models for intermediate/marts schema profiling (+62 lines)."
     review_by: "v1.1"
 
   - file: dango/web/routes/schedules.py
