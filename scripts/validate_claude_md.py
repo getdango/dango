@@ -132,9 +132,16 @@ def main() -> int:
     else:
         files = args.files
 
-    # Validate
+    # Validate — skip repo-root CLAUDE.md (different structure, managed by DOC-000)
+    repo_root = Path.cwd()
     total_errors = 0
     for file_path in files:
+        try:
+            rel = file_path.resolve().relative_to(repo_root)
+            if str(rel) in SKIP_PATHS:
+                continue
+        except ValueError:
+            pass
         errors = validate_file(file_path)
         if errors:
             total_errors += len(errors)
