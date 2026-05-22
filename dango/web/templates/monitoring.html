@@ -1,3 +1,10 @@
+{# UNUSED TEMPLATE — kept for potential future use.
+   The /monitoring page route was removed in R12-M2 (PR #256, commit 697b1ed)
+   which moved test/freshness display into the catalog page. The M2 cloud fix
+   (commit 4b95971) then removed the page route from ui.py. The /api/monitoring
+   API endpoints in routes/monitoring.py still function (row count metrics,
+   dbt test results, history) but this template is no longer served.
+   Nav link was also removed from base.html in R12-M2. #}
 {% extends "base.html" %}
 {% block title %}Monitoring - Dango{% endblock %}
 {% block content %}
