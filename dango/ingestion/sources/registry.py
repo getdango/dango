@@ -689,7 +689,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": True,
-            "incremental": True,
+            # stripe_source uses write_disposition="replace" for all resources
+            # (full refresh every sync). incremental_stripe_source exists but
+            # dango calls stripe_source via the registry's dlt_function.
+            "incremental": False,
             "custom_queries": False,
         },
     },
@@ -1476,7 +1479,11 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            "incremental": True,
+            # asana_source uses write_disposition="replace" for most resources
+            # (workspaces, projects, sections, tags, users, teams). Only tasks
+            # uses merge with incremental(modified_at). Not truly incremental
+            # overall.
+            "incremental": False,
             "custom_queries": False,
         },
     },
