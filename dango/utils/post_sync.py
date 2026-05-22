@@ -505,10 +505,10 @@ def _run_profiling(project_root: Path, sources: list[str]) -> None:
             logger.warning("profiling_source_error", source=source)
 
     # Profile downstream dbt models (intermediate + marts)
-    _profile_dbt_models(project_root, db_path)
+    _profile_dbt_models(project_root)
 
 
-def _profile_dbt_models(project_root: Path, db_path: Path) -> None:
+def _profile_dbt_models(project_root: Path) -> None:
     """Profile dbt model tables in intermediate/marts schemas.
 
     Uses ``run_results.json`` and ``manifest.json`` from the most recent
@@ -517,7 +517,6 @@ def _profile_dbt_models(project_root: Path, db_path: Path) -> None:
 
     Args:
         project_root: Path to the Dango project root.
-        db_path: Path to warehouse.duckdb.
     """
     target_dir = project_root / "dbt" / "target"
 

@@ -97,6 +97,27 @@ class TestCsvSourceZeroRows:
 
         assert result["status"] == "success"
 
+    @patch("dango.ingestion.dlt_runner.CSVLoader")
+    def test_existing_error_not_overwritten(self, mock_csv_cls, tmp_path):
+        """CSVLoader returning error with 0 rows keeps original error."""
+        mock_loader = MagicMock()
+        mock_loader.load.return_value = {
+            "status": "error",
+            "total_rows": 0,
+            "new": 0,
+            "updated": 0,
+            "deleted": 0,
+            "error": "Parse failed: invalid CSV",
+        }
+        mock_csv_cls.return_value = mock_loader
+
+        runner = _make_runner(tmp_path)
+        cfg = _make_source_config("test_csv", "csv")
+        result = runner._run_csv_source(cfg)
+
+        assert result["status"] == "error"
+        assert result["error"] == "Parse failed: invalid CSV"
+
 
 @pytest.mark.unit
 class TestLocalFilesSourceZeroRows:

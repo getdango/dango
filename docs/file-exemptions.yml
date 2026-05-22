@@ -341,7 +341,7 @@ exemptions:
   # --- Phase 4 scheduling ---
 
   - file: dango/utils/post_sync.py
-    lines: 763
+    lines: 762
     category: exempt
     reason: "R10-G2: Added _enrich_staging_tests for post-sync dbt test enrichment from profiling data. R12-F added _run_dbt_snapshots hook (+29 lines). M2-final: Added _profile_dbt_models for intermediate/marts schema profiling (+62 lines)."
     review_by: "v1.1"

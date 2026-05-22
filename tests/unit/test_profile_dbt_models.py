@@ -30,7 +30,6 @@ class TestProfileDbtModels:
     @patch("dango.utils.post_sync.profile_table")
     def test_profiles_intermediate_and_marts_tables(self, mock_profile, tmp_path):
         """Successful models in intermediate/marts schemas get profiled."""
-        db_path = tmp_path / "data" / "warehouse.duckdb"
         _write_dbt_artifacts(
             tmp_path,
             run_results={
@@ -55,7 +54,7 @@ class TestProfileDbtModels:
             },
         )
         mock_profile.return_value = {}
-        _profile_dbt_models(tmp_path, db_path)
+        _profile_dbt_models(tmp_path)
 
         assert mock_profile.call_count == 2
         mock_profile.assert_any_call(
@@ -66,7 +65,6 @@ class TestProfileDbtModels:
     @patch("dango.utils.post_sync.profile_table")
     def test_skips_raw_and_staging_models(self, mock_profile, tmp_path):
         """Models in raw_*/staging schemas are skipped (already profiled)."""
-        db_path = tmp_path / "data" / "warehouse.duckdb"
         _write_dbt_artifacts(
             tmp_path,
             run_results={
@@ -97,7 +95,7 @@ class TestProfileDbtModels:
             },
         )
         mock_profile.return_value = {}
-        _profile_dbt_models(tmp_path, db_path)
+        _profile_dbt_models(tmp_path)
 
         assert mock_profile.call_count == 1
         mock_profile.assert_called_once_with(
@@ -107,24 +105,21 @@ class TestProfileDbtModels:
     @patch("dango.utils.post_sync.profile_table")
     def test_no_run_results_graceful(self, mock_profile, tmp_path):
         """Missing run_results.json → returns without error."""
-        db_path = tmp_path / "data" / "warehouse.duckdb"
-        _profile_dbt_models(tmp_path, db_path)
+        _profile_dbt_models(tmp_path)
         mock_profile.assert_not_called()
 
     @patch("dango.utils.post_sync.profile_table")
     def test_no_manifest_graceful(self, mock_profile, tmp_path):
         """run_results.json exists but no manifest.json → returns without error."""
-        db_path = tmp_path / "data" / "warehouse.duckdb"
         target = tmp_path / "dbt" / "target"
         target.mkdir(parents=True)
         (target / "run_results.json").write_text('{"results": []}')
-        _profile_dbt_models(tmp_path, db_path)
+        _profile_dbt_models(tmp_path)
         mock_profile.assert_not_called()
 
     @patch("dango.utils.post_sync.profile_table")
     def test_failed_models_skipped(self, mock_profile, tmp_path):
         """Models with status != 'success' are not profiled."""
-        db_path = tmp_path / "data" / "warehouse.duckdb"
         _write_dbt_artifacts(
             tmp_path,
             run_results={
@@ -149,7 +144,7 @@ class TestProfileDbtModels:
             },
         )
         mock_profile.return_value = {}
-        _profile_dbt_models(tmp_path, db_path)
+        _profile_dbt_models(tmp_path)
 
         assert mock_profile.call_count == 1
         mock_profile.assert_called_once_with(tmp_path, "marts", "fct_ok", schema_override="marts")
