@@ -93,7 +93,7 @@ exemptions:
 
   # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
   - file: dango/cli/commands/platform.py
-    lines: 1061
+    lines: 1067
     category: exempt
     reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic. R12-I2 added cloud systemd status check."
     review_by: "v1.1"
@@ -105,7 +105,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/source.py
-    lines: 884
+    lines: 888
     category: exempt
     reason: "Source management commands (add/list/remove/edit) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation. R12-G added source edit NAME arg, sync positional arg."
     review_by: "v1.1"

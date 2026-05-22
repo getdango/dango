@@ -781,7 +781,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            "incremental": True,
+            "incremental": False,
             "custom_queries": False,
         },
     },

@@ -5,7 +5,108 @@ All notable changes to Dango will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - Unreleased
+
+### Added
+
+#### Complete Data Platform
+
+- Pre-configured stack: dlt (ingestion) + DuckDB (warehouse) + dbt (transformation) + Metabase (visualization) + Marimo (notebooks)
+- One-command install and setup (`pip install getdango && dango init && dango start`)
+- 33 data sources across 9 categories (Stripe, Google Sheets, Google Analytics, HubSpot, Salesforce, PostgreSQL, CSV, REST APIs, and more)
+- Auto-generated dbt staging models from ingested sources
+- Web dashboard for monitoring syncs, browsing data, and managing sources
+- Metabase integration with auto-configured connections and schema sync
+- DuckDB single-writer serialization for safe concurrent access
+
+#### Authentication & Security
+
+- User authentication with bcrypt password hashing and strength validation
+- Role-based access control (admin, editor, viewer) with 29 granular permissions
+- Two-factor authentication (TOTP) with QR code setup and recovery codes
+- API key authentication for programmatic access (`dango_ak_*` prefix)
+- Brute-force protection with account lockout (5 attempts / 15-minute window)
+- Audit logging with 22 event types (login, logout, user CRUD, role changes, etc.)
+- OAuth social login (Google, GitHub) with automatic account linking
+- Session management with configurable idle and absolute timeouts
+- CSRF protection on all state-mutating endpoints
+- Invite-based user onboarding with expiring tokens
+- First-login password change enforcement
+
+#### Cloud Deployment
+
+- One-command DigitalOcean provisioning (`dango deploy`)
+- Bring Your Own Server support (`dango deploy --byos`) for any cloud provider
+- Auto-TLS via Caddy with Let's Encrypt
+- SSH key-based access (Ed25519) with trust-on-first-use validation
+- IP allowlisting and firewall management (DO firewall + UFW for BYOS)
+- Push-based deployment model with deploy lock and deployment journal
+- Pre-deploy backups with rollback support
+- Scheduled backups to DigitalOcean Spaces (S3-compatible)
+- Remote server management (`dango remote status/logs/ssh/query`)
+- Remote environment variable management (`dango remote env set/get/list/delete`)
+- Domain management with DNS validation and auto-HTTPS
+- In-place droplet resize and server migration
+- Remote Dango version upgrade (`dango remote upgrade`)
+- Git guardrails with branch and dirty-state checks before deploy
+
+#### Data Catalog & Governance
+
+- Interactive data catalog with column profiling and full-text search
+- Schema drift detection with breaking-change protection and admin acceptance workflow
+- PII scanning with Presidio and spaCy (targeted entity types for low false positives)
+- Column-level data lineage visualization
+- Impact analysis for downstream models
+- PII override management for false positive suppression
+- Drift and PII webhook notifications
+
+#### Scheduling & Monitoring
+
+- Cron-based scheduling with APScheduler and human-readable presets
+- Schedule types: Sync + Transform, Sync Only, Transform Only
+- Automatic retry with exponential backoff and configurable timeouts
+- Thread-kill timeout enforcement with cancellation support
+- Webhook notifications for sync results, schema drift, and PII detection
+- Slack Block Kit message formatting
+- SQL-based metric monitoring with trend detection (linear regression)
+- Drill-down analysis with top contributor ranking
+- Pre-built monitor templates for common sources
+- Execution history tracking with 90-day retention
+
+#### Notebooks
+
+- Marimo notebook integration with headless server management
+- Three starter templates (explore, quality, blank)
+- DuckDB snapshot isolation for concurrent sync and notebook use
+- File-level notebook locking with heartbeat refresh
+- Idle auto-shutdown for notebook server
+- HTTP and WebSocket reverse proxy to Marimo
+
+#### Developer Experience
+
+- 50+ CLI commands organized into logical groups
+- Branch-based dbt development (`dango dev`) with isolated copy of production database
+- Project validation (`dango validate`) for config, sources, dbt, and credentials
+- Config validation for CI (`dango config validate`)
+- File watcher for auto-syncing on local file changes
+- CSV upload via web UI with schema mismatch detection
+- Database health checks with disk usage breakdown
+- Log rotation with gzip compression and configurable retention
+- `dango cleanup` for removing old logs, dbt artifacts, and cache
+- dbt snapshot support (`dango snapshot add/list/run`) for SCD Type 2 change tracking
+- DuckDB snapshot management (`dango snapshot db`)
+- Database migration framework (`dango migrate status/run`)
+- Local Dango version upgrade (`dango upgrade`)
+
+### Changed
+
+- Complete rewrite from v0.1.x (not backwards compatible)
+
+### Migration from v0.1.x
+
+- v1.0.0 requires a new project. Run `dango init` to get started.
+- Back up any v0.1.x data before upgrading.
+- See [docs.getdango.dev](https://docs.getdango.dev) for the migration guide.
 
 ## [0.1.0] - 2025-12-17
 
@@ -173,7 +274,7 @@ This release focuses on Windows compatibility and installer improvements. All pl
 ### Notes
 This is a **preview release** for early feedback. Not recommended for production use.
 
-[Unreleased]: https://github.com/getdango/dango/compare/v0.1.0...HEAD
+[1.0.0]: https://github.com/getdango/dango/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/getdango/dango/compare/v0.0.5...v0.1.0
 [0.0.5]: https://github.com/getdango/dango/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/getdango/dango/compare/v0.0.3...v0.0.4

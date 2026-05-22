@@ -156,7 +156,9 @@ def start(ctx: click.Context, yes: bool) -> None:
     )
 
     from ..helpers.process_manager import start_fastapi_server
-    from ..utils import require_project_context
+    from ..utils import check_v01x_project, require_project_context
+
+    check_v01x_project()
 
     console.print("🍡 [bold]Starting Dango Platform...[/bold]")
     console.print()
