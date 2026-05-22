@@ -16,6 +16,22 @@ from dango.config.helpers import find_project_root
 console = Console()
 
 
+def check_v01x_project() -> None:
+    """Check if current directory is a v0.1.x project and exit with migration guidance."""
+    cwd = Path.cwd()
+    if (cwd / "dango.yml").exists():
+        console.print(
+            "[yellow]This project was created with Dango v0.1.x. "
+            "v1.0 requires a new project.[/yellow]\n\n"
+            "To get started with v1:\n"
+            "  1. Back up your data\n"
+            "  2. Create a new directory\n"
+            "  3. Run: dango init\n\n"
+            "See https://docs.getdango.dev for the migration guide."
+        )
+        raise SystemExit(1)
+
+
 def require_project_context(ctx: click.Context) -> Path:
     """
     Ensure command is run in a Dango project.
