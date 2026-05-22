@@ -664,7 +664,7 @@ The web module (`web/routes/`) exposes REST endpoints across 18 route files, 1 W
 | Catalog | `GET /api/catalog/{source}/{table}/columns`, `POST /api/catalog/{source}/{table}/profile`, `GET /api/catalog/lineage`, `GET /api/catalog/impact/{model_name}` |
 | Governance | `GET /api/governance/schema-drift`, `GET /api/governance/pii` |
 | Notebooks | `GET /api/notebooks`, `POST /api/notebooks`, `DELETE /api/notebooks/{name}`, `POST /api/notebooks/{name}/lock`, `POST /api/notebooks/{name}/heartbeat`, `POST /api/notebooks/{name}/release`, `DELETE /api/notebooks/{name}/lock`, `POST /api/notebooks/{name}/copy` |
-| Insights | `GET /api/insights`, `POST /api/insights/run`, `GET /api/insights/history` |
+| Monitoring | `GET /api/monitoring`, `POST /api/monitoring/run`, `GET /api/monitoring/history` |
 | Docs | `GET /api/docs` (Swagger), `GET /api/redoc` |
 | Real-time | `WS /ws` (sync progress, errors) |
 | Proxy | `/metabase/*` (reverse proxy with SSO session injection) |
