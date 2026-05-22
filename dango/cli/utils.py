@@ -16,6 +16,34 @@ from dango.config.helpers import find_project_root
 console = Console()
 
 
+def check_v01x_project() -> None:
+    """Check if current directory is a v0.1.x project and exit with migration guidance.
+
+    Detection heuristics:
+    1. ``dango.yml`` in cwd — legacy single-file config.
+    2. ``.dango/project.yml`` exists but ``.dango/dango.db`` (created by v1's
+       ``dango init``) is missing AND ``data/warehouse.duckdb`` exists (ruling
+       out a freshly cloned v1 project that hasn't been initialised yet).
+    """
+    cwd = Path.cwd()
+    is_v01x = (cwd / "dango.yml").exists() or (
+        (cwd / ".dango" / "project.yml").exists()
+        and not (cwd / ".dango" / "dango.db").exists()
+        and (cwd / "data" / "warehouse.duckdb").exists()
+    )
+    if is_v01x:
+        console.print(
+            "[yellow]This project was created with Dango v0.1.x. "
+            "v1.0 requires a new project.[/yellow]\n\n"
+            "To get started with v1:\n"
+            "  1. Back up your data\n"
+            "  2. Create a new directory\n"
+            "  3. Run: dango init\n\n"
+            "See https://docs.getdango.dev for the migration guide."
+        )
+        raise click.Abort()
+
+
 def require_project_context(ctx: click.Context) -> Path:
     """
     Ensure command is run in a Dango project.

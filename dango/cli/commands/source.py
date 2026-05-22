@@ -99,7 +99,9 @@ def source_add(ctx: click.Context) -> None:
     """
     from dango.cli.source_wizard import add_source
 
-    from ..utils import check_git_branch_warning
+    from ..utils import check_git_branch_warning, check_v01x_project
+
+    check_v01x_project()
 
     project_root = ctx.obj.get("project_root")
     if not project_root:
@@ -618,7 +620,9 @@ def sync(
     from dango.ingestion import run_sync
     from dango.utils import DbtLock, DbtLockError
 
-    from ..utils import require_project_context
+    from ..utils import check_v01x_project, require_project_context
+
+    check_v01x_project()
 
     # Resolve source: positional arg takes precedence over --source option
     if source_option and not source_name:

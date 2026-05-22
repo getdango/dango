@@ -82,9 +82,9 @@ dango/                          # Python package source
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
 │   │   ├── model.py            # model group (add/remove)
-│   │   ├── platform.py         # start/stop/status + port helpers (1061 lines)
+│   │   ├── platform.py         # start/stop/status + port helpers (1067 lines)
 │   │   ├── project.py          # init/rename/info
-│   │   ├── source.py           # source group (add/list/remove/edit) + sync (884 lines)
+│   │   ├── source.py           # source group (add/list/remove/edit) + sync (888 lines)
 │   │   ├── transform.py        # run/docs/generate
 │   │   ├── upgrade.py          # local Dango upgrade via pip + migrations
 │   │   ├── web.py              # web dev server
@@ -341,7 +341,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `visualization/metabase.py` | 1152 | — |
 | `cli/init.py` | 1334 | — |
 | `visualization/dashboard_manager.py` | 1112 | — |
-| `cli/commands/platform.py` | 1061 | — (extracted from main.py by TASK-005) |
+| `cli/commands/platform.py` | 1067 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 886 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 868 | — (extracted from app.py by TASK-085) |
@@ -353,7 +353,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/routes/upload.py` | 711 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 670 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
-| `cli/commands/source.py` | 884 | — (extracted from main.py by TASK-005) |
+| `cli/commands/source.py` | 888 | — (extracted from main.py by TASK-005) |
 | `cli/commands/remote.py` | 700 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 598 | — (push deploy workflow + deploy lock + journal) |

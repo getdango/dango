@@ -11,6 +11,8 @@ Dango gives you a complete data stack — ingestion, warehouse, transformations,
 
 <!-- TODO: Add screenshot -->
 
+> **Upgrading from v0.1.x?** v1.0.0 is a complete rewrite of Dango. Back up your data and run `dango init` to create a new v1 project. See the [migration guide](https://docs.getdango.dev) for details.
+
 ## Quick Start
 
 **Prerequisites:** Python 3.10-3.12, [Docker](https://docs.docker.com/desktop/) (for Metabase)
