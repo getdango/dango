@@ -504,6 +504,77 @@ def _run_profiling(project_root: Path, sources: list[str]) -> None:
         except Exception:
             logger.warning("profiling_source_error", source=source)
 
+    # Profile downstream dbt models (intermediate + marts)
+    _profile_dbt_models(project_root, db_path)
+
+
+def _profile_dbt_models(project_root: Path, db_path: Path) -> None:
+    """Profile dbt model tables in intermediate/marts schemas.
+
+    Uses ``run_results.json`` and ``manifest.json`` from the most recent
+    dbt run to discover which models succeeded, then profiles tables that
+    are *not* already covered by the per-source raw/staging loop.
+
+    Args:
+        project_root: Path to the Dango project root.
+        db_path: Path to warehouse.duckdb.
+    """
+    target_dir = project_root / "dbt" / "target"
+
+    run_results_path = target_dir / "run_results.json"
+    if not run_results_path.exists():
+        logger.debug("profiling_dbt_no_run_results")
+        return
+
+    manifest_path = target_dir / "manifest.json"
+    if not manifest_path.exists():
+        logger.debug("profiling_dbt_no_manifest")
+        return
+
+    try:
+        run_results = json.loads(run_results_path.read_text())
+        manifest = json.loads(manifest_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        logger.warning("profiling_dbt_json_error", exc_info=True)
+        return
+
+    # Collect unique_ids of successful models
+    successful_ids = [
+        r["unique_id"]
+        for r in run_results.get("results", [])
+        if r.get("unique_id", "").startswith("model.") and r.get("status") == "success"
+    ]
+
+    nodes = manifest.get("nodes", {})
+    for uid in successful_ids:
+        node = nodes.get(uid)
+        if not node:
+            continue
+
+        schema = node.get("schema", "")
+        alias = node.get("alias") or node.get("name", "")
+
+        # Skip schemas already profiled by the per-source loop
+        if schema.startswith("raw_") or schema == "staging":
+            continue
+        if not schema or not alias:
+            continue
+
+        try:
+            profile_table(
+                project_root,
+                schema,
+                validate_identifier(alias),
+                schema_override=schema,
+            )
+        except Exception:
+            logger.warning(
+                "profiling_dbt_model_error",
+                uid=uid,
+                schema=schema,
+                table=alias,
+            )
+
 
 def _run_pii_scan(project_root: Path, sources: list[str]) -> None:
     """Scan for PII in freshly synced sources.

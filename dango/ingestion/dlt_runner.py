@@ -586,7 +586,7 @@ class DltPipelineRunner:
             allow_schema_changes=getattr(self, "allow_schema_changes", False),
         )
 
-        return {
+        merged = {
             **result,
             "status": result.get("status", "success"),
             "source": source_config.name,
@@ -594,6 +594,18 @@ class DltPipelineRunner:
             "files_processed": result.get("new", 0) + result.get("updated", 0),
             "uses_replace_mode": True,  # CSV sources always do full refresh
         }
+
+        # No files found, no data loaded, no deletions → error
+        if (
+            merged["status"] == "success"
+            and merged["rows_loaded"] == 0
+            and merged["files_processed"] == 0
+            and merged.get("deleted", 0) == 0
+        ):
+            merged["status"] = "error"
+            merged["error"] = "No files found to load"
+
+        return merged
 
     def _run_local_files_source(
         self, source_config: DataSource, full_refresh: bool = False
@@ -641,7 +653,7 @@ class DltPipelineRunner:
             allow_schema_changes=getattr(self, "allow_schema_changes", False),
         )
 
-        return {
+        merged = {
             **result,
             "status": result.get("status", "success"),
             "source": source_config.name,
@@ -649,6 +661,18 @@ class DltPipelineRunner:
             "files_processed": result.get("new", 0) + result.get("updated", 0),
             "uses_replace_mode": True,  # Local file sources always do full refresh
         }
+
+        # No files found, no data loaded, no deletions → error
+        if (
+            merged["status"] == "success"
+            and merged["rows_loaded"] == 0
+            and merged["files_processed"] == 0
+            and merged.get("deleted", 0) == 0
+        ):
+            merged["status"] = "error"
+            merged["error"] = "No files found to load"
+
+        return merged
 
     def _run_dlt_native_source(
         self,
