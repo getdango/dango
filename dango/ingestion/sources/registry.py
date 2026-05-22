@@ -317,7 +317,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            "incremental": True,
+            # rest_api is a generic source — whether it's incremental depends
+            # entirely on per-endpoint user configuration. Not incremental by
+            # default.
+            "incremental": False,
             "custom_queries": True,
         },
     },
@@ -628,6 +631,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
+            # Mixed: account, opportunity, task, event use merge+incremental;
+            # contact, lead, campaign use replace. Marked True because the
+            # highest-volume CRM objects (accounts, opportunities) are
+            # incremental.
             "incremental": True,
             "custom_queries": False,
         },
@@ -1436,7 +1443,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": True,
-            "incremental": True,
+            # workable_source uses write_disposition="replace" for 7/8
+            # resources. Only candidates uses merge+incremental(updated_at).
+            "incremental": False,
             "custom_queries": False,
         },
     },
@@ -1479,10 +1488,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            # asana_source uses write_disposition="replace" for most resources
+            # asana_source uses write_disposition="replace" for 6/8 resources
             # (workspaces, projects, sections, tags, users, teams). Only tasks
-            # uses merge with incremental(modified_at). Not truly incremental
-            # overall.
+            # uses merge+incremental(modified_at); stories uses append (no
+            # cursor). Not truly incremental overall.
             "incremental": False,
             "custom_queries": False,
         },
@@ -1634,7 +1643,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            "incremental": True,
+            # mongodb() accepts an optional incremental parameter (defaults to
+            # None). Without explicit configuration, it does a full load — not
+            # incremental by default.
+            "incremental": False,
             "custom_queries": False,
         },
     },
