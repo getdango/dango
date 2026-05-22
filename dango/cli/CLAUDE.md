@@ -98,6 +98,7 @@ dango (top-level group)
 ├── remote (group)              ← commands/remote.py
 │   ├── push, rollback          ← commands/remote.py
 │   ├── status, logs, ssh, query ← commands/remote_mgmt.py
+│   ├── sync                     ← commands/remote_sync.py
 │   ├── upgrade, resize, migrate ← commands/remote_ops.py
 │   ├── env (subgroup)          ← commands/remote_env.py
 │   │   ├── set, get, list, delete
@@ -110,7 +111,9 @@ dango (top-level group)
 │   └── backup (subgroup)       ← commands/remote_backup.py
 │       ├── list, enable, disable, download, restore
 ├── schedule (group)            ← commands/schedule.py
-│   ├── add, list, remove, status, enable, disable, webhook
+│   ├── add, list, remove, status, enable, disable
+│   └── webhook (subgroup)      ← commands/schedule_webhook.py
+│       ├── add, list, remove, test
 ├── deploy (group)              ← commands/deploy.py
 │   ├── (default)  interactive wizard (DO or BYOS) → deploy_wizard.py + deploy_provision.py
 │   ├── --byos     deploy to existing server (any provider)

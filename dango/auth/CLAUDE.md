@@ -11,14 +11,14 @@ User authentication and access control for Dango. Handles password-based login w
 | `__init__.py` | 244 | Re-exports 96 public symbols | All public API |
 | `models.py` | 172 | Pydantic models | `Role`, `User`, `UserCreate`, `UserUpdate`, `UserResponse`, `Session`, `APIKey` |
 | `database.py` | 529 | SQLite CRUD (WAL mode, FK enforcement) | `create_user()`, `get_user_by_*()`, `list_users()`, `update_user()`, `create_session()`, `get_session_by_token()`, `create_api_key()` |
-| `security.py` | 386 | Pure crypto utilities | `hash_password()`, `verify_password()`, `check_password_strength()`, `generate_session_token()`, `generate_api_key()`, `generate_invite_token()`, `generate_recovery_codes()` |
+| `security.py` | 389 | Pure crypto utilities | `hash_password()`, `verify_password()`, `check_password_strength()`, `generate_session_token()`, `generate_api_key()`, `generate_invite_token()`, `generate_recovery_codes()` |
 | `sessions.py` | 289 | High-level session + API key lifecycle | `create_session()`, `validate_session()`, `validate_partial_session()`, `create_api_key()`, `validate_api_key()` |
 | `permissions.py` | 196 | 29 permissions, 3 role mappings | `PERMISSIONS`, `ROLE_PERMISSIONS`, `has_permission()`, `require_permission()` |
 | `lockout.py` | 459 | Brute-force protection (5 attempts / 15-min, IP-based + user-based) | `record_failed_login()`, `check_account_locked()`, `unlock_account()`, `cleanup_expired_login_attempts()` |
 | `audit.py` | 210 | 45 event types to `.dango/logs/audit.jsonl` | `AuditEvent`, `log_auth_event()`, `query_audit_log()` |
-| `admin.py` | 124 | Bootstrap + path helpers | `ensure_admin()`, `is_auth_enabled()`, `get_auth_db_path()` |
+| `admin.py` | 129 | Bootstrap + path helpers | `ensure_admin()`, `is_auth_enabled()`, `get_auth_db_path()` |
 | `totp.py` | 220 | TOTP 2FA: setup/verify/enable/disable, recovery codes | `generate_totp_secret()`, `verify_totp_code()`, `setup_totp()`, `enable_totp()`, `consume_recovery_code()` |
-| `oauth_login.py` | 307 | OAuth provider ABC + Google/GitHub implementations | `OAuthLoginProvider`, `GoogleOAuthProvider`, `GitHubOAuthProvider`, `get_provider()` |
+| `oauth_login.py` | 314 | OAuth provider ABC + Google/GitHub implementations | `OAuthLoginProvider`, `GoogleOAuthProvider`, `GitHubOAuthProvider`, `get_provider()` |
 | `metabase_sync.py` | 552 | Sync users/roles to Metabase (encrypted passwords) | `sync_user_to_metabase()`, `sync_all_users_to_metabase()`, `sync_user_role()`, `decrypt_metabase_password()` |
 | `metabase_bridge.py` | 187 | Async SSO session bridging on login/logout | `bridge_metabase_login()`, `bridge_metabase_logout()`, `ensure_metabase_synced()` |
 

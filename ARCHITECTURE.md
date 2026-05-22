@@ -247,7 +247,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | `sessions.py` | High-level session + API key lifecycle with timeout validation |
 | `permissions.py` | 29 permissions across 9 domains, 3 role mappings, `require_permission()` FastAPI Depends |
 | `lockout.py` | Brute-force protection: 5 attempts / 15-min lockout window |
-| `audit.py` | 45 event types to `.dango/logs/audit.jsonl` (append-only JSONL) |
+| `audit.py` | 44 event types + 1 deprecated alias to `.dango/logs/audit.jsonl` (append-only JSONL) |
 | `admin.py` | Bootstrap admin user, auth config path helpers |
 | `totp.py` | TOTP 2FA: setup/verify/enable/disable, 8 recovery codes |
 | `oauth_login.py` | OAuth provider ABC + Google/GitHub implementations |
@@ -283,7 +283,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | `manager.py` | Marimo process lifecycle: start/stop/status (330 lines) |
 | `locking.py` | File-level notebook locking via SQLite `notebook_locks` table (285 lines) |
 | `snapshot.py` | DuckDB snapshot management: create, list, cleanup |
-| `proxy.py` | HTTP + WebSocket reverse proxy to Marimo (186 lines) |
+| `proxy.py` | HTTP + WebSocket reverse proxy to Marimo (188 lines) |
 | `templates/` | Starter templates: explore, quality, blank |
 
 **Public API:** `start_marimo()`, `stop_marimo()`, `get_marimo_status()`, `acquire_lock()`, `release_lock()`, `create_snapshot()`, `proxy_to_marimo()`, `proxy_websocket_to_marimo()`
@@ -434,6 +434,8 @@ cli/commands/source.py @click.command("sync")
       → For each source:
           → dlt_sources/* or csv_loader.py — load into DuckDB raw schema
           → utils/sync_history.py: save_sync_history_entry()
+      → governance/schema_drift.py: detect_drift_for_sources() [lazy import]
+          → Checks for breaking schema changes before dbt runs
       → transformation/generator.py: DbtModelGenerator.generate_all_models() [lazy import]
       → transformation/__init__.py: run_dbt_models() [lazy import]
       → transformation/__init__.py: generate_dbt_docs() [lazy import]
