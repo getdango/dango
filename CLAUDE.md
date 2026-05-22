@@ -252,7 +252,7 @@ dango/                          # Python package source
 │   └── watcher_runner.py       # → local/watcher_runner.py
 │
 ├── ingestion/                  # Level 1 — Data loading
-│   ├── dlt_runner.py           # ⚠ 2534 lines — orchestrates full sync pipeline
+│   ├── dlt_runner.py           # ⚠ 2579 lines — orchestrates full sync pipeline
 │   ├── csv_loader.py           # Multi-format file loading with dedup (922 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (33 source types)
@@ -289,7 +289,7 @@ dango/                          # Python package source
 │   ├── data_validation.py      # Data validation utilities
 │   ├── env_file.py             # .env file parsing and serialization
 │   ├── dango_db.py             # SQLite context manager for .dango/dango.db + schema init
-│   ├── post_sync.py            # Post-sync hook dispatcher (~661 lines)
+│   ├── post_sync.py            # Post-sync hook dispatcher (~762 lines)
 │   └── git_info.py             # Git repository info + deployment guardrails
 │
 ├── migrations/                 # Level 0 — Database migration framework
@@ -347,7 +347,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/helpers.py` | 868 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
 | `platform/scheduling/jobs.py` | 860 | — (module-level job functions) |
-| `utils/post_sync.py` | 661 | — (post-sync hooks + sync notification) |
+| `utils/post_sync.py` | 762 | — (post-sync hooks + sync notification) |
 | `web/routes/schedules.py` | 519 | — (schedule read-only, history, trigger, notifications) |
 | `web/routes/notebooks.py` | 506 | — (notebook management API + heartbeat lock expiry + WS notify) |
 | `web/routes/upload.py` | 711 | — (extracted from app.py by TASK-085) |
