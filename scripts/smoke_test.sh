@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/smoke_test.sh — v1.6 (2026-05-12)
+# scripts/smoke_test.sh — v1.7 (2026-05-22)
 #
 # Automated smoke test for a running Dango instance.
 # Requires: dango start running in a test project, venv activated.
@@ -329,14 +329,14 @@ category_end "3" "API Endpoints"
 # Category 4: Page Loads
 # ---------------------------------------------------------------------------
 
-category_start 12
+category_start 11
 
 curl_page_test "/ (Overview)" "/" "Overview"
 curl_page_test "/sources" "/sources" "Sources"
 curl_page_test "/models" "/models" "Models"
 curl_page_test "/schedules" "/schedules" "Schedules"
 curl_page_test "/catalog" "/catalog" "Catalog"
-curl_page_test "/monitoring" "/monitoring" "Monitoring"
+# /monitoring page route removed in M2 (merged into catalog); API still at /api/monitoring
 curl_page_test "/notebooks" "/notebooks" "Notebooks"
 curl_page_test "/health" "/health" "Health"
 curl_page_test "/logs" "/logs" "Logs"
@@ -496,7 +496,7 @@ category_end "7" "R8 Regression Checks"
 # Category 8: R9 Feature Checks
 # ---------------------------------------------------------------------------
 
-category_start 13
+category_start 12
 
 # Catalog endpoints
 curl_api_test "GET /api/catalog/models" GET "/api/catalog/models"
@@ -529,13 +529,10 @@ else
     skip_test "DELETE /api/notebooks/smoke_test_nb" "create failed"
 fi
 
-# Monitoring
+# Monitoring API (page route removed in M2, merged into catalog)
 curl_api_test "GET /api/monitoring" GET "/api/monitoring"
 curl_api_test "GET /api/monitoring/history" GET "/api/monitoring/history?metric=row_count&days=7"
 curl_api_test "POST /api/monitoring/run" POST "/api/monitoring/run"
-
-# Backward-compat redirects (R9-M kept old /insights paths as 301)
-curl_api_test "GET /api/insights → 301" GET "/api/insights" "301"
 
 category_end "8" "R9 Feature Checks"
 
@@ -831,7 +828,7 @@ category_end "11" "R12 CLI Checks"
 # Category 12: R12 Server Checks (API/page content)
 # ---------------------------------------------------------------------------
 
-category_start 5
+category_start 3
 
 # R12-D/BUG-199: Test name tooltips on catalog page
 curl_page_test "Catalog test tooltips (BUG-199)" "/catalog" "title="
@@ -839,14 +836,11 @@ curl_page_test "Catalog test tooltips (BUG-199)" "/catalog" "title="
 # R12-D/BUG-218: PII badge tooltip (title attribute on PII span)
 curl_page_test "PII badge tooltip (BUG-218)" "/catalog" "Auto-detected:"
 
-# R12-E/BUG-202: Run Analysis spinner
-curl_page_test "Run Analysis spinner (BUG-202)" "/monitoring" "animate-spin"
+# BUG-202 (Run Analysis spinner) and BUG-216 (Tests grouped) were on /monitoring page,
+# which was removed in M2 (merged into catalog). Monitoring API still tested in category 8.
 
 # R12-G/BUG-211: Sync history duration in API response
 curl_api_body_test "Sync history duration (BUG-211)" "/api/sources" "last_sync_duration_seconds"
-
-# R12-E/BUG-216: Tests grouped in monitoring
-curl_page_test "Tests grouped (BUG-216)" "/monitoring" "group"
 
 category_end "12" "R12 Server Checks"
 

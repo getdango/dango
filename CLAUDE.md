@@ -199,7 +199,7 @@ dango/                          # Python package source
 │   │   ├── schedules.html      # Schedule management page
 │   │   ├── notebooks.html      # Notebook management page
 │   │   ├── catalog.html        # Data catalog page (929 lines)
-│   │   └── monitoring.html     # Monitoring page
+│   │   └── monitoring.html     # Monitoring page (unused — retained for future use)
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
