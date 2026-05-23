@@ -95,7 +95,11 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | `__init__.py` | Re-exports all public symbols |
 | `models.py` | Pydantic models: `DangoConfig`, `ProjectContext`, `SourcesConfig`, `DataSource`, `SourceType` (33 types), `DeduplicationStrategy`, `PlatformSettings`, source-specific configs |
 | `loader.py` | `ConfigLoader` — finds project root, loads/saves `.dango/project.yml` and `.dango/sources.yml` |
+| `helpers.py` | Convenience functions: `find_project_root`, `get_config`, `load_config`, `save_config` |
 | `credentials.py` | `CredentialManager` — manages `.dlt/secrets.toml` and `.env` files |
+| `schedules.py` | Schedule config models, validation, and reload logic for `.dango/schedules.yml` |
+| `cloud_credentials.py` | Cloud provider credential persistence (`~/.dango/credentials`, INI format) |
+| `exceptions.py` | Re-export shim for config-specific exception classes from `dango/exceptions.py` |
 
 **Public API:** `DangoConfig`, `ProjectContext`, `SourcesConfig`, `DataSource`, `SourceType`, `DeduplicationStrategy`, `ConfigLoader`, `get_config()`, `ConfigError`, `ConfigNotFoundError`, `ConfigValidationError`, `ProjectNotFoundError`
 
@@ -117,6 +121,12 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | `dbt_status.py` | `get_model_statuses()`, `update_model_status()` |
 | `log_rotation.py` | `rotate_jsonl_log()`, `cleanup_old_archives()`, `get_log_disk_usage()` |
 | `data_validation.py` | Data validation utilities |
+| `process.py` | Generic process utilities: `is_process_running()`, `kill_process()` |
+| `env_file.py` | `.env` file parsing and serialization |
+| `dango_db.py` | SQLite context manager for `.dango/dango.db` and schema initialization |
+| `post_sync.py` | Post-sync hook dispatcher: profiling, staging tests, PII scan, analysis, snapshots, notifications |
+| `git_info.py` | Git repository info and deployment guardrails |
+| `driver.py` | Metabase DuckDB driver version management |
 
 **Public API:** `DbtLock`, `DbtLockError`, `dbt_lock()`, `log_activity()`, `save_sync_history_entry()`, `load_sync_history()`, `ensure_dbt_schemas()`
 
@@ -145,10 +155,12 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 |------|-------------|
 | `docker-compose.yml.j2` | Metabase + dbt-docs containers, volumes, healthchecks |
 | `Dockerfile.metabase` | Custom Metabase image with DuckDB driver (Debian-based, not Alpine) |
+| `entrypoint.sh` | Metabase container entrypoint script |
 | `nginx.conf.j2` | Reverse proxy for dbt docs serving |
 | `dbt/sources.yml.j2` | dbt source documentation per data source |
 | `dbt/staging_model.sql.j2` | Staging model SQL with dedup strategy support |
 | `dbt/staging_schema.yml.j2` | Schema YAML for staging models |
+| `dbt/snapshot.sql.j2` | dbt snapshot SQL template |
 
 **Public API:** Templates consumed by `cli/init.py` and `transformation/generator.py`.
 
@@ -163,6 +175,8 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 |------|-------------|
 | `__init__.py` | Public API: `apply_all_pending()`, `get_all_status()` |
 | `runner.py` | `MigrationRunner`, `MigrationInfo`, `MigrationStatus` — discovers, tracks, and applies migration scripts |
+| `auth/` | Auth schema migrations (initial tables, complete schema, Metabase password, invite tokens, login attempts) |
+| `scheduler/` | Scheduler schema migrations (execution history) |
 
 **Public API:** `apply_all_pending(project_root)`, `get_all_status(project_root)`
 
@@ -194,7 +208,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | File | Description |
 |------|-------------|
 | `__init__.py` | Re-exports `DltPipelineRunner`, `run_sync`, `CSVLoader`, `SOURCE_REGISTRY` |
-| `dlt_runner.py` | `DltPipelineRunner` — orchestrates sync: load data, generate staging models, run dbt, refresh Metabase (2579 lines). Contains lazy imports from Level 1-2 modules. |
+| `dlt_runner.py` | `DltPipelineRunner` — orchestrates sync: load data, generate staging models, run dbt, refresh Metabase. Contains lazy imports from Level 1-2 modules. |
 | `csv_loader.py` | `CSVLoader` — incremental CSV loading with 4 dedup strategies, file metadata tracking |
 | `sources/registry.py` | `SOURCE_REGISTRY` — metadata dict for all 34 sources (auth type, params, setup guide, cost warnings) |
 | `dlt_sources/` | 29 vendored dlt source integrations (third-party code, rarely modified) |
@@ -228,6 +242,8 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | `providers.py` | `GoogleOAuthProvider`, `FacebookOAuthProvider` — provider-specific OAuth implementations |
 | `storage.py` | `OAuthStorage`, `OAuthCredential` — credential CRUD in `.dlt/secrets.toml` |
 | `router.py` | FastAPI OAuth callback endpoints |
+| `validation.py` | Live token validation and refresh checking |
+| `web_flow.py` | Browser-based OAuth flow for cloud deployments |
 
 **Public API:** `OAuthManager`, `OAuthCallbackHandler`, `create_oauth_manager()`
 
@@ -265,8 +281,9 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 |------|-------------|
 | `__init__.py` | Re-exports public API |
 | `models.py` | Pydantic V2 response models: `DriftEvent`, `DriftResponse`, `PiiFinding`, `PiiResponse` |
-| `schema_drift.py` | Schema drift detection engine (654 lines): `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()` |
-| `pii_detector.py` | PII scanning engine using Presidio + spaCy (614 lines): `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()` |
+| `schema_drift.py` | Schema drift detection engine: `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()` |
+| `pii_detector.py` | PII scanning engine using Presidio + spaCy: `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()` |
+| `pii_overrides.py` | PII override CRUD — user-managed false-positive suppression |
 
 **Public API:** `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()`, `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()`
 
@@ -280,10 +297,10 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | File | Description |
 |------|-------------|
 | `__init__.py` | Re-exports public symbols |
-| `manager.py` | Marimo process lifecycle: start/stop/status (330 lines) |
-| `locking.py` | File-level notebook locking via SQLite `notebook_locks` table (285 lines) |
+| `manager.py` | Marimo process lifecycle: start/stop/status |
+| `locking.py` | File-level notebook locking via SQLite `notebook_locks` table |
 | `snapshot.py` | DuckDB snapshot management: create, list, cleanup |
-| `proxy.py` | HTTP + WebSocket reverse proxy to Marimo (188 lines) |
+| `proxy.py` | HTTP + WebSocket reverse proxy to Marimo |
 | `templates/` | Starter templates: explore, quality, blank |
 
 **Public API:** `start_marimo()`, `stop_marimo()`, `get_marimo_status()`, `acquire_lock()`, `release_lock()`, `create_snapshot()`, `proxy_to_marimo()`, `proxy_websocket_to_marimo()`
@@ -315,20 +332,52 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 ### Level 2 — Platform
 
 #### `platform/`
-**Responsibility:** Docker container management, network utilities, and file watcher for auto-sync.
+**Responsibility:** Docker container management, network utilities, file watcher for auto-sync, job scheduling, webhook notifications, and cloud deployment.
 
 | File | Description |
 |------|-------------|
 | `__init__.py` | Re-exports `DockerManager`, `ServiceStatus` |
 | `docker.py` | `DockerManager` — Docker Compose lifecycle (up, down, status, logs, pull) |
-| `network.py` | Network utilities (port checking) |
-| `watcher.py` | File change detection (watchdog-based) |
-| `watcher_runner.py` | Watcher subprocess runner — monitors CSV changes, triggers sync |
+| `sync_process.py` | Subprocess-based sync runner (web server never holds DuckDB write lock) |
 | `__main__.py` | Platform CLI entry point |
+| **`common/`** | Shared startup helpers for local and cloud |
+| `common/startup.py` | `run_pending_migrations`, `start_docker_services`, etc. |
+| **`local/`** | Local-only platform components |
+| `local/network.py` | `NetworkConfig`, `NginxManager`, `HostsManager` |
+| `local/watcher.py` | File change detection (watchdog-based) |
+| `local/watcher_lifecycle.py` | Watcher subprocess lifecycle management |
+| `local/watcher_runner.py` | Background watcher process — monitors CSV changes, triggers sync |
+| **`scheduling/`** | APScheduler-based job scheduling |
+| `scheduling/scheduler.py` | `SchedulerService` — lifecycle, events, cancellation |
+| `scheduling/resilience.py` | Retry, timeout, and cancellation logic |
+| `scheduling/history.py` | Execution history tracking |
+| `scheduling/jobs.py` | Module-level job functions (sync, dbt, snapshots, analysis) |
+| `scheduling/sync_trigger.py` | Server-side manual sync runner |
+| **`notifications/`** | Webhook notifications |
+| `notifications/webhook.py` | Event types, config loading, async sender |
+| `notifications/slack.py` | Slack Block Kit message formatter |
+| **`cloud/`** | Cloud deployment (SSH-based, cloud-agnostic) |
+| `cloud/digitalocean.py` | DigitalOcean REST API v2 client |
+| `cloud/provisioning.py` | Size tiers, regions, `provision_droplet()` |
+| `cloud/firewall.py` | Firewall lifecycle and IP allowlisting |
+| `cloud/spaces.py` | DO Spaces (S3-compatible via boto3) |
+| `cloud/ssh.py` | SSH key management, TOFU, exec/SFTP |
+| `cloud/server_setup.py` | Server setup orchestration (16 steps) |
+| `cloud/server_status.py` | Server metrics and service status |
+| `cloud/domain.py` | DNS check, domain set/remove |
+| `cloud/backup.py` | Backup, rollback, and service lifecycle |
+| `cloud/file_sync.py` | Project file sync (SFTP + rsync) |
+| `cloud/deployer.py` | Push deploy workflow and deploy lock |
+| `cloud/deploy_journal.py` | Append-only JSONL deployment history |
+| `cloud/scheduled_backup.py` | Server-side scheduled backup |
+| `cloud/resize.py` | In-place droplet resize |
+| `cloud/migrate.py` | Server migration via Spaces |
+| `cloud/upgrade.py` | Remote Dango version upgrade |
+| `cloud/_server_templates.py` | Config file templates for server setup |
 
 **Public API:** `DockerManager`, `ServiceStatus` (enum: RUNNING, STOPPED, UNHEALTHY, STARTING, UNKNOWN)
 
-**Imports from:** `config/` (Level 0), `utils/` (Level 0). `watcher_runner.py` also lazy-imports `transformation/` (Level 1).
+**Imports from:** `config/` (Level 0), `utils/` (Level 0). `local/watcher_runner.py` also lazy-imports `transformation/` (Level 1).
 
 ---
 
@@ -352,7 +401,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 | File | Description |
 |------|-------------|
-| `main.py` | Slim entry point (~125 lines) — registers command groups from `commands/` subpackage |
+| `main.py` | Slim entry point — registers command groups from `commands/` subpackage |
 | `commands/` | Command modules extracted from main.py by TASK-005: `platform.py` (start/stop/status), `source.py` (add/list/remove/sync), `oauth.py` (OAuth credential management), `auth.py` (user auth placeholder, Phase 2), `project.py` (init/rename/info), `transform.py` (run/docs/generate), etc. |
 | `init.py` | Project initialization wizard — creates directory structure, config files, Docker setup |
 | `wizard.py` | Interactive setup wizards |
@@ -378,14 +427,14 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 
 | File | Description |
 |------|-------------|
-| `app.py` | Entry point (~480 lines) — creates FastAPI app, registers routers + middleware, admin bootstrap |
+| `app.py` | Entry point — creates FastAPI app, registers routers + middleware, admin bootstrap |
 | `helpers.py` | Shared helpers: DuckDB queries, config loading, service health checks, log management |
 | `models.py` | Pydantic request/response DTOs (incl. auth DTOs: `LoginRequest`, `AcceptInviteRequest`, etc.) |
-| `middleware/auth.py` | Session/API key auth + CSRF check on every request (~325 lines) |
-| `middleware/rate_limit.py` | Rate limiting: login 10/min, API 200/min, localhost exempt (~235 lines) |
-| `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~886 lines) |
-| `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery (~382 lines) |
-| `routes/users.py` | Admin user CRUD: create, edit, deactivate, delete, unlock, invite (531 lines) |
+| `middleware/auth.py` | Session/API key auth + CSRF check on every request |
+| `middleware/rate_limit.py` | Rate limiting: login 10/min, API 200/min, localhost exempt |
+| `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD |
+| `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery |
+| `routes/users.py` | Admin user CRUD: create, edit, deactivate, delete, unlock, invite |
 | `routes/` (data) | `health.py`, `config.py`, `sources.py`, `sync.py`, `logs.py`, `dbt.py`, `upload.py`, `websocket.py`, `ui.py`, `metabase_proxy.py`, `catalog.py`, `governance.py`, `monitoring.py`, `notebooks.py`, `schedules.py`, `secrets.py`, `oauth_connect.py`, `initial_sync.py`, `ai.py`, `query.py` |
 
 **Public API:** FastAPI `app` instance.
@@ -651,25 +700,35 @@ Three-tier storage:
 
 The web module (`web/routes/`) exposes REST endpoints across 23 route files, 1 WebSocket, and a Metabase reverse proxy.
 
-**Current endpoints (all under `/api/`):**
+**Current endpoints:**
 
 | Category | Endpoints |
 |----------|-----------|
-| Status & Config | `GET /api/status`, `GET /api/health/platform`, `GET /api/watcher/status`, `GET /api/config`, `GET /api/metabase-config` |
-| Sources | `GET /api/sources`, `GET /api/sources/{name}/details`, `POST /api/sources/{name}/sync`, `GET /api/sources/{name}/logs`, `GET /api/sources/{name}/csv-files`, `POST /api/sources/{name}/upload-csv`, `DELETE /api/sources/{name}/csv-files` |
-| Auth | `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/change-password`, `POST /api/auth/accept-invite`, `GET /api/auth/sessions`, `DELETE /api/auth/sessions/{id}`, `GET /api/auth/api-keys`, `POST /api/auth/api-keys`, `DELETE /api/auth/api-keys/{id}`, `GET /api/auth/me` |
-| 2FA | `POST /api/auth/2fa/setup`, `POST /api/auth/2fa/verify-setup`, `POST /api/auth/2fa/verify`, `POST /api/auth/2fa/disable`, `POST /api/auth/2fa/regenerate-codes` |
-| OAuth | `GET /api/auth/oauth/{provider}/authorize`, `GET /api/auth/oauth/{provider}/callback` |
-| Admin | `GET /api/admin/users`, `POST /api/admin/users`, `GET /api/admin/users/{id}`, `PUT /api/admin/users/{id}`, `PUT /api/admin/users/{id}/role`, `POST /api/admin/users/{id}/reset-password`, `POST /api/admin/users/{id}/deactivate`, `POST /api/admin/users/{id}/reactivate`, `DELETE /api/admin/users/{id}`, `POST /api/admin/users/{id}/unlock`, `POST /api/admin/users/{id}/reinvite` |
+| Status & Config | `GET /api/status`, `GET /api/health/platform`, `GET /api/watcher/status`, `GET /api/config`, `GET /api/metabase-config`, `GET /api/deployments/history` |
+| Sources | `GET /api/sources`, `GET /api/sources/{name}/details` |
+| Sync | `POST /api/sources/{name}/sync`, `POST /api/sync/trigger`, `GET /api/sync/status/{record_id}` |
+| Upload | `POST /api/sources/{name}/upload-csv`, `GET /api/sources/{name}/csv-files`, `DELETE /api/sources/{name}/csv-files` |
+| Auth | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/change-password`, `POST /api/auth/accept-invite`, `GET /api/auth/sessions`, `DELETE /api/auth/sessions/{id}`, `POST /api/auth/api-keys`, `GET /api/auth/api-keys`, `DELETE /api/auth/api-keys/{id}` |
+| OAuth Login | `GET /api/auth/oauth/{provider}/login`, `GET /api/auth/oauth/{provider}/callback` |
+| 2FA | `POST /api/auth/2fa/setup`, `POST /api/auth/2fa/verify-setup`, `POST /api/auth/2fa/verify`, `POST /api/auth/2fa/disable`, `POST /api/auth/2fa/regenerate-recovery` |
+| Admin Users | `GET /api/admin/users`, `POST /api/admin/users`, `POST /api/admin/users/{id}/reinvite`, `PUT /api/admin/users/{id}/role`, `POST /api/admin/users/{id}/reset-password`, `POST /api/admin/users/{id}/deactivate`, `POST /api/admin/users/{id}/reactivate`, `DELETE /api/admin/users/{id}`, `POST /api/admin/users/{id}/unlock`, `POST /api/admin/users/{id}/revoke-sessions` |
 | dbt | `GET /api/dbt/models`, `POST /api/dbt/models/{name}/run` |
-| Logs | `GET /api/logs` |
-| Catalog | `GET /api/catalog/{source}/{table}/columns`, `POST /api/catalog/{source}/{table}/profile`, `GET /api/catalog/lineage`, `GET /api/catalog/impact/{model_name}` |
-| Governance | `GET /api/governance/schema-drift`, `GET /api/governance/pii` |
+| Logs | `GET /api/logs`, `GET /api/sources/{name}/logs` |
+| Scheduling | `GET /api/schedules`, `GET /api/schedules/{name}`, `POST /api/schedules/{name}/trigger`, `GET /api/schedules/{name}/history`, `GET /api/schedules/history/recent`, `POST /api/schedules/reload`, `POST /api/schedules/jobs/{job_id}/cancel`, `GET /api/sources/unscheduled` |
+| Notifications | `GET /api/notifications/config`, `POST /api/notifications/test` |
+| Secrets | `GET /api/secrets`, `POST /api/secrets`, `DELETE /api/secrets/{key}`, `GET /api/secrets/oauth`, `DELETE /api/secrets/oauth/{source_type}` |
+| OAuth Connect | `GET /oauth/connect/{source_type}`, `GET /oauth/callback/{source_type}` |
+| Catalog | `GET /api/catalog/{source}/{table}/columns`, `POST /api/catalog/{source}/{table}/profile`, `GET /api/catalog/models`, `GET /api/catalog/models/{model_name}`, `GET /api/catalog/search`, `GET /api/catalog/lineage`, `GET /api/catalog/impact/{model_name}`, `GET /api/catalog/summary` |
+| AI / Query | `GET /api/tools`, `POST /api/query` |
+| Governance | `GET /api/governance/schema-drift`, `GET /api/governance/pii`, `GET /api/governance/pii/overrides`, `POST /api/governance/drift/{source}/accept`, `GET /api/governance/attention` |
 | Notebooks | `GET /api/notebooks`, `POST /api/notebooks`, `DELETE /api/notebooks/{name}`, `POST /api/notebooks/{name}/lock`, `POST /api/notebooks/{name}/heartbeat`, `POST /api/notebooks/{name}/release`, `DELETE /api/notebooks/{name}/lock`, `POST /api/notebooks/{name}/copy` |
 | Monitoring | `GET /api/monitoring`, `POST /api/monitoring/run`, `GET /api/monitoring/history` |
-| Docs | `GET /api/docs` (Swagger), `GET /api/redoc` |
+| Initial Sync | `POST /api/initial-sync/start`, `GET /api/initial-sync/status`, `POST /api/initial-sync/skip-source`, `POST /api/initial-sync/cancel` |
+| Docs | `GET /api` (info), `GET /api/docs` (Swagger), `GET /api/redoc` |
 | Real-time | `WS /ws` (sync progress, errors) |
-| Proxy | `/metabase/*` (reverse proxy with SSO session injection) |
+| dbt Docs Proxy | `GET /manifest.json`, `GET /catalog.json`, `GET /dbt-docs`, `GET /dbt-docs/{path}` |
+| Metabase Proxy | `/metabase/*` (reverse proxy with SSO session injection) |
+| Page Routes | `/`, `/sources`, `/models`, `/health`, `/logs`, `/catalog`, `/query`, `/login`, `/setup`, `/invite/{token}`, `/schedules`, `/notebooks`, `/settings/users`, `/settings/account`, `/settings/secrets` |
 
 **Conventions:**
 - `/api/{resource}` — plural nouns, standard HTTP methods
@@ -704,11 +763,13 @@ The web module (`web/routes/`) exposes REST endpoints across 23 route files, 1 W
 
 ### Monolithic Files
 
-| File | Lines | Refactoring Task |
-|------|-------|-----------------|
-| ~~`cli/main.py`~~ | ~~3927~~ | ~~TASK-005~~ — **Done:** split into `cli/commands/`, main.py is now ~125 lines |
-| ~~`web/app.py`~~ | ~~2900~~ | ~~TASK-085~~ — **Done:** split into `web/routes/`, app.py is now ~480 lines |
-| `ingestion/dlt_runner.py` | 2579 | Phase 3 (extract orchestration) |
+For current line counts, see per-module CLAUDE.md files (enforced by pre-commit `claude-md-staleness` hook) and `docs/file-exemptions.yml`.
+
+| File | Status |
+|------|--------|
+| ~~`cli/main.py`~~ | **Done:** split into `cli/commands/` by TASK-005 |
+| ~~`web/app.py`~~ | **Done:** split into `web/routes/` by TASK-085 |
+| `ingestion/dlt_runner.py` | Phase 3 (extract orchestration) |
 
 ### Runtime Architecture
 
