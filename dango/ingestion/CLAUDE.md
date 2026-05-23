@@ -54,6 +54,12 @@ for wizard — use dlt_native) and Shopify (`wizard_enabled=False`, see P5-006).
 - **Integration:** None yet (will be `tests/integration/test_ingestion.py`)
 - **Manual:** `dango sync <source_name>` in a dango project directory
 
+## Source Registry Conventions
+
+### `incremental` capability flag
+
+The `incremental` flag in `sources/registry.py` means the source uses incremental loading **by default**, not just that it supports it. Sources with mixed `write_disposition` (some resources incremental, some full refresh) should be marked based on their predominant default behavior. When adding a new source, verify the actual `write_disposition` in the `dlt_sources/` code — do not assume from documentation alone.
+
 ## Don't Modify
 
 | File | Reason |
