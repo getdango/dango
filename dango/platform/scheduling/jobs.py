@@ -473,18 +473,21 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 raise RuntimeError(f"Sync failed for {src.name}: {error_msg}")
 
             # Accumulate rows_loaded from subprocess result
+            src_rows = 0
             if _result and isinstance(_result, dict):
-                total_rows += _result.get("rows_loaded", 0)
+                src_rows = _result.get("rows_loaded", 0)
+                total_rows += src_rows
 
             save_sync_history_entry(
                 project_root,
                 src.name,
                 {
+                    "timestamp": _ts(),
+                    "status": "success",
+                    "duration_seconds": round(time.monotonic() - src_t0, 2),
+                    "rows_processed": src_rows,
                     "trigger": "scheduler",
                     "schedule": schedule_name,
-                    "status": "completed",
-                    "completed_at": _ts(),
-                    "duration_seconds": round(time.monotonic() - src_t0, 2),
                 },
             )
             if not skip_dbt:

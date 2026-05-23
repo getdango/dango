@@ -7,6 +7,7 @@ import platform
 import subprocess
 from pathlib import Path
 
+import click
 from rich.console import Console
 
 console = Console()
@@ -232,7 +233,7 @@ def guide_env_setup(
 
     # Wait for user to finish
     console.print("\n[bold yellow]⚠️  Press Enter AFTER you've saved the .env file[/bold yellow]")
-    input()
+    click.pause("")
 
     # Validate
     var_names = [v.get("name", "") for v in required_vars if v.get("name")]
@@ -298,7 +299,7 @@ def handle_validation_result(
             console.print("[green]✅ Reopened .env[/green]")
 
         console.print("\n[bold]Press Enter when ready to retry validation...[/bold]")
-        input()
+        click.pause("")
 
         # Retry validation
         is_valid_retry, missing_retry = validate_env_file(env_file, missing_vars)

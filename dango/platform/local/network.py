@@ -9,7 +9,7 @@ import json
 import os
 import socket
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -104,7 +104,7 @@ class NetworkConfig:
             "domain": domain,
             "backend_port": backend_port,
             "project_path": str(project_path.absolute()),
-            "registered_at": datetime.now().isoformat(),
+            "registered_at": datetime.now(tz=timezone.utc).isoformat(),
             "status": "running",
         }
 

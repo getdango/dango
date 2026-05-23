@@ -8,7 +8,7 @@ exclusively via the CLI (``dango schedule add``, ``dango schedule webhook add``)
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -432,7 +432,7 @@ async def trigger_schedule(
         func,
         DateTrigger(),
         kwargs=func_kwargs,
-        id=f"manual:{name}:{datetime.now().isoformat()}",
+        id=f"manual:{name}:{datetime.now(tz=timezone.utc).isoformat()}",
         name=f"manual-{name}",
     )
 

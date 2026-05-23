@@ -7,7 +7,7 @@ import logging
 import secrets
 import string
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -902,7 +902,7 @@ def setup_metabase(
             "metabase_url": metabase_url,
             "admin": {"email": admin_email, "password": admin_password},
             "database": {"id": summary.get("duckdb_id"), "name": f"{org_name} Analytics"},
-            "setup_completed_at": datetime.now().isoformat(),
+            "setup_completed_at": datetime.now(tz=timezone.utc).isoformat(),
         }
 
         credentials_file.parent.mkdir(parents=True, exist_ok=True)

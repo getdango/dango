@@ -8,7 +8,7 @@ import logging
 import os
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
@@ -146,7 +146,7 @@ async def upload_csv_to_source(
                 "event": "file_uploaded",
                 "source": source_name,
                 "message": f"File {safe_filename} uploaded to {source_name}",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
 
@@ -504,14 +504,14 @@ async def delete_csv_file(
                 "event": "csv_deleted",
                 "source": source_name,
                 "message": f"Deleted {filename}",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
 
         # Log activity
         append_log_entry(
             {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                 "level": "info",
                 "source": source_name,
                 "message": f"Deleted file: {filename}",
@@ -549,7 +549,7 @@ async def run_dbt_after_delete(source_name: str):
     from dango.utils import DbtLock, DbtLockError
 
     start_time = time.time()
-    sync_timestamp = datetime.now().isoformat()
+    sync_timestamp = datetime.now(tz=timezone.utc).isoformat()
     project_root = get_project_root()
 
     # Try to acquire lock before running dbt
@@ -569,12 +569,12 @@ async def run_dbt_after_delete(source_name: str):
                 "event": "dbt_run_all_failed",
                 "source": f"dbt (triggered by {source_name} delete)",
                 "message": error_msg,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
         append_log_entry(
             {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                 "level": "error",
                 "source": f"dbt (triggered by {source_name} delete)",
                 "message": f"dbt run blocked: {error_msg}",
@@ -623,7 +623,7 @@ async def run_dbt_after_delete(source_name: str):
             # Log success
             append_log_entry(
                 {
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                     "level": "success",
                     "source": f"dbt (triggered by {source_name} delete)",
                     "message": "dbt models updated successfully",
@@ -636,7 +636,7 @@ async def run_dbt_after_delete(source_name: str):
                     "event": "dbt_run_all_completed",
                     "source": f"dbt (triggered by {source_name} delete)",
                     "message": "Models updated after file deletion",
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                 }
             )
 
@@ -654,7 +654,7 @@ async def run_dbt_after_delete(source_name: str):
             # Log failure - dbt_output already contains "dbt run failed:" prefix
             append_log_entry(
                 {
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                     "level": "error",
                     "source": f"dbt (triggered by {source_name} delete)",
                     "message": dbt_output,  # Don't add extra "dbt run failed:" prefix
@@ -667,7 +667,7 @@ async def run_dbt_after_delete(source_name: str):
                     "event": "dbt_run_all_failed",
                     "source": f"dbt (triggered by {source_name} delete)",
                     "message": "dbt run failed",
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                 }
             )
 
@@ -688,7 +688,7 @@ async def run_dbt_after_delete(source_name: str):
 
         append_log_entry(
             {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                 "level": "error",
                 "source": f"dbt (triggered by {source_name} delete)",
                 "message": f"Error running dbt: {str(e)}",

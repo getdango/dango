@@ -6,6 +6,7 @@ Metabase asset management commands (save, load, refresh).
 import click
 
 from dango.cli import console
+from dango.cli.utils import safe_confirm
 
 
 @click.group()
@@ -198,7 +199,7 @@ def metabase_load(ctx: click.Context, overwrite: bool, dry_run: bool) -> None:
             console.print("This will replace existing dashboards/questions in Metabase")
             console.print("with versions from files. Unsaved Metabase changes will be lost!\n")
 
-            if not click.confirm("Continue?"):
+            if not safe_confirm("Continue?"):
                 console.print("[yellow]Cancelled[/yellow]")
                 return
 

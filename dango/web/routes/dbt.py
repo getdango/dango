@@ -7,7 +7,7 @@ import logging
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -77,7 +77,7 @@ async def run_dbt_model(
             "event": "dbt_run_started",
             "source": f"dbt:{model_name}",
             "message": f"Running dbt model: {model_name}",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         }
     )
 
@@ -88,7 +88,7 @@ async def run_dbt_model(
         "success": True,
         "message": f"dbt model '{model_name}' run started",
         "model_name": model_name,
-        "started_at": datetime.now().isoformat(),
+        "started_at": datetime.now(tz=timezone.utc).isoformat(),
     }
 
 
@@ -117,7 +117,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                 "event": "dbt_run_failed",
                 "source": f"dbt:{model_name}",
                 "message": str(e).split("\n")[0],  # First line of error message
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
         logger.warning(f"Could not acquire dbt lock for {model_name}: {e}")
@@ -161,7 +161,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                 "event": "dbt_run_progress",
                 "source": f"dbt:{model_name}",
                 "message": f"Executing: {' '.join(cmd)}",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
 
@@ -186,7 +186,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                     "event": "dbt_run_completed",
                     "source": f"dbt:{model_name}",
                     "message": f"Model '{model_name}' ran successfully in {duration:.1f}s",
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                 }
             )
 
@@ -201,7 +201,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                         "event": "dbt_run_progress",
                         "source": f"dbt:{model_name}",
                         "message": "Metabase connection refreshed",
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                     }
                 )
         else:
@@ -212,7 +212,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                     "event": "dbt_run_failed",
                     "source": f"dbt:{model_name}",
                     "message": f"Model '{model_name}' failed: {error_msg[:200]}",
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                 }
             )
 
@@ -222,7 +222,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                 "event": "dbt_run_failed",
                 "source": f"dbt:{model_name}",
                 "message": f"Model '{model_name}' timed out after 5 minutes",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
     except Exception as e:
@@ -232,7 +232,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                 "event": "dbt_run_failed",
                 "source": f"dbt:{model_name}",
                 "message": f"Model '{model_name}' failed: {str(e)}",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
     finally:

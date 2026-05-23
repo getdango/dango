@@ -11,7 +11,7 @@ import logging
 import os
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dango.utils.dango_db import connect
@@ -46,6 +46,17 @@ def get_marimo_pid_file_path(project_root: Path) -> Path:
         Path to the Marimo PID file.
     """
     return project_root / ".dango" / "marimo.pid"
+
+
+def _is_port_responding(port: int, timeout: float = 1.0) -> bool:
+    """Check if a server is already listening on localhost:port."""
+    import socket
+
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
+            return True
+    except (ConnectionRefusedError, OSError, TimeoutError):
+        return False
 
 
 def start_marimo(
@@ -88,6 +99,13 @@ def start_marimo(
         loader = ConfigLoader(project_root)
         config = loader.load_config()
         port = config.platform.marimo_port
+
+    # After force-unlock, marimo may still be running on the configured port.
+    # Check if the port is already responding before starting a new instance.
+    if _is_port_responding(port):
+        logger.debug("Marimo already responding on port %d — reusing existing server", port)
+        # Re-create PID file if missing (best-effort, PID unknown)
+        return None
 
     notebooks_dir = project_root / "notebooks"
     notebooks_dir.mkdir(parents=True, exist_ok=True)
@@ -272,7 +290,7 @@ async def _broadcast_idle_warning(remaining_seconds: int) -> None:
                     f"Notebook server will shut down in {minutes_left} minutes due to inactivity."
                 ),
                 "remaining_seconds": remaining_seconds,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
     except Exception:

@@ -11,7 +11,7 @@ import signal
 import subprocess
 import sys
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -731,9 +731,10 @@ async def get_platform_health_data():
                     timestamp = datetime.fromisoformat(
                         most_recent.get("timestamp", "").replace("Z", "+00:00")
                     )
-                    hours_ago = (
-                        datetime.now() - timestamp.replace(tzinfo=None)
-                    ).total_seconds() / 3600
+                    # Ensure both sides are tz-aware UTC for correct comparison
+                    if timestamp.tzinfo is None:
+                        timestamp = timestamp.replace(tzinfo=timezone.utc)
+                    hours_ago = (datetime.now(tz=timezone.utc) - timestamp).total_seconds() / 3600
 
                     if hours_ago < 24:
                         failed_syncs.append(

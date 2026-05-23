@@ -45,6 +45,10 @@ let activeFileOperations = new Map();
 // Track elapsed time intervals for active syncs: Map<sourceName, intervalId>
 let syncTimers = new Map();
 let syncResults = new Map();  // Stores sync_completed data for in-place updates
+// Track recent sync completion to prevent loadSources() from timing out
+// after sync_completed already cleared activeSyncs
+let recentSyncComplete = false;
+let recentSyncCompleteTimeout = null;
 
 /**
  * Format a file size in bytes to a human-readable string (B/KB/MB/GB).
@@ -70,7 +74,9 @@ function formatElapsed(seconds) {
 }
 
 /**
- * Start an elapsed timer for a syncing source
+ * Start an elapsed timer for a syncing source.
+ * Timer audit: paired with stopSyncTimer(). Cleanup on sync_completed,
+ * sync_failed, and dbt_error WebSocket events.
  */
 function startSyncTimer(sourceName) {
     stopSyncTimer(sourceName);
@@ -159,8 +165,8 @@ function getTotalFileOperations() {
 function formatRelativeTime(timestamp) {
     if (!timestamp) return 'Never';
 
-    // Server stores UTC timestamps without timezone suffix.
-    // Append 'Z' so the browser interprets them as UTC, not local time.
+    // Server sends UTC timestamps (with +00:00 or Z suffix).
+    // For legacy naive timestamps, append 'Z' so the browser treats them as UTC.
     let ts = String(timestamp);
     if (!ts.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ts)) {
         ts += 'Z';
@@ -170,34 +176,36 @@ function formatRelativeTime(timestamp) {
 
     const now = new Date();
     const seconds = Math.floor((now - date) / 1000);
-
-    // Future dates
-    if (seconds < 0) {
-        return `<span title="${date.toLocaleString()}">Just now</span>`;
-    }
-
-    // Relative time ranges
-    const intervals = [
-        { seconds: 31536000, label: 'year' },
-        { seconds: 2592000, label: 'month' },
-        { seconds: 86400, label: 'day' },
-        { seconds: 3600, label: 'hour' },
-        { seconds: 60, label: 'minute' },
-    ];
-
-    for (const interval of intervals) {
-        const count = Math.floor(seconds / interval.seconds);
-        if (count >= 1) {
-            const plural = count > 1 ? 's' : '';
-            const relativeText = `${count} ${interval.label}${plural} ago`;
-            const fullTimestamp = date.toLocaleString();
-            return `<span title="${fullTimestamp}" class="cursor-help">${relativeText}</span>`;
-        }
-    }
-
-    // Less than a minute
     const fullTimestamp = date.toLocaleString();
-    return `<span title="${fullTimestamp}" class="cursor-help">Just now</span>`;
+
+    // Small negative values (clock skew up to 60s) → "Just now"
+    // Large negative values → show the actual date (something is wrong)
+    if (seconds < -60) {
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${date.toLocaleDateString()}</span>`;
+    }
+    if (seconds < 0) {
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">Just now</span>`;
+    }
+
+    // Compact relative time
+    if (seconds < 60) {
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">Just now</span>`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${minutes}m ago</span>`;
+    }
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${hours}h ago</span>`;
+    }
+    const days = Math.floor(hours / 24);
+    if (days < 7) {
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${days}d ago</span>`;
+    }
+
+    // Older than 7 days — show formatted date
+    return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${date.toLocaleDateString()}</span>`;
 }
 
 // Initialize on page load — conditionally based on which page elements exist
@@ -230,12 +238,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Service status cards (dashboard overview)
+    // Timer audit: page-level interval — cleared on page navigation (standard browser behavior).
     if (hasServiceCards) {
         loadServiceStatus();
         setInterval(loadServiceStatus, 30000);
     }
 
     // Health widget (dashboard overview)
+    // Timer audit: page-level interval — cleared on page navigation.
     if (hasHealthWidget) {
         fetchPlatformHealth();
         setInterval(fetchPlatformHealth, 30000);
@@ -257,6 +267,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Update sync counter periodically (only if sources table exists)
+    // Timer audit: page-level 1s interval — lightweight (early-returns when no
+    // status text element exists). Cleared on page navigation.
     if (hasSources) {
         setInterval(updateSyncCounter, 1000);
     }
@@ -378,6 +390,7 @@ function connectWebSocket() {
             wsDisconnectedLogged = true;
         }
 
+        // Timer audit: reconnectInterval — cleared on successful ws.onopen.
         // Attempt to reconnect every 5 seconds
         if (!reconnectInterval) {
             reconnectInterval = setInterval(() => {
@@ -464,6 +477,12 @@ async function handleWebSocketMessage(data) {
             // Clean up sync state and refresh
             activeSyncs.delete(source);
             updateSyncCounter();
+            // Mark that a sync recently completed — helps loadSources()
+            // show a loading spinner if the DuckDB query times out right
+            // after the sync finishes (activeSyncs is already cleared).
+            recentSyncComplete = true;
+            if (recentSyncCompleteTimeout) clearTimeout(recentSyncCompleteTimeout);
+            recentSyncCompleteTimeout = setTimeout(() => { recentSyncComplete = false; }, 10000);
             loadSources();  // Reload from API to get correct status
             // Fallback: if activeSyncs wasn't set (e.g. upload-triggered sync),
             // the cleanup above is harmless (delete on missing key is a no-op).
@@ -778,9 +797,10 @@ async function loadSources() {
             if (!tbody) return;
 
             // Only show loading message if we actually have active operations
-            // This prevents flickering when timeout happens at the tail end
+            // or a sync just completed (DuckDB may still be releasing the lock)
             const totalFileOps = getTotalFileOperations();
-            if (activeSyncs.size > 0 || totalFileOps > 0 || dbtRunStartTime !== null) {
+            const hasActiveWork = activeSyncs.size > 0 || totalFileOps > 0 || dbtRunStartTime !== null || recentSyncComplete;
+            if (hasActiveWork) {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="7" class="px-6 py-8 text-center text-gray-500">
@@ -792,6 +812,17 @@ async function loadSources() {
                         </td>
                     </tr>
                 `;
+            }
+
+            // If a sync recently completed, retry quickly (database may still be busy)
+            if (recentSyncComplete && activeSyncs.size === 0 && dbtRunStartTime === null && totalFileOps === 0) {
+                isLoadingSources = false;
+                console.log('⏸️ [loadSources] Scheduling retry in 2s (recent sync complete)');
+                loadSourcesRetryTimeout = setTimeout(() => {
+                    loadSourcesRetryTimeout = null;
+                    loadSources();
+                }, 2000);
+                return;
             }
 
             // DON'T retry if there are active syncs, dbt runs, or file operations
@@ -1233,7 +1264,7 @@ function renderSourcesTable() {
 
         return `
         <tr id="source-${source.name}" class="hover:bg-gray-50 transition-colors duration-150">
-            <td class="px-6 py-4 whitespace-nowrap cursor-pointer" onclick="${rowClickHandler}" title="${rowClickHelp}">
+            <td class="px-6 py-4 whitespace-nowrap cursor-pointer tooltip" onclick="${rowClickHandler}" data-tooltip="${rowClickHelp}">
                 <div class="flex items-center">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(source.name)}</div>
                     ${source.needs_attention ? '<span class="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Needs Attention</span>' : ''}
@@ -1245,7 +1276,7 @@ function renderSourcesTable() {
                 </span>
                 <div class="text-xs text-gray-400 mt-0.5">${source.sync_mode === 'full_refresh' ? 'Full Refresh' : 'Incremental'}${source.lookback_days ? ` (${source.lookback_days}d)` : ''}</div>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap cursor-pointer" data-col="status" onclick="event.stopPropagation(); openSyncHistory('${source.name}')" title="Click to view sync history">
+            <td class="px-6 py-4 whitespace-nowrap cursor-pointer tooltip" data-col="status" onclick="event.stopPropagation(); openSyncHistory('${source.name}')" data-tooltip="Click to view sync history">
                 ${renderStatusPill(source, isSyncing, hasFileOps)}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" data-col="rows">
@@ -1255,7 +1286,7 @@ function renderSourcesTable() {
                 ${formatRelativeTime(source.last_sync)}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                ${source.has_schedule ? `<span title="${source.schedule_display || ''}">${source.schedule_display || 'Scheduled'}</span>` : '<span class="inline-block w-full text-center text-gray-300">—</span>'}
+                ${source.has_schedule ? `<span class="tooltip" data-tooltip="${source.schedule_display || ''}">${source.schedule_display || 'Scheduled'}</span>` : '<span class="inline-block w-full text-center text-gray-300">—</span>'}
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                 ${actionColumn}
@@ -1535,6 +1566,7 @@ function showToast(message, type = 'info') {
 
     container.appendChild(toast);
 
+    // Timer audit: fire-and-forget animation timeouts. Toast self-removes from DOM.
     // Trigger animation
     setTimeout(() => {
         toast.classList.remove('opacity-0', 'translate-x-full');
@@ -1676,8 +1708,8 @@ async function loadCsvFilesList(sourceName) {
                 `<button
                     id="delete-btn-${safeFilename}"
                     onclick="handleFileDelete('${sourceName}', '${file.path}', '${file.filename}', '${safeFilename}')"
-                    class="ml-2 text-red-600 hover:text-red-800 text-xs font-medium"
-                    title="Delete file">
+                    class="ml-2 text-red-600 hover:text-red-800 text-xs font-medium tooltip"
+                    data-tooltip="Delete file">
                     Delete
                 </button>` : '';
 
@@ -2387,9 +2419,9 @@ function renderDbtModelsTable() {
                     </button>
                     <button
                         onclick="runDbtModel('${model.name}', true)"
-                        class="text-green-600 hover:text-green-900 disabled:text-gray-400 disabled:cursor-not-allowed mr-3"
+                        class="text-green-600 hover:text-green-900 disabled:text-gray-400 disabled:cursor-not-allowed mr-3 tooltip"
                         ${buttonDisabled}
-                        title="Run with downstream models"
+                        data-tooltip="Run with downstream models"
                     >
                         Run+
                     </button>` : '';
@@ -2420,8 +2452,8 @@ function renderDbtModelsTable() {
                     ${actionButtons}
                     <a
                         href="/catalog"
-                        class="text-blue-600 hover:text-blue-900"
-                        title="View documentation"
+                        class="text-blue-600 hover:text-blue-900 tooltip"
+                        data-tooltip="View documentation"
                     >
                         📖
                     </a>

@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -174,7 +174,7 @@ def _create_notebook_blocking(
     shutil.copy2(str(template_file), str(target))
 
     new_id = str(uuid.uuid4())
-    now = datetime.now().isoformat()
+    now = datetime.now(tz=timezone.utc).isoformat()
 
     with connect(project_root) as conn:
         conn.execute(
@@ -221,7 +221,13 @@ async def notebooks_page(
 async def list_notebooks(
     user: User = Depends(require_permission("notebooks.view")),
 ) -> JSONResponse:
-    """List all notebooks with metadata and lock status."""
+    """List all notebooks with metadata and lock status.
+
+    NOTE: Lock state is always fresh on each request (queried from the
+    ``notebook_locks`` table).  CLI-acquired locks are immediately visible
+    after a page refresh.  Real-time push notification of lock changes
+    (e.g., via WebSocket) is a post-v1 enhancement.
+    """
     project_root = get_project_root()
     notebooks = await asyncio.to_thread(_list_notebooks_blocking, project_root)
     return JSONResponse(content=notebooks)
@@ -488,7 +494,7 @@ async def force_release_notebook_lock(
             "event": "notebook_lock_revoked",
             "notebook": name,
             "message": f"Lock on notebook '{name}' was force-released by an administrator.",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         }
     )
 

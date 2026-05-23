@@ -4,11 +4,9 @@ WebSocket connection manager and endpoint for real-time updates.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-
-from dango.web.helpers import append_log_entry
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +33,12 @@ class ConnectionManager:
         logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
 
     async def broadcast(self, message: dict) -> None:
-        """Broadcast message to all connected clients and persist to logs."""
-        # Persist to logs
-        log_entry = {
-            "timestamp": message.get("timestamp", datetime.now().isoformat()),
-            "level": self._get_log_level(message.get("event", "")),
-            "source": message.get("source", "system"),
-            "message": message.get("message", str(message.get("event", ""))),
-        }
-        append_log_entry(log_entry)
+        """Broadcast message to all connected WebSocket clients.
 
+        Note: This method does NOT write to the activity log. Activity log
+        entries are written by the originating subsystem (e.g. dlt_runner,
+        sync.py) to avoid duplicate entries.
+        """
         # Broadcast to WebSocket clients
         disconnected = []
         for connection in self.active_connections:
@@ -60,17 +54,6 @@ class ConnectionManager:
                 self.active_connections.remove(connection)
             except ValueError:
                 pass
-
-    def _get_log_level(self, event: str) -> str:
-        """Determine log level from event type."""
-        if "completed" in event or "success" in event:
-            return "success"
-        elif "failed" in event or "error" in event:
-            return "error"
-        elif "warning" in event:
-            return "warning"
-        else:
-            return "info"
 
 
 # Global WebSocket manager
@@ -94,7 +77,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             {
                 "event": "connected",
                 "message": "Connected to Dango real-time updates",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
 
@@ -109,7 +92,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             # Echo back for now (can add client commands later)
             await websocket.send_json(
-                {"event": "echo", "data": data, "timestamp": datetime.now().isoformat()}
+                {
+                    "event": "echo",
+                    "data": data,
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                }
             )
 
     except WebSocketDisconnect:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -34,7 +34,6 @@ from dango.validation import (
 from dango.web.helpers import (
     append_log_entry,
     get_project_root,
-    get_source_row_count,
     load_sources_config,
     save_sync_history_entry,
 )
@@ -85,7 +84,7 @@ async def trigger_sync(source_name: str, sync_request: SyncRequest) -> SyncRespo
         success=True,
         message=f"Sync started for {source_name}",
         source_name=source_name,
-        started_at=datetime.now().isoformat(),
+        started_at=datetime.now(tz=timezone.utc).isoformat(),
     )
 
 
@@ -100,7 +99,7 @@ async def run_sync_task(
     )
 
     start_time = time.time()
-    sync_timestamp = datetime.now().isoformat()
+    sync_timestamp = datetime.now(tz=timezone.utc).isoformat()
     project_root = get_project_root()
 
     # Create execution history record (passed to subprocess to avoid double records)
@@ -148,37 +147,15 @@ async def run_sync_task(
         duration = time.time() - start_time
         error_message = result.get("error") if result else None
 
-        # Get row count after sync (only if successful)
-        rows_processed = 0
-        if success:
-            rows_processed = get_source_row_count(source_name) or 0
-
         # Sync history is saved by the subprocess (dlt_runner.py run_source).
         # Do NOT save again here — it creates duplicate records.
         # WebSocket broadcasts are handled by poll_sync_status via
         # _broadcast_phase_transition — do NOT broadcast here either,
         # as that creates duplicate sync_completed/sync_failed events.
 
-        # Log completion
-        if success:
-            append_log_entry(
-                {
-                    "timestamp": datetime.now().isoformat(),
-                    "level": "success",
-                    "source": source_name,
-                    "message": f"Sync completed in {round(duration, 1)}s - {rows_processed:,} rows",
-                }
-            )
-        else:
-            append_log_entry(
-                {
-                    "timestamp": datetime.now().isoformat(),
-                    "level": "error",
-                    "source": source_name,
-                    "message": f"Sync failed after {round(duration, 1)}s"
-                    + (f": {error_message}" if error_message else ""),
-                }
-            )
+        # Activity log entries are written by the subprocess (dlt_runner.py
+        # run_source → log_activity). Do NOT write again here — it creates
+        # duplicate entries in activity.jsonl.
 
         # Cleanup status file
         cleanup_sync_status(project_root, sync_id=sync_id)
@@ -190,7 +167,7 @@ async def run_sync_task(
         duration = time.time() - start_time
         append_log_entry(
             {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
                 "level": "error",
                 "source": source_name,
                 "message": f"Sync failed: {error_message}",
@@ -215,7 +192,7 @@ async def run_sync_task(
                 "event": "sync_failed",
                 "source": source_name,
                 "message": f"Sync failed: {error_message}",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
 

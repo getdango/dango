@@ -365,10 +365,14 @@
                         <dd class="text-sm font-medium text-gray-900">${fmtMB(bd.duckdb.file_size_mb)}</dd>
                     </div>`;
                     if (bd.duckdb.schema_sizes && Object.keys(bd.duckdb.schema_sizes).length > 0) {
+                        rows += `<div class="flex justify-between pl-4">
+                            <dt class="text-xs text-gray-400 italic" colspan="2">Estimated data size (uncompressed)</dt>
+                            <dd></dd>
+                        </div>`;
                         for (const [schema, bytes] of Object.entries(bd.duckdb.schema_sizes)) {
                             rows += `<div class="flex justify-between pl-4">
                                 <dt class="text-xs text-gray-500">${escapeHtml(schema)}</dt>
-                                <dd class="text-xs text-gray-700">${fmtMB(bytes / (1024 * 1024))}</dd>
+                                <dd class="text-xs text-gray-700">~${fmtMB(bytes / (1024 * 1024))}</dd>
                             </div>`;
                         }
                     }

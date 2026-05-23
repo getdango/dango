@@ -172,7 +172,7 @@ async def get_platform_health() -> dict[str, Any]:
 
     result: dict[str, Any] = {
         "status": "healthy",  # set below
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         "database": db_health,
         "disk": disk,
         "disk_breakdown": data.get("disk_breakdown", {}),

@@ -17,6 +17,7 @@ import click
 import yaml
 
 from dango.cli import console
+from dango.cli.utils import safe_confirm
 from dango.logging import get_logger
 
 logger = get_logger(__name__)
@@ -534,12 +535,15 @@ def schedule_add(ctx: click.Context) -> None:
     existing_names = {s.get("name") for s in schedules}
 
     # 1. Name (validate after prompt to avoid per-keystroke flicker)
+    console.print(
+        "[dim]Format: lowercase, start with letter, only letters/digits/underscores[/dim]"
+    )
     while True:
         answers = inquirer.prompt(
             [
                 inquirer.Text(
                     "name",
-                    message="Schedule name (lowercase, alphanumeric + underscore)",
+                    message="Schedule name",
                 ),
             ]
         )
@@ -725,7 +729,7 @@ def schedule_remove(ctx: click.Context, name: str, yes: bool) -> None:
     console.print(f"  Type: {sched.get('type', 'sync')}  Cron: {sched.get('cron', '?')}")
 
     if not yes:
-        if not click.confirm("Remove this schedule?"):
+        if not safe_confirm("Remove this schedule?"):
             console.print("[dim]Cancelled.[/dim]")
             return
 

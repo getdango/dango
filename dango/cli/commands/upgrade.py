@@ -14,6 +14,7 @@ from pathlib import Path
 import click
 
 from dango.cli import console
+from dango.cli.utils import safe_confirm
 
 _VERSION_CACHE_TTL = 86400  # 24 hours in seconds
 _NEGATIVE_CACHE_TTL = 300  # 5 minutes — avoid hammering a down PyPI
@@ -164,15 +165,15 @@ def upgrade(ctx: click.Context, target_version: str | None, yes: bool) -> None:
     # Confirmation prompts (unless --yes)
     if not yes:
         console.print("[dim]Tip: Run 'dango stop' first if services are running.[/dim]")
-        if click.confirm("Pause to create a manual backup first?", default=True):
+        if safe_confirm("Pause to create a manual backup first?", default=True):
             console.print(
                 "\n  Copy your [cyan].dango/[/cyan] directory or run your "
                 "backup procedure in another terminal, then continue.\n"
             )
-            if not click.confirm("Ready to proceed with upgrade?"):
+            if not safe_confirm("Ready to proceed with upgrade?"):
                 console.print("[yellow]Upgrade cancelled.[/yellow]")
                 return
-        elif not click.confirm(f"Proceed with {direction}?"):
+        elif not safe_confirm(f"Proceed with {direction}?"):
             console.print("[yellow]Upgrade cancelled.[/yellow]")
             return
 

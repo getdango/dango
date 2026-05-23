@@ -292,6 +292,9 @@ def scan_table_for_pii(
     findings: list[dict[str, Any]] = []
 
     for col_name, data_type in columns:
+        # Skip internal dlt metadata columns — they never contain user PII.
+        if col_name.startswith("_dlt_"):
+            continue
         if not _is_string_type(data_type):
             continue
 

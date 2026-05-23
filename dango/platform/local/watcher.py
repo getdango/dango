@@ -5,7 +5,7 @@ Monitors data directories for changes and triggers sync operations with debounce
 
 import threading
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -176,7 +176,13 @@ class FileWatcher:
 
     def _wrapped_callback(self, files: list):
         """Wrapper to provide additional context to callback"""
-        self.callback({"files": files, "timestamp": datetime.now().isoformat(), "trigger": "auto"})
+        self.callback(
+            {
+                "files": files,
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "trigger": "auto",
+            }
+        )
 
     def watch_directory(self, path: Path, recursive: bool = True):
         """

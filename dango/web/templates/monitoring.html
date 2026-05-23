@@ -181,7 +181,7 @@
                             <div x-show="expandedGroups[group.model]" x-cloak class="border-t border-gray-100">
                                 <template x-for="t in group.tests" :key="t.test_name">
                                     <div class="flex items-center justify-between px-3 py-1.5 text-xs">
-                                        <span class="text-gray-700 font-mono truncate" :title="t.test_name" x-text="t.test_name"></span>
+                                        <span class="text-gray-700 font-mono truncate tooltip" :data-tooltip="t.test_name" x-text="t.test_name"></span>
                                         <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold flex-shrink-0 ml-2"
                                               :class="t.status === 'pass' ? 'bg-green-100 text-green-800' : t.status === 'fail' || t.status === 'error' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'"
                                               x-text="t.status || 'not run'"></span>

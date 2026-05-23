@@ -23,6 +23,7 @@ from typing import Any
 import click
 
 from dango.cli import console
+from dango.cli.utils import safe_confirm
 from dango.exceptions import format_structured_error
 
 # ---------------------------------------------------------------------------
@@ -394,7 +395,7 @@ def backup_restore(ctx: click.Context, source: str, yes: bool) -> None:
     from rich.status import Status
 
     if not yes:
-        if not click.confirm(
+        if not safe_confirm(
             f"This will restore the server from Spaces backup '{source}'. "
             "Current data will be overwritten. Continue?"
         ):

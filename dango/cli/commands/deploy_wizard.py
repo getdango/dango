@@ -22,20 +22,20 @@ import click
 from dango.cli import console
 
 # ---------------------------------------------------------------------------
-# BUG-252: Non-interactive confirm helper
+# BUG-252: Non-interactive confirm helper (now delegated to cli/utils.py)
 # ---------------------------------------------------------------------------
 
 
 def _safe_confirm(prompt: str, default: bool = True, *, non_interactive: bool = False) -> bool:
-    """Prompt with ``(yes/no)`` format and a non-interactive bypass.
+    """Thin wrapper around :func:`dango.cli.utils.safe_confirm`.
 
     When *non_interactive* is ``True``, returns *default* without prompting.
     """
     if non_interactive:
         return default
-    default_str = "yes" if default else "no"
-    result = click.prompt(f"{prompt} (yes/no)", default=default_str, show_default=True)
-    return str(result).lower().strip() in ("yes", "y")
+    from dango.cli.utils import safe_confirm
+
+    return safe_confirm(prompt, default=default)
 
 
 # ---------------------------------------------------------------------------
