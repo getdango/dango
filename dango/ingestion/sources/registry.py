@@ -431,6 +431,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": True,
             "date_range": False,
+            # Mixed: 5/6 resources (campaigns, ads, ad_sets, ad_creatives,
+            # leads) use replace. Only facebook_insights uses
+            # merge+incremental(date_start). Marked True because insights —
+            # the primary analytics payload — are incremental.
             "incremental": True,
             "custom_queries": False,
         },
@@ -631,8 +635,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            # Mixed: account, opportunity, task, event use merge+incremental;
-            # contact, lead, campaign use replace. Marked True because the
+            # Mixed: 7/15 resources use merge+incremental (account, opportunity,
+            # opportunity_line_item, opportunity_contact_role, campaign_member,
+            # task, event); 8/15 use replace. Marked True because the
             # highest-volume CRM objects (accounts, opportunities) are
             # incremental.
             "incremental": True,
@@ -1702,7 +1707,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            "incremental": True,
+            # sql_database() accepts an optional incremental parameter per
+            # table (defaults to None). Without explicit configuration, it
+            # loads all rows on every run — not incremental by default.
+            "incremental": False,
             "custom_queries": False,
         },
     },
