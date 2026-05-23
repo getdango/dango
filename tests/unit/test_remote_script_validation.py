@@ -6,6 +6,9 @@ current codebase.
 
 Prevents BUG-239 class bugs where a script references a nonexistent function
 or module, only discovered at deploy time on a real server.
+
+Scripts are imported from the actual source modules (not hardcoded copies)
+so tests break when the source changes.
 """
 
 from __future__ import annotations
@@ -14,99 +17,85 @@ import ast
 import base64
 import importlib
 import re
+from unittest.mock import MagicMock
 
 import pytest
 
+from dango.cli.commands.deploy_provision import (
+    _build_admin_script,
+    _build_auth_timeout_script,
+    _start_services,
+)
+from dango.exceptions import CloudProvisioningError
+from dango.platform.cloud.migrate import (
+    _build_spaces_download_script,
+    _build_spaces_upload_script,
+)
+
 # ---------------------------------------------------------------------------
-# Script extraction helpers
+# Script generation — calls the actual builder functions from source
 # ---------------------------------------------------------------------------
 
 
-def _extract_admin_creation_script() -> str:
-    """Extract the admin creation Python script from deploy_provision.py.
+def _get_admin_script() -> str:
+    """Generate admin script via the real builder with placeholder values."""
+    return _build_admin_script("admin@example.com", "$2b$12$placeholder")
 
-    The script is built as a string and base64-encoded.  We reconstruct it
-    using the same logic as the source, with placeholder values.
-    """
-    script = (
-        "import sys, os\n"
-        "sys.path.insert(0, '/srv/dango/project')\n"
-        "os.chdir('/srv/dango/project')\n"
-        "from pathlib import Path\n"
-        "from dango.auth.database import create_user, get_user_by_email, update_user\n"
-        "from dango.auth.models import Role, User, UserUpdate\n"
-        "from dango.exceptions import UserExistsError\n"
-        "email = 'admin@example.com'\n"
-        "pw_hash = '$2b$12$placeholder'\n"
-        "db_path = Path('.dango/auth.db')\n"
-        "# DB already initialized by server lifespan — just create/update user\n"
-        "user = User(email=email, password_hash=pw_hash, role=Role.ADMIN, must_change_password=True)\n"
-        "try:\n"
-        "    create_user(db_path, user)\n"
-        "except UserExistsError:\n"
-        "    existing = get_user_by_email(db_path, email)\n"
-        "    if existing:\n"
-        "        update_user(db_path, existing.id, UserUpdate(password_hash=pw_hash, email=email, must_change_password=True))\n"
+
+def _get_auth_timeout_script() -> str:
+    """Generate auth timeout script via the real builder."""
+    return _build_auth_timeout_script()
+
+
+def _get_spaces_upload_script() -> str:
+    """Generate Spaces upload script via the real builder."""
+    return _build_spaces_upload_script(
+        archive_path="/tmp/backup.tar.gz",
+        region="nyc3",
+        endpoint="https://nyc3.digitaloceanspaces.com",
+        access_key_env="SPACES_ACCESS_KEY",
+        secret_key_env="SPACES_SECRET_KEY",
+        bucket="my-bucket",
+        spaces_key="migration/backup.tar.gz",
     )
-    return script
 
 
-def _extract_auth_timeout_script() -> str:
-    """Extract the auth timeout configuration script from deploy_provision.py."""
-    script = (
-        "import sys, os\n"
-        "sys.path.insert(0, '/srv/dango/project')\n"
-        "os.chdir('/srv/dango/project')\n"
-        "from pathlib import Path\n"
-        "import yaml\n"
-        "config_path = Path('.dango/project.yml')\n"
-        "if config_path.exists():\n"
-        "    config_data = yaml.safe_load(config_path.read_text()) or {}\n"
-        "    config_data.setdefault('auth', {})\n"
-        "    config_data['auth']['session_max_days'] = 30\n"
-        "    config_data['auth']['idle_timeout_minutes'] = 60\n"
-        "    config_path.write_text(yaml.dump(config_data, default_flow_style=False, sort_keys=False))\n"
+def _get_spaces_download_script() -> str:
+    """Generate Spaces download script via the real builder."""
+    return _build_spaces_download_script(
+        region="nyc3",
+        endpoint="https://nyc3.digitaloceanspaces.com",
+        access_key_env="SPACES_ACCESS_KEY",
+        secret_key_env="SPACES_SECRET_KEY",
+        bucket="my-bucket",
+        spaces_key="migration/backup.tar.gz",
+        local_path="/srv/dango/backups/deploy/backup.tar.gz",
     )
-    return script
 
 
-def _extract_spaces_upload_script() -> str:
-    """Extract the Spaces upload script from migrate.py."""
-    region = "nyc3"
-    endpoint = f"https://{region}.digitaloceanspaces.com"
-    script = (
-        "import boto3, os\n"
-        f"s3 = boto3.client('s3', region_name={region!r},\n"
-        f"    endpoint_url={endpoint!r},\n"
-        f"    aws_access_key_id=os.environ['SPACES_ACCESS_KEY'],\n"
-        f"    aws_secret_access_key=os.environ['SPACES_SECRET_KEY'])\n"
-        f"s3.upload_file('/tmp/backup.tar.gz', 'my-bucket', 'migration/backup.tar.gz')\n"
+def _get_duckdb_checkpoint_script() -> str:
+    """DuckDB checkpoint inline script from backup.py."""
+    db_path = "/srv/dango/project/data/warehouse.duckdb"
+    return f"import duckdb; c=duckdb.connect('{db_path}'); c.execute('CHECKPOINT'); c.close()"
+
+
+def _get_sqlite_checkpoint_script() -> str:
+    """SQLite WAL checkpoint inline script from backup.py."""
+    db_path = "/srv/dango/project/.dango/auth.db"
+    return (
+        f"import sqlite3; c=sqlite3.connect('{db_path}'); "
+        f"c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()"
     )
-    return script
-
-
-def _extract_spaces_download_script() -> str:
-    """Extract the Spaces download script from migrate.py."""
-    region = "nyc3"
-    endpoint = f"https://{region}.digitaloceanspaces.com"
-    script = (
-        "import boto3, os\n"
-        "os.makedirs('/srv/dango/backups/deploy', exist_ok=True)\n"
-        f"s3 = boto3.client('s3', region_name={region!r},\n"
-        f"    endpoint_url={endpoint!r},\n"
-        f"    aws_access_key_id=os.environ['SPACES_ACCESS_KEY'],\n"
-        f"    aws_secret_access_key=os.environ['SPACES_SECRET_KEY'])\n"
-        f"s3.download_file('my-bucket', 'migration/backup.tar.gz', '/srv/dango/backups/deploy/backup.tar.gz')\n"
-    )
-    return script
 
 
 # All scripts with their source locations for error messages.
 _ALL_SCRIPTS: list[tuple[str, str]] = [
-    ("deploy_provision.py:_create_admin_and_enable_auth", _extract_admin_creation_script()),
-    ("deploy_provision.py:_create_admin_and_enable_auth (timeout)", _extract_auth_timeout_script()),
-    ("migrate.py:_upload_backup_to_spaces", _extract_spaces_upload_script()),
-    ("migrate.py:_download_backup_from_spaces", _extract_spaces_download_script()),
+    ("deploy_provision.py:_build_admin_script", _get_admin_script()),
+    ("deploy_provision.py:_build_auth_timeout_script", _get_auth_timeout_script()),
+    ("migrate.py:_build_spaces_upload_script", _get_spaces_upload_script()),
+    ("migrate.py:_build_spaces_download_script", _get_spaces_download_script()),
+    ("backup.py:_checkpoint_duckdb", _get_duckdb_checkpoint_script()),
+    ("backup.py:_checkpoint_auth_db", _get_sqlite_checkpoint_script()),
 ]
 
 
@@ -178,3 +167,32 @@ class TestRemoteScriptImports:
             for name in names:
                 if not hasattr(mod, name):
                     pytest.fail(f"Script {label}: {module_path}.{name} does not exist")
+
+
+@pytest.mark.unit
+class TestStartServicesErrorHandling:
+    """Verify _start_services raises on failure (not silent)."""
+
+    def test_raises_on_nonzero_exit(self) -> None:
+        """_start_services must raise CloudProvisioningError when systemctl fails."""
+        ssh = MagicMock()
+        result = MagicMock()
+        result.exit_code = 1
+        result.stderr = "Unit dango-web.service not found."
+        result.stdout = ""
+        ssh.exec_command.return_value = result
+
+        with pytest.raises(CloudProvisioningError, match="Failed to start dango-web"):
+            _start_services(ssh)
+
+    def test_success_does_not_raise(self) -> None:
+        """_start_services must not raise when systemctl succeeds."""
+        ssh = MagicMock()
+        result = MagicMock()
+        result.exit_code = 0
+        result.stderr = ""
+        result.stdout = ""
+        ssh.exec_command.return_value = result
+
+        _start_services(ssh)  # should not raise
+        ssh.exec_command.assert_called_once()

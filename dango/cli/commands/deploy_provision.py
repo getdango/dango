@@ -640,26 +640,16 @@ def _push_secrets(
         pushed_paths.append("/srv/dango/project/.env")
 
     if pushed_paths:
+        # chown: best-effort (uses ; true — secrets may have been pushed to a path the user doesn't own)
         ssh.exec_command(f"chown dango:dango {' '.join(pushed_paths)} 2>/dev/null; true")
 
 
-def _create_admin_and_enable_auth(
-    ssh: Any,
-    email: str,
-    password: str,
-) -> None:
-    """Create admin user and enable auth on remote server."""
-    # Validate email (shell injection prevention)
-    if not _EMAIL_RE.match(email):
-        raise ValueError(f"Invalid email format: {email}")
+def _build_admin_script(email: str, pw_hash: str) -> str:
+    """Build the Python script that creates/updates the admin user on the server.
 
-    # Hash password locally — never send plaintext to remote server
-    from dango.auth.security import hash_password
-
-    pw_hash = hash_password(password)
-
-    # Build Python script and base64-encode it (avoids shell injection)
-    script = (
+    Extracted for testability — validates via ``ast.parse()`` in unit tests.
+    """
+    return (
         "import sys, os\n"
         "sys.path.insert(0, '/srv/dango/project')\n"
         "os.chdir('/srv/dango/project')\n"
@@ -679,6 +669,46 @@ def _create_admin_and_enable_auth(
         "    if existing:\n"
         "        update_user(db_path, existing.id, UserUpdate(password_hash=pw_hash, email=email, must_change_password=True))\n"
     )
+
+
+def _build_auth_timeout_script() -> str:
+    """Build the Python script that sets cloud auth timeout config.
+
+    Extracted for testability — validates via ``ast.parse()`` in unit tests.
+    """
+    return (
+        "import sys, os\n"
+        "sys.path.insert(0, '/srv/dango/project')\n"
+        "os.chdir('/srv/dango/project')\n"
+        "from pathlib import Path\n"
+        "import yaml\n"
+        "config_path = Path('.dango/project.yml')\n"
+        "if config_path.exists():\n"
+        "    config_data = yaml.safe_load(config_path.read_text()) or {}\n"
+        "    config_data.setdefault('auth', {})\n"
+        "    config_data['auth']['session_max_days'] = 30\n"
+        "    config_data['auth']['idle_timeout_minutes'] = 60\n"
+        "    config_path.write_text(yaml.dump(config_data, default_flow_style=False, sort_keys=False))\n"
+    )
+
+
+def _create_admin_and_enable_auth(
+    ssh: Any,
+    email: str,
+    password: str,
+) -> None:
+    """Create admin user and enable auth on remote server."""
+    # Validate email (shell injection prevention)
+    if not _EMAIL_RE.match(email):
+        raise ValueError(f"Invalid email format: {email}")
+
+    # Hash password locally — never send plaintext to remote server
+    from dango.auth.security import hash_password
+
+    pw_hash = hash_password(password)
+
+    # Build Python script and base64-encode it (avoids shell injection)
+    script = _build_admin_script(email, pw_hash)
     encoded = base64.b64encode(script.encode()).decode()
 
     result = ssh.exec_command(
@@ -708,20 +738,7 @@ def _create_admin_and_enable_auth(
         _logger.warning("chown_auth_yml_failed", stderr=result.stderr)
 
     # Write cloud-specific auth timeouts (30-day session, 60-min idle)
-    timeout_script = (
-        "import sys, os\n"
-        "sys.path.insert(0, '/srv/dango/project')\n"
-        "os.chdir('/srv/dango/project')\n"
-        "from pathlib import Path\n"
-        "import yaml\n"
-        "config_path = Path('.dango/project.yml')\n"
-        "if config_path.exists():\n"
-        "    config_data = yaml.safe_load(config_path.read_text()) or {}\n"
-        "    config_data.setdefault('auth', {})\n"
-        "    config_data['auth']['session_max_days'] = 30\n"
-        "    config_data['auth']['idle_timeout_minutes'] = 60\n"
-        "    config_path.write_text(yaml.dump(config_data, default_flow_style=False, sort_keys=False))\n"
-    )
+    timeout_script = _build_auth_timeout_script()
     encoded_timeout = base64.b64encode(timeout_script.encode()).decode()
     result = ssh.exec_command(
         f"sudo -u dango /srv/dango/venv/bin/python -c "
@@ -942,7 +959,7 @@ def _start_services(ssh: Any) -> None:
     result = ssh.exec_command("systemctl start dango-web", timeout=60)
     if result.exit_code != 0:
         raise CloudProvisioningError(
-            f"Failed to start dango-web service: {result.stderr.strip()}\n"
+            f"Failed to start dango-web service: {result.stderr.strip() or result.stdout.strip()}\n"
             "Check server logs with: dango remote logs"
         )
 
