@@ -155,10 +155,12 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 |------|-------------|
 | `docker-compose.yml.j2` | Metabase + dbt-docs containers, volumes, healthchecks |
 | `Dockerfile.metabase` | Custom Metabase image with DuckDB driver (Debian-based, not Alpine) |
+| `entrypoint.sh` | Metabase container entrypoint script |
 | `nginx.conf.j2` | Reverse proxy for dbt docs serving |
 | `dbt/sources.yml.j2` | dbt source documentation per data source |
 | `dbt/staging_model.sql.j2` | Staging model SQL with dedup strategy support |
 | `dbt/staging_schema.yml.j2` | Schema YAML for staging models |
+| `dbt/snapshot.sql.j2` | dbt snapshot SQL template |
 
 **Public API:** Templates consumed by `cli/init.py` and `transformation/generator.py`.
 
@@ -173,6 +175,8 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 |------|-------------|
 | `__init__.py` | Public API: `apply_all_pending()`, `get_all_status()` |
 | `runner.py` | `MigrationRunner`, `MigrationInfo`, `MigrationStatus` — discovers, tracks, and applies migration scripts |
+| `auth/` | Auth schema migrations (initial tables, complete schema, Metabase password, invite tokens, login attempts) |
+| `scheduler/` | Scheduler schema migrations (execution history) |
 
 **Public API:** `apply_all_pending(project_root)`, `get_all_status(project_root)`
 
