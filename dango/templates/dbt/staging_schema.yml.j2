@@ -19,11 +19,7 @@ version: 2
 models:
 {% for model in models %}
   - name: {{ model.name }}
-    description: |
-      Staging model for {{ model.table_name }} from {{ source_name }}.
-
-      This model cleans and prepares raw data from `{{ model.schema_name }}.{{ model.table_name }}`
-      for downstream analysis. Edit the SQL in `{{ model.name }}.sql` to customize transformations.
+    description: "{{ model.description }}"
 
     columns:
 {% for column in model.columns %}

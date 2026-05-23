@@ -440,7 +440,16 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
             raise SystemExit(1)
 
     # Optionally stop remote services
-    if force or click.confirm("\n  Stop Dango services on the remote server?", default=False):
+    _stop_answer = (
+        "yes"
+        if force
+        else click.prompt(
+            "\n  Stop Dango services on the remote server? (yes/no)",
+            default="no",
+            show_default=True,
+        )
+    )
+    if force or str(_stop_answer).lower().strip() in ("yes", "y"):
         from dango.platform.cloud.ssh import SSHManager
 
         key_path = _resolve_key_path(cloud_cfg, project_root)
@@ -635,7 +644,12 @@ def _offer_backup_download(cloud_cfg: Any, project_root: Path) -> None:
                 "[yellow]Warning:[/yellow] Unexpected backup filename — skipping download."
             )
             return
-        if click.confirm(f"Download latest backup ({latest_backup}) before destroying?"):
+        _dl_answer = click.prompt(
+            f"Download latest backup ({latest_backup}) before destroying? (yes/no)",
+            default="no",
+            show_default=True,
+        )
+        if str(_dl_answer).lower().strip() in ("yes", "y"):
             remote_path = f"/srv/dango/backups/deploy/{latest_backup}"
             local_path = project_root / f"dango-backup-{latest_backup}"
             try:
