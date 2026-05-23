@@ -4,7 +4,7 @@ Centralized activity logging for both CLI and Web UI.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -32,7 +32,7 @@ def log_activity(
         timestamp: ISO timestamp (defaults to now)
     """
     if timestamp is None:
-        timestamp = datetime.now().isoformat()
+        timestamp = datetime.now(tz=timezone.utc).isoformat()
 
     log_entry = {
         "timestamp": timestamp,

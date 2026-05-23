@@ -10,6 +10,7 @@ from pathlib import Path
 import click
 
 from dango.cli import console
+from dango.cli.utils import safe_confirm
 
 
 def _format_size(size_bytes: int) -> str:
@@ -276,7 +277,7 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
 
         # --- Confirmation ---
         if not yes:
-            if not click.confirm(f"Delete {_format_size(grand_total)} of files?"):
+            if not safe_confirm(f"Delete {_format_size(grand_total)} of files?"):
                 console.print("[yellow]Cancelled.[/yellow]")
                 return
 

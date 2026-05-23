@@ -112,6 +112,12 @@ code {
     }
 }
 
+/* Prevent action button text from wrapping in table cells */
+td button,
+th button {
+    white-space: nowrap;
+}
+
 /* Touch-friendly buttons on mobile */
 @media (max-width: 768px) {
     button {
@@ -200,4 +206,41 @@ pre.log-message {
     100% {
         background-position: 100% 50%;
     }
+}
+
+/* Instant tooltip — replaces browser-native title (which has ~2s delay).
+   Uses data-tooltip attribute. Works with Alpine.js dynamic binding:
+   :data-tooltip="variable" or x-bind:data-tooltip="variable" */
+.tooltip {
+    position: relative;
+}
+.tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 0;
+    top: 100%;
+    margin-top: 4px;
+    background: #1f2937;
+    color: #f9fafb;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.4;
+    white-space: normal;
+    word-break: break-word;
+    width: max-content;
+    max-width: min(400px, 90vw);
+    z-index: 50;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.1s;
+}
+.tooltip:hover::after {
+    opacity: 1;
+}
+/* Hide tooltip when data-tooltip is empty or absent */
+.tooltip:not([data-tooltip])::after,
+.tooltip[data-tooltip=""]::after {
+    display: none;
 }

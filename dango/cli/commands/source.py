@@ -8,6 +8,7 @@ import re
 import click
 
 from dango.cli import console
+from dango.cli.utils import safe_confirm
 from dango.config.helpers import (
     check_unreferenced_custom_sources,
     format_unreferenced_sources_warning,
@@ -159,12 +160,22 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
         except Exception:
             pass  # Fall through to editor
 
+    import os
+
+    # Check if an editor is available — $EDITOR or $VISUAL
+    has_editor = bool(os.environ.get("EDITOR") or os.environ.get("VISUAL"))
+
+    if not has_editor:
+        console.print(f"[bold]Edit your sources at:[/bold] {sources_file}")
+        console.print("[dim]Tip: Set $EDITOR to open in your preferred editor[/dim]")
+        return
+
     original = sources_file.read_text()
     edited = click.edit(original, extension=".yml")
 
     if edited is None:
         if name:
-            console.print("[yellow]No editor or no changes.[/yellow]")
+            console.print("[yellow]No changes made.[/yellow]")
             # Print just the named source section
             try:
                 data = yaml.safe_load(original) or {}
@@ -176,7 +187,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
                         return
             except Exception:
                 pass
-        console.print("[yellow]No editor or no changes.[/yellow]")
+        console.print("[yellow]No changes made.[/yellow]")
         console.print(f"[dim]Edit manually: {sources_file}[/dim]")
         return
 
@@ -330,10 +341,23 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
                 # If we can't read metadata, just skip - last_sync will show "never"
                 pass
 
+        # Build sync mode lookup from registry capabilities
+        from dango.ingestion.sources.registry import get_source_capabilities
+
+        def _get_sync_mode(source_type: str) -> str:
+            """Determine sync mode badge for a source type."""
+            if source_type in ("csv", "local_files"):
+                return "Full Refresh"
+            caps = get_source_capabilities(source_type)
+            if caps and caps.get("incremental"):
+                return "Incremental"
+            return "Full Refresh"
+
         # Create table
         table = Table(show_header=True, header_style="bold cyan")
         table.add_column("Name", style="white")
         table.add_column("Type", style="dim")
+        table.add_column("Mode", style="dim")
         table.add_column("Status", style="white")
         table.add_column("Last Sync", style="dim")
         table.add_column("Rows", style="dim", justify="right")
@@ -369,7 +393,8 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
                 last_sync = "[dim]never[/dim]"
 
             rows_str = f"{row_counts[src.name]:,}" if src.name in row_counts else "[dim]-[/dim]"
-            table.add_row(src.name, src.type.value, status, last_sync, rows_str)
+            mode = _get_sync_mode(src.type.value)
+            table.add_row(src.name, src.type.value, mode, status, last_sync, rows_str)
 
         console.print(table)
         console.print()
@@ -648,7 +673,7 @@ def sync(
                     "[yellow]   `dango sync` syncs data LOCALLY, not on your cloud server.[/yellow]"
                 )
                 console.print("[yellow]   Use `dango remote sync` for cloud.[/yellow]")
-                if not click.confirm("Continue?", default=False):
+                if not safe_confirm("Continue?", default=False):
                     raise click.Abort()
                 console.print()
 
@@ -728,7 +753,7 @@ def sync(
         if not yes and not dry_run:
             warehouse_path = project_root / "data" / "warehouse.duckdb"
             if not warehouse_path.exists():
-                if not click.confirm(
+                if not safe_confirm(
                     f"This will sync {len(sources_to_sync)} source(s). Continue?",
                     default=True,
                 ):
@@ -753,7 +778,7 @@ def sync(
 
         if full_refresh:
             console.print("[yellow]⚠️  Full refresh mode: existing data will be dropped[/yellow]")
-            if not yes and not click.confirm(
+            if not yes and not safe_confirm(
                 "Full refresh will reload all data. Continue?", default=False
             ):
                 raise click.Abort()

@@ -4,7 +4,7 @@ Simplified git-based workflow for Metabase dashboards and questions.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -354,7 +354,10 @@ class DashboardManager:
         """Update sync state file with current timestamp"""
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
 
-        state = {"last_export": datetime.now().isoformat(), "exported_from": self.metabase_url}
+        state = {
+            "last_export": datetime.now(tz=timezone.utc).isoformat(),
+            "exported_from": self.metabase_url,
+        }
 
         with open(self.state_file, "w") as f:
             json.dump(state, f, indent=2)

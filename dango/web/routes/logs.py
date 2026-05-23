@@ -4,7 +4,7 @@ Log retrieval endpoints.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
@@ -50,7 +50,9 @@ async def get_source_logs(source_name: str, limit: int = 100) -> list[LogEntry]:
                     # Fallback for unparseable lines
                     logs.append(
                         LogEntry(
-                            timestamp=datetime.now().isoformat(), level="INFO", message=line.strip()
+                            timestamp=datetime.now(tz=timezone.utc).isoformat(),
+                            level="INFO",
+                            message=line.strip(),
                         )
                     )
 

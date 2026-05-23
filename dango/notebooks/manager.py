@@ -11,7 +11,7 @@ import logging
 import os
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dango.utils.dango_db import connect
@@ -46,6 +46,24 @@ def get_marimo_pid_file_path(project_root: Path) -> Path:
         Path to the Marimo PID file.
     """
     return project_root / ".dango" / "marimo.pid"
+
+
+def _is_marimo_responding(port: int, timeout: float = 1.0) -> bool:
+    """Check if a Marimo server is responding on localhost:port.
+
+    Uses an HTTP GET to verify the response is from Marimo (not an
+    unrelated service that happens to be on the same port).
+    """
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/", method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            # Marimo returns HTML with "marimo" in the response
+            body = resp.read(4096).decode("utf-8", errors="ignore")
+            return "marimo" in body.lower()
+    except Exception:
+        return False
 
 
 def start_marimo(
@@ -88,6 +106,16 @@ def start_marimo(
         loader = ConfigLoader(project_root)
         config = loader.load_config()
         port = config.platform.marimo_port
+
+    # After force-unlock, marimo may still be running on the configured port.
+    # Check if the port is already responding before starting a new instance.
+    if _is_marimo_responding(port):
+        logger.debug("Marimo already responding on port %d — reusing existing server", port)
+        # PID file may be missing (e.g., after force-unlock), but we can't
+        # recover it without knowing the PID. The server is reachable, so
+        # return success. stop_marimo() won't find a PID to kill — the
+        # process will exit via its own --timeout or manual kill.
+        return None
 
     notebooks_dir = project_root / "notebooks"
     notebooks_dir.mkdir(parents=True, exist_ok=True)
@@ -272,7 +300,7 @@ async def _broadcast_idle_warning(remaining_seconds: int) -> None:
                     f"Notebook server will shut down in {minutes_left} minutes due to inactivity."
                 ),
                 "remaining_seconds": remaining_seconds,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
     except Exception:

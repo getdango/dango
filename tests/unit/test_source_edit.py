@@ -62,6 +62,20 @@ class TestSourceEdit:
         assert result.exit_code == 0
         assert "No sources.yml found" in result.output
 
+    def test_no_editor_shows_path(self, tmp_path: pytest.TempPathFactory) -> None:
+        """Without $EDITOR, shows file path instead of opening editor."""
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        sources_file = dango_dir / "sources.yml"
+        sources_file.write_text("sources:\n  - name: test\n")
+
+        runner = CliRunner()
+        with patch.dict("os.environ", {"EDITOR": "", "VISUAL": ""}, clear=False):
+            result = runner.invoke(source_edit, obj={"project_root": str(tmp_path)})
+        assert result.exit_code == 0
+        assert "sources.yml" in result.output
+        assert "EDITOR" in result.output  # Shows tip about setting $EDITOR
+
     def test_editor_returns_none(self, tmp_path: pytest.TempPathFactory) -> None:
         """Editor returns None when user doesn't save."""
         dango_dir = tmp_path / ".dango"
@@ -70,11 +84,13 @@ class TestSourceEdit:
         sources_file.write_text("sources:\n  - name: test\n")
 
         runner = CliRunner()
-        with patch("click.edit", return_value=None):
+        with (
+            patch("click.edit", return_value=None),
+            patch.dict("os.environ", {"EDITOR": "vim"}),
+        ):
             result = runner.invoke(source_edit, obj={"project_root": str(tmp_path)})
         assert result.exit_code == 0
-        assert "No editor or no changes" in result.output
-        assert "sources.yml" in result.output
+        assert "No changes" in result.output or "sources.yml" in result.output
 
     def test_no_changes(self, tmp_path: pytest.TempPathFactory) -> None:
         """Editor returns same content."""
@@ -85,7 +101,10 @@ class TestSourceEdit:
         sources_file.write_text(original)
 
         runner = CliRunner()
-        with patch("click.edit", return_value=original):
+        with (
+            patch("click.edit", return_value=original),
+            patch.dict("os.environ", {"EDITOR": "vim"}),
+        ):
             result = runner.invoke(source_edit, obj={"project_root": str(tmp_path)})
         assert result.exit_code == 0
         assert "No changes detected" in result.output
@@ -100,7 +119,10 @@ class TestSourceEdit:
         sources_file.write_text(original)
 
         runner = CliRunner()
-        with patch("click.edit", return_value=edited):
+        with (
+            patch("click.edit", return_value=edited),
+            patch.dict("os.environ", {"EDITOR": "vim"}),
+        ):
             result = runner.invoke(source_edit, obj={"project_root": str(tmp_path)})
         assert result.exit_code == 0
         assert "sources.yml updated" in result.output
@@ -116,10 +138,12 @@ class TestSourceEdit:
         sources_file.write_text(original)
 
         runner = CliRunner()
-        with patch("click.edit", return_value=invalid):
+        with (
+            patch("click.edit", return_value=invalid),
+            patch.dict("os.environ", {"EDITOR": "vim"}),
+        ):
             result = runner.invoke(source_edit, obj={"project_root": str(tmp_path)})
         assert result.exit_code == 0
         assert "Invalid YAML" in result.output
         assert "Changes NOT saved" in result.output
-        # File should be unchanged
         assert sources_file.read_text() == original

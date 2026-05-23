@@ -17,7 +17,7 @@ import hmac
 import json
 import shutil
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -133,7 +133,7 @@ async def _save_and_broadcast() -> None:
         {
             "event": "initial_sync_progress",
             "data": _sync_state.to_dict(),
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
         }
     )
 
@@ -207,14 +207,14 @@ async def _run_initial_sync(project_root: Path, sources: list[dict[str, str]]) -
 
     _sync_state.phase = SyncPhase.SYNCING
     _sync_state.total_sources = len(sources)
-    _sync_state.started_at = datetime.now().isoformat()
+    _sync_state.started_at = datetime.now(tz=timezone.utc).isoformat()
     await _save_and_broadcast()
 
     for i, source in enumerate(sources):
         # Check cancel
         if _sync_state.cancel_requested:
             _sync_state.phase = SyncPhase.CANCELLED
-            _sync_state.completed_at = datetime.now().isoformat()
+            _sync_state.completed_at = datetime.now(tz=timezone.utc).isoformat()
             await _save_and_broadcast()
             return
 
@@ -224,7 +224,7 @@ async def _run_initial_sync(project_root: Path, sources: list[dict[str, str]]) -
             _sync_state.phase = SyncPhase.FAILED
             disk_pct = _get_disk_usage_pct()
             _sync_state.error = f"Disk at {disk_pct:.0f}%. Free space or resize the server."
-            _sync_state.completed_at = datetime.now().isoformat()
+            _sync_state.completed_at = datetime.now(tz=timezone.utc).isoformat()
             await _save_and_broadcast()
             return
 
@@ -265,7 +265,7 @@ async def _run_initial_sync(project_root: Path, sources: list[dict[str, str]]) -
         _refresh_metabase(project_root)
 
     _sync_state.phase = SyncPhase.COMPLETE
-    _sync_state.completed_at = datetime.now().isoformat()
+    _sync_state.completed_at = datetime.now(tz=timezone.utc).isoformat()
     await _save_and_broadcast()
 
 

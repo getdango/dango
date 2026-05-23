@@ -277,7 +277,7 @@
             <!-- Columns sub-tab -->
             <div x-show="detailTab === 'columns'">
                 <template x-if="selectedModel.columns && selectedModel.columns.length > 0">
-                    <div class="bg-white shadow rounded-lg overflow-hidden">
+                    <div class="bg-white shadow rounded-lg overflow-x-hidden">
                         <div class="catalog-table-wrapper overflow-x-auto">
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
@@ -298,9 +298,9 @@
                                         <tr>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                                 <span x-text="col.name"></span>
-                                                <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800 catalog-tooltip" :data-tip="'Auto-detected: ' + (col._pii || '') + ' — Manage via CLI: dango governance pii-set'">PII ⚑</span>
-                                                <span x-show="col._pii && col._piiProvenance === 'confirmed'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800 catalog-tooltip" :data-tip="'Confirmed: ' + (col._pii || '')">PII ✓</span>
-                                                <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800 catalog-tooltip" x-text="col._drift" :data-tip="'Schema drift: ' + (col._drift || '')"></span>
+                                                <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800 tooltip" :data-tooltip="'Auto-detected: ' + (col._pii || '') + ' — Manage via CLI: dango governance pii-set'">PII ⚑</span>
+                                                <span x-show="col._pii && col._piiProvenance === 'confirmed'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800 tooltip" :data-tooltip="'Confirmed: ' + (col._pii || '')">PII ✓</span>
+                                                <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800 tooltip" x-text="col._drift" :data-tooltip="'Schema drift: ' + (col._drift || '')"></span>
                                             </td>
                                             <td class="px-6 py-4 whitespace-nowrap"><span class="col-type text-gray-600" x-text="col.type || '--'"></span></td>
                                             <td class="px-6 py-4 text-sm text-gray-500 hidden sm:table-cell" x-text="col.description || '--'"></td>
@@ -309,9 +309,9 @@
                                                 <template x-if="col.tests && col.tests.length > 0">
                                                     <div class="flex flex-wrap gap-1">
                                                         <template x-for="t in col.tests" :key="t.name">
-                                                            <span class="text-xs px-1.5 py-0.5 rounded truncate inline-block align-middle catalog-tooltip" style="max-width: 200px"
+                                                            <span class="text-xs px-1.5 py-0.5 rounded truncate inline-block align-middle tooltip" style="max-width: 200px"
                                                                   :class="t.status === 'pass' ? 'bg-green-100 text-green-800' : t.status === 'fail' || t.status === 'error' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'"
-                                                                  :data-tip="t.name"
+                                                                  x-bind:data-tooltip="t.name"
                                                                   x-text="(t.status === 'pass' ? '✓ ' : t.status === 'fail' || t.status === 'error' ? '✗ ' : '') + t.name.replace(/^(not_null|unique|accepted_values)_/, '$1: ')"></span>
                                                         </template>
                                                     </div>
@@ -456,9 +456,9 @@
                 <div class="lineage-wrapper bg-white shadow rounded-lg overflow-hidden" style="height:600px">
                     <div id="lineage-container" style="width:100%;height:100%"></div>
                     <div class="lineage-controls">
-                        <button @click="lineageZoomIn()" title="Zoom in">+</button>
-                        <button @click="lineageZoomOut()" title="Zoom out">&minus;</button>
-                        <button @click="lineageFitAll()" title="Fit all">&#8694;</button>
+                        <button @click="lineageZoomIn()" class="tooltip" data-tooltip="Zoom in">+</button>
+                        <button @click="lineageZoomOut()" class="tooltip" data-tooltip="Zoom out">&minus;</button>
+                        <button @click="lineageFitAll()" class="tooltip" data-tooltip="Fit all">&#8694;</button>
                     </div>
                     <div class="lineage-detail" x-show="selectedNode" x-cloak x-transition.opacity>
                         <div class="lineage-detail-header">
@@ -703,11 +703,22 @@ function catalogPage() {
                     // Attach PII and drift indicators to columns
                     if (model.columns) {
                         const tblName = model.name;
+                        // For staging tables (stg_{source}__{raw_table}), also check
+                        // PII findings from the corresponding raw source table.
+                        let rawSource = null;
+                        let rawTable = null;
+                        const stgMatch = tblName.match(/^stg_(.+?)__(.+)$/);
+                        if (stgMatch) {
+                            rawSource = stgMatch[1];
+                            rawTable = stgMatch[2];
+                        }
                         for (const col of model.columns) {
                             const pii = this.piiFindings.find(f => {
                                 const sourceMatch = model.source_name ? f.source === model.source_name : true;
                                 return sourceMatch && f.table_name === tblName && f.column_name === col.name;
-                            });
+                            }) || (rawSource && rawTable ? this.piiFindings.find(f =>
+                                f.source === rawSource && f.table_name === rawTable && f.column_name === col.name
+                            ) : null);
                             col._pii = pii ? pii.entity_type : null;
                             const override = this.piiOverrides.find(o => {
                                 const sourceMatch = model.source_name ? o.source === model.source_name : true;

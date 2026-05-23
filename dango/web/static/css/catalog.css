@@ -110,12 +110,22 @@
     pointer-events: none;
 }
 
-/* Description truncation */
+/* Description truncation — responsive max-width so name+type stay visible */
 .desc-truncate {
-    max-width: 300px;
+    max-width: 150px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+@media (min-width: 768px) {
+    .desc-truncate {
+        max-width: 250px;
+    }
+}
+@media (min-width: 1024px) {
+    .desc-truncate {
+        max-width: 300px;
+    }
 }
 
 /* Test status indicators */

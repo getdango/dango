@@ -89,9 +89,52 @@ def print_panel(content: str, title: str, border_style: str = "blue") -> None:
     console.print(Panel(content, title=title, border_style=border_style))
 
 
-def confirm(message: str, default: bool = False) -> bool:
+def safe_confirm(
+    text: str,
+    default: bool = False,
+    *,
+    abort: bool = False,
+) -> bool:
+    """Prompt with ``(yes/no)`` format instead of click.confirm's ``[y/N]``.
+
+    Uses ``click.prompt`` under the hood so the prompt is explicit and
+    unambiguous in non-interactive / CI environments.
+
+    When stdin is not a TTY the *default* value is returned without
+    prompting (prevents hangs in non-interactive contexts).
+
+    Args:
+        text: The confirmation question to display.
+        default: Value returned when user presses Enter (or stdin is not a TTY).
+        abort: If *True* and the user answers "no", raise ``click.Abort``.
+
+    Returns:
+        ``True`` if the user answered yes, ``False`` otherwise.
+
+    Raises:
+        click.Abort: When *abort* is ``True`` and the answer is no.
     """
-    Ask for confirmation.
+    default_str = "yes" if default else "no"
+    try:
+        result = click.prompt(f"{text} (yes/no)", default=default_str, show_default=True)
+    except (click.Abort, EOFError):
+        # Non-interactive context with no input available
+        if not default and abort:
+            raise click.Abort() from None
+        return default
+    answered_yes = str(result).lower().strip() in ("yes", "y")
+
+    if not answered_yes and abort:
+        raise click.Abort()
+
+    return answered_yes
+
+
+def confirm(message: str, default: bool = False) -> bool:
+    """Ask for confirmation.
+
+    Delegates to :func:`safe_confirm` which uses the explicit ``(yes/no)``
+    prompt format.
 
     Args:
         message: Confirmation message
@@ -100,7 +143,7 @@ def confirm(message: str, default: bool = False) -> bool:
     Returns:
         True if confirmed, False otherwise
     """
-    return click.confirm(message, default=default)
+    return safe_confirm(message, default=default)
 
 
 def get_git_branch(project_root: Path | None = None) -> str | None:

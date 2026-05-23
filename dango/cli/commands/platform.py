@@ -6,6 +6,7 @@ Platform lifecycle commands (start, stop, status) and port helpers.
 import click
 
 from dango.cli import console
+from dango.cli.utils import safe_confirm
 from dango.logging import get_logger
 
 logger = get_logger(__name__)
@@ -193,7 +194,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                     "[yellow]   Starting locally will run a SEPARATE instance. "
                     "Your cloud server is unaffected.[/yellow]"
                 )
-                if not click.confirm("Continue?", default=True):
+                if not safe_confirm("Continue?", default=True):
                     raise click.Abort()
                 console.print()
 
@@ -409,7 +410,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                 manager.stop_all_dango_containers()
                 console.print()
         except Exception:
-            logger.debug("orphan_docker_cleanup_failed", exc_info=True)
+            logger.debug("orphan_docker_cleanup_failed")
 
         # Check Docker service ports (Metabase and dbt-docs)
         _check_docker_ports(platform_config)
@@ -664,7 +665,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                     break
 
             except Exception:
-                logger.debug("health_poll_failed", exc_info=True)
+                logger.debug("health_poll_failed")
 
             time.sleep(1)
 

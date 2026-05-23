@@ -364,7 +364,12 @@ def get_component_disk_usage(project_root: Path) -> dict[str, Any]:
     try:
         if duckdb_path.exists():
             duckdb_info["file_size_mb"] = round(duckdb_path.stat().st_size / (1024**2), 2)
-            # Per-schema estimated sizes (read-only connection)
+            # Per-schema estimated sizes (read-only connection).
+            # NOTE: DuckDB stores everything in a single file; there is no true
+            # per-schema disk size.  ``estimated_size`` from ``duckdb_tables()``
+            # reflects *uncompressed in-memory* size, so it will usually be
+            # larger than the actual on-disk footprint.  We label these as
+            # "estimated data size" in the UI to avoid confusion.
             try:
                 conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
                 try:

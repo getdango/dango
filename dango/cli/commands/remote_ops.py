@@ -13,6 +13,7 @@ import click
 
 from dango.cli import console
 from dango.cli.commands.remote import remote
+from dango.cli.utils import safe_confirm
 
 # ---------------------------------------------------------------------------
 # dango remote upgrade
@@ -81,7 +82,7 @@ def remote_upgrade(
             console.print()
             if skip_backup:
                 console.print("[yellow]Warning:[/yellow] Pre-upgrade backup will be skipped.")
-            if not click.confirm("Proceed with upgrade?"):
+            if not safe_confirm("Proceed with upgrade?"):
                 console.print("[yellow]Upgrade cancelled.[/yellow]")
                 return
 
@@ -264,7 +265,7 @@ def remote_resize(ctx: click.Context, size: str | None, yes: bool) -> None:
     )
 
     if not yes:
-        if not click.confirm("\nProceed with resize?"):
+        if not safe_confirm("\nProceed with resize?"):
             console.print("[yellow]Resize cancelled.[/yellow]")
             return
 
@@ -426,7 +427,7 @@ def remote_migrate(
         )
 
     if not yes:
-        if not click.confirm("\nProceed with migration?"):
+        if not safe_confirm("\nProceed with migration?"):
             console.print("[yellow]Migration cancelled.[/yellow]")
             return
 

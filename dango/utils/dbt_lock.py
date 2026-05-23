@@ -10,7 +10,7 @@ import os
 import sys
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO, Any
 
@@ -103,7 +103,7 @@ class DbtLock:
             "pid": os.getpid(),
             "source": self.source,
             "operation": self.operation,
-            "started_at": datetime.now().isoformat(),
+            "started_at": datetime.now(tz=timezone.utc).isoformat(),
             "hostname": hostname,
         }
 

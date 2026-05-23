@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -195,7 +195,7 @@ class DltPipelineRunner:
 
         source_name = source_config.name
         source_type = source_config.type
-        start_time = datetime.now()
+        start_time = datetime.now(tz=timezone.utc)
 
         console.print(f"\n{'=' * 60}")
         console.print(f"🍡 Syncing: [bold]{source_name}[/bold] ({source_type.value})")
@@ -362,7 +362,7 @@ class DltPipelineRunner:
                     )
 
                     # Return failure result
-                    duration = (datetime.now() - start_time).total_seconds()
+                    duration = (datetime.now(tz=timezone.utc) - start_time).total_seconds()
                     history_entry = {
                         "timestamp": start_time.isoformat(),
                         "status": "failed",
@@ -406,7 +406,7 @@ class DltPipelineRunner:
                     )
 
                     # Return failure result
-                    duration = (datetime.now() - start_time).total_seconds()
+                    duration = (datetime.now(tz=timezone.utc) - start_time).total_seconds()
                     history_entry = {
                         "timestamp": start_time.isoformat(),
                         "status": "failed",
@@ -432,7 +432,7 @@ class DltPipelineRunner:
                     }
 
             # Calculate duration
-            duration = (datetime.now() - start_time).total_seconds()
+            duration = (datetime.now(tz=timezone.utc) - start_time).total_seconds()
 
             # Save sync history and log result
             result_status = result.get("status", "failed")
@@ -506,7 +506,7 @@ class DltPipelineRunner:
             console.print(f"[red]{friendly_error}[/red]")
 
             # Log error
-            duration = (datetime.now() - start_time).total_seconds()
+            duration = (datetime.now(tz=timezone.utc) - start_time).total_seconds()
             error_message = str(e)
 
             # CSV/local_files are always full refresh regardless of the flag

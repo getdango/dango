@@ -292,6 +292,10 @@ def scan_table_for_pii(
     findings: list[dict[str, Any]] = []
 
     for col_name, data_type in columns:
+        # Skip internal dlt metadata columns — they never contain user PII.
+        # Case-insensitive: DuckDB may return uppercase identifiers.
+        if col_name.lower().startswith("_dlt_"):
+            continue
         if not _is_string_type(data_type):
             continue
 

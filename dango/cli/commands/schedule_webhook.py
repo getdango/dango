@@ -26,6 +26,7 @@ from dango.cli.commands.schedule import (
     _save_schedules_yaml,
     webhook,
 )
+from dango.cli.utils import safe_confirm
 
 # ---------------------------------------------------------------------------
 # webhook list
@@ -168,7 +169,7 @@ def webhook_remove(ctx: click.Context, name: str, yes: bool) -> None:
         raise SystemExit(1)
 
     if not yes:
-        if not click.confirm(f"Remove webhook '{name}'?"):
+        if not safe_confirm(f"Remove webhook '{name}'?"):
             console.print("[dim]Cancelled.[/dim]")
             return
 

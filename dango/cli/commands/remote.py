@@ -40,6 +40,7 @@ from typing import Any
 import click
 
 from dango.cli import console
+from dango.cli.utils import safe_confirm
 
 # ---------------------------------------------------------------------------
 # Top-level group
@@ -238,7 +239,7 @@ def remote_rollback(ctx: click.Context, backup: str | None, yes: bool) -> None:
     from dango.platform.cloud.backup import rollback
 
     if not yes:
-        if not click.confirm(
+        if not safe_confirm(
             "This will restore the server from a backup. "
             "Current data will be overwritten. Continue?"
         ):
@@ -352,7 +353,7 @@ def remote_push(
     git_info_param = git_info if git_info.is_git_repo else None
 
     if not dry_run and not yes:
-        if not click.confirm(
+        if not safe_confirm(
             "This will push local files to the remote server and rebuild. Continue?"
         ):
             console.print("[yellow]Push cancelled.[/yellow]")
