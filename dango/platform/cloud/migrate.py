@@ -57,6 +57,53 @@ def _notify(callback: Callable[[str, str], None] | None, step: str, status: str)
         callback(step, status)
 
 
+def _build_spaces_upload_script(
+    archive_path: str,
+    region: str,
+    endpoint: str,
+    access_key_env: str,
+    secret_key_env: str,
+    bucket: str,
+    spaces_key: str,
+) -> str:
+    """Build the Python script that uploads a backup to Spaces.
+
+    Extracted for testability — validates via ``ast.parse()`` in unit tests.
+    """
+    return (
+        "import boto3, os\n"
+        f"s3 = boto3.client('s3', region_name={region!r},\n"
+        f"    endpoint_url={endpoint!r},\n"
+        f"    aws_access_key_id=os.environ[{access_key_env!r}],\n"
+        f"    aws_secret_access_key=os.environ[{secret_key_env!r}])\n"
+        f"s3.upload_file({archive_path!r}, {bucket!r}, {spaces_key!r})\n"
+    )
+
+
+def _build_spaces_download_script(
+    region: str,
+    endpoint: str,
+    access_key_env: str,
+    secret_key_env: str,
+    bucket: str,
+    spaces_key: str,
+    local_path: str,
+) -> str:
+    """Build the Python script that downloads a backup from Spaces.
+
+    Extracted for testability — validates via ``ast.parse()`` in unit tests.
+    """
+    return (
+        "import boto3, os\n"
+        "os.makedirs('/srv/dango/backups/deploy', exist_ok=True)\n"
+        f"s3 = boto3.client('s3', region_name={region!r},\n"
+        f"    endpoint_url={endpoint!r},\n"
+        f"    aws_access_key_id=os.environ[{access_key_env!r}],\n"
+        f"    aws_secret_access_key=os.environ[{secret_key_env!r}])\n"
+        f"s3.download_file({bucket!r}, {spaces_key!r}, {local_path!r})\n"
+    )
+
+
 def _upload_backup_to_spaces(
     ssh: SSHManager,
     archive_path: str,
@@ -76,13 +123,14 @@ def _upload_backup_to_spaces(
     region = spaces_config.region or "nyc3"
     endpoint = f"https://{region}.digitaloceanspaces.com"
 
-    script = (
-        "import boto3, os\n"
-        f"s3 = boto3.client('s3', region_name={region!r},\n"
-        f"    endpoint_url={endpoint!r},\n"
-        f"    aws_access_key_id=os.environ[{spaces_config.access_key_env!r}],\n"
-        f"    aws_secret_access_key=os.environ[{spaces_config.secret_key_env!r}])\n"
-        f"s3.upload_file({archive_path!r}, {spaces_config.bucket!r}, {spaces_key!r})\n"
+    script = _build_spaces_upload_script(
+        archive_path=archive_path,
+        region=region,
+        endpoint=endpoint,
+        access_key_env=spaces_config.access_key_env,
+        secret_key_env=spaces_config.secret_key_env,
+        bucket=spaces_config.bucket,
+        spaces_key=spaces_key,
     )
 
     script_path = "/tmp/_dango_upload.py"
@@ -122,14 +170,14 @@ def _download_backup_from_spaces(
     region = spaces_config.region or "nyc3"
     endpoint = f"https://{region}.digitaloceanspaces.com"
 
-    script = (
-        "import boto3, os\n"
-        "os.makedirs('/srv/dango/backups/deploy', exist_ok=True)\n"
-        f"s3 = boto3.client('s3', region_name={region!r},\n"
-        f"    endpoint_url={endpoint!r},\n"
-        f"    aws_access_key_id=os.environ[{spaces_config.access_key_env!r}],\n"
-        f"    aws_secret_access_key=os.environ[{spaces_config.secret_key_env!r}])\n"
-        f"s3.download_file({spaces_config.bucket!r}, {spaces_key!r}, {local_path!r})\n"
+    script = _build_spaces_download_script(
+        region=region,
+        endpoint=endpoint,
+        access_key_env=spaces_config.access_key_env,
+        secret_key_env=spaces_config.secret_key_env,
+        bucket=spaces_config.bucket,
+        spaces_key=spaces_key,
+        local_path=local_path,
     )
 
     script_path = "/tmp/_dango_download.py"

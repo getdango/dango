@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dango.cli.commands.deploy_provision import (
+    _build_admin_script,
     _create_admin_and_enable_auth,
     _extract_ip,
     _generate_cloud_profiles,
@@ -660,40 +661,32 @@ class TestAdminUpsertSemantics:
 
     def test_no_bare_except_pass_in_admin_script(self):
         """Admin creation script must not have bare 'except Exception: pass'."""
-        import inspect
-
-        source = inspect.getsource(_create_admin_and_enable_auth)
+        script = _build_admin_script("admin@example.com", "$2b$12$placeholder")
 
         # The script string should not contain pass after except Exception
-        assert "pass  # user may already exist" not in source, (
+        assert "pass  # user may already exist" not in script, (
             "Found bare 'except Exception: pass' — admin creation must use upsert semantics"
         )
 
     def test_catches_user_exists_error_not_broad_exception(self):
         """Admin script must catch UserExistsError specifically, not broad Exception."""
-        import inspect
-
-        source = inspect.getsource(_create_admin_and_enable_auth)
-        assert "except UserExistsError:" in source, (
+        script = _build_admin_script("admin@example.com", "$2b$12$placeholder")
+        assert "except UserExistsError:" in script, (
             "Must catch UserExistsError specifically — broad except Exception swallows real errors"
         )
-        assert "from dango.exceptions import UserExistsError" in source
+        assert "from dango.exceptions import UserExistsError" in script
 
     def test_script_contains_update_user_import(self):
         """Admin script string must import update_user for upsert."""
-        import inspect
-
-        source = inspect.getsource(_create_admin_and_enable_auth)
-        assert "update_user" in source
-        assert "get_user_by_email" in source
-        assert "UserUpdate" in source
+        script = _build_admin_script("admin@example.com", "$2b$12$placeholder")
+        assert "update_user" in script
+        assert "get_user_by_email" in script
+        assert "UserUpdate" in script
 
     def test_script_updates_password_when_user_exists(self):
         """Script must update password_hash when admin already exists."""
-        import inspect
-
-        source = inspect.getsource(_create_admin_and_enable_auth)
-        assert "UserUpdate(password_hash=pw_hash" in source, (
+        script = _build_admin_script("admin@example.com", "$2b$12$placeholder")
+        assert "UserUpdate(password_hash=pw_hash" in script, (
             "Must update password_hash with wizard-provided password on race condition"
         )
 

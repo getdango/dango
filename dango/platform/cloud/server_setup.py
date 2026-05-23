@@ -583,7 +583,7 @@ def resolve_install_source() -> tuple[str, str]:
                 commit = head.stdout.strip()
                 return ("git", f"git+{_normalize_git_url(url)}@{commit}#egg=getdango")
         except Exception:
-            pass
+            _logger.debug("worktree_git_info_failed", exc_info=True)
 
         return ("pypi", f"getdango=={dango.__version__}")
 
