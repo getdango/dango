@@ -126,7 +126,7 @@ This document describes the **target v1 architecture**. Not-yet-implemented feat
 | `dango_db.py` | SQLite context manager for `.dango/dango.db` and schema initialization |
 | `post_sync.py` | Post-sync hook dispatcher: profiling, staging tests, PII scan, analysis, snapshots, notifications |
 | `git_info.py` | Git repository info and deployment guardrails |
-| `driver.py` | DuckDB driver version utilities |
+| `driver.py` | Metabase DuckDB driver version management |
 
 **Public API:** `DbtLock`, `DbtLockError`, `dbt_lock()`, `log_activity()`, `save_sync_history_entry()`, `load_sync_history()`, `ensure_dbt_schemas()`
 
@@ -714,13 +714,13 @@ The web module (`web/routes/`) exposes REST endpoints across 23 route files, 1 W
 | Notifications | `GET /api/notifications/config`, `POST /api/notifications/test` |
 | Secrets | `GET /api/secrets`, `POST /api/secrets`, `DELETE /api/secrets/{key}`, `GET /api/secrets/oauth`, `DELETE /api/secrets/oauth/{source_type}` |
 | OAuth Connect | `GET /oauth/connect/{source_type}`, `GET /oauth/callback/{source_type}` |
-| Catalog | `GET /api/catalog/sources`, `GET /api/catalog/sources/{source}/tables`, `GET /api/catalog/sources/{source}/tables/{table}`, `GET /api/catalog/{source}/{table}/columns`, `POST /api/catalog/{source}/{table}/profile`, `GET /api/catalog/models`, `GET /api/catalog/models/{model}`, `GET /api/catalog/models/{model}/tests`, `GET /api/catalog/models/{model}/lineage`, `POST /api/catalog/search`, `GET /api/catalog/raw-tables`, `GET /api/catalog/lineage`, `GET /api/catalog/impact/{model_name}`, `GET /api/catalog/summary` |
+| Catalog | `GET /api/catalog/{source}/{table}/columns`, `POST /api/catalog/{source}/{table}/profile`, `GET /api/catalog/models`, `GET /api/catalog/models/{model_name}`, `GET /api/catalog/search`, `GET /api/catalog/lineage`, `GET /api/catalog/impact/{model_name}`, `GET /api/catalog/summary` |
 | AI / Query | `GET /api/tools`, `POST /api/query` |
 | Governance | `GET /api/governance/schema-drift`, `GET /api/governance/pii`, `GET /api/governance/pii/overrides`, `POST /api/governance/drift/{source}/accept`, `GET /api/governance/attention` |
-| Notebooks | `GET /api/notebooks`, `POST /api/notebooks`, `DELETE /api/notebooks/{name}`, `POST /api/notebooks/{name}/lock`, `POST /api/notebooks/{name}/heartbeat`, `POST /api/notebooks/{name}/release`, `DELETE /api/notebooks/{name}/lock`, `POST /api/notebooks/{name}/copy`, `POST /api/notebooks/{name}/snapshot` |
+| Notebooks | `GET /api/notebooks`, `POST /api/notebooks`, `DELETE /api/notebooks/{name}`, `POST /api/notebooks/{name}/lock`, `POST /api/notebooks/{name}/heartbeat`, `POST /api/notebooks/{name}/release`, `DELETE /api/notebooks/{name}/lock`, `POST /api/notebooks/{name}/copy` |
 | Monitoring | `GET /api/monitoring`, `POST /api/monitoring/run`, `GET /api/monitoring/history` |
 | Initial Sync | `POST /api/initial-sync/start`, `GET /api/initial-sync/status`, `POST /api/initial-sync/skip-source`, `POST /api/initial-sync/cancel` |
-| Docs | `GET /api/docs` (Swagger), `GET /api/redoc` |
+| Docs | `GET /api` (info), `GET /api/docs` (Swagger), `GET /api/redoc` |
 | Real-time | `WS /ws` (sync progress, errors) |
 | dbt Docs Proxy | `GET /manifest.json`, `GET /catalog.json`, `GET /dbt-docs`, `GET /dbt-docs/{path}` |
 | Metabase Proxy | `/metabase/*` (reverse proxy with SSO session injection) |
