@@ -317,7 +317,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            "incremental": True,
+            # rest_api is a generic source — whether it's incremental depends
+            # entirely on per-endpoint user configuration. Not incremental by
+            # default.
+            "incremental": False,
             "custom_queries": True,
         },
     },
@@ -428,6 +431,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": True,
             "date_range": False,
+            # Mixed: 5/6 resources (campaigns, ads, ad_sets, ad_creatives,
+            # leads) use replace. Only facebook_insights uses
+            # merge+incremental(date_start). Marked True because insights —
+            # the primary analytics payload — are incremental.
             "incremental": True,
             "custom_queries": False,
         },
@@ -628,6 +635,11 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
+            # Mixed: 7/15 resources use merge+incremental (account, opportunity,
+            # opportunity_line_item, opportunity_contact_role, campaign_member,
+            # task, event); 8/15 use replace. Marked True because the
+            # highest-volume CRM objects (accounts, opportunities) are
+            # incremental.
             "incremental": True,
             "custom_queries": False,
         },
@@ -689,7 +701,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": True,
-            "incremental": True,
+            # stripe_source uses write_disposition="replace" for all resources
+            # (full refresh every sync). incremental_stripe_source exists but
+            # dango calls stripe_source via the registry's dlt_function.
+            "incremental": False,
             "custom_queries": False,
         },
     },
@@ -1433,7 +1448,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": True,
-            "incremental": True,
+            # workable_source uses write_disposition="replace" for 7/8
+            # resources. Only candidates uses merge+incremental(updated_at).
+            "incremental": False,
             "custom_queries": False,
         },
     },
@@ -1476,7 +1493,11 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            "incremental": True,
+            # asana_source uses write_disposition="replace" for 6/8 resources
+            # (workspaces, projects, sections, tags, users, teams). Only tasks
+            # uses merge+incremental(modified_at); stories uses append (no
+            # cursor). Not truly incremental overall.
+            "incremental": False,
             "custom_queries": False,
         },
     },
@@ -1627,7 +1648,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            "incremental": True,
+            # mongodb() accepts an optional incremental parameter (defaults to
+            # None). Without explicit configuration, it does a full load — not
+            # incremental by default.
+            "incremental": False,
             "custom_queries": False,
         },
     },
@@ -1683,7 +1707,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            "incremental": True,
+            # sql_database() accepts an optional incremental parameter per
+            # table (defaults to None). Without explicit configuration, it
+            # loads all rows on every run — not incremental by default.
+            "incremental": False,
             "custom_queries": False,
         },
     },
