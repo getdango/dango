@@ -20,10 +20,8 @@ models:
 {% for model in models %}
   - name: {{ model.name }}
     description: |
-      Staging model for {{ model.table_name }} from {{ source_name }}.
-
-      This model cleans and prepares raw data from `{{ model.schema_name }}.{{ model.table_name }}`
-      for downstream analysis. Edit the SQL in `{{ model.name }}.sql` to customize transformations.
+      {{ model.description }}
+      Edit the SQL in `{{ model.name }}.sql` to customize transformations.
 
     columns:
 {% for column in model.columns %}

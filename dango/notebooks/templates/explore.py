@@ -1,6 +1,9 @@
 """dango/notebooks/templates/explore.py
 
 Data exploration starter template — lists schemas/tables with sample queries.
+
+Available packages: pandas, duckdb, marimo.
+To install more: pip install <package> in the project's venv (source venv/bin/activate).
 """
 
 import marimo
@@ -63,5 +66,13 @@ def list_tables(conn):
 def sample_query(conn):
     """Run an ad-hoc query — edit the SQL below to explore your data."""
     # Edit the query below to explore your data
-    result = conn.sql("SELECT 1 AS hello").fetchdf()
+    try:
+        result = conn.sql("SELECT 1 AS hello").fetchdf()
+    except Exception as e:
+        if "narwhals" in str(e).lower() or "read_only" in str(e).lower():
+            print(
+                "Tip: Add .fetchdf() to your query to get a DataFrame. "
+                "Example: conn.sql('SELECT ...').fetchdf()"
+            )
+        raise
     return (result,)

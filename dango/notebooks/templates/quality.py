@@ -1,6 +1,9 @@
 """dango/notebooks/templates/quality.py
 
 Data quality starter template — null counts, distinct values, row counts.
+
+Available packages: pandas, duckdb, marimo.
+To install more: pip install <package> in the project's venv (source venv/bin/activate).
 """
 
 import marimo
@@ -60,11 +63,19 @@ def row_counts(conn):
 def null_analysis(conn):
     """Show column metadata for a target table — edit the WHERE clause."""
     # Replace with your target table
-    result = conn.sql(
-        "SELECT column_name, data_type "
-        "FROM information_schema.columns "
-        "WHERE table_schema = 'raw' "
-        "ORDER BY ordinal_position "
-        "LIMIT 20"
-    ).fetchdf()
+    try:
+        result = conn.sql(
+            "SELECT column_name, data_type "
+            "FROM information_schema.columns "
+            "WHERE table_schema = 'raw' "
+            "ORDER BY ordinal_position "
+            "LIMIT 20"
+        ).fetchdf()
+    except Exception as e:
+        if "narwhals" in str(e).lower() or "read_only" in str(e).lower():
+            print(
+                "Tip: Add .fetchdf() to your query to get a DataFrame. "
+                "Example: conn.sql('SELECT ...').fetchdf()"
+            )
+        raise
     return (result,)
