@@ -562,6 +562,7 @@ class DbtModelGenerator:
                         staging_models_for_yml.append(
                             {
                                 "name": f"stg_{source.name}__{table['name']}",
+                                "description": f"Staging model for {table['name']} from {source.name}",
                                 "table_name": table["name"],
                                 "schema_name": schema_name,
                                 "columns": stg_cols,

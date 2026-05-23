@@ -177,7 +177,10 @@ def _step_region() -> str:
     regions = list_regions()
 
     console.print("\n[bold]Step 2: Select Region[/bold]")
-    console.print(f"  Suggested (nearest): [green]{suggested.name}[/green] ({suggested.slug})\n")
+    console.print(
+        f"  Suggested (nearest): [green]{suggested.name}[/green] ({suggested.slug})"
+        f" [dim]— nearest match based on your UTC offset[/dim]\n"
+    )
 
     for i, r in enumerate(regions, 1):
         gdpr_tag = " [dim](GDPR)[/dim]" if r.gdpr else ""
