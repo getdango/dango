@@ -177,9 +177,9 @@ def _step_region() -> str:
     regions = list_regions()
 
     console.print("\n[bold]Step 2: Select Region[/bold]")
-    console.print(f"  Suggested (nearest): [green]{suggested.name}[/green] ({suggested.slug})")
     console.print(
-        f"  [dim]Selected {suggested.slug} (closest to your location based on UTC offset)[/dim]\n"
+        f"  Suggested (nearest): [green]{suggested.name}[/green] ({suggested.slug})"
+        f"  [dim]— nearest match based on your UTC offset[/dim]\n"
     )
 
     for i, r in enumerate(regions, 1):

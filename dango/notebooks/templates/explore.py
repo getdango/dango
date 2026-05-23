@@ -2,7 +2,7 @@
 
 Data exploration starter template — lists schemas/tables with sample queries.
 
-Available packages: pandas, duckdb, marimo, polars, pyarrow.
+Available packages: pandas, duckdb, marimo.
 To install more: pip install <package> in the project's venv (source venv/bin/activate).
 """
 

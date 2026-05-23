@@ -19,7 +19,9 @@ version: 2
 models:
 {% for model in models %}
   - name: {{ model.name }}
-    description: "{{ model.description }}"
+    description: |
+      {{ model.description }}
+      Edit the SQL in `{{ model.name }}.sql` to customize transformations.
 
     columns:
 {% for column in model.columns %}

@@ -449,7 +449,7 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
             show_default=True,
         )
     )
-    if force or str(_stop_answer).lower().strip() in ("yes", "y"):
+    if str(_stop_answer).lower().strip() in ("yes", "y"):
         from dango.platform.cloud.ssh import SSHManager
 
         key_path = _resolve_key_path(cloud_cfg, project_root)
