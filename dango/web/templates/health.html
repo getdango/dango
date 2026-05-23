@@ -366,7 +366,7 @@
                     </div>`;
                     if (bd.duckdb.schema_sizes && Object.keys(bd.duckdb.schema_sizes).length > 0) {
                         rows += `<div class="flex justify-between pl-4">
-                            <dt class="text-xs text-gray-400 italic" colspan="2">Estimated data size (uncompressed)</dt>
+                            <dt class="text-xs text-gray-400 italic">Estimated data size (uncompressed)</dt>
                             <dd></dd>
                         </div>`;
                         for (const [schema, bytes] of Object.entries(bd.duckdb.schema_sizes)) {

@@ -48,14 +48,21 @@ def get_marimo_pid_file_path(project_root: Path) -> Path:
     return project_root / ".dango" / "marimo.pid"
 
 
-def _is_port_responding(port: int, timeout: float = 1.0) -> bool:
-    """Check if a server is already listening on localhost:port."""
-    import socket
+def _is_marimo_responding(port: int, timeout: float = 1.0) -> bool:
+    """Check if a Marimo server is responding on localhost:port.
+
+    Uses an HTTP GET to verify the response is from Marimo (not an
+    unrelated service that happens to be on the same port).
+    """
+    import urllib.request
 
     try:
-        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
-            return True
-    except (ConnectionRefusedError, OSError, TimeoutError):
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/", method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            # Marimo returns HTML with "marimo" in the response
+            body = resp.read(4096).decode("utf-8", errors="ignore")
+            return "marimo" in body.lower()
+    except Exception:
         return False
 
 
@@ -102,7 +109,7 @@ def start_marimo(
 
     # After force-unlock, marimo may still be running on the configured port.
     # Check if the port is already responding before starting a new instance.
-    if _is_port_responding(port):
+    if _is_marimo_responding(port):
         logger.debug("Marimo already responding on port %d — reusing existing server", port)
         # PID file may be missing (e.g., after force-unlock), but we can't
         # recover it without knowing the PID. The server is reachable, so
