@@ -63,16 +63,18 @@ class TestSourceEdit:
         assert "No sources.yml found" in result.output
 
     def test_no_editor_shows_path(self, tmp_path: pytest.TempPathFactory) -> None:
-        """Without $EDITOR or TTY, shows file path instead of opening editor."""
+        """Without $EDITOR, shows file path instead of opening editor."""
         dango_dir = tmp_path / ".dango"
         dango_dir.mkdir()
         sources_file = dango_dir / "sources.yml"
         sources_file.write_text("sources:\n  - name: test\n")
 
         runner = CliRunner()
-        result = runner.invoke(source_edit, obj={"project_root": str(tmp_path)})
+        with patch.dict("os.environ", {"EDITOR": "", "VISUAL": ""}, clear=False):
+            result = runner.invoke(source_edit, obj={"project_root": str(tmp_path)})
         assert result.exit_code == 0
         assert "sources.yml" in result.output
+        assert "EDITOR" in result.output  # Shows tip about setting $EDITOR
 
     def test_editor_returns_none(self, tmp_path: pytest.TempPathFactory) -> None:
         """Editor returns None when user doesn't save."""
@@ -88,6 +90,7 @@ class TestSourceEdit:
         ):
             result = runner.invoke(source_edit, obj={"project_root": str(tmp_path)})
         assert result.exit_code == 0
+        assert "No changes" in result.output or "sources.yml" in result.output
 
     def test_no_changes(self, tmp_path: pytest.TempPathFactory) -> None:
         """Editor returns same content."""

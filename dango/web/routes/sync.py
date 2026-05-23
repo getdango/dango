@@ -106,14 +106,15 @@ async def run_sync_task(
     db_path = get_scheduler_db_path(project_root)
     record_id = record_start(db_path, "ui", sources=[source_name])
 
-    # Immediate UI feedback
+    # Immediate UI feedback (log=False — we write our own entry below)
     await ws_manager.broadcast(
         {
             "event": "sync_started",
             "source": source_name,
             "message": f"Starting sync for {source_name}",
             "timestamp": sync_timestamp,
-        }
+        },
+        log=False,
     )
     append_log_entry(
         {

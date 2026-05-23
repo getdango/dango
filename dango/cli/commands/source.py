@@ -167,8 +167,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
 
     if not has_editor:
         console.print(f"[bold]Edit your sources at:[/bold] {sources_file}")
-        if not has_editor:
-            console.print("[dim]Tip: Set $EDITOR to open in your preferred editor[/dim]")
+        console.print("[dim]Tip: Set $EDITOR to open in your preferred editor[/dim]")
         return
 
     original = sources_file.read_text()

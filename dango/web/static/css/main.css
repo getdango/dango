@@ -112,8 +112,9 @@ code {
     }
 }
 
-/* Prevent action button text from wrapping on narrow viewports */
-button {
+/* Prevent action button text from wrapping in table cells */
+td button,
+th button {
     white-space: nowrap;
 }
 

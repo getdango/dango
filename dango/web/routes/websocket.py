@@ -32,13 +32,37 @@ class ConnectionManager:
         self.active_connections.remove(websocket)
         logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
 
-    async def broadcast(self, message: dict) -> None:
+    async def broadcast(self, message: dict, *, log: bool = True) -> None:
         """Broadcast message to all connected WebSocket clients.
 
-        Note: This method does NOT write to the activity log. Activity log
-        entries are written by the originating subsystem (e.g. dlt_runner,
-        sync.py) to avoid duplicate entries.
+        Args:
+            message: The message dict to broadcast.
+            log: If True (default), also write to activity log. Callers that
+                 already write their own activity log entries should pass
+                 ``log=False`` to avoid duplicates.
         """
+        if log:
+            from dango.web.helpers import append_log_entry
+
+            event = message.get("event", "")
+            _LOG_LEVELS = {
+                "sync_completed": "success",
+                "sync_failed": "error",
+                "dbt_run_all_completed": "success",
+                "dbt_run_all_failed": "error",
+            }
+            level = _LOG_LEVELS.get(event, "info")
+            append_log_entry(
+                {
+                    "timestamp": message.get(
+                        "timestamp", datetime.now(tz=timezone.utc).isoformat()
+                    ),
+                    "level": level,
+                    "source": message.get("source", "system"),
+                    "message": message.get("message", event),
+                }
+            )
+
         # Broadcast to WebSocket clients
         disconnected = []
         for connection in self.active_connections:

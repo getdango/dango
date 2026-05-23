@@ -298,9 +298,9 @@
                                         <tr>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                                 <span x-text="col.name"></span>
-                                                <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800 catalog-tooltip" :data-tip="'Auto-detected: ' + (col._pii || '') + ' — Manage via CLI: dango governance pii-set'">PII ⚑</span>
-                                                <span x-show="col._pii && col._piiProvenance === 'confirmed'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800 catalog-tooltip" :data-tip="'Confirmed: ' + (col._pii || '')">PII ✓</span>
-                                                <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800 catalog-tooltip" x-text="col._drift" :data-tip="'Schema drift: ' + (col._drift || '')"></span>
+                                                <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800 tooltip" :data-tooltip="'Auto-detected: ' + (col._pii || '') + ' — Manage via CLI: dango governance pii-set'">PII ⚑</span>
+                                                <span x-show="col._pii && col._piiProvenance === 'confirmed'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800 tooltip" :data-tooltip="'Confirmed: ' + (col._pii || '')">PII ✓</span>
+                                                <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800 tooltip" x-text="col._drift" :data-tooltip="'Schema drift: ' + (col._drift || '')"></span>
                                             </td>
                                             <td class="px-6 py-4 whitespace-nowrap"><span class="col-type text-gray-600" x-text="col.type || '--'"></span></td>
                                             <td class="px-6 py-4 text-sm text-gray-500 hidden sm:table-cell" x-text="col.description || '--'"></td>
@@ -707,7 +707,7 @@ function catalogPage() {
                         // PII findings from the corresponding raw source table.
                         let rawSource = null;
                         let rawTable = null;
-                        const stgMatch = tblName.match(/^stg_([^_]+)__(.+)$/);
+                        const stgMatch = tblName.match(/^stg_(.+?)__(.+)$/);
                         if (stgMatch) {
                             rawSource = stgMatch[1];
                             rawTable = stgMatch[2];
