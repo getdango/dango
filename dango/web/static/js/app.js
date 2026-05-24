@@ -787,7 +787,6 @@ async function loadSources() {
             if (!tbody) return;
 
             // Only show loading message if we actually have active operations
-            // or a sync just completed (DuckDB may still be releasing the lock)
             const totalFileOps = getTotalFileOperations();
             const hasActiveWork = activeSyncs.size > 0 || totalFileOps > 0 || dbtRunStartTime !== null;
             if (hasActiveWork) {
