@@ -45,10 +45,6 @@ let activeFileOperations = new Map();
 // Track elapsed time intervals for active syncs: Map<sourceName, intervalId>
 let syncTimers = new Map();
 let syncResults = new Map();  // Stores sync_completed data for in-place updates
-// Track recent sync completion to prevent loadSources() from timing out
-// after sync_completed already cleared activeSyncs
-let recentSyncComplete = false;
-let recentSyncCompleteTimeout = null;
 
 /**
  * Format a file size in bytes to a human-readable string (B/KB/MB/GB).
@@ -477,12 +473,6 @@ async function handleWebSocketMessage(data) {
             // Clean up sync state and refresh
             activeSyncs.delete(source);
             updateSyncCounter();
-            // Mark that a sync recently completed — helps loadSources()
-            // show a loading spinner if the DuckDB query times out right
-            // after the sync finishes (activeSyncs is already cleared).
-            recentSyncComplete = true;
-            if (recentSyncCompleteTimeout) clearTimeout(recentSyncCompleteTimeout);
-            recentSyncCompleteTimeout = setTimeout(() => { recentSyncComplete = false; }, 10000);
             loadSources();  // Reload from API to get correct status
             // Fallback: if activeSyncs wasn't set (e.g. upload-triggered sync),
             // the cleanup above is harmless (delete on missing key is a no-op).
@@ -797,9 +787,8 @@ async function loadSources() {
             if (!tbody) return;
 
             // Only show loading message if we actually have active operations
-            // or a sync just completed (DuckDB may still be releasing the lock)
             const totalFileOps = getTotalFileOperations();
-            const hasActiveWork = activeSyncs.size > 0 || totalFileOps > 0 || dbtRunStartTime !== null || recentSyncComplete;
+            const hasActiveWork = activeSyncs.size > 0 || totalFileOps > 0 || dbtRunStartTime !== null;
             if (hasActiveWork) {
                 tbody.innerHTML = `
                     <tr>
@@ -812,17 +801,6 @@ async function loadSources() {
                         </td>
                     </tr>
                 `;
-            }
-
-            // If a sync recently completed, retry quickly (database may still be busy)
-            if (recentSyncComplete && activeSyncs.size === 0 && dbtRunStartTime === null && totalFileOps === 0) {
-                isLoadingSources = false;
-                console.log('⏸️ [loadSources] Scheduling retry in 2s (recent sync complete)');
-                loadSourcesRetryTimeout = setTimeout(() => {
-                    loadSourcesRetryTimeout = null;
-                    loadSources();
-                }, 2000);
-                return;
             }
 
             // DON'T retry if there are active syncs, dbt runs, or file operations

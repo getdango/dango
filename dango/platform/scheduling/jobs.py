@@ -64,7 +64,9 @@ def _broadcast(message: dict[str, Any]) -> None:
     try:
         from dango.web.routes.websocket import ws_manager
 
-        future = asyncio.run_coroutine_threadsafe(ws_manager.broadcast(message), _event_loop)
+        future = asyncio.run_coroutine_threadsafe(
+            ws_manager.broadcast(message, log=False), _event_loop
+        )
         future.result(timeout=_BROADCAST_TIMEOUT)
     except Exception:  # noqa: BLE001
         logger.debug("broadcast_bridge_error", exc_info=True)
@@ -436,8 +438,6 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             }
         )
 
-        from dango.utils.sync_history import save_sync_history_entry
-
         job_id = f"schedule:{schedule_name}"
         total_rows = 0
 
@@ -446,8 +446,6 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         for src in resolved:
             if _scheduler_service is not None and _scheduler_service.is_cancelled(job_id):
                 raise JobCancelledError(f"Sync cancelled between sources for {schedule_name}")
-
-            src_t0 = time.monotonic()
 
             process, sync_id = launch_sync_subprocess(
                 project_root,
@@ -478,18 +476,6 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 src_rows = _result.get("rows_loaded", 0)
                 total_rows += src_rows
 
-            save_sync_history_entry(
-                project_root,
-                src.name,
-                {
-                    "timestamp": _ts(),
-                    "status": "success",
-                    "duration_seconds": round(time.monotonic() - src_t0, 2),
-                    "rows_processed": src_rows,
-                    "trigger": "scheduler",
-                    "schedule": schedule_name,
-                },
-            )
             if not skip_dbt:
                 _add_pending_dbt_source(project_root, src.name)
             cleanup_sync_status(project_root, sync_id=sync_id)

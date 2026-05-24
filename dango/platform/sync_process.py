@@ -385,7 +385,7 @@ async def _broadcast_phase_transition(
             message["source"] = f"dbt (triggered by {source_name})"
         message["error"] = status.get("error")
 
-    await ws_manager.broadcast(message)
+    await ws_manager.broadcast(message, log=False)
 
 
 # ---------------------------------------------------------------------------

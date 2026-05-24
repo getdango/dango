@@ -239,6 +239,10 @@ pre.log-message {
 .tooltip:hover::after {
     opacity: 1;
 }
+/* Override truncate/overflow on hover so tooltip is visible */
+.tooltip.truncate:hover {
+    overflow: visible;
+}
 /* Hide tooltip when data-tooltip is empty or absent */
 .tooltip:not([data-tooltip])::after,
 .tooltip[data-tooltip=""]::after {

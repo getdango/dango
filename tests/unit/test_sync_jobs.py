@@ -158,7 +158,6 @@ class TestRunScheduledSync:
             ) as mock_launch,
             patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
             patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
-            patch(f"{_HIST_MOD}.save_sync_history_entry"),
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._notify"),
             patch(f"{_JOBS_MOD}._check_freshness"),
@@ -188,7 +187,6 @@ class TestRunScheduledSync:
             ),
             patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
             patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
-            patch(f"{_HIST_MOD}.save_sync_history_entry"),
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._notify"),
             patch(f"{_JOBS_MOD}._check_freshness"),
@@ -227,7 +225,9 @@ class TestRunScheduledSync:
         events = [c.args[0]["event"] for c in mock_bc.call_args_list]
         assert "sync_failed" in events
 
-    def test_records_history_per_source(self, tmp_path):
+    def test_launches_subprocess_per_source_multi(self, tmp_path):
+        """Subprocess is launched once per source for multi-source schedules.
+        Sync history is written by the subprocess (dlt_runner.py), not by the scheduler."""
         config = _make_config_with_sources("src1", "src2")
 
         with (
@@ -236,10 +236,9 @@ class TestRunScheduledSync:
             patch(f"{_CFG_MOD}.load_config", return_value=config),
             patch(
                 f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=(MagicMock(), "test_id")
-            ),
+            ) as mock_launch,
             patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
             patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
-            patch(f"{_HIST_MOD}.save_sync_history_entry") as mock_hist,
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._notify"),
             patch(f"{_JOBS_MOD}._check_freshness"),
@@ -250,7 +249,7 @@ class TestRunScheduledSync:
 
             run_scheduled_sync("daily", ["src1", "src2"], project_root=str(tmp_path))
 
-        assert mock_hist.call_count == 2
+        assert mock_launch.call_count == 2
 
     def test_notifies_on_success(self, tmp_path):
         """Notification should be dispatched on successful sync."""
@@ -265,7 +264,6 @@ class TestRunScheduledSync:
             ),
             patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
             patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
-            patch(f"{_HIST_MOD}.save_sync_history_entry"),
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._notify") as mock_notify,
             patch(f"{_JOBS_MOD}._check_freshness"),
@@ -314,7 +312,6 @@ class TestRunScheduledSync:
             ),
             patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
             patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
-            patch(f"{_HIST_MOD}.save_sync_history_entry"),
             patch(f"{_JOBS_MOD}._broadcast"),
             patch(f"{_JOBS_MOD}._notify"),
             patch(f"{_JOBS_MOD}._check_freshness"),
