@@ -523,6 +523,10 @@ class AuthConfig(BaseModel):
     enabled: bool = Field(default=True, description="Enable authentication")
     idle_timeout_minutes: int = Field(default=1440, description="Session idle timeout in minutes")
     session_max_days: int = Field(default=365, description="Maximum session lifetime in days")
+    password_max_age_days: int = Field(
+        default=0,
+        description="Force password change after this many days (0 = disabled)",
+    )
     require_2fa: bool = Field(default=False, description="Require all users to set up 2FA")
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     lockout: AccountLockoutConfig = Field(default_factory=AccountLockoutConfig)
@@ -593,6 +597,13 @@ class CloudConfig(BaseModel):
     )
 
 
+class ApiConfig(BaseModel):
+    """API query endpoint configuration."""
+
+    query_max_rows: int = Field(default=10_000, description="Maximum rows returned by /api/query")
+    query_timeout_seconds: int = Field(default=30, description="Query timeout in seconds")
+
+
 class DangoConfig(BaseModel):
     """Complete Dango project configuration"""
 
@@ -604,3 +615,6 @@ class DangoConfig(BaseModel):
 
     # Authentication settings
     auth: AuthConfig = Field(default_factory=AuthConfig)
+
+    # API settings
+    api: ApiConfig = Field(default_factory=ApiConfig)

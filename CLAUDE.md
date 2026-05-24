@@ -125,7 +125,7 @@ dango/                          # Python package source
 ├── auth/                       # Level 1 — User authentication & access control
 │   ├── __init__.py             # Re-exports 96 public symbols
 │   ├── models.py               # Role, User, Session, APIKey Pydantic models
-│   ├── database.py             # SQLite CRUD (WAL mode, 529 lines)
+│   ├── database.py             # SQLite CRUD (WAL mode, 531 lines)
 │   ├── security.py             # Bcrypt hashing, token generation (386 lines)
 │   ├── sessions.py             # Session + API key lifecycle (289 lines)
 │   ├── permissions.py          # 29 permissions, 3 role mappings
@@ -171,7 +171,7 @@ dango/                          # Python package source
 │   │   └── rate_limit.py       # Rate limiting (~235 lines)
 │   ├── routes/                 # Route modules
 │   │   ├── __init__.py         # Package marker
-│   │   ├── auth.py             # Login/logout, OAuth, invite, API keys (~886 lines)
+│   │   ├── auth.py             # Login/logout, OAuth, invite, API keys (~901 lines)
 │   │   ├── auth_2fa.py         # TOTP 2FA endpoints (~340 lines)
 │   │   ├── users.py            # Admin user CRUD (531 lines)
 │   │   ├── health.py           # /api/status, /api/watcher/status, /api/health/platform
@@ -344,7 +344,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/init.py` | 1334 | — |
 | `visualization/dashboard_manager.py` | 1112 | — |
 | `cli/commands/platform.py` | 1067 | — (extracted from main.py by TASK-005) |
-| `web/routes/auth.py` | 886 | — (split evaluated in DOC-025: exempt, security-critical) |
+| `web/routes/auth.py` | 901 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
 | `web/helpers.py` | 868 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
@@ -357,10 +357,10 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
 | `cli/commands/source.py` | 888 | — (extracted from main.py by TASK-005) |
 | `cli/commands/remote.py` | 700 | — (remote group + push/rollback/firewall/domain) |
-| `cli/commands/remote_mgmt.py` | 509 | — (remote status/logs/ssh/query + deployment history) |
+| `cli/commands/remote_mgmt.py` | 606 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 598 | — (push deploy workflow + deploy lock + journal) |
 | `cli/validate.py` | 652 | — |
-| `config/models.py` | 606 | — (Pydantic config models) |
+| `config/models.py` | 624 | — (Pydantic config models) |
 | `cli/commands/deploy_wizard.py` | 877 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 613 | — |
 | `web/routes/catalog.py` | 1338 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
@@ -368,7 +368,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
 | `platform/cloud/server_setup.py` | 690 | — (server setup + install source detection) |
 | `cli/commands/auth.py` | 660 | — (13 auth subcommands) |
-| `auth/database.py` | 529 | — (SQLite CRUD) |
+| `auth/database.py` | 531 | — (SQLite CRUD) |
 | `web/routes/users.py` | 531 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 518 | — |
 | `cli/commands/schedule.py` | 770 | — (schedule wizard + time customization) |

@@ -34,11 +34,24 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["query"])
 
 # ---------------------------------------------------------------------------
-# Constants
+# Defaults (overridden by api section in project.yml)
 # ---------------------------------------------------------------------------
 
-_MAX_ROWS = 10_000
-_QUERY_TIMEOUT_SECONDS = 30
+_DEFAULT_MAX_ROWS = 10_000
+_DEFAULT_QUERY_TIMEOUT_SECONDS = 30
+
+
+def _get_api_config(request: Request) -> tuple[int, int]:
+    """Return (max_rows, timeout_seconds) from project config, or defaults."""
+    try:
+        from dango.config.helpers import load_config
+
+        project_root = request.app.state.project_root
+        config = load_config(project_root)
+        return config.api.query_max_rows, config.api.query_timeout_seconds
+    except Exception:
+        return _DEFAULT_MAX_ROWS, _DEFAULT_QUERY_TIMEOUT_SECONDS
+
 
 # ---------------------------------------------------------------------------
 # Request / response models
@@ -180,6 +193,7 @@ async def execute_query(
 ) -> QueryResponse | JSONResponse:
     """Execute an ad-hoc SELECT query against the DuckDB warehouse."""
     sql = body.sql
+    max_rows, query_timeout = _get_api_config(request)
 
     # -- Input validation ----------------------------------------------------
     if len(sql.strip()) == 0:
@@ -210,15 +224,15 @@ async def execute_query(
     # -- Execute -------------------------------------------------------------
     try:
         result = await asyncio.wait_for(
-            asyncio.to_thread(_execute_query, str(db_path), sql, _MAX_ROWS),
-            timeout=_QUERY_TIMEOUT_SECONDS,
+            asyncio.to_thread(_execute_query, str(db_path), sql, max_rows),
+            timeout=query_timeout,
         )
     except asyncio.TimeoutError:
         return JSONResponse(
             status_code=408,
             content={
                 "error_code": "DANGO-Q004",
-                "message": f"Query timed out after {_QUERY_TIMEOUT_SECONDS} seconds",
+                "message": f"Query timed out after {query_timeout} seconds",
             },
         )
     except duckdb.Error as exc:
@@ -256,7 +270,7 @@ async def execute_query(
     # -- Response ------------------------------------------------------------
     warning = None
     if result["truncated"]:
-        warning = f"Results truncated to {_MAX_ROWS} rows"
+        warning = f"Results truncated to {max_rows} rows"
 
     return QueryResponse(
         columns=result["columns"],

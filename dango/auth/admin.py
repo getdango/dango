@@ -9,6 +9,7 @@ for the terminal.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +95,7 @@ def ensure_admin(
         password_hash=hash_password(password),
         role=Role.ADMIN,
         must_change_password=True,
+        password_changed_at=datetime.now(timezone.utc),
     )
     try:
         create_user(db_path, user)

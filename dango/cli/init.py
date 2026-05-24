@@ -1185,12 +1185,15 @@ on-run-end:
                 password = generate_temp_password()
 
             # Create admin user
+            from datetime import datetime, timezone
+
             must_change_password = env_password is None  # True for auto-gen, False for env var
             user = User(
                 email=email,
                 password_hash=hash_password(password),
                 role=Role.ADMIN,
                 must_change_password=must_change_password,
+                password_changed_at=datetime.now(timezone.utc),
             )
             create_user(db_path, user)
 
