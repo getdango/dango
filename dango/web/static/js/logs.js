@@ -4,6 +4,12 @@
  * Handles log viewing, filtering, sorting, and pagination
  */
 
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 // Global state
 let ws = null;
 let reconnectInterval = null;
@@ -371,8 +377,8 @@ function renderLogs() {
         const timestamp = new Date(log.timestamp).toLocaleString();
         const levelBadge = getLevelBadge(log.level);
         // Keep original formatting - preserve newlines and spacing
-        const message = log.message || '';
-        const source = log.source || 'system';
+        const message = escapeHtml(log.message || '');
+        const source = escapeHtml(log.source || 'system');
 
         return `
             <tr class="hover:bg-gray-50">

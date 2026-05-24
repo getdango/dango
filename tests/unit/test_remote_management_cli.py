@@ -391,7 +391,7 @@ class TestRemoteQueryCommand:
         mock_loader = _make_loader()
         mock_ssh_instance = MagicMock()
         mock_ssh_instance.exec_command.return_value = _make_command_result(
-            stdout="┌──────────┐\n│ count(*) │\n│    42    │\n└──────────┘"
+            stdout='{"columns": ["count"], "rows": [[42]], "row_count": 1, "truncated": false}'
         )
 
         with (
@@ -404,11 +404,13 @@ class TestRemoteQueryCommand:
         assert result.exit_code == 0
         assert "42" in result.output
 
-    def test_query_uses_readonly(self, tmp_path):
-        """query command passes access_mode=read_only to DuckDB."""
+    def test_query_uses_api_endpoint(self, tmp_path):
+        """query command calls /api/query via the server's Python venv."""
         mock_loader = _make_loader()
         mock_ssh_instance = MagicMock()
-        mock_ssh_instance.exec_command.return_value = _make_command_result(stdout="OK")
+        mock_ssh_instance.exec_command.return_value = _make_command_result(
+            stdout='{"columns": ["x"], "rows": [[1]], "row_count": 1, "truncated": false}'
+        )
 
         with (
             patch(_PATCH_REQUIRE_CTX, return_value=tmp_path),
@@ -418,7 +420,8 @@ class TestRemoteQueryCommand:
             _run(["query", "SELECT 1"], tmp_path)
 
         cmd = mock_ssh_instance.exec_command.call_args[0][0]
-        assert '"access_mode":"read_only"' in cmd
+        assert "localhost:8800/api/query" in cmd
+        assert "create_api_key" in cmd
 
     def test_query_failure_shows_error(self, tmp_path):
         """query command prints stderr on failure."""
@@ -439,10 +442,12 @@ class TestRemoteQueryCommand:
         assert "Error" in result.output
 
     def test_timeout_passthrough(self, tmp_path):
-        """--timeout value is passed to exec_command."""
+        """--timeout value is passed to exec_command (with buffer)."""
         mock_loader = _make_loader()
         mock_ssh_instance = MagicMock()
-        mock_ssh_instance.exec_command.return_value = _make_command_result(stdout="OK")
+        mock_ssh_instance.exec_command.return_value = _make_command_result(
+            stdout='{"columns": ["x"], "rows": [[1]], "row_count": 1, "truncated": false}'
+        )
 
         with (
             patch(_PATCH_REQUIRE_CTX, return_value=tmp_path),
@@ -452,7 +457,7 @@ class TestRemoteQueryCommand:
             _run(["query", "SELECT 1", "--timeout", "120"], tmp_path)
 
         kwargs = mock_ssh_instance.exec_command.call_args[1]
-        assert kwargs["timeout"] == 120
+        assert kwargs["timeout"] == 130  # timeout + 10 buffer
 
     def test_no_deployment_exits(self, tmp_path):
         """Exits when no deployment configured."""

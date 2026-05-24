@@ -447,8 +447,105 @@ def remote_ssh(ctx: click.Context) -> None:
 # query command
 # ---------------------------------------------------------------------------
 
-_DUCKDB_PATH = "/srv/dango/project/data/warehouse.duckdb"
 _VENV_PYTHON = "/srv/dango/venv/bin/python3"
+_AUTH_DB = "/srv/dango/project/.dango/auth.db"
+
+# Python script executed on the remote server via SSH. Creates a temporary
+# API key, calls /api/query on localhost, revokes the key, and prints the
+# JSON response. This ensures the query goes through Dango's auth middleware,
+# RBAC, sqlglot validation, and audit logging — instead of bypassing them
+# with raw DuckDB access.
+_QUERY_SCRIPT = r"""
+import json, sys, urllib.request, urllib.error
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+sql = sys.argv[1]
+timeout = int(sys.argv[2])
+
+db = Path("{auth_db}")
+if not db.exists():
+    print(json.dumps({{"error": "Auth database not found"}}), file=sys.stderr)
+    sys.exit(1)
+
+# Lazy import dango modules (available in server venv)
+from dango.auth.sessions import create_api_key, revoke_api_key
+from dango.auth.database import list_users
+from dango.auth.models import Role
+
+users = list_users(db, active_only=True)
+admin = next((u for u in users if u.role == Role.ADMIN), None)
+if admin is None:
+    print(json.dumps({{"error": "No active admin user found"}}), file=sys.stderr)
+    sys.exit(1)
+
+expires = datetime.now(timezone.utc) + timedelta(seconds=120)
+raw_key, ak = create_api_key(db, admin.id, "remote-query-temp", expires_at=expires)
+
+try:
+    payload = json.dumps({{"sql": sql}}).encode()
+    req = urllib.request.Request(
+        "http://localhost:8800/api/query",
+        data=payload,
+        headers={{
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {{raw_key}}",
+            "X-Requested-With": "XMLHttpRequest",
+        }},
+    )
+    resp = urllib.request.urlopen(req, timeout=timeout)
+    print(resp.read().decode())
+except urllib.error.HTTPError as e:
+    body = e.read().decode()
+    print(body, file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(json.dumps({{"error": str(e)}}), file=sys.stderr)
+    sys.exit(1)
+finally:
+    revoke_api_key(db, ak.id)
+"""
+
+
+def _format_query_result(raw_json: str) -> str:
+    """Format JSON query response as a readable table."""
+    import json
+
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return raw_json
+
+    if "error" in data:
+        return f"Error: {data['error']}"
+
+    columns = data.get("columns", [])
+    rows = data.get("rows", [])
+    warning = data.get("warning")
+
+    if not columns:
+        return "OK (no results)"
+
+    # Calculate column widths
+    col_widths = [len(str(c)) for c in columns]
+    for row in rows:
+        for i, val in enumerate(row):
+            if i < len(col_widths):
+                col_widths[i] = max(col_widths[i], len(str(val)))
+
+    # Build table
+    header = " | ".join(str(c).ljust(w) for c, w in zip(columns, col_widths, strict=False))
+    separator = "-+-".join("-" * w for w in col_widths)
+    lines = [header, separator]
+    for row in rows:
+        line = " | ".join(str(v).ljust(w) for v, w in zip(row, col_widths, strict=False))
+        lines.append(line)
+
+    result = "\n".join(lines)
+    result += f"\n({data.get('row_count', len(rows))} row(s))"
+    if warning:
+        result += f"\n⚠ {warning}"
+    return result
 
 
 @remote.command("query")
@@ -458,8 +555,8 @@ _VENV_PYTHON = "/srv/dango/venv/bin/python3"
 def remote_query(ctx: click.Context, sql: str, timeout: int) -> None:
     """Run a read-only SQL query against the remote DuckDB database.
 
-    The query runs inside the server's Python venv with DuckDB opened in
-    read-only mode, so INSERT/UPDATE/DELETE are rejected.
+    The query is executed through the Dango /api/query endpoint on the
+    remote server, ensuring RBAC, sqlglot validation, and audit logging.
 
     Examples:
       dango remote query "SELECT count(*) FROM information_schema.tables"
@@ -474,29 +571,27 @@ def remote_query(ctx: click.Context, sql: str, timeout: int) -> None:
         console.print(f"[red]Error:[/red] Failed to connect to server: {exc}")
         raise SystemExit(1) from exc
 
-    # SQL is passed as a shell-quoted argv argument to Python on the remote
-    # server. shlex.quote handles local quoting; SSH passes through one
-    # additional shell layer, but since the quoted argument contains no
-    # unquoted metacharacters this is safe for standard SQL input.
-    # DuckDB's access_mode=read_only provides defense-in-depth against writes.
     escaped_sql = shlex.quote(sql)
-    cmd = (
-        f"{_VENV_PYTHON} -c "
-        f"'import duckdb,sys; "
-        f'db=duckdb.connect("{_DUCKDB_PATH}",config={{"access_mode":"read_only"}}); '
-        f"r=db.sql(sys.argv[1]); "
-        f'r.show() if r.description else print("OK")\' '
-        f"{escaped_sql}"
-    )
+    script = _QUERY_SCRIPT.format(auth_db=_AUTH_DB)
+    escaped_script = shlex.quote(script)
+    cmd = f"{_VENV_PYTHON} -c {escaped_script} {escaped_sql} {timeout}"
 
     try:
-        result = ssh.exec_command(cmd, timeout=timeout, check=False)
+        result = ssh.exec_command(cmd, timeout=timeout + 10, check=False)
         if result.success:
             if result.stdout:
-                console.print(result.stdout.rstrip())
+                console.print(_format_query_result(result.stdout.strip()))
         else:
             if result.stderr:
-                console.print(f"[red]Error:[/red] {result.stderr.strip()}")
+                # Try to parse JSON error from the API
+                import json
+
+                try:
+                    err = json.loads(result.stderr.strip())
+                    msg = err.get("message") or err.get("error") or result.stderr.strip()
+                except json.JSONDecodeError:
+                    msg = result.stderr.strip()
+                console.print(f"[red]Error:[/red] {msg}")
             else:
                 console.print("[red]Error:[/red] Query failed with no error output.")
             raise SystemExit(1)

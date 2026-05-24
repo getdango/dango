@@ -1488,15 +1488,15 @@ function renderActivityLog() {
 
     logContainer.innerHTML = activityLog.map(entry => {
         const levelBadge = getLevelBadge(entry.level);
-        const sourceDisplay = entry.source || 'system';
+        const sourceDisplay = escapeHtml(entry.source || 'system');
         // Keep original formatting - don't trim whitespace, preserve newlines
-        const formattedMessage = entry.message || '';
+        const formattedMessage = escapeHtml(entry.message || '');
 
         return `
             <tr class="hover:bg-gray-50 transition-colors duration-150">
                 <td class="px-4 py-3 whitespace-nowrap">${levelBadge}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600">${sourceDisplay}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500">${entry.timestamp}</td>
+                <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500">${escapeHtml(entry.timestamp)}</td>
                 <td class="px-4 py-3 text-sm text-gray-900"><pre class="log-message">${formattedMessage}</pre></td>
             </tr>
         `;
@@ -1685,7 +1685,11 @@ async function loadCsvFilesList(sourceName) {
             const deleteButton = (file.on_disk && canDelete) ?
                 `<button
                     id="delete-btn-${safeFilename}"
-                    onclick="handleFileDelete('${sourceName}', '${file.path}', '${file.filename}', '${safeFilename}')"
+                    data-source="${escapeHtml(sourceName)}"
+                    data-path="${escapeHtml(file.path)}"
+                    data-filename="${escapeHtml(file.filename)}"
+                    data-safe="${safeFilename}"
+                    onclick="handleFileDelete(this.dataset.source, this.dataset.path, this.dataset.filename, this.dataset.safe)"
                     class="ml-2 text-red-600 hover:text-red-800 text-xs font-medium tooltip"
                     data-tooltip="Delete file">
                     Delete
@@ -1694,7 +1698,7 @@ async function loadCsvFilesList(sourceName) {
             return `
                 <div class="flex items-center justify-between py-2 border-b border-blue-100 last:border-0">
                     <div class="flex-1 min-w-0">
-                        <div class="font-medium text-gray-900 truncate">${file.filename}</div>
+                        <div class="font-medium text-gray-900 truncate">${escapeHtml(file.filename)}</div>
                         <div class="text-xs text-gray-500">${sizeDisplay}${rowsDisplay ? ' • ' + rowsDisplay : ''}</div>
                     </div>
                     <div class="flex items-center gap-2">
@@ -2098,9 +2102,9 @@ async function openSourceDetail(sourceName) {
             const startDate = stripeConfig.start_date ? new Date(stripeConfig.start_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Not specified';
 
             configElement.innerHTML = `<div class="space-y-3">
-<div><span class="font-semibold text-gray-700">Data Sources:</span> <span class="text-gray-900">${endpoints.join(', ')}</span></div>
-<div><span class="font-semibold text-gray-700">Syncing From:</span> <span class="text-gray-900">${startDate}</span></div>
-${details.config.description ? `<div><span class="font-semibold text-gray-700">Notes:</span> <span class="text-gray-900">${details.config.description}</span></div>` : ''}
+<div><span class="font-semibold text-gray-700">Data Sources:</span> <span class="text-gray-900">${escapeHtml(endpoints.join(', '))}</span></div>
+<div><span class="font-semibold text-gray-700">Syncing From:</span> <span class="text-gray-900">${escapeHtml(startDate)}</span></div>
+${details.config.description ? `<div><span class="font-semibold text-gray-700">Notes:</span> <span class="text-gray-900">${escapeHtml(details.config.description)}</span></div>` : ''}
 </div>`;
         } else if ((details.config.type === 'csv' && details.config.csv) || (details.config.type === 'local_files' && details.config.local_files)) {
             // Clean rendering for file sources - only show user-relevant info
@@ -2108,10 +2112,10 @@ ${details.config.description ? `<div><span class="font-semibold text-gray-700">N
             const defaultPattern = details.config.type === 'local_files' ? '*' : '*.csv';
 
             configElement.innerHTML = `<div class="space-y-3">
-<div><span class="font-semibold text-gray-700">Upload Location:</span> <span class="text-gray-900">${fileConfig.directory || 'data'}</span></div>
-<div><span class="font-semibold text-gray-700">File Pattern:</span> <span class="text-gray-900">${fileConfig.file_pattern || defaultPattern}</span></div>
+<div><span class="font-semibold text-gray-700">Upload Location:</span> <span class="text-gray-900">${escapeHtml(fileConfig.directory || 'data')}</span></div>
+<div><span class="font-semibold text-gray-700">File Pattern:</span> <span class="text-gray-900">${escapeHtml(fileConfig.file_pattern || defaultPattern)}</span></div>
 ${details.config.type === 'local_files' ? '<div><span class="font-semibold text-gray-700">Formats:</span> <span class="text-gray-900">CSV, JSON, JSONL, Parquet</span></div>' : ''}
-${details.config.description ? `<div><span class="font-semibold text-gray-700">Notes:</span> <span class="text-gray-900">${details.config.description}</span></div>` : ''}
+${details.config.description ? `<div><span class="font-semibold text-gray-700">Notes:</span> <span class="text-gray-900">${escapeHtml(details.config.description)}</span></div>` : ''}
 </div>`;
         } else {
             // Fallback: formatted JSON for other source types

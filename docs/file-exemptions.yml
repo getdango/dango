@@ -25,13 +25,13 @@ exemptions:
 
   # --- Phase 2 auth additions ---
   - file: dango/web/routes/auth.py
-    lines: 886
+    lines: 901
     category: exempt
     reason: "Login/logout, OAuth flows, invite accept, API key CRUD. DOC-025 evaluated split (auth_api.py + auth_oauth.py) — rejected: breaks all test patches, scatters security-critical code. Bridge helper extracted to reduce duplication. BUG-235 added IP-based lockout calls (+19 lines)."
     review_by: "v1.1"
 
   - file: dango/auth/database.py
-    lines: 529
+    lines: 531
     category: exempt
     reason: "TASK-100 added invite token lookup (+25 lines over TASK-095 base)."
     review_by: "v1.1"
@@ -117,7 +117,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/remote_mgmt.py
-    lines: 509
+    lines: 606
     category: exempt
     reason: "P8-004: Added deployment panel to remote status + remote history command. Marginally over limit."
     review_by: "v1.1"
@@ -249,7 +249,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/config/models.py
-    lines: 606
+    lines: 624
     category: exempt
     reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
     review_by: "v1.1"

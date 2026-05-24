@@ -295,6 +295,16 @@ async def login(request: Request) -> JSONResponse:
     # Success
     reset_failed_logins(db_path, login_data.email, client_ip=ip)
 
+    # Password rotation check
+    if auth_config is not None and auth_config.password_max_age_days > 0:
+        if user.password_changed_at is not None:
+            from datetime import timedelta
+
+            age = datetime.now(timezone.utc) - user.password_changed_at
+            if age > timedelta(days=auth_config.password_max_age_days):
+                update_user(db_path, user.id, UserUpdate(must_change_password=True))
+                user.must_change_password = True
+
     # 2FA required — create partial session
     if user.totp_enabled:
         raw_token, _session = create_session(
@@ -425,12 +435,16 @@ async def change_password(request: Request) -> JSONResponse:
             content={"message": "New password must be different from current password"},
         )
 
-    # Update password and clear must_change_password flag
+    # Update password, clear must_change_password, and record change timestamp
     new_hash = hash_password(data.new_password)
     update_user(
         db_path,
         user.id,
-        UserUpdate(password_hash=new_hash, must_change_password=False),
+        UserUpdate(
+            password_hash=new_hash,
+            must_change_password=False,
+            password_changed_at=datetime.now(timezone.utc),
+        ),
     )
 
     # Invalidate all sessions, then create a fresh one
@@ -651,6 +665,7 @@ async def accept_invite(request: Request) -> JSONResponse:
             invite_token_hash=None,
             invite_expires_at=None,
             must_change_password=False,
+            password_changed_at=datetime.now(timezone.utc),
         ),
     )
 

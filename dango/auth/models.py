@@ -44,6 +44,7 @@ class User(BaseModel):
     metabase_password_enc: str | None = None
     must_change_password: bool = False
     last_login: datetime | None = None
+    password_changed_at: datetime | None = None
     invite_token_hash: str | None = None
     invite_expires_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -99,6 +100,7 @@ class UserUpdate(BaseModel):
     metabase_password_enc: str | None = None
     must_change_password: bool | None = None
     last_login: datetime | None = None
+    password_changed_at: datetime | None = None
     invite_token_hash: str | None = None
     invite_expires_at: datetime | None = None
 
