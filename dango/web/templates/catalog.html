@@ -127,7 +127,7 @@
                                         <template x-for="r in searchResults" :key="r.unique_id">
                                             <tr class="hover:bg-gray-50 cursor-pointer" @click="openModel(r.name)">
                                                 <td class="px-6 py-4 whitespace-nowrap">
-                                                    <span class="text-sm font-medium text-blue-600 hover:text-blue-800" x-text="r.name"></span>
+                                                    <a :href="'/catalog?model=' + encodeURIComponent(r.name)" @click.prevent class="text-sm font-medium text-blue-600 hover:text-blue-800" x-text="r.name"></a>
                                                 </td>
                                                 <td class="px-6 py-4 whitespace-nowrap">
                                                     <span class="model-badge" :class="'model-badge-' + r.type" x-text="r.type"></span>
@@ -184,7 +184,7 @@
                                         <template x-for="item in filteredItems" :key="item.unique_id">
                                             <tr class="hover:bg-gray-50 cursor-pointer" @click="openModel(item.name)">
                                                 <td class="px-6 py-4 whitespace-nowrap">
-                                                    <span class="text-sm font-medium text-blue-600 hover:text-blue-800" x-text="item.name"></span>
+                                                    <a :href="'/catalog?model=' + encodeURIComponent(item.name)" @click.prevent class="text-sm font-medium text-blue-600 hover:text-blue-800" x-text="item.name"></a>
                                                 </td>
                                                 <td class="px-6 py-4 whitespace-nowrap">
                                                     <span class="model-badge" :class="'model-badge-' + item.type" x-text="item.type"></span>
@@ -839,15 +839,15 @@ function catalogPage() {
             // Staging/models: derive source from name (stg_{source}__{table}).
             let srcName = item.source_name || (item.schema || '').replace(/^raw_/, '');
             if (!srcName || srcName === item.schema) {
-                const m = (item.name || '').match(/^stg_([^_]+)__/);
+                const m = (item.name || '').match(/^stg_(.+?)__/);
                 if (m) srcName = m[1];
             }
             const f = this.overview.freshness.find(f => f.source === srcName);
             if (!f || f.hours_since_sync == null) return '--';
             const h = f.hours_since_sync;
             if (h < 1) return Math.round(h * 60) + 'm ago';
-            if (h < 24) return h.toFixed(1) + 'h ago';
-            return (h / 24).toFixed(1) + 'd ago';
+            if (h < 24) return Math.round(h) + 'h ago';
+            return Math.round(h / 24) + 'd ago';
         },
 
         toggleLineageView() {

@@ -245,6 +245,16 @@ def _upload_file_if_exists(
         return False
     if dry_run:
         return True
+    # Skip upload if remote file is identical (MD5 hash check).
+    # Avoids re-uploading large files like the ~80MB Metabase DuckDB driver.
+    import hashlib
+
+    local_hash = hashlib.md5(local_path.read_bytes(), usedforsecurity=False).hexdigest()
+    hash_result = ssh.exec_command(f"md5sum {remote_path} 2>/dev/null", timeout=10, check=False)
+    if hash_result.success and hash_result.stdout.strip():
+        remote_hash = hash_result.stdout.strip().split(None, 1)[0]
+        if local_hash == remote_hash:
+            return False
     # Ensure remote parent directory exists
     remote_dir = remote_path.rsplit("/", 1)[0]
     mkdir_result = ssh.exec_command(f"mkdir -p {remote_dir}")
