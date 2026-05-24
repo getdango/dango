@@ -230,12 +230,6 @@ exemptions:
     reason: "TASK-095 added get_user_by_oauth tests (+4 tests). Marginally over limit."
     review_by: "v1.1"
 
-  - file: tests/unit/test_remote_management_cli.py
-    lines: 519
-    category: exempt
-    reason: "Added _format_query_result tests after remote query refactor to /api/query. Marginally over limit."
-    review_by: "v1.1"
-
   - file: tests/unit/test_digitalocean_client.py
     lines: 629
     category: exempt
