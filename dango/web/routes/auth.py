@@ -9,7 +9,7 @@ auth database resolved from the application's project root.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -298,8 +298,6 @@ async def login(request: Request) -> JSONResponse:
     # Password rotation check
     if auth_config is not None and auth_config.password_max_age_days > 0:
         if user.password_changed_at is not None:
-            from datetime import timedelta
-
             age = datetime.now(timezone.utc) - user.password_changed_at
             if age > timedelta(days=auth_config.password_max_age_days):
                 update_user(db_path, user.id, UserUpdate(must_change_password=True))
@@ -830,6 +828,9 @@ async def _resolve_oauth_user(
         )
 
     # Success — create session
+    # Note: password_max_age_days is not checked here because OAuth users
+    # may not have a password. If a user has both, they can bypass rotation
+    # by logging in via OAuth — acceptable for v1 (rotation is advisory).
     reset_failed_logins(db_path, user.email, client_ip=ip)
     auth_config = _get_auth_config(request)
     session_max_days = auth_config.session_max_days if auth_config else DEFAULT_SESSION_MAX_DAYS

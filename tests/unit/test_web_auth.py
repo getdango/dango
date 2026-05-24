@@ -525,3 +525,81 @@ class TestLoginLockoutEnumeration:
         # Both have remaining_seconds
         assert "remaining_seconds" in resp_known.json()
         assert "remaining_seconds" in resp_unknown.json()
+
+
+# ---------------------------------------------------------------------------
+# Password rotation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestPasswordRotation:
+    """Tests for password_max_age_days rotation policy."""
+
+    def _login_with_rotation(
+        self,
+        tmp_path: Path,
+        password_age_days: int,
+        max_age_days: int,
+    ) -> tuple[Any, Path]:
+        """Helper: create user with password_changed_at, mock config, login."""
+        from unittest.mock import patch
+
+        from dango.config.models import AuthConfig
+
+        db_path = _make_db(tmp_path)
+        changed_at = datetime.now(timezone.utc) - timedelta(days=password_age_days)
+        _make_user(db_path, password_changed_at=changed_at)
+
+        auth_config = AuthConfig(password_max_age_days=max_age_days)
+        client = _make_client(_make_app(db_path))
+
+        with patch("dango.web.routes.auth._get_auth_config", return_value=auth_config):
+            resp = client.post(
+                "/api/auth/login",
+                json={"email": "test@example.com", "password": "securepassword123"},
+            )
+        return resp, db_path
+
+    def test_expired_password_sets_must_change(self, tmp_path: Path) -> None:
+        """Login with an expired password sets must_change_password in response."""
+        resp, db_path = self._login_with_rotation(tmp_path, password_age_days=100, max_age_days=90)
+
+        assert resp.status_code == 200
+        assert resp.json()["must_change_password"] is True
+
+        user_id = resp.json()["user"]["id"]
+        updated = db.get_user_by_id(db_path, user_id)
+        assert updated is not None
+        assert updated.must_change_password is True
+
+    def test_fresh_password_no_flag(self, tmp_path: Path) -> None:
+        """Login with a fresh password does not set must_change_password."""
+        resp, _db_path = self._login_with_rotation(tmp_path, password_age_days=10, max_age_days=90)
+
+        assert resp.status_code == 200
+        assert resp.json()["must_change_password"] is False
+
+    def test_rotation_disabled_no_check(self, tmp_path: Path) -> None:
+        """password_max_age_days=0 disables rotation check entirely."""
+        resp, _db_path = self._login_with_rotation(tmp_path, password_age_days=1000, max_age_days=0)
+
+        assert resp.status_code == 200
+        assert resp.json()["must_change_password"] is False
+
+    def test_change_password_sets_timestamp(self, tmp_path: Path) -> None:
+        """Password change updates password_changed_at."""
+        client, db_path, user = _setup_auth_client(tmp_path)
+
+        before = datetime.now(timezone.utc)
+        resp = client.post(
+            "/api/auth/change-password",
+            json={"current_password": "securepassword123", "new_password": "newpassword456"},
+            headers=_auth_headers(),
+        )
+        assert resp.status_code == 200
+
+        updated = db.get_user_by_id(db_path, user.id)
+        assert updated is not None
+        assert updated.password_changed_at is not None
+        assert updated.password_changed_at >= before

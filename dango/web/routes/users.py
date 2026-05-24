@@ -147,12 +147,15 @@ async def admin_create_user(
 
     if data.generate_password:
         # Fallback: temp password flow
+        from datetime import datetime, timezone
+
         password = generate_temp_password()
         new_user = User(
             email=data.email,
             password_hash=hash_password(password),
             role=role,
             must_change_password=True,
+            password_changed_at=datetime.now(timezone.utc),
         )
         try:
             create_user(db_path, new_user)
@@ -312,11 +315,17 @@ async def admin_reset_password(
     if target is None:
         return JSONResponse(status_code=404, content={"message": "User not found"})
 
+    from datetime import datetime, timezone
+
     password = generate_temp_password()
     updated = update_user(
         db_path,
         user_id,
-        UserUpdate(password_hash=hash_password(password), must_change_password=True),
+        UserUpdate(
+            password_hash=hash_password(password),
+            must_change_password=True,
+            password_changed_at=datetime.now(timezone.utc),
+        ),
     )
     invalidate_all_user_sessions(db_path, user_id)
     log_auth_event(

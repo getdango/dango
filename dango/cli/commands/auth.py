@@ -144,6 +144,7 @@ def auth_add_user(
                 password_hash=hash_password(password),
                 role=Role(role),
                 must_change_password=True,
+                password_changed_at=datetime.now(timezone.utc),
             )
             create_user(db_path, user)
             console.print(format_credentials_panel(user.email, password, title="User created"))
@@ -262,7 +263,11 @@ def auth_reset_password(ctx: click.Context, email: str) -> None:
         update_user(
             db_path,
             user.id,
-            UserUpdate(password_hash=hash_password(password), must_change_password=True),
+            UserUpdate(
+                password_hash=hash_password(password),
+                must_change_password=True,
+                password_changed_at=datetime.now(timezone.utc),
+            ),
         )
         invalidate_all_user_sessions(db_path, user.id)
         console.print(format_credentials_panel(user.email, password, title="Password reset"))
@@ -634,6 +639,7 @@ def auth_recover(ctx: click.Context) -> None:
             password_hash=hash_password(password),
             role=Role.ADMIN,
             must_change_password=True,
+            password_changed_at=datetime.now(timezone.utc),
         )
         try:
             create_user(db_path, user)

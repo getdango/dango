@@ -480,6 +480,7 @@ if admin is None:
     sys.exit(1)
 
 expires = datetime.now(timezone.utc) + timedelta(seconds=120)
+ak = None
 raw_key, ak = create_api_key(db, admin.id, "remote-query-temp", expires_at=expires)
 
 try:
@@ -500,10 +501,11 @@ except urllib.error.HTTPError as e:
     print(body, file=sys.stderr)
     sys.exit(1)
 except Exception as e:
-    print(json.dumps({{"error": str(e)}}), file=sys.stderr)
+    print(json.dumps({{"error": "Query request failed"}}), file=sys.stderr)
     sys.exit(1)
 finally:
-    revoke_api_key(db, ak.id)
+    if ak is not None:
+        revoke_api_key(db, ak.id)
 """
 
 
