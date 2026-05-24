@@ -284,13 +284,13 @@
                                     <tr>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Column</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Description</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Nullable</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Tests</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden xl:table-cell">Null %</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden xl:table-cell">Distinct</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden xl:table-cell">Min</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden xl:table-cell">Max</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nullable</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tests</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Null %</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Distinct</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Min</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Max</th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200">
@@ -303,9 +303,9 @@
                                                 <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800 tooltip" x-text="col._drift" :data-tooltip="'Schema drift: ' + (col._drift || '')"></span>
                                             </td>
                                             <td class="px-6 py-4 whitespace-nowrap"><span class="col-type text-gray-600" x-text="col.type || '--'"></span></td>
-                                            <td class="px-6 py-4 text-sm text-gray-500 hidden sm:table-cell" x-text="col.description || '--'"></td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell" x-text="col.nullable != null ? (col.nullable ? 'Yes' : 'No') : '--'"></td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm hidden lg:table-cell">
+                                            <td class="px-6 py-4 text-sm text-gray-500" x-text="col.description || '--'"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="col.nullable != null ? (col.nullable ? 'Yes' : 'No') : '--'"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm">
                                                 <template x-if="col.tests && col.tests.length > 0">
                                                     <div class="flex flex-wrap gap-1">
                                                         <template x-for="t in col.tests" :key="t.name">
@@ -320,10 +320,10 @@
                                                     <span class="text-gray-400">--</span>
                                                 </template>
                                             </td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden xl:table-cell" x-text="col.stats?.null_pct != null ? col.stats.null_pct + '%' : '—'"></td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden xl:table-cell" x-text="col.stats?.distinct_count != null ? Number(col.stats.distinct_count).toLocaleString() : '—'"></td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden xl:table-cell" x-text="col.stats?.min != null ? col.stats.min : '—'"></td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden xl:table-cell" x-text="col.stats?.max != null ? col.stats.max : '—'"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="col.stats?.null_pct != null ? col.stats.null_pct + '%' : '—'"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="col.stats?.distinct_count != null ? Number(col.stats.distinct_count).toLocaleString() : '—'"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="col.stats?.min != null ? col.stats.min : '—'"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="col.stats?.max != null ? col.stats.max : '—'"></td>
                                         </tr>
                                     </template>
                                 </tbody>

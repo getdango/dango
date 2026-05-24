@@ -665,9 +665,16 @@ def start(ctx: click.Context, yes: bool) -> None:
                     break
 
             except Exception:
-                logger.debug("health_poll_failed")
+                pass
 
             time.sleep(1)
+
+        if not fastapi_ready:
+            console.print("[yellow]⚠[/yellow]  Dashboard not ready within timeout")
+        if not metabase_ready:
+            console.print(
+                "[yellow]⚠[/yellow]  Metabase not ready within timeout (may still be starting)"
+            )
 
         try:
             webbrowser.open(base_url)

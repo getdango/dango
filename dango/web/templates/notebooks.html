@@ -268,23 +268,29 @@ function notebooksPage() {
                     return;
                 }
 
-                // Poll until Marimo is ready, then navigate
+                // Navigate to Marimo
                 if (nbWindow) {
                     const url = data.marimo_url;
-                    const poll = async () => {
-                        for (let i = 0; i < 60; i++) {
-                            try {
-                                const r = await fetch(url);
-                                if (r.ok || r.status === 200) {
-                                    nbWindow.location.href = url;
-                                    return;
-                                }
-                            } catch { /* not ready yet */ }
-                            await new Promise(r => setTimeout(r, 1000));
-                        }
-                        nbWindow.location.href = url; // try anyway after 60s
-                    };
-                    poll();
+                    if (data.ready) {
+                        // Marimo was already running — navigate immediately
+                        nbWindow.location.href = url;
+                    } else {
+                        // New Marimo just started — poll until ready
+                        const poll = async () => {
+                            for (let i = 0; i < 60; i++) {
+                                try {
+                                    const r = await fetch(url);
+                                    if (r.ok || r.status === 200) {
+                                        nbWindow.location.href = url;
+                                        return;
+                                    }
+                                } catch { /* not ready yet */ }
+                                await new Promise(r => setTimeout(r, 1000));
+                            }
+                            nbWindow.location.href = url; // try anyway after 60s
+                        };
+                        poll();
+                    }
                 }
                 this.activeNotebook = nb.name;
                 this.startHeartbeat(nb.name);

@@ -383,7 +383,8 @@ async def lock_notebook(
         )
 
     status = await asyncio.to_thread(get_marimo_status, project_root)
-    if not status["running"]:
+    already_running = status["running"]
+    if not already_running:
         # Create DuckDB snapshot so notebooks use a read-only copy
         snapshot_path = None
         try:
@@ -397,6 +398,7 @@ async def lock_notebook(
         except RuntimeError:
             # Already running (race condition) — get status again
             status = await asyncio.to_thread(get_marimo_status, project_root)
+            already_running = True
     else:
         logger.debug("Marimo already running — skipping snapshot creation")
 
@@ -415,7 +417,9 @@ async def lock_notebook(
 
     start_idle_checker(project_root)
 
-    return JSONResponse(content={"locked": True, "marimo_url": marimo_url})
+    return JSONResponse(
+        content={"locked": True, "marimo_url": marimo_url, "ready": already_running}
+    )
 
 
 @router.post("/api/notebooks/{name}/heartbeat")
