@@ -5,8 +5,9 @@ Dango can be deployed to any Ubuntu 22.04+ server — not just DigitalOcean. Thi
 ## Requirements
 
 - **Ubuntu 22.04+** (tested on 22.04 LTS and 24.04 LTS)
-- **Root SSH access** (key-based authentication)
-- **2+ GB RAM** (4 GB recommended)
+- **Root SSH access** (key-based authentication — see [Enabling Root SSH](#enabling-root-ssh) for GCP/AWS/Azure)
+- **4 GB RAM minimum** (Metabase alone needs ~1.5 GB)
+- **30 GB disk minimum** (Docker images ~5 GB, Python venv ~1.2 GB, plus data)
 - **Ports 22, 80, 443** open in your provider's firewall/security group
 
 ## Quick Start
@@ -52,21 +53,57 @@ All steps are idempotent — safe to re-run if deployment is interrupted.
 
 ### AWS EC2
 
-1. Launch an Ubuntu 22.04 LTS instance (t3.small or larger)
+1. Launch an Ubuntu 22.04 LTS instance (t3.small or larger, **30 GB+ disk**)
 2. Configure Security Group: allow inbound TCP 22, 80, 443
 3. Use the EC2 key pair as your `--ssh-key`
+4. SSH user: `ubuntu` — [enable root SSH](#enabling-root-ssh) before deploying
 
 ### Google Cloud Compute Engine
 
-1. Create a VM with Ubuntu 22.04 LTS image (e2-medium or larger)
+1. Create a VM with Ubuntu 22.04 LTS image (e2-medium or larger, **30 GB+ boot disk** — default 10 GB is too small)
 2. Add VPC firewall rules: allow TCP 22, 80, 443
-3. Add your SSH public key to the VM metadata
+3. Add your SSH public key to the VM metadata (Security → SSH Keys)
+4. SSH user: your username — [enable root SSH](#enabling-root-ssh) before deploying
+
+### Azure
+
+1. Create a VM with Ubuntu 22.04 LTS (Standard_B2s or larger, **30 GB+ disk**)
+2. Configure NSG: allow inbound TCP 22, 80, 443
+3. SSH user: your chosen username — [enable root SSH](#enabling-root-ssh) before deploying
 
 ### Hetzner / Linode / Vultr / Any VPS
 
-1. Create an Ubuntu 22.04 server (2+ GB RAM)
-2. Add your SSH public key during creation
-3. Most VPS providers have ports open by default — Dango's UFW handles host-level firewall
+1. Create an Ubuntu 22.04 server (4 GB+ RAM, 30 GB+ disk)
+2. Add your SSH public key during creation (make sure to **select** the key, not just add it)
+3. SSH user: `root` (works by default on most VPS providers)
+4. Most VPS providers have ports open by default — Dango's UFW handles host-level firewall
+
+## Enabling Root SSH
+
+GCP, AWS, and Azure disable root SSH by default. Dango requires root access for server setup. After creating your VM, SSH in as the default user and run:
+
+```bash
+# SSH in as the default user (ubuntu for AWS, your username for GCP/Azure)
+ssh -i ~/.ssh/id_ed25519 <your-user>@<server-ip>
+
+# Enable root SSH
+sudo cp ~/.ssh/authorized_keys /root/.ssh/authorized_keys
+sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+sudo systemctl restart sshd
+exit
+```
+
+Then run `dango deploy` with SSH user `root`.
+
+## SSH Key Setup
+
+If you don't have an SSH key, create one:
+
+```bash
+ssh-keygen -t ed25519
+```
+
+Press Enter for all prompts (default path, no passphrase). Your public key is at `~/.ssh/id_ed25519.pub` — paste this into your cloud provider's SSH key settings.
 
 ## SSH Key Options
 
