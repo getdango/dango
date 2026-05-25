@@ -1,10 +1,6 @@
 """tests/unit/test_file_sync.py
 
-Unit tests for project file sync (dango/platform/cloud/file_sync.py).
-
-Uses mocked SSHManager and subprocess to avoid real network or
-filesystem access.
-"""
+Unit tests for project file sync."""
 
 from __future__ import annotations
 
@@ -75,27 +71,15 @@ def _make_project(tmp_path: Path, *, with_packages: bool = True) -> Path:
     return root
 
 
-# ---------------------------------------------------------------------------
-# SyncResult tests
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.unit
 class TestSyncConfigFiles:
     """Test SYNC_CONFIG_FILES list contents."""
 
     def test_project_yml_in_sync_list(self):
-        """BUG-098: .dango/project.yml must be synced to the server."""
-        local_paths = [local for local, _ in SYNC_CONFIG_FILES]
-        assert ".dango/project.yml" in local_paths
-
-    def test_project_yml_remote_path(self):
-        """project.yml remote path matches standard layout."""
-        for local, remote in SYNC_CONFIG_FILES:
-            if local == ".dango/project.yml":
-                assert remote == f"{REMOTE_PROJECT_DIR}/.dango/project.yml"
-                return
-        pytest.fail(".dango/project.yml not found in SYNC_CONFIG_FILES")
+        """BUG-098: .dango/project.yml synced with correct remote path."""
+        match = [(lp, rp) for lp, rp in SYNC_CONFIG_FILES if lp == ".dango/project.yml"]
+        assert match, ".dango/project.yml not found in SYNC_CONFIG_FILES"
+        assert match[0][1] == f"{REMOTE_PROJECT_DIR}/.dango/project.yml"
 
     def test_docker_files_in_sync_list(self):
         """Docker build context files are synced (R8-B)."""
@@ -323,6 +307,30 @@ class TestSyncProjectFiles:
         assert ".dango/sources.yml" in result.synced_files
         assert "dbt/dbt_project.yml" in result.synced_files
         assert "dbt/packages.yml" in result.synced_files
+
+    @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
+    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    def test_unchanged_file_skipped_by_hash(self, mock_run, mock_which, tmp_path):
+        """Files with matching remote MD5 hash are not re-uploaded."""
+        import hashlib
+
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        project = _make_project(tmp_path)
+        local_hash = hashlib.md5(
+            (project / ".dango" / "sources.yml").read_bytes(), usedforsecurity=False
+        ).hexdigest()
+        ssh = _make_ssh_mock()
+        orig = ssh.exec_command.side_effect
+
+        def _with_hash(cmd: str, **kw: object) -> CommandResult:
+            if "md5sum" in cmd and "sources.yml" in cmd and "packages" not in cmd:
+                return CommandResult(stdout=f"{local_hash}  x", stderr="", exit_code=0)
+            return orig(cmd, **kw)
+
+        ssh.exec_command.side_effect = _with_hash
+        result = sync_project_files(ssh, project, remote_host="10.0.0.1")
+        assert ".dango/sources.yml" not in result.synced_files
+        assert "dbt/dbt_project.yml" in result.synced_files
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
     @patch("dango.platform.cloud.file_sync.subprocess.run")
