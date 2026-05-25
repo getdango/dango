@@ -317,8 +317,11 @@ def _run_remote_dbt(
     Returns:
         ``CommandResult`` from the SSH command.
     """
+    # cd to project dir first — SSH session starts in /root/ which dango can't access.
+    # dbt resolves paths (incl. CWD) before processing --project-dir.
     cmd = (
-        f"sudo -u dango -H {VENV_BIN}/dbt {subcommand}"
+        f"cd {DBT_PROJECT_DIR} &&"
+        f" sudo -u dango -H {VENV_BIN}/dbt {subcommand}"
         f" --project-dir {DBT_PROJECT_DIR}"
         f" --profiles-dir {DBT_PROJECT_DIR}"
     )
