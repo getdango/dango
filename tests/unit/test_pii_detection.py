@@ -75,6 +75,17 @@ class TestIsStringType:
 class TestGetAnalyzer:
     """Unit tests for _get_analyzer singleton."""
 
+    @pytest.fixture(autouse=True)
+    def _reset_analyzer_globals(self) -> None:
+        """Reset module-level globals before each test."""
+        import dango.governance.pii_detector as pii_module
+
+        pii_module._analyzer = None
+        pii_module._analyzer_init_failed = False
+        yield
+        pii_module._analyzer = None
+        pii_module._analyzer_init_failed = False
+
     def test_caches_analyzer(self) -> None:
         import sys
 

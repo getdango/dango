@@ -310,6 +310,17 @@ def _setup_venv(
         step=step,
         timeout=300,
     )
+    # Install spaCy model for PII scanning (best-effort, non-fatal)
+    spacy_result = ssh.exec_command(
+        "/srv/dango/venv/bin/python -m spacy download en_core_web_sm -q",
+        timeout=120,
+    )
+    if not spacy_result.success:
+        result.warnings.append(
+            "spaCy model 'en_core_web_sm' could not be installed. "
+            "PII scanning will be unavailable until installed manually: "
+            "/srv/dango/venv/bin/python -m spacy download en_core_web_sm"
+        )
     result.steps_completed.append(step)
     _notify(on_progress, step, "done")
 
@@ -637,7 +648,39 @@ def resolve_install_source() -> tuple[str, str]:
 # Public orchestrator
 # ---------------------------------------------------------------------------
 
+
 # Ordered list of step functions for the setup sequence.
+def _preflight_check(ssh: SSHManager, result: SetupResult) -> None:
+    """Check server meets minimum requirements before setup.
+
+    Warns (does not abort) if RAM < 4 GB or available disk < 20 GB.
+    """
+    # Check RAM (total in MB)
+    ram_result = ssh.exec_command("free -m | awk '/Mem:/ {print $2}'", timeout=10)
+    if ram_result.success and ram_result.stdout.strip().isdigit():
+        ram_mb = int(ram_result.stdout.strip())
+        if ram_mb < 3800:  # ~4 GB with overhead
+            result.warnings.append(
+                f"Low RAM: {ram_mb} MB detected (4 GB minimum recommended). "
+                "Metabase and Docker may not run reliably."
+            )
+            _logger.warning("preflight_low_ram", ram_mb=ram_mb, minimum=4096)
+
+    # Check available disk (in MB)
+    disk_result = ssh.exec_command(
+        "df / --output=avail -BM 2>/dev/null | tail -1 | tr -d ' M'",
+        timeout=10,
+    )
+    if disk_result.success and disk_result.stdout.strip().isdigit():
+        disk_mb = int(disk_result.stdout.strip())
+        if disk_mb < 20000:  # 20 GB
+            result.warnings.append(
+                f"Low disk: {disk_mb} MB available (20 GB minimum recommended). "
+                "Docker images, Python venv, and data may not fit."
+            )
+            _logger.warning("preflight_low_disk", available_mb=disk_mb, minimum_mb=20000)
+
+
 _SETUP_STEPS: list[
     Callable[
         [SSHManager, SetupResult, Callable[[str, str], None] | None],
@@ -692,6 +735,9 @@ def setup_server(
         CloudProvisioningError: If any step fails.
     """
     result = SetupResult()
+
+    # --- Pre-flight checks: RAM and disk ---
+    _preflight_check(ssh, result)
 
     # Single worker for v1 — multi-worker breaks WebSocket broadcasts
     # (ws_manager is per-process, so broadcasts only reach clients on the
