@@ -90,7 +90,12 @@ def remote_sync(
         payload["backfill_days"] = backfill_days
 
     escaped_payload = shlex.quote(json.dumps(payload))
-    cmd = f"{_VENV_PYTHON} -m dango.platform.scheduling.sync_trigger {escaped_payload}"
+    # Run as dango user (not root) to avoid file ownership pollution,
+    # and set DANGO_CLOUD_MODE so sync_trigger stops Metabase before writing.
+    cmd = (
+        f"sudo -u dango -H env DANGO_CLOUD_MODE=true"
+        f" {_VENV_PYTHON} -m dango.platform.scheduling.sync_trigger {escaped_payload}"
+    )
 
     try:
         if wait:

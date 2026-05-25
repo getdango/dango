@@ -1039,7 +1039,7 @@ async def get_catalog_model(
         # Derive source from staging model name: stg_{source}__{table}
         import re
 
-        m = re.match(r"^stg_([^_]+)__", table)
+        m = re.match(r"^stg_(.+?)__", table)
         if m:
             source_name = m.group(1)
     if source_name:

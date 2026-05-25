@@ -104,25 +104,32 @@ async def proxy_to_marimo(
     if request.method in ("POST", "PUT", "PATCH"):
         body = await request.body()
 
-    try:
-        async with httpx.AsyncClient(follow_redirects=False, timeout=30.0) as client:
-            resp = await client.request(
-                method=request.method, url=url, headers=headers, content=body
+    # Retry on connect errors — Marimo may still be starting up
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(follow_redirects=False, timeout=30.0) as client:
+                resp = await client.request(
+                    method=request.method, url=url, headers=headers, content=body
+                )
+
+            resp_headers: dict[str, str] = {}
+            for key, value in resp.headers.items():
+                if key.lower() not in _HOP_BY_HOP:
+                    resp_headers[key] = value
+
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                headers=resp_headers,
             )
-
-        resp_headers: dict[str, str] = {}
-        for key, value in resp.headers.items():
-            if key.lower() not in _HOP_BY_HOP:
-                resp_headers[key] = value
-
-        return Response(
-            content=resp.content,
-            status_code=resp.status_code,
-            headers=resp_headers,
-        )
-    except Exception:
-        logger.error("Marimo proxy error for %s", target_path, exc_info=True)
-        return Response(content="Failed to connect to Marimo", status_code=502)
+        except httpx.ConnectError:
+            if attempt < 2:
+                await asyncio.sleep(1)
+        except Exception:
+            logger.error("Marimo proxy error for %s", target_path, exc_info=True)
+            return Response(content="Failed to connect to Marimo", status_code=502)
+    logger.error("Marimo proxy connect failed after retries for %s", target_path)
+    return Response(content="Notebook server is starting, please refresh.", status_code=502)
 
 
 async def proxy_websocket_to_marimo(

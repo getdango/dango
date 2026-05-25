@@ -88,7 +88,7 @@ def _run_remote_auth_cmd(
 
     stderr = result.stderr.strip() if result.stderr else ""
     stdout = result.stdout.strip() if result.stdout else ""
-    msg = stderr or stdout or "Command failed with no output."
+    msg = stdout or stderr or "Command failed with no output."
     console.print(f"[red]Error:[/red] {msg}")
     return False
 

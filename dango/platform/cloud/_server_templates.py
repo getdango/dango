@@ -45,7 +45,10 @@ def build_caddyfile(domain: str | None = None, marimo_port: int = 7805) -> str:
             "\n\t}",
             f"\n{_HSTS_HEADER}\n\t}}",
         )
-        return f"{domain} {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{headers}\n}}\n"
+        domain_block = f"{domain} {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{headers}\n}}\n"
+        # Block direct IP access — prevent unencrypted credential exposure
+        ip_block = ':80 {\n\trespond "Use the configured domain to access this server." 403\n}\n'
+        return f"{domain_block}\n{ip_block}"
     # HTTP-only mode (IP access, no HSTS)
     return f":80 {{\n{marimo_ws}\n\thandle {{\n\t\treverse_proxy localhost:8800\n\t}}\n{_COMMON_HEADERS}\n}}\n"
 

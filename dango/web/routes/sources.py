@@ -163,11 +163,12 @@ async def get_source_details(source_name: str) -> dict[str, object]:
                 "full_refresh" if entry.get("full_refresh", False) else "incremental"
             )
             break
-    sync_mode = (
-        sync_mode_from_history
-        if sync_mode_from_history is not None
-        else ("incremental" if supports_incremental else "full_refresh")
-    )
+    if not supports_incremental:
+        sync_mode = "full_refresh"
+    elif sync_mode_from_history is not None:
+        sync_mode = sync_mode_from_history
+    else:
+        sync_mode = "incremental"
 
     lookback_days = source_config.get("lookback_days")
     if lookback_days is None:

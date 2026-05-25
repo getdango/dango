@@ -318,7 +318,7 @@ def _run_remote_dbt(
         ``CommandResult`` from the SSH command.
     """
     cmd = (
-        f"sudo -u dango {VENV_BIN}/dbt {subcommand}"
+        f"sudo -u dango -H {VENV_BIN}/dbt {subcommand}"
         f" --project-dir {DBT_PROJECT_DIR}"
         f" --profiles-dir {DBT_PROJECT_DIR}"
     )

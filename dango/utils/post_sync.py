@@ -480,7 +480,7 @@ def _run_profiling(project_root: Path, sources: list[str]) -> None:
                 stg_tables = conn_stg.execute(
                     "SELECT table_name FROM information_schema.tables "
                     "WHERE table_schema = 'staging' "
-                    f"AND table_name LIKE 'stg_{source}%' "
+                    f"AND table_name LIKE 'stg_{source}\\_\\_%' ESCAPE '\\' "
                     "ORDER BY table_name"
                 ).fetchall()
             finally:
