@@ -149,6 +149,12 @@ dango deploy destroy
 ```
 
 For BYOS, this:
-- Optionally stops Dango services on the remote server
-- Removes the local `.dango/cloud.yml` config
-- Does **NOT** delete the server itself — manage that through your hosting provider
+1. Offers to download the latest backup
+2. Stops and removes the dango-web systemd service
+3. Stops Docker containers and removes volumes/images
+4. Removes all Dango files (`/srv/dango/`)
+5. Removes the `dango` system user
+6. Removes the Caddy reverse proxy config
+7. Removes the local `.dango/cloud.yml` config
+
+**Important:** The server itself is NOT deleted — delete it through your cloud provider's dashboard to stop billing.

@@ -405,13 +405,16 @@ def deploy_destroy(
 
 
 def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
-    """Tear down a BYOS deployment (stop services, remove local config)."""
+    """Tear down a BYOS deployment: stop services, clean server, remove local config."""
+    import hashlib
+
     from rich.panel import Panel
 
     summary_lines = [
         f"  Server: [bold]{cloud_cfg.droplet_ip}[/bold]",
         "  Provider: BYOS",
-        "  [dim]The server itself will NOT be deleted.[/dim]",
+        "  This will stop all Dango services and remove all data from the server.",
+        "  [dim]The server itself will NOT be deleted — do that via your cloud provider.[/dim]",
     ]
     if cloud_cfg.domain:
         summary_lines.append(f"  Domain: {cloud_cfg.domain}")
@@ -439,37 +442,67 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
             console.print("[yellow]Aborted.[/yellow] Input did not match.")
             raise SystemExit(1)
 
-    # Optionally stop remote services
-    _stop_answer = (
-        "yes"
-        if force
-        else click.prompt(
-            "\n  Stop Dango services on the remote server? (yes/no)",
-            default="no",
-            show_default=True,
-        )
-    )
-    if str(_stop_answer).lower().strip() in ("yes", "y"):
-        from dango.platform.cloud.ssh import SSHManager
+    # --- Clean up remote server ---
+    from dango.platform.cloud.ssh import SSHManager
 
-        key_path = _resolve_key_path(cloud_cfg, project_root)
-        if key_path.exists():
-            ssh = SSHManager(
-                key_path=key_path,
-                known_hosts_path=key_path.parent / "known_hosts",
+    key_path = _resolve_key_path(cloud_cfg, project_root)
+    if key_path.exists():
+        ssh = SSHManager(
+            key_path=key_path,
+            known_hosts_path=key_path.parent / "known_hosts",
+        )
+        try:
+            ssh.connect(cloud_cfg.droplet_ip)
+
+            # 1. Stop dango-web systemd service
+            console.print("Stopping dango-web service...")
+            ssh.exec_command("systemctl stop dango-web 2>/dev/null || true", timeout=15)
+            ssh.exec_command("systemctl disable dango-web 2>/dev/null || true", timeout=10)
+            ssh.exec_command(
+                "rm -f /etc/systemd/system/dango-web.service && systemctl daemon-reload",
+                timeout=10,
             )
-            try:
-                ssh.connect(cloud_cfg.droplet_ip)
-                ssh.exec_command("systemctl stop dango-web 2>/dev/null || true", timeout=15)
-                ssh.exec_command(
-                    "cd /srv/dango/project && sudo -u dango docker compose down 2>/dev/null || true",
-                    timeout=60,
-                )
-                console.print("[green]Stopped[/green] remote services.")
-            except Exception as exc:
-                console.print(f"[yellow]Warning:[/yellow] Could not stop remote services: {exc}")
-            finally:
-                ssh.disconnect()
+
+            # 2. Stop and remove Docker containers, volumes, images
+            # Compute compose project name matching DockerManager.compose_project_name
+            _server_project_dir = "/srv/dango/project"
+            _proj_hash = hashlib.md5(
+                _server_project_dir.encode(), usedforsecurity=False
+            ).hexdigest()[:8]
+            _proj_name = f"dango-{_proj_hash}"
+            console.print("Stopping Docker services...")
+            ssh.exec_command(
+                f"cd {_server_project_dir} && "
+                f"COMPOSE_PROJECT_NAME={_proj_name} docker compose down --volumes --rmi local "
+                "2>/dev/null || true",
+                timeout=120,
+            )
+
+            # 3. Remove all Dango files
+            console.print("Removing server files...")
+            ssh.exec_command("rm -rf /srv/dango", timeout=30)
+
+            # 4. Remove dango system user
+            ssh.exec_command("userdel -r dango 2>/dev/null || true", timeout=10)
+
+            # 5. Remove Caddy config
+            ssh.exec_command(
+                "rm -f /etc/caddy/Caddyfile && systemctl reload caddy 2>/dev/null || true",
+                timeout=10,
+            )
+
+            console.print("[green]Server cleaned up.[/green]")
+        except Exception as exc:
+            console.print(
+                f"[yellow]Warning:[/yellow] Could not fully clean up remote server: {exc}"
+            )
+            console.print("[dim]You may need to SSH in and clean up manually.[/dim]")
+        finally:
+            ssh.disconnect()
+    else:
+        console.print(
+            "[yellow]Warning:[/yellow] SSH key not found — could not clean up remote server."
+        )
 
     # Remove local config
     cloud_yml = project_root / ".dango" / "cloud.yml"
@@ -480,8 +513,11 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
         except OSError as exc:
             console.print(f"[yellow]Warning:[/yellow] Could not remove cloud.yml: {exc}")
 
-    console.print("\n[green]BYOS deployment removed.[/green]")
-    console.print("[dim]The server and its data are still intact.[/dim]")
+    console.print("\n[green]BYOS deployment destroyed.[/green]")
+    console.print(
+        "\n[bold yellow]Important:[/bold yellow] Delete the server in your "
+        "cloud provider's dashboard to stop billing."
+    )
 
 
 def _destroy_do(
