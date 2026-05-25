@@ -395,8 +395,76 @@ def run_manual_sync(
                     capture_output=True,
                     timeout=120,
                 )
+                # Trigger Metabase schema scan so new tables appear immediately
+                _trigger_metabase_schema_scan(project_root)
             except Exception:
                 logger.debug("metabase_start_after_sync_failed", exc_info=True)
+
+
+def _trigger_metabase_schema_scan(project_root: Path) -> None:
+    """Wait for Metabase health, then trigger a schema sync via API.
+
+    Best-effort — failures are logged but do not affect the sync result.
+    """
+    import time
+
+    import requests
+    import yaml
+
+    metabase_url = "http://localhost:3000"
+
+    # Wait for Metabase to become healthy (up to 60 seconds)
+    for _ in range(12):
+        try:
+            resp = requests.get(f"{metabase_url}/api/health", timeout=3)
+            if resp.status_code == 200:
+                break
+        except Exception:
+            pass
+        time.sleep(5)
+    else:
+        logger.debug("metabase_schema_scan_skipped", reason="health_timeout")
+        return
+
+    # Load credentials from metabase.yml
+    mb_yml = project_root / ".dango" / "metabase.yml"
+    if not mb_yml.exists():
+        logger.debug("metabase_schema_scan_skipped", reason="no_metabase_yml")
+        return
+
+    try:
+        with open(mb_yml) as f:
+            creds = yaml.safe_load(f)
+        admin = creds.get("admin", {})
+        email, password = admin.get("email"), admin.get("password")
+        db_id = creds.get("database", {}).get("id")
+        if not email or not password or not db_id:
+            logger.debug("metabase_schema_scan_skipped", reason="missing_credentials")
+            return
+
+        # Login to get session
+        login_resp = requests.post(
+            f"{metabase_url}/api/session",
+            json={"username": email, "password": password},
+            timeout=10,
+        )
+        if login_resp.status_code != 200:
+            logger.debug("metabase_schema_scan_skipped", reason="login_failed")
+            return
+
+        session_id = login_resp.json().get("id")
+        if not session_id:
+            return
+
+        # Trigger schema sync
+        requests.post(
+            f"{metabase_url}/api/database/{db_id}/sync_schema",
+            headers={"X-Metabase-Session": session_id},
+            timeout=10,
+        )
+        logger.debug("metabase_schema_scan_triggered", database_id=db_id)
+    except Exception:
+        logger.debug("metabase_schema_scan_failed", exc_info=True)
 
 
 if __name__ == "__main__":

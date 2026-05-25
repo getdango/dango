@@ -6,6 +6,7 @@ Tests for the server-side manual sync runner (TASK-040c + R10-N subprocess).
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -616,3 +617,85 @@ class TestDbtFailureHandling:
         data = json.loads(status_file.read_text())
         assert data["phase"] == "completed"
         assert "dbt_error" not in data
+
+
+# ---------------------------------------------------------------------------
+# _trigger_metabase_schema_scan tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestTriggerMetabaseSchemaSync:
+    """Tests for _trigger_metabase_schema_scan."""
+
+    def test_skips_when_no_metabase_yml(self, tmp_path: Path) -> None:
+        from dango.platform.scheduling.sync_trigger import (
+            _trigger_metabase_schema_scan,
+        )
+
+        _trigger_metabase_schema_scan(tmp_path)
+        # No exception — gracefully skips
+
+    def test_skips_when_health_timeout(self, tmp_path: Path) -> None:
+        from dango.platform.scheduling.sync_trigger import (
+            _trigger_metabase_schema_scan,
+        )
+
+        mb_yml = tmp_path / ".dango" / "metabase.yml"
+        mb_yml.parent.mkdir(parents=True, exist_ok=True)
+        mb_yml.write_text("admin:\n  email: a@b.com\n  password: pw\ndatabase:\n  id: 1\n")
+
+        mock_requests = MagicMock()
+        mock_requests.get.side_effect = Exception("connection refused")
+        with patch.dict("sys.modules", {"requests": mock_requests}):
+            _trigger_metabase_schema_scan(tmp_path)
+            # Skips after health timeout — no schema sync attempted
+
+    def test_skips_when_missing_credentials(self, tmp_path: Path) -> None:
+        from dango.platform.scheduling.sync_trigger import (
+            _trigger_metabase_schema_scan,
+        )
+
+        mb_yml = tmp_path / ".dango" / "metabase.yml"
+        mb_yml.parent.mkdir(parents=True, exist_ok=True)
+        mb_yml.write_text("admin:\n  email: a@b.com\n")  # no password, no database_id
+
+        health_resp = MagicMock()
+        health_resp.status_code = 200
+
+        mock_requests = MagicMock()
+        mock_requests.get.return_value = health_resp
+        with patch.dict("sys.modules", {"requests": mock_requests}):
+            _trigger_metabase_schema_scan(tmp_path)
+            # No login attempt — missing credentials
+            mock_requests.post.assert_not_called()
+
+    def test_triggers_schema_sync_on_success(self, tmp_path: Path) -> None:
+        from dango.platform.scheduling.sync_trigger import (
+            _trigger_metabase_schema_scan,
+        )
+
+        mb_yml = tmp_path / ".dango" / "metabase.yml"
+        mb_yml.parent.mkdir(parents=True, exist_ok=True)
+        mb_yml.write_text("admin:\n  email: a@b.com\n  password: pw\ndatabase:\n  id: 2\n")
+
+        health_resp = MagicMock()
+        health_resp.status_code = 200
+        login_resp = MagicMock()
+        login_resp.status_code = 200
+        login_resp.json.return_value = {"id": "session123"}
+        sync_resp = MagicMock()
+        sync_resp.status_code = 200
+
+        mock_requests = MagicMock()
+        mock_requests.get.return_value = health_resp
+        mock_requests.post.side_effect = [login_resp, sync_resp]
+        with patch.dict("sys.modules", {"requests": mock_requests}):
+            _trigger_metabase_schema_scan(tmp_path)
+
+            # Verify schema sync was called
+            calls = mock_requests.post.call_args_list
+            assert len(calls) == 2
+            assert "/api/session" in calls[0].args[0]
+            assert "/api/database/2/sync_schema" in calls[1].args[0]
+            assert calls[1].kwargs["headers"]["X-Metabase-Session"] == "session123"
