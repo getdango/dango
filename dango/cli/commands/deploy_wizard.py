@@ -674,7 +674,10 @@ def _step_byos_server(project_root: Path) -> tuple[str, str, str]:
 
     server_ip = click.prompt("  Server IP or hostname")
 
-    ssh_user = click.prompt("  SSH user", default="root", show_default=True)
+    console.print(
+        "  [dim]Common SSH users: root (DO/Hetzner), ubuntu (AWS), your username (GCP)[/dim]"
+    )
+    ssh_user = click.prompt("  SSH user")
 
     console.print("\n  SSH key options:")
     console.print("    1. Use an existing SSH key")

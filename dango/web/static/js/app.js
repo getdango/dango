@@ -2433,7 +2433,7 @@ function renderDbtModelsTable() {
                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     ${actionButtons}
                     <a
-                        href="/catalog"
+                        href="/catalog?model=${encodeURIComponent(model.name)}"
                         class="text-blue-600 hover:text-blue-900 tooltip"
                         data-tooltip="View documentation"
                     >

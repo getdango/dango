@@ -485,8 +485,8 @@ class SSHManager:
             stdin, stdout_chan, stderr_chan = self._client.exec_command(
                 command, timeout=effective_timeout
             )
-            stdout_data = stdout_chan.read().decode("utf-8")
-            stderr_data = stderr_chan.read().decode("utf-8")
+            stdout_data = stdout_chan.read().decode("utf-8", errors="replace")
+            stderr_data = stderr_chan.read().decode("utf-8", errors="replace")
             exit_code: int = stdout_chan.channel.recv_exit_status()
         except pm.ChannelException as exc:
             raise CloudSSHError(f"SSH channel error: {exc}") from exc
@@ -640,7 +640,7 @@ class SSHManager:
                 if timeout is not None:
                     sftp.get_channel().settimeout(timeout)
                 with sftp.open(remote_path, "r") as remote_file:
-                    return str(remote_file.read().decode("utf-8"))
+                    return str(remote_file.read().decode("utf-8", errors="replace"))
             finally:
                 sftp.close()
         except OSError as exc:

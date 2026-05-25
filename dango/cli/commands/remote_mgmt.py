@@ -121,17 +121,19 @@ def remote_status(ctx: click.Context) -> None:
     latest_version = check_latest_pypi_version()
 
     # --- Server info ---
-    tier_info = ""
-    for tier in SIZE_TIERS:
-        if tier.slug == cloud_cfg.size:
-            tier_info = f" ({tier.name}, ${tier.price_monthly}/mo)"
-            break
-
     server_lines = [
         f"  IP: [bold]{cloud_cfg.droplet_ip}[/bold]",
-        f"  Region: {cloud_cfg.region}",
-        f"  Size: {cloud_cfg.size}{tier_info}",
     ]
+    if cloud_cfg.provider != "byos":
+        tier_info = ""
+        for tier in SIZE_TIERS:
+            if tier.slug == cloud_cfg.size:
+                tier_info = f" ({tier.name}, ${tier.price_monthly}/mo)"
+                break
+        server_lines.append(f"  Region: {cloud_cfg.region}")
+        server_lines.append(f"  Size: {cloud_cfg.size}{tier_info}")
+    else:
+        server_lines.append("  Provider: BYOS")
     if cloud_cfg.domain:
         server_lines.append(f"  Domain: {cloud_cfg.domain}")
     console.print(Panel("\n".join(server_lines), title="Server", border_style="blue"))
