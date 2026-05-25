@@ -437,7 +437,7 @@ def _trigger_metabase_schema_scan(project_root: Path) -> None:
             creds = yaml.safe_load(f)
         admin = creds.get("admin", {})
         email, password = admin.get("email"), admin.get("password")
-        db_id = creds.get("database_id")
+        db_id = creds.get("database", {}).get("id")
         if not email or not password or not db_id:
             logger.debug("metabase_schema_scan_skipped", reason="missing_credentials")
             return
