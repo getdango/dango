@@ -217,9 +217,10 @@ def run_manual_sync(
             "error": error_msg,
         }
 
-    # --- Stop Metabase on cloud to release DuckDB read lock ---
-    # Metabase's JDBC driver acquires fcntl read locks even on :ro Docker
-    # volumes.  These read locks block DuckDB write locks needed by dlt.
+    # --- Stop Metabase on cloud to prevent DuckDB lock conflicts ---
+    # :ro Docker mount does NOT prevent fcntl lock acquisition. Metabase's JDBC
+    # driver acquires locks that block DuckDB writes needed by dlt.
+    # Stopping Metabase before sync is the actual prevention mechanism.
     _cloud_mode = os.environ.get("DANGO_CLOUD_MODE") == "true"
     if _cloud_mode:
         _progress("metabase_stop", "Pausing Metabase for sync")
