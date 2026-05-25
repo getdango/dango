@@ -105,8 +105,6 @@ async def proxy_to_marimo(
         body = await request.body()
 
     # Retry on connect errors — Marimo may still be starting up
-    import asyncio
-
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(follow_redirects=False, timeout=30.0) as client:
