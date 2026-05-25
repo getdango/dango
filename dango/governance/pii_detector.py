@@ -43,6 +43,7 @@ _STRUCTURED_DATA_MIN_AVG_LEN = 100
 _STRUCTURED_DATA_DELIMITERS = frozenset({"[", "]", "{", "\n"})
 
 _analyzer: Any = None
+_analyzer_init_failed: bool = False
 
 _SPACY_MODEL = "en_core_web_sm"
 _SPACY_MODEL_URL = (
@@ -85,9 +86,11 @@ def _get_analyzer() -> Any | None:
     Returns ``None`` if the spaCy model cannot be loaded or downloaded,
     allowing callers to gracefully skip PII scanning.
     """
-    global _analyzer  # noqa: PLW0603
+    global _analyzer, _analyzer_init_failed  # noqa: PLW0603
     if _analyzer is not None:
         return _analyzer
+    if _analyzer_init_failed:
+        return None
 
     import spacy  # lazy import
 
@@ -119,6 +122,7 @@ def _get_analyzer() -> Any | None:
                 except OSError:
                     pass
         except Exception:
+            _analyzer_init_failed = True
             logger.warning(
                 "pii_spacy_download_failed",
                 model=_SPACY_MODEL,
@@ -163,6 +167,7 @@ def _get_analyzer() -> Any | None:
         _analyzer = AnalyzerEngine(nlp_engine=provider.create_engine())
         _register_intl_phone_recognizer(_analyzer)
     except Exception:
+        _analyzer_init_failed = True
         logger.warning("pii_analyzer_init_failed", exc_info=True)
         return None
     finally:
