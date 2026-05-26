@@ -166,7 +166,11 @@ async def proxy_to_metabase(
 
     except Exception:
         logger.error("Metabase proxy error for %s", target_path, exc_info=True)
-        return Response(content="Failed to connect to Metabase", status_code=502)
+        return Response(
+            content="Failed to connect to Metabase",
+            status_code=502,
+            headers={"Cache-Control": "no-store"},
+        )
 
 
 async def _do_proxy(
