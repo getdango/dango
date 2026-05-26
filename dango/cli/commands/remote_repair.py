@@ -238,11 +238,11 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         ssh.exec_command("systemctl start dango-web", timeout=30)
 
         # 5. Wait for Metabase to become ready, then re-sync all users
+        import time
+
         console.print("Waiting for Metabase to initialize...")
         _server_project_dir = "/srv/dango/project"
         for _attempt in range(24):  # up to 2 minutes
-            import time
-
             time.sleep(5)
             health = ssh.exec_command(
                 "curl -sf http://localhost:3000/api/health -o /dev/null && echo ok",
