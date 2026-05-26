@@ -585,7 +585,7 @@ class ProjectValidator:
                 re.compile(r"^\.env$"),
                 re.compile(r"^\.env\.local$"),
                 re.compile(r".*\.key$"),
-                re.compile(r"(^|/)cloud_key$"),
+                re.compile(r"(.*/)?cloud_key$"),
             ]
 
             for filepath in tracked:
