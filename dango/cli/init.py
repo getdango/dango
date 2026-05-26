@@ -130,8 +130,11 @@ class ProjectInitializer:
             self._rollback_initialization()
             raise
 
-        # Install pre-push hook if .git exists
-        self._create_pre_push_hook()
+        # Install pre-push hook if .git exists (non-critical)
+        try:
+            self._create_pre_push_hook()
+        except Exception:
+            pass  # Never fail init over a convenience hook
 
         # Print success message
         self._print_success_message(warnings=warnings, failures=failures, auth_success=auth_success)
@@ -308,9 +311,6 @@ secrets/
         hooks_dir.mkdir(exist_ok=True)
 
         hook_path = hooks_dir / "pre-push"
-        if hook_path.exists():
-            return
-
         hook_content = """\
 #!/bin/bash
 echo ""
@@ -322,7 +322,10 @@ echo ""
 """
         import os
 
-        fd = os.open(str(hook_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o755)
+        try:
+            fd = os.open(str(hook_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o755)
+        except FileExistsError:
+            return
         try:
             os.write(fd, hook_content.encode())
         finally:
