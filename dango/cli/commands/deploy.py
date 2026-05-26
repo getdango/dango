@@ -427,9 +427,12 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
         )
     )
 
-    # Offer backup download
-    if not force and cloud_cfg.droplet_ip:
-        _offer_backup_download(cloud_cfg, project_root)
+    # Static backup warning (no server check needed)
+    if not force:
+        console.print(
+            "\n[yellow]All data on the server will be permanently deleted. "
+            "Back up first if needed.[/yellow]"
+        )
 
     # Confirm
     if not force:

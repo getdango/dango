@@ -237,9 +237,50 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         console.print("Restarting dango-web (this may take a few minutes)...")
         ssh.exec_command("systemctl start dango-web", timeout=30)
 
+        # 5. Wait for Metabase to become ready, then re-sync all users
+        import time
+
+        console.print("Waiting for Metabase to initialize...")
+        _server_project_dir = "/srv/dango/project"
+        for _attempt in range(24):  # up to 2 minutes
+            time.sleep(5)
+            health = ssh.exec_command(
+                "curl -sf http://localhost:3000/api/health -o /dev/null && echo ok",
+                timeout=5,
+            )
+            if health.success and "ok" in health.stdout:
+                break
+        else:
+            console.print(
+                "[yellow]Warning:[/yellow] Metabase did not become ready in time. "
+                "SSO may need manual re-sync."
+            )
+
+        # Re-sync all Dango users to fresh Metabase instance
+        console.print("Re-syncing users to Metabase...")
+        sync_result = ssh.exec_command(
+            f"cd {_server_project_dir} && "
+            '/srv/dango/venv/bin/python -c "'
+            "from pathlib import Path; "
+            "from dango.auth.admin import get_auth_db_path; "
+            "from dango.auth.metabase_sync import sync_all_users_to_metabase; "
+            "p = Path('.'); "
+            "r = sync_all_users_to_metabase(get_auth_db_path(p), p, 'http://localhost:3000'); "
+            'print(f\'Synced: {r[\\"synced\\"]}, Created: {r[\\"created\\"]}\')'
+            '"',
+            timeout=60,
+        )
+        if sync_result.success:
+            console.print(f"  [green]OK[/green] — {sync_result.stdout.strip()}")
+        else:
+            console.print(
+                "[yellow]Warning:[/yellow] User re-sync failed. "
+                "Users may need to be re-added to Metabase manually."
+            )
+
         console.print(
             "\n[green]Metabase reset complete.[/green]\n"
-            "Metabase is rebuilding. It may take 2-3 minutes to become available.\n"
+            "Log out and log back in to restore Metabase SSO.\n"
             "Run [bold]dango remote status[/bold] to check progress."
         )
 
