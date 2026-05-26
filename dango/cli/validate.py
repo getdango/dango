@@ -69,6 +69,7 @@ class ProjectValidator:
         self._check_database()
         self._check_dependencies()
         self._check_permissions()
+        self._check_tracked_secrets()
 
         # Summarize results
         summary = self._create_summary()
@@ -558,6 +559,51 @@ class ProjectValidator:
                             f"Permissions: {dir_path}", "fail", "Directory is not writable"
                         )
                     )
+
+    def _check_tracked_secrets(self):
+        """Warn if sensitive files are tracked by git."""
+        git_dir = self.project_root / ".git"
+        if not git_dir.is_dir():
+            return  # Not a git repo — skip
+
+        try:
+            result = subprocess.run(
+                ["git", "ls-files"],
+                cwd=str(self.project_root),
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                return  # git command failed — skip silently
+
+            import re
+
+            tracked = result.stdout.strip().splitlines()
+            sensitive_patterns = [
+                re.compile(r"^\.dlt/secrets\.toml$"),
+                re.compile(r"^\.env$"),
+                re.compile(r"^\.env\.local$"),
+                re.compile(r".*\.key$"),
+                re.compile(r"(.*/)?cloud_key$"),
+            ]
+
+            for filepath in tracked:
+                for pattern in sensitive_patterns:
+                    if pattern.match(filepath):
+                        self.results.append(
+                            ValidationResult(
+                                f"Security: {filepath}",
+                                "warn",
+                                f"Sensitive file tracked by git: {filepath}. "
+                                f"Remove with: git rm --cached {filepath} "
+                                f"&& echo '{filepath}' >> .gitignore",
+                            )
+                        )
+                        break  # One match per file is enough
+
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass  # git not installed or timed out — skip silently
 
     def _create_summary(self) -> dict[str, Any]:
         """Create validation summary"""

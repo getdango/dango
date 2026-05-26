@@ -130,6 +130,12 @@ class ProjectInitializer:
             self._rollback_initialization()
             raise
 
+        # Install pre-push hook if .git exists (non-critical)
+        try:
+            self._create_pre_push_hook()
+        except Exception:
+            pass  # Never fail init over a convenience hook
+
         # Print success message
         self._print_success_message(warnings=warnings, failures=failures, auth_success=auth_success)
 
@@ -271,6 +277,8 @@ Thumbs.db
 .env
 .env.local
 secrets/
+.dlt/secrets.toml
+*.key
 """
 
         gitignore_path = self.project_dir / ".gitignore"
@@ -288,6 +296,42 @@ secrets/
             with open(gitignore_path, "w", encoding="utf-8") as f:
                 f.write(gitignore_content)
             print_success("Created .gitignore")
+
+    def _create_pre_push_hook(self):
+        """Create git pre-push hook with checklist reminder.
+
+        Only creates the hook if .git/ exists and the hook file doesn't
+        already exist (never overwrites user hooks).
+        """
+        git_dir = self.project_dir / ".git"
+        if not git_dir.is_dir():
+            return
+
+        hooks_dir = git_dir / "hooks"
+        hooks_dir.mkdir(exist_ok=True)
+
+        hook_path = hooks_dir / "pre-push"
+        hook_content = """\
+#!/bin/bash
+echo ""
+echo "  ⚠ Dango pre-push checklist:"
+echo "    • Run 'dango validate' to check config and models"
+echo "    • Run 'dango dev' to verify model changes against data"
+echo "    • Ensure no credentials are committed (.dlt/secrets.toml, .env)"
+echo ""
+"""
+        import os
+
+        try:
+            fd = os.open(str(hook_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o755)
+        except FileExistsError:
+            return
+        try:
+            os.write(fd, hook_content.encode())
+        finally:
+            os.close(fd)
+
+        console.print("[green]✓[/green] Created .git/hooks/pre-push checklist")
 
     def _create_ci_workflow(self):
         """Create GitHub Actions CI workflow for PR validation."""
@@ -307,6 +351,14 @@ jobs:
       - run: pip install getdango
       - run: dango config validate
       - run: cd dbt && dbt parse --profiles-dir .
+      - name: Check for secrets
+        run: |
+          # Fail if sensitive files are tracked
+          if git ls-files | grep -qE '\\.dlt/secrets\\.toml|\\.env$|\\.env\\.local|cloud_key|\\.key$'; then
+            echo "ERROR: Sensitive files detected in repository"
+            git ls-files | grep -E '\\.dlt/secrets\\.toml|\\.env$|\\.env\\.local|cloud_key|\\.key$'
+            exit 1
+          fi
 """
         workflow_dir = self.project_dir / ".github" / "workflows"
         workflow_dir.mkdir(parents=True, exist_ok=True)
@@ -1321,6 +1373,16 @@ on-run-end:
                 message += "5. Open http://localhost:8800"
 
         console.print(Panel(message, title=title, border_style=border_style))
+
+        # Print detect-secrets recommendation after main panel
+        if not failures:
+            console.print(
+                "[dim]Tip: Add secret scanning to prevent accidentally committing credentials:\n"
+                "  pip install pre-commit detect-secrets\n"
+                "  detect-secrets scan > .secrets.baseline\n"
+                "  # Add detect-secrets hook to .pre-commit-config.yaml[/dim]"
+            )
+
         console.print()
 
 
