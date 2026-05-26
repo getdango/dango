@@ -343,7 +343,7 @@ def _setup_ssh_hardening(
         " && sed -i 's/^#\\?KbdInteractiveAuthentication.*"
         "/KbdInteractiveAuthentication no/'"
         " /etc/ssh/sshd_config"
-        " && systemctl reload sshd",
+        " && (systemctl reload sshd 2>/dev/null || systemctl reload ssh)",
         step=step,
     )
     result.steps_completed.append(step)
