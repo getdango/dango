@@ -25,6 +25,44 @@ router = APIRouter(tags=["metabase-proxy"])
 
 _MB_SESSION_COOKIE = "metabase.SESSION"
 
+_METABASE_UNAVAILABLE_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Metabase - Temporarily Unavailable</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+           display: flex; justify-content: center; align-items: center; min-height: 100vh;
+           margin: 0; background: #f9fafb; color: #374151; }
+    .card { text-align: center; padding: 3rem; max-width: 480px; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    p { color: #6b7280; line-height: 1.6; }
+    .spinner { display: inline-block; width: 24px; height: 24px;
+               border: 3px solid #e5e7eb; border-top-color: #3b82f6;
+               border-radius: 50%; animation: spin 1s linear infinite;
+               margin-bottom: 1rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .retry { margin-top: 1.5rem; }
+    .retry a { color: #3b82f6; text-decoration: none; }
+    .retry a:hover { text-decoration: underline; }
+  </style>
+  <meta http-equiv="refresh" content="15">
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <h1>Metabase is temporarily unavailable</h1>
+    <p>Metabase is restarting, likely due to a data sync in progress.
+       This usually takes 1&ndash;2 minutes.</p>
+    <p>This page will automatically refresh.</p>
+    <div class="retry"><a href="/">&larr; Back to Dango</a></div>
+  </div>
+</body>
+</html>
+"""
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -166,8 +204,21 @@ async def proxy_to_metabase(
 
     except Exception:
         logger.error("Metabase proxy error for %s", target_path, exc_info=True)
+        # Return a friendly HTML page for browser page requests only.
+        # API calls and static assets (JS/CSS/images) get plain text to avoid
+        # browsers trying to parse HTML as JavaScript.
+        _is_asset = target_path.startswith(("/api/", "/app/", "/public/")) or target_path in (
+            "/styles.css",
+        )
+        if not _is_asset:
+            return Response(
+                content=_METABASE_UNAVAILABLE_HTML,
+                status_code=502,
+                media_type="text/html",
+                headers={"Cache-Control": "no-store"},
+            )
         return Response(
-            content="Failed to connect to Metabase",
+            content="Metabase is temporarily unavailable",
             status_code=502,
             headers={"Cache-Control": "no-store"},
         )
