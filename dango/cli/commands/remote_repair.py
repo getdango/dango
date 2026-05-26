@@ -256,16 +256,23 @@ def remote_reset_metabase(ctx: click.Context) -> None:
                 "SSO may need manual re-sync."
             )
 
-        # Re-sync all Dango users to fresh Metabase instance
+        # Re-sync all Dango users to fresh Metabase instance.
+        # Clear metabase_user_id first so sync_all_users_to_metabase() takes the
+        # full sync_user_to_metabase() path (generates new passwords), instead of
+        # the shortcut path that only applies roles.
         console.print("Re-syncing users to Metabase...")
         sync_result = ssh.exec_command(
             f"cd {_server_project_dir} && "
             '/srv/dango/venv/bin/python -c "'
+            "import sqlite3; "
             "from pathlib import Path; "
             "from dango.auth.admin import get_auth_db_path; "
             "from dango.auth.metabase_sync import sync_all_users_to_metabase; "
-            "p = Path('.'); "
-            "r = sync_all_users_to_metabase(get_auth_db_path(p), p, 'http://localhost:3000'); "
+            "p = Path('.'); db = get_auth_db_path(p); "
+            "c = sqlite3.connect(str(db)); "
+            "c.execute('UPDATE users SET metabase_user_id = NULL'); "
+            "c.commit(); c.close(); "
+            "r = sync_all_users_to_metabase(db, p, 'http://localhost:3000'); "
             'print(f\'Synced: {r[\\"synced\\"]}, Created: {r[\\"created\\"]}\')'
             '"',
             timeout=60,
