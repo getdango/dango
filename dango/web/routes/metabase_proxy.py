@@ -204,8 +204,13 @@ async def proxy_to_metabase(
 
     except Exception:
         logger.error("Metabase proxy error for %s", target_path, exc_info=True)
-        # Return a friendly HTML page for browser requests, plain text for API/assets
-        if target_path in ("", "/") or not target_path.startswith("/api/"):
+        # Return a friendly HTML page for browser page requests only.
+        # API calls and static assets (JS/CSS/images) get plain text to avoid
+        # browsers trying to parse HTML as JavaScript.
+        _is_asset = target_path.startswith(("/api/", "/app/", "/public/")) or target_path in (
+            "/styles.css",
+        )
+        if not _is_asset:
             return Response(
                 content=_METABASE_UNAVAILABLE_HTML,
                 status_code=502,
