@@ -43,7 +43,6 @@ from .firewall import (
 )
 from .migrate import MigrateResult, migrate_server
 from .provisioning import (
-    BUDGET_TIER,
     DEFAULT_TIER,
     PERFORMANCE_TIER,
     SIZE_TIERS,
@@ -83,7 +82,6 @@ __all__ = [
     "RegionInfo",
     "SIZE_TIERS",
     "DEFAULT_TIER",
-    "BUDGET_TIER",
     "STANDARD_TIER",
     "PERFORMANCE_TIER",
     "get_size_tier",

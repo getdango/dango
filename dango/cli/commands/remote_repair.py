@@ -9,8 +9,6 @@ triggers registration by importing this module at the bottom of ``remote.py``.
 
 from __future__ import annotations
 
-import hashlib
-
 import click
 
 from dango.cli import console
@@ -94,10 +92,9 @@ def remote_repair(ctx: click.Context) -> None:
         console.print("[bold]Restarting services...[/bold]")
 
         _server_project_dir = "/srv/dango/project"
-        _proj_hash = hashlib.md5(_server_project_dir.encode(), usedforsecurity=False).hexdigest()[
-            :8
-        ]
-        _proj_name = f"dango-{_proj_hash}"
+        from dango.platform.docker import get_compose_project_name
+
+        _proj_name = get_compose_project_name(_server_project_dir)
 
         # Start Docker containers
         ssh.exec_command(
@@ -208,10 +205,9 @@ def remote_reset_metabase(ctx: click.Context) -> None:
         ssh.connect(cloud_cfg.droplet_ip)
 
         _server_project_dir = "/srv/dango/project"
-        _proj_hash = hashlib.md5(_server_project_dir.encode(), usedforsecurity=False).hexdigest()[
-            :8
-        ]
-        _proj_name = f"dango-{_proj_hash}"
+        from dango.platform.docker import get_compose_project_name
+
+        _proj_name = get_compose_project_name(_server_project_dir)
 
         # 1. Stop dango-web (so it doesn't interfere with Metabase restart)
         console.print("Stopping dango-web...")

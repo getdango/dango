@@ -80,13 +80,13 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy_provision.py
-    lines: 1004
+    lines: 1000
     category: exempt
     reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery. R8-F added _generate_cloud_profiles + DANGO_ADMIN_EMAIL persistence. R9-C added _confirm_secrets_push, install source detection, empty error handling. R12-N1 added non_interactive param, project_root resolve. Deploy reliability: extracted script builders, added exit code checks."
     review_by: "v1.1"
 
   - file: dango/cli/commands/deploy.py
-    lines: 710
+    lines: 767
     category: exempt
     reason: "TASK-029+075e: Deploy group with DO + BYOS routing, destroy command for both providers. Splitting would scatter the provider selection and destroy dispatch logic. R12-N1 threaded non_interactive flag."
     review_by: "v1.1"

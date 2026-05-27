@@ -8,9 +8,8 @@ cleanup on failure.
 
 Size tiers
 ----------
-Three pre-defined tiers cover most use cases:
+Two pre-defined tiers cover most use cases:
 
-- Budget (s-1vcpu-2gb, $12/mo) — Metabase may be slow
 - Standard (s-2vcpu-4gb, $24/mo) — recommended default
 - Performance (s-4vcpu-8gb, $48/mo) — for heavier workloads
 
@@ -43,7 +42,6 @@ __all__ = [
     "RegionInfo",
     "SIZE_TIERS",
     "DEFAULT_TIER",
-    "BUDGET_TIER",
     "STANDARD_TIER",
     "PERFORMANCE_TIER",
     "get_size_tier",
@@ -89,16 +87,6 @@ class DropletSizeTier:
     price_monthly: int
     warning: str | None = None
 
-
-BUDGET_TIER = DropletSizeTier(
-    name="Budget",
-    slug="s-1vcpu-2gb",
-    vcpus=1,
-    ram_gb=2,
-    disk_gb=50,
-    price_monthly=12,
-    warning="Metabase may be slow on this tier.",
-)
 
 STANDARD_TIER = DropletSizeTier(
     name="Standard",
