@@ -79,7 +79,7 @@ dango/                          # Python package source
 │   │   ├── auth.py             # auth group (13 subcommands, 660 lines)
 │   │   ├── cleanup.py          # cleanup old logs, dbt artifacts, Python cache
 │   │   ├── oauth.py            # oauth group + 10 subcommands (813 lines)
-│   │   ├── config_cmd.py       # config group (validate/show)
+│   │   ├── config_cmd.py       # config group (validate/show/do-token)
 │   │   ├── dashboard.py        # dashboard group (provision)
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
@@ -100,10 +100,11 @@ dango/                          # Python package source
 │   │   ├── remote_env.py       # remote env subgroup (set/get/list/delete)
 │   │   ├── remote_ops.py       # remote upgrade/resize/migrate
 │   │   ├── remote_backup.py    # remote backup subgroup
-│   │   ├── remote_auth.py      # remote auth subgroup (reset-password, reset-2fa)
-│   │   ├── remote_mgmt.py      # remote status/logs/ssh/query
+│   │   ├── remote_auth.py      # remote auth subgroup (add-user/list-users/remove-user/reset-password)
+│   │   ├── remote_repair.py    # remote repair/reset-metabase
+│   │   ├── remote_mgmt.py      # remote status/logs/ssh/query/history
 │   │   ├── schedule.py         # schedule group (add/list/remove/status/enable/disable/webhook)
-│   │   ├── governance.py       # governance group (drift-report/pii-report)
+│   │   ├── governance.py       # governance group (accept/drift-report/pii-report)
 │   │   ├── notebook.py         # notebook group (new/open)
 │   │   ├── snapshot.py         # snapshot group (add/list/run/db) — dbt snapshots + DuckDB snapshots
 │   │   └── analyze.py          # monitor group + analyze alias
