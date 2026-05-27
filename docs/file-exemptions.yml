@@ -326,6 +326,12 @@ exemptions:
     reason: "R12-C: BUG-230 dbt failure handling tests (3 new test classes). Test files are verbose by design."
     review_by: "v1.1"
 
+  - file: tests/unit/test_file_sync.py
+    lines: 523
+    category: exempt
+    reason: "File sync tests covering SFTP upload, rsync command construction, change detection, SYNC_EXTRA_DIRS, and progress callbacks. Test files are verbose by design."
+    review_by: "v1.1"
+
   - file: tests/unit/test_sync_jobs.py
     lines: 695
     category: exempt

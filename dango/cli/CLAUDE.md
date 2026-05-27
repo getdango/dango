@@ -28,13 +28,13 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/remote.py` (698 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
 | `commands/serve.py` (~205 lines) | `serve` production foreground server with `--workers` option. Metabase setup failure is non-fatal (prints warning, continues to uvicorn). | `serve()` |
-| `commands/deploy.py` (710 lines) | `deploy` group (wizard default, --byos, destroy) | `deploy`, `deploy_destroy()` |
+| `commands/deploy.py` (767 lines) | `deploy` group (wizard default, --byos, destroy) | `deploy`, `deploy_destroy()` |
 | `commands/deploy_wizard.py` (877 lines) | Interactive wizard steps 1-8 + BYOS wizard + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig`, `run_byos_wizard()`, `run_byos_non_interactive()`, `BYOSConfig` |
-| `commands/deploy_provision.py` (1004 lines) | Provisioning orchestration (DO + BYOS) + cleanup | `run_provisioning()`, `run_byos_setup()`, `ProvisionResult`, `BYOSResult`, `_ResourceTracker` |
+| `commands/deploy_provision.py` (1000 lines) | Provisioning orchestration (DO + BYOS) + cleanup | `run_provisioning()`, `run_byos_setup()`, `ProvisionResult`, `BYOSResult`, `_ResourceTracker` |
 | `commands/remote_env.py` | `remote env` subgroup (set, get, list, delete) | `env` (Click group) |
 | `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
 | `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore) | `backup_group` |
-| `commands/remote_auth.py` (~217 lines) | `remote auth` subgroup (reset-password, reset-2fa) | `auth_group` |
+| `commands/remote_auth.py` (~217 lines) | `remote auth` subgroup (add-user, list-users, remove-user, reset-password) | `auth_group` |
 | `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query` | `remote_status()`, `remote_logs()` |
 | `commands/remote_sync.py` (131 lines) | `remote sync` — trigger data syncs on cloud server via SSH | `remote_sync()` |
 | `commands/schedule.py` (770 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
@@ -103,7 +103,7 @@ dango (top-level group)
 │   ├── env (subgroup)          ← commands/remote_env.py
 │   │   ├── set, get, list, delete
 │   ├── auth (subgroup)         ← commands/remote_auth.py
-│   │   ├── reset-password, reset-2fa
+│   │   ├── add-user, list-users, remove-user, reset-password
 │   ├── firewall (subgroup)     ← commands/remote.py
 │   │   ├── list, allow-ip, allow-all
 │   ├── domain (subgroup)       ← commands/remote.py

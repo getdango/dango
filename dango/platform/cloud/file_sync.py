@@ -407,6 +407,7 @@ def sync_project_files(
     _notify(on_progress, "sync_dbt", "done")
 
     # --- Step 3b: Sync extra directories (metabase exports, etc.) ---
+    _notify(on_progress, "sync_extra", "running")
     for extra_dir in SYNC_EXTRA_DIRS:
         local_dir = local_project_root / extra_dir
         if not local_dir.is_dir():
@@ -424,6 +425,7 @@ def sync_project_files(
                 )
         _rsync_directory(local_dir, remote_dest, ssh_key_path, delete=True, dry_run=dry_run)
         synced_files.append(f"{extra_dir}/")
+    _notify(on_progress, "sync_extra", "done")
 
     # --- Step 4: Detect model and macro changes ---
     has_macro_changes = False

@@ -480,7 +480,7 @@ class PlatformSettings(BaseModel):
     # uvicorn worker count for production serve command
     workers: int | None = Field(
         default=None,
-        description="Number of uvicorn workers for dango serve (default: 1, cloud auto-detects vCPUs)",
+        description="Number of uvicorn workers for dango serve (default: 1 for both local and cloud)",
     )
 
 

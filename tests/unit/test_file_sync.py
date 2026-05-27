@@ -353,6 +353,28 @@ class TestSyncProjectFiles:
             ssh_arg = cmd_list[e_idx + 1]
             assert '-i "/tmp/test_key"' in ssh_arg
 
+    @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
+    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    def test_rsync_syncs_metabase_dir(self, mock_run, mock_which, tmp_path):
+        """SYNC_EXTRA_DIRS: metabase/ is rsynced when present."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        ssh = _make_ssh_mock(first_deploy=True)
+        project = _make_project(tmp_path)
+        # Create metabase export directory
+        (project / "metabase" / "dashboards").mkdir(parents=True)
+        (project / "metabase" / "dashboards" / "overview.yml").write_text("title: Overview")
+
+        result = sync_project_files(ssh, project, remote_host="10.0.0.1")
+
+        # rsync should be called 3 times: models, macros, metabase
+        assert mock_run.call_count == 3
+        last_call = mock_run.call_args_list[-1]
+        cmd_list = last_call[0][0]
+        assert cmd_list[0] == "rsync"
+        assert "--delete" in cmd_list
+        assert any("metabase" in str(arg) for arg in cmd_list)
+        assert "metabase/" in result.synced_files
+
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value=None)
     def test_rsync_not_installed(self, mock_which, tmp_path):
         ssh = _make_ssh_mock()
@@ -387,6 +409,7 @@ class TestSyncProjectFiles:
         assert "detect_changes" in step_names
         assert "upload_config" in step_names
         assert "sync_dbt" in step_names
+        assert "sync_extra" in step_names
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
     @patch("dango.platform.cloud.file_sync.subprocess.run")

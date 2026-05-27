@@ -93,7 +93,7 @@ dango/                          # Python package source
 │   │   ├── serve.py            # serve production foreground server
 │   │   ├── deploy.py           # deploy group (wizard default, --byos, destroy)
 │   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (877 lines)
-│   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (1004 lines)
+│   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (1000 lines)
 │   │   ├── dev.py              # dev group (default run + clean) — branch-based dbt dev
 │   │   ├── migrate.py          # migrate group (status, run)
 │   │   ├── remote.py           # remote group + push/rollback/firewall/domain (700 lines)
@@ -364,7 +364,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/deploy_wizard.py` | 877 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 613 | — |
 | `web/routes/catalog.py` | 1338 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
-| `cli/commands/deploy_provision.py` | 1004 | — (provisioning orchestration + BYOS) |
+| `cli/commands/deploy_provision.py` | 1000 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
 | `platform/cloud/server_setup.py` | 690 | — (server setup + install source detection) |
 | `cli/commands/auth.py` | 660 | — (13 auth subcommands) |
