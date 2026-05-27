@@ -703,6 +703,9 @@ function Main {
                 break
             } while ($true)
 
+            # Sanitize: lowercase, spaces → dashes, remove special chars
+            $projectDir = ($projectDir.ToLower() -replace '\s+', '-' -replace '[^a-z0-9-]', '')
+
             Write-Host ""
             Write-Step "Creating project directory: $projectDir"
             New-Item -ItemType Directory -Path $projectDir | Out-Null

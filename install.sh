@@ -731,6 +731,9 @@ main() {
                 break
             done
 
+            # Sanitize: lowercase, spaces → dashes, remove special chars
+            PROJECT_DIR=$(echo "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-')
+
             echo
             print_step "Creating project directory: $PROJECT_DIR"
             mkdir -p "$PROJECT_DIR"
