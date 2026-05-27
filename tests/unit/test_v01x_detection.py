@@ -57,11 +57,11 @@ def test_no_detection_without_dango_yml(tmp_path, monkeypatch):
 
 
 def test_no_detection_with_v1_project(tmp_path, monkeypatch):
-    """check_v01x_project does nothing for a v1 project (.dango/dango.db exists)."""
+    """check_v01x_project does nothing for a v1 project (.dango/auth.db exists)."""
     dango_dir = tmp_path / ".dango"
     dango_dir.mkdir()
     (dango_dir / "project.yml").write_text("project:\n  name: myproject\n")
-    (dango_dir / "dango.db").write_bytes(b"")
+    (dango_dir / "auth.db").write_bytes(b"")
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     (data_dir / "warehouse.duckdb").write_bytes(b"")

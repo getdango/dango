@@ -21,14 +21,14 @@ def check_v01x_project() -> None:
 
     Detection heuristics:
     1. ``dango.yml`` in cwd — legacy single-file config.
-    2. ``.dango/project.yml`` exists but ``.dango/dango.db`` (created by v1's
+    2. ``.dango/project.yml`` exists but ``.dango/auth.db`` (created by v1's
        ``dango init``) is missing AND ``data/warehouse.duckdb`` exists (ruling
        out a freshly cloned v1 project that hasn't been initialised yet).
     """
     cwd = Path.cwd()
     is_v01x = (cwd / "dango.yml").exists() or (
         (cwd / ".dango" / "project.yml").exists()
-        and not (cwd / ".dango" / "dango.db").exists()
+        and not (cwd / ".dango" / "auth.db").exists()
         and (cwd / "data" / "warehouse.duckdb").exists()
     )
     if is_v01x:
