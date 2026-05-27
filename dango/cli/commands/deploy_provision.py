@@ -290,11 +290,9 @@ def run_provisioning(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(droplet_ip, username="root")
         try:
-            import hashlib
+            from dango.platform.docker import get_compose_project_name
 
-            compose_proj = (
-                f"dango-{hashlib.md5(b'/srv/dango/project', usedforsecurity=False).hexdigest()[:8]}"
-            )
+            compose_proj = get_compose_project_name("/srv/dango/project")
             result = ssh.exec_command(
                 f"cd /srv/dango/project && COMPOSE_PROJECT_NAME={compose_proj} "
                 "sudo -u dango docker compose build",
@@ -505,11 +503,9 @@ def run_byos_setup(
         _status("Building Docker images (this may take a few minutes)...")
         ssh.connect(config.server_ip, username=config.ssh_user)
         try:
-            import hashlib
+            from dango.platform.docker import get_compose_project_name
 
-            compose_proj = (
-                f"dango-{hashlib.md5(b'/srv/dango/project', usedforsecurity=False).hexdigest()[:8]}"
-            )
+            compose_proj = get_compose_project_name("/srv/dango/project")
             result = ssh.exec_command(
                 f"cd /srv/dango/project && COMPOSE_PROJECT_NAME={compose_proj} "
                 "sudo -u dango docker compose build",

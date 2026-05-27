@@ -21,7 +21,7 @@ File sync scope
 ---------------
 Synced: ``.dango/sources.yml``, ``.dango/schedules.yml``,
 ``dbt/models/``, ``dbt/macros/``, ``dbt/dbt_project.yml``,
-``dbt/packages.yml``.
+``dbt/packages.yml``, ``metabase/`` (dashboard exports).
 
 Never synced: ``.env``, ``.dlt/secrets.toml``, ``*.duckdb``,
 ``metabase.db``, ``dbt/profiles.yml``, ``dbt/target/``, ``__pycache__/``,
@@ -79,6 +79,10 @@ SYNC_CONFIG_FILES: list[tuple[str, str]] = [
 
 #: Directories to sync via rsync (with ``--delete``).
 SYNC_DBT_DIRS: list[str] = ["dbt/models", "dbt/macros"]
+
+#: Additional directories to sync via rsync (with ``--delete``).
+#: Unlike dbt dirs, these are not part of the change-detection logic.
+SYNC_EXTRA_DIRS: list[str] = ["metabase"]
 
 
 # ---------------------------------------------------------------------------
@@ -401,6 +405,27 @@ def sync_project_files(
         _rsync_directory(local_dir, remote_dest, ssh_key_path, delete=True, dry_run=dry_run)
         synced_files.append(f"{dbt_dir}/")
     _notify(on_progress, "sync_dbt", "done")
+
+    # --- Step 3b: Sync extra directories (metabase exports, etc.) ---
+    _notify(on_progress, "sync_extra", "running")
+    for extra_dir in SYNC_EXTRA_DIRS:
+        local_dir = local_project_root / extra_dir
+        if not local_dir.is_dir():
+            continue
+        if remote_host is None:
+            raise CloudProvisioningError("remote_host is required for rsync-based directory sync")
+        remote_dest = f"root@{remote_host}:{REMOTE_PROJECT_DIR}/{extra_dir}"
+        if not dry_run:
+            mkdir_result = ssh.exec_command(f"mkdir -p {REMOTE_PROJECT_DIR}/{extra_dir}")
+            if mkdir_result.exit_code != 0:
+                _logger.warning(
+                    "mkdir_failed",
+                    path=f"{REMOTE_PROJECT_DIR}/{extra_dir}",
+                    stderr=mkdir_result.stderr,
+                )
+        _rsync_directory(local_dir, remote_dest, ssh_key_path, delete=True, dry_run=dry_run)
+        synced_files.append(f"{extra_dir}/")
+    _notify(on_progress, "sync_extra", "done")
 
     # --- Step 4: Detect model and macro changes ---
     has_macro_changes = False

@@ -282,11 +282,12 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
     _compose_env: dict[str, str] | None = None
     if cloud_mode:
         try:
-            import hashlib
             import subprocess
             import time as _time
 
-            _proj = f"dango-{hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]}"
+            from dango.platform.docker import get_compose_project_name
+
+            _proj = get_compose_project_name(project_root)
             _compose_env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj}
             _docker_result = subprocess.run(
                 [

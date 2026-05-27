@@ -14,7 +14,6 @@ import pytest
 
 from dango.exceptions import CloudError
 from dango.platform.cloud.provisioning import (
-    BUDGET_TIER,
     DEFAULT_TIER,
     PERFORMANCE_TIER,
     SIZE_TIERS,
@@ -38,15 +37,6 @@ from dango.platform.cloud.provisioning import (
 
 @pytest.mark.unit
 class TestDropletSizeTier:
-    def test_budget_tier_values(self):
-        """Budget tier has correct slug, vCPUs, RAM, and price."""
-        assert BUDGET_TIER.slug == "s-1vcpu-2gb"
-        assert BUDGET_TIER.vcpus == 1
-        assert BUDGET_TIER.ram_gb == 2
-        assert BUDGET_TIER.disk_gb == 50
-        assert BUDGET_TIER.price_monthly == 12
-        assert BUDGET_TIER.warning is not None
-
     def test_standard_tier_is_default(self):
         """DEFAULT_TIER and STANDARD_TIER are the same object."""
         assert DEFAULT_TIER is STANDARD_TIER

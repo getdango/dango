@@ -9,7 +9,6 @@ All functions require an already-connected ``SSHManager`` (as root).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from collections.abc import Callable
@@ -18,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
+from dango.platform.docker import get_compose_project_name
 
 _logger = get_logger(__name__)
 
@@ -30,9 +30,7 @@ VENV_PYTHON = "/srv/dango/venv/bin/python"
 MAX_LOCAL_BACKUPS = 14
 
 # Must match DockerManager.compose_project_name for /srv/dango/project
-_COMPOSE_PROJECT = (
-    f"dango-{hashlib.md5(PROJECT_DIR.encode(), usedforsecurity=False).hexdigest()[:8]}"
-)
+_COMPOSE_PROJECT = get_compose_project_name(PROJECT_DIR)
 
 #: Files to back up, relative to PROJECT_DIR.
 BACKUP_FILES = [

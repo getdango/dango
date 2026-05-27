@@ -21,25 +21,25 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/transform.py` (343 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
 | `commands/upgrade.py` (236 lines) | `upgrade` command — local Dango upgrade via pip + migrations | `upgrade()`, `get_latest_version_cached()` |
 | `commands/data.py` (388 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
-| `commands/config_cmd.py` (240 lines) | `config` group (`validate`, `show`) | `config` |
+| `commands/config_cmd.py` (240 lines) | `config` group (`validate`, `show`, `do-token`) | `config` |
 | `commands/metabase_cmd.py` (412 lines) | `metabase` group (`save`, `load`, `refresh`) | `metabase` |
 | `commands/model.py` (258 lines) | `model` group (`add`, `remove`) | `model` |
 | `commands/dashboard.py` (153 lines) | `dashboard` group (`provision`) | `dashboard` |
-| `commands/remote.py` (698 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
+| `commands/remote.py` (702 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
 | `commands/serve.py` (~205 lines) | `serve` production foreground server with `--workers` option. Metabase setup failure is non-fatal (prints warning, continues to uvicorn). | `serve()` |
-| `commands/deploy.py` (710 lines) | `deploy` group (wizard default, --byos, destroy) | `deploy`, `deploy_destroy()` |
-| `commands/deploy_wizard.py` (877 lines) | Interactive wizard steps 1-8 + BYOS wizard + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig`, `run_byos_wizard()`, `run_byos_non_interactive()`, `BYOSConfig` |
-| `commands/deploy_provision.py` (1004 lines) | Provisioning orchestration (DO + BYOS) + cleanup | `run_provisioning()`, `run_byos_setup()`, `ProvisionResult`, `BYOSResult`, `_ResourceTracker` |
+| `commands/deploy.py` (767 lines) | `deploy` group (wizard default, --byos, destroy) | `deploy`, `deploy_destroy()` |
+| `commands/deploy_wizard.py` (898 lines) | Interactive wizard steps 1-8 + BYOS wizard + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig`, `run_byos_wizard()`, `run_byos_non_interactive()`, `BYOSConfig` |
+| `commands/deploy_provision.py` (1000 lines) | Provisioning orchestration (DO + BYOS) + cleanup | `run_provisioning()`, `run_byos_setup()`, `ProvisionResult`, `BYOSResult`, `_ResourceTracker` |
 | `commands/remote_env.py` | `remote env` subgroup (set, get, list, delete) | `env` (Click group) |
 | `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
 | `commands/remote_backup.py` | `remote backup` subgroup (list, enable, disable, download, restore) | `backup_group` |
-| `commands/remote_auth.py` (~217 lines) | `remote auth` subgroup (reset-password, reset-2fa) | `auth_group` |
-| `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query` | `remote_status()`, `remote_logs()` |
+| `commands/remote_auth.py` (~217 lines) | `remote auth` subgroup (add-user, list-users, remove-user, reset-password) | `auth_group` |
+| `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query`, `remote history` | `remote_status()`, `remote_logs()` |
 | `commands/remote_sync.py` (131 lines) | `remote sync` — trigger data syncs on cloud server via SSH | `remote_sync()` |
 | `commands/schedule.py` (770 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
 | `commands/schedule_webhook.py` (226 lines) | `schedule webhook` subgroup (add, list, remove, test) | `webhook_group` |
-| `commands/governance.py` (220 lines) | `governance` group (drift-report, pii-report, pii-set, pii-list) | `governance`, `drift_report()`, `pii_report()`, `pii_set()`, `pii_list()` |
+| `commands/governance.py` (220 lines) | `governance` group (accept, drift-report, pii-report, pii-set, pii-list) | `governance`, `accept()`, `drift_report()`, `pii_report()`, `pii_set()`, `pii_list()` |
 | `commands/notebook.py` (~209 lines) | `notebook` group (new, open) | `notebook`, `notebook_new()`, `notebook_open()` |
 | `commands/snapshot.py` (383 lines) | `snapshot` group (add, list, run, db) | `snapshot`, `snapshot_add()`, `snapshot_list()`, `snapshot_run()`, `snapshot_db()` |
 | `commands/analyze.py` (~97 lines) | `monitor` group + `analyze` alias | `monitor` (group), `monitor_run()`, `analyze()` |
@@ -79,7 +79,7 @@ dango (top-level group)
 ├── source (group)              ← commands/source.py
 │   ├── add, list, remove, edit
 ├── config (group)              ← commands/config_cmd.py
-│   ├── validate, show
+│   ├── validate, show, do-token
 ├── db (group)                  ← commands/data.py
 │   ├── status, clean
 ├── auth (group)                ← commands/auth.py
@@ -97,13 +97,14 @@ dango (top-level group)
 │   ├── status, run
 ├── remote (group)              ← commands/remote.py
 │   ├── push, rollback          ← commands/remote.py
-│   ├── status, logs, ssh, query ← commands/remote_mgmt.py
+│   ├── status, logs, ssh, query, history ← commands/remote_mgmt.py
 │   ├── sync                     ← commands/remote_sync.py
 │   ├── upgrade, resize, migrate ← commands/remote_ops.py
+│   ├── repair, reset-metabase   ← commands/remote_repair.py
 │   ├── env (subgroup)          ← commands/remote_env.py
 │   │   ├── set, get, list, delete
 │   ├── auth (subgroup)         ← commands/remote_auth.py
-│   │   ├── reset-password, reset-2fa
+│   │   ├── add-user, list-users, remove-user, reset-password
 │   ├── firewall (subgroup)     ← commands/remote.py
 │   │   ├── list, allow-ip, allow-all
 │   ├── domain (subgroup)       ← commands/remote.py
@@ -127,7 +128,7 @@ dango (top-level group)
 ├── snapshot (group)            ← commands/snapshot.py
 │   ├── add, list, run, db
 ├── governance (group)          ← commands/governance.py
-│   ├── drift-report, pii-report, pii-set, pii-list
+│   ├── accept, drift-report, pii-report, pii-set, pii-list
 ├── notebook (group)            ← commands/notebook.py
 │   ├── new, open              (default invocation lists notebooks)
 └── metabase (group)            ← commands/metabase_cmd.py
@@ -139,7 +140,7 @@ dango (top-level group)
 - **Lazy imports:** All command functions use `from dango.xxx import ...` inside the function body, not at module level. This prevents circular imports and speeds up CLI startup.
 - **Shared console:** All command modules import `console` from `dango.cli` for Rich terminal output.
 - **Project root via context:** `ctx.obj["project_root"]` is set by the top-level `cli` group in `main.py` (via `dango.config.helpers.find_project_root`).
-- **Cross-file command registration:** `remote_auth.py`, `remote_mgmt.py`, `remote_ops.py`, `remote_env.py`, `remote_backup.py`, and `remote_sync.py` import `remote` from `remote.py` and register commands via `@remote.command()` / `@remote.group()`. Registration is triggered by bottom-of-file imports in `remote.py`.
+- **Cross-file command registration:** `remote_auth.py`, `remote_mgmt.py`, `remote_ops.py`, `remote_env.py`, `remote_backup.py`, `remote_repair.py`, and `remote_sync.py` import `remote` from `remote.py` and register commands via `@remote.command()` / `@remote.group()`. Registration is triggered by bottom-of-file imports in `remote.py`.
 - **Two SSH users:** `root` for system ops (backup, rollback, domain, server setup) via `load_cloud_config_with_ssh()` in `cli/utils.py`. `dango` for project file ops (.env, .dlt/secrets.toml) via `_ssh_connect_or_fail()` in `remote.py`.
 
 ### Key conventions

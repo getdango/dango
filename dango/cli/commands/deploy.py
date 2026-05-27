@@ -406,8 +406,6 @@ def deploy_destroy(
 
 def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
     """Tear down a BYOS deployment: stop services, clean server, remove local config."""
-    import hashlib
-
     from rich.panel import Panel
 
     summary_lines = [
@@ -467,12 +465,10 @@ def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
             )
 
             # 2. Stop and remove Docker containers, volumes, images
-            # Compute compose project name matching DockerManager.compose_project_name
             _server_project_dir = "/srv/dango/project"
-            _proj_hash = hashlib.md5(
-                _server_project_dir.encode(), usedforsecurity=False
-            ).hexdigest()[:8]
-            _proj_name = f"dango-{_proj_hash}"
+            from dango.platform.docker import get_compose_project_name
+
+            _proj_name = get_compose_project_name(_server_project_dir)
             console.print("Stopping Docker services...")
             ssh.exec_command(
                 f"cd {_server_project_dir} && "

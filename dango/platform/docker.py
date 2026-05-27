@@ -17,6 +17,16 @@ from dango.exceptions import format_structured_error
 console = Console()
 
 
+def get_compose_project_name(project_root: Path | str) -> str:
+    """Return the Docker Compose project name for the given project root.
+
+    Deterministic name derived from path hash to avoid collisions between
+    multiple Dango projects on the same machine or server.
+    """
+    path_hash = hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]
+    return f"dango-{path_hash}"
+
+
 class ServiceStatus(str, Enum):
     """Service status"""
 
@@ -42,10 +52,7 @@ class DockerManager:
         naming (directory-based) and will be orphaned.  ``dango stop --all``
         cleans those up via ``docker ps --filter name=``.
         """
-        path_hash = hashlib.md5(str(self.project_root).encode(), usedforsecurity=False).hexdigest()[
-            :8
-        ]
-        return f"dango-{path_hash}"
+        return get_compose_project_name(self.project_root)
 
     def _compose_env(self) -> dict[str, str]:
         """Return env dict with COMPOSE_PROJECT_NAME set."""
