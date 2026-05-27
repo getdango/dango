@@ -1,18 +1,23 @@
-"""
-Dango Config Loader
+"""dango/config/loader.py
 
 Handles loading and validation of YAML configuration files.
 """
 
-import os
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import ValidationError
 
-from .models import DangoConfig, ProjectContext, SourcesConfig
+from dango.exceptions import format_structured_error
+
 from .exceptions import ConfigError, ConfigNotFoundError, ConfigValidationError
+from .models import CloudConfig, DangoConfig, ProjectContext, SourcesConfig
+
+if TYPE_CHECKING:
+    from .schedules import SchedulesConfig
 
 
 class ConfigLoader:
@@ -21,8 +26,10 @@ class ConfigLoader:
     DANGO_DIR = ".dango"
     PROJECT_FILE = "project.yml"
     SOURCES_FILE = "sources.yml"
+    CLOUD_FILE = "cloud.yml"
+    SCHEDULES_FILE = "schedules.yml"
 
-    def __init__(self, project_root: Optional[Path] = None):
+    def __init__(self, project_root: Path | None = None):
         """
         Initialize config loader.
 
@@ -33,12 +40,14 @@ class ConfigLoader:
         self.dango_dir = self.project_root / self.DANGO_DIR
         self.project_file = self.dango_dir / self.PROJECT_FILE
         self.sources_file = self.dango_dir / self.SOURCES_FILE
+        self.cloud_file = self.dango_dir / self.CLOUD_FILE
+        self.schedules_file = self.dango_dir / self.SCHEDULES_FILE
 
     def is_dango_project(self) -> bool:
         """Check if current directory is a Dango project"""
         return self.dango_dir.exists() and self.project_file.exists()
 
-    def find_project_root(self, start_path: Optional[Path] = None) -> Optional[Path]:
+    def find_project_root(self, start_path: Path | None = None) -> Path | None:
         """
         Find Dango project root by walking up directory tree.
 
@@ -73,24 +82,45 @@ class ConfigLoader:
         """
         if not file_path.exists():
             raise ConfigNotFoundError(
-                f"Configuration file not found: {file_path}\n"
-                f"Run 'dango init' to create a new project."
+                f"Configuration file not found: {file_path}",
+                user_message=format_structured_error(
+                    what_failed=f"Configuration file not found: {file_path}",
+                    causes=[
+                        "Not in a Dango project directory",
+                        "project.yml was deleted or moved",
+                    ],
+                    suggested_fix="Run 'dango init' to create a new project, or cd into an existing project",
+                ),
             )
 
         try:
-            with open(file_path, 'r') as f:
+            with open(file_path) as f:
                 data = yaml.safe_load(f)
                 return data or {}
         except yaml.YAMLError as e:
             raise ConfigError(
-                f"Invalid YAML in {file_path}:\n{e}"
-            )
+                f"Invalid YAML in {file_path}: {e}",
+                user_message=format_structured_error(
+                    what_failed=f"Invalid YAML syntax in {file_path}",
+                    causes=[
+                        "Indentation error",
+                        "Invalid YAML syntax (missing colon, unclosed quote)",
+                        "Non-UTF8 characters",
+                    ],
+                    suggested_fix="Validate the file with a YAML linter or restore from a backup",
+                ),
+            ) from e
         except Exception as e:
             raise ConfigError(
-                f"Error reading {file_path}: {e}"
-            )
+                f"Error reading {file_path}: {e}",
+                user_message=format_structured_error(
+                    what_failed=f"Cannot read configuration file: {file_path}",
+                    causes=["File permission denied", "File is locked by another process"],
+                    suggested_fix="Check file permissions and try again",
+                ),
+            ) from e
 
-    def save_yaml(self, data: dict, file_path: Path):
+    def save_yaml(self, data: dict[str, Any], file_path: Path) -> None:
         """
         Save dict as YAML file atomically.
 
@@ -104,17 +134,11 @@ class ConfigLoader:
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write to temp file first (atomic operation)
-        temp_path = file_path.with_suffix(file_path.suffix + '.tmp')
+        temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
 
         try:
-            with open(temp_path, 'w') as f:
-                yaml.safe_dump(
-                    data,
-                    f,
-                    default_flow_style=False,
-                    sort_keys=False,
-                    indent=2
-                )
+            with open(temp_path, "w") as f:
+                yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False, indent=2)
 
             # Atomic rename (overwrites destination on POSIX systems)
             temp_path.replace(file_path)
@@ -124,9 +148,9 @@ class ConfigLoader:
             try:
                 if temp_path.exists():
                     temp_path.unlink()
-            except:
+            except Exception:
                 pass
-            raise ConfigError(f"Error writing {file_path}: {e}")
+            raise ConfigError(f"Error writing {file_path}: {e}") from e
 
     def load_project_context(self) -> ProjectContext:
         """
@@ -146,7 +170,9 @@ class ConfigLoader:
         except ValidationError as e:
             raise ConfigValidationError(
                 f"Invalid project configuration in {self.project_file}:\n{e}"
-            )
+            ) from e
+
+    SUPPORTED_SOURCES_VERSIONS = {"1.0"}
 
     def load_sources_config(self) -> SourcesConfig:
         """
@@ -158,6 +184,7 @@ class ConfigLoader:
         Raises:
             ConfigNotFoundError: If file doesn't exist
             ConfigValidationError: If validation fails
+            ConfigVersionError: If version is unsupported
         """
         # sources.yml is optional - return empty config if not found
         if not self.sources_file.exists():
@@ -166,11 +193,42 @@ class ConfigLoader:
         data = self.load_yaml(self.sources_file)
 
         try:
-            return SourcesConfig(**data)
+            sources = SourcesConfig(**data)
         except ValidationError as e:
             raise ConfigValidationError(
                 f"Invalid sources configuration in {self.sources_file}:\n{e}"
+            ) from e
+
+        if sources.version not in self.SUPPORTED_SOURCES_VERSIONS:
+            from dango.exceptions import ConfigVersionError
+
+            raise ConfigVersionError(
+                f"sources.yml version '{sources.version}' is not supported. "
+                f"Supported: {', '.join(sorted(self.SUPPORTED_SOURCES_VERSIONS))}. "
+                f"Upgrade Dango to a version that supports this config format.",
+                context={
+                    "file": str(self.sources_file),
+                    "version": sources.version,
+                },
             )
+
+        return sources
+
+    def load_schedules_config(self) -> SchedulesConfig:
+        """Load schedule configuration from schedules.yml.
+
+        Delegates to the standalone ``load_schedules_config()`` function which
+        handles missing-file detection internally (returns empty config).
+
+        Returns:
+            SchedulesConfig model (empty if file is missing)
+
+        Raises:
+            ConfigValidationError: If the file exists but fails validation
+        """
+        from dango.config.schedules import load_schedules_config
+
+        return load_schedules_config(self.project_root)
 
     def load_config(self) -> DangoConfig:
         """
@@ -186,43 +244,61 @@ class ConfigLoader:
         project = self.load_project_context()
         sources = self.load_sources_config()
 
-        # Load platform settings from project.yml
+        # Load platform, auth, and api settings from project.yml
         data = self.load_yaml(self.project_file)
-        from dango.config.models import PlatformSettings
-        platform = PlatformSettings(**data.get('platform', {}))
+        from dango.config.models import ApiConfig, AuthConfig, PlatformSettings
 
-        return DangoConfig(
-            project=project,
-            sources=sources,
-            platform=platform
-        )
+        platform = PlatformSettings(**data.get("platform", {}))
+        auth = AuthConfig(**data.get("auth", {}))
+        api = ApiConfig(**data.get("api", {}))
 
-    def save_project_context(self, project: ProjectContext):
+        return DangoConfig(project=project, sources=sources, platform=platform, auth=auth, api=api)
+
+    def save_project_context(self, project: ProjectContext) -> None:
         """Save project context to project.yml"""
-        # Check if project.yml exists and has platform settings
+        # Check if project.yml exists and has platform/auth/api settings
         existing_platform = {}
+        existing_auth = {}
+        existing_api = {}
         if self.project_file.exists():
             existing_data = self.load_yaml(self.project_file)
-            existing_platform = existing_data.get('platform', {})
+            existing_platform = existing_data.get("platform", {})
+            existing_auth = existing_data.get("auth", {})
+            existing_api = existing_data.get("api", {})
 
-        data = {
+        data: dict[str, Any] = {
             "project": project.model_dump(mode="json", exclude_none=True),
-            "platform": existing_platform  # Preserve existing platform settings
+            "platform": existing_platform,
         }
+        if existing_auth:
+            data["auth"] = existing_auth
+        if existing_api:
+            data["api"] = existing_api
         self.save_yaml(data, self.project_file)
 
-    def save_sources_config(self, sources: SourcesConfig):
+    def save_sources_config(self, sources: SourcesConfig) -> None:
         """Save sources config to sources.yml"""
         data = sources.model_dump(mode="json", exclude_none=True)
         self.save_yaml(data, self.sources_file)
 
-    def save_config(self, config: DangoConfig):
+    def save_config(self, config: DangoConfig) -> None:
         """Save complete configuration"""
-        # Save project context and platform settings together in project.yml
-        data = {
+        from dango.config.models import ApiConfig, AuthConfig
+
+        # Save project context, platform, and auth settings together in project.yml
+        data: dict[str, Any] = {
             "project": config.project.model_dump(mode="json", exclude_none=True),
-            "platform": config.platform.model_dump(mode="json", exclude_none=False)  # Include all fields
+            "platform": config.platform.model_dump(mode="json", exclude_none=False),
         }
+        # Only write auth/api sections if non-default to keep project.yml clean
+        auth_data = config.auth.model_dump(mode="json", exclude_none=False)
+        default_auth = AuthConfig().model_dump(mode="json", exclude_none=False)
+        if auth_data != default_auth:
+            data["auth"] = auth_data
+        api_data = config.api.model_dump(mode="json", exclude_none=False)
+        default_api = ApiConfig().model_dump(mode="json", exclude_none=False)
+        if api_data != default_api:
+            data["api"] = api_data
         self.save_yaml(data, self.project_file)
 
         # Save sources separately
@@ -237,123 +313,55 @@ class ConfigLoader:
         """
         errors = []
 
+        from dango.exceptions import ConfigVersionError
+
         try:
             self.load_config()
         except ConfigNotFoundError as e:
             errors.append(str(e))
         except ConfigValidationError as e:
             errors.append(str(e))
+        except ConfigVersionError as e:
+            errors.append(str(e))
         except ConfigError as e:
             errors.append(str(e))
 
         return (len(errors) == 0, errors)
 
+    def load_cloud_config(self) -> CloudConfig | None:
+        """
+        Load cloud deployment config from .dango/cloud.yml.
 
-def get_config(project_root: Optional[Path] = None) -> DangoConfig:
-    """
-    Helper function to load config.
+        Returns:
+            CloudConfig if the file exists and is valid, None if not deployed.
 
-    Args:
-        project_root: Project root directory (defaults to current directory)
+        Raises:
+            ConfigValidationError: If the file exists but fails validation
+        """
+        if not self.cloud_file.exists():
+            return None
 
-    Returns:
-        DangoConfig instance
-    """
-    loader = ConfigLoader(project_root)
-    return loader.load_config()
+        try:
+            with open(self.cloud_file) as f:
+                import yaml
 
+                data: dict = yaml.safe_load(f) or {}
+        except Exception as e:
+            raise ConfigError(f"Error reading {self.cloud_file}: {e}") from e
 
-def load_config(project_root: Optional[Path] = None) -> DangoConfig:
-    """
-    Alias for get_config - load configuration.
+        try:
+            return CloudConfig(**data)
+        except Exception as e:
+            raise ConfigValidationError(
+                f"Invalid cloud configuration in {self.cloud_file}:\n{e}"
+            ) from e
 
-    Args:
-        project_root: Project root directory (defaults to current directory)
+    def save_cloud_config(self, cloud_config: CloudConfig) -> None:
+        """
+        Save cloud deployment config to .dango/cloud.yml.
 
-    Returns:
-        DangoConfig instance
-    """
-    return get_config(project_root)
-
-
-def save_config(config: DangoConfig, project_root: Optional[Path] = None) -> None:
-    """
-    Helper function to save config.
-
-    Args:
-        config: DangoConfig instance to save
-        project_root: Project root directory (defaults to current directory)
-    """
-    loader = ConfigLoader(project_root)
-    loader.save_config(config)
-
-
-def check_unreferenced_custom_sources(
-    project_dir: Path,
-    sources_config: SourcesConfig
-) -> list[str]:
-    """
-    Find Python files in custom_sources/ that aren't referenced in sources.yml.
-
-    This helps users who create custom dlt sources but forget to add
-    the corresponding dlt_native entry to sources.yml.
-
-    Args:
-        project_dir: Project root directory
-        sources_config: Loaded sources configuration
-
-    Returns:
-        List of unreferenced Python module names (without .py extension)
-    """
-    custom_sources_dir = project_dir / "custom_sources"
-    if not custom_sources_dir.exists():
-        return []
-
-    # Get all .py files (excluding __init__.py and __pycache__)
-    py_files = [
-        f.stem for f in custom_sources_dir.glob("*.py")
-        if f.name not in ("__init__.py",) and not f.name.startswith(".")
-    ]
-
-    # Get referenced modules from dlt_native sources
-    referenced = set()
-    for source in sources_config.sources:
-        if source.type == "dlt_native" and source.dlt_native:
-            referenced.add(source.dlt_native.source_module)
-
-    # Return unreferenced modules
-    return [f for f in py_files if f not in referenced]
-
-
-def format_unreferenced_sources_warning(unreferenced: list[str]) -> str:
-    """
-    Format a helpful warning message for unreferenced custom sources.
-
-    Args:
-        unreferenced: List of unreferenced module names
-
-    Returns:
-        Formatted warning message with actionable instructions
-    """
-    if not unreferenced:
-        return ""
-
-    files_list = "\n".join(f"   - custom_sources/{f}.py" for f in unreferenced)
-    example_name = unreferenced[0]
-
-    return f"""
-⚠️  Unreferenced custom sources detected:
-{files_list}
-
-These files won't be synced. To use them, add to .dango/sources.yml:
-
-  - name: {example_name}
-    type: dlt_native
-    enabled: true
-    dlt_native:
-      source_module: {example_name}
-      source_function: <function_name>
-      function_kwargs: {{}}
-
-Docs: https://docs.getdango.dev/custom-sources
-"""
+        Args:
+            cloud_config: CloudConfig model to persist
+        """
+        data = cloud_config.model_dump(mode="json", exclude_none=True)
+        self.save_yaml(data, self.cloud_file)

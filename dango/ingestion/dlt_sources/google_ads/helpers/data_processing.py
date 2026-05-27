@@ -1,16 +1,12 @@
-from typing import Any, Iterator
+from typing import Any
 from dlt.common.typing import TDataItem
 import proto
 import json
 
 
-def to_dict(item: Any) -> Iterator[TDataItem]:
-    """
-    Processes a batch result (page of results per dimension) accordingly
-    :param batch:
-    :return:
-    """
-    yield json.loads(
+def to_dict(item: Any) -> TDataItem:
+    """Converts a protobuf message to a Python dict."""
+    return json.loads(
         proto.Message.to_json(
             item,
             preserving_proto_field_name=True,
@@ -18,3 +14,52 @@ def to_dict(item: Any) -> Iterator[TDataItem]:
             including_default_value_fields=False,
         )
     )
+
+
+def flatten_row(row_dict: dict[str, Any]) -> dict[str, Any]:
+    """Flattens a Google Ads API response row into a flat dict.
+
+    - segments.* promoted to top level (e.g. segments.date -> date)
+    - metrics.* flattened, with cost_micros converted to cost (/ 1_000_000)
+    - Entity fields prefix-joined: campaign.id -> campaign_id
+    """
+    result: dict[str, Any] = {}
+
+    # Promote segments to top level
+    if "segments" in row_dict:
+        for key, value in row_dict["segments"].items():
+            result[key] = value
+
+    # Flatten metrics, converting cost_micros -> cost
+    if "metrics" in row_dict:
+        for key, value in row_dict["metrics"].items():
+            if key == "cost_micros":
+                result["cost"] = int(value) / 1_000_000 if value else 0.0
+            else:
+                result[key] = value
+
+    # Flatten entity fields (campaign, ad_group, etc.)
+    for key, value in row_dict.items():
+        if key in ("segments", "metrics"):
+            continue
+        if isinstance(value, dict):
+            _flatten_entity(result, key, value)
+        else:
+            result[key] = value
+
+    return result
+
+
+def _flatten_entity(
+    target: dict[str, Any], prefix: str, obj: dict[str, Any]
+) -> None:
+    """Recursively flattens nested entity dicts with underscore-joined keys.
+
+    Example: {"campaign": {"id": 1, "name": "foo"}} -> campaign_id, campaign_name
+    """
+    for key, value in obj.items():
+        flat_key = f"{prefix}_{key}"
+        if isinstance(value, dict):
+            _flatten_entity(target, flat_key, value)
+        else:
+            target[flat_key] = value

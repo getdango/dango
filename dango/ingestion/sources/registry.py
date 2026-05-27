@@ -1,20 +1,15 @@
-"""
-Dango Source Registry
+"""dango/ingestion/sources/registry.py
 
-Metadata registry for all 33 supported data sources (31 dlt verified + CSV + REST API).
-
-This registry is used by:
-- DltPipelineRunner: To determine how to load each source type
-- Source Wizard: To show categorized source selection and collect params
-- CLI: To display source information and setup guides
+Metadata registry for all 33 supported data sources (27 dlt verified + CSV + Local Files + dlt_native + REST API + PostgreSQL + Filesystem).
 """
 
-from typing import Dict, List, Any, Optional
 from enum import Enum
+from typing import Any, cast
 
 
 class AuthType(str, Enum):
     """Authentication types for data sources"""
+
     NONE = "none"  # No auth needed (e.g., CSV)
     API_KEY = "api_key"  # Simple API key
     OAUTH = "oauth"  # OAuth 2.0 flow
@@ -23,10 +18,36 @@ class AuthType(str, Enum):
 
 
 # ============================================================================
-# SOURCE REGISTRY - Top 10 Sources (Fully Implemented)
+# SOURCE SELECTION CRITERIA
+# ============================================================================
+#
+# This registry contains 33 sources in five categories:
+#   1. dlt verified sources (27): All connectors vendored in dlt_sources/. Each
+#      uses its own dlt verified source package (e.g., facebook_ads, hubspot).
+#   2. CSV (1): Custom CSVLoader — not dlt. For local structured CSV files.
+#      Hidden from wizard — superseded by local_files.
+#   3. Local Files (1): Unified local file source (CSV, JSON, JSONL, Parquet).
+#      Extends CSVLoader with multi-format support. Primary wizard entry for local data.
+#   4. dlt_native (1): Passthrough escape hatch. User provides custom dlt pipeline
+#      code. No wizard UI — advanced users only.
+#   5. dlt core built-ins (2): filesystem + rest_api. Built into dlt, no vendoring.
+#      filesystem: cloud storage (S3/GCS/Azure). Hidden from wizard — use local_files for local.
+#      rest_api: connect any REST API via declarative config.
+#   6. PostgreSQL (1): Dedicated wizard entry backed by dlt's built-in
+#      sql_database source. Structured params for the most common DB use case.
+#
+# Excluded dlt verified sources:
+#   - sql_database (generic): Too complex for wizard UI (arbitrary table selectors,
+#     multiple DB dialects). Use dlt_native with dlt's sql_database for advanced
+#     multi-database setups.
+#   - Shopify: wizard_enabled=False pending P5-006 investigation — dlt's shopify_dlt
+#     connector may be incompatible with Shopify's Jan 2026 API deprecation.
+
+# ============================================================================
+# SOURCE REGISTRY
 # ============================================================================
 
-SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
+SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
     # ========================================
     # LOCAL / CUSTOM
     # ========================================
@@ -37,7 +58,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.NONE,
         "dlt_package": None,  # Custom implementation, not dlt
         "dlt_function": None,
-        "supported_in_v0": True,  # Fully tested for v0.0.1
+        "wizard_enabled": False,  # Hidden — use "local_files" instead
         "required_params": [
             {
                 "name": "directory",
@@ -71,8 +92,61 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "cost_warning": None,
         "popularity": 10,  # 1-10, used for sorting
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
-
+    "local_files": {
+        "display_name": "File Import (CSV, JSON, Parquet)",
+        "category": "Local & Custom",
+        "description": "Load CSV, JSON, JSONL, or Parquet files from a directory. All matching files are combined into a single raw table. On re-sync, new/modified files are loaded, deleted files are removed.",
+        "auth_type": AuthType.NONE,
+        "dlt_package": None,  # Custom implementation (extends CSVLoader)
+        "dlt_function": None,
+        "wizard_enabled": True,
+        "required_params": [
+            {
+                "name": "directory",
+                "type": "path",
+                "prompt": "Directory containing data files",
+                "default": "data/uploads",
+                "help": "Default: data/uploads (already in .gitignore). Press Enter to use default.",
+            },
+            {
+                "name": "file_pattern",
+                "type": "string",
+                "prompt": "File pattern",
+                "default": "*",
+                "help": "Glob pattern for files (e.g., '*' for all supported formats, '*.json', 'data_*.csv')",
+            },
+        ],
+        "optional_params": [
+            {
+                "name": "notes",
+                "type": "text",
+                "prompt": "Notes on how to refresh this data",
+                "default": None,
+                "help": "How do you regenerate/update this data? (e.g., 'Run python generate_orders.py' or 'Export from app')",
+            },
+        ],
+        "setup_guide": [
+            "1. Place your data files in a directory",
+            "2. Supported formats: CSV, JSON, JSONL, Parquet",
+            "3. Files should have consistent schema across updates",
+            "4. Dango will auto-detect column types and load incrementally",
+        ],
+        "cost_warning": None,
+        "popularity": 10,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
+    },
     "dlt_native": {
         "display_name": "dlt Native Source (Advanced)",
         "category": "Local & Custom",
@@ -80,7 +154,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.NONE,  # Auth handled by source itself
         "dlt_package": None,  # User specifies
         "dlt_function": None,  # User specifies
-        "supported_in_v0": True,  # Registry bypass implementation complete
+        "wizard_enabled": True,  # Registry bypass implementation complete
         "required_params": [
             {
                 "name": "source_module",
@@ -120,12 +194,82 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/build-a-pipeline-tutorial",
         "cost_warning": "⚠️  ADVANCED FEATURE - Manual configuration required",
         "popularity": 3,  # Low - for advanced users only
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": True,
+        },
     },
-
+    "filesystem": {
+        "display_name": "Files & Cloud Storage (Parquet, JSON, Excel)",
+        "category": "Local & Custom",
+        "description": "Load Parquet, JSON, JSONL, Excel, or CSV files from local disk or cloud storage (S3, GCS, Azure)",
+        "auth_type": AuthType.NONE,
+        "dlt_package": "filesystem",  # Built-in dlt core source
+        "dlt_function": "filesystem",
+        "wizard_enabled": False,  # Hidden — use "local_files" for local, filesystem still works for cloud
+        "required_params": [
+            {
+                "name": "bucket_url",
+                "type": "path",
+                "prompt": "File path or cloud storage URL",
+                "help": "Local path (e.g., 'data/exports/') or cloud URL (e.g., 's3://my-bucket/data/', 'gs://my-bucket/data/')",
+            },
+            {
+                "name": "file_glob",
+                "type": "string",
+                "prompt": "File pattern (glob)",
+                "default": "**/*.parquet",
+                "help": "Glob pattern to match files (e.g., '*.parquet', '**/*.json', 'reports_*.xlsx')",
+            },
+        ],
+        "optional_params": [],
+        "setup_guide": [
+            "LOCAL FILES:",
+            "1. Place your files in a project directory (e.g., data/exports/)",
+            "2. Set bucket_url to the directory path (e.g., 'data/exports/')",
+            "3. Set file_glob to match your files (e.g., '*.parquet', '**/*.json')",
+            "",
+            "CLOUD STORAGE (S3):",
+            "1. Set bucket_url to your S3 path (e.g., 's3://my-bucket/data/')",
+            "2. Add credentials to .dlt/secrets.toml:",
+            "   [sources.filesystem.credentials]",
+            "   aws_access_key_id = 'your-key'",
+            "   aws_secret_access_key = 'your-secret'",
+            "   region_name = 'us-east-1'",
+            "",
+            "CLOUD STORAGE (GCS):",
+            "1. Set bucket_url to your GCS path (e.g., 'gs://my-bucket/data/')",
+            "2. Add credentials to .dlt/secrets.toml:",
+            "   [sources.filesystem.credentials]",
+            "   project_id = 'your-project'",
+            "   private_key = '...'",
+            "   client_email = '...'",
+            "",
+            "CLOUD STORAGE (Azure Blob):",
+            "1. Set bucket_url to your Azure path (e.g., 'az://my-container/data/')",
+            "2. Add credentials to .dlt/secrets.toml:",
+            "   [sources.filesystem.credentials]",
+            "   connection_string = 'DefaultEndpointsProtocol=https;AccountName=...'",
+            "",
+            "SUPPORTED FORMATS: Parquet, JSON (array or JSONL), Excel (.xlsx), CSV",
+            "dlt handles schema inference automatically for all formats.",
+        ],
+        "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/filesystem",
+        "cost_warning": None,
+        "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
+    },
     "rest_api": {
         "display_name": "REST API (Generic)",
         "category": "Local & Custom",
-        "description": "Connect to any custom REST API (e.g., Shopee, Lazada, internal APIs)",
+        "description": "Connect to any REST API with configurable authentication",
         "auth_type": AuthType.API_KEY,
         "dlt_package": "rest_api",  # Built-in dlt source
         "dlt_function": "rest_api_source",
@@ -148,7 +292,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "name": "auth_type",
                 "type": "choice",
                 "prompt": "Authentication type",
-                "choices": ["bearer", "api_key", "basic", "none"],
+                "choices": ["bearer", "api_key", "basic", "oauth2_client_credentials", "none"],
                 "default": "bearer",
             },
             {
@@ -168,9 +312,18 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/rest_api",
         "cost_warning": "Check API provider's rate limits and pricing",
+        "wizard_enabled": True,
         "popularity": 8,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            # rest_api is a generic source — whether it's incremental depends
+            # entirely on per-endpoint user configuration. Not incremental by
+            # default.
+            "incremental": False,
+            "custom_queries": True,
+        },
     },
-
     # ========================================
     # MARKETING & ANALYTICS
     # ========================================
@@ -201,7 +354,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         },
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
-            "2. OR manually run: dango auth google_sheets",
+            "2. OR manually run: dango oauth google_sheets",
             "3. Follow the browser OAuth flow to authenticate",
             "4. Get spreadsheet ID from URL: docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit",
             "5. Credentials are permanent (refresh token stored in .dlt/secrets.toml)",
@@ -209,54 +362,83 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_sheets",
         "cost_warning": "Subject to Google API quota limits",
-        "supported_in_v0": True,  # OAuth implementation complete
+        "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 10,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
-
     "facebook_ads": {
         "display_name": "Facebook Ads",
         "category": "Marketing & Analytics",
-        "description": "Load ad campaigns, insights, and performance metrics from Facebook Ads",
+        "description": "Load ad campaigns, ads, creatives, leads, and daily performance metrics from Facebook Ads",
         "auth_type": AuthType.OAUTH,
         "dlt_package": "facebook_ads",
-        "dlt_function": "facebook_ads_source",
+        "dlt_function": "facebook_ads_combined",
         "pip_dependencies": [{"pip": "facebook-business", "import": "facebook_business"}],
         "required_params": [
             {
                 "name": "account_id",
                 "type": "string",
-                "prompt": "Facebook Ads Account ID (e.g., act_123456789)",
+                "prompt": "Facebook Ads Account ID (numeric, e.g., 123456789)",
                 "help": "Find in Facebook Ads Manager URL",
             },
             {
                 "name": "access_token_env",
                 "type": "secret",
                 "env_var": "FB_ACCESS_TOKEN",
-                "prompt": "Access Token (use 'dango auth facebook_ads' to generate)",
-                "help": "Long-lived User Access Token (60 days). Generate via 'dango auth facebook_ads' or manually at https://developers.facebook.com/tools/accesstoken. Requires 'ads_read' permission.",
+                "prompt": "Access Token (use 'dango oauth facebook_ads' to generate)",
+                "help": "Long-lived User Access Token (60 days). Generate via 'dango oauth facebook_ads' or manually at https://developers.facebook.com/tools/accesstoken. Requires 'ads_read' permission.",
             },
         ],
         "optional_params": [
             {
-                "name": "start_date",
-                "type": "date",
-                "prompt": "Start date (YYYY-MM-DD)",
-                "default": None,
+                "name": "initial_load_past_days",
+                "type": "integer",
+                "default": 30,
+                "help": "Number of past days of performance metrics to load on first sync",
             },
         ],
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
-            "2. OR manually run: dango auth facebook_ads",
+            "2. OR manually run: dango oauth facebook_ads",
             "3. Follow the prompts to exchange short-lived token for long-lived token",
-            "4. IMPORTANT: Access token expires in 60 days",
-            "5. Set a reminder to re-authenticate before expiry",
+            "4. IMPORTANT: Access token expires in 60 days — set reminder to re-authenticate",
+            "5. Loads entity data (campaigns, ads, etc.) AND daily performance metrics",
+            "6. Performance metrics: reach, impressions, clicks, spend, CTR, CPC, CPM",
+            "7. First sync loads 30 days of insights; subsequent syncs are incremental",
+            "8. Facebook retains insights data for 37 months",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/facebook_ads",
+        "available_resources": [
+            "campaigns",
+            "ads",
+            "ad_sets",
+            "ad_creatives",
+            "leads",
+            "facebook_insights",
+        ],
+        "default_resources": ["campaigns", "ads", "ad_sets", "facebook_insights"],
+        "default_config": {
+            "lookback_days": 3,
+        },
         "cost_warning": "Rate limited: 200 calls/hour per user, 4800/day per app",
-        "supported_in_v0": True,  # OAuth implementation complete
+        "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 9,
+        "capabilities": {
+            "performance_metrics": True,
+            "date_range": False,
+            # Mixed: 5/6 resources (campaigns, ads, ad_sets, ad_creatives,
+            # leads) use replace. Only facebook_insights uses
+            # merge+incremental(date_start). Marked True because insights —
+            # the primary analytics payload — are incremental.
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
-
     "google_analytics": {
         "display_name": "Google Analytics (GA4)",
         "category": "Marketing & Analytics",
@@ -264,7 +446,9 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_analytics",
         "dlt_function": "google_analytics",
-        "pip_dependencies": [{"pip": "google-analytics-data", "import": "google.analytics.data_v1beta"}],
+        "pip_dependencies": [
+            {"pip": "google-analytics-data", "import": "google.analytics.data_v1beta"}
+        ],
         "required_params": [
             {
                 "name": "property_id",
@@ -276,40 +460,66 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "optional_params": [
             {
                 "name": "start_date",
-                "type": "date",
-                "prompt": "Start date (YYYY-MM-DD)",
-                "default": None,
+                "type": "string",
+                "prompt": "Start date (YYYY-MM-DD or relative like '90daysAgo')",
+                "default": "90daysAgo",
+                "help": "GA4 accepts relative dates (e.g., '90daysAgo', '30daysAgo') or absolute dates (YYYY-MM-DD). Defaults to 90daysAgo for first sync.",
             },
         ],
         # Default queries based on industry best practices (Calibrate Analytics)
         # GA4 Data API provides aggregated data only - each query becomes a table
         "default_config": {
+            "lookback_days": 2,
             "queries": [
                 {
                     "resource_name": "traffic",
-                    "dimensions": ["date", "sessionSource", "sessionMedium", "sessionCampaignName", "deviceCategory"],
-                    "metrics": ["sessions", "engagedSessions", "totalUsers", "newUsers", "averageSessionDuration", "bounceRate"]
+                    "dimensions": [
+                        "date",
+                        "sessionSource",
+                        "sessionMedium",
+                        "sessionCampaignName",
+                        "deviceCategory",
+                    ],
+                    "metrics": [
+                        "sessions",
+                        "engagedSessions",
+                        "totalUsers",
+                        "newUsers",
+                        "averageSessionDuration",
+                        "bounceRate",
+                    ],
                 },
                 {
                     "resource_name": "pages",
                     "dimensions": ["date", "pagePath", "pageTitle"],
-                    "metrics": ["screenPageViews", "totalUsers", "userEngagementDuration", "sessions"]
+                    "metrics": [
+                        "screenPageViews",
+                        "totalUsers",
+                        "userEngagementDuration",
+                        "sessions",
+                    ],
                 },
                 {
                     "resource_name": "landing_pages",
-                    "dimensions": ["date", "landingPage", "sessionSource", "sessionMedium", "deviceCategory"],
-                    "metrics": ["sessions", "totalUsers", "engagedSessions", "bounceRate"]
+                    "dimensions": [
+                        "date",
+                        "landingPage",
+                        "sessionSource",
+                        "sessionMedium",
+                        "deviceCategory",
+                    ],
+                    "metrics": ["sessions", "totalUsers", "engagedSessions", "bounceRate"],
                 },
                 {
                     "resource_name": "geo",
                     "dimensions": ["date", "country", "city"],
-                    "metrics": ["sessions", "totalUsers", "engagedSessions"]
-                }
-            ]
+                    "metrics": ["sessions", "totalUsers", "engagedSessions"],
+                },
+            ],
         },
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
-            "2. OR manually run: dango auth google_analytics",
+            "2. OR manually run: dango oauth google_analytics",
             "3. Follow the browser OAuth flow to authenticate",
             "4. Get GA4 Property ID from Admin > Property Settings",
             "5. Default queries load 4 tables: traffic, pages, landing_pages, geo",
@@ -318,10 +528,15 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_analytics",
         "cost_warning": "Subject to Google API quota limits. Data is aggregated (not event-level).",
-        "supported_in_v0": True,  # OAuth implementation complete
+        "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 9,
+        "capabilities": {
+            "performance_metrics": True,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": True,
+        },
     },
-
     # ========================================
     # BUSINESS & CRM
     # ========================================
@@ -332,6 +547,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "hubspot",
         "dlt_function": "hubspot",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "api_key_env",
@@ -353,61 +569,81 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "setup_guide": [
             "1. Log in to HubSpot",
             "2. Go to Settings > Integrations > Private Apps",
-            "3. Create new private app with required scopes",
-            "4. Copy API key to .env as HUBSPOT_API_KEY",
+            "   Direct URL: https://app.hubspot.com/private-apps/<hub_id>",
+            "3. Create new private app — add scopes: crm.objects.contacts.read, crm.objects.companies.read, crm.objects.deals.read",
+            "4. Copy the access token to .env as HUBSPOT_API_KEY",
         ],
+        "available_resources": [
+            "contacts",
+            "companies",
+            "deals",
+            "tickets",
+            "products",
+            "quotes",
+            "owners",
+            "properties",
+            "pipelines_deal",
+            "pipelines_ticket",
+        ],
+        "default_resources": ["contacts", "companies", "deals", "tickets"],
+        "first_sync_note": "First sync loads all historical data. Large accounts (>100k contacts) may take 15-30 minutes.",
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/hubspot",
         "cost_warning": "Subject to HubSpot API limits (varies by plan)",
         "popularity": 9,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
-
     "salesforce": {
         "display_name": "Salesforce",
         "category": "Business & CRM",
         "description": "Load data from Salesforce CRM (accounts, contacts, opportunities, etc.)",
-        "auth_type": AuthType.BASIC,
+        "auth_type": AuthType.SERVICE_ACCOUNT,
         "dlt_package": "salesforce",
         "dlt_function": "salesforce_source",
-        "required_params": [
-            {
-                "name": "username_env",
-                "type": "secret",
-                "env_var": "SALESFORCE_USERNAME",
-                "prompt": "Salesforce username",
-            },
-            {
-                "name": "password_env",
-                "type": "secret",
-                "env_var": "SALESFORCE_PASSWORD",
-                "prompt": "Salesforce password",
-            },
-            {
-                "name": "security_token_env",
-                "type": "secret",
-                "env_var": "SALESFORCE_SECURITY_TOKEN",
-                "prompt": "Salesforce security token",
-                "help": "Reset at Setup > My Personal Information > Reset Security Token",
-            },
+        "pip_dependencies": [{"pip": "simple-salesforce", "import": "simple_salesforce"}],
+        "wizard_enabled": True,
+        "required_params": [],
+        "optional_params": [],
+        "available_resources": [
+            "account",
+            "contact",
+            "lead",
+            "opportunity",
+            "campaign",
+            "task",
+            "event",
+            "sf_user",
+            "user_role",
+            "product_2",
         ],
-        "optional_params": [
-            {
-                "name": "is_sandbox",
-                "type": "boolean",
-                "prompt": "Use sandbox environment?",
-                "default": False,
-            },
-        ],
+        "default_resources": ["account", "contact", "lead", "opportunity", "campaign"],
+        "secrets_toml_template": '[sources.{source_name}.credentials]\nuser_name = ""\npassword = ""\nsecurity_token = ""\n',
         "setup_guide": [
-            "1. Get Salesforce username and password",
-            "2. Reset security token (Setup > Reset Security Token)",
-            "3. Check email for security token",
-            "4. Add credentials to .env file",
+            "1. Log in to Salesforce → Setup → search 'Reset My Security Token'",
+            "2. Click 'Reset Security Token' — it will be emailed to you",
+            "3. Fill in credentials in .dlt/secrets.toml (template added automatically)",
+            "4. Use your Salesforce login email, password, and the security token",
         ],
+        "first_sync_note": "First sync loads all Salesforce objects. Large orgs may take 30+ minutes.",
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/salesforce",
         "cost_warning": "Salesforce API limits depend on edition (check your limits)",
         "popularity": 8,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            # Mixed: 7/15 resources use merge+incremental (account, opportunity,
+            # opportunity_line_item, opportunity_contact_role, campaign_member,
+            # task, event); 8/15 use replace. Marked True because the
+            # highest-volume CRM objects (accounts, opportunities) are
+            # incremental.
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
-
     # ========================================
     # E-COMMERCE & PAYMENT
     # ========================================
@@ -419,7 +655,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "dlt_package": "stripe_analytics",
         "dlt_function": "stripe_source",
         "pip_dependencies": [{"pip": "stripe", "import": "stripe"}],
-        "supported_in_v0": True,  # Fully tested for v0.0.1
+        "wizard_enabled": True,  # Fully tested for v0.0.1
         "required_params": [
             {
                 "name": "stripe_secret_key_env",
@@ -449,48 +685,43 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "name": "start_date",
                 "type": "date",
                 "prompt": "Start date (YYYY-MM-DD)",
-                "default": None,
+                "default": "90daysAgo",
+                "help": "How far back to load on first sync. Default: 90 days.",
             },
         ],
         "setup_guide": [
-            "1. Go to https://dashboard.stripe.com/test/apikeys (or /apikeys for live mode)",
-            "2. Click 'Reveal test key' for Secret key",
-            "3. Copy the key (starts with sk_test_ for test mode, sk_live_ for production)",
-            "4. Recommendation: Use test mode during development",
+            "1. Go to https://dashboard.stripe.com/apikeys",
+            "   (Use /test/apikeys for test mode during development)",
+            "2. Click 'Reveal test key' to see the Secret key",
+            "3. Copy the key (starts with sk_test_ or sk_live_)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/stripe_analytics",
         "cost_warning": "No additional cost (included with Stripe account)",
         "popularity": 10,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            # stripe_source uses write_disposition="replace" for all resources
+            # (full refresh every sync). incremental_stripe_source exists but
+            # dango calls stripe_source via the registry's dlt_function.
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
-
     "shopify": {
         "display_name": "Shopify",
         "category": "E-commerce & Payment",
         "description": "Load e-commerce data from Shopify (orders, customers, products, etc.)",
-        "auth_type": AuthType.API_KEY,
+        "auth_type": AuthType.OAUTH,
         "dlt_package": "shopify_dlt",  # Note: source name is shopify_dlt
         "dlt_function": "shopify_source",
-        "required_params": [
-            {
-                "name": "shop_url",
-                "type": "string",
-                "prompt": "Shopify shop URL (e.g., myshop.myshopify.com)",
-                "help": "Your Shopify store URL",
-            },
-            {
-                "name": "api_key_env",
-                "type": "secret",
-                "env_var": "SHOPIFY_API_KEY",
-                "prompt": "Shopify Admin API Access Token",
-                "help": "Admin API Access Token (starts with 'shpat_'). Generate in Shopify Admin > Apps > Develop apps > Create app > Configure > Admin API access token. Required scopes: read_orders, read_customers, read_products.",
-            },
-        ],
+        "required_params": [],
         "optional_params": [
             {
                 "name": "resources",
                 "type": "multiselect",
                 "prompt": "Resources to sync",
-                "choices": ["orders", "customers", "products", "inventory", "transactions"],
+                "choices": ["orders", "customers", "products"],
                 "default": ["orders", "customers", "products"],
             },
             {
@@ -501,20 +732,25 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
         ],
         "setup_guide": [
-            "1. Custom app setup runs automatically during 'dango source add'",
-            "2. OR manually run: dango auth shopify",
-            "3. Create custom app in Shopify Admin > Apps > Develop apps",
+            "1. OAuth setup runs automatically during 'dango source add' — follow the prompts",
+            "2. OR manually run: dango oauth shopify",
+            "3. Either way: create a custom app in Shopify Admin > Apps > Develop apps",
             "4. Configure Admin API scopes (read permissions needed)",
             "5. Install app and reveal Admin API access token",
-            "6. Enter shop URL (e.g., mystore.myshopify.com) and access token",
+            "6. Enter shop URL (e.g., mystore.myshopify.com) and access token when prompted",
             "7. Credentials are permanent (stored in .dlt/secrets.toml)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/shopify",
         "cost_warning": "Included with Shopify plan",
-        "supported_in_v0": False,  # Blocked: Shopify deprecating legacy auth Jan 2026, awaiting dlt update
+        "wizard_enabled": False,  # Disabled: OAuth 2.0 rewrite needed
         "popularity": 9,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
-
     # ========================================
     # DEVELOPMENT
     # ========================================
@@ -525,19 +761,26 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "github",
         "dlt_function": "github_reactions",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "access_token_env",
                 "type": "secret",
                 "env_var": "GITHUB_ACCESS_TOKEN",
-                "prompt": "GitHub Personal Access Token (classic)",
-                "help": "Personal Access Token (classic) starting with 'ghp_'. Generate at https://github.com/settings/tokens. Required scopes: repo, read:org, read:user",
+                "prompt": "GitHub Personal Access Token",
+                "help": "Generate at https://github.com/settings/tokens. Required scopes: repo, read:org, read:user",
             },
             {
-                "name": "repos",
-                "type": "list",
-                "prompt": "Repository list (format: owner/repo, comma-separated)",
-                "help": "Example: facebook/react,microsoft/vscode",
+                "name": "owner",
+                "type": "string",
+                "prompt": "Repository owner (e.g., getdango)",
+                "help": "GitHub username or organization that owns the repository",
+            },
+            {
+                "name": "name",
+                "type": "string",
+                "prompt": "Repository name (e.g., dango)",
+                "help": "Name of the repository to load data from",
             },
         ],
         "optional_params": [],
@@ -550,8 +793,13 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/github",
         "cost_warning": "Rate limited: 5000 requests/hour (authenticated)",
         "popularity": 8,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
-
     # ========================================
     # OTHER
     # ========================================
@@ -559,21 +807,22 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "display_name": "Slack",
         "category": "Communication",
         "description": "Load messages, channels, and user data from Slack",
-        "auth_type": AuthType.OAUTH,
+        "auth_type": AuthType.API_KEY,
         "dlt_package": "slack",
         "dlt_function": "slack_source",
+        "wizard_enabled": True,
         "required_params": [
             {
-                "name": "token_env",
+                "name": "access_token_env",
                 "type": "secret",
-                "env_var": "SLACK_TOKEN",
+                "env_var": "SLACK_ACCESS_TOKEN",
                 "prompt": "Slack Bot User OAuth Token (starts with xoxb-)",
                 "help": "Bot User OAuth Token (starts with 'xoxb-'). Create at https://api.slack.com/apps > Your App > OAuth & Permissions. Required scopes: channels:history, channels:read, users:read. Must invite bot to channels you want to sync.",
             },
         ],
         "optional_params": [
             {
-                "name": "channels",
+                "name": "selected_channels",
                 "type": "list",
                 "prompt": "Channel IDs to sync (empty = all channels)",
                 "default": None,
@@ -583,22 +832,28 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "name": "start_date",
                 "type": "date",
                 "prompt": "Start date for messages (YYYY-MM-DD)",
-                "default": None,
+                "default": "90daysAgo",
+                "help": "How far back to load messages on first sync. Default: 90 days.",
             },
         ],
         "setup_guide": [
-            "1. Go to https://api.slack.com/apps",
-            "2. Create new app from scratch",
-            "3. Add Bot Token Scopes: channels:history, channels:read, users:read",
-            "4. Install app to workspace",
-            "5. Copy Bot User OAuth Token",
-            "6. Add to .env as SLACK_TOKEN",
+            "1. Go to https://api.slack.com/apps → Create New App → From scratch",
+            "2. Under OAuth & Permissions, add Bot Token Scopes:",
+            "   channels:history, channels:read, users:read",
+            "3. Click 'Install to Workspace' and authorize",
+            "4. Copy 'Bot User OAuth Token' (starts with xoxb-)",
+            "5. Invite the bot to channels: /invite @YourBotName",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/slack",
         "cost_warning": "Subject to Slack API rate limits",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
-
     "zendesk": {
         "display_name": "Zendesk",
         "category": "Business & CRM",
@@ -606,25 +861,13 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.BASIC,
         "dlt_package": "zendesk",
         "dlt_function": "zendesk_support",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "subdomain",
                 "type": "string",
-                "prompt": "Zendesk subdomain (e.g., mycompany from mycompany.zendesk.com)",
-                "help": "Your Zendesk subdomain",
-            },
-            {
-                "name": "email_env",
-                "type": "secret",
-                "env_var": "ZENDESK_EMAIL",
-                "prompt": "Zendesk email",
-            },
-            {
-                "name": "token_env",
-                "type": "secret",
-                "env_var": "ZENDESK_TOKEN",
-                "prompt": "Zendesk API token",
-                "help": "Generate at Admin > Channels > API",
+                "prompt": "Zendesk subdomain (e.g., 'mycompany' from mycompany.zendesk.com)",
+                "help": "Find this in your Zendesk URL: https://<subdomain>.zendesk.com",
             },
         ],
         "optional_params": [
@@ -632,27 +875,40 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "name": "start_date",
                 "type": "date",
                 "prompt": "Start date (YYYY-MM-DD)",
-                "default": None,
+                "default": "90daysAgo",
+                "help": "How far back to load tickets on first sync. Default: 90 days.",
             },
         ],
+        "available_resources": [
+            "tickets",
+            "ticket_fields",
+            "ticket_events",
+            "ticket_metric_events",
+        ],
+        "default_resources": ["tickets", "ticket_fields"],
+        "secrets_toml_template": '[sources.{source_name}.credentials]\nsubdomain = "{subdomain}"\nemail = ""\ntoken = ""\n',
         "setup_guide": [
             "1. Log in to Zendesk as admin",
-            "2. Go to Admin > Channels > API",
-            "3. Enable Token Access",
-            "4. Click '+' to add new API token",
-            "5. Copy token and add to .env as ZENDESK_TOKEN",
-            "6. Add your Zendesk email to .env as ZENDESK_EMAIL",
+            "2. Go to Admin Center > Apps and Integrations > APIs > Zendesk API",
+            "   Direct URL: https://<subdomain>.zendesk.com/admin/apps-integrations/apis/zendesk-api/settings",
+            "3. Enable Token Access and click 'Add API token'",
+            "4. Fill in credentials in .dlt/secrets.toml (template added automatically)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/zendesk",
         "cost_warning": "Subject to Zendesk API rate limits",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
-
     # Additional verified sources (skeleton metadata - to be expanded)
     "google_ads": {
         "display_name": "Google Ads",
         "category": "Marketing & Analytics",
-        "description": "Load ad campaigns and performance data from Google Ads",
+        "description": "Load daily performance metrics from Google Ads via GAQL queries",
         "auth_type": AuthType.OAUTH,
         "dlt_package": "google_ads",
         "dlt_function": "google_ads",
@@ -660,26 +916,146 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "required_params": [],  # OAuth handles credentials; developer_token and customer_id are collected during auth
         "optional_params": [
             {
-                "name": "resources",
-                "type": "multiselect",
-                "prompt": "Resources to sync",
-                "choices": ["customers", "campaigns", "change_events", "customer_clients"],
-                "default": ["customers", "campaigns"],
+                "name": "start_date",
+                "type": "date",
+                "prompt": "Start date (YYYY-MM-DD)",
+                "default": "90daysAgo",
+                "help": "How far back to load on first sync. Default: 90 days.",
             },
         ],
+        # Default GAQL queries — each becomes a table. Duplicated from
+        # dlt_sources/google_ads/settings.py (registry must not import from dlt_sources/).
+        "default_config": {
+            "lookback_days": 3,
+            "queries": [
+                {
+                    "resource_name": "campaign_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "campaign.status, "
+                        "campaign.advertising_channel_type, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.conversions_value, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc, "
+                        "metrics.average_cpm "
+                        "FROM campaign "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "ad_group_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "ad_group.id, "
+                        "ad_group.name, "
+                        "ad_group.status, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.conversions_value, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc "
+                        "FROM ad_group "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "keyword_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "ad_group.id, "
+                        "ad_group.name, "
+                        "ad_group_criterion.keyword.text, "
+                        "ad_group_criterion.keyword.match_type, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc "
+                        "FROM keyword_view "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "ad_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "ad_group.id, "
+                        "ad_group_ad.ad.id, "
+                        "ad_group_ad.ad.name, "
+                        "ad_group_ad.ad.type, "
+                        "ad_group_ad.status, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.ctr "
+                        "FROM ad_group_ad "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "search_term_stats",
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "ad_group.id, "
+                        "ad_group.name, "
+                        "search_term_view.search_term, "
+                        "search_term_view.status, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc "
+                        "FROM search_term_view "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+            ],
+        },
         "setup_guide": [
             "1. OAuth setup runs automatically during 'dango source add'",
-            "2. OR manually run: dango auth google_ads",
+            "2. OR manually run: dango oauth google_ads",
             "3. Follow the browser OAuth flow to authenticate",
             "4. Enter Developer Token from Google Ads API Center",
             "5. Enter Customer ID (find in Google Ads account URL, no hyphens)",
-            "6. Credentials are permanent (refresh token stored in .dlt/secrets.toml)",
+            "6. Default queries load 5 tables: campaign_stats, ad_group_stats,"
+            " keyword_stats, ad_stats, search_term_stats",
+            "7. Edit .dlt/config.toml to customize GAQL queries",
+            "8. Paste queries from Google Ads Query Builder for custom reports",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_ads",
-        "supported_in_v0": True,  # OAuth implementation complete
+        "cost_warning": "Subject to Google Ads API rate limits",
+        "wizard_enabled": True,  # OAuth implementation complete
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": True,
+            "date_range": True,
+            "incremental": False,
+            "custom_queries": True,
+        },
     },
-
     "matomo": {
         "display_name": "Matomo Analytics",
         "category": "Marketing & Analytics",
@@ -687,6 +1063,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "matomo",
         "dlt_function": "matomo_reports",
+        "wizard_enabled": False,  # Disabled: token passed via GET param (security risk)
         "required_params": [
             {
                 "name": "url",
@@ -703,12 +1080,34 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             },
             {
                 "name": "site_id",
-                "type": "string",
+                "type": "integer",
                 "prompt": "Site ID to track",
                 "help": "Found in Matomo dashboard (usually a number like '1')",
             },
         ],
         "optional_params": [],
+        "default_config": {
+            "queries": [
+                {
+                    "resource_name": "visits_summary",
+                    "methods": ["VisitsSummary.get"],
+                    "date": "today",
+                    "period": "month",
+                },
+                {
+                    "resource_name": "referrers",
+                    "methods": ["Referrers.getAll"],
+                    "date": "today",
+                    "period": "month",
+                },
+                {
+                    "resource_name": "pages",
+                    "methods": ["Actions.getPageUrls"],
+                    "date": "today",
+                    "period": "month",
+                },
+            ],
+        },
         "setup_guide": [
             "1. Log in to Matomo",
             "2. Go to Settings > Platform > API",
@@ -717,8 +1116,13 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/matomo",
         "popularity": 5,
+        "capabilities": {
+            "performance_metrics": True,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": True,
+        },
     },
-
     "mux": {
         "display_name": "Mux",
         "category": "Marketing & Analytics",
@@ -726,33 +1130,36 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "mux",
         "dlt_function": "mux_source",
-        "required_params": [
+        "wizard_enabled": True,
+        "required_params": [],
+        "optional_params": [
             {
-                "name": "api_access_token_env",
-                "type": "secret",
-                "env_var": "MUX_API_ACCESS_TOKEN",
-                "prompt": "Mux API Access Token ID",
-                "help": "From Mux Dashboard > Settings > Access Tokens",
-            },
-            {
-                "name": "api_secret_key_env",
-                "type": "secret",
-                "env_var": "MUX_API_SECRET_KEY",
-                "prompt": "Mux API Secret Key",
-                "help": "Secret key paired with access token",
+                "name": "start_date",
+                "type": "string",
+                "prompt": "Start date for video views (YYYY-MM-DD)",
+                "help": "How far back to load views. Defaults to 30 days ago.",
             },
         ],
-        "optional_params": [],
         "setup_guide": [
             "1. Log in to Mux Dashboard",
             "2. Go to Settings > Access Tokens",
             "3. Create new token with read permissions",
-            "4. Copy both Token ID and Secret Key to .env",
+            "4. Add to .dlt/secrets.toml:",
+            "   [sources.mux]",
+            "   mux_api_access_token = 'your_token_id'",
+            "   mux_api_secret_key = 'your_secret_key'",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/mux",
         "popularity": 4,
+        "capabilities": {
+            "performance_metrics": True,
+            "date_range": True,
+            # assets use merge (idempotent upsert) but no dlt.sources.incremental()
+            # cursor — re-fetches all assets each run, not true incremental loading
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
-
     "airtable": {
         "display_name": "Airtable",
         "category": "Marketing & Analytics",
@@ -761,6 +1168,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "dlt_package": "airtable",
         "dlt_function": "airtable_source",
         "pip_dependencies": [{"pip": "pyairtable", "import": "pyairtable"}],
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "base_id",
@@ -794,8 +1202,13 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/airtable",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
-
     "pipedrive": {
         "display_name": "Pipedrive",
         "category": "Business & CRM",
@@ -803,9 +1216,10 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "pipedrive",
         "dlt_function": "pipedrive_source",
+        "wizard_enabled": True,
         "required_params": [
             {
-                "name": "api_key_env",
+                "name": "pipedrive_api_key_env",
                 "type": "secret",
                 "env_var": "PIPEDRIVE_API_KEY",
                 "prompt": "Pipedrive API Token",
@@ -824,7 +1238,24 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "name": "resources",
                 "type": "multiselect",
                 "prompt": "Resources to sync",
-                "choices": ["activities", "deals", "deals_flow", "deals_participants", "files", "filters", "leads", "notes", "organizations", "persons", "pipelines", "products", "projects", "stages", "tasks", "users"],
+                "choices": [
+                    "activities",
+                    "deals",
+                    "deals_flow",
+                    "deals_participants",
+                    "files",
+                    "filters",
+                    "leads",
+                    "notes",
+                    "organizations",
+                    "persons",
+                    "pipelines",
+                    "products",
+                    "projects",
+                    "stages",
+                    "tasks",
+                    "users",
+                ],
                 "default": ["activities", "deals", "persons", "organizations"],
             },
         ],
@@ -836,8 +1267,13 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/pipedrive",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
-
     "freshdesk": {
         "display_name": "Freshdesk",
         "category": "Business & CRM",
@@ -845,6 +1281,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "freshdesk",
         "dlt_function": "freshdesk_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "domain",
@@ -865,7 +1302,15 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "name": "endpoints",
                 "type": "multiselect",
                 "prompt": "Resources to sync",
-                "choices": ["tickets", "agents", "companies", "contacts", "groups", "roles", "skills"],
+                "choices": [
+                    "tickets",
+                    "agents",
+                    "companies",
+                    "contacts",
+                    "groups",
+                    "roles",
+                    "skills",
+                ],
                 "default": ["tickets", "agents", "companies"],
             },
             {
@@ -884,8 +1329,13 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/freshdesk",
         "popularity": 6,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
-
     "jira": {
         "display_name": "Jira",
         "category": "Business & CRM",
@@ -893,6 +1343,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.BASIC,
         "dlt_package": "jira",
         "dlt_function": "jira",
+        "wizard_enabled": False,  # Disabled: wrong endpoint in dlt source
         "required_params": [
             {
                 "name": "subdomain",
@@ -940,8 +1391,13 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/jira",
         "popularity": 8,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
-
     "workable": {
         "display_name": "Workable",
         "category": "Business & CRM",
@@ -949,6 +1405,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "workable",
         "dlt_function": "workable_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "access_token_env",
@@ -988,8 +1445,15 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/workable",
         "popularity": 5,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": True,
+            # workable_source uses write_disposition="replace" for 7/8
+            # resources. Only candidates uses merge+incremental(updated_at).
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
-
     "asana": {
         "display_name": "Asana",
         "category": "Business & CRM",
@@ -997,41 +1461,54 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "asana_dlt",  # Note: source name is asana_dlt
         "dlt_function": "asana_source",
-        "required_params": [
-            {
-                "name": "access_token_env",
-                "type": "secret",
-                "env_var": "ASANA_ACCESS_TOKEN",
-                "prompt": "Asana Personal Access Token",
-                "help": "Generate at https://app.asana.com/0/my-apps",
-            },
-        ],
+        "wizard_enabled": False,  # Disabled: Asana SDK removed from dlt source
+        "required_params": [],
         "optional_params": [
             {
                 "name": "resources",
                 "type": "multiselect",
                 "prompt": "Resources to sync",
-                "choices": ["workspaces", "projects", "sections", "tags", "tasks", "stories", "teams", "users"],
+                "choices": [
+                    "workspaces",
+                    "projects",
+                    "sections",
+                    "tags",
+                    "tasks",
+                    "stories",
+                    "teams",
+                    "users",
+                ],
                 "default": ["workspaces", "projects", "tasks"],
             },
         ],
         "setup_guide": [
-            "1. Go to https://app.asana.com/0/my-apps",
-            "2. Click 'Create new token'",
-            "3. Give it a description and create",
-            "4. Copy token to .env as ASANA_ACCESS_TOKEN",
+            "1. Create a Personal Access Token at https://app.asana.com/0/developer-console",
+            "2. Note: The Asana SDK has been removed from the dlt source.",
+            "   Credentials must be added to .dlt/secrets.toml:",
+            "   [sources.asana_dlt]",
+            "   access_token = 'your_token_here'",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/asana",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            # asana_source uses write_disposition="replace" for 6/8 resources
+            # (workspaces, projects, sections, tags, users, teams). Only tasks
+            # uses merge+incremental(modified_at); stories uses append (no
+            # cursor). Not truly incremental overall.
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
-
     "notion": {
         "display_name": "Notion",
         "category": "Files & Storage",
         "description": "Load pages and databases from Notion",
-        "auth_type": AuthType.OAUTH,
+        "auth_type": AuthType.API_KEY,
         "dlt_package": "notion",
         "dlt_function": "notion_databases",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "api_key_env",
@@ -1047,14 +1524,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
                 "type": "json",
                 "prompt": "Database IDs to sync (JSON array, empty = all)",
                 "default": None,
-                "help": "Format: [{\"id\": \"db_id\", \"use_name\": \"my_db\"}] - Leave empty to sync all databases",
-            },
-            {
-                "name": "page_ids",
-                "type": "list",
-                "prompt": "Page IDs to sync (comma-separated, empty = all)",
-                "default": None,
-                "help": "Comma-separated list of Notion page IDs",
+                "help": 'Format: [{"id": "db_id", "use_name": "my_db"}] - Leave empty to sync all databases',
             },
         ],
         "setup_guide": [
@@ -1065,8 +1535,13 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/notion",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
-
     "inbox": {
         "display_name": "Email Inbox (IMAP)",
         "category": "Files & Storage",
@@ -1074,6 +1549,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.BASIC,
         "dlt_package": "inbox",
         "dlt_function": "inbox_source",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "host",
@@ -1113,8 +1589,13 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/inbox",
         "popularity": 5,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
-
     "mongodb": {
         "display_name": "MongoDB",
         "category": "Databases",
@@ -1122,6 +1603,8 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.BASIC,
         "dlt_package": "mongodb",
         "dlt_function": "mongodb",
+        "pip_dependencies": [{"pip": "pymongo", "import": "pymongo"}],
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "connection_url_env",
@@ -1162,8 +1645,75 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/mongodb",
         "popularity": 8,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            # mongodb() accepts an optional incremental parameter (defaults to
+            # None). Without explicit configuration, it does a full load — not
+            # incremental by default.
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
-
+    "postgres": {
+        "display_name": "PostgreSQL",
+        "category": "Databases",
+        "description": "Load tables from PostgreSQL databases with schema filtering",
+        "auth_type": AuthType.BASIC,
+        "dlt_package": "sql_database",
+        "dlt_function": "sql_database",
+        "pip_dependencies": [
+            {"pip": "sqlalchemy", "import": "sqlalchemy"},
+            {"pip": "psycopg2-binary", "import": "psycopg2"},
+        ],
+        "wizard_enabled": True,
+        "required_params": [
+            {
+                "name": "credentials_env",
+                "type": "secret",
+                "env_var": "POSTGRES_CREDENTIALS",
+                "prompt": "PostgreSQL connection URL",
+                "help": "Format: postgresql://username:password@host:port/database",
+            },
+        ],
+        "optional_params": [
+            {
+                "name": "schema",
+                "type": "string",
+                "prompt": "Schema name (empty = public)",
+                "default": "public",
+                "help": "PostgreSQL schema to load tables from",
+            },
+            {
+                "name": "table_names",
+                "type": "list",
+                "prompt": "Tables to sync (comma-separated, empty = all)",
+                "default": None,
+                "help": "Leave empty to sync all tables in the schema",
+            },
+        ],
+        "setup_guide": [
+            "1. Ensure PostgreSQL is accessible from your network",
+            "2. Create a read-only user (recommended):",
+            "   CREATE USER dango WITH PASSWORD 'your_password';",
+            "   GRANT CONNECT ON DATABASE mydb TO dango;",
+            "   GRANT USAGE ON SCHEMA public TO dango;",
+            "   GRANT SELECT ON ALL TABLES IN SCHEMA public TO dango;",
+            "3. Build connection URL: postgresql://dango:your_password@host:5432/mydb",
+            "4. Install driver: pip install sqlalchemy psycopg2-binary",
+        ],
+        "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/sql_database",
+        "popularity": 8,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            # sql_database() accepts an optional incremental parameter per
+            # table (defaults to None). Without explicit configuration, it
+            # loads all rows on every run — not incremental by default.
+            "incremental": False,
+            "custom_queries": False,
+        },
+    },
     "kafka": {
         "display_name": "Apache Kafka",
         "category": "Streaming",
@@ -1172,6 +1722,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "dlt_package": "kafka",
         "dlt_function": "kafka_consumer",
         "pip_dependencies": [{"pip": "confluent-kafka", "import": "confluent_kafka"}],
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "topics",
@@ -1219,8 +1770,13 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/kafka",
         "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
-
     "kinesis": {
         "display_name": "Amazon Kinesis",
         "category": "Streaming",
@@ -1228,6 +1784,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.SERVICE_ACCOUNT,
         "dlt_package": "kinesis",
         "dlt_function": "kinesis_stream",
+        "wizard_enabled": True,
         "required_params": [
             {
                 "name": "stream_name",
@@ -1269,13 +1826,18 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "setup_guide": [
             "1. Create IAM user with Kinesis read permissions",
             "2. Get AWS access key ID and secret access key",
-            "3. Create JSON: {\"aws_access_key_id\": \"...\", \"aws_secret_access_key\": \"...\", \"region_name\": \"us-east-1\"}",
+            '3. Create JSON: {"aws_access_key_id": "...", "aws_secret_access_key": "...", "region_name": "us-east-1"}',
             "4. Add to .env as AWS_CREDENTIALS",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/kinesis",
         "popularity": 6,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
-
     "chess": {
         "display_name": "Chess.com",
         "category": "Other",
@@ -1283,9 +1845,10 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.NONE,
         "dlt_package": "chess",
         "dlt_function": "source",
+        "wizard_enabled": True,
         "required_params": [
             {
-                "name": "player_usernames",
+                "name": "players",
                 "type": "list",
                 "prompt": "Player usernames to track (comma-separated)",
                 "help": "Chess.com usernames to load profiles and games for",
@@ -1299,8 +1862,13 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/chess",
         "popularity": 3,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
-
     "strapi": {
         "display_name": "Strapi",
         "category": "Other",
@@ -1308,19 +1876,26 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "strapi",
         "dlt_function": "strapi_source",
+        "wizard_enabled": False,  # Disabled: untested, requires Docker Strapi instance
         "required_params": [
             {
-                "name": "base_url",
+                "name": "domain",
                 "type": "string",
                 "prompt": "Strapi instance URL (e.g., https://cms.example.com)",
                 "help": "Base URL of your Strapi installation",
             },
             {
-                "name": "api_key_env",
+                "name": "api_secret_key_env",
                 "type": "secret",
-                "env_var": "STRAPI_API_KEY",
+                "env_var": "STRAPI_API_SECRET_KEY",
                 "prompt": "Strapi API Token",
                 "help": "Create at Settings > API Tokens",
+            },
+            {
+                "name": "endpoints",
+                "type": "list",
+                "prompt": "Content type endpoints (comma-separated, e.g., posts,articles)",
+                "help": "Strapi collection names to load data from",
             },
         ],
         "optional_params": [],
@@ -1328,12 +1903,17 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
             "1. Log in to Strapi admin",
             "2. Go to Settings > API Tokens",
             "3. Create new token with read permissions",
-            "4. Copy token to .env as STRAPI_API_KEY",
+            "4. Copy token to .env as STRAPI_API_SECRET_KEY",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/strapi",
         "popularity": 5,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "custom_queries": False,
+        },
     },
-
     "personio": {
         "display_name": "Personio",
         "category": "Other",
@@ -1341,6 +1921,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         "auth_type": AuthType.API_KEY,
         "dlt_package": "personio",
         "dlt_function": "personio_source",
+        "wizard_enabled": False,  # Disabled: enterprise-only API
         "required_params": [
             {
                 "name": "client_id_env",
@@ -1366,6 +1947,12 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/personio",
         "popularity": 4,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": True,
+            "custom_queries": False,
+        },
     },
 }
 
@@ -1375,7 +1962,7 @@ SOURCE_REGISTRY: Dict[str, Dict[str, Any]] = {
 # ============================================================================
 
 CATEGORIES = {
-    "Local & Custom": ["csv", "rest_api"],
+    "Local & Custom": ["local_files", "csv", "filesystem", "rest_api"],
     "Marketing & Analytics": [
         "facebook_ads",
         "google_ads",
@@ -1397,7 +1984,7 @@ CATEGORIES = {
     ],
     "E-commerce & Payment": ["stripe", "shopify"],
     "Files & Storage": ["notion", "inbox"],
-    "Databases": ["mongodb"],  # postgres/sql_database are built-in, not verified
+    "Databases": ["mongodb", "postgres"],  # postgres uses built-in sql_database
     "Streaming": ["kafka", "kinesis"],
     "Development": ["github"],
     "Communication": ["slack"],
@@ -1410,22 +1997,22 @@ CATEGORIES = {
 # ============================================================================
 
 
-def get_source_metadata(source_type: str) -> Optional[Dict[str, Any]]:
+def get_source_metadata(source_type: str) -> dict[str, Any] | None:
     """Get metadata for a specific source type"""
     return SOURCE_REGISTRY.get(source_type)
 
 
-def get_sources_by_category(category: str) -> List[str]:
+def get_sources_by_category(category: str) -> list[str]:
     """Get all source types in a category"""
     return CATEGORIES.get(category, [])
 
 
-def get_all_categories() -> List[str]:
+def get_all_categories() -> list[str]:
     """Get list of all categories"""
     return list(CATEGORIES.keys())
 
 
-def get_popular_sources(limit: int = 10) -> List[str]:
+def get_popular_sources(limit: int = 10) -> list[str]:
     """Get most popular sources (sorted by popularity score)"""
     sources_with_popularity = [
         (source_type, metadata.get("popularity", 0))
@@ -1438,3 +2025,11 @@ def get_popular_sources(limit: int = 10) -> List[str]:
 def is_source_implemented(source_type: str) -> bool:
     """Check if a source has full metadata in registry"""
     return source_type in SOURCE_REGISTRY
+
+
+def get_source_capabilities(source_type: str) -> dict[str, bool] | None:
+    """Get capability flags for a specific source type."""
+    metadata = SOURCE_REGISTRY.get(source_type)
+    if metadata is None:
+        return None
+    return cast(dict[str, bool] | None, metadata.get("capabilities"))

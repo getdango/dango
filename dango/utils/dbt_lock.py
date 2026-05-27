@@ -1,32 +1,28 @@
-"""
-File-based inter-process lock for dbt operations.
+"""dango/utils/dbt_lock.py
 
-Prevents concurrent dbt runs from UI, CLI, and sync operations to avoid
-DuckDB locking conflicts and data corruption.
+Prevents concurrent dbt runs from UI, CLI, and sync operations to avoid DuckDB locking conflicts and data corruption.
 """
 
+from __future__ import annotations
+
+import json
 import os
 import sys
-import json
-import psutil
-from pathlib import Path
-from datetime import datetime
-from typing import Optional, Dict, Any
+from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import IO, Any
+
+import psutil
+
+from dango.exceptions import DbtLockError
 
 # Platform-specific file locking
-if sys.platform == 'win32':
+if sys.platform == "win32":
     import msvcrt
 else:
     import fcntl
-
-
-class DbtLockError(Exception):
-    """Raised when unable to acquire dbt lock."""
-
-    def __init__(self, message: str, lock_info: Optional[Dict[str, Any]] = None):
-        super().__init__(message)
-        self.lock_info = lock_info
 
 
 class DbtLock:
@@ -47,7 +43,9 @@ class DbtLock:
             lock.release()
     """
 
-    def __init__(self, project_root: Path, source: str = "unknown", operation: str = "dbt operation"):
+    def __init__(
+        self, project_root: Path, source: str = "unknown", operation: str = "dbt operation"
+    ):
         """
         Initialize the lock.
 
@@ -68,33 +66,35 @@ class DbtLock:
         self.lock_file_path = self.state_dir / "dbt.lock"
         self.lock_info_path = self.state_dir / "dbt.lock.json"
 
-        self._lock_file = None
+        self._lock_file: IO[str] | None = None
         self._acquired = False
 
     def _is_process_running(self, pid: int) -> bool:
         """Check if a process with the given PID is running."""
         try:
             process = psutil.Process(pid)
-            return process.is_running()
+            return bool(process.is_running())
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return False
 
-    def _read_lock_info(self) -> Optional[Dict[str, Any]]:
+    def _read_lock_info(self) -> dict[str, Any] | None:
         """Read lock information from the lock info file."""
         if not self.lock_info_path.exists():
             return None
 
         try:
-            with open(self.lock_info_path, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
+            with open(self.lock_info_path) as f:
+                result: dict[str, Any] = json.load(f)
+                return result
+        except (OSError, json.JSONDecodeError):
             return None
 
-    def _write_lock_info(self):
+    def _write_lock_info(self) -> None:
         """Write lock information to the lock info file."""
         # Get hostname in a cross-platform way
         try:
             import socket
+
             hostname = socket.gethostname()
         except Exception:
             hostname = "unknown"
@@ -103,11 +103,11 @@ class DbtLock:
             "pid": os.getpid(),
             "source": self.source,
             "operation": self.operation,
-            "started_at": datetime.now().isoformat(),
-            "hostname": hostname
+            "started_at": datetime.now(tz=timezone.utc).isoformat(),
+            "hostname": hostname,
         }
 
-        with open(self.lock_info_path, 'w') as f:
+        with open(self.lock_info_path, "w") as f:
             json.dump(lock_info, f, indent=2)
 
     def _cleanup_stale_lock(self) -> bool:
@@ -135,12 +135,13 @@ class DbtLock:
 
         return False
 
-    def acquire(self, timeout: float = 0) -> bool:
+    def acquire(self, timeout: float = 30) -> bool:
         """
         Acquire the lock.
 
         Args:
-            timeout: Maximum time to wait for the lock (0 = don't wait)
+            timeout: Maximum time to wait for the lock (0 = don't wait).
+                Retries every 1 second until timeout is reached.
 
         Returns:
             True if lock was acquired
@@ -151,58 +152,68 @@ class DbtLock:
         if self._acquired:
             return True
 
-        # Try to clean up stale locks first
-        self._cleanup_stale_lock()
+        import time
 
-        # Try to acquire the lock
-        try:
-            self._lock_file = open(self.lock_file_path, 'w')
+        deadline = time.monotonic() + timeout
 
-            # Platform-specific locking
-            if sys.platform == 'win32':
-                # Windows: use msvcrt
-                msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                # Unix: use fcntl
-                fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        while True:
+            # Try to clean up stale locks first
+            self._cleanup_stale_lock()
 
-            # Successfully acquired the lock
-            self._write_lock_info()
-            self._acquired = True
-            return True
+            # Try to acquire the lock
+            try:
+                self._lock_file = open(self.lock_file_path, "w")
 
-        except (IOError, OSError) as e:
-            # Lock is held by another process
-            if self._lock_file:
-                self._lock_file.close()
-                self._lock_file = None
+                # Platform-specific locking
+                if sys.platform == "win32":
+                    # Windows: use msvcrt
+                    msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    # Unix: use fcntl
+                    fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
-            lock_info = self._read_lock_info()
+                # Successfully acquired the lock
+                self._write_lock_info()
+                self._acquired = True
+                return True
 
-            # Build a helpful error message
-            if lock_info:
-                source = lock_info.get("source", "unknown")
-                operation = lock_info.get("operation", "unknown operation")
-                started_at = lock_info.get("started_at", "unknown time")
-                pid = lock_info.get("pid", "unknown")
+            except OSError:
+                # Lock is held by another process
+                if self._lock_file:
+                    self._lock_file.close()
+                    self._lock_file = None
 
-                message = (
-                    f"Another dbt operation is currently running.\n"
-                    f"Source: {source}\n"
-                    f"Operation: {operation}\n"
-                    f"Started at: {started_at}\n"
-                    f"Process ID: {pid}\n"
-                    f"Please wait for it to complete before starting a new operation."
-                )
-            else:
-                message = (
-                    "Another dbt operation is currently running. "
-                    "Please wait for it to complete before starting a new operation."
-                )
+                # Retry if we still have time
+                if time.monotonic() < deadline:
+                    time.sleep(1)
+                    continue
 
-            raise DbtLockError(message, lock_info=lock_info)
+                lock_info = self._read_lock_info()
 
-    def release(self):
+                # Build a helpful error message
+                if lock_info:
+                    source = lock_info.get("source", "unknown")
+                    operation = lock_info.get("operation", "unknown operation")
+                    started_at = lock_info.get("started_at", "unknown time")
+                    pid = lock_info.get("pid", "unknown")
+
+                    message = (
+                        f"Another sync operation is currently running.\n"
+                        f"Source: {source}\n"
+                        f"Operation: {operation}\n"
+                        f"Started at: {started_at}\n"
+                        f"Process ID: {pid}\n"
+                        f"Please wait for it to complete before starting a new operation."
+                    )
+                else:
+                    message = (
+                        "Another sync operation is currently running. "
+                        "Please wait for it to complete before starting a new operation."
+                    )
+
+                raise DbtLockError(message, lock_info=lock_info) from None
+
+    def release(self) -> None:
         """Release the lock."""
         if not self._acquired:
             return
@@ -210,11 +221,11 @@ class DbtLock:
         try:
             if self._lock_file:
                 # Platform-specific unlocking
-                if sys.platform == 'win32':
+                if sys.platform == "win32":
                     # Windows: use msvcrt
                     try:
                         msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-                    except (IOError, OSError):
+                    except OSError:
                         pass  # Lock may already be released
                 else:
                     # Unix: use fcntl
@@ -230,26 +241,29 @@ class DbtLock:
                 self.lock_info_path.unlink()
 
             self._acquired = False
-        except (IOError, OSError):
+        except OSError:
             pass
 
-    def __enter__(self):
+    def __enter__(self) -> DbtLock:
         """Context manager entry."""
         self.acquire()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any
+    ) -> None:
         """Context manager exit."""
         self.release()
-        return False
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Cleanup on deletion."""
         self.release()
 
 
 @contextmanager
-def dbt_lock(project_root: Path, source: str = "unknown", operation: str = "dbt operation"):
+def dbt_lock(
+    project_root: Path, source: str = "unknown", operation: str = "dbt operation"
+) -> Generator[DbtLock, None, None]:
     """
     Context manager for dbt lock.
 

@@ -1,12 +1,11 @@
-"""
-Schema.yml Auto-Generation and Update
+"""dango/cli/schema_manager.py
 
-Automatically generates and updates schema.yml files for intermediate/marts models
-after successful dbt runs. Preserves user-written descriptions while syncing column lists.
+Automatically generates and updates schema.yml files for intermediate/marts models after successful dbt runs. Preserves user-written descriptions while syncing column lists.
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any
+
 import duckdb
 import yaml
 from rich.console import Console
@@ -30,7 +29,7 @@ class SchemaManager:
         self.dbt_dir = project_root / "dbt"
         self.models_dir = self.dbt_dir / "models"
 
-    def update_schemas_for_models(self, model_names: List[str]) -> None:
+    def update_schemas_for_models(self, model_names: list[str]) -> None:
         """
         Update schema.yml files for list of models
 
@@ -45,7 +44,7 @@ class SchemaManager:
             if layer in ["intermediate", "marts"]:
                 self._update_schema_for_model(model_name, layer)
 
-    def _get_model_layer(self, model_name: str) -> Optional[str]:
+    def _get_model_layer(self, model_name: str) -> str | None:
         """
         Determine which layer a model belongs to
 
@@ -98,9 +97,7 @@ class SchemaManager:
         existing_schema = self._load_schema_yml(schema_path)
 
         # Merge schemas
-        updated_schema, changes = self._merge_schema(
-            model_name, columns, existing_schema
-        )
+        updated_schema, changes = self._merge_schema(model_name, columns, existing_schema)
 
         # Write updated schema
         self._write_schema_yml(schema_path, updated_schema)
@@ -108,9 +105,7 @@ class SchemaManager:
         # Notify user of changes
         self._report_changes(model_name, changes, schema_path)
 
-    def _introspect_model_columns(
-        self, model_name: str, layer: str
-    ) -> List[Dict[str, str]]:
+    def _introspect_model_columns(self, model_name: str, layer: str) -> list[dict[str, str]]:
         """
         Introspect DuckDB to get actual columns for a model
 
@@ -122,30 +117,27 @@ class SchemaManager:
             List of dicts with 'name' and 'type' keys
         """
         try:
-            conn = duckdb.connect(str(self.duckdb_path), read_only=True)
+            conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
+            try:
+                # Query information schema for columns
+                query = f"""
+                    SELECT column_name, data_type
+                    FROM information_schema.columns
+                    WHERE table_schema = '{layer}'
+                      AND table_name = '{model_name}'
+                    ORDER BY ordinal_position
+                """
 
-            # Query information schema for columns
-            query = f"""
-                SELECT column_name, data_type
-                FROM information_schema.columns
-                WHERE table_schema = '{layer}'
-                  AND table_name = '{model_name}'
-                ORDER BY ordinal_position
-            """
+                result = conn.execute(query).fetchall()
+                return [{"name": col_name, "type": col_type} for col_name, col_type in result]
+            finally:
+                conn.close()
 
-            result = conn.execute(query).fetchall()
-            conn.close()
-
-            return [
-                {"name": col_name, "type": col_type}
-                for col_name, col_type in result
-            ]
-
-        except Exception as e:
+        except Exception:
             # Model might not exist yet
             return []
 
-    def _load_schema_yml(self, schema_path: Path) -> Optional[Dict[str, Any]]:
+    def _load_schema_yml(self, schema_path: Path) -> dict[str, Any] | None:
         """
         Load existing schema.yml file
 
@@ -159,8 +151,9 @@ class SchemaManager:
             return None
 
         try:
-            with open(schema_path, 'r') as f:
-                return yaml.safe_load(f)
+            with open(schema_path) as f:
+                result = yaml.safe_load(f)
+                return result if isinstance(result, dict) else None
         except Exception:
             # Corrupted YAML - return None to regenerate
             return None
@@ -168,9 +161,9 @@ class SchemaManager:
     def _merge_schema(
         self,
         model_name: str,
-        actual_columns: List[Dict[str, str]],
-        existing_schema: Optional[Dict[str, Any]]
-    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        actual_columns: list[dict[str, str]],
+        existing_schema: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """
         Merge actual columns with existing schema, preserving descriptions
 
@@ -182,11 +175,13 @@ class SchemaManager:
         Returns:
             Tuple of (updated_schema, changes_dict)
         """
-        changes = {
+        added_columns: list[str] = []
+        removed_columns: list[dict[str, str]] = []
+        changes: dict[str, Any] = {
             "is_new": False,
-            "added_columns": [],
-            "removed_columns": [],
-            "preserved_columns": 0
+            "added_columns": added_columns,
+            "removed_columns": removed_columns,
+            "preserved_columns": 0,
         }
 
         # Find existing model in schema
@@ -217,28 +212,22 @@ class SchemaManager:
                 changes["preserved_columns"] += 1
             else:
                 # New column - add helpful placeholder
-                description = f"TODO: Add description\n(Auto-generated - edit in dbt/models/[layer]/schema.yml)"
-                changes["added_columns"].append(col_name)
+                description = "TODO: Add description\n(Auto-generated - edit in dbt/models/[layer]/schema.yml)"
+                added_columns.append(col_name)
 
-            new_columns.append({
-                "name": col_name,
-                "description": description
-            })
+            new_columns.append({"name": col_name, "description": description})
 
         # Detect removed columns
         actual_col_names = {col["name"] for col in actual_columns}
         for col_name, description in existing_descriptions.items():
             if col_name not in actual_col_names:
-                changes["removed_columns"].append({
-                    "name": col_name,
-                    "description": description
-                })
+                removed_columns.append({"name": col_name, "description": description})
 
         # Build model entry
         new_model = {
             "name": model_name,
             "description": existing_model.get("description", "") if existing_model else "",
-            "columns": new_columns
+            "columns": new_columns,
         }
 
         # Build full schema structure
@@ -259,19 +248,16 @@ class SchemaManager:
 
             updated_schema = {
                 "version": existing_schema.get("version", 2),
-                "models": updated_models
+                "models": updated_models,
             }
         else:
             # Create new schema file
-            updated_schema = {
-                "version": 2,
-                "models": [new_model]
-            }
+            updated_schema = {"version": 2, "models": [new_model]}
             changes["is_new"] = True
 
         return updated_schema, changes
 
-    def _write_schema_yml(self, schema_path: Path, schema: Dict[str, Any]) -> None:
+    def _write_schema_yml(self, schema_path: Path, schema: dict[str, Any]) -> None:
         """
         Write schema.yml file
 
@@ -281,21 +267,10 @@ class SchemaManager:
         """
         schema_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(schema_path, 'w') as f:
-            yaml.dump(
-                schema,
-                f,
-                default_flow_style=False,
-                sort_keys=False,
-                allow_unicode=True
-            )
+        with open(schema_path, "w") as f:
+            yaml.dump(schema, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
-    def _report_changes(
-        self,
-        model_name: str,
-        changes: Dict[str, Any],
-        schema_path: Path
-    ) -> None:
+    def _report_changes(self, model_name: str, changes: dict[str, Any], schema_path: Path) -> None:
         """
         Report changes to user
 
@@ -307,14 +282,13 @@ class SchemaManager:
         if changes["is_new"]:
             console.print(f"[green]✓[/green] Created schema.yml for [cyan]{model_name}[/cyan]")
             console.print(f"  [dim]File: {schema_path.relative_to(self.project_root)}[/dim]")
-            console.print(f"  [dim]Columns: {len(changes['added_columns'])} (add descriptions to document)[/dim]")
+            console.print(
+                f"  [dim]Columns: {len(changes['added_columns'])} (add descriptions to document)[/dim]"
+            )
             return
 
         # Check if there were any changes
-        has_changes = (
-            len(changes["added_columns"]) > 0 or
-            len(changes["removed_columns"]) > 0
-        )
+        has_changes = len(changes["added_columns"]) > 0 or len(changes["removed_columns"]) > 0
 
         if not has_changes:
             # No changes, don't report anything
@@ -324,25 +298,28 @@ class SchemaManager:
 
         if changes["added_columns"]:
             for col_name in changes["added_columns"]:
-                console.print(f"  [green]+[/green] Added: {col_name} [dim](description needed)[/dim]")
+                console.print(
+                    f"  [green]+[/green] Added: {col_name} [dim](description needed)[/dim]"
+                )
 
         if changes["removed_columns"]:
             for col in changes["removed_columns"]:
                 col_name = col["name"]
                 col_desc = col["description"]
                 if col_desc:
-                    console.print(f"  [red]-[/red] Removed: {col_name} [dim](had description: \"{col_desc}\")[/dim]")
+                    console.print(
+                        f'  [red]-[/red] Removed: {col_name} [dim](had description: "{col_desc}")[/dim]'
+                    )
                 else:
                     console.print(f"  [red]-[/red] Removed: {col_name}")
 
         if changes["preserved_columns"] > 0:
-            console.print(f"  [green]✓[/green] Preserved descriptions for {changes['preserved_columns']} existing columns")
+            console.print(
+                f"  [green]✓[/green] Preserved descriptions for {changes['preserved_columns']} existing columns"
+            )
 
 
-def update_model_schemas(
-    project_root: Path,
-    model_names: List[str]
-) -> None:
+def update_model_schemas(project_root: Path, model_names: list[str]) -> None:
     """
     Update schema.yml files for models after successful dbt run
 

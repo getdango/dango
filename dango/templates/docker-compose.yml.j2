@@ -7,31 +7,34 @@ services:
       context: .
       dockerfile: Dockerfile.metabase
     ports:
-      - "{{ metabase_port }}:3000"
+      - "127.0.0.1:{{ metabase_port }}:3000"
     volumes:
       - metabase-data:/metabase-data
-      - ./data:/data
+      # Note: :ro mount does NOT prevent DuckDB fcntl locks. Metabase stop/start
+      # before sync (sync_trigger.py) is the actual write-lock prevention mechanism.
+      # :ro is defense-in-depth only (prevents file writes, not lock acquisition).
+      - ./data:/data:ro
       - ./metabase-plugins:/app/plugins
     environment:
       MB_DB_TYPE: h2
       MB_DB_FILE: /metabase-data/metabase.db
       MB_SITE_NAME: "{{ project_name }}"
-      MB_ENABLE_PUBLIC_SHARING: true
+      MB_ENABLE_PUBLIC_SHARING: false
       MB_ANON_TRACKING_ENABLED: false
       MB_PLUGINS_DIR: /app/plugins
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 60s
+      retries: 5
+      start_period: 300s
     restart: unless-stopped
 
   # dbt Docs - Documentation Server
   dbt-docs:
     image: nginx:alpine
     ports:
-      - "{{ dbt_docs_port }}:80"
+      - "127.0.0.1:{{ dbt_docs_port }}:80"
     volumes:
       - ./dbt/target:/usr/share/nginx/html:ro
     healthcheck:

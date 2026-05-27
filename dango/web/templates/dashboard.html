@@ -1,0 +1,346 @@
+{% extends "base.html" %}
+
+{% block title %}Dango Dashboard{% endblock %}
+
+{% block subtitle_attrs %}id="project-subtitle" class="text-xs sm:text-sm text-gray-500 hidden sm:block"{% endblock %}
+
+{% block header_right %}
+<div class="flex items-center space-x-2 sm:space-x-4">
+    <!-- Connection Status -->
+    <div id="connection-status" class="flex items-center space-x-2">
+        <div class="h-2 w-2 bg-gray-400 rounded-full animate-pulse" id="status-indicator"></div>
+        <span class="text-xs sm:text-sm text-gray-600 hidden sm:inline" id="status-text">Connecting...</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <!-- Initial Sync Progress Banner -->
+        <div x-data="initialSyncProgress()" x-init="init()" x-show="visible" x-cloak class="mb-6">
+            <div class="rounded-lg shadow p-4 border-l-4"
+                 :class="{
+                     'bg-blue-50 border-blue-500': phase === 'syncing' || phase === 'dbt_docs' || phase === 'metabase',
+                     'bg-green-50 border-green-500': phase === 'complete',
+                     'bg-red-50 border-red-500': phase === 'failed',
+                     'bg-yellow-50 border-yellow-500': phase === 'cancelled'
+                 }">
+                <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center space-x-3">
+                            <span class="text-xl" x-text="phaseIcon()"></span>
+                            <div class="flex-1">
+                                <p class="text-sm font-medium" :class="{'text-blue-800': isRunning(), 'text-green-800': phase === 'complete', 'text-red-800': phase === 'failed', 'text-yellow-800': phase === 'cancelled'}" x-text="statusText()"></p>
+                                <!-- Progress bar -->
+                                <template x-if="isRunning() && totalSources > 0">
+                                    <div class="mt-2">
+                                        <div class="w-full bg-gray-200 rounded-full h-2">
+                                            <div class="bg-blue-600 h-2 rounded-full transition-all duration-500"
+                                                 :style="'width: ' + progressPct() + '%'"></div>
+                                        </div>
+                                        <p class="text-xs text-gray-600 mt-1" x-text="'Source ' + currentSourceIndex + '/' + totalSources + ': ' + currentSourceName"></p>
+                                    </div>
+                                </template>
+                                <!-- Failed sources -->
+                                <template x-if="failedSources.length > 0">
+                                    <div class="mt-2 text-xs text-amber-700">
+                                        <template x-for="fs in failedSources" :key="fs.name">
+                                            <p>Failed: <span x-text="fs.name"></span> — <span x-text="fs.error"></span></p>
+                                        </template>
+                                    </div>
+                                </template>
+                                <!-- Error message -->
+                                <template x-if="error">
+                                    <p class="mt-1 text-xs text-red-700" x-text="error"></p>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2 ml-4">
+                        <template x-if="phase === 'syncing'">
+                            <button @click="skipSource()" class="text-xs px-3 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200">Skip (after current)</button>
+                        </template>
+                        <template x-if="isRunning()">
+                            <button @click="cancelSync()" class="text-xs px-3 py-1 bg-red-100 text-red-800 rounded hover:bg-red-200">Cancel</button>
+                        </template>
+                        <template x-if="!isRunning()">
+                            <button @click="dismiss()" class="text-gray-400 hover:text-gray-600">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Platform Health Widget -->
+        <div class="mb-6">
+            <a href="/health" class="block">
+                <div id="health-widget" class="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer border-l-4 border-gray-400">
+                    <div class="flex items-center justify-between">
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-3">
+                                <span id="health-icon" class="text-2xl">⏳</span>
+                                <div>
+                                    <p class="text-sm font-medium text-gray-600">Platform Health</p>
+                                    <p id="health-status-text" class="text-lg font-semibold text-gray-900">Loading...</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-xs text-gray-500">Click for details →</p>
+                        </div>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <!-- OAuth Expiry Warning Banner -->
+        <div id="oauth-expiry-banner" class="mb-6 hidden" x-data="{ dismissed: false }" x-show="!dismissed">
+            <div class="rounded-lg shadow p-4 border-l-4 bg-yellow-50 border-yellow-500">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-2xl">&#128273;</span>
+                        <div>
+                            <p class="text-sm font-medium text-yellow-800" id="oauth-banner-text">OAuth tokens expiring soon</p>
+                            <a href="/settings/secrets" class="text-xs text-yellow-700 hover:text-yellow-900 underline">Manage credentials &rarr;</a>
+                        </div>
+                    </div>
+                    <button @click="dismissed = true; $el.closest('#oauth-expiry-banner').dataset.dismissed = 'true'; document.getElementById('oauth-expiry-banner').classList.add('hidden')"
+                            class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Service Status Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            <!-- dbt Docs (Data Catalog) -->
+            <a href="/dbt-docs" target="_blank" class="block">
+                <div class="bg-white rounded-lg shadow p-4 sm:p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs sm:text-sm font-medium text-gray-600">dbt Docs</p>
+                            <p class="text-xl sm:text-2xl font-semibold text-gray-900" id="service-dbt">
+                                <span class="inline-block h-2 w-2 bg-gray-400 rounded-full"></span>
+                            </p>
+                        </div>
+                        <div class="text-2xl sm:text-3xl">📖</div>
+                    </div>
+                </div>
+            </a>
+
+            <!-- DuckDB (Status) -->
+            <div class="bg-white rounded-lg shadow p-4 sm:p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-xs sm:text-sm font-medium text-gray-600">DuckDB</p>
+                        <p class="text-xl sm:text-2xl font-semibold text-gray-900" id="service-duckdb">
+                            <span class="inline-block h-2 w-2 bg-gray-400 rounded-full"></span>
+                        </p>
+                    </div>
+                    <div class="text-2xl sm:text-3xl">🦆</div>
+                </div>
+            </div>
+
+            <!-- Metabase (Dashboards) -->
+            <a href="/metabase" target="_blank" class="block">
+                <div class="bg-white rounded-lg shadow p-4 sm:p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs sm:text-sm font-medium text-gray-600">Metabase</p>
+                            <p class="text-xl sm:text-2xl font-semibold text-gray-900" id="service-metabase">
+                                <span class="inline-block h-2 w-2 bg-gray-400 rounded-full"></span>
+                            </p>
+                        </div>
+                        <div class="text-2xl sm:text-3xl">📊</div>
+                    </div>
+                </div>
+            </a>
+
+            <!-- Activity Logs -->
+            <a href="/logs" class="block">
+                <div class="bg-white rounded-lg shadow p-4 sm:p-6 hover:shadow-md transition-shadow duration-200 cursor-pointer">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-xs sm:text-sm font-medium text-gray-600">Activity Logs</p>
+                            <p class="text-xl sm:text-2xl font-semibold text-gray-900" id="service-api">
+                                <span class="inline-block h-2 w-2 bg-gray-400 rounded-full"></span>
+                            </p>
+                        </div>
+                        <div class="text-2xl sm:text-3xl">📋</div>
+                    </div>
+                </div>
+            </a>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="bg-white rounded-lg shadow">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-lg font-semibold text-gray-900">Recent Activity</h2>
+                    <a href="/logs" class="text-sm text-blue-600 hover:text-blue-800">View Full Logs →</a>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50 sticky top-0">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Level</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Message</th>
+                        </tr>
+                    </thead>
+                    <tbody id="activity-log" class="bg-white divide-y divide-gray-200">
+                        <tr>
+                            <td colspan="4" class="px-6 py-8 text-center text-gray-500 text-sm">
+                                No recent activity
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed bottom-4 right-4 space-y-2 z-50">
+        <!-- Toasts will be added here dynamically -->
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <!-- JavaScript -->
+    <script src="{{ static_url('js/app.js') }}"></script>
+    <script>
+    function initialSyncProgress() {
+        return {
+            visible: false,
+            phase: 'idle',
+            totalSources: 0,
+            currentSourceIndex: 0,
+            currentSourceName: '',
+            completedSources: [],
+            failedSources: [],
+            skippedSources: [],
+            error: null,
+            dismissed: false,
+
+            async init() {
+                try {
+                    const resp = await fetch('/api/initial-sync/status', {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    });
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        this.updateState(data);
+                    }
+                } catch (e) {
+                    // Endpoint may not exist (local dev)
+                }
+
+                // Listen for WebSocket updates
+                if (window.dangoWs) {
+                    const origHandler = window.dangoWs.onmessage;
+                    window.dangoWs.onmessage = (event) => {
+                        if (origHandler) origHandler(event);
+                        try {
+                            const msg = JSON.parse(event.data);
+                            if (msg.event === 'initial_sync_progress' && msg.data) {
+                                this.updateState(msg.data);
+                            }
+                        } catch (e) {}
+                    };
+                }
+            },
+
+            updateState(data) {
+                this.phase = data.phase || 'idle';
+                this.totalSources = data.total_sources || 0;
+                this.currentSourceIndex = data.current_source_index || 0;
+                this.currentSourceName = data.current_source_name || '';
+                this.completedSources = data.completed_sources || [];
+                this.failedSources = data.failed_sources || [];
+                this.skippedSources = data.skipped_sources || [];
+                this.error = data.error || null;
+
+                if (!this.dismissed && this.phase !== 'idle') {
+                    this.visible = true;
+                }
+            },
+
+            isRunning() {
+                return ['syncing', 'dbt_docs', 'metabase'].includes(this.phase);
+            },
+
+            progressPct() {
+                if (this.totalSources === 0) return 0;
+                return Math.round((this.currentSourceIndex / this.totalSources) * 100);
+            },
+
+            statusText() {
+                switch (this.phase) {
+                    case 'syncing':
+                        return 'Initial data sync in progress...';
+                    case 'dbt_docs':
+                        return 'Generating dbt documentation...';
+                    case 'metabase':
+                        return 'Refreshing Metabase...';
+                    case 'complete':
+                        const count = this.completedSources.length;
+                        const failed = this.failedSources.length;
+                        let msg = `Initial sync complete! ${count} source(s) synced.`;
+                        if (failed > 0) msg += ` ${failed} failed.`;
+                        return msg;
+                    case 'cancelled':
+                        return 'Initial sync cancelled.';
+                    case 'failed':
+                        return 'Initial sync failed.';
+                    default:
+                        return '';
+                }
+            },
+
+            phaseIcon() {
+                switch (this.phase) {
+                    case 'syncing': case 'dbt_docs': case 'metabase': return '\u23F3';
+                    case 'complete': return '\u2705';
+                    case 'failed': return '\u274C';
+                    case 'cancelled': return '\u26A0\uFE0F';
+                    default: return '';
+                }
+            },
+
+            async skipSource() {
+                try {
+                    await fetch('/api/initial-sync/skip-source', {
+                        method: 'POST',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    });
+                } catch (e) {}
+            },
+
+            async cancelSync() {
+                try {
+                    await fetch('/api/initial-sync/cancel', {
+                        method: 'POST',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    });
+                } catch (e) {}
+            },
+
+            dismiss() {
+                this.visible = false;
+                this.dismissed = true;
+            }
+        };
+    }
+    </script>
+{% endblock %}

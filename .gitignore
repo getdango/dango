@@ -134,3 +134,14 @@ dmypy.json
 dist/
 build/
 *.egg-info/
+
+# Dango secrets & credentials
+.dlt/secrets.toml
+*.pem
+*.key
+
+# Node.js (Tailwind CSS build only — compiled CSS is committed)
+node_modules/
+
+# Dango runtime data
+.dango/

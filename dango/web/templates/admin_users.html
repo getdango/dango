@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}User Management - Dango{% endblock %}
+
+{% block content %}
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div x-data="adminUsers()" x-init="loadUsers()">
+        <!-- Header -->
+        <div class="mb-6">
+            <h2 class="text-xl font-bold text-gray-900">User Management</h2>
+            <p class="text-sm text-gray-500 mt-1">Users are managed via CLI. Use <code class="bg-gray-100 px-1 rounded">dango auth add-user</code> to manage users.</p>
+        </div>
+
+        <!-- Error banner -->
+        <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p class="text-sm text-red-700" x-text="error"></p>
+        </div>
+
+        <!-- Users table -->
+        <div class="bg-white shadow rounded-lg overflow-visible">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Last Login</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Created</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    <template x-for="u in users" :key="u.id">
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900" x-text="u.email"></td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                      :class="roleBadge(u.role)" x-text="u.role"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm"
+                                :class="getStatus(u).cls" x-text="getStatus(u).text"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
+                                x-text="u.last_login ? new Date(u.last_login).toLocaleDateString() : 'Never'"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell"
+                                x-text="new Date(u.created_at).toLocaleDateString()"></td>
+                        </tr>
+                    </template>
+                    <template x-if="users.length === 0">
+                        <tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500">No users found.</td></tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function adminUsers() {
+    const headers = {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'};
+    return {
+        users: [], error: '',
+
+        roleBadge(role) {
+            if (role === 'admin') return 'bg-red-100 text-red-800';
+            if (role === 'editor') return 'bg-blue-100 text-blue-800';
+            return 'bg-gray-100 text-gray-800';
+        },
+        getStatus(u) {
+            if (!u.is_active) return { text: 'Inactive', cls: 'text-red-600' };
+            if (u.locked_until && new Date(u.locked_until) > new Date())
+                return { text: 'Locked', cls: 'text-yellow-600' };
+            if (u.has_pending_invite)
+                return { text: 'Invited', cls: 'text-indigo-600' };
+            if (u.invite_expires_at && !u.has_pending_invite && !u.last_login)
+                return { text: 'Invite Expired', cls: 'text-orange-600' };
+            return { text: 'Active', cls: 'text-green-600' };
+        },
+
+        async loadUsers() {
+            try {
+                const res = await fetch('/api/admin/users', { headers });
+                if (!res.ok) throw new Error('Failed to load users');
+                this.users = await res.json();
+            } catch (e) { this.error = e.message; }
+        }
+    }
+}
+</script>
+{% endblock %}

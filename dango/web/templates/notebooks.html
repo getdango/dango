@@ -1,0 +1,420 @@
+{% extends "base.html" %}
+
+{% block title %}Notebooks - Dango{% endblock %}
+
+{% block content %}
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div x-data="notebooksPage()" x-init="init()">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-bold text-gray-900">Notebooks</h2>
+            <template x-if="canExecute">
+                <div class="relative">
+                    <button @click="showCreateDropdown = !showCreateDropdown"
+                            class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors">
+                        New Notebook
+                    </button>
+                    <div x-show="showCreateDropdown" @click.away="showCreateDropdown = false" x-cloak
+                         class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50">
+                        <button @click="createNotebook('blank')" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Blank</button>
+                        <button @click="createNotebook('explore')" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Data Exploration</button>
+                        <button @click="createNotebook('quality')" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Data Quality</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <!-- Error banner -->
+        <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p class="text-sm text-red-700" x-text="error"></p>
+        </div>
+        <div id="notebook-info" class="hidden mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+            <p class="text-sm text-blue-700">Starting notebook server... the tab may take a few seconds to load.</p>
+        </div>
+
+        <!-- Lock revoked banner -->
+        <div x-show="lockRevoked" x-cloak class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+            <p class="text-sm text-yellow-800">
+                Your lock on "<span x-text="revokedNotebook"></span>" has been revoked by an administrator.
+            </p>
+        </div>
+
+        <!-- Success banner -->
+        <div x-show="success" x-cloak class="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+            <p class="text-sm text-green-700" x-text="success"></p>
+        </div>
+
+        <!-- Notebooks table -->
+        <div class="bg-white shadow rounded-lg overflow-hidden">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Author</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Last Modified</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lock Status</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    <template x-for="nb in notebooks" :key="nb.name">
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="text-sm font-medium text-gray-900" x-text="nb.name"></span>
+                                <template x-if="!nb.file_exists">
+                                    <span class="ml-2 px-1.5 py-0.5 text-xs rounded bg-yellow-100 text-yellow-800">missing file</span>
+                                </template>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell"
+                                x-text="nb.created_by || '—'"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
+                                x-text="nb.updated_at ? timeAgo(nb.updated_at) : '—'"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                <template x-if="!nb.lock">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Available</span>
+                                </template>
+                                <template x-if="nb.lock && nb.lock.locked_by === userEmail">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                                        Editing <span class="ml-1 font-normal" x-text="'(' + timeAgo(nb.lock.locked_at) + ')'"></span>
+                                    </span>
+                                </template>
+                                <template x-if="nb.lock && nb.lock.locked_by !== userEmail">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-orange-100 text-orange-800">
+                                        Locked by <span x-text="nb.lock.locked_by" class="ml-1"></span>
+                                        <span class="ml-1 font-normal" x-text="'(' + timeAgo(nb.lock.locked_at) + ')'"></span>
+                                    </span>
+                                </template>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
+                                <div class="flex items-center justify-end space-x-2">
+                                    <template x-if="canExecute && nb.file_exists && !nb.lock">
+                                        <button @click="openNotebook(nb)"
+                                                class="text-blue-600 hover:text-blue-800 text-xs font-medium">Open</button>
+                                    </template>
+                                    <template x-if="canExecute && nb.lock && nb.lock.locked_by === userEmail">
+                                        <button @click="releaseOwnLock(nb)"
+                                                class="text-yellow-600 hover:text-yellow-800 text-xs font-medium">Release Lock</button>
+                                    </template>
+                                    <template x-if="canExecute && nb.lock && nb.lock.locked_by !== userEmail">
+                                        <button @click="copyNotebook(nb)"
+                                                class="text-gray-600 hover:text-gray-800 text-xs font-medium">Copy</button>
+                                    </template>
+                                    <template x-if="canManage && nb.lock && nb.lock.locked_by !== userEmail">
+                                        <button @click="forceReleaseLock(nb)"
+                                                class="text-orange-600 hover:text-orange-800 text-xs font-medium">Force Unlock</button>
+                                    </template>
+                                    <template x-if="canExecute">
+                                        <button @click="openDeleteModal(nb)"
+                                                class="text-red-600 hover:text-red-800 text-xs font-medium">Delete</button>
+                                    </template>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+                <tbody x-show="notebooks.length === 0" x-cloak>
+                    <tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500">
+                        <template x-if="canExecute">
+                            <span>No notebooks yet. Create one to get started.</span>
+                        </template>
+                        <template x-if="!canExecute">
+                            <span>No notebooks available.</span>
+                        </template>
+                    </td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Create Notebook Modal (name input) -->
+        <div x-show="showCreateModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showCreateModal = false"></div>
+                <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative z-10">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">New Notebook</h3>
+                    <form @submit.prevent="submitCreate()">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                            <input type="text" x-model="newNotebookName" required pattern="[a-zA-Z0-9_]+"
+                                   placeholder="my_analysis"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500">
+                            <p class="text-xs text-gray-400 mt-1">Letters, numbers, underscores only.</p>
+                        </div>
+                        <div class="flex justify-end space-x-3">
+                            <button type="button" @click="showCreateModal = false"
+                                    class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                            <button type="submit" :disabled="createLoading"
+                                    class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700 disabled:opacity-50">
+                                <span x-show="!createLoading">Create</span>
+                                <span x-show="createLoading" x-cloak>Creating...</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delete Confirmation Modal -->
+        <div x-show="showDeleteModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showDeleteModal = false"></div>
+                <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative z-10">
+                    <h3 class="text-lg font-medium text-red-600 mb-2">Delete Notebook</h3>
+                    <p class="text-sm text-gray-500 mb-4">
+                        Are you sure you want to delete
+                        <span class="font-mono font-medium" x-text="deleteTarget?.name"></span>?
+                        This cannot be undone.
+                    </p>
+                    <div class="flex justify-end space-x-3">
+                        <button @click="showDeleteModal = false"
+                                class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                        <button @click="deleteNotebook()" :disabled="deleteLoading"
+                                class="px-4 py-2 text-sm text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function notebooksPage() {
+    const headers = {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'};
+    const userRole = {{ request.state.user.role.value | tojson }};
+    const userEmail = {{ request.state.user.email | tojson }};
+
+    return {
+        notebooks: [],
+        error: '', success: '',
+        canExecute: userRole === 'admin' || userRole === 'editor',
+        canManage: userRole === 'admin' || userRole === 'editor',
+        userEmail: userEmail,
+
+        // Create
+        showCreateDropdown: false,
+        showCreateModal: false,
+        newNotebookName: '',
+        selectedTemplate: 'blank',
+        createLoading: false,
+
+        // Delete
+        showDeleteModal: false,
+        deleteTarget: null,
+        deleteLoading: false,
+
+        // Active editing
+        activeNotebook: null,
+        heartbeatInterval: null,
+
+        // Lock revocation
+        lockRevoked: false,
+        revokedNotebook: '',
+
+        async init() {
+            await this.loadNotebooks();
+            this.connectWs();
+        },
+
+        async loadNotebooks() {
+            try {
+                const res = await fetch('/api/notebooks', { headers });
+                if (res.ok) this.notebooks = await res.json();
+            } catch (e) { this.error = 'Failed to load notebooks'; }
+        },
+
+        createNotebook(template) {
+            this.selectedTemplate = template;
+            this.showCreateDropdown = false;
+            this.newNotebookName = '';
+            this.showCreateModal = true;
+        },
+
+        async submitCreate() {
+            this.createLoading = true; this.error = '';
+            try {
+                const res = await fetch('/api/notebooks', {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ name: this.newNotebookName, template: this.selectedTemplate })
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to create notebook'; this.createLoading = false; return; }
+                this.showCreateModal = false;
+                this.success = 'Notebook created.';
+                setTimeout(() => this.success = '', 3000);
+                await this.loadNotebooks();
+            } catch (e) { this.error = 'Failed to create notebook'; }
+            this.createLoading = false;
+        },
+
+        async openNotebook(nb) {
+            this.error = '';
+            // Open window immediately (in user gesture context) to avoid popup blockers
+            const infoEl = document.getElementById('notebook-info');
+            if (infoEl) { infoEl.textContent = 'Starting notebook server... the tab may take a few seconds to load.'; infoEl.classList.remove('hidden'); }
+            const nbWindow = window.open('about:blank', '_blank');
+            if (nbWindow) {
+                nbWindow.document.write('<html><head><title>Starting Notebook...</title></head><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f9fafb;color:#6b7280"><div style="text-align:center"><div style="font-size:2rem;margin-bottom:1rem">&#127841;</div><div>Starting notebook server...</div><div style="font-size:0.875rem;margin-top:0.5rem">This may take a few seconds</div></div></body></html>');
+            }
+            try {
+                const res = await fetch(`/api/notebooks/${nb.name}/lock`, {
+                    method: 'POST', headers, body: '{}'
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    if (nbWindow) nbWindow.close();
+                    if (infoEl) infoEl.classList.add('hidden');
+                    this.error = data.message || 'Failed to lock notebook';
+                    return;
+                }
+
+                // Navigate to Marimo
+                if (nbWindow) {
+                    const url = data.marimo_url;
+                    if (data.ready) {
+                        // Marimo was already running — navigate immediately
+                        nbWindow.location.href = url;
+                    } else {
+                        // New Marimo just started — poll until ready
+                        const poll = async () => {
+                            for (let i = 0; i < 60; i++) {
+                                try {
+                                    const r = await fetch(url);
+                                    if (r.ok || r.status === 200) {
+                                        nbWindow.location.href = url;
+                                        return;
+                                    }
+                                } catch { /* not ready yet */ }
+                                await new Promise(r => setTimeout(r, 1000));
+                            }
+                            nbWindow.location.href = url; // try anyway after 60s
+                        };
+                        poll();
+                    }
+                }
+                this.activeNotebook = nb.name;
+                this.startHeartbeat(nb.name);
+                setTimeout(() => { if (infoEl) infoEl.classList.add('hidden'); }, 8000);
+                await this.loadNotebooks();
+            } catch (e) {
+                if (nbWindow) nbWindow.close();
+                if (infoEl) infoEl.classList.add('hidden');
+                this.error = 'Failed to open notebook';
+            }
+        },
+
+        startHeartbeat(name) {
+            this.stopHeartbeat();
+            this.heartbeatInterval = setInterval(async () => {
+                try {
+                    await fetch(`/api/notebooks/${name}/heartbeat`, {
+                        method: 'POST', headers, body: '{}'
+                    });
+                } catch (e) { /* ignore heartbeat failures */ }
+            }, 60000);
+        },
+
+        stopHeartbeat() {
+            if (this.heartbeatInterval) {
+                clearInterval(this.heartbeatInterval);
+                this.heartbeatInterval = null;
+            }
+        },
+
+        connectWs() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            this._ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            this._ws.onmessage = (evt) => {
+                try {
+                    const data = JSON.parse(evt.data);
+                    if (data.event === 'notebook_lock_revoked' && data.notebook === this.activeNotebook) {
+                        this.stopHeartbeat();
+                        this.lockRevoked = true;
+                        this.revokedNotebook = data.notebook;
+                        this.activeNotebook = null;
+                        this.loadNotebooks();
+                    }
+                } catch (e) { /* ignore parse errors */ }
+            };
+            this._ws.onclose = () => { setTimeout(() => this.connectWs(), 5000); };
+        },
+
+        async copyNotebook(nb) {
+            this.error = '';
+            try {
+                const res = await fetch(`/api/notebooks/${nb.name}/copy`, {
+                    method: 'POST', headers, body: '{}'
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to copy notebook'; return; }
+                this.success = `Copied as ${data.copy_name}`;
+                setTimeout(() => this.success = '', 3000);
+                await this.loadNotebooks();
+            } catch (e) { this.error = 'Failed to copy notebook'; }
+        },
+
+        openDeleteModal(nb) {
+            this.deleteTarget = nb;
+            this.showDeleteModal = true;
+        },
+
+        async deleteNotebook() {
+            this.deleteLoading = true; this.error = '';
+            try {
+                const res = await fetch(`/api/notebooks/${this.deleteTarget.name}`, {
+                    method: 'DELETE', headers
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to delete notebook'; this.deleteLoading = false; return; }
+                this.showDeleteModal = false;
+                this.success = 'Notebook deleted.';
+                setTimeout(() => this.success = '', 3000);
+                await this.loadNotebooks();
+            } catch (e) { this.error = 'Failed to delete notebook'; }
+            this.deleteLoading = false;
+        },
+
+        async releaseOwnLock(nb) {
+            this.error = '';
+            try {
+                const res = await fetch(`/api/notebooks/${nb.name}/release`, {
+                    method: 'POST', headers, body: '{}'
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to release lock'; return; }
+                this.stopHeartbeat();
+                this.activeNotebook = null;
+                this.success = 'Lock released.';
+                setTimeout(() => this.success = '', 3000);
+                await this.loadNotebooks();
+            } catch (e) { this.error = 'Failed to release lock'; }
+        },
+
+        async forceReleaseLock(nb) {
+            this.error = '';
+            try {
+                const res = await fetch(`/api/notebooks/${nb.name}/lock`, {
+                    method: 'DELETE', headers
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to force unlock'; return; }
+                this.success = 'Lock released.';
+                setTimeout(() => this.success = '', 3000);
+                await this.loadNotebooks();
+            } catch (e) { this.error = 'Failed to force unlock'; }
+        },
+
+        timeAgo(iso) {
+            if (!iso) return '—';
+            let ts = String(iso);
+            if (!ts.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ts)) { ts += 'Z'; }
+            const diff = (new Date() - new Date(ts)) / 1000;
+            if (diff < 60) return Math.round(diff) + 's ago';
+            if (diff < 3600) return Math.round(diff / 60) + ' min ago';
+            if (diff < 86400) return Math.round(diff / 3600) + 'h ago';
+            return Math.round(diff / 86400) + 'd ago';
+        }
+    }
+}
+</script>
+{% endblock %}

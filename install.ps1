@@ -327,8 +327,8 @@ function Install-Dango {
     # Upgrade pip silently
     & pip install --upgrade pip --quiet
 
-    # Install getdango from PyPI
-    & pip install getdango
+    # Install getdango from PyPI (--pre includes beta versions)
+    & pip install --pre getdango
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to install Dango"
@@ -336,7 +336,7 @@ function Install-Dango {
     }
 
     # Get installed version
-    $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value }
+    $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+[a-zA-Z0-9]*' | ForEach-Object { $_.Matches.Value }
     if (-not $version) { $version = "unknown" }
 
     Write-Success "Dango $version installed"
@@ -354,7 +354,7 @@ function Update-Dango {
     & $activateScript
 
     # Upgrade from PyPI
-    & pip install --upgrade getdango --quiet
+    & pip install --upgrade --pre getdango --quiet
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to upgrade Dango"
@@ -362,7 +362,7 @@ function Update-Dango {
     }
 
     # Get installed version
-    $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value }
+    $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+[a-zA-Z0-9]*' | ForEach-Object { $_.Matches.Value }
     if (-not $version) { $version = "unknown" }
 
     Write-Success "Dango upgraded to $version"
@@ -377,7 +377,7 @@ function Install-DangoGlobal {
     Write-Host ""
 
     # Install from PyPI
-    & $PythonCmd -m pip install --user getdango
+    & $PythonCmd -m pip install --pre --user getdango
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error-Message "Failed to install Dango from PyPI"
@@ -403,7 +403,7 @@ function Install-DangoGlobal {
 
     # If dango already in PATH, we're done
     if ($dangoWasInPath) {
-        $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value }
+        $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+[a-zA-Z0-9]*' | ForEach-Object { $_.Matches.Value }
         if (-not $version) { $version = "unknown" }
         Write-Success "Dango $version installed and ready to use!"
         Write-Host ""
@@ -785,7 +785,7 @@ function Main {
                 Write-Host "To create venv manually:"
                 Write-Host "  $($pythonInfo.Command) -m venv venv"
                 Write-Host "  .\venv\Scripts\Activate.ps1"
-                Write-Host "  pip install getdango"
+                Write-Host "  pip install --pre getdango"
                 Write-Host ""
                 exit 0
             }

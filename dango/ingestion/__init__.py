@@ -4,9 +4,9 @@ Dango Ingestion Module
 Handles data loading from various sources (CSV, APIs, databases).
 """
 
-from .dlt_runner import DltPipelineRunner, run_sync
 from .csv_loader import CSVLoader
-from .sources import SOURCE_REGISTRY, CATEGORIES, get_source_metadata
+from .dlt_runner import DltPipelineRunner, run_sync
+from .sources import CATEGORIES, SOURCE_REGISTRY, get_source_capabilities, get_source_metadata
 
 __all__ = [
     "DltPipelineRunner",
@@ -15,4 +15,5 @@ __all__ = [
     "SOURCE_REGISTRY",
     "CATEGORIES",
     "get_source_metadata",
+    "get_source_capabilities",
 ]

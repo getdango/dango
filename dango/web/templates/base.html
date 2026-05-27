@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Dango{% endblock %}</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍡</text></svg>">
+
+    <!-- Tailwind CSS (compiled, see tailwind.config.js) -->
+    <link rel="stylesheet" href="{{ static_url('css/tailwind.min.css') }}">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ static_url('css/main.css') }}">
+
+    <!-- Alpine.js via CDN (ADR-007: used for new page interactivity) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+
+    <style>[x-cloak] { display: none !important; }</style>
+</head>
+<body class="bg-gray-50">
+    {% block header %}
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2 sm:space-x-3">
+                    <div class="text-2xl sm:text-3xl">🍡</div>
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Dango</h1>
+                        <p {% block subtitle_attrs %}class="text-xs sm:text-sm text-gray-500 hidden sm:block"{% endblock %}>{{ subtitle }}</p>
+                    </div>
+                </div>
+
+                {% block header_right %}{% endblock %}
+            </div>
+        </div>
+    </header>
+    {% endblock %}
+
+    {% block nav %}
+    <!-- Navigation Bar -->
+    <nav class="bg-gray-800 shadow-lg sticky top-0 z-50" x-data="{ settingsOpen: false, mobileOpen: false }">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-12">
+                <!-- Desktop nav links: 8-item pipeline layout -->
+                <div class="hidden md:flex items-center space-x-1">
+                    <a href="/" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'overview' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                        Overview
+                    </a>
+                    <a href="/sources" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'sources' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                        Sources
+                    </a>
+                    <a href="/models" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'models' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                        Models
+                    </a>
+                    <a href="/schedules" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'schedules' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                        Schedules
+                    </a>
+                    <a href="/catalog" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'catalog' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                        Catalog
+                    </a>
+                    <a href="/metabase/question#{{ query_hash }}" id="nav-query-database" target="_blank" class="px-2 py-2 rounded-md text-xs font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
+                        Query
+                    </a>
+                    <a href="/metabase" target="_blank" class="px-2 py-2 rounded-md text-xs font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
+                        Dashboards
+                    </a>
+                    <a href="/notebooks" class="px-2 py-2 rounded-md text-xs font-medium {% if current_page == 'notebooks' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white transition-colors">
+                        Notebooks
+                    </a>
+                </div>
+
+                <!-- Right side: user email + settings gear + hamburger (mobile) -->
+                <div class="flex items-center space-x-2 ml-auto">
+                    {% if request.state.user %}
+                    <span class="text-xs text-gray-400 hidden lg:inline mr-2">{{ request.state.user.email }}</span>
+                    <span class="text-xs px-1.5 py-0.5 rounded-full hidden lg:inline mr-1
+                        {% if request.state.user.role.value == 'admin' %}bg-red-100 text-red-800
+                        {% elif request.state.user.role.value == 'editor' %}bg-blue-100 text-blue-800
+                        {% else %}bg-gray-100 text-gray-800{% endif %}">{{ request.state.user.role.value }}</span>
+                    <!-- Settings gear dropdown -->
+                    <div class="relative">
+                        <button @click="settingsOpen = !settingsOpen"
+                                class="p-2 rounded-md text-gray-300 hover:bg-gray-700 hover:text-white transition-colors {% if current_page == 'settings' %}text-white bg-gray-900{% endif %}">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                        </button>
+                        <div x-show="settingsOpen" @click.away="settingsOpen = false" x-cloak
+                             class="absolute right-0 mt-1 w-48 bg-white rounded-md shadow-lg py-1 z-50">
+                            <a href="/settings/account" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Account Settings</a>
+                            {% if request.state.user.role.value == 'admin' %}
+                            <a href="/settings/users" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">User Management</a>
+                            <a href="/settings/secrets" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Secrets & Credentials</a>
+                            {% endif %}
+                            <hr class="my-1">
+                            <a href="/logs" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100{% if current_page == 'logs' %} font-semibold{% endif %}">Activity Logs</a>
+                            <a href="/health" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100{% if current_page == 'health' %} font-semibold{% endif %}">Health</a>
+                            <hr class="my-1">
+                            <button @click="fetch('/api/auth/logout', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}}).then(() => window.location.href = '/login').catch(() => window.location.href = '/login')" class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100">Logout</button>
+                        </div>
+                    </div>
+                    {% else %}
+                    <span class="text-xs text-gray-400 hidden md:inline">Dango v{{ version }}</span>
+                    {% endif %}
+
+                    <!-- Hamburger button (mobile only) -->
+                    <button @click="mobileOpen = !mobileOpen" class="md:hidden p-2 rounded-md text-gray-300 hover:bg-gray-700 hover:text-white transition-colors">
+                        <svg x-show="!mobileOpen" class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                        </svg>
+                        <svg x-show="mobileOpen" x-cloak class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mobile menu -->
+        <div x-show="mobileOpen" x-cloak class="md:hidden border-t border-gray-700">
+            <div class="px-2 pt-2 pb-3 space-y-1">
+                <a href="/" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'overview' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Overview</a>
+                <a href="/sources" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'sources' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Sources</a>
+                <a href="/models" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'models' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Models</a>
+                <a href="/schedules" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'schedules' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Schedules</a>
+                <a href="/catalog" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'catalog' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Catalog</a>
+                <a href="/metabase/question#{{ query_hash }}" target="_blank" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Query</a>
+                <a href="/metabase" target="_blank" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Dashboards</a>
+                <a href="/notebooks" class="block px-3 py-2 rounded-md text-base font-medium {% if current_page == 'notebooks' %}text-white bg-gray-900{% else %}text-gray-300{% endif %} hover:bg-gray-700 hover:text-white">Notebooks</a>
+            </div>
+            {% if request.state.user %}
+            <div class="border-t border-gray-700 px-2 pt-2 pb-3 space-y-1">
+                <div class="px-3 py-2 text-sm text-gray-400 flex items-center space-x-2">
+                    <span>{{ request.state.user.email }}</span>
+                    <span class="text-xs px-1.5 py-0.5 rounded-full
+                        {% if request.state.user.role.value == 'admin' %}bg-red-100 text-red-800
+                        {% elif request.state.user.role.value == 'editor' %}bg-blue-100 text-blue-800
+                        {% else %}bg-gray-100 text-gray-800{% endif %}">{{ request.state.user.role.value }}</span>
+                </div>
+                <a href="/settings/account" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Account Settings</a>
+                {% if request.state.user.role.value == 'admin' %}
+                <a href="/settings/users" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">User Management</a>
+                <a href="/settings/secrets" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Secrets & Credentials</a>
+                {% endif %}
+                <a href="/logs" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white{% if current_page == 'logs' %} font-semibold{% endif %}">Activity Logs</a>
+                <a href="/health" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white{% if current_page == 'health' %} font-semibold{% endif %}">Health</a>
+                <button @click="fetch('/api/auth/logout', {method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}}).then(() => window.location.href = '/login').catch(() => window.location.href = '/login')" class="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-red-400 hover:bg-gray-700 hover:text-red-300">Logout</button>
+            </div>
+            {% endif %}
+        </div>
+    </nav>
+    {% endblock %}
+
+    {% if is_cloud is defined and is_cloud and request.state.user and not request.state.user.totp_enabled %}
+    <div x-data="{ dismissed: false }" x-show="!dismissed" x-cloak
+         class="bg-yellow-50 border-b border-yellow-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between">
+            <p class="text-sm text-yellow-800">
+                <span class="font-medium">Security recommendation:</span>
+                <a href="/settings/account" class="underline hover:text-yellow-900">Enable 2FA</a> for your account.
+            </p>
+            <button @click="dismissed = true" class="text-yellow-600 hover:text-yellow-800">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+
+    {% block footer %}
+    <!-- Default Footer -->
+    <footer class="bg-white border-t border-gray-200 mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <div class="flex items-center justify-between text-sm text-gray-500">
+                <div>
+                    🍡 Dango v{{ version }}
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a href="/api/docs" target="_blank" class="hover:text-gray-700">API Docs</a>
+                    <a href="https://github.com/getdango/dango" target="_blank" class="hover:text-gray-700">GitHub</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+    {% endblock %}
+
+    {% if request.state.user %}
+    <script>window.DANGO_USER_ROLE = {{ request.state.user.role.value | tojson }};</script>
+    {% endif %}
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

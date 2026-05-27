@@ -1,0 +1,480 @@
+{% extends "base.html" %}
+
+{% block title %}Schedules - Dango{% endblock %}
+
+{% block content %}
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div x-data="schedulesPage()" x-init="init()">
+        <!-- Header -->
+        <div class="mb-6">
+            <h2 class="text-xl font-bold text-gray-900">Schedules</h2>
+            <p class="text-sm text-gray-500 mt-1">Schedules are managed via CLI. Use <code class="bg-gray-100 px-1 rounded">dango schedule add</code> to create or modify schedules.</p>
+        </div>
+
+        <!-- Error banner -->
+        <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p class="text-sm text-red-700" x-text="error"></p>
+        </div>
+
+        <!-- Success banner -->
+        <div x-show="success" x-cloak class="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+            <p class="text-sm text-green-700" x-text="success"></p>
+        </div>
+
+        <!-- Scheduled sources table -->
+        <div class="bg-white shadow rounded-lg overflow-hidden mb-6">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Sources</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Cron</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Next Run</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Enabled</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <template x-for="sched in schedules" :key="sched.name">
+                    <tbody class="bg-white border-b border-gray-200">
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <button @click="toggleHistory(sched)"
+                                        class="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline">
+                                    <span x-text="sched.name"></span>
+                                </button>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                      :class="sched.type.startsWith('sync') ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'"
+                                      x-text="sched.type"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell"
+                                x-text="sched.sources.join(', ')"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
+                                x-text="humanCron(sched.cron)"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden lg:table-cell"
+                                x-text="sched.next_run_time ? timeAgo(sched.next_run_time) : '—'"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                <template x-if="runningJobs[sched.name]">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 animate-pulse">running</span>
+                                </template>
+                                <template x-if="!runningJobs[sched.name] && sched.last_run">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                          :class="statusBadge(sched.last_run.status)"
+                                          x-text="sched.last_run.status"></span>
+                                </template>
+                                <template x-if="!runningJobs[sched.name] && !sched.last_run">
+                                    <span class="text-gray-400">—</span>
+                                </template>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap hidden sm:table-cell">
+                                <span class="text-sm" :class="sched.enabled ? 'text-green-600' : 'text-gray-400'"
+                                      x-text="sched.enabled ? 'Yes' : 'No'"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
+                                <template x-if="isEditorPlus">
+                                    <button @click="openTriggerModal(sched)"
+                                            class="text-blue-600 hover:text-blue-800 text-xs font-medium">Trigger</button>
+                                </template>
+                            </td>
+                        </tr>
+                        <tr x-show="expandedSchedule === sched.name" x-cloak class="bg-gray-50">
+                            <td colspan="8" class="px-6 py-4">
+                                <div class="text-sm font-medium text-gray-700 mb-2">Recent Executions</div>
+                                <template x-if="historyLoading">
+                                    <p class="text-sm text-gray-500">Loading...</p>
+                                </template>
+                                <template x-if="!historyLoading && historyItems.length === 0">
+                                    <p class="text-sm text-gray-500">No execution history.</p>
+                                </template>
+                                <template x-if="!historyLoading && historyItems.length > 0">
+                                    <table class="min-w-full divide-y divide-gray-200">
+                                        <thead>
+                                            <tr>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Started</th>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Duration</th>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Error</th>
+                                                <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <template x-for="run in historyItems" :key="run.id">
+                                                <tr>
+                                                    <td class="px-3 py-2 text-xs text-gray-600" x-text="timeAgo(run.started_at)"></td>
+                                                    <td class="px-3 py-2 text-xs text-gray-600" x-text="run.duration_seconds != null ? formatDuration(run.duration_seconds) : '—'"></td>
+                                                    <td class="px-3 py-2">
+                                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                                              :class="statusBadge(run.status)"
+                                                              x-text="run.status"></span>
+                                                    </td>
+                                                    <td class="px-3 py-2 text-xs text-red-600 max-w-xs truncate" x-text="run.error_message || ''"></td>
+                                                    <td class="px-3 py-2 text-right">
+                                                        <template x-if="run.status === 'failed' && isEditorPlus">
+                                                            <button @click="openTriggerModal(sched)"
+                                                                    class="text-blue-600 hover:text-blue-800 text-xs">Re-run</button>
+                                                        </template>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </template>
+                            </td>
+                        </tr>
+                    </tbody>
+                </template>
+                <tbody x-show="schedules.length === 0" x-cloak>
+                    <tr><td colspan="8" class="px-6 py-8 text-center text-sm text-gray-500">No schedules configured.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Unscheduled sources (collapsed by default) -->
+        <div class="bg-white shadow rounded-lg overflow-hidden mb-6">
+            <button @click="showUnscheduled = !showUnscheduled"
+                    class="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-gray-50">
+                <div class="flex items-center space-x-2">
+                    <span class="text-sm font-medium text-gray-700">Unscheduled Sources</span>
+                    <span x-show="unscheduledSources.length > 0"
+                          class="px-2 py-0.5 text-xs rounded-full bg-yellow-100 text-yellow-800"
+                          x-text="unscheduledSources.length"></span>
+                </div>
+                <svg class="h-5 w-5 text-gray-400 transition-transform" :class="showUnscheduled && 'rotate-180'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+            <div x-show="showUnscheduled" x-cloak class="border-t border-gray-200">
+                <template x-if="unscheduledSources.length === 0">
+                    <p class="px-6 py-4 text-sm text-gray-500">All sources are scheduled.</p>
+                </template>
+                <template x-if="unscheduledSources.length > 0">
+                    <ul class="divide-y divide-gray-100">
+                        <template x-for="src in unscheduledSources" :key="src">
+                            <li class="px-6 py-3 flex items-center justify-between">
+                                <span class="text-sm text-gray-700" x-text="src"></span>
+                                <button @click="syncSource(src)"
+                                        class="text-blue-600 hover:text-blue-800 text-xs font-medium">Sync Now</button>
+                            </li>
+                        </template>
+                    </ul>
+                </template>
+            </div>
+        </div>
+
+        <!-- Notifications summary -->
+        <div class="bg-white shadow rounded-lg overflow-hidden mb-6">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h3 class="text-sm font-medium text-gray-700">Notifications</h3>
+            </div>
+            <div class="px-6 py-4">
+                <template x-if="notifConfig.webhooks.length === 0">
+                    <p class="text-sm text-gray-500">Not configured. Add webhooks in <code class="bg-gray-100 px-1 rounded">.dango/schedules.yml</code>.</p>
+                </template>
+                <template x-if="notifConfig.webhooks.length > 0">
+                    <div>
+                        <ul class="divide-y divide-gray-100 mb-3">
+                            <template x-for="wh in notifConfig.webhooks" :key="wh.name">
+                                <li class="py-2 flex items-center justify-between">
+                                    <div>
+                                        <span class="text-sm font-medium text-gray-700" x-text="wh.name"></span>
+                                        <span class="ml-2 text-xs text-gray-400" x-text="wh.format"></span>
+                                    </div>
+                                    <span class="text-xs text-gray-500 truncate max-w-xs" x-text="wh.url"></span>
+                                </li>
+                            </template>
+                        </ul>
+                        <div class="flex items-center space-x-4 text-xs text-gray-500 mb-3">
+                            <span :class="notifConfig.on_failure ? 'text-green-600' : 'text-gray-400'">
+                                Failures: <span x-text="notifConfig.on_failure ? 'On' : 'Off'"></span>
+                            </span>
+                            <span :class="notifConfig.on_success ? 'text-green-600' : 'text-gray-400'">
+                                Success: <span x-text="notifConfig.on_success ? 'On' : 'Off'"></span>
+                            </span>
+                            <span :class="notifConfig.on_stale ? 'text-green-600' : 'text-gray-400'">
+                                Stale: <span x-text="notifConfig.on_stale ? 'On' : 'Off'"></span>
+                            </span>
+                        </div>
+                        <template x-if="isEditorPlus">
+                            <div class="flex items-center space-x-2">
+                                <button @click="testNotification()" :disabled="testingNotif"
+                                        class="px-3 py-1.5 text-xs font-medium text-white bg-dango-600 rounded-md hover:bg-dango-700 disabled:opacity-50">
+                                    <span x-show="!testingNotif">Test Notification</span>
+                                    <span x-show="testingNotif" x-cloak>Sending...</span>
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Trigger / Re-run Modal -->
+        <div x-show="showTriggerModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showTriggerModal = false"></div>
+                <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative z-10">
+                    <h3 class="text-lg font-medium text-gray-900 mb-4">
+                        Trigger <span class="font-mono" x-text="triggerTarget?.name"></span>
+                    </h3>
+                    <p class="text-sm text-gray-500 mb-4">This will run the schedule immediately with default settings.</p>
+                    <div class="flex justify-end space-x-3">
+                        <button type="button" @click="showTriggerModal = false"
+                                class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                        <button @click="triggerSchedule()" :disabled="triggerLoading"
+                                class="px-4 py-2 text-sm text-white bg-dango-600 rounded-md hover:bg-dango-700 disabled:opacity-50">
+                            <span x-show="!triggerLoading">Run Now</span>
+                            <span x-show="triggerLoading" x-cloak>Triggering...</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function schedulesPage() {
+    const headers = {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'};
+    const userRole = {{ request.state.user.role.value | tojson }};
+
+    return {
+        schedules: [],
+        unscheduledSources: [],
+        notifConfig: { webhooks: [], on_failure: true, on_success: false, on_stale: true, stale_threshold_hours: 24 },
+        runningJobs: {},
+        error: '', success: '',
+        isEditorPlus: userRole === 'admin' || userRole === 'editor',
+
+        // UI state
+        showUnscheduled: false,
+        expandedSchedule: null,
+        historyItems: [],
+        historyLoading: false,
+
+        // Notifications
+        testingNotif: false,
+
+        // Trigger modal
+        showTriggerModal: false,
+        triggerTarget: null,
+        triggerLoading: false,
+
+        // WebSocket
+        ws: null,
+        reconnectInterval: null,
+
+        async init() {
+            await Promise.all([
+                this.loadSchedules(),
+                this.loadUnscheduled(),
+                this.loadNotifConfig()
+            ]);
+            this.connectWebSocket();
+        },
+
+        // --- Data loading ---
+        async loadSchedules() {
+            try {
+                const res = await fetch('/api/schedules', { headers });
+                if (res.ok) this.schedules = await res.json();
+            } catch (e) { this.error = 'Failed to load schedules'; }
+        },
+        async loadUnscheduled() {
+            try {
+                const res = await fetch('/api/sources/unscheduled', { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    this.unscheduledSources = data.sources || [];
+                }
+            } catch (e) { /* ignore */ }
+        },
+        async loadNotifConfig() {
+            try {
+                const res = await fetch('/api/notifications/config', { headers });
+                if (res.ok) this.notifConfig = await res.json();
+            } catch (e) { /* ignore */ }
+        },
+
+        // --- Notifications ---
+        async testNotification() {
+            this.testingNotif = true; this.error = '';
+            try {
+                const res = await fetch('/api/notifications/test', { method: 'POST', headers });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to send test notification'; }
+                else { this.success = 'Test notification sent.'; setTimeout(() => this.success = '', 3000); }
+            } catch (e) { this.error = 'Failed to send test notification'; }
+            this.testingNotif = false;
+        },
+        // --- Trigger ---
+        openTriggerModal(sched) {
+            this.triggerTarget = sched;
+            this.showTriggerModal = true;
+        },
+        async triggerSchedule() {
+            this.triggerLoading = true; this.error = '';
+            const scheduleName = this.triggerTarget?.name || '';
+            try {
+                const res = await fetch(`/api/schedules/${scheduleName}/trigger`, {
+                    method: 'POST', headers, body: JSON.stringify({})
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to trigger schedule'; this.triggerLoading = false; return; }
+                this.showTriggerModal = false;
+                this.success = `Schedule "${scheduleName}" triggered.`;
+                setTimeout(() => this.success = '', 3000);
+            } catch (e) { this.error = 'Failed to trigger schedule'; }
+            this.triggerLoading = false;
+        },
+
+        // --- History ---
+        async toggleHistory(sched) {
+            if (this.expandedSchedule === sched.name) {
+                this.expandedSchedule = null;
+                this.historyItems = [];
+                return;
+            }
+            this.expandedSchedule = sched.name;
+            this.historyLoading = true;
+            this.historyItems = [];
+            try {
+                const res = await fetch(`/api/schedules/${sched.name}/history?limit=30`, { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    this.historyItems = data.items || [];
+                }
+            } catch (e) { /* ignore */ }
+            this.historyLoading = false;
+        },
+
+        // --- Source sync ---
+        async syncSource(name) {
+            this.error = '';
+            try {
+                const res = await fetch(`/api/sources/${name}/sync`, {
+                    method: 'POST', headers, body: JSON.stringify({})
+                });
+                if (!res.ok) {
+                    const data = await res.json();
+                    this.error = data.message || 'Failed to start sync';
+                    return;
+                }
+                this.success = `Sync started for "${name}".`;
+                setTimeout(() => this.success = '', 3000);
+            } catch (e) { this.error = 'Failed to start sync'; }
+        },
+
+        // --- JS helpers ---
+        humanCron(cron) {
+            const map = {
+                '*/15 * * * *': 'Every 15 min',
+                '0 * * * *': 'Every hour',
+                '0 */6 * * *': 'Every 6h',
+                '0 6 * * *': 'Daily 6 AM',
+                '0 12 * * *': 'Daily noon',
+                '0 0 * * *': 'Daily midnight',
+                '0 6 * * 1': 'Weekly Mon 6 AM',
+                '0 0 * * 1': 'Weekly Mon midnight',
+            };
+            return map[cron] || cron;
+        },
+        statusBadge(status) {
+            const m = {
+                'success': 'bg-green-100 text-green-800',
+                'completed': 'bg-green-100 text-green-800',
+                'failed': 'bg-red-100 text-red-800',
+                'running': 'bg-blue-100 text-blue-800',
+                'cancelled': 'bg-yellow-100 text-yellow-800',
+                'timeout': 'bg-gray-100 text-gray-800',
+            };
+            return m[status] || 'bg-gray-100 text-gray-800';
+        },
+        timeAgo(iso) {
+            if (!iso) return '—';
+            let ts = String(iso);
+            if (!ts.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ts)) { ts += 'Z'; }
+            const diff = (new Date() - new Date(ts)) / 1000;
+            if (diff < 0) {
+                const absDiff = Math.abs(diff);
+                if (absDiff < 60) return 'in ' + Math.round(absDiff) + 's';
+                if (absDiff < 3600) return 'in ' + Math.round(absDiff / 60) + ' min';
+                if (absDiff < 86400) return 'in ' + Math.round(absDiff / 3600) + 'h';
+                return 'in ' + Math.round(absDiff / 86400) + 'd';
+            }
+            if (diff < 60) return Math.round(diff) + 's ago';
+            if (diff < 3600) return Math.round(diff / 60) + ' min ago';
+            if (diff < 86400) return Math.round(diff / 3600) + 'h ago';
+            return Math.round(diff / 86400) + 'd ago';
+        },
+        formatDuration(seconds) {
+            if (seconds == null) return '—';
+            if (seconds < 60) return Math.round(seconds) + 's';
+            const m = Math.floor(seconds / 60);
+            const s = Math.round(seconds % 60);
+            return m + 'm ' + s + 's';
+        },
+
+        // --- WebSocket ---
+        connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            this.ws = new WebSocket(wsUrl);
+
+            this.ws.onopen = () => {
+                if (this.reconnectInterval) {
+                    clearInterval(this.reconnectInterval);
+                    this.reconnectInterval = null;
+                }
+            };
+
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleWsMessage(data);
+                } catch (e) { /* ignore parse errors */ }
+            };
+
+            this.ws.onclose = () => {
+                if (!this.reconnectInterval) {
+                    this.reconnectInterval = setInterval(() => this.connectWebSocket(), 5000);
+                }
+            };
+
+            this.ws.onerror = () => {};
+        },
+        handleWsMessage(data) {
+            const ev = data.event;
+            const source = data.source;
+
+            if (ev === 'sync_started' || ev === 'dbt_started') {
+                const updated = {...this.runningJobs};
+                for (const sched of this.schedules) {
+                    const match = ev === 'sync_started'
+                        ? sched.sources.includes(source)
+                        : sched.type === 'dbt';
+                    if (match) updated[sched.name] = true;
+                }
+                this.runningJobs = updated;
+            }
+            if (ev === 'sync_completed' || ev === 'sync_failed' ||
+                ev === 'dbt_completed' || ev === 'dbt_failed') {
+                const updated = {...this.runningJobs};
+                for (const sched of this.schedules) {
+                    const match = ev.startsWith('sync_')
+                        ? sched.sources.includes(source)
+                        : sched.type === 'dbt';
+                    if (match) delete updated[sched.name];
+                }
+                this.runningJobs = updated;
+                this.loadSchedules();
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

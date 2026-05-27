@@ -7,9 +7,29 @@
  * - UI updates and interactions
  */
 
+// HTML entity escaping for safe innerHTML usage
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function formatSourceType(type) {
+    const names = {
+        'csv': 'CSV',
+        'local_files': 'Local Files',
+        'dlt_native': 'dlt Native',
+        'rest_api': 'REST API',
+        'sql_database': 'SQL Database',
+        'filesystem': 'Filesystem',
+    };
+    return names[type] || type.charAt(0).toUpperCase() + type.slice(1).replace(/_/g, ' ');
+}
+
 // Global state
 let ws = null;
 let reconnectInterval = null;
+let wsDisconnectedLogged = false;
 let sources = [];
 let activityLog = [];
 const MAX_LOG_ENTRIES = 50; // Keep compact for quick scanning
@@ -22,6 +42,59 @@ let loadSourcesRetryTimeout = null;
 // Track active upload/delete operations to prevent premature loadSources() retries
 // Maps sourceName to Set of operation IDs
 let activeFileOperations = new Map();
+// Track elapsed time intervals for active syncs: Map<sourceName, intervalId>
+let syncTimers = new Map();
+let syncResults = new Map();  // Stores sync_completed data for in-place updates
+
+/**
+ * Format a file size in bytes to a human-readable string (B/KB/MB/GB).
+ * @param {number} bytes - Size in bytes
+ * @returns {string} Formatted size string
+ */
+function formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '-';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+/**
+ * Format elapsed seconds as human-readable (e.g., "1m 23s")
+ */
+function formatElapsed(seconds) {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}m ${s}s`;
+}
+
+/**
+ * Start an elapsed timer for a syncing source.
+ * Timer audit: paired with stopSyncTimer(). Cleanup on sync_completed,
+ * sync_failed, and dbt_error WebSocket events.
+ */
+function startSyncTimer(sourceName) {
+    stopSyncTimer(sourceName);
+    const startTime = activeSyncs.get(sourceName) || Date.now();
+    const timerId = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const btn = document.getElementById(`sync-btn-${sourceName}`);
+        if (btn) btn.textContent = `Syncing... ${formatElapsed(elapsed)}`;
+    }, 1000);
+    syncTimers.set(sourceName, timerId);
+}
+
+/**
+ * Stop an elapsed timer for a source
+ */
+function stopSyncTimer(sourceName) {
+    const timerId = syncTimers.get(sourceName);
+    if (timerId) {
+        clearInterval(timerId);
+        syncTimers.delete(sourceName);
+    }
+}
 
 /**
  * Add a file operation for tracking
@@ -88,74 +161,113 @@ function getTotalFileOperations() {
 function formatRelativeTime(timestamp) {
     if (!timestamp) return 'Never';
 
-    const date = new Date(timestamp);
+    // Server sends UTC timestamps (with +00:00 or Z suffix).
+    // For legacy naive timestamps, append 'Z' so the browser treats them as UTC.
+    let ts = String(timestamp);
+    if (!ts.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ts)) {
+        ts += 'Z';
+    }
+    const date = new Date(ts);
     if (isNaN(date.getTime())) return 'Invalid date';
 
     const now = new Date();
     const seconds = Math.floor((now - date) / 1000);
-
-    // Future dates
-    if (seconds < 0) {
-        return `<span title="${date.toLocaleString()}">Just now</span>`;
-    }
-
-    // Relative time ranges
-    const intervals = [
-        { seconds: 31536000, label: 'year' },
-        { seconds: 2592000, label: 'month' },
-        { seconds: 86400, label: 'day' },
-        { seconds: 3600, label: 'hour' },
-        { seconds: 60, label: 'minute' },
-    ];
-
-    for (const interval of intervals) {
-        const count = Math.floor(seconds / interval.seconds);
-        if (count >= 1) {
-            const plural = count > 1 ? 's' : '';
-            const relativeText = `${count} ${interval.label}${plural} ago`;
-            const fullTimestamp = date.toLocaleString();
-            return `<span title="${fullTimestamp}" class="cursor-help">${relativeText}</span>`;
-        }
-    }
-
-    // Less than a minute
     const fullTimestamp = date.toLocaleString();
-    return `<span title="${fullTimestamp}" class="cursor-help">Just now</span>`;
+
+    // Small negative values (clock skew up to 60s) → "Just now"
+    // Large negative values → show the actual date (something is wrong)
+    if (seconds < -60) {
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${date.toLocaleDateString()}</span>`;
+    }
+    if (seconds < 0) {
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">Just now</span>`;
+    }
+
+    // Compact relative time
+    if (seconds < 60) {
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">Just now</span>`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${minutes}m ago</span>`;
+    }
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${hours}h ago</span>`;
+    }
+    const days = Math.floor(hours / 24);
+    if (days < 7) {
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${days}d ago</span>`;
+    }
+
+    // Older than 7 days — show formatted date
+    return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${date.toLocaleDateString()}</span>`;
 }
 
-// Initialize dashboard on page load
+// Initialize on page load — conditionally based on which page elements exist
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('Dango Dashboard initializing...');
+    console.log('Dango initializing...');
 
-    // Initialize tab from URL hash or default to sources (without updating URL)
-    const hash = window.location.hash.slice(1) || 'sources';
-    switchTab(hash, false); // Don't add hash to URL on initial load
+    const hasSources = !!document.getElementById('sources-table-body');
+    const hasModels = !!document.getElementById('dbt-models-table-body');
+    const hasActivityLog = !!document.getElementById('activity-log');
+    const hasHealthWidget = !!document.getElementById('health-widget');
+    const hasServiceCards = !!document.getElementById('service-dbt');
+    const hasTabNav = !!document.getElementById('tab-navigation');
 
-    // Load config and update dynamic URLs
+    // Load config and update dynamic URLs (needed on any page with Metabase links)
     loadConfig();
 
-    // Load initial data
-    loadServiceStatus();
-    loadSources();
-    loadDbtModels();
-    loadActivityLogs(); // Load persistent activity logs
-    fetchPlatformHealth(); // Load platform health status
+    // Sources page or legacy dashboard with tabs
+    if (hasSources) {
+        loadSources();
+    }
 
-    // Connect WebSocket
-    connectWebSocket();
+    // Models page or legacy dashboard with tabs
+    if (hasModels) {
+        loadDbtModels();
+    }
 
-    // Set up periodic refresh (every 30 seconds)
-    setInterval(loadServiceStatus, 30000);
-    setInterval(fetchPlatformHealth, 30000); // Also refresh health widget
+    // Activity log (dashboard overview)
+    if (hasActivityLog) {
+        loadActivityLogs();
+    }
 
-    // Update sync counter periodically
-    setInterval(updateSyncCounter, 1000);
+    // Service status cards (dashboard overview)
+    // Timer audit: page-level interval — cleared on page navigation (standard browser behavior).
+    if (hasServiceCards) {
+        loadServiceStatus();
+        setInterval(loadServiceStatus, 30000);
+    }
 
-    // Handle hash changes (browser back/forward)
-    window.addEventListener('hashchange', () => {
-        const newTab = window.location.hash.slice(1) || 'sources';
-        switchTab(newTab, false); // false = don't update hash again
-    });
+    // Health widget (dashboard overview)
+    // Timer audit: page-level interval — cleared on page navigation.
+    if (hasHealthWidget) {
+        fetchPlatformHealth();
+        setInterval(fetchPlatformHealth, 30000);
+    }
+
+    // Tab navigation (legacy — only if tab structure exists on page)
+    if (hasTabNav) {
+        const hash = window.location.hash.slice(1) || 'sources';
+        switchTab(hash, false);
+        window.addEventListener('hashchange', () => {
+            const newTab = window.location.hash.slice(1) || 'sources';
+            switchTab(newTab, false);
+        });
+    }
+
+    // Connect WebSocket (needed on pages with real-time updates)
+    if (hasSources || hasActivityLog) {
+        connectWebSocket();
+    }
+
+    // Update sync counter periodically (only if sources table exists)
+    // Timer audit: page-level 1s interval — lightweight (early-returns when no
+    // status text element exists). Cleared on page navigation.
+    if (hasSources) {
+        setInterval(updateSyncCounter, 1000);
+    }
 });
 
 // ============================================================================
@@ -188,7 +300,7 @@ async function loadConfig() {
             subtitleElement.textContent = subtitle;
         }
 
-        // Update DuckDB link to point to SQL query editor with database pre-selected
+        // Update Query nav link with database pre-selected for deep-link into SQL editor
         try {
             const metabaseConfigResponse = await fetch('/api/metabase-config');
             if (metabaseConfigResponse.ok) {
@@ -196,32 +308,17 @@ async function loadConfig() {
                 const databaseId = metabaseConfig.database_id;
 
                 if (databaseId) {
-                    // Create Metabase SQL query state object
                     const queryState = {
                         "dataset_query": {
                             "database": databaseId,
                             "type": "native",
-                            "native": {
-                                "query": "",
-                                "template-tags": {}
-                            }
+                            "native": {"query": "", "template-tags": {}}
                         },
                         "display": "table",
                         "visualization_settings": {},
                         "type": "question"
                     };
-
-                    // Base64 encode the state
-                    const encodedState = btoa(JSON.stringify(queryState));
-                    // Use proxied path to get auto-login
-                    const sqlQueryUrl = `/metabase/question#${encodedState}`;
-
-                    // Update both the dashboard card and navbar link
-                    const duckdbLink = document.getElementById('duckdb-sql-link');
-                    if (duckdbLink) {
-                        duckdbLink.href = sqlQueryUrl;
-                    }
-
+                    const sqlQueryUrl = `/metabase/question#${btoa(JSON.stringify(queryState))}`;
                     const navQueryLink = document.getElementById('nav-query-database');
                     if (navQueryLink) {
                         navQueryLink.href = sqlQueryUrl;
@@ -229,11 +326,9 @@ async function loadConfig() {
                 }
             }
         } catch (error) {
-            console.log('Could not load Metabase config for SQL link:', error);
-            // Links will use default /metabase/question/new
+            console.warn('Could not load Metabase config for Query link:', error);
+            // Query link uses default /metabase/question/new
         }
-
-        console.log('Config loaded:', config);
     } catch (error) {
         console.error('Failed to load config:', error);
         // Links will use hardcoded defaults if config fails
@@ -257,7 +352,12 @@ function connectWebSocket() {
         console.log('🔌 [WebSocket] ReadyState:', ws.readyState, '(1 = OPEN)');
         console.log('🔌 [WebSocket] URL:', wsUrl);
         updateConnectionStatus(true);
-        addLogEntry('info', 'Connected to server', 'websocket');
+        if (wsDisconnectedLogged) {
+            addLogEntry('info', 'Reconnected to server', 'websocket');
+        } else {
+            addLogEntry('info', 'Connected to server', 'websocket');
+        }
+        wsDisconnectedLogged = false;
 
         // Clear reconnect interval if it exists
         if (reconnectInterval) {
@@ -281,8 +381,12 @@ function connectWebSocket() {
     ws.onclose = () => {
         console.log('WebSocket disconnected');
         updateConnectionStatus(false);
-        addLogEntry('warning', 'Disconnected from server', 'websocket');
+        if (!wsDisconnectedLogged) {
+            addLogEntry('warning', 'Disconnected from server', 'websocket');
+            wsDisconnectedLogged = true;
+        }
 
+        // Timer audit: reconnectInterval — cleared on successful ws.onopen.
         // Attempt to reconnect every 5 seconds
         if (!reconnectInterval) {
             reconnectInterval = setInterval(() => {
@@ -310,8 +414,9 @@ async function handleWebSocketMessage(data) {
             // Don't show toast - too spammy
             break;
 
+        case 'file_uploaded':
         case 'csv_uploaded':
-            console.log('📤 [WS] csv_uploaded - File uploaded, sync will start:', source);
+            console.log('📤 [WS] file_uploaded - File uploaded, sync will start:', source);
             addLogEntry('info', message, source);
             // Don't show toast - optimistic update already showed it
             // Ensure syncing state is set (in case optimistic update didn't happen)
@@ -320,6 +425,7 @@ async function handleWebSocketMessage(data) {
                 updateSyncCounter();
                 renderSourcesTable();
             }
+            startSyncTimer(source);
             break;
 
         case 'sync_started':
@@ -332,34 +438,60 @@ async function handleWebSocketMessage(data) {
                 updateSyncCounter();
                 renderSourcesTable();
             }
+            startSyncTimer(source);
             break;
 
         case 'sync_progress':
             addLogEntry('info', message, source);
-            // Update progress if we add progress bars in the future
+            break;
+
+        case 'data_load_complete':
+            addLogEntry('success', message || 'Data load complete', source);
             break;
 
         case 'sync_completed':
             console.log('✅ [WS] sync_completed - Source:', source);
+            // sync_completed is the FINAL event — fires after dbt and post-sync
+            // hooks complete (the subprocess has exited). This is where we do
+            // ALL cleanup: stop timer, clear activeSyncs, refresh sources.
             addLogEntry('success', message || `Sync completed`, source);
+            stopSyncTimer(source);
 
-            // Suppress success toast during batch operations (multi-file uploads)
-            // The final toast will show when dbt completes
-            if (!activeFileOperations.has(source)) {
-                showToast(`${source} synced successfully`, 'success');
+            // Clean up upload batch operations
+            if (activeFileOperations.has(source)) {
+                const operations = activeFileOperations.get(source);
+                for (const opId of operations) {
+                    if (opId.startsWith('upload-batch-')) {
+                        removeFileOperation(source, opId);
+                    }
+                }
+                showToast(`${source}: Files synced and transformed successfully`, 'success');
             } else {
-                console.log('✅ [WS] Suppressing toast - batch upload operation in progress');
+                showToast(`${source} synced successfully`, 'success');
             }
 
-            // DON'T clear activeSyncs here - dbt will run next and dbt_run_all_completed will clear it
-            // New flow: all files uploaded to disk → sync once → dbt once
-            console.log('✅ [WS] Sync completed, but keeping activeSyncs (dbt will run next)');
-
-            // Don't call loadSources() - wait for dbt to complete
+            // Clean up sync state and refresh
+            activeSyncs.delete(source);
+            updateSyncCounter();
+            loadSources();  // Reload from API to get correct status
+            // Fallback: if activeSyncs wasn't set (e.g. upload-triggered sync),
+            // the cleanup above is harmless (delete on missing key is a no-op).
+            // Fallback: if activeSyncs wasn't cleared (edge case),
+            // retry cleanup after 10 seconds.
+            setTimeout(() => {
+                if (activeSyncs.has(source)) {
+                    console.log('⏰ [WS] Fallback cleanup:', source);
+                    activeSyncs.delete(source);
+                    stopSyncTimer(source);
+                    updateSyncCounter();
+                    if (!isLoadingSources) loadSources();
+                }
+            }, 10000);
             break;
 
         case 'sync_failed':
             console.log('❌ [WS] sync_failed - Source:', source);
+            stopSyncTimer(source);
             activeSyncs.delete(source);
             updateSyncCounter();  // Update header counter
             addLogEntry('error', message || `Sync failed`, source);
@@ -443,52 +575,24 @@ async function handleWebSocketMessage(data) {
             const sourceMatch = source?.match(/triggered by (\w+)/);
             const triggeredSource = sourceMatch ? sourceMatch[1] : null;
 
-            if (triggeredSource) {
-                console.log('🟢 [WS] dbt was triggered by source:', triggeredSource);
-
-                // Check if this was a batch upload operation
-                const hadUploadOps = activeFileOperations.has(triggeredSource);
-
-                // Clean up any upload batch operations for this source
-                if (hadUploadOps) {
-                    const operations = activeFileOperations.get(triggeredSource);
-                    for (const opId of operations) {
-                        if (opId.startsWith('upload-batch-')) {
-                            console.log(`🟢 [WS] Cleaning up upload batch operation: ${opId}`);
-                            removeFileOperation(triggeredSource, opId);
-                            // Show final success toast for the batch
-                            showToast(`${triggeredSource}: Files synced and transformed successfully`, 'success');
-                        }
-                    }
-                }
-            }
-
-            console.log('🟢 [WS] Cleared dbt flag. Showing completion...');
+            console.log('🟢 [WS] dbt complete. Refreshing models list.');
             addLogEntry('success', message, source || 'dbt');
 
-            // Refresh dbt models
+            // Refresh dbt models list only — do NOT clear activeSyncs or
+            // stop timers here.  The subprocess is still running post-sync
+            // hooks (profiling, PII scan, etc.).  sync_completed is the
+            // final event that does all cleanup.
             loadDbtModels();
-
-            // Delay clearing sync status and refreshing to ensure user sees "syncing" state
-            // Always cleanup activeSyncs, even if source matching fails
-            setTimeout(() => {
-                if (triggeredSource) {
-                    activeSyncs.delete(triggeredSource);
-                    console.log('🟢 [WS] [DELAYED] Cleared activeSyncs for:', triggeredSource);
-                }
-                updateSyncCounter();
-
-                // Refresh sources list
-                if (!isLoadingSources) {
-                    console.log('🟢 [WS] [DELAYED] Calling loadSources() after user saw syncing state');
-                    loadSources();
-                }
-            }, 500);  // Wait 500ms so user sees the syncing badge
             break;
 
         case 'dbt_run_failed':
             console.log('❌ [WS] dbt_run_failed - Individual model:', source);
             addLogEntry('error', message, source);
+            // Clear running state for this specific model
+            if (source && source.startsWith('dbt:')) {
+                const modelName = source.substring(4);
+                updateDbtModelStatus(modelName, false);
+            }
             // Don't show toast - reduces spam, error visible in activity log
             // Refresh to show error status (only if no active file operations)
             const totalFileOpsRunFailed = getTotalFileOperations();
@@ -513,6 +617,9 @@ async function handleWebSocketMessage(data) {
                 // DO clear activeSyncs since the operation failed
                 if (activeSyncs.has(triggeredSource)) {
                     activeSyncs.delete(triggeredSource);
+                    stopSyncTimer(triggeredSource);
+                    const btn = document.getElementById(`sync-btn-${triggeredSource}`);
+                    if (btn) btn.textContent = 'Sync Now';
                     updateSyncCounter();
                     console.log('🔴 [WS] Cleared activeSyncs for:', triggeredSource);
                 }
@@ -542,6 +649,7 @@ async function handleWebSocketMessage(data) {
 function updateConnectionStatus(connected) {
     const indicator = document.getElementById('status-indicator');
     const text = document.getElementById('status-text');
+    if (!indicator || !text) return;
 
     if (connected) {
         indicator.className = 'h-2 w-2 bg-green-500 rounded-full';
@@ -585,6 +693,7 @@ async function apiCall(endpoint, method = 'GET', body = null, timeoutMs = 5000) 
         method,
         headers: {
             'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
         },
         signal: controller.signal,
     };
@@ -668,20 +777,22 @@ async function loadSources() {
         // Longer timeout for sources (includes DuckDB queries for row counts)
         sources = await apiCall('/api/sources', 'GET', null, 15000);
         renderSourcesTable();
+        await renderAttentionBanner();
     } catch (error) {
         console.log('⏸️ [loadSources] Error (expected during sync):', error.message);
 
         // If timeout (database busy), show a helpful message and retry
         if (error.message.includes('timed out')) {
             const tbody = document.getElementById('sources-table-body');
+            if (!tbody) return;
 
             // Only show loading message if we actually have active operations
-            // This prevents flickering when timeout happens at the tail end
             const totalFileOps = getTotalFileOperations();
-            if (activeSyncs.size > 0 || totalFileOps > 0 || dbtRunStartTime !== null) {
+            const hasActiveWork = activeSyncs.size > 0 || totalFileOps > 0 || dbtRunStartTime !== null;
+            if (hasActiveWork) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                        <td colspan="7" class="px-6 py-8 text-center text-gray-500">
                             <div class="flex flex-col items-center space-y-3">
                                 <div class="spinner"></div>
                                 <p>Processing files...</p>
@@ -785,6 +896,152 @@ async function triggerSync(sourceName) {
 }
 
 // ============================================================================
+// Sync Menu & Options
+// ============================================================================
+
+function toggleSyncMenu(sourceName) {
+    // Close all other menus first
+    document.querySelectorAll('[id^="sync-dropdown-"]').forEach(el => {
+        if (el.id !== `sync-dropdown-${sourceName}`) {
+            el.classList.add('hidden');
+        }
+    });
+    const dropdown = document.getElementById(`sync-dropdown-${sourceName}`);
+    if (dropdown) {
+        const wasHidden = dropdown.classList.contains('hidden');
+        dropdown.classList.toggle('hidden');
+        // Position the fixed dropdown relative to its trigger button
+        if (wasHidden) {
+            const btn = document.getElementById(`sync-btn-${sourceName}`);
+            if (btn) {
+                const rect = btn.getBoundingClientRect();
+                dropdown.style.top = (rect.bottom + 4) + 'px';
+                dropdown.style.left = Math.max(0, rect.right - dropdown.offsetWidth) + 'px';
+            }
+        }
+    }
+}
+
+// Close sync dropdowns on scroll since they use fixed positioning
+window.addEventListener('scroll', closeSyncMenus, { passive: true });
+
+function closeSyncMenus() {
+    document.querySelectorAll('[id^="sync-dropdown-"]').forEach(el => {
+        el.classList.add('hidden');
+    });
+}
+
+async function triggerFullRefresh(sourceName) {
+    if (activeSyncs.has(sourceName)) {
+        showToast(`${sourceName} is already syncing`, 'warning');
+        return;
+    }
+
+    if (activeFileOperations.has(sourceName)) {
+        const count = activeFileOperations.get(sourceName).size;
+        showToast(`${sourceName} has ${count} file operation(s) in progress, please wait`, 'warning');
+        return;
+    }
+
+    try {
+        activeSyncs.set(sourceName, Date.now());
+        updateSourceStatus(sourceName, 'syncing');
+        addLogEntry('info', 'Triggering full refresh sync', sourceName);
+
+        const response = await apiCall(`/api/sources/${sourceName}/sync`, 'POST', {
+            full_refresh: true
+        }, 30000);
+
+        if (response.success) {
+            showToast(`Full refresh started for ${sourceName}`, 'info');
+        } else {
+            throw new Error(response.message || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error triggering full refresh:', error);
+        showToast(`Failed to start full refresh for ${sourceName}`, 'error');
+        addLogEntry('error', `Failed to trigger full refresh: ${error.message}`, sourceName);
+        activeSyncs.delete(sourceName);
+        updateSourceStatus(sourceName, 'failed');
+    }
+}
+
+function openDateRangeModal(sourceName) {
+    const modal = document.getElementById('date-range-modal');
+    if (!modal) return;
+    const srcEl = document.getElementById('date-range-source');
+    const startEl = document.getElementById('sync-start-date');
+    const endEl = document.getElementById('sync-end-date');
+    if (srcEl) srcEl.value = sourceName;
+    if (startEl) startEl.value = '';
+    if (endEl) endEl.value = '';
+    modal.classList.remove('hidden');
+}
+
+function closeDateRangeModal() {
+    document.getElementById('date-range-modal')?.classList.add('hidden');
+}
+
+async function syncWithDateRange() {
+    const srcEl = document.getElementById('date-range-source');
+    const startEl = document.getElementById('sync-start-date');
+    const endEl = document.getElementById('sync-end-date');
+    if (!srcEl || !startEl || !endEl) return;
+    const sourceName = srcEl.value;
+    const startDate = startEl.value;
+    const endDate = endEl.value;
+
+    if (!startDate) {
+        showToast('Please select a start date', 'warning');
+        return;
+    }
+
+    closeDateRangeModal();
+
+    if (activeSyncs.has(sourceName)) {
+        showToast(`${sourceName} is already syncing`, 'warning');
+        return;
+    }
+
+    if (activeFileOperations.has(sourceName)) {
+        const count = activeFileOperations.get(sourceName).size;
+        showToast(`${sourceName} has ${count} file operation(s) in progress, please wait`, 'warning');
+        return;
+    }
+
+    try {
+        activeSyncs.set(sourceName, Date.now());
+        updateSourceStatus(sourceName, 'syncing');
+        addLogEntry('info', `Triggering sync with date range: ${startDate} to ${endDate || 'now'}`, sourceName);
+
+        const response = await apiCall(`/api/sources/${sourceName}/sync`, 'POST', {
+            full_refresh: false,
+            start_date: startDate,
+            end_date: endDate || null
+        }, 30000);
+
+        if (response.success) {
+            showToast(`Date range sync started for ${sourceName}`, 'info');
+        } else {
+            throw new Error(response.message || 'Unknown error');
+        }
+    } catch (error) {
+        console.error('Error triggering date range sync:', error);
+        showToast(`Failed to start sync for ${sourceName}`, 'error');
+        addLogEntry('error', `Failed to trigger date range sync: ${error.message}`, sourceName);
+        activeSyncs.delete(sourceName);
+        updateSourceStatus(sourceName, 'failed');
+    }
+}
+
+// Close sync menus when clicking outside
+document.addEventListener('click', function(event) {
+    if (!event.target.closest('[id^="sync-menu-"]')) {
+        closeSyncMenus();
+    }
+});
+
+// ============================================================================
 // UI Updates
 // ============================================================================
 
@@ -831,7 +1088,6 @@ function updateHealthWidget(health) {
     const widget = document.getElementById('health-widget');
     const icon = document.getElementById('health-icon');
     const statusText = document.getElementById('health-status-text');
-
     if (!widget || !icon || !statusText) return;
 
     // Remove existing border colors
@@ -861,13 +1117,30 @@ function updateHealthWidget(health) {
         statusText.textContent = 'Unknown Status';
         statusText.className = 'text-lg font-semibold text-gray-800';
     }
+
+    // OAuth expiry warning banner
+    const oauthBanner = document.getElementById('oauth-expiry-banner');
+    if (oauthBanner && health.oauth_health) {
+        const expiring = health.oauth_health.filter(
+            t => t.is_expired || (t.days_until_expiry !== null && t.days_until_expiry <= 7)
+        );
+        if (expiring.length > 0 && !oauthBanner.dataset.dismissed) {
+            oauthBanner.classList.remove('hidden');
+            const text = document.getElementById('oauth-banner-text');
+            if (text) {
+                const names = expiring.map(t => t.source_type).join(', ');
+                text.textContent = `OAuth token${expiring.length > 1 ? 's' : ''} expiring soon: ${names}`;
+            }
+        }
+    }
 }
 
 function showSourcesLoading() {
     const tbody = document.getElementById('sources-table-body');
+    if (!tbody) return;
     tbody.innerHTML = `
         <tr>
-            <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+            <td colspan="7" class="px-6 py-8 text-center text-gray-500">
                 <div class="flex flex-col items-center space-y-3">
                     <div class="spinner"></div>
                     <p>Loading sources...</p>
@@ -880,13 +1153,14 @@ function showSourcesLoading() {
 function renderSourcesTable() {
     console.log('🎨 [renderSourcesTable] Called with sources:', sources.length, 'activeSyncs:', activeSyncs.size);
     const tbody = document.getElementById('sources-table-body');
+    if (!tbody) return;
 
     if (!sources || sources.length === 0) {
         console.log('🎨 [renderSourcesTable] No sources to render!');
 
         tbody.innerHTML = `
             <tr>
-                <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                <td colspan="7" class="px-6 py-8 text-center text-gray-500">
                     <div class="flex flex-col items-center space-y-2">
                         <svg class="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
@@ -900,6 +1174,8 @@ function renderSourcesTable() {
         return;
     }
 
+    const canSync = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
+
     tbody.innerHTML = sources.map(source => {
         const isSyncing = activeSyncs.has(source.name);
         const hasFileOps = activeFileOperations.has(source.name);
@@ -910,39 +1186,24 @@ function renderSourcesTable() {
         const buttonDisabled = isDisabled ? 'disabled' : '';
         const buttonText = isSyncing ? 'Syncing...' : (hasFileOps ? 'Processing...' : 'Sync Now');
 
-        // For CSV sources, clicking the row opens upload modal
+        // For file sources (csv/local_files), clicking the row opens upload modal
         // For other sources, clicking the row opens detail modal
-        const rowClickHandler = source.type === 'csv'
+        const isFileSource = source.type === 'csv' || source.type === 'local_files';
+        const rowClickHandler = isFileSource
             ? `openCsvUploadModal('${source.name}')`
             : `openSourceDetail('${source.name}')`;
 
-        const rowClickHelp = source.type === 'csv'
-            ? 'Click to upload CSV files'
+        const rowClickHelp = isFileSource
+            ? (canSync ? 'Click to upload files' : 'Click to view files')
             : 'Click to view details';
 
-        return `
-        <tr id="source-${source.name}" class="hover:bg-gray-50 transition-colors duration-150 cursor-pointer"
-            onclick="${rowClickHandler}" title="${rowClickHelp}">
-            <td class="px-6 py-4 whitespace-nowrap">
-                <div class="flex items-center">
-                    <div class="text-sm font-medium text-gray-900">${source.name}</div>
-                </div>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap">
-                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
-                    ${source.type}
-                </span>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap">
-                ${renderStatusPill(source, isSyncing, hasFileOps)}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                ${renderRowCount(source)}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                ${formatRelativeTime(source.last_sync)}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+        // Action column: sync button for editors/admins, dash for viewers
+        let actionColumn;
+        if (!canSync) {
+            actionColumn = '<span class="inline-block w-full text-center text-gray-300">—</span>';
+        } else if (isFileSource) {
+            // File sources: single "Sync Now" button, no dropdown
+            actionColumn = `
                 <button
                     onclick="event.stopPropagation(); triggerSync('${source.name}')"
                     class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150"
@@ -950,7 +1211,63 @@ function renderSourcesTable() {
                     ${buttonDisabled}
                 >
                     ${buttonText}
-                </button>
+                </button>`;
+        } else {
+            // API sources: split button — main click syncs, chevron opens dropdown
+            actionColumn = `
+                <div class="relative inline-flex" id="sync-menu-${source.name}">
+                    <button
+                        onclick="event.stopPropagation(); triggerSync('${source.name}')"
+                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150 rounded-l-md"
+                        id="sync-btn-${source.name}"
+                        ${buttonDisabled}
+                    >
+                        ${buttonText}
+                    </button>
+                    <button
+                        onclick="event.stopPropagation(); toggleSyncMenu('${source.name}')"
+                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150 pl-1 ml-1"
+                        ${buttonDisabled}
+                    >
+                        ▾
+                    </button>
+                    <div id="sync-dropdown-${source.name}" class="hidden fixed w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50">
+                        <div class="py-1">
+                            <a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); triggerFullRefresh('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Full Refresh</a>
+                            ${source.supports_date_range ? `<a href="#" onclick="event.preventDefault(); event.stopPropagation(); closeSyncMenus(); openDateRangeModal('${source.name}')" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Custom Date Range...</a>` : ''}
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        return `
+        <tr id="source-${source.name}" class="hover:bg-gray-50 transition-colors duration-150">
+            <td class="px-6 py-4 whitespace-nowrap cursor-pointer tooltip" onclick="${rowClickHandler}" data-tooltip="${rowClickHelp}">
+                <div class="flex items-center">
+                    <div class="text-sm font-medium text-gray-900">${escapeHtml(source.name)}</div>
+                    ${source.needs_attention ? '<span class="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Needs Attention</span>' : ''}
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+                    ${formatSourceType(source.type)}
+                </span>
+                <div class="text-xs text-gray-400 mt-0.5">${source.sync_mode === 'full_refresh' ? 'Full Refresh' : 'Incremental'}${source.lookback_days ? ` (${source.lookback_days}d)` : ''}</div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap cursor-pointer tooltip" data-col="status" onclick="event.stopPropagation(); openSyncHistory('${source.name}')" data-tooltip="Click to view sync history">
+                ${renderStatusPill(source, isSyncing, hasFileOps)}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" data-col="rows">
+                ${renderRowCount(source)}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" data-col="last-sync">
+                ${formatRelativeTime(source.last_sync)}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                ${source.has_schedule ? `<span class="tooltip" data-tooltip="${source.schedule_display || ''}">${source.schedule_display || 'Scheduled'}</span>` : '<span class="inline-block w-full text-center text-gray-300">—</span>'}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                ${actionColumn}
             </td>
         </tr>
         `;
@@ -960,8 +1277,9 @@ function renderSourcesTable() {
 function getStatusBadge(status) {
     const badges = {
         'synced': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Synced</span>',
-        'syncing': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 animate-pulse">Syncing...</span>',
-        'processing': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800 animate-pulse">Processing...</span>',
+        'syncing': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 animate-pulse">⏳ Syncing...</span>',
+        'processing': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800 animate-pulse">⚙️ Processing...</span>',
+        'partial': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">⚠ Partial</span>',
         'empty': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Empty</span>',
         'not_synced': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">Not Synced</span>',
         'failed': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">Failed</span>',
@@ -988,7 +1306,7 @@ function renderRowCount(source) {
 
     // Multi-resource source: show breakdown with clean bullets (no monospace needed)
     const tablesList = source.tables
-        .map(t => `<div class="text-xs text-gray-600 pl-4 py-0.5">• <span class="font-medium">${t.name}</span>: ${t.row_count.toLocaleString()} rows</div>`)
+        .map(t => `<div class="text-xs text-gray-600 pl-4 py-0.5">• <a href="/catalog?model=${encodeURIComponent(t.name)}" class="font-medium text-blue-600 hover:text-blue-800 hover:underline" onclick="event.stopPropagation()">${escapeHtml(t.name)}</a>: ${t.row_count.toLocaleString()} rows</div>`)
         .join('');
 
     return `
@@ -1028,6 +1346,10 @@ function renderStatusPill(source, isSyncing, hasFileOps) {
         return `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">❌ Failed</span>`;
     }
 
+    if (freshness.status === 'partial') {
+        return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">⚠ Partial</span>';
+    }
+
     if (freshness.status === 'empty') {
         return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">⚪ No Data</span>';
     }
@@ -1057,7 +1379,7 @@ function updateSourceStatus(sourceName, newStatus) {
     console.log(`🔄 [updateSourceStatus] Row element found:`, !!row);
 
     if (row) {
-        const statusCell = row.querySelector('td:nth-child(3)');
+        const statusCell = row.querySelector('td[data-col="status"]');
         if (statusCell) {
             statusCell.innerHTML = getStatusBadge(newStatus);
         }
@@ -1066,7 +1388,7 @@ function updateSourceStatus(sourceName, newStatus) {
         const syncBtn = document.getElementById(`sync-btn-${sourceName}`);
         if (syncBtn) {
             syncBtn.disabled = newStatus === 'syncing';
-            syncBtn.textContent = newStatus === 'syncing' ? 'Syncing...' : 'Sync Now';
+            syncBtn.innerHTML = newStatus === 'syncing' ? 'Syncing...' : 'Sync Now';
         }
     } else {
         // Row doesn't exist yet - table hasn't been rendered
@@ -1077,11 +1399,54 @@ function updateSourceStatus(sourceName, newStatus) {
     }
 }
 
+function updateSourceRowAfterSync(sourceName, result) {
+    const row = document.getElementById(`source-${sourceName}`);
+    if (!row) {
+        loadSources();
+        return;
+    }
+
+    // Reload full source data from API to get correct status
+    // (sync may have succeeded with 0 rows = "empty", or failed)
+    loadSources();
+    return;
+
+    // Update row count
+    if (result.rows_loaded !== undefined && result.rows_loaded !== null) {
+        const rowCountCell = row.querySelector('td[data-col="rows"]');
+        if (rowCountCell) {
+            rowCountCell.textContent = result.rows_loaded.toLocaleString();
+        }
+    }
+
+    // Update last sync time
+    const lastSyncCell = row.querySelector('td[data-col="last-sync"]');
+    if (lastSyncCell) {
+        lastSyncCell.textContent = 'Just now';
+    }
+
+    // Re-enable sync button
+    const syncBtn = document.getElementById(`sync-btn-${sourceName}`);
+    if (syncBtn) {
+        syncBtn.disabled = false;
+        syncBtn.innerHTML = 'Sync Now';
+    }
+
+    // Update sources array for consistency with future renders
+    const sourceObj = sources.find(s => s.name === sourceName);
+    if (sourceObj) {
+        sourceObj.freshness = { status: 'synced', last_sync_time: result.timestamp };
+        sourceObj.last_sync = result.timestamp;
+        if (result.rows_loaded !== undefined) sourceObj.row_count = result.rows_loaded;
+    }
+}
+
 function showSourcesError() {
     const tbody = document.getElementById('sources-table-body');
+    if (!tbody) return;
     tbody.innerHTML = `
         <tr>
-            <td colspan="6" class="px-6 py-8 text-center text-red-500">
+            <td colspan="7" class="px-6 py-8 text-center text-red-500">
                 <div class="flex flex-col items-center space-y-2">
                     <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
@@ -1114,6 +1479,7 @@ function addLogEntry(level, message, source = 'system') {
 
 function renderActivityLog() {
     const logContainer = document.getElementById('activity-log');
+    if (!logContainer) return;
 
     if (activityLog.length === 0) {
         logContainer.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-gray-500 text-sm">No recent activity</td></tr>';
@@ -1122,15 +1488,15 @@ function renderActivityLog() {
 
     logContainer.innerHTML = activityLog.map(entry => {
         const levelBadge = getLevelBadge(entry.level);
-        const sourceDisplay = entry.source || 'system';
+        const sourceDisplay = escapeHtml(entry.source || 'system');
         // Keep original formatting - don't trim whitespace, preserve newlines
-        const formattedMessage = entry.message || '';
+        const formattedMessage = escapeHtml(entry.message || '');
 
         return `
             <tr class="hover:bg-gray-50 transition-colors duration-150">
                 <td class="px-4 py-3 whitespace-nowrap">${levelBadge}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600">${sourceDisplay}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500">${entry.timestamp}</td>
+                <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500">${escapeHtml(entry.timestamp)}</td>
                 <td class="px-4 py-3 text-sm text-gray-900"><pre class="log-message">${formattedMessage}</pre></td>
             </tr>
         `;
@@ -1157,7 +1523,13 @@ function clearLog() {
 // ============================================================================
 
 function showToast(message, type = 'info') {
-    const container = document.getElementById('toast-container');
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'fixed bottom-4 right-4 space-y-2 z-50';
+        document.body.appendChild(container);
+    }
 
     const bgColors = {
         'info': 'bg-blue-500',
@@ -1172,6 +1544,7 @@ function showToast(message, type = 'info') {
 
     container.appendChild(toast);
 
+    // Timer audit: fire-and-forget animation timeouts. Toast self-removes from DOM.
     // Trigger animation
     setTimeout(() => {
         toast.classList.remove('opacity-0', 'translate-x-full');
@@ -1202,36 +1575,59 @@ function refreshSources() {
 async function openCsvUploadModal(sourceName) {
     // Find the source
     const source = sources.find(s => s.name === sourceName);
-    if (!source || source.type !== 'csv') {
-        showToast('Invalid CSV source', 'error');
+    if (!source || (source.type !== 'csv' && source.type !== 'local_files')) {
+        showToast('Invalid file source', 'error');
         return;
     }
 
     // Show modal
-    document.getElementById('upload-modal').classList.remove('hidden');
+    const modal = document.getElementById('upload-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
 
     // Set source name
-    document.getElementById('upload-source-name').textContent = sourceName;
+    const sourceNameEl = document.getElementById('upload-source-name');
+    if (sourceNameEl) sourceNameEl.textContent = sourceName;
 
-    // Reset form
-    document.getElementById('csv-upload-form').reset();
+    // Reset form and clear previous error/progress state
+    document.getElementById('csv-upload-form')?.reset();
+    document.getElementById('upload-error')?.classList.add('hidden');
+    document.getElementById('upload-progress')?.classList.add('hidden');
+
+    // Hide upload form for viewers (read-only modal)
+    const canEdit = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
+    const uploadForm = document.getElementById('csv-upload-form');
+    if (uploadForm) uploadForm.style.display = canEdit ? '' : 'none';
+
+    // Update file input accept attribute for local_files sources
+    const fileInput = document.getElementById('csv-file-input');
+    if (fileInput) {
+        fileInput.accept = source.type === 'local_files'
+            ? '.csv,.json,.jsonl,.ndjson,.parquet'
+            : '.csv';
+    }
 
     // Populate configuration from source details
     try {
         const details = await apiCall(`/api/sources/${sourceName}/details`);
-        const csvConfig = details.config.csv || {};
+        const configKey = source.type === 'local_files' ? 'local_files' : 'csv';
+        const fileConfig = details.config[configKey] || {};
 
         // Display directory
-        document.getElementById('upload-directory').textContent = csvConfig.directory || 'data';
+        const dirEl = document.getElementById('upload-directory');
+        if (dirEl) dirEl.textContent = fileConfig.directory || 'data';
 
         // Display file pattern
-        document.getElementById('upload-file-pattern').textContent = csvConfig.file_pattern || '*.csv';
+        const patternEl = document.getElementById('upload-file-pattern');
+        if (patternEl) patternEl.textContent = fileConfig.file_pattern || (source.type === 'local_files' ? '*' : '*.csv');
 
         // Display regeneration notes (if present)
         const notesContainer = document.getElementById('upload-notes-container');
         const notesSpan = document.getElementById('upload-notes');
-        if (csvConfig.notes && csvConfig.notes.trim()) {
-            notesSpan.textContent = csvConfig.notes;
+        if (!notesContainer || !notesSpan) {
+            // Notes elements not on this page
+        } else if (fileConfig.notes && fileConfig.notes.trim()) {
+            notesSpan.textContent = fileConfig.notes;
             notesContainer.style.display = 'block';
         } else {
             notesContainer.style.display = 'none';
@@ -1248,18 +1644,20 @@ async function openCsvUploadModal(sourceName) {
 
 async function loadCsvFilesList(sourceName) {
     const container = document.getElementById('csv-files-list');
+    if (!container) return;
 
     try {
         const data = await apiCall(`/api/sources/${sourceName}/csv-files`);
 
         if (!data.files || data.files.length === 0) {
             container.innerHTML = `
-                <p class="text-gray-500 text-center py-2">No CSV files found</p>
+                <p class="text-gray-500 text-center py-2">No files found</p>
             `;
             return;
         }
 
         // Group files by status
+        const canDelete = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
         const filesHtml = data.files.map(file => {
             let statusBadge = '';
             let statusColor = '';
@@ -1279,24 +1677,28 @@ async function loadCsvFilesList(sourceName) {
                 statusIcon = '⚠';
             }
 
-            const sizeDisplay = file.size ? `${(file.size / 1024).toFixed(1)} KB` : '-';
+            const sizeDisplay = formatFileSize(file.size);
             const rowsDisplay = file.rows_loaded ? `${file.rows_loaded.toLocaleString()} rows` : '';
 
-            // Add delete button for files on disk
+            // Add delete button for files on disk (editors/admins only)
             const safeFilename = file.filename.replace(/[^a-zA-Z0-9]/g, '_');
-            const deleteButton = file.on_disk ?
+            const deleteButton = (file.on_disk && canDelete) ?
                 `<button
                     id="delete-btn-${safeFilename}"
-                    onclick="handleFileDelete('${sourceName}', '${file.path}', '${file.filename}', '${safeFilename}')"
-                    class="ml-2 text-red-600 hover:text-red-800 text-xs font-medium"
-                    title="Delete file">
+                    data-source="${escapeHtml(sourceName)}"
+                    data-path="${escapeHtml(file.path)}"
+                    data-filename="${escapeHtml(file.filename)}"
+                    data-safe="${safeFilename}"
+                    onclick="handleFileDelete(this.dataset.source, this.dataset.path, this.dataset.filename, this.dataset.safe)"
+                    class="ml-2 text-red-600 hover:text-red-800 text-xs font-medium tooltip"
+                    data-tooltip="Delete file">
                     Delete
                 </button>` : '';
 
             return `
                 <div class="flex items-center justify-between py-2 border-b border-blue-100 last:border-0">
                     <div class="flex-1 min-w-0">
-                        <div class="font-medium text-gray-900 truncate">${file.filename}</div>
+                        <div class="font-medium text-gray-900 truncate">${escapeHtml(file.filename)}</div>
                         <div class="text-xs text-gray-500">${sizeDisplay}${rowsDisplay ? ' • ' + rowsDisplay : ''}</div>
                     </div>
                     <div class="flex items-center gap-2">
@@ -1352,7 +1754,10 @@ async function handleFileDelete(sourceName, filePath, filename, safeFilename) {
     try {
         // Call DELETE endpoint
         const response = await fetch(`/api/sources/${sourceName}/csv-files?file_path=${encodeURIComponent(filePath)}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+            }
         });
 
         const result = await response.json();
@@ -1387,8 +1792,9 @@ async function handleFileDelete(sourceName, filePath, filename, safeFilename) {
 window.handleFileDelete = handleFileDelete;
 
 function closeUploadModal() {
-    document.getElementById('upload-modal').classList.add('hidden');
-    document.getElementById('upload-progress').classList.add('hidden');
+    document.getElementById('upload-modal')?.classList.add('hidden');
+    document.getElementById('upload-progress')?.classList.add('hidden');
+    document.getElementById('upload-error')?.classList.add('hidden');
 
     // Clear selected files display
     const filesList = document.getElementById('selected-files');
@@ -1398,7 +1804,9 @@ function closeUploadModal() {
 }
 
 function syncSourceFromModal() {
-    const sourceName = document.getElementById('upload-source-name').textContent;
+    const sourceEl = document.getElementById('upload-source-name');
+    if (!sourceEl) return;
+    const sourceName = sourceEl.textContent;
     if (sourceName) {
         // Close modal first
         closeUploadModal();
@@ -1412,7 +1820,9 @@ window.syncSourceFromModal = syncSourceFromModal;
 
 async function handleCsvUpload() {
     const fileInput = document.getElementById('csv-file');
-    const sourceName = document.getElementById('upload-source-name').textContent;
+    const sourceEl = document.getElementById('upload-source-name');
+    if (!fileInput || !sourceEl) return;
+    const sourceName = sourceEl.textContent;
 
     if (!fileInput.files || fileInput.files.length === 0) {
         showToast('Please select at least one CSV file', 'error');
@@ -1429,14 +1839,19 @@ async function handleCsvUpload() {
     addFileOperation(sourceName, operationId);
     console.log(`📤 [Upload] Tracking batch of ${fileCount} files under operation ${operationId}`);
 
-    // Close modal immediately to prevent user from clicking other actions
-    showToast(`Uploading ${files.length} file(s) to disk...`, 'info');
-    closeUploadModal();
+    // Show progress, hide previous errors, disable buttons during upload
+    const progressEl = document.getElementById('upload-progress');
+    if (progressEl) progressEl.classList.remove('hidden');
+    const errorEl = document.getElementById('upload-error');
+    if (errorEl) errorEl.classList.add('hidden');
+    const submitBtn = document.querySelector('#csv-upload-form button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+    const syncBtn = document.getElementById('modal-sync-btn');
+    if (syncBtn) syncBtn.disabled = true;
 
-    // Declare at function scope so setTimeout can access it
     let successCount = 0;
     let failCount = 0;
-    let uploadComplete = false;
+    const failedDetails = [];
 
     try {
         // Upload each file sequentially
@@ -1447,6 +1862,9 @@ async function handleCsvUpload() {
             try {
                 const response = await fetch(`/api/sources/${sourceName}/upload-csv`, {
                     method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
                     body: formData
                 });
 
@@ -1454,59 +1872,75 @@ async function handleCsvUpload() {
 
                 if (response.ok && result.success) {
                     successCount++;
-                    addLogEntry('success', `CSV uploaded: ${file.name}`, sourceName);
+                    addLogEntry('success', `File uploaded: ${file.name}`, sourceName);
                 } else {
                     failCount++;
-                    addLogEntry('error', `CSV upload failed: ${file.name} - ${result.detail || 'Unknown error'}`, sourceName);
+                    const reason = result.detail || 'Unknown error';
+                    failedDetails.push(`${file.name}: ${reason}`);
+                    addLogEntry('error', `Upload failed: ${file.name} - ${reason}`, sourceName);
                 }
             } catch (error) {
                 failCount++;
-                addLogEntry('error', `CSV upload failed: ${file.name} - ${error.message}`, sourceName);
+                failedDetails.push(`${file.name}: ${error.message}`);
+                addLogEntry('error', `Upload failed: ${file.name} - ${error.message}`, sourceName);
             }
         }
 
-        // Show result summary
-        if (successCount > 0) {
+        // Show error details in modal (escaped to prevent XSS from filenames)
+        if (failCount > 0 && errorEl) {
+            const maxShown = 3;
+            const shown = failedDetails.slice(0, maxShown).map(d => escapeHtml(d));
+            const extra = failCount > maxShown ? `...and ${failCount - maxShown} more` : '';
+            const label = successCount > 0
+                ? `<strong>${failCount} file(s) failed:</strong>`
+                : '<strong>Upload failed:</strong>';
+            errorEl.innerHTML = label + '<br>' + shown.join('<br>') + (extra ? '<br>' + extra : '');
+            errorEl.classList.remove('hidden');
+        }
+
+        // Handle results based on success/failure
+        if (successCount > 0 && failCount === 0) {
+            // All files succeeded — close modal and show success toast
+            closeUploadModal();
             const fileWord = successCount === 1 ? 'file' : 'files';
             showToast(`Successfully uploaded ${successCount} ${fileWord} to disk. Syncing...`, 'success');
+        } else if (failCount > 0 && successCount === 0) {
+            // All files failed — clean up operation tracking
+            removeFileOperation(sourceName, operationId);
+        }
 
-            // Now trigger ONE sync for ALL uploaded files
-            console.log(`📤 [Upload] Triggering single sync for ${successCount} uploaded files`);
+        // Trigger sync if any files succeeded
+        if (successCount > 0) {
+            console.log(`📤 [Upload] Triggering sync for ${successCount} uploaded files`);
             try {
-                // Call the sync endpoint to process all uploaded files in one batch
-                // Use longer timeout (30s) as sync may take time to respond even though it runs in background
                 const syncResponse = await apiCall(`/api/sources/${sourceName}/sync`, 'POST', {
                     full_refresh: false
                 }, 30000);
                 console.log('📤 [Upload] Sync triggered successfully, WebSocket events will track progress');
-                // WebSocket events will handle activeSyncs state and UI updates
             } catch (syncError) {
                 console.error('Error triggering sync:', syncError);
-                showToast(`Files uploaded but sync failed: ${syncError.message}`, 'error');
-                // Clean up operation tracking on sync failure
+                if (failCount === 0) {
+                    showToast(`Files uploaded but sync failed: ${syncError.message}`, 'error');
+                }
                 removeFileOperation(sourceName, operationId);
             }
         }
-
-        if (failCount > 0) {
-            if (successCount > 0) {
-                showToast(`Uploaded ${successCount} file(s), ${failCount} failed`, 'warning');
-            } else {
-                showToast(`All ${failCount} file(s) failed to upload`, 'error');
-                // Clean up operation tracking if all failed
-                removeFileOperation(sourceName, operationId);
-            }
-        }
-
-        // Mark upload as complete so finally block knows state
-        uploadComplete = true;
     } catch (error) {
-        console.error('Error uploading CSV:', error);
-        showToast(`Upload failed: ${error.message}`, 'error');
+        console.error('Error uploading file:', error);
+        // Show error in modal instead of toast
+        if (errorEl) {
+            errorEl.innerHTML = `<strong>Upload failed:</strong> ${escapeHtml(error.message)}`;
+            errorEl.classList.remove('hidden');
+        }
         addLogEntry('error', `Upload failed: ${error.message}`, sourceName);
         // Clear operation on error
         removeFileOperation(sourceName, operationId);
     } finally {
+        // Hide progress, re-enable buttons
+        if (progressEl) progressEl.classList.add('hidden');
+        if (submitBtn) submitBtn.disabled = false;
+        if (syncBtn) syncBtn.disabled = false;
+
         // Clean up file input
         fileInput.value = '';
 
@@ -1535,6 +1969,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const files = e.target.files;
             const filesList = document.getElementById('selected-files');
             const filesListContainer = document.getElementById('selected-files-list');
+            if (!filesList || !filesListContainer) return;
 
             if (files.length > 0) {
                 // Clear previous list
@@ -1563,10 +1998,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function openSourceDetail(sourceName) {
     // Show modal and loading state
-    document.getElementById('source-detail-modal').classList.remove('hidden');
-    document.getElementById('detail-loading').classList.remove('hidden');
-    document.getElementById('detail-content').classList.add('hidden');
-    document.getElementById('detail-source-name').textContent = sourceName;
+    const modal = document.getElementById('source-detail-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    document.getElementById('detail-loading')?.classList.remove('hidden');
+    document.getElementById('detail-content')?.classList.add('hidden');
+    const nameEl = document.getElementById('detail-source-name');
+    if (nameEl) nameEl.textContent = sourceName;
 
     try {
         // Fetch source details
@@ -1574,23 +2012,25 @@ async function openSourceDetail(sourceName) {
 
         // Update stats with table breakdown if applicable
         const detailRowCountElement = document.getElementById('detail-row-count');
-        if (details.row_count === null) {
-            detailRowCountElement.textContent = '-';
-        } else if (details.tables && details.tables.length > 1) {
-            // Multi-resource source: show table breakdown
-            const tablesList = details.tables
-                .map(t => `<div class="text-xs text-gray-600 pl-4 py-0.5">• <span class="font-medium">${t.name}</span>: ${t.row_count.toLocaleString()} rows</div>`)
-                .join('');
+        if (detailRowCountElement) {
+            if (details.row_count === null) {
+                detailRowCountElement.textContent = '-';
+            } else if (details.tables && details.tables.length > 1) {
+                // Multi-resource source: show table breakdown
+                const tablesList = details.tables
+                    .map(t => `<div class="text-xs text-gray-600 pl-4 py-0.5">• <a href="/catalog?model=${encodeURIComponent(t.name)}" class="font-medium text-blue-600 hover:text-blue-800 hover:underline">${escapeHtml(t.name)}</a>: ${t.row_count.toLocaleString()} rows</div>`)
+                    .join('');
 
-            detailRowCountElement.innerHTML = `
-                <div class="flex flex-col">
-                    <div class="font-medium text-sm">${details.tables.length} tables, ${details.row_count.toLocaleString()} total rows</div>
-                    <div class="mt-1">${tablesList}</div>
-                </div>
-            `;
-        } else {
-            // Single resource or no breakdown: show simple count
-            detailRowCountElement.textContent = details.row_count.toLocaleString();
+                detailRowCountElement.innerHTML = `
+                    <div class="flex flex-col">
+                        <div class="font-medium text-sm">${details.tables.length} tables, ${details.row_count.toLocaleString()} total rows</div>
+                        <div class="mt-1">${tablesList}</div>
+                    </div>
+                `;
+            } else {
+                // Single resource or no breakdown: show simple count
+                detailRowCountElement.textContent = details.row_count.toLocaleString();
+            }
         }
 
         // Display freshness information
@@ -1619,45 +2059,63 @@ async function openSourceDetail(sourceName) {
             freshnessElement.innerHTML = freshnessHTML;
         }
 
+        const syncModeEl = document.getElementById('detail-sync-mode');
+        if (syncModeEl) {
+            const mode = details.sync_mode === 'incremental' ? 'Incremental' : 'Full Refresh';
+            const lookback = details.lookback_days ? ` (${details.lookback_days}d lookback)` : '';
+            syncModeEl.textContent = mode + lookback;
+        }
+
         const history = details.history || [];
-        document.getElementById('detail-sync-count').textContent = history.length;
+        const syncCountEl = document.getElementById('detail-sync-count');
+        if (syncCountEl) syncCountEl.textContent = history.length;
 
         if (history.length > 0) {
             // Check if last sync failed and display error prominently
             if (history[0].status === 'failed' && history[0].error_message) {
                 const errorAlert = document.getElementById('detail-error-alert');
-                const errorMessage = document.getElementById('detail-error-message').querySelector('pre');
-                errorAlert.classList.remove('hidden');
-                errorMessage.textContent = history[0].error_message;
+                const errorMsgContainer = document.getElementById('detail-error-message');
+                if (!errorMsgContainer || !errorAlert) {
+                    // Error display elements not on this page
+                } else {
+                    const errorMessage = errorMsgContainer.querySelector('pre');
+                    if (errorMessage) {
+                        errorAlert.classList.remove('hidden');
+                        errorMessage.textContent = history[0].error_message;
+                    }
+                }
             } else {
-                document.getElementById('detail-error-alert').classList.add('hidden');
+                document.getElementById('detail-error-alert')?.classList.add('hidden');
             }
         } else {
-            document.getElementById('detail-error-alert').classList.add('hidden');
+            document.getElementById('detail-error-alert')?.classList.add('hidden');
         }
 
         // Display configuration with custom rendering for different source types
         const configElement = document.getElementById('detail-config');
-
-        if (details.config.type === 'stripe' && details.config.stripe) {
+        if (!configElement) {
+            // Config element not on this page
+        } else if (details.config.type === 'stripe' && details.config.stripe) {
             // Clean rendering for Stripe sources - only show user-relevant info
             const stripeConfig = details.config.stripe;
             const endpoints = stripeConfig.endpoints || [];
             const startDate = stripeConfig.start_date ? new Date(stripeConfig.start_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Not specified';
 
             configElement.innerHTML = `<div class="space-y-3">
-<div><span class="font-semibold text-gray-700">Data Sources:</span> <span class="text-gray-900">${endpoints.join(', ')}</span></div>
-<div><span class="font-semibold text-gray-700">Syncing From:</span> <span class="text-gray-900">${startDate}</span></div>
-${details.config.description ? `<div><span class="font-semibold text-gray-700">Notes:</span> <span class="text-gray-900">${details.config.description}</span></div>` : ''}
+<div><span class="font-semibold text-gray-700">Data Sources:</span> <span class="text-gray-900">${escapeHtml(endpoints.join(', '))}</span></div>
+<div><span class="font-semibold text-gray-700">Syncing From:</span> <span class="text-gray-900">${escapeHtml(startDate)}</span></div>
+${details.config.description ? `<div><span class="font-semibold text-gray-700">Notes:</span> <span class="text-gray-900">${escapeHtml(details.config.description)}</span></div>` : ''}
 </div>`;
-        } else if (details.config.type === 'csv' && details.config.csv) {
-            // Clean rendering for CSV sources - only show user-relevant info
-            const csvConfig = details.config.csv;
+        } else if ((details.config.type === 'csv' && details.config.csv) || (details.config.type === 'local_files' && details.config.local_files)) {
+            // Clean rendering for file sources - only show user-relevant info
+            const fileConfig = details.config.type === 'local_files' ? details.config.local_files : details.config.csv;
+            const defaultPattern = details.config.type === 'local_files' ? '*' : '*.csv';
 
             configElement.innerHTML = `<div class="space-y-3">
-<div><span class="font-semibold text-gray-700">Upload Location:</span> <span class="text-gray-900">${csvConfig.directory || 'data'}</span></div>
-<div><span class="font-semibold text-gray-700">File Pattern:</span> <span class="text-gray-900">${csvConfig.file_pattern || '*.csv'}</span></div>
-${details.config.description ? `<div><span class="font-semibold text-gray-700">Notes:</span> <span class="text-gray-900">${details.config.description}</span></div>` : ''}
+<div><span class="font-semibold text-gray-700">Upload Location:</span> <span class="text-gray-900">${escapeHtml(fileConfig.directory || 'data')}</span></div>
+<div><span class="font-semibold text-gray-700">File Pattern:</span> <span class="text-gray-900">${escapeHtml(fileConfig.file_pattern || defaultPattern)}</span></div>
+${details.config.type === 'local_files' ? '<div><span class="font-semibold text-gray-700">Formats:</span> <span class="text-gray-900">CSV, JSON, JSONL, Parquet</span></div>' : ''}
+${details.config.description ? `<div><span class="font-semibold text-gray-700">Notes:</span> <span class="text-gray-900">${escapeHtml(details.config.description)}</span></div>` : ''}
 </div>`;
         } else {
             // Fallback: formatted JSON for other source types
@@ -1667,9 +2125,15 @@ ${details.config.description ? `<div><span class="font-semibold text-gray-700">N
         // Render history table
         renderSourceHistory(history);
 
+        // Set catalog link
+        const catalogLinkEl = document.getElementById('detail-catalog-link');
+        if (catalogLinkEl) {
+            catalogLinkEl.innerHTML = `<a href="/catalog?source=${encodeURIComponent(sourceName)}" class="text-sm text-indigo-600 hover:text-indigo-800 hover:underline">View in Catalog &rarr;</a>`;
+        }
+
         // Show content, hide loading
-        document.getElementById('detail-loading').classList.add('hidden');
-        document.getElementById('detail-content').classList.remove('hidden');
+        document.getElementById('detail-loading')?.classList.add('hidden');
+        document.getElementById('detail-content')?.classList.remove('hidden');
 
     } catch (error) {
         console.error('Error loading source details:', error);
@@ -1679,12 +2143,83 @@ ${details.config.description ? `<div><span class="font-semibold text-gray-700">N
 }
 
 function closeSourceDetail() {
-    document.getElementById('source-detail-modal').classList.add('hidden');
+    document.getElementById('source-detail-modal')?.classList.add('hidden');
+}
+
+async function openSyncHistory(sourceName) {
+    const modal = document.getElementById('sync-history-modal');
+    if (!modal) {
+        // Fallback: open full detail modal scrolled to history
+        await openSourceDetail(sourceName);
+        setTimeout(() => {
+            const el = document.getElementById('detail-history');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 200);
+        return;
+    }
+
+    // Show compact sync history modal
+    modal.classList.remove('hidden');
+    const nameEl = document.getElementById('sync-history-source-name');
+    if (nameEl) nameEl.textContent = sourceName;
+
+    const tbody = document.getElementById('sync-history-body');
+    const noHistory = document.getElementById('sync-history-empty');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-3 text-center text-gray-500 text-sm">Loading...</td></tr>';
+    if (noHistory) noHistory.classList.add('hidden');
+
+    try {
+        const response = await fetch(`/api/sources/${encodeURIComponent(sourceName)}/details`);
+        if (!response.ok) throw new Error('Failed to load');
+        const data = await response.json();
+        const history = (data.history || []).slice(0, 5);
+
+        if (!history.length) {
+            if (tbody) tbody.innerHTML = '';
+            if (noHistory) noHistory.classList.remove('hidden');
+            return;
+        }
+
+        if (tbody) {
+            tbody.innerHTML = history.map(entry => {
+                const statusClass = entry.status === 'success'
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-red-100 text-red-800';
+                const statusLabel = entry.status === 'success' ? 'OK' : 'Fail';
+                const duration = entry.duration_seconds != null ? entry.duration_seconds.toFixed(1) + 's' : '-';
+                const rows = entry.rows_processed != null ? entry.rows_processed.toLocaleString() : '-';
+                const time = formatRelativeTime(entry.timestamp);
+                return `<tr class="border-t border-gray-100">
+                    <td class="px-4 py-2 text-sm text-gray-600">${time}</td>
+                    <td class="px-4 py-2"><span class="px-2 py-0.5 text-xs font-medium rounded-full ${statusClass}">${statusLabel}</span></td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${escapeHtml(duration)}</td>
+                    <td class="px-4 py-2 text-sm text-gray-600">${escapeHtml(rows)}</td>
+                </tr>`;
+            }).join('');
+        }
+    } catch (error) {
+        console.error('Error loading sync history:', error);
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-3 text-center text-red-500 text-sm">Failed to load history</td></tr>';
+    }
+
+    // Wire up "View full details" link
+    const fullDetailsBtn = document.getElementById('sync-history-full-details');
+    if (fullDetailsBtn) {
+        fullDetailsBtn.onclick = () => {
+            closeSyncHistory();
+            openSourceDetail(sourceName);
+        };
+    }
+}
+
+function closeSyncHistory() {
+    document.getElementById('sync-history-modal')?.classList.add('hidden');
 }
 
 function renderSourceHistory(history) {
     const tbody = document.getElementById('detail-history');
     const noHistory = document.getElementById('detail-no-history');
+    if (!tbody || !noHistory) return;
 
     if (!history || history.length === 0) {
         tbody.innerHTML = '';
@@ -1765,6 +2300,7 @@ async function loadDbtModels(retryCount = 0) {
 
 function renderDbtModelsTable() {
     const tbody = document.getElementById('dbt-models-table-body');
+    if (!tbody) return;
 
     // If dbt is running but we don't have models data yet, show running state
     if (dbtRunStartTime !== null && (!dbtModels || dbtModels.length === 0)) {
@@ -1790,6 +2326,8 @@ function renderDbtModelsTable() {
         `;
         return;
     }
+
+    const canRun = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
 
     tbody.innerHTML = dbtModels.map(model => {
         // Disable ALL buttons if ANY model is running (prevents concurrent runs and DuckDB locking)
@@ -1851,6 +2389,25 @@ function renderDbtModelsTable() {
             statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-600">Not Run</span>';
         }
 
+        // Action buttons: Run/Run+ for editors/admins, docs link for all
+        const actionButtons = canRun ? `
+                    <button
+                        onclick="runDbtModel('${model.name}', false)"
+                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed mr-3"
+                        id="dbt-btn-${model.name}"
+                        ${buttonDisabled}
+                    >
+                        ${buttonText}
+                    </button>
+                    <button
+                        onclick="runDbtModel('${model.name}', true)"
+                        class="text-green-600 hover:text-green-900 disabled:text-gray-400 disabled:cursor-not-allowed mr-3 tooltip"
+                        ${buttonDisabled}
+                        data-tooltip="Run with downstream models"
+                    >
+                        Run+
+                    </button>` : '';
+
         return `
             <tr class="hover:bg-gray-50 transition-colors duration-150">
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -1874,27 +2431,11 @@ function renderDbtModelsTable() {
                     ${lastRun}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                        onclick="runDbtModel('${model.name}', false)"
-                        class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed mr-3"
-                        id="dbt-btn-${model.name}"
-                        ${buttonDisabled}
-                    >
-                        ${buttonText}
-                    </button>
-                    <button
-                        onclick="runDbtModel('${model.name}', true)"
-                        class="text-green-600 hover:text-green-900 disabled:text-gray-400 disabled:cursor-not-allowed mr-3"
-                        ${buttonDisabled}
-                        title="Run with downstream models"
-                    >
-                        Run+
-                    </button>
+                    ${actionButtons}
                     <a
-                        href="/dbt-docs#!/model/${model.unique_id}"
-                        target="_blank"
-                        class="text-blue-600 hover:text-blue-900"
-                        title="View documentation"
+                        href="/catalog?model=${encodeURIComponent(model.name)}"
+                        class="text-blue-600 hover:text-blue-900 tooltip"
+                        data-tooltip="View documentation"
                     >
                         📖
                     </a>
@@ -1961,6 +2502,7 @@ function updateDbtModelStatus(modelName, running) {
 
 function showDbtModelsError() {
     const tbody = document.getElementById('dbt-models-table-body');
+    if (!tbody) return;
     tbody.innerHTML = `
         <tr>
             <td colspan="5" class="px-6 py-8 text-center text-red-500">
@@ -2034,13 +2576,15 @@ async function loadMetabaseCredentials() {
     try {
         metabaseCredentials = await apiCall('/api/metabase/credentials');
 
-        document.getElementById('metabase-email').textContent = metabaseCredentials.email;
-        document.getElementById('metabase-password').textContent = metabaseCredentials.password;
+        const emailEl = document.getElementById('metabase-email');
+        const pwEl = document.getElementById('metabase-password');
+        if (emailEl) emailEl.textContent = metabaseCredentials.email;
+        if (pwEl) pwEl.textContent = metabaseCredentials.password;
 
         // Show banner if not previously dismissed
         const dismissed = localStorage.getItem('metabase-credentials-dismissed');
         if (!dismissed) {
-            document.getElementById('metabase-credentials-banner').classList.remove('hidden');
+            document.getElementById('metabase-credentials-banner')?.classList.remove('hidden');
         }
     } catch (error) {
         console.error('Failed to load Metabase credentials:', error);
@@ -2123,6 +2667,7 @@ function openMetabase() {
 
 function copyMetabaseField(field) {
     const element = document.getElementById(`metabase-${field}`);
+    if (!element) return;
     const text = element.textContent;
 
     navigator.clipboard.writeText(text).then(() => {
@@ -2138,8 +2683,72 @@ function copyMetabaseField(field) {
 }
 
 function dismissMetabaseBanner() {
-    document.getElementById('metabase-credentials-banner').classList.add('hidden');
+    document.getElementById('metabase-credentials-banner')?.classList.add('hidden');
     localStorage.setItem('metabase-credentials-dismissed', 'true');
+}
+
+// ============================================================================
+// Schema Drift Attention
+// ============================================================================
+
+/**
+ * Render attention banner for sources with breaking schema drift.
+ * Called after loadSources() completes.
+ */
+async function renderAttentionBanner() {
+    const banner = document.getElementById('attention-banner');
+    if (!banner) return;
+
+    try {
+        const attentionSources = await apiCall('/api/governance/attention');
+        if (!attentionSources || attentionSources.length === 0) {
+            banner.innerHTML = '';
+            return;
+        }
+
+        const canManage = window.DANGO_USER_ROLE === 'admin';
+        const sourceItems = attentionSources.map(s => {
+            const acceptBtn = canManage
+                ? `<button onclick="acceptDrift(${JSON.stringify(s.source)})" class="ml-2 text-sm text-yellow-700 underline hover:text-yellow-900">Accept</button>`
+                : '';
+            return `<span class="font-medium">${escapeHtml(s.source)}</span>: ${escapeHtml(s.reason)}${acceptBtn}`;
+        }).join('<br>');
+
+        banner.innerHTML = `
+            <div class="mb-4 rounded-lg bg-yellow-50 border border-yellow-200 p-4">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                    <div class="ml-3">
+                        <h3 class="text-sm font-medium text-yellow-800">Breaking Schema Drift Detected</h3>
+                        <div class="mt-2 text-sm text-yellow-700">${sourceItems}</div>
+                        <p class="mt-1 text-xs text-yellow-600">dbt is paused for affected sources. Accept changes to resume.</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        // Non-critical — don't show banner on error
+        banner.innerHTML = '';
+    }
+}
+
+/**
+ * Accept schema drift for a source.
+ * @param {string} sourceName - The source to accept drift for
+ */
+async function acceptDrift(sourceName) {
+    try {
+        await apiCall(`/api/governance/drift/${encodeURIComponent(sourceName)}/accept`, 'POST');
+        showToast(`Schema changes accepted for '${escapeHtml(sourceName)}'.`, 'success');
+        // loadSources() already calls renderAttentionBanner()
+        await loadSources();
+    } catch (error) {
+        showToast(`Failed to accept drift: ${escapeHtml(error.message)}`, 'error');
+    }
 }
 
 // Make functions available globally
@@ -2149,9 +2758,18 @@ window.clearLog = clearLog;
 window.closeUploadModal = closeUploadModal;
 window.openSourceDetail = openSourceDetail;
 window.closeSourceDetail = closeSourceDetail;
+window.openSyncHistory = openSyncHistory;
+window.closeSyncHistory = closeSyncHistory;
 window.runDbtModel = runDbtModel;
 window.refreshDbtModels = refreshDbtModels;
 window.switchTab = switchTab;
 window.openMetabase = openMetabase;
 window.copyMetabaseField = copyMetabaseField;
 window.dismissMetabaseBanner = dismissMetabaseBanner;
+window.toggleSyncMenu = toggleSyncMenu;
+window.closeSyncMenus = closeSyncMenus;
+window.triggerFullRefresh = triggerFullRefresh;
+window.openDateRangeModal = openDateRangeModal;
+window.closeDateRangeModal = closeDateRangeModal;
+window.syncWithDateRange = syncWithDateRange;
+window.acceptDrift = acceptDrift;

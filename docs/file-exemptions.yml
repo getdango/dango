@@ -1,0 +1,444 @@
+# Exemption registry for files exceeding the 500-line soft limit (STANDARDS.md §2).
+# Consumed by scripts/check_file_sizes.py for CI and pre-commit checks.
+# Line counts refreshed 2026-03-24 (P5-008) — informational, not enforced by script.
+#
+# Categories:
+#   refactor — planned for refactoring in v1 (linked to a task)
+#   exempt   — stable MVP code, not modified in v1
+
+schema_version: 1
+limit: 500  # Informational — scripts/check_file_sizes.py owns the enforced threshold
+
+exemptions:
+  # --- Post-TASK-085 split results (from web/app.py 3032 → web/routes/) ---
+  - file: dango/web/helpers.py
+    lines: 893
+    category: exempt
+    reason: "Shared helper functions for web routes. Consolidates DuckDB queries, config loading, service health checks, and log management. Extracted from web/app.py by TASK-085. R12-G added sync mode from history, increased history limit."
+    review_by: "v1.1"
+
+  - file: dango/web/routes/upload.py
+    lines: 713
+    category: exempt
+    reason: "CSV upload/list/delete endpoints. Extracted from web/app.py by TASK-085. DELETE endpoint alone has ~300 lines of DuckDB cleanup logic."
+    review_by: "v1.1"
+
+  # --- Phase 2 auth additions ---
+  - file: dango/web/routes/auth.py
+    lines: 902
+    category: exempt
+    reason: "Login/logout, OAuth flows, invite accept, API key CRUD. DOC-025 evaluated split (auth_api.py + auth_oauth.py) — rejected: breaks all test patches, scatters security-critical code. Bridge helper extracted to reduce duplication. BUG-235 added IP-based lockout calls (+19 lines)."
+    review_by: "v1.1"
+
+  - file: dango/auth/database.py
+    lines: 531
+    category: exempt
+    reason: "TASK-100 added invite token lookup (+25 lines over TASK-095 base)."
+    review_by: "v1.1"
+
+  - file: dango/auth/metabase_sync.py
+    lines: 552
+    category: exempt
+    reason: "BUG-011 added find_metabase_user_by_email() and email-exists fallback in sync_user_to_metabase() (+23 lines). Planned split in TASK-075b."
+    review_by: "v1.1"
+
+  - file: dango/web/routes/users.py
+    lines: 540
+    category: exempt
+    reason: "TASK-100 added invite-based user creation and reinvite endpoint (+77 lines over base). BUG-235 added unlock_account call (+4 lines)."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/auth.py
+    lines: 666
+    category: exempt
+    reason: "R7-E added change-role command and audit logging to all user management commands (+122 lines). BUG-235 replaced update_user with unlock_account for IP-based lockout cleanup."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_cli_auth.py
+    lines: 532
+    category: exempt
+    reason: "R7-E review: added TestAuthChangeRole (4 tests) and change-role to TestAuthHelp. Test files track source file growth."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_auth_lockout.py
+    lines: 654
+    category: exempt
+    reason: "BUG-235: added TestIPBasedLockout class (11 tests) for IP-based lockout tracking. R12-J added login_attempts table and IP-based tracking."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_web_auth.py
+    lines: 605
+    category: exempt
+    reason: "BUG-235: added TestLoginLockoutEnumeration class (3 tests) for username enumeration prevention."
+    review_by: "v1.1"
+
+  # --- Phase 3 cloud deployment (TASK-029 + TASK-107) ---
+  - file: dango/cli/commands/deploy_wizard.py
+    lines: 898
+    category: exempt
+    reason: "TASK-029+075e: Interactive wizard steps 1-8 + BYOS wizard + non-interactive modes. Sequential prompt flow — splitting would scatter closely coupled wizard steps. R9-C added cloud_credentials integration. R12-N1 added _safe_confirm helper. R12-I2 added email confirm + token flow UX."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/deploy_provision.py
+    lines: 1000
+    category: exempt
+    reason: "TASK-029+075e: DO provisioning + BYOS setup with ResourceTracker cleanup. Linear pipeline — splitting would scatter tightly coupled provisioning steps and error recovery. R8-F added _generate_cloud_profiles + DANGO_ADMIN_EMAIL persistence. R9-C added _confirm_secrets_push, install source detection, empty error handling. R12-N1 added non_interactive param, project_root resolve. Deploy reliability: extracted script builders, added exit code checks."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/deploy.py
+    lines: 767
+    category: exempt
+    reason: "TASK-029+075e: Deploy group with DO + BYOS routing, destroy command for both providers. Splitting would scatter the provider selection and destroy dispatch logic. R12-N1 threaded non_interactive flag."
+    review_by: "v1.1"
+
+  # --- Post-TASK-005 split results (from cli/main.py 4119 → cli/commands/) ---
+  - file: dango/cli/commands/platform.py
+    lines: 1075
+    category: exempt
+    reason: "Platform lifecycle commands (start/stop/status) + port helpers. Extracted from cli/main.py by TASK-005. Further splitting would scatter tightly coupled startup/shutdown logic. R12-I2 added cloud systemd status check."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/oauth.py
+    lines: 813
+    category: exempt
+    reason: "OAuth authentication commands (10 subcommands). Renamed from auth.py by TASK-093. One command per provider — file grows linearly with providers."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/source.py
+    lines: 913
+    category: exempt
+    reason: "Source management commands (add/list/remove/edit) + sync. Extracted from cli/main.py by TASK-005. TASK-040b added backfill/limit options + duration parsing + source-type validation. R12-G added source edit NAME arg, sync positional arg."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/remote.py
+    lines: 702
+    category: exempt
+    reason: "Remote server management: push + rollback + firewall subgroup + domain subgroup + registration of management and backup subgroups. P8-004 added git guard rails (--allow-dirty/--allow-branch) to push command. R12-K added auth subgroup registration."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/remote_mgmt.py
+    lines: 608
+    category: exempt
+    reason: "P8-004: Added deployment panel to remote status + remote history command. Marginally over limit."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/schedule.py
+    lines: 776
+    category: exempt
+    reason: "R6F: Schedule wizard expanded with time customization (BUG-039), per-schedule status (BUG-041), type labels (BUG-037), auto-select (BUG-038), webhook check (BUG-040). R12-G added wizard name validation loop, checkbox hint. R12-N2 added sync_only option. Sequential wizard flow doesn't benefit from splitting."
+    review_by: "v1.1"
+
+  - file: dango/platform/cloud/deployer.py
+    lines: 613
+    category: exempt
+    reason: "P8-004: Push deployment workflow with deploy lock and journal writing. Added git_info passthrough, nested try/finally for journal write, _write_deploy_journal helper. R8-F added Docker rebuild detection. R12-I1 added logger + debug log lines."
+    review_by: "v1.1"
+
+  # --- Exempt (stable, not modified in v1) ---
+  - file: dango/ingestion/dlt_runner.py
+    lines: 2579
+    category: exempt
+    reason: "Core pipeline engine with lazy imports across 5 modules. Architectural bottleneck — too risky to refactor without comprehensive test coverage. Post-sync hook dispatch added in P7-000. P5c grew +480 lines (credential unification, resource selection, local_files routing). P8-001 added headers/data_selector/params passthrough (+8 lines). R9-I added skip_sync_notification param + sync_result passthrough to post_sync hooks. R10-F3 added _get_source_total_rows + rewrote anomaly check to use DB totals (BUG-182). R10-S added progress_callback parameter (+12 lines). R12-F added DuckDB lock error detection in _analyze_error (+30 lines). M2-final: CSV 0-row sync detection (+22 lines each in _run_csv_source and _run_local_files_source)."
+    review_by: "v1.1"
+
+  - file: dango/ingestion/sources/registry.py
+    lines: 2035
+    category: exempt
+    reason: "Source metadata registry. Declarative data (no logic), naturally grows with each new source type. P5-011 added capability metadata (+313 lines). 5c-007 added local_files entry (+70 lines)."
+    review_by: "v1.1"
+
+  - file: dango/cli/source_wizard.py
+    lines: 2311
+    category: exempt
+    reason: "Interactive source configuration wizard. Sequential prompting logic doesn't benefit from splitting. P7-011 added metrics generation. P5c grew +529 lines (credential unification, resource selection, dedup collection). P8-001 added REST API wizard enhancements: headers, query params, endpoint testing, data_selector/primary_key suggestions (+267 lines)."
+    review_by: "v1.1"
+
+  - file: dango/visualization/metabase.py
+    lines: 1152
+    category: exempt
+    reason: "Metabase REST API wrapper. Methods map 1:1 to API endpoints — splitting would scatter related operations. R12-I1 added cloud timeout + poll logging."
+    review_by: "v1.1"
+
+  - file: dango/visualization/dashboard_manager.py
+    lines: 1115
+    category: exempt
+    reason: "Dashboard export/import operations. Tightly coupled to metabase.py API surface."
+    review_by: "v1.1"
+
+  - file: dango/cli/init.py
+    lines: 1399
+    category: exempt
+    reason: "Project initialization wizard. Sequential setup flow — splitting adds indirection without benefit. P7-014 added COMPATIBILITY.md + SCALABILITY.md generation (+133 lines). P7-011 added metrics config generation. P8-003 added CI workflow generation. P8-round2 added ICU extension install, auth YAML write, password auto-gen."
+    review_by: "v1.1"
+
+  # Removed: dango/cli/utils.py — now ~130 lines after TASK-006 (utilities moved to proper modules)
+
+  - file: dango/oauth/providers.py
+    lines: 670
+    category: exempt
+    reason: "OAuth provider definitions (Google, Facebook). Shopify provider removed in P5-008. Each provider is self-contained — file grows linearly with providers."
+    review_by: "v1.1"
+
+  - file: dango/ingestion/csv_loader.py
+    lines: 922
+    category: exempt
+    reason: "Multi-format file loading (CSV, JSON, JSONL, Parquet) with deduplication and schema evolution. Single-purpose module."
+    review_by: "v1.1"
+
+  - file: dango/cli/validate.py
+    lines: 698
+    category: exempt
+    reason: "Validation commands (config, sources, connections). Each validator is independent."
+    review_by: "v1.1"
+
+  - file: dango/transformation/generator.py
+    lines: 614
+    category: exempt
+    reason: "DbtModelGenerator — generates dbt models from source configs. R10-G2 added _enrich_columns_from_profiling for dbt test enrichment."
+    review_by: "v1.1"
+
+  - file: dango/platform/local/watcher.py
+    lines: 524
+    category: exempt
+    reason: "File change detection for auto-sync. Event-driven logic, stable. Moved to platform/local/ by TASK-090."
+    review_by: "v1.1"
+
+  - file: dango/cli/model_wizard.py
+    lines: 507
+    category: exempt
+    reason: "Interactive dbt model creation wizard. Sequential prompting, stable."
+    review_by: "v1.1"
+
+# Removed: dango/platform/network.py — now 486 lines, within limit (TASK-088)
+
+  # --- Test files (verbose by nature — each test class covers one public function) ---
+  - file: tests/unit/test_oauth_validation.py
+    lines: 580
+    category: exempt
+    reason: "35 tests covering all provider validators, routing, and pre-sync gate. Test methods are intentionally verbose for readability — each sets up mocks explicitly."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_catalog_lineage.py
+    lines: 631
+    category: exempt
+    reason: "P7-002: 16 tests covering lineage DAG (7) + impact analysis (9). Separate file from test_catalog_api.py per STANDARDS.md §7 split-at-creation rule."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_auth_database.py
+    lines: 504
+    category: exempt
+    reason: "TASK-095 added get_user_by_oauth tests (+4 tests). Marginally over limit."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_digitalocean_client.py
+    lines: 629
+    category: exempt
+    reason: "TASK-022+023+025: 36 tests covering DigitalOceanClient init, retry/backoff logic (9 cases), Droplet/SSH Key/Firewall CRUD (incl. get_firewall, update_firewall), and error handling. Retry tests require per-test mock setup for call sequencing — each is self-contained for readability."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_provisioning.py
+    lines: 527
+    category: exempt
+    reason: "TASK-023: 8 test classes covering size tiers, region info, nearest-region suggestion, wait_for_droplet_ready, wait_for_ssh, extract_public_ipv4, provision_droplet (6 scenarios incl. cleanup), and save_provisioning_metadata. Each scenario requires isolated mock setup."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_firewall.py
+    lines: 554
+    category: exempt
+    reason: "TASK-025: 9 test classes covering validate_ip_or_cidr, create_default_firewall, restrict_web_to_ips, allow_all_web, add_allowed_ip (incl. other-rules preservation), format_firewall_rules, delete_firewall, get_firewall_rules, and save_firewall_metadata. Each requires isolated mock setup; deepcopy fixture helpers add necessary boilerplate."
+    review_by: "v1.1"
+
+  - file: dango/config/models.py
+    lines: 620
+    category: exempt
+    reason: "TASK-090 added CloudConfig, SpacesConfig, DbtOverrides (~40 lines). Config models are data-only with no refactoring path."
+    review_by: "v1.1"
+
+  - file: dango/platform/scheduling/jobs.py
+    lines: 849
+    category: exempt
+    reason: "TASK-041 + TEST-008: Scheduled sync/dbt job functions with WebSocket broadcast, webhook notification, SQLite history recording, per-source cancellation, and timeout/cancel status tracking. R10-N moved sync to subprocess (removed DbtLock + run_sync, added launch_sync_subprocess + poll). R12-N2 added skip_dbt wiring for SYNC_ONLY schedules. Each job path requires broadcast + notify + record calls — splitting would fragment the job lifecycle."
+    review_by: "v1.1"
+
+  - file: dango/platform/cloud/digitalocean.py
+    lines: 547
+    category: exempt
+    reason: "TASK-104: Added get_action() and wait_for_action() for resize/migrate action polling. Core DO API client — splitting would fragment related HTTP methods. R9-C added cloud_credentials fallback."
+    review_by: "v1.1"
+
+  - file: dango/platform/cloud/server_setup.py
+    lines: 767
+    category: exempt
+    reason: "TASK-075e+R9-C: 17 idempotent setup steps + optional UFW. R9-C added resolve_install_source() and system-wide apt lock timeout config. R12-N1 added _normalize_git_url, fuser wait loop, logging."
+    review_by: "v1.1"
+
+  - file: dango/platform/cloud/backup.py
+    lines: 512
+    category: exempt
+    reason: "TASK-035+R12-M2: SSH-based backup and rollback. R12-M2 added logging import and service control warning logs."
+    review_by: "v1.1"
+
+  - file: dango/platform/cloud/scheduled_backup.py
+    lines: 508
+    category: exempt
+    reason: "TASK-103: Server-side scheduled backup to Spaces with list/restore/enable/disable. R12-N1 added logging import + debug to bare exception."
+    review_by: "v1.1"
+
+  - file: dango/platform/cloud/ssh.py
+    lines: 665
+    category: exempt
+    reason: "TASK-024: SSH key management, TOFU known-hosts, connect/exec/SFTP operations. Single-purpose module — splitting would scatter tightly coupled SSH lifecycle. Review fixes added _require_connected(), _load_key(), _connect_raw() helpers and SFTP timeout support."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_ssh_manager.py
+    lines: 589
+    category: exempt
+    reason: "TASK-024: 38 tests covering CommandResult, SSHManager init, key generation, connection, and exec_command (including not-connected guard). Test files are verbose by design — each test sets up its own mocks explicitly."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_ssh_sftp.py
+    lines: 711
+    category: exempt
+    reason: "TASK-024: 33 tests covering SFTP upload/download (with timeout and not-connected guards), write/read remote file, wait_for_ssh (including permanent-error fast-fail), known-hosts TOFU policy, and error wrapping. Test files are verbose by design."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_server_setup.py
+    lines: 839
+    category: exempt
+    reason: "TASK-026+R9-C+R12-N1: Tests for server setup, version pinning, apt lock timeout, _resolve_install_source, _normalize_git_url, fuser wait loop. Each test requires isolated mock setup with full exec_results map."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_deploy_provision.py
+    lines: 848
+    category: exempt
+    reason: "TASK-029+R9-C+R12-N1: 16 test classes covering ResourceTracker, IP extraction, secrets push, admin creation, health check, provisioning sequence, backup setup, metadata persistence, sync trigger, admin email persistence, cloud profiles generation, confirm_secrets_push, error handling, non-interactive confirm, and project root resolution."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_sync_process.py
+    lines: 740
+    category: exempt
+    reason: "R10-S+R12-C: Watcher tests + BUG-230 dbt_error broadcast tests. Test files are verbose by design."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_sync_trigger.py
+    lines: 701
+    category: exempt
+    reason: "R12-C: BUG-230 dbt failure handling tests (3 new test classes). Test files are verbose by design."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_file_sync.py
+    lines: 523
+    category: exempt
+    reason: "File sync tests covering SFTP upload, rsync command construction, change detection, SYNC_EXTRA_DIRS, and progress callbacks. Test files are verbose by design."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_sync_jobs.py
+    lines: 692
+    category: exempt
+    reason: "TASK-041+R10-N+R12-N2: Tests covering configure_jobs, _broadcast, _notify, _build_dashboard_url, run_scheduled_sync (subprocess-based), run_scheduled_dbt, _check_freshness, and skip_dbt for SYNC_ONLY schedules. Each test requires isolated mock setup for lazy-import patching."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_scheduler.py
+    lines: 670
+    category: exempt
+    reason: "TASK-036+039+BUG-167+R12-I1: 12 test classes covering SchedulerService init, lifecycle, jobs, status, event listeners, history integration, coroutine bridge, cloud warning, startup summary, missed recovery, health endpoint, job stubs, and login attempts cleanup job. Each class requires isolated mock setup with APScheduler dual-patch pattern."
+    review_by: "v1.1"
+
+  # --- Phase 4 scheduling ---
+
+  - file: dango/utils/post_sync.py
+    lines: 762
+    category: exempt
+    reason: "R10-G2: Added _enrich_staging_tests for post-sync dbt test enrichment from profiling data. R12-F added _run_dbt_snapshots hook (+29 lines). M2-final: Added _profile_dbt_models for intermediate/marts schema profiling (+62 lines)."
+    review_by: "v1.1"
+
+  - file: dango/web/routes/schedules.py
+    lines: 519
+    category: exempt
+    reason: "TASK-037+038+045b: 11 read-only endpoints (history×2, list/get, trigger, reload, cancel, unscheduled, page route, notification config/test). R10-C removed 5 config-mutating endpoints (BUG-175). R12-N2 added SYNC_ONLY dispatch in manual trigger."
+    review_by: "v1.1"
+
+  # Removed: dango/web/routes/sync.py — now ~370 lines after R10-N (sync moved to subprocess)
+
+  - file: dango/web/routes/catalog.py
+    lines: 1351
+    category: exempt
+    reason: "P7-001+P7-002+BUG-016+R9-G+R10-E1+R10-E2: Column schema, profiling, lineage DAG, impact analysis, model list/detail/search, raw table discovery, overview summary, per-source stats. Single router file — manifest parsing helpers are private to the same module."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_catalog_models.py
+    lines: 1039
+    category: exempt
+    reason: "BUG-016+R9-G+R10-E1: 24 tests covering catalog model list (8) + model detail (11) + raw table discovery (3) + sources_detail (2). Test infrastructure shared with test_catalog_lineage.py."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_cli_schedule.py
+    lines: 692
+    category: exempt
+    reason: "TASK-045a: 8 test classes covering schedule help, list, status, remove, enable, disable, add wizard (sync, dbt, custom cron, cancelled). Marginally over limit."
+    review_by: "v1.1"
+
+  - file: dango/web/routes/notebooks.py
+    lines: 574
+    category: exempt
+    reason: "R10-D2+R12-H+R12-I2: Grew adding heartbeat-based stale lock expiry, WebSocket force-unlock notification, snapshot creation on lock, cloud URL + proxy routes. Single router file for notebook management."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_web_notebooks.py
+    lines: 535
+    category: exempt
+    reason: "TEST-030+R10-D2: 7 test classes covering page, list, create, delete, lock, heartbeat, release, force-release (incl. WebSocket broadcast), copy."
+    review_by: "v1.1"
+
+  - file: dango/governance/schema_drift.py
+    lines: 654
+    category: exempt
+    reason: "R9-D: grew to 638 lines adding breaking drift protection, accept flow, source attention management. Single-responsibility module (schema drift detection + resolution)."
+    review_by: "v1.1"
+
+  - file: dango/governance/pii_detector.py
+    lines: 623
+    category: exempt
+    reason: "BUG-027/BUG-133/BUG-139/BUG-185: grew to 614 lines adding spaCy fallback, PERSON threshold, intl phone recognizer, PII override application, and structured data heuristic. Single-responsibility module, not worth splitting."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_drift_detection.py
+    lines: 569
+    category: exempt
+    reason: "R9-D: Added severity, attention, accept tests. Marginally over limit."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_pii_detection.py
+    lines: 728
+    category: exempt
+    reason: "BUG-027/BUG-133/BUG-139: added tests for PERSON threshold, intl phone, and override application. Test coverage for complex detection logic."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_serve_command.py
+    lines: 772
+    category: exempt
+    reason: "R8-A+R9-C: BUG-103/104/124 tests. Each test requires its own full decorator stack for startup helpers. R9-C added driver-failure-continues-if-jar-exists test."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_platform_startup.py
+    lines: 623
+    category: exempt
+    reason: "R9-B: BUG-115/118 tests added metabase.yml write-back assertions and refresh_metabase_connection container-name tests. Each test class requires independent auth DB setup and multi-layer mocking."
+    review_by: "v1.1"
+
+  # --- Scripts ---
+  - file: scripts/smoke_test.sh
+    lines: 866
+    category: exempt
+    reason: "R12-L: v1.6 with 107 checks across 12 categories. Categories 10-12 cover R12 fix regression tests. Linear structure — each category is independent."
+    review_by: "v1.1"
+
+# Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
+vendored:
+  - file: dango/ingestion/dlt_sources/mongodb/helpers.py
+    lines: 665
+    reason: "Vendored dlt MongoDB connector"
+
+  - file: dango/ingestion/dlt_sources/hubspot/__init__.py
+    lines: 537
+    reason: "Vendored dlt HubSpot connector"

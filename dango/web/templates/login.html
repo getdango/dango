@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block title %}Login - Dango{% endblock %}
+
+{% block header %}{% endblock %}
+{% block nav %}{% endblock %}
+{% block footer %}{% endblock %}
+
+{% block content %}
+<main class="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+    <div class="max-w-md w-full" x-data="loginForm()">
+        <div class="text-center mb-8">
+            <div class="text-5xl mb-3">🍡</div>
+            <h1 class="text-2xl font-bold text-gray-900">Dango</h1>
+            <p class="text-sm text-gray-500 mt-1" x-text="step === 'totp' ? 'Two-factor authentication' : 'Sign in to your account'"></p>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-8">
+            <!-- Step 1: Credentials -->
+            <form x-show="step === 'credentials'" @submit.prevent="submit()">
+                <div class="mb-4">
+                    <label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" id="email" x-model="email" required autocomplete="email"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 focus:border-transparent">
+                </div>
+
+                <div class="mb-6">
+                    <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <input type="password" id="password" x-model="password" required autocomplete="current-password"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 focus:border-transparent">
+                </div>
+
+                <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                    <p class="text-sm text-red-700" x-text="error"></p>
+                </div>
+
+                <div x-show="locked" x-cloak class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                    <p class="text-sm text-yellow-700">
+                        Account temporarily locked. Try again in <span x-text="formatTime(lockoutRemaining)"></span>.
+                    </p>
+                </div>
+
+                <button type="submit" :disabled="loading"
+                        class="w-full py-2 px-4 bg-dango-600 text-white rounded-md hover:bg-dango-700 focus:outline-none focus:ring-2 focus:ring-dango-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                    <span x-show="!loading">Sign In</span>
+                    <span x-show="loading" x-cloak>Signing in...</span>
+                </button>
+            </form>
+
+            {% if oauth_providers %}
+            <div x-show="step === 'credentials'" class="mt-6">
+                <div class="relative">
+                    <div class="absolute inset-0 flex items-center">
+                        <div class="w-full border-t border-gray-300"></div>
+                    </div>
+                    <div class="relative flex justify-center text-sm">
+                        <span class="px-2 bg-white text-gray-500">or continue with</span>
+                    </div>
+                </div>
+
+                <div class="mt-4 space-y-2">
+                    {% for provider in oauth_providers %}
+                    <a href="/api/auth/oauth/{{ provider.name }}/login"
+                       class="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-300 rounded-md bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors">
+                        {{ provider.icon_svg | safe }}
+                        <span>Continue with {{ provider.display_name }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Step 2: TOTP verification -->
+            <div x-show="step === 'totp'" x-cloak>
+                <form @submit.prevent="submitTotp()">
+                    <div x-show="!useRecovery" class="mb-4">
+                        <label for="totpCode" class="block text-sm font-medium text-gray-700 mb-1">Authentication code</label>
+                        <input type="text" id="totpCode" x-model="totpCode" inputmode="numeric"
+                               autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}"
+                               placeholder="000000"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 focus:border-transparent text-center text-lg tracking-widest">
+                        <p class="text-xs text-gray-500 mt-1">Enter the 6-digit code from your authenticator app</p>
+                    </div>
+
+                    <div x-show="useRecovery" class="mb-4">
+                        <label for="recoveryCode" class="block text-sm font-medium text-gray-700 mb-1">Recovery code</label>
+                        <input type="text" id="recoveryCode" x-model="recoveryCode"
+                               placeholder="XXXX-XXXX" autocomplete="off"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-dango-500 focus:border-transparent text-center text-lg tracking-widest">
+                        <p class="text-xs text-gray-500 mt-1">Enter one of your recovery codes</p>
+                    </div>
+
+                    <div x-show="totpError" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                        <p class="text-sm text-red-700" x-text="totpError"></p>
+                    </div>
+
+                    <button type="submit" :disabled="loading"
+                            class="w-full py-2 px-4 bg-dango-600 text-white rounded-md hover:bg-dango-700 focus:outline-none focus:ring-2 focus:ring-dango-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                        <span x-show="!loading">Verify</span>
+                        <span x-show="loading" x-cloak>Verifying...</span>
+                    </button>
+                </form>
+
+                <div class="mt-3 text-center space-y-1">
+                    <button @click="useRecovery = !useRecovery; totpError = ''"
+                            class="text-sm text-dango-600 hover:text-dango-700">
+                        <span x-text="useRecovery ? 'Use authenticator app instead' : 'Use a recovery code instead'"></span>
+                    </button>
+                    <br>
+                    <button @click="step = 'credentials'; totpCode = ''; recoveryCode = ''; totpError = ''"
+                            class="text-sm text-gray-500 hover:text-gray-700">
+                        Back to login
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <p class="text-center text-xs text-gray-400 mt-6">Dango v{{ version }}</p>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function loginForm() {
+    return {
+        email: '', password: '',
+        error: new URLSearchParams(window.location.search).get('error') || '',
+        loading: false, locked: false, lockoutRemaining: 0, _timer: null,
+        step: 'credentials',
+        totpCode: '', recoveryCode: '', useRecovery: false, totpError: '',
+        async submit() {
+            this.loading = true;
+            this.error = '';
+            this.locked = false;
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+                    body: JSON.stringify({email: this.email, password: this.password})
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    if (data.requires_2fa) {
+                        this.step = 'totp';
+                        this.loading = false;
+                        return;
+                    }
+                    if (data.must_change_password) {
+                        window.location.href = '/setup';
+                    } else {
+                        window.location.href = '/';
+                    }
+                    return;
+                }
+                if (res.status === 423) {
+                    this.locked = true;
+                    this.lockoutRemaining = data.remaining_seconds || 0;
+                    this.startCountdown();
+                } else {
+                    this.error = data.message || 'Invalid email or password';
+                }
+            } catch (e) {
+                this.error = 'Unable to connect to server';
+            }
+            this.loading = false;
+        },
+        async submitTotp() {
+            this.loading = true;
+            this.totpError = '';
+            const code = this.useRecovery ? this.recoveryCode : this.totpCode;
+            try {
+                const res = await fetch('/api/auth/2fa/verify', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+                    body: JSON.stringify({code: code, is_recovery: this.useRecovery})
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    if (data.must_change_password) {
+                        window.location.href = '/setup';
+                    } else {
+                        window.location.href = '/';
+                    }
+                    return;
+                }
+                this.totpError = data.message || 'Invalid verification code';
+            } catch (e) {
+                this.totpError = 'Unable to connect to server';
+            }
+            this.loading = false;
+        },
+        formatTime(secs) {
+            if (secs >= 120) return Math.ceil(secs / 60) + ' minutes';
+            if (secs >= 60) return '1 minute';
+            return secs + ' seconds';
+        },
+        startCountdown() {
+            if (this._timer) clearInterval(this._timer);
+            this._timer = setInterval(() => {
+                if (this.lockoutRemaining <= 1) {
+                    clearInterval(this._timer);
+                    this._timer = null;
+                    this.lockoutRemaining = 0;
+                    this.locked = false;
+                } else {
+                    this.lockoutRemaining--;
+                }
+            }, 1000);
+        }
+    }
+}
+</script>
+{% endblock %}

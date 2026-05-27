@@ -1,14 +1,12 @@
-"""
-Database Helper Functions
+"""dango/cli/db_helpers.py
 
 Utilities for matching tables to source configurations, used by db status and db clean commands.
 """
 
-from typing import Dict, Set, Tuple
 from dango.config import DangoConfig
 
 
-def build_schema_table_mapping(config: DangoConfig) -> Tuple[Dict[str, Set[str]], Dict[str, str]]:
+def build_schema_table_mapping(config: DangoConfig) -> tuple[dict[str, set[str]], dict[str, str]]:
     """
     Build mapping of schemas to expected tables based on source configurations.
 
@@ -27,8 +25,8 @@ def build_schema_table_mapping(config: DangoConfig) -> Tuple[Dict[str, Set[str]]
           - schema_to_tables: Dict[schema_name, Set[table_names]]
           - source_to_schema: Dict[source_name, schema_name]
     """
-    schema_to_tables = {}  # schema → set of table names
-    source_to_schema = {}  # source_name → schema_name (for staging lookup)
+    schema_to_tables: dict[str, set[str]] = {}  # schema → set of table names
+    source_to_schema: dict[str, str] = {}  # source_name → schema_name (for staging lookup)
 
     for source in config.sources.sources:
         source_name = source.name.lower()
@@ -40,8 +38,12 @@ def build_schema_table_mapping(config: DangoConfig) -> Tuple[Dict[str, Set[str]]
         # Get source-specific config to find endpoints/resources/tables
         source_config = getattr(source, source.type.value, None)
         if source_config:
-            source_dict = source_config.model_dump() if hasattr(source_config, 'model_dump') else {}
-            endpoints = source_dict.get('endpoints') or source_dict.get('resources') or source_dict.get('tables')
+            source_dict = source_config.model_dump() if hasattr(source_config, "model_dump") else {}
+            endpoints = (
+                source_dict.get("endpoints")
+                or source_dict.get("resources")
+                or source_dict.get("tables")
+            )
 
             if endpoints:
                 if schema_name not in schema_to_tables:
@@ -52,6 +54,11 @@ def build_schema_table_mapping(config: DangoConfig) -> Tuple[Dict[str, Set[str]]
                 # No explicit endpoints - schema will be discovered from DB
                 if schema_name not in schema_to_tables:
                     schema_to_tables[schema_name] = set()
+        else:
+            # Source uses generic_config (no typed config model)
+            # Still register the schema so its tables aren't flagged as orphaned
+            if schema_name not in schema_to_tables:
+                schema_to_tables[schema_name] = set()
 
     return schema_to_tables, source_to_schema
 
@@ -59,9 +66,9 @@ def build_schema_table_mapping(config: DangoConfig) -> Tuple[Dict[str, Set[str]]
 def is_table_configured(
     schema: str,
     table: str,
-    schema_to_tables: Dict[str, Set[str]],
-    source_to_schema: Dict[str, str],
-    actual_raw_tables: Dict[str, Set[str]] = None
+    schema_to_tables: dict[str, set[str]],
+    source_to_schema: dict[str, str],
+    actual_raw_tables: dict[str, set[str]] | None = None,
 ) -> bool:
     """
     Check if a table is configured in sources.yml
@@ -76,15 +83,21 @@ def is_table_configured(
     Returns:
         True if table is configured, False if orphaned
     """
+    # dlt internal staging schemas (e.g. raw_gsheets_1_staging) — always
+    # considered configured if the base schema belongs to an active source.
+    if schema.endswith("_staging"):
+        base_schema = schema.removesuffix("_staging")
+        return base_schema in schema_to_tables
+
     # dlt internal tables are only configured if their schema belongs to an active source
-    if table.startswith('_dlt_'):
+    if table.startswith("_dlt_"):
         # For source-specific schemas (raw_{source_name}), check if schema is configured
-        if schema.startswith('raw_'):
+        if schema.startswith("raw_"):
             return schema in schema_to_tables
         return True
 
     # Raw tables: check schema-specific expected tables
-    if schema.startswith('raw_'):
+    if schema.startswith("raw_"):
         expected_in_schema = schema_to_tables.get(schema, set())
         # If no expected tables in mapping, the schema exists so table is valid
         # (tables are discovered from DB, not always pre-known)
@@ -93,8 +106,8 @@ def is_table_configured(
         return table in expected_in_schema
 
     # Staging tables: stg_{source_name}__{endpoint} or stg_{source_name}
-    elif schema == 'staging':
-        if table.startswith('stg_'):
+    elif schema == "staging":
+        if table.startswith("stg_"):
             # Try to match against source schemas
             for source_name, raw_schema in source_to_schema.items():
                 # Check if staging table belongs to this source
@@ -102,7 +115,7 @@ def is_table_configured(
                     # Extract the raw table name from staging table
                     # stg_{source_name}__{table_name} -> table_name
                     prefix = f"stg_{source_name}__"
-                    raw_table_name = table[len(prefix):]
+                    raw_table_name = table[len(prefix) :]
 
                     # If we have actual raw tables, verify the corresponding raw table exists
                     if actual_raw_tables and raw_schema in actual_raw_tables:
@@ -120,7 +133,7 @@ def is_table_configured(
 
     # Intermediate and marts tables - always assume configured
     # (these are custom models, not auto-generated)
-    elif schema in ('intermediate', 'marts'):
+    elif schema in ("intermediate", "marts"):
         return True
 
     # Unknown schema - assume not configured

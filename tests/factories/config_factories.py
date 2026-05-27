@@ -1,0 +1,125 @@
+"""tests/factories/config_factories.py
+
+Each function returns a valid model instance with sensible defaults. All fields are overridable via keyword arguments.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from dango.config.models import (
+    CSVSourceConfig,
+    DangoConfig,
+    DataSource,
+    GoogleSheetsSourceConfig,
+    PlatformSettings,
+    ProjectContext,
+    SourcesConfig,
+    SourceType,
+    Stakeholder,
+)
+
+
+def make_stakeholder(**overrides: Any) -> Stakeholder:
+    """Create a valid Stakeholder instance."""
+    defaults = {
+        "name": "Test User",
+        "role": "Analyst",
+        "contact": "analyst@example.com",
+    }
+    return Stakeholder(**{**defaults, **overrides})
+
+
+def make_project_context(**overrides: Any) -> ProjectContext:
+    """Create a valid ProjectContext instance."""
+    defaults = {
+        "name": "Test Analytics",
+        "created_by": "test@example.com",
+        "purpose": "Unit testing",
+    }
+    return ProjectContext(**{**defaults, **overrides})
+
+
+def make_csv_source_config(**overrides: Any) -> CSVSourceConfig:
+    """Create a valid CSVSourceConfig instance."""
+    defaults = {
+        "directory": "data/test_csv",
+    }
+    return CSVSourceConfig(**{**defaults, **overrides})
+
+
+def make_google_sheets_source_config(**overrides: Any) -> GoogleSheetsSourceConfig:
+    """Create a valid GoogleSheetsSourceConfig instance."""
+    defaults = {
+        "spreadsheet_url_or_id": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms",
+        "range_names": ["Sheet1"],
+    }
+    return GoogleSheetsSourceConfig(**{**defaults, **overrides})
+
+
+def make_data_source(source_type: SourceType = SourceType.CSV, **overrides: Any) -> DataSource:
+    """Create a valid DataSource instance with type-specific config.
+
+    Automatically populates the type-specific config field for CSV and
+    Google Sheets sources. Other types get no extra config by default.
+    """
+    defaults: dict[str, Any] = {
+        "name": "test_source",
+        "type": source_type,
+    }
+    if source_type == SourceType.CSV and "csv" not in overrides:
+        defaults["csv"] = make_csv_source_config()
+    elif source_type == SourceType.GOOGLE_SHEETS and "google_sheets" not in overrides:
+        defaults["google_sheets"] = make_google_sheets_source_config()
+
+    return DataSource(**{**defaults, **overrides})
+
+
+def make_sources_config(sources: list[DataSource] | None = None, **overrides: Any) -> SourcesConfig:
+    """Create a valid SourcesConfig instance.
+
+    Args:
+        sources: List of DataSource instances. Defaults to one CSV source.
+                 Pass an empty list for no sources.
+    """
+    if sources is None:
+        sources = [make_data_source()]
+    defaults = {
+        "sources": sources,
+    }
+    return SourcesConfig(**{**defaults, **overrides})
+
+
+def make_platform_settings(**overrides: Any) -> PlatformSettings:
+    """Create a PlatformSettings instance with Pydantic defaults."""
+    return PlatformSettings(**overrides)
+
+
+def make_dango_config(
+    project: ProjectContext | None = None,
+    sources: SourcesConfig | None = None,
+    platform: PlatformSettings | None = None,
+    **overrides: Any,
+) -> DangoConfig:
+    """Create a valid DangoConfig instance.
+
+    Composes sub-factories for any component not explicitly provided.
+    """
+    defaults = {
+        "project": project or make_project_context(),
+        "sources": sources or make_sources_config(),
+        "platform": platform or make_platform_settings(),
+    }
+    return DangoConfig(**{**defaults, **overrides})
+
+
+def make_cloud_config(**overrides: Any) -> Any:
+    """Create a CloudConfig for testing with sensible defaults."""
+    from dango.config.models import CloudConfig
+
+    defaults: dict[str, Any] = {
+        "region": "nyc1",
+        "size": "s-2vcpu-4gb",
+    }
+    defaults.update(overrides)
+    return CloudConfig(**defaults)

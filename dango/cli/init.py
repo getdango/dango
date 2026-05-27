@@ -1,19 +1,17 @@
-"""
-Project Initialization
+"""dango/cli/init.py
 
 Handles creation of new Dango projects.
 """
 
-import os
 from pathlib import Path
-from typing import Optional
 
 from rich.console import Console
 from rich.panel import Panel
 
 from dango.config import ConfigLoader, DangoConfig, ProjectContext, SourcesConfig
+
+from .utils import print_error, print_success
 from .wizard import ProjectWizard
-from .utils import print_success, print_error, print_info, confirm
 
 console = Console()
 
@@ -43,8 +41,7 @@ class ProjectInitializer:
         # Check if project already exists
         if self.loader.is_dango_project() and not force:
             print_error(
-                f"Dango project already exists at {self.project_dir}\n"
-                f"Use --force to reinitialize."
+                f"Dango project already exists at {self.project_dir}\nUse --force to reinitialize."
             )
             raise SystemExit(1)
 
@@ -68,11 +65,21 @@ class ProjectInitializer:
             # Save configuration
             self.loader.save_config(config)
 
+            # Create monitors config
+            self._create_monitors_config(force=force)
+
             # Create default .gitignore
             self._create_gitignore()
 
+            # Create CI workflow
+            self._create_ci_workflow()
+
             # Create README
             self._create_readme(config)
+
+            # Create COMPATIBILITY.md and SCALABILITY.md
+            self._create_compatibility_md()
+            self._create_scalability_md()
 
             # Create docker-compose.yml
             self._create_docker_compose(config)
@@ -81,7 +88,9 @@ class ProjectInitializer:
             # NON-CRITICAL: Can retry on 'dango start'
             metabase_success = self._setup_metabase()
             if not metabase_success:
-                warnings.append("DuckDB driver download failed (will retry automatically on 'dango start')")
+                warnings.append(
+                    "DuckDB driver download failed (will retry automatically on 'dango start')"
+                )
 
             # Create dbt project files
             self._create_dbt_project(config)
@@ -101,12 +110,18 @@ class ProjectInitializer:
                 console.print("  3. Retry: dango init")
                 raise SystemExit(1)
 
+            # Setup authentication (admin user + auth.yml)
+            # NON-CRITICAL: Can set up later via 'dango auth enable'
+            auth_success = self._setup_auth(skip_wizard=skip_wizard, force=force)
+            if not auth_success:
+                warnings.append("Auth setup skipped (run 'dango auth enable' to set up later)")
+
         except KeyboardInterrupt:
             # User cancelled - rollback
             print_error("\n\n✗ Initialization cancelled by user")
             print_error("  Rolling back...")
             self._rollback_initialization()
-            raise SystemExit(1)
+            raise SystemExit(1) from None
 
         except Exception as e:
             # Unexpected error - rollback
@@ -115,8 +130,14 @@ class ProjectInitializer:
             self._rollback_initialization()
             raise
 
+        # Install pre-push hook if .git exists (non-critical)
+        try:
+            self._create_pre_push_hook()
+        except Exception:
+            pass  # Never fail init over a convenience hook
+
         # Print success message
-        self._print_success_message(warnings=warnings, failures=failures)
+        self._print_success_message(warnings=warnings, failures=failures, auth_success=auth_success)
 
         # Exit with error if critical failures
         if failures:
@@ -124,7 +145,7 @@ class ProjectInitializer:
 
     def _create_blank_config(self) -> DangoConfig:
         """Create blank configuration"""
-        project_name = self.project_dir.name.replace('-', ' ').replace('_', ' ').title()
+        project_name = self.project_dir.name.replace("-", " ").replace("_", " ").title()
 
         project = ProjectContext(
             name=project_name,
@@ -136,6 +157,30 @@ class ProjectInitializer:
         sources = SourcesConfig()
 
         return DangoConfig(project=project, sources=sources)
+
+    def _create_monitors_config(self, *, force: bool = False) -> None:
+        """Create ``.dango/monitors.yml`` with default monitors.
+
+        Fresh init creates an empty config.  ``--force`` re-init with existing
+        sources generates templates for configured source types by reading
+        the on-disk ``sources.yml`` (not the wizard config, which is blank).
+        """
+        try:
+            from dango.analysis.config import save_monitors_config
+            from dango.analysis.models import MonitorsConfig
+            from dango.analysis.templates import generate_metrics_for_source
+
+            all_monitors = []  # type: ignore[var-annotated]
+            if force:
+                existing_config = self.loader.load_config()
+                if existing_config.sources and existing_config.sources.sources:
+                    for src in existing_config.sources.sources:
+                        all_monitors.extend(generate_metrics_for_source(src.type, src.name))
+
+            monitors_config = MonitorsConfig(enabled=True, monitors=all_monitors)
+            save_monitors_config(self.project_dir, monitors_config)
+        except Exception:
+            pass  # Non-critical — never block init
 
     def _create_directory_structure(self):
         """Create Dango project directory structure"""
@@ -162,6 +207,7 @@ class ProjectInitializer:
 
         # Create DuckDB database with schemas
         import duckdb
+
         duckdb_path = self.project_dir / "data" / "warehouse.duckdb"
 
         # Always ensure schemas exist (CREATE IF NOT EXISTS is idempotent)
@@ -171,7 +217,9 @@ class ProjectInitializer:
         conn.execute("CREATE SCHEMA IF NOT EXISTS intermediate")
         conn.execute("CREATE SCHEMA IF NOT EXISTS marts")
         conn.close()
-        console.print("[green]✓[/green] Created DuckDB database with schemas (raw, staging, intermediate, marts)")
+        console.print(
+            "[green]✓[/green] Created DuckDB database with schemas (raw, staging, intermediate, marts)"
+        )
 
         # Create marts README with guidance
         self._create_marts_readme()
@@ -182,9 +230,10 @@ class ProjectInitializer:
 
         # Initialize .dlt/ directory for dlt-native credential storage
         from dango.config.credentials import init_dlt_directory
+
         init_dlt_directory(self.project_dir)
 
-        print_success(f"Created project structure")
+        print_success("Created project structure")
 
     def _create_gitignore(self):
         """Create .gitignore file"""
@@ -193,6 +242,7 @@ class ProjectInitializer:
 .dango/metabase.yml
 data/warehouse/
 data/uploads/
+metabase-plugins/
 dashboards/  # Old export location (deprecated, use 'dango metabase save' instead)
 *.db
 *.db-shm
@@ -227,23 +277,97 @@ Thumbs.db
 .env
 .env.local
 secrets/
+.dlt/secrets.toml
+*.key
 """
 
         gitignore_path = self.project_dir / ".gitignore"
 
         # If .gitignore exists, merge
         if gitignore_path.exists():
-            with open(gitignore_path, 'r', encoding='utf-8') as f:
+            with open(gitignore_path, encoding="utf-8") as f:
                 existing = f.read()
 
             if "# Dango" not in existing:
-                with open(gitignore_path, 'a', encoding='utf-8') as f:
+                with open(gitignore_path, "a", encoding="utf-8") as f:
                     f.write("\n" + gitignore_content)
                 print_success("Updated .gitignore")
         else:
-            with open(gitignore_path, 'w', encoding='utf-8') as f:
+            with open(gitignore_path, "w", encoding="utf-8") as f:
                 f.write(gitignore_content)
             print_success("Created .gitignore")
+
+    def _create_pre_push_hook(self):
+        """Create git pre-push hook with checklist reminder.
+
+        Only creates the hook if .git/ exists and the hook file doesn't
+        already exist (never overwrites user hooks).
+        """
+        git_dir = self.project_dir / ".git"
+        if not git_dir.is_dir():
+            return
+
+        hooks_dir = git_dir / "hooks"
+        hooks_dir.mkdir(exist_ok=True)
+
+        hook_path = hooks_dir / "pre-push"
+        hook_content = """\
+#!/bin/bash
+echo ""
+echo "  ⚠ Dango pre-push checklist:"
+echo "    • Run 'dango validate' to check config and models"
+echo "    • Run 'dango dev' to verify model changes against data"
+echo "    • Ensure no credentials are committed (.dlt/secrets.toml, .env)"
+echo ""
+"""
+        import os
+
+        try:
+            fd = os.open(str(hook_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o755)
+        except FileExistsError:
+            return
+        try:
+            os.write(fd, hook_content.encode())
+        finally:
+            os.close(fd)
+
+        console.print("[green]✓[/green] Created .git/hooks/pre-push checklist")
+
+    def _create_ci_workflow(self):
+        """Create GitHub Actions CI workflow for PR validation."""
+        workflow_content = """\
+name: Dango Validate
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --pre getdango
+      - run: dango config validate
+      - run: cd dbt && dbt parse --profiles-dir .
+      - name: Check for secrets
+        run: |
+          # Fail if sensitive files are tracked
+          if git ls-files | grep -qE '\\.dlt/secrets\\.toml|\\.env$|\\.env\\.local|cloud_key|\\.key$'; then
+            echo "ERROR: Sensitive files detected in repository"
+            git ls-files | grep -E '\\.dlt/secrets\\.toml|\\.env$|\\.env\\.local|cloud_key|\\.key$'
+            exit 1
+          fi
+"""
+        workflow_dir = self.project_dir / ".github" / "workflows"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+
+        workflow_path = workflow_dir / "dango-validate.yml"
+        with open(workflow_path, "w", encoding="utf-8") as f:
+            f.write(workflow_content)
+
+        print_success("Created .github/workflows/dango-validate.yml")
 
     def _create_readme(self, config: DangoConfig):
         """Create README.md"""
@@ -261,23 +385,28 @@ secrets/
 
         if config.project.stakeholders:
             for stakeholder in config.project.stakeholders:
-                readme_content += f"- **{stakeholder.name}** - {stakeholder.role} ({stakeholder.contact})\n"
+                readme_content += (
+                    f"- **{stakeholder.name}** - {stakeholder.role} ({stakeholder.contact})\n"
+                )
         else:
             readme_content += "*(No stakeholders defined)*\n"
 
         readme_content += f"""
 ## Data Freshness SLA
 
-{config.project.sla or '*(Not defined)*'}
+{config.project.sla or "*(Not defined)*"}
 
 ## Getting Started
 
-{config.project.getting_started or '''
+{
+            config.project.getting_started
+            or '''
 1. Add data sources: `dango source add`
 2. Sync data: `dango sync`
 3. Start platform: `dango start`
-4. Open dashboards: http://dango.local or http://localhost
-'''}
+4. Open dashboards: http://localhost:8800
+'''
+        }
 
 ## Project Structure
 
@@ -331,11 +460,11 @@ When creating dashboards and reports in Metabase, use tables in this priority or
 
 - **Project details**: `.dango/project.yml`
 - **Data sources**: `.dango/sources.yml`
-- **dbt documentation**: Run `dango start` and visit http://dango.local/docs
+- **dbt documentation**: Run `dango start` and visit http://localhost:8800/docs
 
 ## Limitations
 
-{config.project.limitations or '*(None documented)*'}
+{config.project.limitations or "*(None documented)*"}
 
 ---
 
@@ -346,9 +475,146 @@ When creating dashboards and reports in Metabase, use tables in this priority or
 
         # Only create if doesn't exist
         if not readme_path.exists():
-            with open(readme_path, 'w', encoding='utf-8') as f:
+            with open(readme_path, "w", encoding="utf-8") as f:
                 f.write(readme_content)
             print_success("Created README.md")
+
+    @staticmethod
+    def _get_duckdb_version() -> str:
+        """Return the installed DuckDB version for COMPATIBILITY.md."""
+        try:
+            import duckdb
+
+            return duckdb.__version__
+        except ImportError:
+            return "1.5.x"
+
+    def _create_compatibility_md(self):
+        """Create COMPATIBILITY.md with version requirements and platform support."""
+        content = f"""\
+# Compatibility
+
+Version requirements and platform support for this Dango project.
+
+## Python
+
+- **Required:** Python 3.10, 3.11, or 3.12 (`>=3.10,<3.13`)
+- System Python on macOS is 3.9 — use `python3.11` or `python3.12` explicitly
+
+## Operating Systems
+
+| OS | Version | Notes |
+|----|---------|-------|
+| macOS | 12 (Monterey)+ | Primary development platform |
+| Ubuntu | 22.04 LTS | Recommended for cloud deployment |
+| Windows | WSL2 only | Native Windows is not supported |
+
+## Docker
+
+- **Docker Engine:** 20.10+
+- **Docker Compose:** v2 (ships with Docker Desktop)
+- Required for Metabase and the full platform stack (`dango start`)
+
+## Browsers (Metabase + Dango Web UI)
+
+Latest 2 versions of:
+- Chrome
+- Firefox
+- Safari
+- Edge
+
+## Core Dependencies
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| DuckDB | {self._get_duckdb_version()} | Embedded analytical database |
+| dbt-core | 1.10.20 | Data transformation framework |
+| dlt | 1.24.0 | Data ingestion toolkit |
+| Metabase | v0.59.1 | Business intelligence / dashboards |
+
+## spaCy (Data Governance)
+
+The `en_core_web_sm` language model is required for PII scanning (data governance).
+
+- **Automatic:** Downloaded on first governance scan
+- **Manual:** `python -m spacy download en_core_web_sm`
+
+## Upgrade Notes
+
+- Pin your Python version in CI/CD — Dango does not yet support Python 3.13+
+- DuckDB minor version upgrades may require a database re-sync (`dango sync`)
+- dbt and dlt versions are pinned to compatible ranges in `pyproject.toml`
+
+---
+
+*Generated with Dango {self._get_dango_version()}*
+"""
+
+        compat_path = self.project_dir / "COMPATIBILITY.md"
+        if not compat_path.exists():
+            with open(compat_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            print_success("Created COMPATIBILITY.md")
+
+    def _create_scalability_md(self):
+        """Create SCALABILITY.md with platform limits and upgrade guidance."""
+        content = f"""\
+# Scalability
+
+Honest guidance on what Dango handles well and when to consider alternatives.
+
+## DuckDB (Data Warehouse)
+
+- **Sweet spot:** Datasets up to ~500 GB on a single machine
+- **Row counts:** Handles billions of rows — query performance depends on data shape \
+and available RAM
+- **Architecture:** In-process columnar engine with no network overhead — excellent for \
+analytics workloads
+- **Single-writer constraint:** Only one process can write at a time. Dango serializes \
+all writes through `DbtLock` (file lock at `.dango/state/dbt.lock`). Concurrent reads \
+during writes are fine.
+
+## Concurrent Users
+
+- **Dango Web UI:** Comfortable for ~10-20 concurrent users
+- **Metabase:** Has its own connection pool and handles concurrent dashboard viewers \
+independently
+- **DuckDB reads:** Multiple users can query simultaneously — reads don't block each other
+
+## File Watcher
+
+- Monitors `data/uploads/` for new CSV files
+- Debounce interval: 10 minutes (configurable in schedule settings)
+- Best suited for small-to-medium file counts — not designed for high-frequency file drops
+
+## Cloud Deployment
+
+- **Default droplet:** `s-2vcpu-4gb` (2 vCPUs, 4 GB RAM) on DigitalOcean
+- **Resize:** `dango remote resize` to scale up without data loss
+- **Migrate:** `dango remote migrate` to move to a different region
+
+## When to Consider Alternatives
+
+| Signal | Consider |
+|--------|----------|
+| Data exceeds single-machine disk/RAM | [MotherDuck](https://motherduck.com/) (managed DuckDB in the cloud) |
+| Need multi-region or multi-tenant | Cloud-managed warehouse (BigQuery, Snowflake, Redshift) |
+| >50 concurrent dashboard users | Dedicated Metabase instance with PostgreSQL backend |
+| Real-time streaming ingestion | Kafka/Flink pipeline feeding a separate warehouse |
+
+Dango is designed for small teams with analytical workloads that fit on one machine. \
+If you outgrow it, your dbt models and SQL are portable — migration is straightforward.
+
+---
+
+*Generated with Dango {self._get_dango_version()}*
+"""
+
+        scale_path = self.project_dir / "SCALABILITY.md"
+        if not scale_path.exists():
+            with open(scale_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            print_success("Created SCALABILITY.md")
 
     def _create_marts_readme(self):
         """Create README.md in marts/ directory with guidance"""
@@ -429,7 +695,7 @@ SELECT * FROM marts.fct_orders
         marts_readme_path = self.project_dir / "dbt" / "models" / "marts" / "README.md"
 
         if not marts_readme_path.exists():
-            with open(marts_readme_path, 'w', encoding='utf-8') as f:
+            with open(marts_readme_path, "w", encoding="utf-8") as f:
                 f.write(marts_readme_content)
             console.print("[green]✓[/green] Created marts/README.md with guidance")
 
@@ -438,7 +704,7 @@ SELECT * FROM marts.fct_orders
         init_path = self.project_dir / "custom_sources" / "__init__.py"
 
         if not init_path.exists():
-            with open(init_path, 'w', encoding='utf-8') as f:
+            with open(init_path, "w", encoding="utf-8") as f:
                 f.write("# Custom dlt sources for this project\n")
 
     def _create_custom_sources_readme(self):
@@ -550,7 +816,7 @@ custom_sources/
         custom_sources_readme_path = self.project_dir / "custom_sources" / "README.md"
 
         if not custom_sources_readme_path.exists():
-            with open(custom_sources_readme_path, 'w', encoding='utf-8') as f:
+            with open(custom_sources_readme_path, "w", encoding="utf-8") as f:
                 f.write(custom_sources_readme_content)
             console.print("[green]✓[/green] Created custom_sources/README.md with guidance")
 
@@ -558,17 +824,17 @@ custom_sources/
         """Create docker-compose.yml from template"""
         from jinja2 import Environment, PackageLoader
 
-        env = Environment(loader=PackageLoader('dango', 'templates'))
-        template = env.get_template('docker-compose.yml.j2')
+        env = Environment(loader=PackageLoader("dango", "templates"))
+        template = env.get_template("docker-compose.yml.j2")
 
         content = template.render(
-            project_name=config.project.name.lower().replace(' ', '-'),
+            project_name=config.project.name.lower().replace(" ", "-"),
             metabase_port=config.platform.metabase_port,
-            dbt_docs_port=config.platform.dbt_docs_port
+            dbt_docs_port=config.platform.dbt_docs_port,
         )
 
         docker_compose_path = self.project_dir / "docker-compose.yml"
-        with open(docker_compose_path, 'w', encoding='utf-8') as f:
+        with open(docker_compose_path, "w", encoding="utf-8") as f:
             f.write(content)
 
         print_success("Created docker-compose.yml")
@@ -580,54 +846,83 @@ custom_sources/
         Returns:
             True if successful, False if driver download failed
         """
-        import shutil
         import urllib.request
+
         from jinja2 import Environment, PackageLoader
 
         console.print("Setting up Metabase with DuckDB support...")
 
         # Copy Dockerfile.metabase from templates
-        env = Environment(loader=PackageLoader('dango', 'templates'))
-        dockerfile_template = env.get_template('Dockerfile.metabase')
+        env = Environment(loader=PackageLoader("dango", "templates"))
+        dockerfile_template = env.get_template("Dockerfile.metabase")
         dockerfile_content = dockerfile_template.render()
 
         dockerfile_path = self.project_dir / "Dockerfile.metabase"
-        with open(dockerfile_path, 'w', encoding='utf-8') as f:
+        with open(dockerfile_path, "w", encoding="utf-8") as f:
             f.write(dockerfile_content)
 
         console.print("[green]✓[/green] Created Dockerfile.metabase")
+
+        # Copy entrypoint.sh from templates (required by Dockerfile.metabase)
+        entrypoint_template = env.get_template("entrypoint.sh")
+        entrypoint_content = entrypoint_template.render()
+
+        entrypoint_path = self.project_dir / "entrypoint.sh"
+        with open(entrypoint_path, "w", encoding="utf-8") as f:
+            f.write(entrypoint_content)
+        entrypoint_path.chmod(0o755)
+
+        console.print("[green]✓[/green] Created entrypoint.sh")
 
         # Create metabase-plugins directory
         plugins_dir = self.project_dir / "metabase-plugins"
         plugins_dir.mkdir(exist_ok=True)
 
-        # Download DuckDB driver (MotherDuck official driver)
-        driver_url = "https://github.com/motherduckdb/metabase_duckdb_driver/releases/download/1.4.1.0/duckdb.metabase-driver.jar"
-        duckdb_driver_path = plugins_dir / "duckdb.metabase-driver.jar"
+        # Download DuckDB driver (MotherDuck official driver, version-matched)
+        from dango.utils.driver import (
+            METABASE_DUCKDB_DRIVER_VERSION,
+            driver_needs_update,
+            get_duckdb_driver_url,
+            write_driver_version,
+        )
 
-        if not duckdb_driver_path.exists():
+        duckdb_driver_path = plugins_dir / "duckdb.metabase-driver.jar"
+        needs_download = not duckdb_driver_path.exists() or driver_needs_update(plugins_dir)
+
+        if needs_download:
+            # Delete stale driver if version mismatch
+            if duckdb_driver_path.exists():
+                duckdb_driver_path.unlink()
+
+            driver_url = get_duckdb_driver_url()
             console.print("⏳ Downloading DuckDB driver (70MB, this may take a moment)...")
             driver_downloaded = False
 
             # Retry same URL 3 times (network issues are transient)
             import time
+
             for attempt in range(3):
                 try:
                     if attempt > 0:
                         console.print(f"    Retry {attempt}/2...")
                         time.sleep(2)  # Wait before retry
                     urllib.request.urlretrieve(driver_url, duckdb_driver_path)
-                    console.print(f"[green]✓[/green] Downloaded DuckDB driver ({duckdb_driver_path.stat().st_size // 1024 // 1024}MB)")
+                    write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
+                    console.print(
+                        f"[green]✓[/green] Downloaded DuckDB driver ({duckdb_driver_path.stat().st_size // 1024 // 1024}MB)"
+                    )
                     driver_downloaded = True
                     break
-                except Exception as e:
+                except Exception:
                     if attempt == 2:  # Last attempt failed
                         break
                     continue
 
             if not driver_downloaded:
                 print_error("✗ Failed to download DuckDB driver (network issue)")
-                console.print("    [yellow]Don't worry![/yellow] The driver will be downloaded automatically when you run:")
+                console.print(
+                    "    [yellow]Don't worry![/yellow] The driver will be downloaded automatically when you run:"
+                )
                 console.print("    [bold cyan]dango start[/bold cyan]")
                 print_success("Metabase setup complete (driver pending)")
                 return False
@@ -640,7 +935,7 @@ custom_sources/
     def _create_dbt_project(self, config: DangoConfig):
         """Create dbt project configuration files"""
         # Sanitize project name for dbt (lowercase, underscores only)
-        dbt_project_name = config.project.name.lower().replace(' ', '_').replace('-', '_')
+        dbt_project_name = config.project.name.lower().replace(" ", "_").replace("-", "_")
 
         # Create dbt_project.yml
         dbt_project_content = f"""# dbt Project Configuration
@@ -702,7 +997,7 @@ on-run-end:
 """
 
         dbt_project_path = self.project_dir / "dbt" / "dbt_project.yml"
-        with open(dbt_project_path, 'w', encoding='utf-8') as f:
+        with open(dbt_project_path, "w", encoding="utf-8") as f:
             f.write(dbt_project_content)
 
         # Create profiles.yml
@@ -730,7 +1025,7 @@ on-run-end:
 """
 
         profiles_path = self.project_dir / "dbt" / "profiles.yml"
-        with open(profiles_path, 'w', encoding='utf-8') as f:
+        with open(profiles_path, "w", encoding="utf-8") as f:
             f.write(profiles_content)
 
         # Create dbt macro for clean schema naming (removes main_ prefix)
@@ -752,7 +1047,7 @@ on-run-end:
 {%- endmacro %}
 """
         macro_path = self.project_dir / "dbt" / "macros" / "get_custom_schema.sql"
-        with open(macro_path, 'w', encoding='utf-8') as f:
+        with open(macro_path, "w", encoding="utf-8") as f:
             f.write(macro_content)
 
         print_success("Created dbt project files (dbt_project.yml, profiles.yml, macros)")
@@ -764,9 +1059,9 @@ on-run-end:
         Returns:
             True if successful, False if generation failed
         """
+        import shutil
         import subprocess
         import sys
-        import shutil
 
         console.print("Generating dbt documentation...")
 
@@ -783,11 +1078,19 @@ on-run-end:
         try:
             # Run dbt docs generate
             result = subprocess.run(
-                [dbt_cmd, "docs", "generate", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)],
+                [
+                    dbt_cmd,
+                    "docs",
+                    "generate",
+                    "--project-dir",
+                    str(dbt_dir),
+                    "--profiles-dir",
+                    str(dbt_dir),
+                ],
                 cwd=dbt_dir,
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=60,
             )
 
             if result.returncode == 0:
@@ -796,7 +1099,9 @@ on-run-end:
                 # Check that index.html was created
                 index_path = dbt_dir / "target" / "index.html"
                 if index_path.exists():
-                    console.print("[green]✓[/green] Documentation available at dbt/target/index.html")
+                    console.print(
+                        "[green]✓[/green] Documentation available at dbt/target/index.html"
+                    )
                     return True
                 else:
                     print_error("✗ index.html not found after generation")
@@ -821,6 +1126,143 @@ on-run-end:
             console.print("    You can generate docs later with: cd dbt && dbt docs generate")
             return False
 
+    def _write_auth_to_project_yml(self) -> None:
+        """Write auth.enabled to project.yml for user visibility."""
+        project_yml = self.project_dir / ".dango" / "project.yml"
+        if project_yml.exists():
+            data = self.loader.load_yaml(project_yml)
+            data.setdefault("auth", {})["enabled"] = True
+            self.loader.save_yaml(data, project_yml)
+
+    def _setup_auth(self, *, skip_wizard: bool = False, force: bool = False) -> bool:
+        """Set up authentication: create admin user and enable auth.
+
+        Runs database migrations to create auth.db, then either prompts for
+        admin credentials (interactive) or generates a random admin
+        (skip-wizard mode).
+
+        Args:
+            skip_wizard: If True, generate random admin credentials.
+            force: If True, skip admin creation when admins already exist.
+
+        Returns:
+            True if auth was set up successfully, False otherwise.
+        """
+        import os
+        import re
+
+        import click
+
+        from dango.auth.admin import (
+            ensure_admin,
+            format_credentials_panel,
+            get_auth_db_path,
+            set_auth_enabled,
+        )
+        from dango.auth.database import create_user, list_users
+        from dango.auth.models import Role, User
+        from dango.auth.security import (
+            check_password_strength,
+            generate_temp_password,
+            hash_password,
+        )
+        from dango.migrations import apply_all_pending
+
+        console.print("\nSetting up authentication...")
+
+        try:
+            # Create auth.db via migrations framework
+            apply_all_pending(self.project_dir)
+
+            db_path = get_auth_db_path(self.project_dir)
+
+            # On --force re-init, skip admin creation if admins already exist
+            if force:
+                existing_users = list_users(db_path, active_only=True)
+                existing_admins = [u for u in existing_users if u.role == Role.ADMIN]
+                if existing_admins:
+                    # Just ensure auth.yml is written
+                    set_auth_enabled(self.project_dir, enabled=True)
+                    self._write_auth_to_project_yml()
+                    console.print("[green]✓[/green] Auth already configured (admin exists)")
+                    return True
+
+            if skip_wizard:
+                # Non-interactive: generate random admin
+                import os
+
+                email = os.environ.get("DANGO_ADMIN_EMAIL", "admin@localhost")
+                result = ensure_admin(db_path, email=email)
+                if result is not None:
+                    user, password = result
+                    set_auth_enabled(self.project_dir, enabled=True)
+                    self._write_auth_to_project_yml()
+                    console.print()
+                    console.print(format_credentials_panel(user.email, password))
+                    console.print()
+                else:
+                    set_auth_enabled(self.project_dir, enabled=True)
+                    self._write_auth_to_project_yml()
+                    console.print("[green]✓[/green] Auth enabled (admin already exists)")
+                return True
+
+            # Interactive: prompt for admin credentials
+            email_re = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+            console.print("  Create the admin account for your project.\n")
+
+            # Email
+            while True:
+                email = click.prompt("  Admin email")
+                if not email_re.match(email):
+                    console.print("  [red]Invalid email format.[/red]")
+                    continue
+                confirm_email = click.prompt("  Confirm email")
+                if email.lower() != confirm_email.lower():
+                    console.print("  [red]Emails don't match.[/red]")
+                    continue
+                break
+
+            # Password (from env or prompt)
+            env_password = os.environ.get("DANGO_ADMIN_PASSWORD")
+            if env_password:
+                issues = check_password_strength(env_password, email=email)
+                if issues:
+                    console.print(f"  [red]DANGO_ADMIN_PASSWORD is weak:[/red] {'; '.join(issues)}")
+                    console.print("  [yellow]Skipping auth setup.[/yellow]")
+                    return False
+                password = env_password
+                console.print("  [dim]Using password from DANGO_ADMIN_PASSWORD env var.[/dim]")
+            else:
+                password = generate_temp_password()
+
+            # Create admin user
+            from datetime import datetime, timezone
+
+            must_change_password = env_password is None  # True for auto-gen, False for env var
+            user = User(
+                email=email,
+                password_hash=hash_password(password),
+                role=Role.ADMIN,
+                must_change_password=must_change_password,
+                password_changed_at=datetime.now(timezone.utc),
+            )
+            create_user(db_path, user)
+
+            # Enable auth
+            set_auth_enabled(self.project_dir, enabled=True)
+            self._write_auth_to_project_yml()
+
+            console.print()
+            console.print(format_credentials_panel(email, password, title="Admin account created"))
+            console.print()
+            return True
+
+        except Exception as e:
+            print_error(f"Auth setup failed: {e}")
+            console.print("  [yellow]You can set up auth later with:[/yellow] dango auth enable")
+            return False
+
     def _rollback_initialization(self):
         """
         Rollback project initialization by removing created files/directories.
@@ -840,7 +1282,10 @@ on-run-end:
             "metabase-plugins",
             "docker-compose.yml",
             "Dockerfile.metabase",
+            "entrypoint.sh",
             "README.md",  # Only if created by us
+            "COMPATIBILITY.md",
+            "SCALABILITY.md",
             ".gitignore",  # Only if created by us
         ]
 
@@ -863,9 +1308,10 @@ on-run-end:
     def _get_dango_version(self) -> str:
         """Get Dango version"""
         from dango import __version__
+
         return __version__
 
-    def _print_success_message(self, warnings=None, failures=None):
+    def _print_success_message(self, warnings=None, failures=None, auth_success=True):
         """Print success message with next steps"""
         warnings = warnings or []
         failures = failures or []
@@ -905,6 +1351,8 @@ on-run-end:
 
         # Add next steps (only if not failed)
         if not failures:
+            if auth_success:
+                message += "[dim]Auth is enabled — log in with your admin credentials on first visit.[/dim]\n\n"
             message += "[bold]Next steps:[/bold]\n\n"
 
             # Check if user is already in the project directory
@@ -924,11 +1372,17 @@ on-run-end:
                 message += "4. dango start          # Start platform\n"
                 message += "5. Open http://localhost:8800"
 
-        console.print(Panel(
-            message,
-            title=title,
-            border_style=border_style
-        ))
+        console.print(Panel(message, title=title, border_style=border_style))
+
+        # Print detect-secrets recommendation after main panel
+        if not failures:
+            console.print(
+                "[dim]Tip: Add secret scanning to prevent accidentally committing credentials:\n"
+                "  pip install pre-commit detect-secrets\n"
+                "  detect-secrets scan > .secrets.baseline\n"
+                "  # Add detect-secrets hook to .pre-commit-config.yaml[/dim]"
+            )
+
         console.print()
 
 

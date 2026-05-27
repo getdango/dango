@@ -1,0 +1,86 @@
+repos:
+  # Standard file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: dango/ingestion/dlt_sources/
+      - id: end-of-file-fixer
+        exclude: dango/ingestion/dlt_sources/
+      - id: check-yaml
+        exclude: tests/fixtures/
+      - id: check-added-large-files
+
+  # Ruff linting + formatting (auto-fix)
+  # Reads exclude from pyproject.toml [tool.ruff] (dlt_sources/ excluded there)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # Local custom hooks
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy type checking
+        entry: python3 -m mypy
+        language: system
+        types: [python]
+        pass_filenames: true
+        exclude: dango/ingestion/dlt_sources/
+        stages: [manual]
+
+      - id: file-size-check
+        name: Check file sizes
+        entry: python3 scripts/check_file_sizes.py
+        language: system
+        types: [python]
+        pass_filenames: true
+
+      - id: file-header-check
+        name: Check file headers
+        entry: python3 scripts/validate_headers.py
+        language: system
+        types: [python]
+        pass_filenames: true
+        exclude: (/__init__\.py$|dango/ingestion/dlt_sources/)
+
+      - id: docstring-check
+        name: Check public function docstrings
+        entry: python3 scripts/check_docstrings.py
+        language: system
+        types: [python]
+        pass_filenames: true
+        exclude: (/tests/|dango/ingestion/dlt_sources/)
+
+      - id: claude-md-validate
+        name: CLAUDE.md structure validation
+        entry: python3 scripts/validate_claude_md.py
+        language: system
+        files: CLAUDE\.md$
+        pass_filenames: true
+
+      - id: claude-md-staleness
+        name: CLAUDE.md staleness warning
+        entry: python3 scripts/check_claude_md_staleness.py
+        language: system
+        types_or: [python, markdown]
+        pass_filenames: true
+        verbose: true
+        exclude: dango/ingestion/dlt_sources/
+
+      - id: js-null-guards
+        name: JS null guard check
+        entry: python3 scripts/check_js_null_guards.py
+        language: system
+        files: \.js$
+        pass_filenames: false
+
+      - id: version-alignment
+        name: DuckDB version alignment check
+        entry: python3 scripts/check_version_alignment.py
+        language: system
+        files: (pyproject\.toml|dango/utils/driver\.py|constraints\.txt)
+        pass_filenames: false

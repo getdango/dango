@@ -1,21 +1,19 @@
-"""
-Project Initialization Wizard
+"""dango/cli/wizard.py
 
 Interactive wizard for creating new Dango projects.
 """
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import inquirer
 from rich.console import Console
 from rich.panel import Panel
 
 from dango.config import (
+    DangoConfig,
     ProjectContext,
     SourcesConfig,
-    DangoConfig,
     Stakeholder,
 )
 
@@ -27,7 +25,7 @@ class ProjectWizard:
 
     def __init__(self, project_dir: Path):
         self.project_dir = project_dir
-        self.config: Optional[DangoConfig] = None
+        self.config: DangoConfig | None = None
 
     def run(self) -> DangoConfig:
         """
@@ -37,13 +35,15 @@ class ProjectWizard:
             DangoConfig with user's choices
         """
         console.print()
-        console.print(Panel(
-            "[bold]Welcome to Dango![/bold]\n\n"
-            "Let's set up your data project. This will take ~2 minutes.\n\n"
-            "You can always change these settings later in .dango/project.yml",
-            title="🍡 Project Setup",
-            border_style="cyan"
-        ))
+        console.print(
+            Panel(
+                "[bold]Welcome to Dango![/bold]\n\n"
+                "Let's set up your data project. This will take ~2 minutes.\n\n"
+                "You can always change these settings later in .dango/project.yml",
+                title="🍡 Project Setup",
+                border_style="cyan",
+            )
+        )
         console.print()
 
         # Basic project info (simplified for MVP)
@@ -56,6 +56,7 @@ class ProjectWizard:
 
         # Use simple defaults for everything else
         from dango import __version__
+
         project = ProjectContext(
             name=project_name,
             organization=organization,
@@ -63,15 +64,14 @@ class ProjectWizard:
             created=datetime.now(),
             created_by=created_by,
             purpose="Data analytics project",
+            sla=None,
+            limitations=None,
             getting_started=self._default_getting_started(),
         )
 
         sources = SourcesConfig()
 
-        self.config = DangoConfig(
-            project=project,
-            sources=sources
-        )
+        self.config = DangoConfig(project=project, sources=sources)
 
         # Summary
         self._print_summary()
@@ -80,63 +80,47 @@ class ProjectWizard:
 
     def _ask_project_name(self) -> str:
         """Ask for project name"""
-        default_name = self.project_dir.name.replace('-', ' ').replace('_', ' ').title()
+        default_name = self.project_dir.name.replace("-", " ").replace("_", " ").title()
 
         while True:
-            questions = [
-                inquirer.Text(
-                    'name',
-                    message="Project name",
-                    default=default_name
-                )
-            ]
+            questions = [inquirer.Text("name", message="Project name", default=default_name)]
             answers = inquirer.prompt(questions)
             if answers is None:
                 raise KeyboardInterrupt()
-            name = answers['name']
+            name = answers["name"]
 
             # Validate: dbt requires names to start with letter/underscore, not digit
-            sanitized = name.lower().replace(' ', '_').replace('-', '_')
+            sanitized = name.lower().replace(" ", "_").replace("-", "_")
             if sanitized and sanitized[0].isdigit():
-                console.print("[yellow]Project name cannot start with a number (dbt requirement).[/yellow]")
+                console.print(
+                    "[yellow]Project name cannot start with a number (dbt requirement).[/yellow]"
+                )
                 console.print("[yellow]Please enter a name starting with a letter.[/yellow]")
                 default_name = name  # Keep their input as new default
                 continue
 
-            return name
+            return str(name)
 
-    def _ask_organization(self) -> Optional[str]:
+    def _ask_organization(self) -> str | None:
         """Ask for organization name (optional)"""
         console.print("[cyan]Optional - used in UI/Metabase[/cyan]")
-        questions = [
-            inquirer.Text(
-                'organization',
-                message="Organization name",
-                default=""
-            )
-        ]
+        questions = [inquirer.Text("organization", message="Organization name", default="")]
         answers = inquirer.prompt(questions)
         if answers is None:
             raise KeyboardInterrupt()
-        org = answers.get('organization', '').strip()
+        org = str(answers.get("organization", "")).strip()
         return org if org else None
 
-    def _get_git_user(self) -> Optional[str]:
+    def _get_git_user(self) -> str | None:
         """Get user name and email from git config"""
         import subprocess
 
         try:
             name_result = subprocess.run(
-                ["git", "config", "user.name"],
-                capture_output=True,
-                text=True,
-                timeout=2
+                ["git", "config", "user.name"], capture_output=True, text=True, timeout=2
             )
             email_result = subprocess.run(
-                ["git", "config", "user.email"],
-                capture_output=True,
-                text=True,
-                timeout=2
+                ["git", "config", "user.email"], capture_output=True, text=True, timeout=2
             )
 
             if name_result.returncode == 0 and email_result.returncode == 0:
@@ -153,12 +137,13 @@ class ProjectWizard:
         """Ask for creator info"""
         questions = [
             inquirer.Text(
-                'created_by',
-                message="Your name and email (e.g., 'Jane Doe <jane@company.com>')"
+                "created_by", message="Your name and email (e.g., 'Jane Doe <jane@company.com>')"
             )
         ]
         answers = inquirer.prompt(questions)
-        return answers['created_by']
+        if answers is None:
+            raise KeyboardInterrupt()
+        return str(answers["created_by"])
 
     def _ask_purpose(self) -> str:
         """Ask for project purpose"""
@@ -172,18 +157,18 @@ class ProjectWizard:
 
         questions = [
             inquirer.Editor(
-                'purpose',
+                "purpose",
                 message="Purpose (opens editor)",
-                default="# Why does this project exist? What is it used for?\n"
+                default="# Why does this project exist? What is it used for?\n",
             )
         ]
         answers = inquirer.prompt(questions)
-        purpose = answers['purpose'].strip()
+        purpose = answers["purpose"].strip()
 
         # Remove the default comment if user didn't change it
         if purpose.startswith("# Why does this project exist"):
-            lines = purpose.split('\n')
-            purpose = '\n'.join(lines[1:]).strip()
+            lines = purpose.split("\n")
+            purpose = "\n".join(lines[1:]).strip()
 
         return purpose or "Data analytics project"
 
@@ -198,9 +183,9 @@ class ProjectWizard:
             try:
                 console.print()
                 questions = [
-                    inquirer.Text('name', message="Name"),
-                    inquirer.Text('role', message="Role (e.g., 'CMO - Primary dashboard user')"),
-                    inquirer.Text('contact', message="Contact (email or slack)"),
+                    inquirer.Text("name", message="Name"),
+                    inquirer.Text("role", message="Role (e.g., 'CMO - Primary dashboard user')"),
+                    inquirer.Text("contact", message="Contact (email or slack)"),
                 ]
                 answers = inquirer.prompt(questions)
 
@@ -208,16 +193,11 @@ class ProjectWizard:
                     break
 
                 stakeholder = Stakeholder(
-                    name=answers['name'],
-                    role=answers['role'],
-                    contact=answers['contact']
+                    name=answers["name"], role=answers["role"], contact=answers["contact"]
                 )
                 stakeholders.append(stakeholder)
 
-                add_more = inquirer.confirm(
-                    message="Add another stakeholder?",
-                    default=False
-                )
+                add_more = inquirer.confirm(message="Add another stakeholder?", default=False)
 
                 if not add_more:
                     break
@@ -239,17 +219,13 @@ class ProjectWizard:
         console.print("  • Weekly on Sundays")
         console.print()
 
-        questions = [
-            inquirer.Text(
-                'sla',
-                message="SLA",
-                default="Daily by 9am"
-            )
-        ]
+        questions = [inquirer.Text("sla", message="SLA", default="Daily by 9am")]
         answers = inquirer.prompt(questions)
-        return answers['sla']
+        if answers is None:
+            raise KeyboardInterrupt()
+        return str(answers["sla"])
 
-    def _ask_limitations(self) -> str:
+    def _ask_limitations(self) -> str | None:
         """Ask for limitations"""
         console.print()
         console.print("[cyan]Known limitations or gotchas[/cyan]")
@@ -261,20 +237,22 @@ class ProjectWizard:
 
         questions = [
             inquirer.Editor(
-                'limitations',
+                "limitations",
                 message="Limitations (opens editor)",
-                default="# Known limitations, caveats, or gotchas\n"
+                default="# Known limitations, caveats, or gotchas\n",
             )
         ]
         answers = inquirer.prompt(questions)
-        limitations = answers['limitations'].strip()
+        if answers is None:
+            raise KeyboardInterrupt()
+        limitations = str(answers["limitations"]).strip()
 
         # Remove the default comment if user didn't change it
         if limitations.startswith("# Known limitations"):
-            lines = limitations.split('\n')
-            limitations = '\n'.join(lines[1:]).strip()
+            lines = limitations.split("\n")
+            limitations = "\n".join(lines[1:]).strip()
 
-        return limitations or None
+        return limitations if limitations else None
 
     def _default_getting_started(self) -> str:
         """Default getting started guide"""
@@ -285,8 +263,11 @@ class ProjectWizard:
             "4. Open dashboards: http://localhost:8800"
         )
 
-    def _print_summary(self):
+    def _print_summary(self) -> None:
         """Print configuration summary - only show fields with meaningful values"""
+        if self.config is None:
+            return
+
         console.print()
 
         # Build summary with only populated fields
@@ -312,15 +293,15 @@ class ProjectWizard:
 
         # Show stakeholders if any
         if self.config.project.stakeholders:
-            summary_lines.append(f"[bold]Stakeholders:[/bold] {len(self.config.project.stakeholders)}")
+            summary_lines.append(
+                f"[bold]Stakeholders:[/bold] {len(self.config.project.stakeholders)}"
+            )
 
         # Show SLA if set
         if self.config.project.sla:
             summary_lines.append(f"[bold]SLA:[/bold] {self.config.project.sla}")
 
-        console.print(Panel(
-            "\n".join(summary_lines),
-            title="📋 Configuration Summary",
-            border_style="green"
-        ))
+        console.print(
+            Panel("\n".join(summary_lines), title="📋 Configuration Summary", border_style="green")
+        )
         console.print()

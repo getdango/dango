@@ -1,0 +1,970 @@
+{% extends "base.html" %}
+{% block title %}Data Catalog - Dango{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ static_url('css/catalog.css') }}">
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div x-data="catalogPage()" x-init="init()" x-cloak>
+        <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p class="text-sm text-red-700" x-text="error"></p>
+        </div>
+        <!-- Header: Search + Lineage toggle -->
+        <div class="flex items-center justify-between mb-4 gap-4">
+            <div class="flex-1">
+                <template x-if="view === 'detail'">
+                    <nav class="text-sm text-gray-500 mb-2">
+                        <button @click="goToList()" class="hover:text-gray-700">Catalog</button>
+                        <span class="mx-1">/</span>
+                        <span class="font-semibold text-gray-900" x-text="selectedModel ? selectedModel.name : ''"></span>
+                    </nav>
+                </template>
+                <template x-if="view !== 'detail' && view !== 'lineage'">
+                    <div class="catalog-search-wrapper">
+                        <svg class="catalog-search-icon w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                        <input type="text" class="catalog-search" placeholder="Search models, columns, descriptions..."
+                               x-model="searchQuery" @input="onSearchInput()">
+                    </div>
+                </template>
+            </div>
+            <button x-show="hasLineage" @click="toggleLineageView()"
+                    class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors flex-shrink-0"
+                    :class="view === 'lineage' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'">
+                <span x-text="view === 'lineage' ? 'Table View' : 'Lineage'"></span>
+            </button>
+        </div>
+        <div x-show="loading" x-cloak class="flex items-center justify-center py-12">
+            <div class="text-gray-400 text-sm">Loading catalog...</div>
+        </div>
+
+        <!-- View 1: Model/Source list -->
+        <div x-show="!loading && view === 'list'">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-xl font-bold text-gray-900">Data Catalog</h2>
+            </div>
+            <!-- Summary cards -->
+            <template x-if="overview">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                    <div class="bg-white shadow rounded-lg p-4">
+                        <div class="text-2xl font-bold" x-text="overview.source_count"></div>
+                        <div class="text-sm text-gray-500">Sources</div>
+                    </div>
+                    <div class="bg-white shadow rounded-lg p-4">
+                        <div class="text-2xl font-bold" x-text="overview.table_count"></div>
+                        <div class="text-sm text-gray-500">Tables</div>
+                    </div>
+                    <div class="bg-white shadow rounded-lg p-4">
+                        <div class="text-2xl font-bold" x-text="overview.model_count"></div>
+                        <div class="text-sm text-gray-500">Models</div>
+                    </div>
+                    <div class="bg-white shadow rounded-lg p-4">
+                        <div class="text-2xl font-bold"
+                             :class="freshSourceCount === overview.source_count ? 'text-green-600' : 'text-amber-600'"
+                             x-text="freshSourceCount + '/' + overview.source_count"></div>
+                        <div class="text-sm text-gray-500">Sources Fresh</div>
+                    </div>
+                </div>
+            </template>
+            <!-- BUG-155 / BUG-217: Per-source breakdown cards (sorted stale-first, collapsed to 6) -->
+            <template x-if="overview && overview.sources_detail && overview.sources_detail.length > 0">
+                <div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mb-4">
+                        <template x-for="sd in sortedSourcesDetail.slice(0, showAllSources ? undefined : 6)" :key="sd.name">
+                            <div class="bg-white shadow rounded-lg p-3 flex items-center justify-between cursor-pointer hover:shadow-md transition-shadow"
+                                 @click="sourceFilter = sd.name; activeTab = 'source'; if (!_skipPush) updateUrl(false)">
+                                <div>
+                                    <div class="font-medium text-gray-900 text-sm" x-text="sd.name"></div>
+                                    <div class="text-xs text-gray-500">
+                                        <span x-text="sd.table_count"></span> table<span x-show="sd.table_count !== 1">s</span>
+                                        &middot;
+                                        <span x-text="sd.estimated_row_total.toLocaleString()"></span> rows
+                                    </div>
+                                </div>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0"
+                                      :class="sd.freshness_status === 'fresh' ? 'bg-green-100 text-green-800' : sd.freshness_status === 'stale' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'"
+                                      x-text="sd.freshness_status || 'unknown'"></span>
+                            </div>
+                        </template>
+                    </div>
+                    <button x-show="sortedSourcesDetail.length > 6"
+                            @click="showAllSources = !showAllSources"
+                            class="text-sm text-indigo-600 hover:text-indigo-800 mb-4">
+                        <span x-text="showAllSources ? 'Show less' : 'Show ' + (sortedSourcesDetail.length - 6) + ' more'"></span>
+                    </button>
+                </div>
+            </template>
+            <!-- Type filter tabs -->
+            <div class="catalog-tabs">
+                <template x-for="tab in tabs" :key="tab.key">
+                    <button class="catalog-tab" :class="activeTab === tab.key ? 'active' : ''"
+                            @click="activeTab = tab.key; if (!_skipPush) updateUrl(false)" x-text="tab.label + ' (' + tabCount(tab.key) + ')'"></button>
+                </template>
+            </div>
+            <!-- Search results or filtered list -->
+            <template x-if="searchResults !== null">
+                <div>
+                    <p class="text-sm text-gray-500 mb-3">
+                        <span x-text="searchResults.length"></span> result<span x-show="searchResults.length !== 1">s</span>
+                        for "<span x-text="searchQuery" class="font-medium"></span>"
+                        <button @click="clearSearch()" class="ml-2 text-indigo-600 hover:underline text-xs">Clear</button>
+                    </p>
+                    <template x-if="searchResults.length === 0">
+                        <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">No results found.</div>
+                    </template>
+                    <template x-if="searchResults.length > 0">
+                        <div class="bg-white shadow rounded-lg overflow-hidden">
+                            <div class="catalog-table-wrapper overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Match</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Description</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200">
+                                        <template x-for="r in searchResults" :key="r.unique_id">
+                                            <tr class="hover:bg-gray-50 cursor-pointer" @click="openModel(r.name)">
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <a :href="'/catalog?model=' + encodeURIComponent(r.name)" @click.prevent class="text-sm font-medium text-blue-600 hover:text-blue-800" x-text="r.name"></a>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <span class="model-badge" :class="'model-badge-' + r.type" x-text="r.type"></span>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell">
+                                                    <span x-text="r.match_type"></span>
+                                                    <span x-show="r.matched_column" class="text-gray-400">(<span x-text="r.matched_column"></span>)</span>
+                                                </td>
+                                                <td class="px-6 py-4 hidden lg:table-cell"><div class="desc-truncate text-sm text-gray-500" x-text="r.description || '--'"></div></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </template>
+            <template x-if="searchResults === null">
+                <div>
+                    <template x-if="sourceFilter">
+                        <div class="mb-3 flex items-center gap-2 text-sm text-gray-600">
+                            Showing tables from source: <span class="font-medium" x-text="sourceFilter"></span>
+                            <button @click="sourceFilter = null; activeTab = 'all'; if (!_skipPush) updateUrl(false)"
+                                class="ml-2 text-indigo-600 hover:underline text-xs">Show all</button>
+                        </div>
+                    </template>
+                    <template x-if="filteredItems.length === 0 && !loading">
+                        <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
+                            <template x-if="allModels.length === 0 && allSources.length === 0">
+                                <p>No models found. Run dbt to generate models, or add a source and sync data.</p>
+                            </template>
+                            <template x-if="allModels.length > 0 || allSources.length > 0">
+                                <p>No items match this filter.</p>
+                            </template>
+                        </div>
+                    </template>
+                    <template x-if="filteredItems.length > 0">
+                        <div class="bg-white shadow rounded-lg overflow-hidden">
+                            <div class="catalog-table-wrapper overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Description</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Tests</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Last Updated</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Documented</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Tags</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200">
+                                        <template x-for="item in filteredItems" :key="item.unique_id">
+                                            <tr class="hover:bg-gray-50 cursor-pointer" @click="openModel(item.name)">
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <a :href="'/catalog?model=' + encodeURIComponent(item.name)" @click.prevent class="text-sm font-medium text-blue-600 hover:text-blue-800" x-text="item.name"></a>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap">
+                                                    <span class="model-badge" :class="'model-badge-' + item.type" x-text="item.type"></span>
+                                                </td>
+                                                <td class="px-6 py-4 hidden sm:table-cell">
+                                                    <div class="desc-truncate text-sm text-gray-500" x-text="item.description || '--'"></div>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm hidden md:table-cell">
+                                                    <template x-if="item.test_count > 0">
+                                                        <span>
+                                                            <span x-show="item.tests_passing > 0" class="test-pass" x-text="item.tests_passing + ' pass'"></span>
+                                                            <span x-show="item.tests_passing > 0 && item.tests_failing > 0"> / </span>
+                                                            <span x-show="item.tests_failing > 0" class="test-fail" x-text="item.tests_failing + ' fail'"></span>
+                                                        </span>
+                                                    </template>
+                                                    <template x-if="!item.test_count">
+                                                        <span class="text-gray-400">--</span>
+                                                    </template>
+                                                </td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell" x-text="getItemFreshness(item)"></td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell"
+                                                    x-text="item.columns_total > 0 ? item.columns_documented + '/' + item.columns_total : '--'"></td>
+                                                <td class="px-6 py-4 whitespace-nowrap hidden lg:table-cell">
+                                                    <template x-if="item.tags && item.tags.length > 0">
+                                                        <div>
+                                                            <template x-for="tag in item.tags.slice(0, 3)" :key="tag">
+                                                                <span class="tag-badge" x-text="tag"></span>
+                                                            </template>
+                                                            <span x-show="item.tags.length > 3" class="text-xs text-gray-400" x-text="'+' + (item.tags.length - 3)"></span>
+                                                        </div>
+                                                    </template>
+                                                    <template x-if="!item.tags || item.tags.length === 0">
+                                                        <span class="text-gray-400 text-sm">--</span>
+                                                    </template>
+                                                </td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </div>
+
+        <!-- View 2: Model detail -->
+        <div x-show="!loading && view === 'detail'">
+            <template x-if="selectedModel">
+            <div>
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <div class="flex items-center gap-3">
+                        <h2 class="text-xl font-bold text-gray-900" x-text="selectedModel.name"></h2>
+                        <span class="model-badge" :class="'model-badge-' + selectedModel.type" x-text="selectedModel.type"></span>
+                    </div>
+                    <p x-show="selectedModel.description" class="mt-1 text-sm text-gray-600" x-text="selectedModel.description"></p>
+                    <div class="mt-1 text-sm text-gray-500 space-x-4">
+                        <span x-show="selectedModel.materialization">
+                            <span class="text-gray-400">Materialization:</span> <span x-text="selectedModel.materialization"></span>
+                        </span>
+                        <span x-show="selectedModel.row_count != null">
+                            <span x-text="(selectedModel.row_count ?? 0).toLocaleString()"></span> rows
+                        </span>
+                        <span x-show="selectedModel.profiled_at">Profiled <span x-text="timeAgo(selectedModel.profiled_at)"></span></span>
+                        <template x-if="selectedModel.tests && selectedModel.tests.length > 0">
+                            <span>
+                                <span class="text-green-600" x-show="selectedModel.tests.filter(t => t.status === 'pass').length > 0" x-text="'✓ ' + selectedModel.tests.filter(t => t.status === 'pass').length + ' pass'"></span>
+                                <span class="text-red-600 font-medium" x-show="selectedModel.tests.filter(t => t.status === 'fail' || t.status === 'error').length > 0" x-text="'✗ ' + selectedModel.tests.filter(t => t.status === 'fail' || t.status === 'error').length + ' fail'"></span>
+                            </span>
+                        </template>
+                    </div>
+                </div>
+                <template x-if="selectedModel.type === 'source'">
+                    <button @click="refreshProfile()" :disabled="profilingLoading"
+                            class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors disabled:opacity-50">
+                        <span x-show="!profilingLoading">Refresh Profile</span>
+                        <span x-show="profilingLoading" x-cloak>Profiling...</span>
+                    </button>
+                </template>
+            </div>
+            <!-- Detail sub-tabs -->
+            <div class="detail-tabs">
+                <button class="detail-tab" :class="detailTab === 'columns' ? 'active' : ''" @click="detailTab = 'columns'; if (!_skipPush) updateUrl(false)">Columns</button>
+                <template x-if="selectedModel.type !== 'source'">
+                    <button class="detail-tab" :class="detailTab === 'code' ? 'active' : ''" @click="showCodeTab(); if (!_skipPush) updateUrl(false)">Code</button>
+                </template>
+                <button class="detail-tab" :class="detailTab === 'info' ? 'active' : ''" @click="detailTab = 'info'; if (!_skipPush) updateUrl(false)">Info</button>
+            </div>
+            <!-- Columns sub-tab -->
+            <div x-show="detailTab === 'columns'">
+                <template x-if="selectedModel.columns && selectedModel.columns.length > 0">
+                    <div class="bg-white shadow rounded-lg overflow-x-hidden">
+                        <div class="catalog-table-wrapper overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Column</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nullable</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tests</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Null %</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Distinct</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Min</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Max</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <template x-for="col in selectedModel.columns" :key="col.name">
+                                        <tr>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                <span x-text="col.name"></span>
+                                                <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800 tooltip" :data-tooltip="'Auto-detected: ' + (col._pii || '') + ' — Manage via CLI: dango governance pii-set'">PII ⚑</span>
+                                                <span x-show="col._pii && col._piiProvenance === 'confirmed'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800 tooltip" :data-tooltip="'Confirmed: ' + (col._pii || '')">PII ✓</span>
+                                                <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800 tooltip" x-text="col._drift" :data-tooltip="'Schema drift: ' + (col._drift || '')"></span>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap"><span class="col-type text-gray-600" x-text="col.type || '--'"></span></td>
+                                            <td class="px-6 py-4 text-sm text-gray-500" x-text="col.description || '--'"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="col.nullable != null ? (col.nullable ? 'Yes' : 'No') : '--'"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                                <template x-if="col.tests && col.tests.length > 0">
+                                                    <div class="flex flex-wrap gap-1">
+                                                        <template x-for="t in col.tests" :key="t.name">
+                                                            <span class="text-xs px-1.5 py-0.5 rounded truncate inline-block align-middle tooltip" style="max-width: 200px"
+                                                                  :class="t.status === 'pass' ? 'bg-green-100 text-green-800' : t.status === 'fail' || t.status === 'error' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'"
+                                                                  x-bind:data-tooltip="t.name"
+                                                                  x-text="(t.status === 'pass' ? '✓ ' : t.status === 'fail' || t.status === 'error' ? '✗ ' : '') + t.name.replace(/^(not_null|unique|accepted_values)_/, '$1: ')"></span>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                                <template x-if="!col.tests || col.tests.length === 0">
+                                                    <span class="text-gray-400">--</span>
+                                                </template>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="col.stats?.null_pct != null ? col.stats.null_pct + '%' : '—'"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="col.stats?.distinct_count != null ? Number(col.stats.distinct_count).toLocaleString() : '—'"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="col.stats?.min != null ? col.stats.min : '—'"></td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" x-text="col.stats?.max != null ? col.stats.max : '—'"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </template>
+                <template x-if="!selectedModel.columns || selectedModel.columns.length === 0">
+                    <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
+                        No column information available. The model may not be materialized yet.
+                    </div>
+                </template>
+            </div>
+            <!-- Code sub-tab -->
+            <div x-show="detailTab === 'code'" x-cloak>
+                <template x-if="selectedModel.raw_code">
+                    <div class="space-y-4">
+                        <div>
+                            <div class="code-label">Raw SQL (with Jinja)</div>
+                            <div class="code-block"><code id="raw-code" class="catalog-sql language-sql" x-text="selectedModel.raw_code"></code></div>
+                        </div>
+                        <template x-if="selectedModel.compiled_code">
+                            <div>
+                                <div class="code-label">Compiled SQL</div>
+                                <div class="code-block"><code id="compiled-code" class="catalog-sql language-sql" x-text="selectedModel.compiled_code"></code></div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+                <template x-if="!selectedModel.raw_code">
+                    <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
+                        No SQL code available for this model.
+                    </div>
+                </template>
+            </div>
+            <!-- Info sub-tab -->
+            <div x-show="detailTab === 'info'" x-cloak>
+                <div class="bg-white shadow rounded-lg p-6 space-y-6">
+                    <div x-show="selectedModel.description">
+                        <h3 class="text-sm font-semibold text-gray-900 mb-1">Description</h3>
+                        <p class="text-sm text-gray-700" x-text="selectedModel.description"></p>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div>
+                            <h3 class="text-sm font-semibold text-gray-900 mb-1">Schema</h3>
+                            <p class="text-sm text-gray-600" x-text="selectedModel.schema || '--'"></p>
+                        </div>
+                        <div x-show="selectedModel.materialization">
+                            <h3 class="text-sm font-semibold text-gray-900 mb-1">Materialization</h3>
+                            <p class="text-sm text-gray-600" x-text="selectedModel.materialization"></p>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-semibold text-gray-900 mb-1">Type</h3>
+                            <span class="model-badge" :class="'model-badge-' + selectedModel.type" x-text="selectedModel.type"></span>
+                        </div>
+                    </div>
+                    <div x-show="selectedModel.tags && selectedModel.tags.length > 0">
+                        <h3 class="text-sm font-semibold text-gray-900 mb-1">Tags</h3>
+                        <div class="flex flex-wrap gap-1">
+                            <template x-for="tag in selectedModel.tags" :key="tag">
+                                <span class="tag-badge" x-text="tag"></span>
+                            </template>
+                        </div>
+                    </div>
+                    <div x-show="selectedModel.tests && selectedModel.tests.length > 0">
+                        <h3 class="text-sm font-semibold text-gray-900 mb-2">Tests</h3>
+                        <div class="space-y-1">
+                            <template x-for="t in selectedModel.tests" :key="t.name">
+                                <div class="flex items-center gap-2 text-sm">
+                                    <span class="w-2 h-2 rounded-full"
+                                          :class="t.status === 'pass' ? 'bg-green-400' : t.status === 'fail' || t.status === 'error' ? 'bg-red-400' : 'bg-gray-300'"></span>
+                                    <span x-text="t.name"></span>
+                                    <span class="text-gray-400" x-text="t.status || 'not run'"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    <div x-show="selectedModel.depends_on && selectedModel.depends_on.length > 0">
+                        <h3 class="text-sm font-semibold text-gray-900 mb-1">Upstream Dependencies</h3>
+                        <div class="flex flex-wrap gap-2">
+                            <template x-for="dep in selectedModel.depends_on" :key="dep">
+                                <span class="dep-link" @click="openModelByUid(dep)" x-text="dep.split('.').pop()"></span>
+                            </template>
+                        </div>
+                    </div>
+                    <div x-show="selectedModel.depended_on_by && selectedModel.depended_on_by.length > 0">
+                        <h3 class="text-sm font-semibold text-gray-900 mb-1">Downstream Dependents</h3>
+                        <div class="flex flex-wrap gap-2">
+                            <template x-for="dep in selectedModel.depended_on_by" :key="dep">
+                                <span class="dep-link" @click="openModelByUid(dep)" x-text="dep.split('.').pop()"></span>
+                            </template>
+                        </div>
+                    </div>
+                    <div x-show="hasLineage">
+                        <button @click="viewInLineage(selectedModel.name, selectedModel.source_name)"
+                                class="px-3 py-1.5 text-sm font-medium bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition-colors">
+                            View in Lineage
+                        </button>
+                    </div>
+                </div>
+            </div>
+            </div>
+            </template>
+        </div>
+        <div x-show="!loading && view === 'detail' && !selectedModel && detailLoading" x-cloak
+             class="flex items-center justify-center py-12">
+            <div class="text-gray-400 text-sm">Loading model details...</div>
+        </div>
+
+        <!-- View 3: Lineage graph -->
+        <div x-show="!loading && view === 'lineage'">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Data Lineage</h2>
+            <div x-show="lineageFocusName" class="flex items-center gap-2 mb-2 text-sm">
+                <span class="text-gray-600">Focused on: <strong x-text="lineageFocusName"></strong></span>
+                <label class="text-gray-500 ml-4">Depth:</label>
+                <select x-model.number="lineageDepth" @change="renderLineage()" class="border border-gray-300 rounded px-2 py-1 text-sm">
+                    <option value="1">1 hop</option>
+                    <option value="2">2 hops</option>
+                    <option value="3">3 hops</option>
+                    <option value="5">5 hops</option>
+                </select>
+                <button @click="lineageFocusName = null; lineageFocusSourceName = null; renderLineage()" class="text-indigo-600 hover:underline">Show Full DAG</button>
+            </div>
+            <template x-if="lineageNodes.length === 0">
+                <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
+                    No lineage data available. Run dbt to generate lineage.
+                </div>
+            </template>
+            <template x-if="lineageNodes.length > 0">
+                <div class="lineage-wrapper bg-white shadow rounded-lg overflow-hidden" style="height:600px">
+                    <div id="lineage-container" style="width:100%;height:100%"></div>
+                    <div class="lineage-controls">
+                        <button @click="lineageZoomIn()" class="tooltip" data-tooltip="Zoom in">+</button>
+                        <button @click="lineageZoomOut()" class="tooltip" data-tooltip="Zoom out">&minus;</button>
+                        <button @click="lineageFitAll()" class="tooltip" data-tooltip="Fit all">&#8694;</button>
+                    </div>
+                    <div class="lineage-detail" x-show="selectedNode" x-cloak x-transition.opacity>
+                        <div class="lineage-detail-header">
+                            <div class="flex items-center justify-between">
+                                <h3 class="font-semibold text-gray-900 text-sm truncate" x-text="selectedNode ? selectedNode.name : ''"></h3>
+                                <button @click="selectedNode = null; lineageClearHighlight()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
+                            </div>
+                        </div>
+                        <div class="lineage-detail-body" x-show="selectedNode">
+                            <div class="lineage-detail-row">
+                                <span class="lineage-detail-label">Type</span>
+                                <span class="lineage-detail-value" x-text="selectedNode ? selectedNode.type : ''"></span>
+                            </div>
+                            <div class="lineage-detail-row" x-show="selectedNode && selectedNode.materialization">
+                                <span class="lineage-detail-label">Materialization</span>
+                                <span class="lineage-detail-value" x-text="selectedNode ? selectedNode.materialization : ''"></span>
+                            </div>
+                            <div class="lineage-detail-row">
+                                <span class="lineage-detail-label">Description</span>
+                                <span class="lineage-detail-value text-xs" x-text="selectedNode && selectedNode.description ? selectedNode.description : 'None'"></span>
+                            </div>
+                            <div class="lineage-detail-row">
+                                <span class="lineage-detail-label">Tests</span>
+                                <span class="lineage-detail-value" x-text="selectedNode ? selectedNode.test_count : 0"></span>
+                            </div>
+                            <div class="lineage-detail-row">
+                                <span class="lineage-detail-label">Doc coverage</span>
+                                <span class="lineage-detail-value" x-text="selectedNode ? (selectedNode.columns_documented + '/' + selectedNode.columns_total) : ''"></span>
+                            </div>
+                            <div class="mt-4 space-y-2">
+                                <button @click="openModel(selectedNode.name)"
+                                        class="w-full px-3 py-1.5 text-sm font-medium bg-dango-600 text-white rounded-md hover:bg-dango-700">
+                                    View Details
+                                </button>
+                                <button @click="showDownstream()" :disabled="impactHighlighted"
+                                        class="w-full px-3 py-1.5 text-sm font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50">
+                                    Show Downstream
+                                </button>
+                                <div x-show="impactHighlighted" class="text-sm text-center text-indigo-600">
+                                    <span x-text="impactCount"></span> downstream model<span x-show="impactCount !== 1">s</span>
+                                </div>
+                                <button x-show="impactHighlighted" @click="lineageClearHighlight()"
+                                        class="w-full px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-600 rounded-md hover:bg-gray-200">
+                                    Clear Highlight
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </div>
+</main>
+{% endblock %}
+{% block scripts %}
+<script>
+function catalogPage() {
+    return {
+        view: 'list',
+        activeTab: 'all',
+        sourceFilter: null,
+        searchQuery: '',
+        searchResults: null,
+        allModels: [],
+        allSources: [],
+        selectedModel: null,
+        detailTab: 'columns',
+        detailLoading: false,
+        // Overview / summary cards
+        overview: null,
+        // Lineage state
+        lineageNodes: [], lineageEdges: [],
+        lineageFocusName: null, lineageFocusSourceName: null, lineageDepth: 2,
+        selectedNode: null, impactHighlighted: false, impactCount: 0, _lineage: null,
+        // Governance state
+        piiFindings: [], driftEvents: [], piiOverrides: [],
+        // Shared state
+        loading: true, profilingLoading: false, error: null, hasLineage: false, showAllSources: false,
+        // Guard flag: suppresses pushState during URL restoration and popstate
+        // handling to prevent feedback loops (restoreFromUrl → openModel → updateUrl).
+        _skipPush: false,
+        // Tab config
+        tabs: [
+            { key: 'all', label: 'All' },
+            { key: 'source', label: 'Sources' },
+            { key: 'staging', label: 'Staging' },
+            { key: 'intermediate', label: 'Intermediate' },
+            { key: 'marts', label: 'Marts' },
+        ],
+
+        async init() {
+            try {
+                const [modelsRes, lineageRes, piiRes, driftRes, overridesRes] = await Promise.allSettled([
+                    fetch('/api/catalog/models'), fetch('/api/catalog/lineage'),
+                    fetch('/api/governance/pii?limit=1000'), fetch('/api/governance/schema-drift?limit=1000'),
+                    fetch('/api/governance/pii/overrides'),
+                ]);
+                if (modelsRes.status === 'fulfilled' && modelsRes.value.ok) {
+                    const data = await modelsRes.value.json();
+                    this.allModels = data.models || [];
+                    this.allSources = data.sources || [];
+                    this.overview = data.overview || null;
+                } else { this.error = 'Failed to load catalog data.'; }
+                if (lineageRes.status === 'fulfilled' && lineageRes.value.ok) {
+                    const dag = await lineageRes.value.json();
+                    this.lineageNodes = dag.nodes || [];
+                    this.lineageEdges = dag.edges || [];
+                    this.hasLineage = true;
+                }
+                if (piiRes.status === 'fulfilled' && piiRes.value.ok) {
+                    const data = await piiRes.value.json();
+                    this.piiFindings = data.findings || [];
+                }
+                if (driftRes.status === 'fulfilled' && driftRes.value.ok) {
+                    const data = await driftRes.value.json();
+                    this.driftEvents = data.events || [];
+                }
+                if (overridesRes.status === 'fulfilled' && overridesRes.value.ok) {
+                    const data = await overridesRes.value.json();
+                    this.piiOverrides = data.overrides || [];
+                }
+            } catch (e) { this.error = 'Failed to load catalog data.'; }
+            finally { this.loading = false; }
+            // Restore state from URL (BUG-130)
+            this._skipPush = true;
+            await this.restoreFromUrl();
+            this._skipPush = false;
+            window.addEventListener('popstate', async () => {
+                this._skipPush = true;
+                await this.restoreFromUrl();
+                this._skipPush = false;
+            });
+        },
+
+        get freshSourceCount() {
+            if (!this.overview?.freshness) return 0;
+            return this.overview.freshness.filter(f => f.status === 'synced').length;
+        },
+
+        get sortedSourcesDetail() {
+            if (!this.overview?.sources_detail) return [];
+            const order = { stale: 0, unknown: 1, fresh: 2 };
+            return [...this.overview.sources_detail].sort((a, b) => {
+                const oa = order[a.freshness_status] ?? 1;
+                const ob = order[b.freshness_status] ?? 1;
+                if (oa !== ob) return oa - ob;
+                return (a.name || '').localeCompare(b.name || '');
+            });
+        },
+
+        updateUrl(replace) {
+            const params = new URLSearchParams();
+            if (this.view === 'detail' && this.selectedModel) {
+                params.set('model', this.selectedModel.name);
+                if (this.detailTab !== 'columns') params.set('tab', this.detailTab);
+            } else if (this.view === 'lineage') {
+                params.set('view', 'lineage');
+                if (this.lineageFocusName) params.set('focus', this.lineageFocusName);
+                if (this.lineageFocusSourceName) params.set('focus_source', this.lineageFocusSourceName);
+            } else if (this.sourceFilter) {
+                params.set('source', this.sourceFilter);
+            } else if (this.activeTab !== 'all') {
+                params.set('filter', this.activeTab);
+            }
+            const url = '/catalog' + (params.toString() ? '?' + params.toString() : '');
+            if (replace) {
+                history.replaceState(null, '', url);
+            } else {
+                history.pushState(null, '', url);
+            }
+        },
+
+        async restoreFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            const model = params.get('model');
+            const source = params.get('source');
+            const view = params.get('view');
+            const filter = params.get('filter');
+            if (model) {
+                await this.openModel(model);
+                const tab = params.get('tab');
+                if (tab && ['columns', 'code', 'info'].includes(tab)) {
+                    this.detailTab = tab;
+                }
+            } else if (source) {
+                this.activeTab = 'source';
+                this.sourceFilter = source;
+            } else if (view === 'lineage') {
+                const focus = params.get('focus');
+                const focusSource = params.get('focus_source');
+                if (focus) {
+                    this.lineageFocusName = focus;
+                    this.lineageFocusSourceName = focusSource || null;
+                    this.lineageDepth = 2;
+                }
+                this.view = 'lineage';
+                this.selectedNode = focus ? (this.lineageNodes.find(n =>
+                    n.name === focus && (!focusSource || n.source_name === focusSource)
+                ) || null) : null;
+                this.$nextTick(() => { this.$nextTick(() => this.renderLineage()); });
+            } else if (filter && ['source', 'staging', 'intermediate', 'marts'].includes(filter)) {
+                this.activeTab = filter;
+                this.view = 'list';
+                this.selectedModel = null;
+                this.sourceFilter = '';
+            } else {
+                this.goToList();
+            }
+        },
+
+        get filteredItems() {
+            if (this.sourceFilter) {
+                return this.allSources.filter(s => s.source_name === this.sourceFilter);
+            }
+            const items = [...this.allSources, ...this.allModels];
+            if (this.activeTab === 'all') return items;
+            return items.filter(i => i.type === this.activeTab);
+        },
+
+        tabCount(key) {
+            if (key === 'all') return this.allModels.length + this.allSources.length;
+            if (key === 'source') return this.allSources.length;
+            return this.allModels.filter(m => m.type === key).length;
+        },
+
+        goToList() {
+            if (this._lineage) { this._lineage.destroy(); this._lineage = null; }
+            this.selectedNode = null; this.impactHighlighted = false; this.impactCount = 0;
+            this.lineageFocusName = null; this.lineageFocusSourceName = null; this.sourceFilter = null;
+            this.view = 'list'; this.selectedModel = null; this.detailTab = 'columns';
+            this.activeTab = 'all';
+            if (!this._skipPush) this.updateUrl(false);
+        },
+
+        async openModel(name) {
+            this.view = 'detail'; this.detailLoading = true; this.selectedModel = null;
+            this.detailTab = 'columns'; this.error = null;
+            try {
+                const res = await fetch('/api/catalog/models/' + encodeURIComponent(name));
+                if (res.ok) {
+                    const model = await res.json();
+                    // Attach PII and drift indicators to columns
+                    if (model.columns) {
+                        const tblName = model.name;
+                        // For staging tables (stg_{source}__{raw_table}), also check
+                        // PII findings from the corresponding raw source table.
+                        let rawSource = null;
+                        let rawTable = null;
+                        const stgMatch = tblName.match(/^stg_(.+?)__(.+)$/);
+                        if (stgMatch) {
+                            rawSource = stgMatch[1];
+                            rawTable = stgMatch[2];
+                        }
+                        for (const col of model.columns) {
+                            const pii = this.piiFindings.find(f => {
+                                const sourceMatch = model.source_name ? f.source === model.source_name : true;
+                                return sourceMatch && f.table_name === tblName && f.column_name === col.name;
+                            }) || (rawSource && rawTable ? this.piiFindings.find(f =>
+                                f.source === rawSource && f.table_name === rawTable && f.column_name === col.name
+                            ) : null);
+                            col._pii = pii ? pii.entity_type : null;
+                            const override = this.piiOverrides.find(o => {
+                                const sourceMatch = model.source_name ? o.source === model.source_name : true;
+                                return sourceMatch && o.table_name === tblName && o.column_name === col.name;
+                            });
+                            if (override) {
+                                if (override.pii_status === 'not_pii') {
+                                    col._pii = null;
+                                    col._piiProvenance = 'dismissed';
+                                } else if (override.pii_status === 'pii' && col._pii) {
+                                    col._piiProvenance = 'confirmed';
+                                } else if (override.pii_status === 'pii') {
+                                    col._pii = 'MANUAL_OVERRIDE';
+                                    col._piiProvenance = 'confirmed';
+                                }
+                            } else {
+                                col._piiProvenance = col._pii ? 'auto' : null;
+                            }
+                            const drift = this.driftEvents.find(d => {
+                                const sourceMatch = model.source_name ? d.source === model.source_name : true;
+                                return sourceMatch && d.table_name === tblName && d.column_name === col.name;
+                            });
+                            col._drift = drift ? drift.event_type : null;
+                        }
+                    }
+                    this.selectedModel = model;
+                    if (!this._skipPush) this.updateUrl(false);
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    this.error = err.detail || 'Failed to load model details.';
+                    this.view = 'list';
+                }
+            } catch (e) { this.error = 'Failed to load model details.'; this.view = 'list'; }
+            finally { this.detailLoading = false; }
+        },
+
+        openModelByUid(uid) {
+            const name = uid.split('.').pop();
+            if (name) this.openModel(name);
+        },
+
+        showCodeTab() {
+            this.detailTab = 'code';
+            this.$nextTick(() => {
+                if (typeof DangoCatalog !== 'undefined') DangoCatalog.highlightAll();
+            });
+        },
+
+        onSearchInput() {
+            const self = this;
+            if (typeof DangoCatalog !== 'undefined') {
+                DangoCatalog.debounceSearch(this.searchQuery, function(q) {
+                    if (q) self.doSearch(q); else self.searchResults = null;
+                }, 300);
+            } else {
+                if (this.searchQuery.length >= 2) this.doSearch(this.searchQuery);
+                else this.searchResults = null;
+            }
+        },
+
+        async doSearch(query) {
+            try {
+                const res = await fetch('/api/catalog/search?q=' + encodeURIComponent(query));
+                if (res.ok) {
+                    const data = await res.json();
+                    this.searchResults = data.results;
+                }
+            } catch (_) { /* silent */ }
+        },
+
+        clearSearch() {
+            this.searchQuery = '';
+            this.searchResults = null;
+        },
+
+        async refreshProfile() {
+            if (!this.selectedModel || this.selectedModel.type !== 'source') return;
+            const srcName = this.selectedModel.source_name;
+            const tblName = this.selectedModel.name;
+            if (!srcName || !tblName) return;
+            this.profilingLoading = true; this.error = null;
+            try {
+                const url = '/api/catalog/' + encodeURIComponent(srcName) + '/' + encodeURIComponent(tblName) + '/profile';
+                const res = await fetch(url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (res.ok) {
+                    // Reload model detail to get fresh profiling
+                    await this.openModel(tblName);
+                } else { this.error = 'Failed to refresh profile.'; }
+            } catch (e) { this.error = 'Failed to refresh profile.'; }
+            finally { this.profilingLoading = false; }
+        },
+
+        viewInLineage(name, sourceName) {
+            this.view = 'lineage'; this.impactHighlighted = false; this.impactCount = 0;
+            this.lineageFocusName = name; this.lineageFocusSourceName = sourceName || null;
+            this.lineageDepth = 2;
+            const node = this.lineageNodes.find(n =>
+                n.name === name && (!sourceName || n.source_name === sourceName)
+            );
+            this.selectedNode = node || null;
+            if (!this._skipPush) this.updateUrl(false);
+            this.$nextTick(() => { this.$nextTick(() => this.renderLineage()); });
+        },
+
+        timeAgo(dateStr) {
+            if (!dateStr) return '--';
+            let ts = String(dateStr);
+            if (!ts.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ts)) { ts += 'Z'; }
+            const diff = Math.floor((new Date() - new Date(ts)) / 1000);
+            if (diff < 60) return 'just now';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            return Math.floor(diff / 86400) + 'd ago';
+        },
+        getItemFreshness(item) {
+            if (!this.overview || !this.overview.freshness) return '--';
+            // Source tables: use source_name directly.
+            // Staging/models: derive source from name (stg_{source}__{table}).
+            let srcName = item.source_name || (item.schema || '').replace(/^raw_/, '');
+            if (!srcName || srcName === item.schema) {
+                const m = (item.name || '').match(/^stg_(.+?)__/);
+                if (m) srcName = m[1];
+            }
+            const f = this.overview.freshness.find(f => f.source === srcName);
+            if (!f || f.hours_since_sync == null) return '--';
+            const h = f.hours_since_sync;
+            if (h < 1) return Math.round(h * 60) + 'm ago';
+            if (h < 24) return Math.round(h) + 'h ago';
+            return Math.round(h / 24) + 'd ago';
+        },
+
+        toggleLineageView() {
+            if (this.view === 'lineage') {
+                this.goToList();
+            } else {
+                this.view = 'lineage'; this.selectedNode = null;
+                this.lineageFocusName = null; this.lineageFocusSourceName = null;
+                this.impactHighlighted = false; this.impactCount = 0;
+                if (!this._skipPush) this.updateUrl(false);
+                this.$nextTick(() => { this.$nextTick(() => this.renderLineage()); });
+            }
+        },
+        filterLineage(focusName, depth) {
+            // BFS upstream + downstream from focus node
+            const nodeMap = {};
+            for (const n of this.lineageNodes) nodeMap[n.id] = n;
+            // Build adjacency
+            const children = {}; // downstream: source → [targets]
+            const parents = {};  // upstream: target → [sources]
+            for (const e of this.lineageEdges) {
+                if (!children[e.source]) children[e.source] = [];
+                children[e.source].push(e.target);
+                if (!parents[e.target]) parents[e.target] = [];
+                parents[e.target].push(e.source);
+            }
+            // Find focus node ID
+            const focusNode = this.lineageNodes.find(n =>
+                n.name === focusName && (!this.lineageFocusSourceName || n.source_name === this.lineageFocusSourceName)
+            );
+            if (!focusNode) return { nodes: this.lineageNodes, edges: this.lineageEdges };
+            const focusId = focusNode.id;
+            const reachable = new Set([focusId]);
+            // BFS downstream
+            let frontier = [focusId];
+            for (let d = 0; d < depth; d++) {
+                const next = [];
+                for (const nid of frontier) {
+                    for (const child of (children[nid] || [])) {
+                        if (!reachable.has(child)) { reachable.add(child); next.push(child); }
+                    }
+                }
+                frontier = next;
+            }
+            // BFS upstream
+            frontier = [focusId];
+            for (let d = 0; d < depth; d++) {
+                const next = [];
+                for (const nid of frontier) {
+                    for (const parent of (parents[nid] || [])) {
+                        if (!reachable.has(parent)) { reachable.add(parent); next.push(parent); }
+                    }
+                }
+                frontier = next;
+            }
+            let filteredNodes = this.lineageNodes.filter(n => reachable.has(n.id));
+            if (this.lineageFocusSourceName) {
+                filteredNodes = filteredNodes.filter(n =>
+                    n.type !== 'source' || n.source_name === this.lineageFocusSourceName
+                );
+            }
+            const nodeIds = new Set(filteredNodes.map(n => n.id));
+            const filteredEdges = this.lineageEdges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+            return { nodes: filteredNodes, edges: filteredEdges };
+        },
+
+        renderLineage() {
+            if (typeof DangoLineage === 'undefined') {
+                this.error = 'Lineage visualization failed to load.'; return;
+            }
+            if (this._lineage) this._lineage.destroy();
+            this._lineage = new DangoLineage('lineage-container');
+            const self = this;
+            this._lineage.onNodeClick(function (node) {
+                self.selectedNode = node;
+                self.impactHighlighted = false;
+                self.impactCount = 0;
+            });
+            this._lineage.onBackgroundClick(function () {
+                self.selectedNode = null;
+                self.impactHighlighted = false;
+                self.impactCount = 0;
+            });
+            if (this.lineageFocusName) {
+                const filtered = this.filterLineage(this.lineageFocusName, this.lineageDepth);
+                this._lineage.render(filtered.nodes, filtered.edges);
+            } else {
+                this._lineage.render(this.lineageNodes, this.lineageEdges);
+            }
+        },
+        async showDownstream() {
+            if (!this.selectedNode || !this._lineage) return;
+            try {
+                const res = await fetch('/api/catalog/impact/' + encodeURIComponent(this.selectedNode.name),
+                    { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (res.ok) {
+                    const data = await res.json();
+                    this._lineage.highlightImpact(this.selectedNode.id, data);
+                    this.impactHighlighted = true;
+                    this.impactCount = data.total_downstream_count || 0;
+                }
+            } catch (_) { /* silent */ }
+        },
+        lineageZoomIn() { if (this._lineage) this._lineage.zoomIn(); },
+        lineageZoomOut() { if (this._lineage) this._lineage.zoomOut(); },
+        lineageFitAll() { if (this._lineage) this._lineage.fitAll(); },
+        lineageClearHighlight() {
+            if (this._lineage) this._lineage.clearHighlight();
+            this.impactHighlighted = false; this.impactCount = 0;
+        },
+    };
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="{{ static_url('js/lineage.js') }}"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/sql.min.js"></script>
+<script src="{{ static_url('js/catalog.js') }}"></script>
+{% endblock %}

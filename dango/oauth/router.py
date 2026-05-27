@@ -1,16 +1,14 @@
-"""
-OAuth Router
+"""dango/oauth/router.py
 
-Routes OAuth authentication requests to the correct provider based on source type.
-Used by the source wizard for inline OAuth during source configuration.
+Routes OAuth authentication requests to the correct provider based on source type. Used by the source wizard for inline OAuth during source configuration.
 """
 
 from pathlib import Path
-from typing import Optional
+
 from rich.console import Console
 
 from dango.oauth import OAuthManager
-from dango.oauth.providers import GoogleOAuthProvider, FacebookOAuthProvider, ShopifyOAuthProvider
+from dango.oauth.providers import FacebookOAuthProvider, GoogleOAuthProvider
 
 console = Console()
 
@@ -20,7 +18,6 @@ OAUTH_PROVIDER_MAP = {
     "google_analytics": ("google", "google_analytics"),
     "google_sheets": ("google", "google_sheets"),
     "facebook_ads": ("facebook", None),
-    "shopify": ("shopify", None),
 }
 
 
@@ -52,19 +49,19 @@ def run_oauth_for_source(source_type: str, source_name: str, project_root: Path)
     # Route to correct provider
     try:
         if provider_name == "google":
-            provider = GoogleOAuthProvider(oauth_manager)
+            if service is None:
+                console.print("[red]Missing service for Google OAuth provider[/red]")
+                return False
+            google_provider = GoogleOAuthProvider(oauth_manager)
             # Pass source_name for instance-specific credentials
-            return provider.authenticate(service=service, source_name=source_name)
+            return (
+                google_provider.authenticate(service=service, source_name=source_name) is not None
+            )
 
         elif provider_name == "facebook":
-            provider = FacebookOAuthProvider(oauth_manager)
+            fb_provider = FacebookOAuthProvider(oauth_manager)
             # Pass source_name for instance-specific credentials
-            return provider.authenticate(source_name=source_name)
-
-        elif provider_name == "shopify":
-            provider = ShopifyOAuthProvider(oauth_manager)
-            # Pass source_name for instance-specific credentials
-            return provider.authenticate(source_name=source_name)
+            return fb_provider.authenticate(source_name=source_name) is not None
 
         else:
             console.print(f"[red]❌ Unknown OAuth provider: {provider_name}[/red]")
@@ -113,9 +110,6 @@ def check_oauth_credentials_exist(source_type: str, source_name: str, project_ro
             elif source_type == "facebook_ads":
                 if "access_token" in source_creds:
                     return True
-            elif source_type == "shopify":
-                if "private_app_password" in source_creds:
-                    return True
 
         # Check shared provider credentials (fallback)
         # For Google services, check for shared Google OAuth credentials
@@ -125,7 +119,9 @@ def check_oauth_credentials_exist(source_type: str, source_name: str, project_ro
                 if google_source in secrets["sources"]:
                     source_creds = secrets["sources"][google_source]
                     # Check for OAuth fields (client_id, client_secret, refresh_token)
-                    if all(k in source_creds for k in ["client_id", "client_secret", "refresh_token"]):
+                    if all(
+                        k in source_creds for k in ["client_id", "client_secret", "refresh_token"]
+                    ):
                         return True
             return False
 
@@ -133,12 +129,6 @@ def check_oauth_credentials_exist(source_type: str, source_name: str, project_ro
         elif source_type == "facebook_ads":
             if "facebook_ads" in secrets["sources"]:
                 return "access_token" in secrets["sources"]["facebook_ads"]
-            return False
-
-        # For Shopify - check shared credentials
-        elif source_type == "shopify":
-            if "shopify" in secrets["sources"]:
-                return "private_app_password" in secrets["sources"]["shopify"]
             return False
 
         else:
@@ -149,7 +139,7 @@ def check_oauth_credentials_exist(source_type: str, source_name: str, project_ro
         return False
 
 
-def get_oauth_status_message(source_type: str, project_root: Path) -> Optional[str]:
+def get_oauth_status_message(source_type: str, project_root: Path) -> str | None:
     """
     Get a status message about OAuth credentials for a source.
 
@@ -163,7 +153,7 @@ def get_oauth_status_message(source_type: str, project_root: Path) -> Optional[s
     if source_type not in OAUTH_PROVIDER_MAP:
         return None
 
-    if check_oauth_credentials_exist(source_type, project_root):
-        return f"[green]✓ OAuth credentials already configured[/green]"
+    if check_oauth_credentials_exist(source_type, source_type, project_root):
+        return "[green]✓ OAuth credentials already configured[/green]"
     else:
-        return f"[yellow]⚠️  OAuth credentials not found - setup required[/yellow]"
+        return "[yellow]⚠️  OAuth credentials not found - setup required[/yellow]"

@@ -1,26 +1,16 @@
-"""
-dbt Model Auto-Generation
+"""dango/transformation/generator.py
 
 Automatically generates dbt staging models from configured data sources.
-Supports 4 deduplication strategies from Phase 1 CSV design:
-  - none: No deduplication (events, logs)
-  - latest_only: Keep most recent by timestamp (snapshots)
-  - append_only: No dedup in staging (already handled per-file)
-  - scd_type2: Slowly Changing Dimension Type 2 with history tracking
-
-Foundation created in Phase 2 Day 10.
-Completed in Phase 2 Day 11.
-CSV dedup → dbt template mapping fixed in MVP Week 1 Day 1 (Oct 27, 2025).
 """
 
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
-import jinja2
-import duckdb
+from pathlib import Path
+from typing import Any
 
-from dango.config.models import DataSource, SourceType, DeduplicationStrategy
-from dango.ingestion.sources.registry import get_source_metadata
+import duckdb
+import jinja2
+
+from dango.config.models import DataSource
 
 
 class DbtModelGenerator:
@@ -40,15 +30,6 @@ class DbtModelGenerator:
         "first_seen": "Keep oldest record (first occurrence)",
         "composite_key": "Deduplicate using multiple columns as composite key",
         "row_number": "Keep first row when sorted by specified columns",
-    }
-
-    # Map CSV dedup strategies to dbt template strategies
-    # Based on CSV_LOADING_DESIGN_SUMMARY.md Phase 1 design
-    CSV_TO_DBT_STRATEGY_MAP = {
-        DeduplicationStrategy.NONE: None,  # No dedup - keep all rows
-        DeduplicationStrategy.LATEST_ONLY: "last_modified",  # Keep latest by timestamp (PARTITION BY pk, ORDER BY ts DESC)
-        DeduplicationStrategy.APPEND_ONLY: None,  # No dedup in staging (already deduped per-file during load)
-        DeduplicationStrategy.SCD_TYPE2: "scd_type2",  # SCD Type 2 with valid_from/valid_to/is_current
     }
 
     def __init__(self, project_root: Path):
@@ -92,7 +73,7 @@ class DbtModelGenerator:
             # If we can't read the file, assume it's customized
             return False
 
-    def get_table_schema(self, table_name: str, schema: str = "main") -> List[Dict[str, Any]]:
+    def get_table_schema(self, table_name: str, schema: str = "main") -> list[dict[str, Any]]:
         """
         Get schema information from DuckDB table
 
@@ -107,53 +88,77 @@ class DbtModelGenerator:
             return []
 
         try:
-            conn = duckdb.connect(str(self.duckdb_path), read_only=True)
+            conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
+            try:
+                # Query table schema
+                result = conn.execute(f"""
+                    SELECT
+                        column_name,
+                        data_type,
+                        is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema = '{schema}'
+                      AND table_name = '{table_name}'
+                    ORDER BY ordinal_position
+                """).fetchall()
 
-            # Query table schema
-            result = conn.execute(f"""
-                SELECT
-                    column_name,
-                    data_type,
-                    is_nullable
-                FROM information_schema.columns
-                WHERE table_schema = '{schema}'
-                  AND table_name = '{table_name}'
-                ORDER BY ordinal_position
-            """).fetchall()
+                columns = []
+                for row in result:
+                    column_name, data_type, is_nullable = row
 
-            columns = []
-            for row in result:
-                column_name, data_type, is_nullable = row
+                    # Generate tests based on column properties
+                    tests = []
+                    if is_nullable == "NO":
+                        tests.append("not_null")
 
-                # Generate tests based on column properties
-                tests = []
-                if is_nullable == 'NO':
-                    tests.append('not_null')
+                    # Common patterns for unique columns (exact primary key names only;
+                    # _id suffix columns are typically foreign keys and NOT unique)
+                    if column_name.lower() in ["id", "uuid", "key"]:
+                        tests.append("unique")
 
-                # Common patterns for unique columns
-                if column_name.lower() in ['id', 'uuid', 'key']:
-                    tests.append('unique')
+                    columns.append(
+                        {
+                            "name": column_name,
+                            "type": data_type,
+                            "nullable": is_nullable == "YES",
+                            "tests": tests,
+                            "description": f"{column_name} column",
+                        }
+                    )
 
-                columns.append({
-                    'name': column_name,
-                    'type': data_type,
-                    'nullable': is_nullable == 'YES',
-                    'tests': tests,
-                    'description': f'{column_name} column'
-                })
+                return columns
+            finally:
+                conn.close()
 
-            conn.close()
-            return columns
-
-        except Exception as e:
+        except Exception:
             # Table might not exist yet - return empty
             return []
 
+    def _find_dlt_nested_table(self, normalized_name: str, schema: str) -> str | None:
+        """Find a dlt nested table whose name with __ collapsed matches normalized_name."""
+        if not self.duckdb_path.exists():
+            return None
+        try:
+            conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
+            try:
+                result = conn.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = ? AND table_name LIKE '%\\_\\_%' ESCAPE '\\'",
+                    [schema],
+                ).fetchall()
+            finally:
+                conn.close()
+            for (table_name,) in result:
+                collapsed = "_".join(filter(None, table_name.split("_")))
+                if collapsed == normalized_name:
+                    return table_name
+            return None
+        except Exception:
+            return None
+
     def infer_dedup_strategy(
-        self,
-        source: DataSource,
-        columns: List[Dict[str, Any]]
-    ) -> Tuple[Optional[str], Optional[List[str]]]:
+        self, source: DataSource, columns: list[dict[str, Any]]
+    ) -> tuple[str | None, list[str] | None]:
         """
         Infer deduplication strategy based on source type and columns
 
@@ -165,50 +170,21 @@ class DbtModelGenerator:
             Tuple of (dbt_strategy, dedup_columns)
             where dbt_strategy is one of DBT_TEMPLATE_STRATEGIES keys or None
         """
-        column_names = [col['name'].lower() for col in columns]
+        column_names = [col["name"].lower() for col in columns]
 
-        # CSV sources: Map from CSV config strategy to dbt template strategy
-        if source.type == SourceType.CSV and source.csv:
-            csv_strategy = source.csv.deduplication_strategy
-
-            # Map CSV strategy to dbt template strategy
-            dbt_strategy = self.CSV_TO_DBT_STRATEGY_MAP.get(csv_strategy)
-
-            # Build dedup_columns based on strategy
-            if dbt_strategy == "last_modified":
-                # latest_only: Use primary_key + timestamp_column
-                if source.csv.primary_key and source.csv.timestamp_column:
-                    return (dbt_strategy, [source.csv.primary_key, source.csv.timestamp_column])
-                else:
-                    # Fallback: Try to infer from column names
-                    id_cols = [col for col in column_names
-                              if any(id_field in col for id_field in ['id', 'uuid', 'key'])]
-                    timestamp_cols = [col for col in column_names
-                                    if any(ts in col for ts in ['updated_at', 'modified_at', 'timestamp'])]
-                    if id_cols and timestamp_cols:
-                        return (dbt_strategy, [id_cols[0], timestamp_cols[0]])
-
-            elif dbt_strategy == "scd_type2":
-                # SCD Type 2: Use primary_key + timestamp_column
-                if source.csv.primary_key and source.csv.timestamp_column:
-                    return (dbt_strategy, [source.csv.primary_key, source.csv.timestamp_column])
-
-            elif dbt_strategy is None:
-                # none or append_only: No deduplication
-                return (None, None)
-
-        # API sources: Usually have updated_at + id
-        if any(col in column_names for col in ['updated_at', 'modified_at']):
-            id_col = next((col for col in column_names if 'id' in col), None)
-            updated_col = next((col for col in column_names
-                               if col in ['updated_at', 'modified_at']), None)
+        # Infer dedup from column names (works for all source types)
+        if any(col in column_names for col in ["updated_at", "modified_at"]):
+            id_col = next((col for col in column_names if "id" in col), None)
+            updated_col = next(
+                (col for col in column_names if col in ["updated_at", "modified_at"]), None
+            )
             if id_col and updated_col:
-                return ('last_modified', [id_col, updated_col])
+                return ("last_modified", [id_col, updated_col])
 
         # No deduplication
         return (None, None)
 
-    def _get_source_endpoints(self, source: DataSource) -> List[str]:
+    def _get_source_endpoints(self, source: DataSource) -> list[str]:
         """
         Extract configured endpoints/resources from source config
 
@@ -221,31 +197,33 @@ class DbtModelGenerator:
         source_config = getattr(source, source.type.value, None)
         if source_config:
             try:
-                source_dict = source_config.model_dump() if hasattr(source_config, 'model_dump') else {}
+                source_dict = (
+                    source_config.model_dump() if hasattr(source_config, "model_dump") else {}
+                )
 
                 # Check for endpoints/resources/tables/range_names parameter
                 resources = (
-                    source_dict.get('endpoints') or
-                    source_dict.get('resources') or
-                    source_dict.get('tables') or
-                    source_dict.get('objects') or
-                    source_dict.get('range_names') or  # Google Sheets uses range_names
-                    []
+                    source_dict.get("endpoints")
+                    or source_dict.get("resources")
+                    or source_dict.get("tables")
+                    or source_dict.get("objects")
+                    or source_dict.get("range_names")  # Google Sheets uses range_names
+                    or []
                 )
 
                 if isinstance(resources, list) and resources:
                     return resources
 
                 # Handle GA4 queries format - each query has a resource_name
-                queries = source_dict.get('queries', [])
+                queries = source_dict.get("queries", [])
                 if isinstance(queries, list) and queries:
-                    return [q.get('resource_name') for q in queries if q.get('resource_name')]
+                    return [q.get("resource_name") for q in queries if q.get("resource_name")]
             except Exception:
                 pass
 
         return []
 
-    def _discover_tables_from_db(self, schema_name: str) -> List[str]:
+    def _discover_tables_from_db(self, schema_name: str) -> list[str]:
         """
         Discover tables from database for a given schema.
         Filters out dlt internal tables and metadata tables.
@@ -257,19 +235,24 @@ class DbtModelGenerator:
             List of user data table names
         """
         try:
-            conn = duckdb.connect(str(self.duckdb_path), read_only=True)
-            result = conn.execute("""
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = ?
-                ORDER BY table_name
-            """, [schema_name]).fetchall()
-            conn.close()
+            conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
+            try:
+                result = conn.execute(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = ?
+                    ORDER BY table_name
+                """,
+                    [schema_name],
+                ).fetchall()
+            finally:
+                conn.close()
 
             # Filter out dlt internal tables and metadata tables
-            skip_prefixes = ('_dlt_', 'dimensions', 'metrics')
-            skip_suffixes = ('__deprecated_api_names',)
-            skip_exact = ('spreadsheet', 'spreadsheet_info')  # Google Sheets metadata
+            skip_prefixes = ("_dlt_", "dimensions", "metrics")
+            skip_suffixes = ("__deprecated_api_names",)
+            skip_exact = ("spreadsheet", "spreadsheet_info")  # Google Sheets metadata
 
             tables = []
             for (table_name,) in result:
@@ -290,8 +273,8 @@ class DbtModelGenerator:
         source: DataSource,
         table_name: str,
         schema_name: str = "raw",
-        dedup_strategy: Optional[str] = None,
-        dedup_columns: Optional[List[str]] = None,
+        dedup_strategy: str | None = None,
+        dedup_columns: list[str] | None = None,
     ) -> str:
         """
         Generate staging model SQL for a data source
@@ -310,8 +293,7 @@ class DbtModelGenerator:
         valid_strategies = list(self.DBT_TEMPLATE_STRATEGIES.keys()) + ["scd_type2"]
         if dedup_strategy and dedup_strategy not in valid_strategies:
             raise ValueError(
-                f"Invalid dedup_strategy '{dedup_strategy}'. "
-                f"Must be one of: {valid_strategies}"
+                f"Invalid dedup_strategy '{dedup_strategy}'. Must be one of: {valid_strategies}"
             )
 
         # Template context
@@ -333,7 +315,7 @@ class DbtModelGenerator:
         self,
         source: DataSource,
         schema_name: str,
-        tables: List[Dict[str, Any]],
+        tables: list[dict[str, Any]],
     ) -> str:
         """
         Generate sources.yml documenting raw tables with dbt sources syntax
@@ -364,10 +346,40 @@ class DbtModelGenerator:
         template = self.jinja_env.get_template("sources.yml.j2")
         return template.render(**context)
 
+    def _enrich_columns_from_profiling(
+        self, source_name: str, table_name: str, columns: list[dict[str, Any]]
+    ) -> None:
+        """Add ``not_null`` tests for columns with 0% null rate from profiling stats.
+
+        Mutates *columns* in place.
+
+        Args:
+            source_name: Source name (used to query profiling_stats).
+            table_name: Table name within the source schema.
+            columns: Column dicts from ``get_table_schema()``.
+        """
+        from dango.utils.dango_db import connect
+
+        try:
+            with connect(self.project_root) as conn:
+                rows = conn.execute(
+                    "SELECT column_name FROM profiling_stats "
+                    "WHERE source = ? AND table_name = ? "
+                    "AND stat_type = 'null_pct' AND stat_value = '0.0'",
+                    (source_name, table_name),
+                ).fetchall()
+            zero_null_cols = {row[0] for row in rows}
+        except Exception:
+            return
+
+        for col in columns:
+            if col["name"] in zero_null_cols and "not_null" not in col.get("tests", []):
+                col.setdefault("tests", []).append("not_null")
+
     def generate_staging_schema_yml(
         self,
         source: DataSource,
-        models: List[Dict[str, Any]],
+        models: list[dict[str, Any]],
     ) -> str:
         """
         Generate schema.yml documenting staging models
@@ -394,10 +406,10 @@ class DbtModelGenerator:
 
     def generate_all_models(
         self,
-        sources: List[DataSource],
+        sources: list[DataSource],
         generate_schema_yml: bool = True,
-        skip_customized: bool = False
-    ) -> Dict[str, Any]:
+        skip_customized: bool = False,
+    ) -> dict[str, Any]:
         """
         Generate staging models for all configured sources
 
@@ -431,10 +443,12 @@ class DbtModelGenerator:
                     endpoints = self._discover_tables_from_db(schema_name)
 
                 if not endpoints:
-                    summary["skipped"].append({
-                        "source": source.name,
-                        "reason": "No tables found in database (run dango sync first)"
-                    })
+                    summary["skipped"].append(
+                        {
+                            "source": source.name,
+                            "reason": "No tables found in database (run dango sync first)",
+                        }
+                    )
                     continue
 
                 # Collect tables for sources.yml
@@ -447,19 +461,30 @@ class DbtModelGenerator:
                     # - Replace spaces and special chars with underscores
                     # - Remove consecutive underscores
                     table_name = endpoint.lower()
-                    table_name = ''.join(c if c.isalnum() else '_' for c in table_name)
-                    table_name = '_'.join(filter(None, table_name.split('_')))  # Remove consecutive underscores
+                    table_name = "".join(c if c.isalnum() else "_" for c in table_name)
+                    table_name = "_".join(
+                        filter(None, table_name.split("_"))
+                    )  # Remove consecutive underscores
 
                     # Get schema from DuckDB
                     columns = self.get_table_schema(table_name, schema=schema_name)
 
                     if not columns:
+                        # Try dlt nested table naming (double underscore convention)
+                        actual_name = self._find_dlt_nested_table(table_name, schema_name)
+                        if actual_name:
+                            columns = self.get_table_schema(actual_name, schema=schema_name)
+                            table_name = actual_name
+
+                    if not columns:
                         # Skip this endpoint if table doesn't exist yet
-                        summary["skipped"].append({
-                            "source": source.name,
-                            "endpoint": endpoint,
-                            "reason": f"Table {schema_name}.{table_name} not found (run dango sync first)"
-                        })
+                        summary["skipped"].append(
+                            {
+                                "source": source.name,
+                                "endpoint": endpoint,
+                                "reason": f"Table {schema_name}.{table_name} not found (run dango sync first)",
+                            }
+                        )
                         continue
 
                     # Check if model exists and is customized
@@ -467,15 +492,26 @@ class DbtModelGenerator:
                     model_file = self.staging_dir / f"stg_{source.name}__{table_name}.sql"
 
                     if skip_customized and not self.is_auto_generated(model_file):
-                        summary["skipped"].append({
-                            "source": source.name,
-                            "endpoint": endpoint,
-                            "reason": "User-customized (marker comment removed)"
-                        })
+                        summary["skipped"].append(
+                            {
+                                "source": source.name,
+                                "endpoint": endpoint,
+                                "reason": "User-customized (marker comment removed)",
+                            }
+                        )
                         continue
 
+                    # Filter internal metadata columns for staging context
+                    staging_columns = [
+                        c
+                        for c in columns
+                        if not c["name"].startswith("_dlt_") and not c["name"].startswith("_dango_")
+                    ]
+
                     # Infer deduplication strategy
-                    dedup_strategy, dedup_columns = self.infer_dedup_strategy(source, columns)
+                    dedup_strategy, dedup_columns = self.infer_dedup_strategy(
+                        source, staging_columns
+                    )
 
                     # Generate staging model SQL
                     model_sql = self.generate_staging_model(
@@ -490,18 +526,23 @@ class DbtModelGenerator:
                     with open(model_file, "w") as f:
                         f.write(model_sql)
 
-                    generated_models.append({
-                        "endpoint": endpoint,
-                        "model": str(model_file),
-                        "columns": len(columns),
-                        "dedup_strategy": dedup_strategy or "none",
-                    })
+                    generated_models.append(
+                        {
+                            "endpoint": endpoint,
+                            "model": str(model_file),
+                            "columns": len(staging_columns),
+                            "dedup_strategy": dedup_strategy or "none",
+                        }
+                    )
 
-                    # Add to sources.yml tables list
-                    tables_for_yml.append({
-                        "name": table_name,
-                        "columns": columns
-                    })
+                    # Add to sources.yml tables list (all columns including internal)
+                    tables_for_yml.append(
+                        {
+                            "name": table_name,
+                            "columns": columns,
+                            "staging_columns": staging_columns,
+                        }
+                    )
 
                 # Generate sources.yml for all tables (documents raw tables)
                 sources_file = None
@@ -513,16 +554,24 @@ class DbtModelGenerator:
                         f.write(sources_yml)
 
                     # Generate staging schema.yml (documents staging models)
+                    # Uses staging_columns (excludes _dlt_*/_dango_* internal columns)
                     staging_models_for_yml = []
                     for table in tables_for_yml:
-                        staging_models_for_yml.append({
-                            "name": f"stg_{source.name}__{table['name']}",
-                            "table_name": table["name"],
-                            "schema_name": schema_name,
-                            "columns": table["columns"],
-                        })
+                        stg_cols = table.get("staging_columns", table["columns"])
+                        self._enrich_columns_from_profiling(source.name, table["name"], stg_cols)
+                        staging_models_for_yml.append(
+                            {
+                                "name": f"stg_{source.name}__{table['name']}",
+                                "description": f"Staging model for {table['name']} from {source.name}",
+                                "table_name": table["name"],
+                                "schema_name": schema_name,
+                                "columns": stg_cols,
+                            }
+                        )
 
-                    staging_schema_yml = self.generate_staging_schema_yml(source, staging_models_for_yml)
+                    staging_schema_yml = self.generate_staging_schema_yml(
+                        source, staging_models_for_yml
+                    )
                     staging_schema_file = self.staging_dir / f"stg_{source.name}.yml"
                     # Only write if file doesn't exist (don't overwrite user customizations)
                     if not staging_schema_file.exists():
@@ -530,23 +579,27 @@ class DbtModelGenerator:
                             f.write(staging_schema_yml)
 
                 if generated_models:
-                    summary["generated"].append({
-                        "source": source.name,
-                        "schema": schema_name,
-                        "models": generated_models,
-                        "sources": str(sources_file) if sources_file else None,
-                    })
+                    summary["generated"].append(
+                        {
+                            "source": source.name,
+                            "schema": schema_name,
+                            "models": generated_models,
+                            "sources": str(sources_file) if sources_file else None,
+                        }
+                    )
 
             except Exception as e:
-                summary["errors"].append({
-                    "source": source.name,
-                    "error": str(e),
-                })
+                summary["errors"].append(
+                    {
+                        "source": source.name,
+                        "error": str(e),
+                    }
+                )
 
         return summary
 
 
-def generate_staging_models(project_root: Path, sources: List[DataSource]) -> Dict[str, Any]:
+def generate_staging_models(project_root: Path, sources: list[DataSource]) -> dict[str, Any]:
     """
     Convenience function to generate staging models
 

@@ -1,43 +1,96 @@
-"""
-Generic Source Wizard
+"""dango/cli/source_wizard.py
 
-Metadata-driven wizard that works for all 27+ data sources.
-Uses SOURCE_REGISTRY for display names, categories, and parameters.
+Metadata-driven wizard that works for all 27+ data sources. Uses SOURCE_REGISTRY for display names, categories, and parameters.
 """
 
-import os
 from pathlib import Path
-from typing import Dict, Any, Optional, List
-from datetime import datetime, timedelta
-from rich.console import Console
-from rich.prompt import Confirm
-from rich.table import Table
-from rich.panel import Panel
+from typing import Any
+
 import inquirer
 from inquirer import themes
+from rich.console import Console
+from rich.markup import escape
+from rich.prompt import Confirm
 
-from dango.config.loader import load_config, save_config
-from dango.config.models import DataSource, SourceType
-from dango.ingestion.sources.registry import (
-    SOURCE_REGISTRY,
-    CATEGORIES,
-    get_source_metadata,
-    get_sources_by_category,
-    get_all_categories,
-    AuthType,
-)
 from dango.cli.env_helpers import (
     create_env_template,
     guide_env_setup,
 )
+from dango.config.helpers import load_config, save_config
+from dango.config.models import DataSource
+from dango.ingestion.sources.registry import (
+    SOURCE_REGISTRY,
+    AuthType,
+    get_all_categories,
+    get_source_metadata,
+    get_sources_by_category,
+)
 from dango.oauth.router import (
-    run_oauth_for_source,
-    check_oauth_credentials_exist,
     OAUTH_PROVIDER_MAP,
+    run_oauth_for_source,
 )
 from dango.oauth.storage import OAuthStorage
 
 console = Console()
+
+
+def _suggest_data_path(response: Any) -> str | None:
+    """Suggest a data_selector path by scanning the response for list values.
+
+    Args:
+        response: Parsed JSON response from API endpoint
+
+    Returns:
+        Dotted path to the data array (e.g., "data.items"), or None
+    """
+    if isinstance(response, list):
+        return None  # Top-level array, no selector needed
+    if not isinstance(response, dict):
+        return None
+    # Depth 1: look for list values
+    for key, val in response.items():
+        if isinstance(val, list) and val:
+            return key
+    # Depth 2: look for nested list values
+    for key, val in response.items():
+        if isinstance(val, dict):
+            for subkey, subval in val.items():
+                if isinstance(subval, list) and subval:
+                    return f"{key}.{subkey}"
+    return None
+
+
+def _suggest_primary_key(response: Any, data_selector: str | None) -> str | None:
+    """Suggest a primary key field from the first record in the response.
+
+    Args:
+        response: Parsed JSON response from API endpoint
+        data_selector: Dotted path to data array (e.g., "data.items")
+
+    Returns:
+        Suggested primary key field name, or None
+    """
+    data = response
+    if data_selector:
+        for part in data_selector.split("."):
+            if isinstance(data, dict) and part in data:
+                data = data[part]
+            else:
+                return None
+    if not isinstance(data, list) or not data:
+        return None
+    record = data[0]
+    if not isinstance(record, dict):
+        return None
+    # Check common ID field names in priority order
+    for candidate in ("id", "ID", "uuid", "key"):
+        if candidate in record:
+            return candidate
+    # Check *_id pattern
+    for field in record:
+        if isinstance(field, str) and field.endswith("_id"):
+            return field
+    return None
 
 
 class SourceWizard:
@@ -65,7 +118,9 @@ class SourceWizard:
         """
         try:
             console.print("\n[bold cyan]🍡 Dango Source Wizard[/bold cyan]\n")
-            console.print("[dim]Press Ctrl+C at any time to abort (nothing saved until the end)[/dim]\n")
+            console.print(
+                "[dim]Press Ctrl+C at any time to abort (nothing saved until the end)[/dim]\n"
+            )
 
             # State machine for navigation with back button support
             source_type = None
@@ -92,39 +147,10 @@ class SourceWizard:
                     # Show source info
                     self._show_source_info(metadata)
 
-                    # Special handling for dlt_native sources (file-based config only)
+                    # Special handling for dlt_native sources — guided template wizard
                     if source_type == "dlt_native":
-                        console.print(f"\n[yellow]⚠️  dlt_native sources must be configured manually[/yellow]\n")
-                        console.print(f"[bold]This is an advanced feature for file-based configuration:[/bold]")
-                        console.print(f"  1. Edit .dango/sources.yml manually")
-                        console.print(f"  2. Add a source with type: dlt_native")
-                        console.print(f"  3. Configure source_module, source_function, and function_kwargs")
-                        console.print(f"\n[cyan]Example configuration:[/cyan]")
-                        console.print(f"  sources:")
-                        console.print(f"    - name: my_custom_source")
-                        console.print(f"      type: dlt_native")
-                        console.print(f"      dlt_native:")
-                        console.print(f"        source_module: my_source")
-                        console.print(f"        source_function: my_source_func")
-                        console.print(f"        function_kwargs:")
-                        console.print(f"          api_key_env: MY_API_KEY")
-                        console.print(f"\n[dim]See docs/ADVANCED_USAGE.md for more examples[/dim]\n")
-
-                        # Ask if user wants to go back
-                        import inquirer
-                        questions = [
-                            inquirer.List(
-                                "action",
-                                message="What would you like to do?",
-                                choices=["← Back to source selection", "Exit wizard"],
-                            )
-                        ]
-                        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
-                        if not answers or answers["action"] == "Exit wizard":
-                            return False
-                        else:
-                            state = "source"
-                            continue
+                        result = self._setup_dlt_native_source()
+                        return result
 
                     state = "name"
 
@@ -151,13 +177,22 @@ class SourceWizard:
 
                 elif state == "params":
                     # Step 4: Collect parameters
-                    params = self._collect_parameters(source_type, metadata, source_name)
+                    if source_type == "rest_api":
+                        params = self._collect_rest_api_params(source_name)
+                    else:
+                        params = self._collect_parameters(source_type, metadata, source_name)
                     if params == "← Back":
                         # Go back to source name
                         state = "name"
                         continue
                     if params is None:
                         return False  # User cancelled
+
+                    # Step 4b: Resource selection (if source has available_resources)
+                    selected = self._select_resources(source_type, metadata)
+                    if selected is not None:
+                        params["resources"] = selected
+
                     # All inputs collected, break out of state machine
                     break
 
@@ -165,59 +200,173 @@ class SourceWizard:
             if metadata.get("default_config"):
                 self._write_config_template(source_type, metadata)
 
-            # Step 6b: Create directory if this is a CSV source
-            if source_type == "csv" and "directory" in params:
+            # Step 6b: Create directory if this is a file-based source
+            if source_type in ("csv", "local_files") and "directory" in params:
                 directory_path = self.project_root / params["directory"]
                 if not directory_path.exists():
                     directory_path.mkdir(parents=True, exist_ok=True)
                     console.print(f"[green]✅ Created directory: {params['directory']}[/green]")
+                # Warn about .gitignore for non-default directories
+                default_dir = f"data/uploads/{source_name}"
+                if params["directory"] != default_dir and not params["directory"].startswith(
+                    "data/uploads"
+                ):
+                    console.print(
+                        f"[yellow]⚠️  Remember to add '{params['directory']}' to .gitignore[/yellow]"
+                    )
 
             # Step 7: Create source config
-            source_config = self._create_source_config(
-                source_name, source_type, params, metadata
-            )
+            source_config = self._create_source_config(source_name, source_type, params, metadata)
+
+            # Step 7b: Prompt for lookback window if source has a registry default
+            default_lookback = (metadata.get("default_config") or {}).get("lookback_days")
+            if default_lookback is not None:
+                ad_sources = {"google_ads", "facebook_ads"}
+                console.print(f"\n[bold]Lookback window: {default_lookback} day(s)[/bold]")
+                console.print(
+                    "  [dim]Each incremental sync re-loads recent data to catch "
+                    "late-arriving records.[/dim]"
+                )
+                if source_type in ad_sources:
+                    console.print(
+                        "  [dim]Ad platform attribution can update for days after "
+                        "the initial report (e.g., Google Ads up to 30 days).[/dim]"
+                    )
+                keep = Confirm.ask(f"  Keep default of {default_lookback} days?", default=True)
+                if keep:
+                    source_config["lookback_days"] = default_lookback
+                else:
+                    from rich.prompt import IntPrompt
+
+                    custom = IntPrompt.ask("  Enter lookback days", default=default_lookback)
+                    if custom < 1:
+                        custom = 1
+                    source_config["lookback_days"] = custom
 
             # Step 8: If secrets required, validate credentials FIRST (before saving)
             if self.secret_params:
-                console.print(f"\n[bold]Setting up credentials...[/bold]")
+                import os
 
-                # Create .env template
-                create_env_template(self.env_file, self.secret_params)
-                console.print(f"[green]✅ Created .env template[/green]")
+                # Check if all credentials were already provided inline (REST API wizard)
+                all_set = all(os.getenv(sp["name"]) for sp in self.secret_params if "name" in sp)
 
-                # Guide user through credential setup with validation
-                # Pass setup_guide for detailed instructions
-                setup_guide = metadata.get("setup_guide", [])
-                validated = guide_env_setup(
-                    self.env_file,
-                    self.secret_params,
-                    source_name,
-                    setup_guide
-                )
+                if all_set:
+                    # Credentials already saved to .env inline — just ensure template exists
+                    create_env_template(self.env_file, self.secret_params)
+                    console.print("[green]✅ Credentials saved to .env[/green]")
+                else:
+                    console.print("\n[bold]Setting up credentials...[/bold]")
 
-                if not validated:
-                    # Credentials not validated - don't save source config
-                    console.print(f"\n[yellow]⚠️  Setup cancelled - credentials not validated[/yellow]")
-                    console.print(f"\n[cyan]To retry:[/cyan]")
-                    console.print(f"  dango source add")
-                    return False
+                    # Create .env template
+                    create_env_template(self.env_file, self.secret_params)
+                    console.print("[green]✅ Created .env template[/green]")
+
+                    # Guide user through credential setup with validation
+                    # Pass setup_guide for detailed instructions
+                    setup_guide = metadata.get("setup_guide", [])
+                    validated = guide_env_setup(
+                        self.env_file, self.secret_params, source_name, setup_guide
+                    )
+
+                    if not validated:
+                        # Credentials not validated - don't save source config
+                        console.print(
+                            "\n[yellow]⚠️  Setup cancelled - credentials not validated[/yellow]"
+                        )
+                        console.print("\n[cyan]To retry:[/cyan]")
+                        console.print("  dango source add")
+                        return False
 
             # Step 9: Only save source config if validation passed or no secrets required
             self._save_source(source_config)
             console.print(f"\n[green]✅ Saved '{source_name}' to sources.yml[/green]")
 
-            # Success messages based on whether secrets were required
-            if self.secret_params:
-                console.print(f"\n[green]✅ Source '{source_name}' fully configured![/green]")
-                console.print(f"\n[cyan]Ready to sync:[/cyan]")
-                console.print(f"  dango sync --source {source_name}")
-            else:
-                # No secrets required
-                console.print(f"\n[green]✅ Source '{source_name}' added successfully![/green]")
+            # Step 9b: Show setup guide + secrets.toml template for
+            # sources with credentials in secrets.toml (not .env)
+            if not self.secret_params and metadata.get("setup_guide"):
+                console.print("\n[bold]Credential setup required:[/bold]")
+                for line in metadata["setup_guide"]:
+                    console.print(f"  {line}")
 
-                # Auto-validate configuration
-                console.print(f"\n[dim]Validating configuration...[/dim]")
+                secrets_template = metadata.get("secrets_toml_template")
+                if secrets_template:
+                    dlt_dir = self.project_root / ".dlt"
+                    secrets_path = dlt_dir / "secrets.toml"
+                    dlt_dir.mkdir(parents=True, exist_ok=True)
+                    try:
+                        existing = secrets_path.read_text() if secrets_path.exists() else ""
+                        section_header = f"[sources.{source_name}."
+                        if section_header not in existing:
+                            # Pre-populate template with wizard-collected params
+                            # (e.g., zendesk subdomain). defaultdict(str) returns ""
+                            # for unknown placeholders — prevents wizard crash from
+                            # registry template typos (caught during manual testing).
+                            from collections import defaultdict
+
+                            template_vars = defaultdict(str, source_name=source_name, **params)
+                            template_text = secrets_template.format_map(template_vars)
+                            prefix = existing.rstrip() + "\n\n" if existing.strip() else ""
+                            new_content = prefix + template_text + "\n"
+                            secrets_path.write_text(new_content)
+                            console.print(
+                                "\n[green]✓[/green] Added credential template to "
+                                "[cyan].dlt/secrets.toml[/cyan]"
+                            )
+                            console.print(
+                                "[yellow]Fill in the credential values before syncing.[/yellow]"
+                            )
+                        else:
+                            console.print(
+                                "\n[dim]Credential template already exists in "
+                                ".dlt/secrets.toml[/dim]"
+                            )
+                    except Exception as e:
+                        console.print(f"[yellow]Could not write secrets template: {e}[/yellow]")
+
+            # Step 10: Offer automatic analysis metrics
+            try:
+                from dango.analysis.templates import generate_metrics_for_source
+
+                templates = generate_metrics_for_source(source_type, source_name)
+                if templates:
+                    if Confirm.ask(
+                        "\n[bold]Enable automatic analysis?[/bold]",
+                        default=True,
+                    ):
+                        from dango.analysis.config import add_monitors_to_config
+
+                        header = None
+                        if source_type in ("csv", "local_files"):
+                            header = (
+                                f"NOTE: Tables will be created in the raw_{source_name}"
+                                f" schema. Replace 'your_table' with your actual"
+                                f" table name after first sync."
+                            )
+                        add_monitors_to_config(self.project_root, templates, header_comment=header)
+                        console.print(
+                            f"[green]✅ Added {len(templates)} analysis"
+                            f" monitor(s) to monitors.yml[/green]"
+                        )
+            except Exception:
+                pass  # Never block source add
+
+            # Show first sync note if present (e.g., "large accounts may take 30 min")
+            first_sync_note = metadata.get("first_sync_note")
+            if first_sync_note:
+                console.print(f"\n  [yellow]Note: {first_sync_note}[/yellow]")
+                console.print(
+                    "  [dim]You can press Ctrl+C during sync — progress is saved "
+                    "and resumes on next run.[/dim]"
+                )
+
+            # Unified success message for all sources
+            console.print(f"\n[green]✅ Source '{source_name}' configured![/green]")
+
+            # Auto-validate configuration (skip for secret_params — already validated)
+            if not self.secret_params:
+                console.print("\n[dim]Validating configuration...[/dim]")
                 from dango.config import ConfigLoader
+
                 loader = ConfigLoader(self.project_root)
                 is_valid, errors = loader.validate_config()
 
@@ -229,33 +378,26 @@ class SourceWizard:
                         console.print(f"  • {error}")
                     console.print("[dim]Run 'dango config validate' to see details[/dim]")
 
-                # CSV-specific instructions
-                if source_type == "csv" and "directory" in params:
-                    console.print(f"\n[bold cyan]What to do now:[/bold cyan]")
-                    console.print(f"\n[bold]Option A: Use Web UI (recommended)[/bold]")
-                    console.print(f"  1. Start platform: [cyan]dango start[/cyan]")
-                    console.print(f"  2. Upload files via Web UI (sync happens automatically)")
-                    console.print(f"  3. [dim](Optional)[/dim] Document tables: [cyan]dango docs[/cyan]")
-                    console.print(f"\n[bold]Option B: Copy files manually[/bold]")
-                    console.print(f"  1. Copy CSV files to: [cyan]{params['directory']}[/cyan]")
-                    console.print(f"  2. Load data: [cyan]dango sync --source {source_name}[/cyan]")
-                    console.print(f"     • Creates dbt staging models in dbt/models/staging/{source_name}/")
-                    console.print(f"     • Creates documentation file: sources.yml")
-                    console.print(f"  3. [dim](Optional)[/dim] Document tables: [cyan]dango docs[/cyan]")
-                    console.print(f"\n[dim]Notes:[/dim]")
-                    console.print(f"  • All files must have same columns (first row = headers)")
-                    console.print(f"  • Change folder/filters → .dango/sources.yml")
-                    console.print(f"  • Add column descriptions → dbt/models/staging/{source_name}/sources.yml")
-                else:
-                    console.print(f"\n[bold cyan]What to do now:[/bold cyan]")
-                    console.print(f"  1. Load your data: [cyan]dango sync --source {source_name}[/cyan]")
-                    console.print(f"     • This creates dbt staging models in dbt/models/staging/{source_name}/")
-                    console.print(f"     • Documentation file created: dbt/models/staging/{source_name}/sources.yml")
-                    console.print(f"  2. Document your tables (optional): Edit sources.yml to add descriptions")
-                    console.print(f"     • Regenerate docs: [cyan]dango docs[/cyan]")
-                    console.print(f"\n[dim]To customize later:[/dim]")
-                    console.print(f"  • Change connection settings → .dango/sources.yml")
-                    console.print(f"  • Update column descriptions → dbt/models/staging/{source_name}/sources.yml (created after first sync)")
+            # File source extra instructions
+            if source_type in ("csv", "local_files") and "directory" in params:
+                label = "Local file tips" if source_type == "local_files" else "CSV tips"
+                console.print(f"\n[bold cyan]{label}:[/bold cyan]")
+                console.print("\n[bold]Option A: Use Web UI (recommended)[/bold]")
+                console.print("  Start platform: [cyan]dango start[/cyan]")
+                console.print("  Upload files via Web UI (sync happens automatically)")
+                console.print("\n[bold]Option B: Copy files manually[/bold]")
+                console.print(f"  Copy data files to: [cyan]{params['directory']}[/cyan]")
+                if source_type == "local_files":
+                    console.print("  Supported formats: CSV, JSON, JSONL, Parquet")
+                console.print(
+                    "  All files matching the pattern must have the same columns"
+                    " and will be loaded into a single table."
+                )
+
+            # Unified next steps
+            console.print("\n[cyan]Next steps:[/cyan]")
+            console.print(f"  1. Sync your data:    dango sync --source {source_name}")
+            console.print("  2. Schedule syncs:    dango schedule add")
 
             return True
 
@@ -263,15 +405,15 @@ class SourceWizard:
             console.print("\n\n[yellow]Wizard cancelled[/yellow]")
             return False
         except Exception as e:
-            console.print(f"\n[red]❌ Error: {e}[/red]")
+            console.print(f"\n[red]❌ Error: {escape(str(e))}[/red]")
             return False
 
-    def _select_source_flat(self) -> Optional[str]:
+    def _select_source_flat(self) -> str | None:
         """Select source from flat list (no categories)"""
-        # Get all v0-supported sources
+        # Get all wizard-enabled sources
         all_sources = []
         for source_type, source_meta in SOURCE_REGISTRY.items():
-            if source_meta.get("supported_in_v0", False):
+            if source_meta.get("wizard_enabled", False):
                 display_name = source_meta.get("display_name", source_type)
                 all_sources.append((display_name, source_type))
 
@@ -280,7 +422,7 @@ class SourceWizard:
             return None
 
         # Sort alphabetically by display name
-        all_sources.sort(key=lambda x: x[0])
+        all_sources.sort(key=lambda x: x[0].lower())
 
         # Create choices list
         choices = [s[0] for s in all_sources]
@@ -305,7 +447,7 @@ class SourceWizard:
 
         return None
 
-    def _select_category(self) -> Optional[str]:
+    def _select_category(self) -> str | None:
         """Select source category (deprecated - kept for reference)"""
         categories = get_all_categories()
 
@@ -313,11 +455,15 @@ class SourceWizard:
         choices = []
         for category in categories:
             sources_in_category = get_sources_by_category(category)
-            # Filter to only v0-supported sources
-            available = [s for s in sources_in_category if s in SOURCE_REGISTRY and SOURCE_REGISTRY[s].get("supported_in_v0", False)]
+            # Filter to only wizard-enabled sources
+            available = [
+                s
+                for s in sources_in_category
+                if s in SOURCE_REGISTRY and SOURCE_REGISTRY[s].get("wizard_enabled", False)
+            ]
             count = len(available)
 
-            # Skip categories with no v0-supported sources
+            # Skip categories with no wizard-enabled sources
             if count == 0:
                 continue
 
@@ -349,12 +495,16 @@ class SourceWizard:
         # Extract category name (remove count and examples)
         return answers["category"].split(" (")[0]
 
-    def _select_source(self, category: str) -> Optional[str]:
+    def _select_source(self, category: str) -> str | None:
         """Select specific source from category"""
         sources = get_sources_by_category(category)
 
-        # Filter to only v0-supported sources
-        available_sources = [s for s in sources if s in SOURCE_REGISTRY and SOURCE_REGISTRY[s].get("supported_in_v0", False)]
+        # Filter to only wizard-enabled sources
+        available_sources = [
+            s
+            for s in sources
+            if s in SOURCE_REGISTRY and SOURCE_REGISTRY[s].get("wizard_enabled", False)
+        ]
 
         if not available_sources:
             console.print(f"[yellow]No sources available in {category}[/yellow]")
@@ -390,7 +540,45 @@ class SourceWizard:
 
         return None
 
-    def _show_source_info(self, metadata: Dict[str, Any]) -> None:
+    def _select_resources(self, source_type: str, metadata: dict[str, Any]) -> list[str] | None:
+        """Prompt user to select which resources to sync.
+
+        Only shown for sources with ``available_resources`` in registry.
+        Sources that already have a ``resources`` multiselect param in
+        optional_params (e.g., HubSpot) are skipped — their resources
+        are collected via the normal parameter flow.
+
+        Returns:
+            Selected resource list, or None if not applicable.
+        """
+        available = metadata.get("available_resources")
+        if not available:
+            return None
+
+        # Skip if resources are already collected via optional_params
+        for p in metadata.get("optional_params", []):
+            if p.get("name") == "resources":
+                return None
+
+        defaults = metadata.get("default_resources", available)
+
+        console.print("\n[bold]Select resources to sync:[/bold]")
+        console.print("[dim](Space to toggle, Enter to confirm)[/dim]")
+
+        questions = [
+            inquirer.Checkbox(
+                "resources",
+                message="Resources",
+                choices=available,
+                default=defaults,
+            ),
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return defaults  # Ctrl+C during selection — use defaults
+        return answers.get("resources", defaults) or defaults
+
+    def _show_source_info(self, metadata: dict[str, Any]) -> None:
         """Display source information"""
         console.print(f"\n[bold]{metadata.get('display_name')}[/bold]")
         console.print(f"{metadata.get('description')}\n")
@@ -403,7 +591,9 @@ class SourceWizard:
         if metadata.get("docs_url"):
             console.print(f"[dim]📚 Docs: {metadata['docs_url']}[/dim]\n")
 
-    def _handle_oauth_setup(self, source_type: str, source_name: str, metadata: Dict[str, Any]) -> Optional[str]:
+    def _handle_oauth_setup(
+        self, source_type: str, source_name: str, metadata: dict[str, Any]
+    ) -> str | None:
         """
         Handle OAuth setup for sources that require it.
 
@@ -429,8 +619,12 @@ class SourceWizard:
         # Check if this source has an OAuth provider configured
         if source_type not in OAUTH_PROVIDER_MAP:
             # OAuth marked in registry but no provider - warn and continue
-            console.print(f"[yellow]⚠️  OAuth required but provider not yet implemented for {source_type}[/yellow]")
-            console.print(f"[yellow]   You'll need to configure credentials manually in .dlt/secrets.toml[/yellow]\n")
+            console.print(
+                f"[yellow]⚠️  OAuth required but provider not yet implemented for {source_type}[/yellow]"
+            )
+            console.print(
+                "[yellow]   You'll need to configure credentials manually in .dlt/secrets.toml[/yellow]\n"
+            )
             return None
 
         # Check for existing OAuth credentials for this source type
@@ -441,7 +635,7 @@ class SourceWizard:
             # Credentials exist for this source type
             if existing_cred.is_expired():
                 console.print(f"[red]⚠️  OAuth credentials for {source_type} have expired[/red]")
-                console.print(f"[yellow]Re-authenticate with: dango auth {source_type}[/yellow]\n")
+                console.print(f"[yellow]Re-authenticate with: dango oauth {source_type}[/yellow]\n")
 
                 questions = [
                     inquirer.List(
@@ -474,12 +668,14 @@ class SourceWizard:
 
             else:
                 # Valid credentials exist
-                console.print(f"[green]✓ OAuth credentials found: {existing_cred.account_info}[/green]\n")
+                console.print(
+                    f"[green]✓ OAuth credentials found: {existing_cred.account_info}[/green]\n"
+                )
                 return None
 
         # No existing credentials - prompt to set up new OAuth
-        console.print(f"[yellow]⚠️  OAuth authentication required[/yellow]")
-        console.print(f"[cyan]This source requires OAuth credentials to access your data.[/cyan]\n")
+        console.print("[yellow]⚠️  OAuth authentication required[/yellow]")
+        console.print("[cyan]This source requires OAuth credentials to access your data.[/cyan]\n")
 
         questions = [
             inquirer.List(
@@ -504,39 +700,46 @@ class SourceWizard:
             return "back"
 
         elif action == "Skip for now (configure manually later)":
-            console.print(f"\n[yellow]⚠️  Skipping OAuth setup[/yellow]")
-            console.print(f"[cyan]To authenticate later, run:[/cyan]")
-            console.print(f"  dango auth {source_type}")
-            console.print(f"\n[dim]You can still configure this source, but you won't be able to sync")
-            console.print(f"until you set up OAuth credentials.[/dim]\n")
+            console.print("\n[yellow]⚠️  Skipping OAuth setup[/yellow]")
+            console.print("[cyan]To authenticate later, run:[/cyan]")
+            console.print(f"  dango oauth {source_type}")
+            console.print(
+                "\n[dim]You can still configure this source, but you won't be able to sync"
+            )
+            console.print("until you set up OAuth credentials.[/dim]\n")
             return None
 
         # "Set up OAuth now" - run OAuth flow
-        console.print(f"\n[bold]Starting OAuth setup for {metadata.get('display_name')}...[/bold]\n")
+        console.print(
+            f"\n[bold]Starting OAuth setup for {metadata.get('display_name')}...[/bold]\n"
+        )
 
         success = run_oauth_for_source(source_type, source_name, self.project_root)
 
         if success:
-            console.print(f"\n[green]✅ OAuth credentials configured successfully![/green]")
-            console.print(f"[dim]  Credentials saved to .dlt/secrets.toml[/dim]\n")
+            console.print("\n[green]✅ OAuth credentials configured successfully![/green]")
+            console.print("[dim]  Credentials saved to .dlt/secrets.toml[/dim]\n")
             return None
         else:
-            console.print(f"\n[red]❌ OAuth setup failed[/red]")
-            console.print(f"[yellow]You can try again later with: dango auth {source_type}[/yellow]\n")
+            console.print("\n[red]❌ OAuth setup failed[/red]")
+            console.print(
+                f"[yellow]You can try again later with: dango oauth {source_type}[/yellow]\n"
+            )
 
             continue_anyway = Confirm.ask(
-                "Continue configuring source without OAuth credentials?",
-                default=False
+                "Continue configuring source without OAuth credentials?", default=False
             )
 
             if continue_anyway:
-                console.print(f"[yellow]⚠️  Continuing without credentials[/yellow]")
-                console.print(f"[yellow]   You won't be able to sync until you authenticate[/yellow]\n")
+                console.print("[yellow]⚠️  Continuing without credentials[/yellow]")
+                console.print(
+                    "[yellow]   You won't be able to sync until you authenticate[/yellow]\n"
+                )
                 return None
             else:
                 return "back"
 
-    def _get_source_name(self, source_type_key: str, metadata: Dict[str, Any]) -> Optional[str]:
+    def _get_source_name(self, source_type_key: str, metadata: dict[str, Any]) -> str | None:
         """Get unique source name from user with contextual help
 
         Args:
@@ -551,7 +754,9 @@ class SourceWizard:
         while True:
             # Consistent naming prompt for all source types
             console.print(f"\n[bold]Name this {source_type_display} source:[/bold]")
-            console.print(f"[cyan]Use lowercase with underscores (e.g., 'my_sales_data', 'prod_analytics')[/cyan]")
+            console.print(
+                "[cyan]Use lowercase with underscores (e.g., 'my_sales_data', 'prod_analytics')[/cyan]"
+            )
             console.print("[dim]Type 'back' to return to source selection[/dim]")
 
             questions = [
@@ -573,7 +778,9 @@ class SourceWizard:
 
             # Validate name format
             if not user_input or not user_input.replace("_", "").isalnum():
-                console.print(f"[yellow]⚠️  Invalid format. Use letters, numbers, and underscores only (no hyphens).[/yellow]")
+                console.print(
+                    "[yellow]⚠️  Invalid format. Use letters, numbers, and underscores only (no hyphens).[/yellow]"
+                )
                 continue
 
             # Use name as-is (no auto-prefixing)
@@ -581,7 +788,9 @@ class SourceWizard:
 
             # Check if final name already exists
             if self._source_name_exists(final_source_name):
-                console.print(f"[yellow]⚠️  Source '{final_source_name}' already exists. Choose a different name.[/yellow]")
+                console.print(
+                    f"[yellow]⚠️  Source '{final_source_name}' already exists. Choose a different name.[/yellow]"
+                )
                 continue
 
             # Show what will be created (all sources use raw_{source_name} schema)
@@ -599,7 +808,7 @@ class SourceWizard:
         config = load_config(self.project_root)
         return any(s.name == name for s in config.sources.sources)
 
-    def _is_credential_param(self, param: Dict[str, Any], source_type: str) -> bool:
+    def _is_credential_param(self, param: dict[str, Any], source_type: str) -> bool:
         """Check if a parameter is a credential/secret that should be skipped when using OAuth
 
         Args:
@@ -615,7 +824,11 @@ class SourceWizard:
 
         # Check common credential parameter name patterns
         credential_patterns = [
-            "credentials", "credential", "access_token", "api_key", "secret",
+            "credentials",
+            "credential",
+            "access_token",
+            "api_key",
+            "secret",
             "_env",  # Parameters ending in _env are typically env var references
         ]
 
@@ -626,9 +839,8 @@ class SourceWizard:
         # Source-specific credential parameters that are collected during OAuth
         # These are stored in .dlt/secrets.toml by the OAuth provider
         oauth_collected_params = {
-            "facebook_ads": ["account_id"],  # Facebook OAuth collects account_id
-            "google_ads": ["customer_id"],   # Google Ads OAuth collects customer_id
-            "shopify": ["shop_url"],         # Shopify OAuth collects shop_url
+            "facebook_ads": [],  # account_id is a required wizard param, not OAuth-collected
+            "google_ads": ["customer_id"],  # Google Ads OAuth collects customer_id
         }
 
         if source_type in oauth_collected_params:
@@ -637,7 +849,750 @@ class SourceWizard:
 
         return False
 
-    def _collect_parameters(self, source_type_key: str, metadata: Dict[str, Any], source_name: str) -> Optional[Dict[str, Any]]:
+    def _setup_dlt_native_source(self) -> bool:
+        """Guided setup for dlt_native sources — generates template + registers in sources.yml.
+
+        Creates a Python source template in custom_sources/ and registers the
+        source in sources.yml. Bypasses the normal state machine since it handles
+        both file creation and config save internally.
+
+        Returns:
+            True if source created successfully, False otherwise.
+        """
+        console.print("\n[bold]Custom dlt Source Setup[/bold]")
+        console.print("[dim]This creates a Python template and registers it in sources.yml[/dim]\n")
+
+        # 1. Module name
+        questions = [
+            inquirer.Text(
+                "module_name",
+                message="Python module name (e.g., my_api)",
+            )
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return False
+        module_name = answers["module_name"].strip()
+        if not module_name.isidentifier():
+            console.print(
+                f"[red]'{module_name}' is not a valid Python identifier. "
+                f"Use letters, numbers, and underscores (cannot start with a number).[/red]"
+            )
+            return False
+
+        # 2. Function name
+        default_func = f"{module_name}_source"
+        questions = [
+            inquirer.Text(
+                "function_name",
+                message="Source function name",
+                default=default_func,
+            )
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return False
+        function_name = answers["function_name"].strip()
+        if not function_name.isidentifier():
+            console.print(f"[red]'{function_name}' is not a valid Python identifier.[/red]")
+            return False
+
+        # 3. Source name for sources.yml
+        default_source_name = module_name
+        questions = [
+            inquirer.Text(
+                "source_name",
+                message="Source name (used in sources.yml and sync commands)",
+                default=default_source_name,
+            )
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return False
+        source_name = answers["source_name"].strip().lower()
+        if not source_name.replace("_", "").isalnum():
+            console.print(
+                f"[red]'{source_name}' is invalid. "
+                f"Use only lowercase letters, numbers, and underscores.[/red]"
+            )
+            return False
+
+        # 4. Check for duplicate source names (before writing any files)
+        config = load_config(self.project_root)
+        existing_names = {s.name for s in config.sources.sources}
+        if source_name in existing_names:
+            console.print(
+                f"[red]A source named '{source_name}' already exists in sources.yml.[/red]"
+            )
+            return False
+
+        # 5. Check if template file already exists
+        custom_dir = self.project_root / "custom_sources"
+        template_path = custom_dir / f"{module_name}.py"
+        if template_path.exists():
+            if not Confirm.ask(
+                f"[yellow]{template_path.relative_to(self.project_root)} already exists. Overwrite?[/yellow]",
+                default=False,
+            ):
+                console.print("[dim]Aborted — existing file preserved.[/dim]")
+                return False
+
+        # 6. Generate template file
+        custom_dir.mkdir(parents=True, exist_ok=True)
+        template_content = f'''"""custom_sources/{module_name}.py
+
+Custom dlt source for {source_name}.
+Generated by dango source wizard.
+
+Documentation: https://dlthub.com/docs/general-usage/source
+"""
+
+import dlt
+
+
+@dlt.source
+def {function_name}(api_key: str = dlt.secrets.value):
+    """Load data from your API.
+
+    Args:
+        api_key: API key (resolved from .dlt/secrets.toml or environment).
+    """
+    yield {module_name}_resource(api_key)
+
+
+@dlt.resource(write_disposition="replace")
+def {module_name}_resource(api_key: str):
+    """Fetch data from the API.
+
+    Modify this function to call your API and yield records (dicts).
+    """
+    # TODO: Replace with your API calls
+    # Example:
+    #   import requests
+    #   response = requests.get(
+    #       "https://api.example.com/data",
+    #       headers={{"Authorization": f"Bearer {{api_key}}"}},
+    #   )
+    #   yield from response.json()["items"]
+    yield {{"id": 1, "name": "example"}}
+'''
+        template_path.write_text(template_content)
+        console.print(
+            f"[green]✅ Created template: {template_path.relative_to(self.project_root)}[/green]"
+        )
+
+        # 7. Register in sources.yml
+        source_config: dict[str, Any] = {
+            "name": source_name,
+            "type": "dlt_native",
+            "enabled": True,
+            "description": f"Custom dlt source - {module_name}",
+            "dlt_native": {
+                "source_module": module_name,
+                "source_function": function_name,
+            },
+        }
+        self._save_source(source_config)
+        console.print(f"[green]✅ Registered '{source_name}' in sources.yml[/green]")
+
+        # 8. Next steps
+        console.print("\n[bold cyan]Next steps:[/bold cyan]")
+        console.print(
+            f"  1. Edit [cyan]{template_path.relative_to(self.project_root)}[/cyan] "
+            f"— add your API calls"
+        )
+        console.print("  2. Add credentials to [cyan].dlt/secrets.toml[/cyan] or [cyan].env[/cyan]")
+        console.print(f"  3. Test: [cyan]dango sync --source {source_name}[/cyan]")
+        console.print("\n[dim]dlt docs: https://dlthub.com/docs/general-usage/source[/dim]")
+        return True
+
+    def _collect_rest_api_params(self, source_name: str) -> dict[str, Any] | str | None:
+        """Guided REST API parameter collection with per-auth-type prompts.
+
+        Replaces generic _collect_parameters() for rest_api sources with a
+        step-by-step flow: base URL, auth type, auth credentials, endpoints.
+
+        Args:
+            source_name: User-chosen source instance name
+
+        Returns:
+            Parameter dict on success, "← Back" to go back, None on cancel.
+        """
+        console.print("[bold]REST API Configuration[/bold]")
+        console.print("[dim]Type 'back' for Base URL to return to source name[/dim]\n")
+
+        # 1. Base URL
+        questions = [
+            inquirer.Text(
+                "base_url",
+                message="Base URL (e.g., https://api.example.com)",
+            )
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return None
+        if answers["base_url"].strip().lower() == "back":
+            return "← Back"
+        base_url = answers["base_url"].strip()
+
+        # 2. Auth type
+        auth_choices = [
+            ("Bearer Token", "bearer"),
+            ("API Key (header or query param)", "api_key"),
+            ("HTTP Basic (username + password)", "basic"),
+            ("OAuth2 Client Credentials", "oauth2_client_credentials"),
+            ("Custom Header Token (e.g., X-Shopify-Access-Token)", "custom_header"),
+            ("No Authentication", "none"),
+        ]
+        questions = [
+            inquirer.List(
+                "auth_type",
+                message="Authentication method",
+                choices=auth_choices,
+            )
+        ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers:
+            return None
+        auth_type = answers["auth_type"]
+
+        params: dict[str, Any] = {
+            "base_url": base_url,
+            "auth_type": auth_type,
+        }
+
+        # 3. Auth-type-specific credential prompts
+        env_prefix = source_name.upper().replace("-", "_")
+        if auth_type == "bearer":
+            default_env = f"{env_prefix}_API_TOKEN"
+            questions = [
+                inquirer.Text(
+                    "auth_token_env",
+                    message="Environment variable for bearer token",
+                    default=default_env,
+                )
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            params["auth_token_env"] = answers["auth_token_env"].strip()
+            self.secret_params.append(
+                {"name": params["auth_token_env"], "description": f"Bearer token for {source_name}"}
+            )
+            self._prompt_and_save_credential(params["auth_token_env"], "Bearer token value")
+
+        elif auth_type == "api_key":
+            default_env = f"{env_prefix}_API_KEY"
+            questions = [
+                inquirer.Text(
+                    "auth_token_env",
+                    message="Environment variable for API key value",
+                    default=default_env,
+                ),
+                inquirer.Text(
+                    "api_key_name",
+                    message="Header/query parameter name (e.g., X-API-Key)",
+                    default="X-API-Key",
+                ),
+                inquirer.List(
+                    "api_key_location",
+                    message="Send API key in",
+                    choices=[("Header", "header"), ("Query parameter", "query")],
+                ),
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            params["auth_token_env"] = answers["auth_token_env"].strip()
+            params["api_key_name"] = answers["api_key_name"].strip()
+            params["api_key_location"] = answers["api_key_location"]
+            self.secret_params.append(
+                {"name": params["auth_token_env"], "description": f"API key for {source_name}"}
+            )
+            self._prompt_and_save_credential(params["auth_token_env"], "API key value")
+
+        elif auth_type == "basic":
+            default_user_env = f"{env_prefix}_USERNAME"
+            default_pass_env = f"{env_prefix}_PASSWORD"
+            questions = [
+                inquirer.Text(
+                    "basic_username_env",
+                    message="Environment variable for username",
+                    default=default_user_env,
+                ),
+                inquirer.Text(
+                    "basic_password_env",
+                    message="Environment variable for password",
+                    default=default_pass_env,
+                ),
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            params["basic_username_env"] = answers["basic_username_env"].strip()
+            params["basic_password_env"] = answers["basic_password_env"].strip()
+            self.secret_params.extend(
+                [
+                    {
+                        "name": params["basic_username_env"],
+                        "description": f"Username for {source_name}",
+                    },
+                    {
+                        "name": params["basic_password_env"],
+                        "description": f"Password for {source_name}",
+                    },
+                ]
+            )
+            self._prompt_and_save_credential(
+                params["basic_username_env"], "Username", is_secret=False
+            )
+            self._prompt_and_save_credential(params["basic_password_env"], "Password")
+
+        elif auth_type == "oauth2_client_credentials":
+            default_id_env = f"{env_prefix}_CLIENT_ID"
+            default_secret_env = f"{env_prefix}_CLIENT_SECRET"
+            questions = [
+                inquirer.Text(
+                    "access_token_url",
+                    message="Token endpoint URL (e.g., https://auth.example.com/oauth/token)",
+                ),
+                inquirer.Text(
+                    "client_id_env",
+                    message="Environment variable for client ID",
+                    default=default_id_env,
+                ),
+                inquirer.Text(
+                    "client_secret_env",
+                    message="Environment variable for client secret",
+                    default=default_secret_env,
+                ),
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            params["access_token_url"] = answers["access_token_url"].strip()
+            params["client_id_env"] = answers["client_id_env"].strip()
+            params["client_secret_env"] = answers["client_secret_env"].strip()
+            self.secret_params.extend(
+                [
+                    {
+                        "name": params["client_id_env"],
+                        "description": f"OAuth2 client ID for {source_name}",
+                    },
+                    {
+                        "name": params["client_secret_env"],
+                        "description": f"OAuth2 client secret for {source_name}",
+                    },
+                ]
+            )
+            self._prompt_and_save_credential(params["client_id_env"], "Client ID", is_secret=False)
+            self._prompt_and_save_credential(params["client_secret_env"], "Client secret")
+
+            # BUG-077: Warn about APIs that require Authorization Code Grant
+            console.print(
+                "\n[yellow]Note:[/yellow] Some APIs (like Shopify) require Authorization Code "
+                "Grant, not Client Credentials.\nIf you get 'invalid_grant' errors, use "
+                "[bold]Bearer Token[/bold] or [bold]Custom Header Token[/bold] auth instead."
+            )
+
+        elif auth_type == "custom_header":
+            # BUG-088: Custom Header Token auth
+            default_env = f"{env_prefix}_API_TOKEN"
+            questions = [
+                inquirer.Text(
+                    "auth_header_name",
+                    message="Custom auth header name (e.g., X-Shopify-Access-Token)",
+                    default="X-API-Token",
+                ),
+                inquirer.Text(
+                    "auth_token_env",
+                    message="Environment variable for token value",
+                    default=default_env,
+                ),
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            params["auth_header_name"] = answers["auth_header_name"].strip()
+            params["auth_token_env"] = answers["auth_token_env"].strip()
+            self.secret_params.append(
+                {
+                    "name": params["auth_token_env"],
+                    "description": f"Custom header token for {source_name}",
+                }
+            )
+            self._prompt_and_save_credential(params["auth_token_env"], "Token value")
+
+        # 3b. Source-level custom headers (optional)
+        console.print(
+            "\n[bold]Custom Headers[/bold] [dim](optional — e.g., User-Agent, API-Version)[/dim]"
+        )
+        if Confirm.ask("Add custom headers?", default=False):
+            headers_dict: dict[str, str] = {}
+            while True:
+                hdr_questions = [
+                    inquirer.Text("header_name", message="Header name"),
+                    inquirer.Text("header_value", message="Header value"),
+                ]
+                hdr_answers = inquirer.prompt(hdr_questions, theme=themes.GreenPassion())
+                if not hdr_answers:  # Ctrl+C → stop collecting headers
+                    break
+                h_name = hdr_answers["header_name"].strip()
+                h_value = hdr_answers["header_value"].strip()
+                if h_name and h_value:
+                    # BUG-079: Support env var references in header values
+                    if Confirm.ask(
+                        f"  Is '{h_value}' an environment variable name?", default=False
+                    ):
+                        # Store as ${VAR} for resolution at runtime
+                        headers_dict[h_name] = f"${{{h_value}}}"
+                        self.secret_params.append(
+                            {
+                                "name": h_value,
+                                "description": f"Header '{h_name}' value for {source_name}",
+                            }
+                        )
+                        self._prompt_and_save_credential(h_value, f"Value for {h_name}")
+                        console.print(f"  [green]✓[/green] {h_name}: ${{{h_value}}} (from env)")
+                    else:
+                        headers_dict[h_name] = h_value
+                        console.print(f"  [green]✓[/green] {h_name}: {h_value}")
+                if not Confirm.ask("Add another header?", default=False):
+                    break
+            if headers_dict:
+                params["headers"] = headers_dict
+
+        # 4. Endpoint collection
+        console.print("\n[bold]API Endpoints[/bold]")
+        console.print("[dim]Add one or more endpoints to sync[/dim]")
+        endpoints: list[dict[str, Any]] = []
+        while True:
+            ep_questions = [
+                inquirer.Text(
+                    "path",
+                    message="Endpoint path (e.g., /orders)",
+                ),
+                inquirer.Text(
+                    "name",
+                    message="Resource name (table name in DuckDB)",
+                ),
+            ]
+            answers = inquirer.prompt(ep_questions, theme=themes.GreenPassion())
+            if not answers:
+                return None
+            path = answers["path"].strip()
+            name = answers["name"].strip() or path.strip("/").replace("/", "_")
+
+            # 4a. Query parameters (optional)
+            query_params: dict[str, str] | None = None
+            if Confirm.ask("Add query parameters?", default=False):
+                query_params = {}
+                while True:
+                    qp_questions = [
+                        inquirer.Text("param_name", message="Parameter name"),
+                        inquirer.Text("param_value", message="Parameter value"),
+                    ]
+                    qp_answers = inquirer.prompt(qp_questions, theme=themes.GreenPassion())
+                    if not qp_answers:  # Ctrl+C → stop collecting params
+                        break
+                    p_name = qp_answers["param_name"].strip()
+                    p_value = qp_answers["param_value"].strip()
+                    if p_name and p_value:
+                        query_params[p_name] = p_value
+                        console.print(f"  [green]✓[/green] {p_name}={p_value}")
+                    if not Confirm.ask("Add another parameter?", default=False):
+                        break
+                if not query_params:
+                    query_params = None
+
+            # 4a2. Pagination type (BUG-080)
+            paginator_choices = [
+                ("Auto-detect (recommended)", "auto"),
+                ("Link header (GitHub, Shopify)", "header_link"),
+                ("Page number", "page_number"),
+                ("Cursor-based (Stripe, GraphQL)", "cursor"),
+                ("Offset-based", "offset"),
+                ("None (single page)", "none"),
+            ]
+            pag_questions = [
+                inquirer.List(
+                    "paginator_type",
+                    message="Pagination type",
+                    choices=paginator_choices,
+                )
+            ]
+            pag_answers = inquirer.prompt(pag_questions, theme=themes.GreenPassion())
+            if not pag_answers:
+                return None
+            pag_type = pag_answers["paginator_type"]
+            paginator_config: dict[str, Any] | None = None
+            if pag_type != "auto":
+                paginator_config = {"type": pag_type}
+                if pag_type == "page_number":
+                    pp = inquirer.text(
+                        message="Page parameter name (default: page)", default="page"
+                    )
+                    if pp is None:
+                        return None
+                    paginator_config["page_param"] = pp.strip() or "page"
+                elif pag_type == "cursor":
+                    cp = inquirer.text(
+                        message="Cursor path in JSON response (default: next)",
+                        default="next",
+                    )
+                    if cp is None:
+                        return None
+                    paginator_config["cursor_path"] = cp.strip() or "next"
+                elif pag_type == "offset":
+                    lim = inquirer.text(
+                        message="Results per page / limit (default: 100)",
+                        default="100",
+                    )
+                    if lim is None:
+                        return None
+                    try:
+                        paginator_config["limit"] = int(lim.strip() or "100")
+                    except ValueError:
+                        paginator_config["limit"] = 100
+
+            # 4b. Endpoint test (optional)
+            data_suggestion: str | None = None
+            pk_suggestion: str | None = None
+            body: Any = None
+            test_ok = False
+            if Confirm.ask("Test this endpoint?", default=True):
+                status_code, body, error = self._test_rest_api_endpoint(
+                    base_url=params["base_url"],
+                    path=path,
+                    auth_type=auth_type,
+                    params_dict=params,
+                    query_params=query_params,
+                    source_headers=params.get("headers"),
+                )
+                if error:
+                    console.print(f"  [yellow]⚠ Test failed: {error}[/yellow]")
+                elif status_code is not None:
+                    color = "green" if 200 <= status_code < 300 else "yellow"
+                    console.print(f"  [{color}]Status: {status_code}[/{color}]")
+                    if body is not None and not isinstance(body, str):
+                        import json
+
+                        if 200 <= status_code < 300:
+                            test_ok = True
+                            data_suggestion = _suggest_data_path(body)
+                        preview = json.dumps(body, indent=2, default=str)
+                        if len(preview) > 500:
+                            preview = preview[:500] + "\n  ..."
+                        console.print(f"  [dim]Response preview:[/dim]\n{preview}")
+                    elif isinstance(body, str):
+                        console.print(f"  [dim]Response (non-JSON):[/dim] {body[:200]}")
+
+            # 4c. Data selector
+            ds_default = data_suggestion or ""
+            console.print("  [dim]e.g., data.items — JSON path to your results array[/dim]")
+            data_selector_val = inquirer.text(
+                message=f"Data path{' [' + ds_default + ']' if ds_default else ''} (blank=auto-detect)",
+                default=ds_default,
+            )
+            if data_selector_val is None:  # Ctrl+C
+                return None
+            data_selector_val = data_selector_val.strip()
+
+            # 4d. Primary key — derive suggestion from test response (2xx only)
+            if test_ok and body is not None and not isinstance(body, str):
+                pk_suggestion = _suggest_primary_key(body, data_selector_val or data_suggestion)
+            pk_default = pk_suggestion or "id"
+            pk_val = inquirer.text(
+                message=f"Primary key field (default: {pk_default})",
+                default=pk_default,
+            )
+            if pk_val is None:  # Ctrl+C
+                return None
+            pk_val = pk_val.strip() or pk_default
+
+            # Build endpoint dict — only include non-empty fields
+            endpoint: dict[str, Any] = {"path": path, "name": name}
+            if data_selector_val:
+                endpoint["data_selector"] = data_selector_val
+            if pk_val and pk_val != "id":
+                endpoint["primary_key"] = pk_val
+            if query_params:
+                endpoint["params"] = query_params
+            if paginator_config:
+                endpoint["paginator"] = paginator_config
+
+            endpoints.append(endpoint)
+            console.print(f"  [green]✓[/green] Added: {path} → {name}")
+
+            if not Confirm.ask("Add another endpoint?", default=False):
+                break
+
+        params["endpoints"] = endpoints
+        return params
+
+    def _prompt_and_save_credential(
+        self, env_var_name: str, description: str, is_secret: bool = True
+    ) -> str | None:
+        """Prompt for a credential value and save it to .env + os.environ.
+
+        Args:
+            env_var_name: Environment variable name (e.g., MY_API_TOKEN)
+            description: Human-readable description for the prompt
+            is_secret: If True, mask input (use Password prompt)
+
+        Returns:
+            The credential value, or None if cancelled.
+        """
+        import os
+
+        if is_secret:
+            questions = [
+                inquirer.Password(
+                    "value",
+                    message=f"{description} (saved to .env as {env_var_name})",
+                )
+            ]
+        else:
+            questions = [
+                inquirer.Text(
+                    "value",
+                    message=f"{description} (saved to .env as {env_var_name})",
+                )
+            ]
+        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+        if not answers or not answers["value"]:
+            return None
+
+        value = answers["value"].strip()
+        os.environ[env_var_name] = value
+
+        # Write to .env file
+        self.env_file.parent.mkdir(parents=True, exist_ok=True)
+        from dotenv import set_key
+
+        set_key(str(self.env_file), env_var_name, value)
+
+        console.print(f"  [green]✓[/green] Saved {env_var_name} to .env")
+        return value
+
+    def _test_rest_api_endpoint(
+        self,
+        base_url: str,
+        path: str,
+        auth_type: str,
+        params_dict: dict[str, Any],
+        query_params: dict[str, str] | None = None,
+        source_headers: dict[str, str] | None = None,
+    ) -> tuple[int | None, Any, str | None]:
+        """Test a REST API endpoint and return (status_code, body, error).
+
+        Args:
+            base_url: API base URL
+            path: Endpoint path
+            auth_type: Authentication type (bearer, api_key, basic, etc.)
+            params_dict: Wizard params dict with env var names
+            query_params: Optional query parameters
+            source_headers: Optional source-level headers
+
+        Returns:
+            Tuple of (status_code, response_body, error_message)
+        """
+        import os
+
+        import requests
+
+        # Build auth
+        auth_headers: dict[str, str] = {}
+        request_auth: tuple[str, str] | None = None
+
+        if auth_type == "bearer":
+            env_name = params_dict.get("auth_token_env", "")
+            token = os.getenv(env_name) if env_name else None
+            if not token:
+                console.print(
+                    f"  [dim]{env_name} not set — enter temporarily for testing (not saved)[/dim]"
+                )
+                token = inquirer.text(message="Bearer token for test")
+                if token is None:  # Ctrl+C
+                    return (None, None, "Cancelled")
+            if token:
+                auth_headers["Authorization"] = f"Bearer {token}"
+
+        elif auth_type == "api_key":
+            env_name = params_dict.get("auth_token_env", "")
+            key_name = params_dict.get("api_key_name", "X-API-Key")
+            key_location = params_dict.get("api_key_location", "header")
+            key_val = os.getenv(env_name) if env_name else None
+            if not key_val:
+                console.print(
+                    f"  [dim]{env_name} not set — enter temporarily for testing (not saved)[/dim]"
+                )
+                key_val = inquirer.text(message="API key for test")
+                if key_val is None:
+                    return (None, None, "Cancelled")
+            if key_val:
+                if key_location == "header":
+                    auth_headers[key_name] = key_val
+                else:
+                    query_params = {**(query_params or {}), key_name: key_val}
+
+        elif auth_type == "basic":
+            u_env = params_dict.get("basic_username_env", "")
+            p_env = params_dict.get("basic_password_env", "")
+            u_val = os.getenv(u_env) if u_env else None
+            p_val = os.getenv(p_env) if p_env else None
+            if not u_val:
+                console.print(
+                    f"  [dim]{u_env} not set — enter temporarily for testing (not saved)[/dim]"
+                )
+                u_val = inquirer.text(message="Username for test")
+                if u_val is None:
+                    return (None, None, "Cancelled")
+            if not p_val:
+                p_val = inquirer.text(message="Password for test")
+                if p_val is None:
+                    return (None, None, "Cancelled")
+            request_auth = (u_val or "", p_val or "")
+
+        elif auth_type == "oauth2_client_credentials":
+            console.print(
+                "  [dim]OAuth2 client credentials — skipping (requires token exchange)[/dim]"
+            )
+            return (None, None, "OAuth2 not testable in wizard")
+
+        elif auth_type == "custom_header":
+            header_name = params_dict.get("auth_header_name", "Authorization")
+            env_name = params_dict.get("auth_token_env", "")
+            token = os.getenv(env_name) if env_name else None
+            if not token:
+                console.print(
+                    f"  [dim]{env_name} not set — enter temporarily for testing (not saved)[/dim]"
+                )
+                token = inquirer.text(message=f"Value for {header_name} (test only)")
+                if token is None:
+                    return (None, None, "Cancelled")
+            if token:
+                auth_headers[header_name] = token
+
+        # Merge headers
+        all_headers = {**(source_headers or {}), **auth_headers}
+
+        # Make request
+        url = base_url.rstrip("/") + "/" + path.lstrip("/")
+        try:
+            resp = requests.get(
+                url, headers=all_headers, params=query_params, auth=request_auth, timeout=10
+            )
+            content_type = resp.headers.get("content-type", "")
+            if "json" in content_type:
+                return (resp.status_code, resp.json(), None)
+            return (resp.status_code, resp.text[:500], None)
+        except Exception as e:
+            return (None, None, str(e))
+
+    def _collect_parameters(
+        self, source_type_key: str, metadata: dict[str, Any], source_name: str
+    ) -> dict[str, Any] | None:
         """Collect required and optional parameters from user
 
         Args:
@@ -662,7 +1617,9 @@ class SourceWizard:
                 # Skip credential parameters if OAuth credentials exist
                 # OAuth credentials are stored in .dlt/secrets.toml at sources.{type}.credentials.*
                 if has_oauth and self._is_credential_param(param, source_type_key):
-                    console.print(f"  [green]✓ {param.get('prompt', param['name'])}: Using OAuth credentials[/green]")
+                    console.print(
+                        f"  [green]✓ {param.get('prompt', param['name'])}: Using OAuth credentials[/green]"
+                    )
                     continue
 
                 # Inject source_name into directory default for CSV sources
@@ -670,7 +1627,9 @@ class SourceWizard:
                     param = param.copy()  # Don't modify registry
                     param["default"] = f"data/uploads/{source_name}"
 
-                value = self._prompt_parameter(param, source_name, source_type_display, metadata, required=True)
+                value = self._prompt_parameter(
+                    param, source_name, source_type_display, metadata, required=True
+                )
                 if value is None:
                     return None
                 # Check if user wants to go back
@@ -685,9 +1644,16 @@ class SourceWizard:
         # Ask optional parameters directly (no meta-question)
         optional_params = metadata.get("optional_params", [])
         if optional_params:
-            console.print("\n[bold]Optional settings[/bold] [dim](press Enter to use defaults, edit .dango/sources.yml to change later)[/dim]")
+            console.print(
+                "\n[bold]Optional settings[/bold] [dim](Enter=defaults, edit sources.yml later)[/dim]"
+            )
             for param in optional_params:
-                value = self._prompt_parameter(param, source_name, source_type_display, metadata, required=False)
+                # Skip auth credential params when user selected "none" auth
+                if param["name"] == "auth_token_env" and params.get("auth_type") == "none":
+                    continue
+                value = self._prompt_parameter(
+                    param, source_name, source_type_display, metadata, required=False
+                )
                 # Check if user wants to go back
                 if isinstance(value, str) and value.lower() == "back":
                     return "← Back"
@@ -697,8 +1663,13 @@ class SourceWizard:
         return params
 
     def _prompt_parameter(
-        self, param: Dict[str, Any], source_name: str, source_type: str, metadata: Dict[str, Any], required: bool = True
-    ) -> Optional[Any]:
+        self,
+        param: dict[str, Any],
+        source_name: str,
+        source_type: str,
+        metadata: dict[str, Any],
+        required: bool = True,
+    ) -> Any | None:
         """Prompt user for a single parameter
 
         Args:
@@ -718,6 +1689,10 @@ class SourceWizard:
         if help_text:
             console.print(f"  [cyan]{help_text}[/cyan]")
 
+        # Enhance prompt text with default value for optional params
+        if not required and default is not None and param_type not in ("secret", "boolean", "bool"):
+            prompt = f"{prompt} (default: {default})"
+
         # Different prompt types based on parameter type
         if param_type == "secret" or param_name.endswith("_env"):
             # Secret/env var parameter - generate unique env var name per source instance
@@ -729,18 +1704,18 @@ class SourceWizard:
             # Use full source_name to generate unique env var
             name_suffix = source_name
 
-            # Generate unique env var by injecting name suffix
+            # Generate unique env var by replacing service prefix with source name
             # Examples:
-            #   stripe_test + STRIPE_API_KEY → STRIPE_STRIPE_TEST_API_KEY
-            #   my_store + SHOPIFY_ACCESS_TOKEN → SHOPIFY_MY_STORE_ACCESS_TOKEN
+            #   slack + SLACK_ACCESS_TOKEN → SLACK_ACCESS_TOKEN
+            #   marketing_slack + SLACK_ACCESS_TOKEN → MARKETING_SLACK_ACCESS_TOKEN
+            #   stripe_test + STRIPE_API_KEY → STRIPE_TEST_API_KEY
 
-            # Extract the prefix (source type) from base env var
-            # STRIPE_API_KEY → STRIPE, SHOPIFY_ACCESS_TOKEN → SHOPIFY
+            # Extract suffix from base env var (everything after first _)
+            # STRIPE_API_KEY → API_KEY, SHOPIFY_ACCESS_TOKEN → ACCESS_TOKEN
             if "_" in base_env_var:
-                prefix = base_env_var.split("_")[0]
                 suffix = "_".join(base_env_var.split("_")[1:])
-                # Insert name suffix between prefix and suffix
-                env_var = f"{prefix}_{name_suffix.upper().replace('-', '_')}_{suffix}"
+                source_prefix = name_suffix.upper().replace("-", "_")
+                env_var = f"{source_prefix}_{suffix}"
             else:
                 # Fallback: just append name suffix
                 env_var = f"{base_env_var}_{name_suffix.upper().replace('-', '_')}"
@@ -749,11 +1724,11 @@ class SourceWizard:
             env_exists = False
             if self.env_file.exists():
                 env_content = self.env_file.read_text()
-                for line in env_content.split('\n'):
+                for line in env_content.split("\n"):
                     line = line.strip()
-                    if line and not line.startswith('#'):
-                        if '=' in line:
-                            key, value = line.split('=', 1)
+                    if line and not line.startswith("#"):
+                        if "=" in line:
+                            key, value = line.split("=", 1)
                             if key.strip() == env_var and value.strip():
                                 env_exists = True
                                 break
@@ -761,17 +1736,17 @@ class SourceWizard:
             # Store secret metadata for .env template creation (only if not already set)
             if not env_exists:
                 secret_metadata = {
-                    'name': env_var,
-                    'display_name': param.get('prompt', env_var),
-                    'help': help_text or param.get('help', ''),
-                    'format': param.get('format', ''),
-                    'example': param.get('example', ''),
-                    'source_name': source_name,  # Track which source this key is for
-                    'source_type': source_type,
+                    "name": env_var,
+                    "display_name": param.get("prompt", env_var),
+                    "help": help_text or param.get("help", ""),
+                    "format": param.get("format", ""),
+                    "example": param.get("example", ""),
+                    "source_name": source_name,  # Track which source this key is for
+                    "source_type": source_type,
                 }
                 self.secret_params.append(secret_metadata)
                 console.print(f"  [cyan]→ Credential for '{source_name}' will be: {env_var}[/cyan]")
-                console.print(f"    [dim]You'll set this value in .env file[/dim]")
+                console.print("    [dim]You'll set this value in .env file[/dim]")
             else:
                 console.print(f"  [green]✓ Already configured in .env: {env_var}[/green]")
                 console.print(f"    [yellow]⚠️  This will be reused for '{source_name}'[/yellow]")
@@ -803,7 +1778,7 @@ class SourceWizard:
             questions = [
                 inquirer.Checkbox(
                     param_name,
-                    message=f"{prompt} (Space to select/deselect, Enter to continue)",
+                    message=f"{prompt} (Space=toggle, Enter=done)",
                     choices=choices,
                     default=default if default else [],
                 )
@@ -814,15 +1789,17 @@ class SourceWizard:
             # Requires spreadsheet_url_or_id to already be collected
             try:
                 sheets = self._fetch_google_sheets(source_name)
-            except Exception as e:
+            except Exception:
                 # OAuth authentication failed - abort wizard
-                console.print(f"\n[red]Cannot continue without valid OAuth credentials.[/red]")
-                console.print(f"[yellow]Please re-authenticate first, then try again.[/yellow]")
+                console.print("\n[red]Cannot continue without valid OAuth credentials.[/red]")
+                console.print("[yellow]Please re-authenticate first, then try again.[/yellow]")
                 return None
 
             if sheets is None:
                 # No OAuth configured yet - fall back to manual entry
-                console.print(f"[yellow]⚠️  No OAuth configured. Enter sheet names manually.[/yellow]")
+                console.print(
+                    "[yellow]⚠️  No OAuth configured. Enter sheet names manually.[/yellow]"
+                )
                 questions = [
                     inquirer.Text(
                         param_name,
@@ -838,14 +1815,16 @@ class SourceWizard:
                 return [s.strip() for s in value.split(",") if s.strip()]
 
             if not sheets:
-                console.print(f"[yellow]⚠️  No sheets found in spreadsheet[/yellow]")
+                console.print("[yellow]⚠️  No sheets found in spreadsheet[/yellow]")
                 return None
 
             # Loop until user confirms selection
             while True:
                 # Show clear instructions before the checkbox
-                console.print(f"\n[bold]Select sheets to load:[/bold]")
-                console.print(f"[cyan]  ↑/↓  Navigate    Space  Select/deselect    Enter  Confirm[/cyan]\n")
+                console.print("\n[bold]Select sheets to load:[/bold]")
+                console.print(
+                    "[cyan]  ↑/↓  Navigate    Space  Select/deselect    Enter  Confirm[/cyan]\n"
+                )
 
                 # Show checkbox for sheet selection
                 questions = [
@@ -862,7 +1841,7 @@ class SourceWizard:
 
                 selected = answers[param_name]
                 if not selected:
-                    console.print(f"[yellow]⚠️  You must select at least one sheet[/yellow]")
+                    console.print("[yellow]⚠️  You must select at least one sheet[/yellow]")
                     continue
 
                 # Show selection and ask for confirmation
@@ -901,6 +1880,26 @@ class SourceWizard:
                 )
             ]
 
+        elif param_type == "list":
+            # Comma-separated list input (e.g., table_names, collection_names)
+            questions = [
+                inquirer.Text(
+                    param_name,
+                    message=prompt + (" (optional)" if not required else ""),
+                    default=None,
+                )
+            ]
+
+        elif param_type == "json":
+            # JSON input (e.g., REST API config)
+            questions = [
+                inquirer.Text(
+                    param_name,
+                    message=prompt + (" (optional)" if not required else ""),
+                    default=str(default) if default is not None else None,
+                )
+            ]
+
         else:
             # String, number, path, etc.
             questions = [
@@ -925,6 +1924,60 @@ class SourceWizard:
         if not required and value == "":
             return None
 
+        # Parse comma-separated input into list for list-type params
+        # (after skip/empty checks so empty input returns None, not [])
+        if param_type == "list" and value and isinstance(value, str):
+            value = [item.strip() for item in value.split(",") if item.strip()] or None
+
+        # Parse JSON string into Python object for json-type params
+        if param_type == "json" and value and isinstance(value, str):
+            import json
+
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                console.print(f"[red]Invalid JSON: {escape(str(value))}[/red]")
+                return None
+
+        # Cast integer/number type params with retry on invalid input
+        if param_type == "integer" and value and isinstance(value, str):
+            for _attempt in range(3):
+                try:
+                    value = int(value)
+                    break
+                except ValueError:
+                    console.print(
+                        f"[red]Invalid integer: {escape(str(value))}. Please try again.[/red]"
+                    )
+                    retry = inquirer.prompt(
+                        [inquirer.Text(param_name, message=prompt)],
+                        theme=themes.GreenPassion(),
+                    )
+                    if not retry:
+                        return None
+                    value = retry[param_name]
+            else:
+                return None
+        elif param_type == "number" and value and isinstance(value, str):
+            for _attempt in range(3):
+                try:
+                    num = float(value)
+                    value = int(num) if num.is_integer() else num
+                    break
+                except ValueError:
+                    console.print(
+                        f"[red]Invalid number: {escape(str(value))}. Please try again.[/red]"
+                    )
+                    retry = inquirer.prompt(
+                        [inquirer.Text(param_name, message=prompt)],
+                        theme=themes.GreenPassion(),
+                    )
+                    if not retry:
+                        return None
+                    value = retry[param_name]
+            else:
+                return None
+
         # Show incremental loading education for start_date parameters
         if param_name == "start_date" and value:
             console.print("\n[cyan]ℹ️  About Incremental Loading:[/cyan]")
@@ -932,11 +1985,13 @@ class SourceWizard:
             console.print("  • Future syncs load NEW data since last run")
             console.print("  • Cursor tracks when record was CREATED, not event date")
             console.print("  • Example: Dec 31 order might have created=Jan 1")
-            console.print("\n[yellow]💡 Tip: Set start_date 7-14 days earlier to catch late data[/yellow]\n")
+            console.print(
+                "\n[yellow]💡 Tip: Set start_date 7-14 days earlier to catch late data[/yellow]\n"
+            )
 
         return value
 
-    def _fetch_google_sheets(self, source_name: str) -> Optional[List[str]]:
+    def _fetch_google_sheets(self, source_name: str) -> list[str] | None:
         """
         Fetch sheet/tab names from a Google Spreadsheet using OAuth credentials.
 
@@ -947,22 +2002,22 @@ class SourceWizard:
             List of sheet names, or None if failed
         """
         try:
-            from googleapiclient.discovery import build
             from google.oauth2.credentials import Credentials
+            from googleapiclient.discovery import build
 
             # Get OAuth credentials for Google Sheets
             oauth_storage = OAuthStorage(self.project_root)
             cred = oauth_storage.get("google_sheets")
 
             if not cred:
-                console.print(f"[yellow]No Google Sheets OAuth credentials found[/yellow]")
-                console.print(f"[dim]Run 'dango auth google_sheets' first[/dim]")
+                console.print("[yellow]No Google Sheets OAuth credentials found[/yellow]")
+                console.print("[dim]Run 'dango oauth google_sheets' first[/dim]")
                 return None
 
             # Get credentials from the OAuthCredential object
             tokens = cred.credentials
             if not tokens:
-                console.print(f"[yellow]Could not get OAuth tokens[/yellow]")
+                console.print("[yellow]Could not get OAuth tokens[/yellow]")
                 return None
 
             # Get scopes from metadata (saved during OAuth authentication)
@@ -970,15 +2025,15 @@ class SourceWizard:
 
             # Debug: Check what we have
             if not tokens.get("refresh_token"):
-                console.print(f"[red]Error: No refresh token found in credentials[/red]")
-                console.print(f"[dim]This usually means OAuth wasn't completed properly[/dim]")
-                console.print(f"[cyan]Run: dango auth google_sheets[/cyan]")
+                console.print("[red]Error: No refresh token found in credentials[/red]")
+                console.print("[dim]This usually means OAuth wasn't completed properly[/dim]")
+                console.print("[cyan]Run: dango oauth google_sheets[/cyan]")
                 return None
 
             if not tokens.get("client_id") or not tokens.get("client_secret"):
-                console.print(f"[red]Error: Missing client_id or client_secret[/red]")
-                console.print(f"[dim]OAuth configuration is incomplete[/dim]")
-                console.print(f"[cyan]Run: dango auth google_sheets[/cyan]")
+                console.print("[red]Error: Missing client_id or client_secret[/red]")
+                console.print("[dim]OAuth configuration is incomplete[/dim]")
+                console.print("[cyan]Run: dango oauth google_sheets[/cyan]")
                 return None
 
             credentials = Credentials(
@@ -992,47 +2047,49 @@ class SourceWizard:
 
             # Refresh credentials to get a new access token
             from google.auth.transport.requests import Request
+
             try:
                 credentials.refresh(Request())
             except Exception as refresh_error:
-                console.print(f"[red]Failed to refresh OAuth token[/red]")
+                console.print("[red]Failed to refresh OAuth token[/red]")
                 console.print(f"[dim]Details: {refresh_error}[/dim]")
                 console.print(f"[dim]Error type: {type(refresh_error).__name__}[/dim]")
                 # Re-raise so the outer try-except can handle it
                 raise
 
             # Build Sheets API service
-            service = build('sheets', 'v4', credentials=credentials, cache_discovery=False)
+            service = build("sheets", "v4", credentials=credentials, cache_discovery=False)
 
             # Get spreadsheet ID from the collected params
             # This is a bit tricky since we're in the middle of collecting params
             # We need to access the params collected so far
             # The spreadsheet_url_or_id should already be collected before range_names
-            spreadsheet_id = getattr(self, '_current_spreadsheet_id', None)
+            spreadsheet_id = getattr(self, "_current_spreadsheet_id", None)
 
             if not spreadsheet_id:
-                console.print(f"[yellow]Spreadsheet ID not yet collected[/yellow]")
+                console.print("[yellow]Spreadsheet ID not yet collected[/yellow]")
                 return None
 
             # Extract ID from URL if needed
             if "docs.google.com" in spreadsheet_id:
                 # URL format: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
                 import re
-                match = re.search(r'/d/([a-zA-Z0-9-_]+)', spreadsheet_id)
+
+                match = re.search(r"/d/([a-zA-Z0-9-_]+)", spreadsheet_id)
                 if match:
                     spreadsheet_id = match.group(1)
 
             # Fetch spreadsheet metadata
-            console.print(f"[dim]Fetching sheets from spreadsheet...[/dim]")
+            console.print("[dim]Fetching sheets from spreadsheet...[/dim]")
             result = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
 
             # Extract sheet names
-            sheets = result.get('sheets', [])
-            sheet_names = [sheet['properties']['title'] for sheet in sheets]
+            sheets = result.get("sheets", [])
+            sheet_names = [sheet["properties"]["title"] for sheet in sheets]
 
             # Check each sheet for data (need at least 2 rows: header + 1 data row)
             # Fetch first 2 rows of each sheet to determine if empty
-            console.print(f"[dim]Checking for empty sheets...[/dim]")
+            console.print("[dim]Checking for empty sheets...[/dim]")
             non_empty_sheets = []
             empty_sheets = []
 
@@ -1040,12 +2097,14 @@ class SourceWizard:
                 try:
                     # Fetch just the first 2 rows to check if sheet has data
                     range_check = f"'{sheet_name}'!A1:Z2"
-                    data_result = service.spreadsheets().values().get(
-                        spreadsheetId=spreadsheet_id,
-                        range=range_check
-                    ).execute()
+                    data_result = (
+                        service.spreadsheets()
+                        .values()
+                        .get(spreadsheetId=spreadsheet_id, range=range_check)
+                        .execute()
+                    )
 
-                    values = data_result.get('values', [])
+                    values = data_result.get("values", [])
                     # Sheet needs at least 2 rows (header + data) and first row needs content
                     if len(values) >= 2 and len(values[0]) > 0:
                         non_empty_sheets.append(sheet_name)
@@ -1059,14 +2118,16 @@ class SourceWizard:
                     non_empty_sheets.append(sheet_name)
 
             if empty_sheets:
-                console.print(f"[yellow]⚠️  {len(empty_sheets)} empty sheet(s) will be skipped:[/yellow]")
+                console.print(
+                    f"[yellow]⚠️  {len(empty_sheets)} empty sheet(s) will be skipped:[/yellow]"
+                )
                 for sheet in empty_sheets:
                     console.print(f"   [dim]• {sheet} (no data or header only)[/dim]")
 
             if non_empty_sheets:
                 console.print(f"[green]✓ Found {len(non_empty_sheets)} sheet(s) with data[/green]")
             else:
-                console.print(f"[yellow]⚠️  No sheets with data found[/yellow]")
+                console.print("[yellow]⚠️  No sheets with data found[/yellow]")
 
             return non_empty_sheets if non_empty_sheets else None
 
@@ -1075,7 +2136,7 @@ class SourceWizard:
 
             # Provide specific error messages for common issues
             if "404" in error_str or "not found" in error_str:
-                console.print(f"\n[red]✗ Spreadsheet not found[/red]")
+                console.print("\n[red]✗ Spreadsheet not found[/red]")
                 console.print("\n[yellow]Possible causes:[/yellow]")
                 console.print("  • Invalid spreadsheet ID or URL")
                 console.print("  • Spreadsheet was deleted")
@@ -1083,22 +2144,27 @@ class SourceWizard:
                 console.print("\n[cyan]How to fix:[/cyan]")
                 console.print("  1. Check the spreadsheet URL/ID is correct")
                 console.print("  2. Make sure the spreadsheet is shared with your Google account")
-                console.print(f"  3. Your account: check with [bold]dango auth list[/bold]")
+                console.print("  3. Your account: check with [bold]dango oauth list[/bold]")
                 raise  # Re-raise to abort wizard
             elif "403" in error_str or "permission" in error_str or "forbidden" in error_str:
-                console.print(f"\n[red]✗ Permission denied[/red]")
+                console.print("\n[red]✗ Permission denied[/red]")
                 console.print("\n[yellow]Possible causes:[/yellow]")
                 console.print("  • You don't have access to this spreadsheet")
                 console.print("  • Spreadsheet is not shared with your Google account")
                 console.print("\n[cyan]How to fix:[/cyan]")
                 console.print("  1. Share the spreadsheet with your Google account")
-                console.print("  2. Or re-authenticate: [bold]dango auth google_sheets[/bold]")
+                console.print("  2. Or re-authenticate: [bold]dango oauth google_sheets[/bold]")
                 raise  # Re-raise to abort wizard
-            elif "401" in error_str or "invalid" in error_str or "expired" in error_str or "refresh" in error_str:
-                console.print(f"\n[red]✗ OAuth credential expired or invalid[/red]")
+            elif (
+                "401" in error_str
+                or "invalid" in error_str
+                or "expired" in error_str
+                or "refresh" in error_str
+            ):
+                console.print("\n[red]✗ OAuth credential expired or invalid[/red]")
                 console.print(f"[dim]Error details: {e}[/dim]")
                 console.print("\n[cyan]How to fix:[/cyan]")
-                console.print("  Re-authenticate: [bold]dango auth google_sheets[/bold]")
+                console.print("  Re-authenticate: [bold]dango oauth google_sheets[/bold]")
                 raise  # Re-raise to abort wizard
             else:
                 console.print(f"[yellow]Error fetching sheets: {e}[/yellow]")
@@ -1109,9 +2175,9 @@ class SourceWizard:
         self,
         source_name: str,
         source_type: str,
-        params: Dict[str, Any],
-        metadata: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        params: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
         """Create source configuration dictionary"""
         config = {
             "name": source_name,
@@ -1124,14 +2190,18 @@ class SourceWizard:
         # No oauth_ref needed - dlt finds credentials automatically
 
         # Add type-specific config block
-        # Always create this block even if empty - it indicates the source type
-        # and allows users to add config later
-        # Convert source_type to config field name (e.g., "facebook_ads" -> "facebook_ads")
-        config[source_type] = params if params else {}
+        # Sources with a dedicated DataSource field use that field name;
+        # all others use generic_config (e.g., postgres, mongodb)
+        from dango.config.models import DataSource
+
+        if source_type in DataSource.model_fields:
+            config[source_type] = params if params else {}
+        else:
+            config["generic_config"] = params if params else {}
 
         return config
 
-    def _write_config_template(self, source_type: str, metadata: Dict[str, Any]) -> None:
+    def _write_config_template(self, source_type: str, metadata: dict[str, Any]) -> None:
         """
         Write default_config to .dlt/config.toml for pipeline stability.
 
@@ -1181,10 +2251,24 @@ class SourceWizard:
                         # Special handling for queries (GA4)
                         source_table.add(tomlkit.comment(""))
                         source_table.add(tomlkit.comment("Default queries for Google Analytics 4"))
-                        source_table.add(tomlkit.comment("Each query creates a table with the specified dimensions and metrics"))
-                        source_table.add(tomlkit.comment("Customize by editing, adding, or removing queries"))
-                        source_table.add(tomlkit.comment("GA4 API limits: max 9 dimensions, 10 metrics per query"))
-                        source_table.add(tomlkit.comment("Docs: https://developers.google.com/analytics/devguides/reporting/data/v1"))
+                        source_table.add(
+                            tomlkit.comment(
+                                "Each query creates a table with the specified dimensions and metrics"
+                            )
+                        )
+                        source_table.add(
+                            tomlkit.comment("Customize by editing, adding, or removing queries")
+                        )
+                        source_table.add(
+                            tomlkit.comment(
+                                "GA4 API limits: max 9 dimensions, 10 metrics per query"
+                            )
+                        )
+                        source_table.add(
+                            tomlkit.comment(
+                                "Docs: https://developers.google.com/analytics/devguides/reporting/data/v1"
+                            )
+                        )
                         source_table.add(tomlkit.comment(""))
 
                     # Convert value to TOML-compatible format
@@ -1192,15 +2276,17 @@ class SourceWizard:
 
             # Write config file
             config_path.write_text(tomlkit.dumps(doc))
-            console.print(f"[green]✅ Created config template: .dlt/config.toml[/green]")
-            console.print(f"[dim]   Edit this file to customize {metadata.get('display_name')} queries[/dim]")
+            console.print("[green]✅ Created config template: .dlt/config.toml[/green]")
+            console.print(
+                f"[dim]   Edit this file to customize {metadata.get('display_name')} queries[/dim]"
+            )
 
         except ImportError:
-            console.print(f"[yellow]⚠️  tomlkit not installed - skipping config template[/yellow]")
+            console.print("[yellow]⚠️  tomlkit not installed - skipping config template[/yellow]")
         except Exception as e:
             console.print(f"[yellow]⚠️  Could not write config template: {e}[/yellow]")
 
-    def _save_source(self, source_config: Dict[str, Any]) -> None:
+    def _save_source(self, source_config: dict[str, Any]) -> None:
         """Save source to sources.yml"""
         config = load_config(self.project_root)
 
