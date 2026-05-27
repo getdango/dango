@@ -336,7 +336,7 @@ function Install-Dango {
     }
 
     # Get installed version
-    $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value }
+    $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+[a-zA-Z0-9]*' | ForEach-Object { $_.Matches.Value }
     if (-not $version) { $version = "unknown" }
 
     Write-Success "Dango $version installed"
@@ -362,7 +362,7 @@ function Update-Dango {
     }
 
     # Get installed version
-    $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value }
+    $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+[a-zA-Z0-9]*' | ForEach-Object { $_.Matches.Value }
     if (-not $version) { $version = "unknown" }
 
     Write-Success "Dango upgraded to $version"
@@ -403,7 +403,7 @@ function Install-DangoGlobal {
 
     # If dango already in PATH, we're done
     if ($dangoWasInPath) {
-        $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value }
+        $version = & dango --version 2>$null | Select-String -Pattern '\d+\.\d+\.\d+[a-zA-Z0-9]*' | ForEach-Object { $_.Matches.Value }
         if (-not $version) { $version = "unknown" }
         Write-Success "Dango $version installed and ready to use!"
         Write-Host ""

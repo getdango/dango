@@ -304,7 +304,7 @@ install_dango() {
     fi
 
     # Get installed version
-    DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9]*' || echo "unknown")
 
     print_success "Dango $DANGO_VERSION installed"
     echo
@@ -318,7 +318,7 @@ upgrade_dango() {
     source "$venv_path/bin/activate"
     $PYTHON_CMD -m pip install --upgrade --pre getdango -q
 
-    DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9]*' || echo "unknown")
 
     print_success "Dango upgraded to $DANGO_VERSION"
     echo
@@ -426,7 +426,7 @@ install_dango_global() {
 
     # If dango already in PATH, we're done
     if [ "$DANGO_WAS_IN_PATH" = true ]; then
-        DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+        DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9]*' || echo "unknown")
         print_success "Dango $DANGO_VERSION installed and ready to use!"
         echo
         return 0
