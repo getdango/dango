@@ -348,7 +348,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install getdango
+      - run: pip install --pre getdango
       - run: dango config validate
       - run: cd dbt && dbt parse --profiles-dir .
       - name: Check for secrets

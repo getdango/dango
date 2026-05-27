@@ -291,7 +291,7 @@ install_dango() {
     source "$venv_path/bin/activate"
     $PYTHON_CMD -m pip install --upgrade pip -q
 
-    if ! $PYTHON_CMD -m pip install getdango; then
+    if ! $PYTHON_CMD -m pip install --pre getdango; then
         print_error "Failed to install Dango"
         echo
         echo "Possible causes:"
@@ -316,7 +316,7 @@ upgrade_dango() {
     print_step "Upgrading Dango..."
 
     source "$venv_path/bin/activate"
-    $PYTHON_CMD -m pip install --upgrade getdango -q
+    $PYTHON_CMD -m pip install --upgrade --pre getdango -q
 
     DANGO_VERSION=$(dango --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 
@@ -366,7 +366,7 @@ check_conflicts() {
     echo
 
     # Run dry-run to see what will be installed/upgraded
-    dry_run_output=$($PYTHON_CMD -m pip install --dry-run --user getdango 2>&1)
+    dry_run_output=$($PYTHON_CMD -m pip install --dry-run --pre --user getdango 2>&1)
 
     # Check if any packages will be upgraded
     if echo "$dry_run_output" | grep -q "Would upgrade"; then
@@ -402,7 +402,7 @@ install_dango_global() {
     print_step "Installing Dango globally..."
     echo
 
-    if ! $PYTHON_CMD -m pip install --user getdango; then
+    if ! $PYTHON_CMD -m pip install --pre --user getdango; then
         print_error "Failed to install Dango"
         echo
         echo "Possible causes:"
@@ -838,7 +838,7 @@ main() {
                 echo "To create venv manually:"
                 echo "  $PYTHON_CMD -m venv venv"
                 echo "  source venv/bin/activate"
-                echo "  pip install getdango"
+                echo "  pip install --pre getdango"
                 echo
                 exit 0
             fi
