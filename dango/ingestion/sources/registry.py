@@ -430,7 +430,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "facebook_insights",
         ],
         "default_config": {
-            "lookback_days": 28,  # Facebook attribution window is up to 28 days
+            "attribution_window_days_lag": 28,  # Facebook attribution window; source reads this directly
         },
         "cost_warning": "Rate limited: 200 calls/hour per user, 4800/day per app",
         "wizard_enabled": True,  # OAuth implementation complete
@@ -641,7 +641,18 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "resources",
                 "type": "multiselect",
                 "prompt": "Resources to sync",
-                "choices": ["contacts", "companies", "deals", "tickets", "products", "quotes"],
+                "choices": [
+                    "contacts",
+                    "companies",
+                    "deals",
+                    "tickets",
+                    "products",
+                    "quotes",
+                    "owners",
+                    "properties",
+                    "pipelines_deals",
+                    "pipelines_tickets",
+                ],
                 "default": [
                     "contacts",
                     "companies",
@@ -651,8 +662,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                     "quotes",
                     "owners",
                     "properties",
-                    "pipelines_deal",
-                    "pipelines_ticket",
+                    "pipelines_deals",
+                    "pipelines_tickets",
                 ],
             },
         ],
@@ -672,8 +683,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "quotes",
             "owners",
             "properties",
-            "pipelines_deal",
-            "pipelines_ticket",
+            "pipelines_deals",
+            "pipelines_tickets",
         ],
         "default_resources": [
             "contacts",
@@ -684,12 +695,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "quotes",
             "owners",
             "properties",
-            "pipelines_deal",
-            "pipelines_ticket",
+            "pipelines_deals",
+            "pipelines_tickets",
         ],
-        "default_config": {
-            "lookback_days": 1,  # CRM API eventual consistency
-        },
         "first_sync_note": "First sync loads all historical data. Large accounts (>100k contacts) may take 15-30 minutes.",
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/hubspot",
         "cost_warning": "Subject to HubSpot API limits (varies by plan)",
@@ -746,9 +754,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "pricebook_2",
             "pricebook_entry",
         ],
-        "default_config": {
-            "lookback_days": 1,  # Salesforce API eventual consistency
-        },
         "secrets_toml_template": '[sources.{source_name}.credentials]\nuser_name = ""\npassword = ""\nsecurity_token = ""\n',
         "setup_guide": [
             "1. Log in to Salesforce → Setup → search 'Reset My Security Token'",
@@ -781,7 +786,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "description": "Load payment data from Stripe (charges, customers, subscriptions, etc.)",
         "auth_type": AuthType.API_KEY,
         "dlt_package": "stripe_analytics",
-        "dlt_function": "incremental_stripe_source",
+        "dlt_function": "stripe_source",
         "pip_dependencies": [{"pip": "stripe", "import": "stripe"}],
         "wizard_enabled": True,  # Fully tested for v0.0.1
         "required_params": [
@@ -830,18 +835,16 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "2. Click 'Reveal test key' to see the Secret key",
             "3. Copy the key (starts with sk_test_ or sk_live_)",
         ],
-        "default_config": {
-            "lookback_days": 30,  # Disputes up to 120 days, refunds up to 180; 30 is practical minimum
-        },
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/stripe_analytics",
         "cost_warning": "No additional cost (included with Stripe account)",
         "popularity": 10,
         "capabilities": {
             "performance_metrics": False,
             "date_range": True,
-            # incremental_stripe_source uses write_disposition="append"
-            # with incremental loading via created timestamp.
-            "incremental": True,
+            # stripe_source uses write_disposition="replace" for all resources
+            # (full refresh every sync). Correct for mutable objects (charges
+            # can be refunded, subscriptions updated).
+            "incremental": False,
             "custom_queries": False,
         },
     },
@@ -1023,9 +1026,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "ticket_metric_events",
         ],
         "default_resources": ["tickets", "ticket_fields", "ticket_events", "ticket_metric_events"],
-        "default_config": {
-            "lookback_days": 1,  # Zendesk API eventual consistency
-        },
         "secrets_toml_template": '[sources.{source_name}.credentials]\nsubdomain = "{subdomain}"\nemail = ""\ntoken = ""\n',
         "setup_guide": [
             "1. Log in to Zendesk as admin",
@@ -1455,9 +1455,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "3. Copy your Personal API token",
             "4. Add to .env as PIPEDRIVE_API_KEY",
         ],
-        "default_config": {
-            "lookback_days": 1,  # CRM API eventual consistency
-        },
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/pipedrive",
         "popularity": 7,
         "capabilities": {
@@ -1511,7 +1508,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                     "contacts",
                     "groups",
                     "roles",
-                    "skills",
                 ],
             },
             {
@@ -1528,9 +1524,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "3. Copy your API key",
             "4. Add to .env as FRESHDESK_API_KEY",
         ],
-        "default_config": {
-            "lookback_days": 1,  # Freshdesk API eventual consistency
-        },
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/freshdesk",
         "popularity": 6,
         "capabilities": {
