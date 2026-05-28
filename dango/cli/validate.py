@@ -65,6 +65,7 @@ class ProjectValidator:
         self._check_data_sources()
         self._check_custom_sources()  # Check for unreferenced custom sources
         self._check_oauth_credentials()  # NEW: OAuth validation
+        self._check_source_connectivity()
         self._check_env_vars()
         self._check_dbt_setup()
         self._check_database()
@@ -300,6 +301,42 @@ class ProjectValidator:
             self.results.append(
                 ValidationResult(
                     "OAuth Credentials", "fail", f"Error checking OAuth: {str(e)[:100]}"
+                )
+            )
+
+    def _check_source_connectivity(self):
+        """Test source connectivity with live API calls for OAuth sources."""
+        try:
+            from dango.oauth.validation import validate_all_tokens
+
+            results = validate_all_tokens(self.project_root)
+
+            for result in results:
+                source_type = result.source_type
+                if result.valid:
+                    info = result.account_info or ""
+                    self.results.append(
+                        ValidationResult(
+                            f"Connectivity: {source_type}",
+                            "pass",
+                            f"API connection OK{f' ({info})' if info else ''}",
+                        )
+                    )
+                else:
+                    self.results.append(
+                        ValidationResult(
+                            f"Connectivity: {source_type}",
+                            "fail",
+                            f"API check failed: {result.message}",
+                        )
+                    )
+
+        except Exception as e:
+            self.results.append(
+                ValidationResult(
+                    "Source Connectivity",
+                    "warn",
+                    f"Could not test connectivity: {str(e)[:100]}",
                 )
             )
 
