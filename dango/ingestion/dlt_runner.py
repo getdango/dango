@@ -835,6 +835,78 @@ class DltPipelineRunner:
                 self._restore_dlt_state(state_backup)
             raise
 
+    def _delete_lookback_rows(
+        self,
+        source_name: str,
+        dataset_name: str,
+        lookback_days: int,
+    ) -> int:
+        """Delete rows in the lookback window before re-inserting fresh data.
+
+        For sources with lookback_days, this ensures reattributed or corrected
+        data replaces stale rows.  Rows where ``date >= today - lookback_days``
+        are removed from every user table in the source's schema.
+
+        Args:
+            source_name: Source name (for logging).
+            dataset_name: DuckDB schema (e.g. ``raw_google_ads``).
+            lookback_days: Number of days to delete.
+
+        Returns:
+            Total rows deleted across all tables.
+        """
+        import duckdb
+
+        cutoff = (date.today() - timedelta(days=int(lookback_days))).isoformat()
+        total_deleted = 0
+
+        try:
+            conn = duckdb.connect(str(self.duckdb_path))
+            try:
+                # Find user tables (skip dlt internal tables)
+                tables = conn.execute(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = ? AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'",
+                    [dataset_name],
+                ).fetchall()
+
+                for (table_name,) in tables:
+                    # Find the date column — check common names
+                    cols = conn.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = ? AND table_name = ?",
+                        [dataset_name, table_name],
+                    ).fetchall()
+                    col_names = [c[0] for c in cols]
+
+                    date_col = None
+                    for candidate in ("date", "segments_date", "date_start"):
+                        if candidate in col_names:
+                            date_col = candidate
+                            break
+
+                    if date_col is None:
+                        continue  # No date column — skip table
+
+                    deleted = conn.execute(
+                        f'DELETE FROM "{dataset_name}"."{table_name}" '
+                        f'WHERE "{date_col}" >= ? RETURNING 1',
+                        [cutoff],
+                    ).fetchall()
+                    count = len(deleted)
+                    if count > 0:
+                        total_deleted += count
+                        console.print(
+                            f"  [dim]Lookback: deleted {count:,} row(s) "
+                            f"from {table_name} (>= {cutoff})[/dim]"
+                        )
+            finally:
+                conn.close()
+        except Exception as e:
+            console.print(f"  [yellow]⚠ Lookback delete failed for {source_name}: {e}[/yellow]")
+
+        return total_deleted
+
     def _detect_write_disposition(self, source: Any) -> bool:
         """
         Detect if dlt source uses 'replace' write_disposition.
@@ -1093,6 +1165,13 @@ class DltPipelineRunner:
                 pipeline.drop()
             except Exception as e:
                 console.print(f"  ⚠️  Could not drop pipeline: {e}")
+
+        # Delete+re-insert for lookback sources: remove stale rows in the
+        # lookback window so fresh data replaces them.  Only applies when
+        # (a) lookback is active, (b) not a full refresh, and (c) the source
+        # is NOT already using replace mode (replace drops everything anyway).
+        if _lookback and not full_refresh and not uses_replace_mode:
+            self._delete_lookback_rows(source_name, dataset_name, int(_lookback))
 
         try:
             # Run pipeline with retry logic

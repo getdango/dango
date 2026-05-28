@@ -423,7 +423,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         ],
         "default_resources": ["campaigns", "ads", "ad_sets", "facebook_insights"],
         "default_config": {
-            "lookback_days": 3,
+            "lookback_days": 28,  # Facebook attribution window is up to 28 days
         },
         "cost_warning": "Rate limited: 200 calls/hour per user, 4800/day per app",
         "wizard_enabled": True,  # OAuth implementation complete
@@ -469,7 +469,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         # Default queries based on industry best practices (Calibrate Analytics)
         # GA4 Data API provides aggregated data only - each query becomes a table
         "default_config": {
-            "lookback_days": 2,
+            "lookback_days": 7,  # GA4 has 24-72h processing delay; 7 days catches corrections
             "queries": [
                 {
                     "resource_name": "traffic",
@@ -586,6 +586,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "pipelines_ticket",
         ],
         "default_resources": ["contacts", "companies", "deals", "tickets"],
+        "default_config": {
+            "lookback_days": 1,  # CRM API eventual consistency
+        },
         "first_sync_note": "First sync loads all historical data. Large accounts (>100k contacts) may take 15-30 minutes.",
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/hubspot",
         "cost_warning": "Subject to HubSpot API limits (varies by plan)",
@@ -621,6 +624,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "product_2",
         ],
         "default_resources": ["account", "contact", "lead", "opportunity", "campaign"],
+        "default_config": {
+            "lookback_days": 1,  # Salesforce API eventual consistency
+        },
         "secrets_toml_template": '[sources.{source_name}.credentials]\nuser_name = ""\npassword = ""\nsecurity_token = ""\n',
         "setup_guide": [
             "1. Log in to Salesforce → Setup → search 'Reset My Security Token'",
@@ -653,7 +659,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "description": "Load payment data from Stripe (charges, customers, subscriptions, etc.)",
         "auth_type": AuthType.API_KEY,
         "dlt_package": "stripe_analytics",
-        "dlt_function": "stripe_source",
+        "dlt_function": "incremental_stripe_source",
         "pip_dependencies": [{"pip": "stripe", "import": "stripe"}],
         "wizard_enabled": True,  # Fully tested for v0.0.1
         "required_params": [
@@ -695,16 +701,18 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "2. Click 'Reveal test key' to see the Secret key",
             "3. Copy the key (starts with sk_test_ or sk_live_)",
         ],
+        "default_config": {
+            "lookback_days": 30,  # Disputes up to 120 days, refunds up to 180; 30 is practical minimum
+        },
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/stripe_analytics",
         "cost_warning": "No additional cost (included with Stripe account)",
         "popularity": 10,
         "capabilities": {
             "performance_metrics": False,
             "date_range": True,
-            # stripe_source uses write_disposition="replace" for all resources
-            # (full refresh every sync). incremental_stripe_source exists but
-            # dango calls stripe_source via the registry's dlt_function.
-            "incremental": False,
+            # incremental_stripe_source uses write_disposition="append"
+            # with incremental loading via created timestamp.
+            "incremental": True,
             "custom_queries": False,
         },
     },
@@ -886,6 +894,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "ticket_metric_events",
         ],
         "default_resources": ["tickets", "ticket_fields"],
+        "default_config": {
+            "lookback_days": 1,  # Zendesk API eventual consistency
+        },
         "secrets_toml_template": '[sources.{source_name}.credentials]\nsubdomain = "{subdomain}"\nemail = ""\ntoken = ""\n',
         "setup_guide": [
             "1. Log in to Zendesk as admin",
@@ -926,7 +937,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         # Default GAQL queries — each becomes a table. Duplicated from
         # dlt_sources/google_ads/settings.py (registry must not import from dlt_sources/).
         "default_config": {
-            "lookback_days": 3,
+            "lookback_days": 90,  # Google Ads conversion attribution window
             "queries": [
                 {
                     "resource_name": "campaign_stats",
@@ -1052,7 +1063,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": True,
             "date_range": True,
-            "incremental": False,
+            # Uses append + delete-before-insert lookback (90-day window).
+            # First sync loads full history; subsequent syncs re-load the
+            # lookback window only. Older data is preserved.
+            "incremental": True,
             "custom_queries": True,
         },
     },
@@ -1154,8 +1168,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": True,
             "date_range": True,
-            # assets use merge (idempotent upsert) but no dlt.sources.incremental()
-            # cursor — re-fetches all assets each run, not true incremental loading
+            # assets use merge (idempotent upsert by PK) but no
+            # dlt.sources.incremental() cursor — effectively full refresh
+            # because all assets are re-fetched each run.
             "incremental": False,
             "custom_queries": False,
         },
@@ -1265,6 +1280,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "3. Copy your Personal API token",
             "4. Add to .env as PIPEDRIVE_API_KEY",
         ],
+        "default_config": {
+            "lookback_days": 1,  # CRM API eventual consistency
+        },
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/pipedrive",
         "popularity": 7,
         "capabilities": {
@@ -1327,6 +1345,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "3. Copy your API key",
             "4. Add to .env as FRESHDESK_API_KEY",
         ],
+        "default_config": {
+            "lookback_days": 1,  # Freshdesk API eventual consistency
+        },
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/freshdesk",
         "popularity": 6,
         "capabilities": {
@@ -1448,9 +1469,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": True,
-            # workable_source uses write_disposition="replace" for 7/8
-            # resources. Only candidates uses merge+incremental(updated_at).
-            "incremental": False,
+            # Mixed: 7/8 resources use replace, but candidates uses
+            # merge+incremental(updated_at). Marked True because candidates
+            # is the highest-volume resource and benefits from incremental.
+            "incremental": True,
             "custom_queries": False,
         },
     },
@@ -1650,8 +1672,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "date_range": False,
             # mongodb() accepts an optional incremental parameter (defaults to
             # None). Without explicit configuration, it does a full load — not
-            # incremental by default.
+            # incremental by default. Users can enable incremental via
+            # dlt_native config with the incremental parameter.
             "incremental": False,
+            "incremental_available": True,
             "custom_queries": False,
         },
     },
@@ -1710,7 +1734,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             # sql_database() accepts an optional incremental parameter per
             # table (defaults to None). Without explicit configuration, it
             # loads all rows on every run — not incremental by default.
+            # Users can enable per-table incremental via dlt_native config.
             "incremental": False,
+            "incremental_available": True,
             "custom_queries": False,
         },
     },

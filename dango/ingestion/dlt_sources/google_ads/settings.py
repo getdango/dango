@@ -1,7 +1,5 @@
 """Default settings for Google Ads dlt source."""
 
-DEFAULT_LOOKBACK_DAYS = 90
-
 # Each query becomes a separate dlt resource/table.
 # {start_date} and {end_date} are replaced at runtime (YYYY-MM-DD).
 DEFAULT_QUERIES = [

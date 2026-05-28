@@ -12,7 +12,7 @@ from dlt.sources import DltResource
 from dlt.sources.credentials import GcpOAuthCredentials, GcpServiceAccountCredentials
 
 from .helpers.data_processing import to_dict, flatten_row
-from .settings import DEFAULT_LOOKBACK_DAYS, DEFAULT_QUERIES
+from .settings import DEFAULT_QUERIES
 
 try:
     from google.ads.googleads.client import GoogleAdsClient  # type: ignore
@@ -53,7 +53,9 @@ def _compute_date_range(
 ) -> tuple[str, str]:
     """Returns (effective_start, effective_end) as YYYY-MM-DD strings.
 
-    Defaults: start = DEFAULT_LOOKBACK_DAYS ago, end = yesterday.
+    Defaults: start = 90 days ago (matches registry lookback_days), end = yesterday.
+    The registry's lookback_days is the single source of truth for the window
+    size; this fallback only applies when no start_date is passed at all.
     """
     if end_date:
         effective_end = end_date
@@ -63,9 +65,7 @@ def _compute_date_range(
     if start_date:
         effective_start = start_date
     else:
-        effective_start = (
-            date.today() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
-        ).isoformat()
+        effective_start = (date.today() - timedelta(days=90)).isoformat()
 
     return effective_start, effective_end
 
@@ -125,7 +125,7 @@ def google_ads(
         resource = dlt.resource(
             _execute_query,
             name=resource_name,
-            write_disposition="replace",
+            write_disposition="append",
         )(
             ga_service=ga_service,
             customer_id=customer_id,
