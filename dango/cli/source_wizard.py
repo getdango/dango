@@ -1983,11 +1983,33 @@ def {module_name}_resource(api_key: str):
             console.print("\n[cyan]ℹ️  About Incremental Loading:[/cyan]")
             console.print("  • start_date is only used for the FIRST sync")
             console.print("  • Future syncs load NEW data since last run")
-            console.print("  • Cursor tracks when record was CREATED, not event date")
-            console.print("  • Example: Dec 31 order might have created=Jan 1")
-            console.print(
-                "\n[yellow]💡 Tip: Set start_date 7-14 days earlier to catch late data[/yellow]\n"
-            )
+            console.print("  • To reload history, use 'dango sync --full-refresh'")
+
+            # Per-source education (use dlt_function from metadata as identifier)
+            dlt_func = (metadata or {}).get("dlt_function", "")
+            if dlt_func == "google_analytics":
+                console.print("\n[yellow]GA4-specific notes:[/yellow]")
+                console.print("  • Data has a 24-48h finalization delay")
+                console.print("  • Yesterday's data may be incomplete until processed")
+                console.print("  • Lookback window (7 days) automatically re-fetches recent data")
+                console.print("  • Changing dimensions later requires 'dango sync --full-refresh'")
+            elif dlt_func == "google_ads":
+                console.print("\n[yellow]Google Ads-specific notes:[/yellow]")
+                console.print("  • start_date controls the initial history load")
+                console.print("  • lookback_days (90) controls the daily re-fetch window")
+                console.print("  • Conversion attribution can update for up to 90 days")
+            elif dlt_func == "google_spreadsheet":
+                console.print("\n[yellow]Google Sheets notes:[/yellow]")
+                console.print("  • Google Sheets API has a 1M cell limit per request")
+                console.print("  • Sheets with >100K rows may be slow or fail")
+                console.print("  • Each sync does a full refresh (no incremental for sheets)")
+            else:
+                console.print("  • Cursor tracks when record was CREATED, not event date")
+                console.print("  • Example: Dec 31 order might have created=Jan 1")
+                console.print(
+                    "\n[yellow]💡 Tip: Set start_date 7-14 days earlier to catch late data[/yellow]"
+                )
+            console.print()
 
         return value
 

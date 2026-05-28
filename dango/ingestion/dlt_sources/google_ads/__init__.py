@@ -74,13 +74,23 @@ def _execute_query(
     ga_service: object,
     customer_id: str,
     query: str,
+    resource_name: str = "",
 ) -> Iterator[TDataItem]:
     """Runs a GAQL query via search_stream and yields flattened rows."""
-    stream = ga_service.search_stream(customer_id=customer_id, query=query)  # type: ignore[union-attr]
-    for batch in stream:
-        for row in batch.results:
-            row_dict = to_dict(row)
-            yield flatten_row(row_dict)
+    try:
+        stream = ga_service.search_stream(customer_id=customer_id, query=query)  # type: ignore[union-attr]
+        for batch in stream:
+            for row in batch.results:
+                row_dict = to_dict(row)
+                yield flatten_row(row_dict)
+    except Exception as e:
+        error_msg = str(e)
+        # Surface query context so the user can debug GAQL field compatibility
+        raise RuntimeError(
+            f"Google Ads query '{resource_name}' failed: {error_msg}\n"
+            f"  GAQL: {query[:200]}{'...' if len(query) > 200 else ''}\n"
+            f"  Validate at: https://developers.google.com/google-ads/api/fields/v17/overview"
+        ) from e
 
 
 @dlt.source(name="google_ads", max_table_nesting=2)
@@ -130,6 +140,7 @@ def google_ads(
             ga_service=ga_service,
             customer_id=customer_id,
             query=formatted_query,
+            resource_name=resource_name,
         )
         resources.append(resource)
 

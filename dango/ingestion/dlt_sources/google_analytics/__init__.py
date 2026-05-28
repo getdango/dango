@@ -77,8 +77,15 @@ def google_analytics(
     # that most users don't need. Only load the actual query results.
     resource_list = []
     for query in queries:
-        # always add "date" to dimensions so we are able to track the last day of a report
+        # Validate GA4 dimension limit (API rejects > 9 dimensions per query)
         dimensions = query["dimensions"]
+        if len(dimensions) > 9:
+            raise ValueError(
+                f"GA4 query '{query.get('resource_name', '?')}' has {len(dimensions)} "
+                f"dimensions but the maximum is 9. Remove {len(dimensions) - 9} "
+                f"dimension(s) or split into multiple queries."
+            )
+        # always add "date" to dimensions so we are able to track the last day of a report
         time_dimension = next(
             (dim for dim in dimensions if dim in TIME_DIMENSIONS),
             "date",  # Default to "date" if no time dimension found
