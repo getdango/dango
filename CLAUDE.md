@@ -432,19 +432,15 @@ mypy dango/
 
 ### Git Workflow
 
-All v1 development happens on feature branches off `v1`. Never commit directly to `v1` or `main`.
+All development happens on feature branches off `main`. Never commit directly to `main`.
 
 ```bash
 # Start a task
-git checkout v1 && git pull && git checkout -b feat/<task-name>
-
-# Use feat/ prefix — git can't create v1/... branches when v1 exists
-# Rebase onto v1 before creating PR (surfaces conflicts, keeps linear history)
-git rebase v1
+git checkout main && git pull && git checkout -b feat/<task-name>
 
 # Push and create PR
 git push -u origin feat/<task-name>
-gh pr create --base v1 --title "TASK-XXX: Description" --body "..."
+gh pr create --base main --title "Description" --body "..."
 
 # Merge — Option A (preferred when merge queue is enabled):
 gh pr merge NUMBER --merge-queue
