@@ -1072,6 +1072,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "queries": [
                 {
                     "resource_name": "campaign_stats",
+                    "primary_key": ["date", "campaign_id"],
                     "query": (
                         "SELECT "
                         "segments.date, "
@@ -1096,6 +1097,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 },
                 {
                     "resource_name": "ad_group_stats",
+                    "primary_key": ["date", "campaign_id", "ad_group_id"],
                     "query": (
                         "SELECT "
                         "segments.date, "
@@ -1118,6 +1120,13 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 },
                 {
                     "resource_name": "keyword_stats",
+                    "primary_key": [
+                        "date",
+                        "campaign_id",
+                        "ad_group_id",
+                        "ad_group_criterion_keyword_text",
+                        "ad_group_criterion_keyword_match_type",
+                    ],
                     "query": (
                         "SELECT "
                         "segments.date, "
@@ -1141,6 +1150,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 },
                 {
                     "resource_name": "ad_stats",
+                    "primary_key": ["date", "campaign_id", "ad_group_id", "ad_group_ad_ad_id"],
                     "query": (
                         "SELECT "
                         "segments.date, "
@@ -1164,6 +1174,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 },
                 {
                     "resource_name": "search_term_stats",
+                    "primary_key": [
+                        "date",
+                        "campaign_id",
+                        "ad_group_id",
+                        "search_term_view_search_term",
+                    ],
                     "query": (
                         "SELECT "
                         "segments.date, "
@@ -1185,6 +1201,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 },
                 {
                     "resource_name": "geographic_stats",
+                    "primary_key": [
+                        "date",
+                        "campaign_id",
+                        "geographic_view_country_criterion_id",
+                        "geographic_view_location_type",
+                    ],
                     "query": (
                         "SELECT "
                         "segments.date, "

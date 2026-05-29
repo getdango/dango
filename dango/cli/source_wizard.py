@@ -1996,7 +1996,9 @@ def {module_name}_resource(api_key: str):
             elif dlt_func == "google_ads":
                 console.print("\n[yellow]Google Ads-specific notes:[/yellow]")
                 console.print("  • start_date controls the initial history load")
-                console.print("  • lookback_days (90) controls the daily re-fetch window")
+                console.print(
+                    "  • lookback_days controls the daily re-fetch window (default: 90 days)"
+                )
                 console.print("  • Conversion attribution can update for up to 90 days")
             elif dlt_func == "google_spreadsheet":
                 console.print("\n[yellow]Google Sheets notes:[/yellow]")

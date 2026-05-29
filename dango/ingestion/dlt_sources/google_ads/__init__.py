@@ -1,6 +1,5 @@
 """Google Ads dlt source — query-driven performance metrics."""
 
-import re
 from typing import Iterator, Union
 from datetime import date, timedelta
 
@@ -47,35 +46,6 @@ def get_client(
                     "developer_token": dev_token,
                 }
             )
-
-
-def _extract_pk_columns(query: str) -> list[str]:
-    """Derive primary key columns from a GAQL SELECT clause.
-
-    Non-metric columns form the composite PK.  After flatten_row():
-    - segments.date -> date  (segments promoted to top level)
-    - campaign.id -> campaign_id  (entity fields prefix-joined)
-    - metrics.* are excluded (they're measures, not keys)
-    """
-    select_match = re.search(r"SELECT\s+(.*?)\s+FROM", query, re.IGNORECASE | re.DOTALL)
-    if not select_match:
-        return []
-
-    columns = [col.strip().rstrip(",") for col in select_match.group(1).split(",")]
-    pk_columns: list[str] = []
-
-    for col in columns:
-        col = col.strip()
-        if col.startswith("metrics."):
-            continue  # Metrics are measures, not keys
-        if col.startswith("segments."):
-            # segments.date -> date (promoted to top level by flatten_row)
-            pk_columns.append(col.split(".", 1)[1])
-        else:
-            # campaign.id -> campaign_id, ad_group_criterion.keyword.text -> ad_group_criterion_keyword_text
-            pk_columns.append(col.replace(".", "_"))
-
-    return pk_columns
 
 
 def _execute_query_incremental(
@@ -149,7 +119,7 @@ def google_ads(
     resources = []
     for q in active_queries:
         resource_name = q["resource_name"]
-        pk_columns = _extract_pk_columns(q["query"])
+        pk_columns = q.get("primary_key", ["date"])
 
         resource = dlt.resource(
             _execute_query_incremental,
