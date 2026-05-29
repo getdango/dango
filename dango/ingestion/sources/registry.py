@@ -1433,6 +1433,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "resources",
                 "type": "multiselect",
                 "prompt": "Resources to sync",
+                "help": "deals_flow and deals_participants require deals to be selected",
                 "choices": [
                     "activities",
                     "deals",
@@ -1958,8 +1959,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "credentials_env",
                 "type": "secret",
                 "env_var": "KAFKA_CREDENTIALS",
-                "prompt": "Kafka connection credentials (JSON config)",
-                "help": "JSON with bootstrap.servers, group.id, and optional security settings",
+                "prompt": "Kafka bootstrap servers (e.g., localhost:9092)",
+                "help": "Comma-separated list of broker addresses",
             },
         ],
         "optional_params": [
@@ -1990,8 +1991,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "2. Create consumer group ID",
             "3. If using auth: get SASL credentials or SSL certificates",
             "4. Create JSON config with connection details",
-            "5. Add to .env as KAFKA_CREDENTIALS",
+            "5. Add credentials to .dlt/secrets.toml (template added automatically)",
         ],
+        "secrets_toml_template": '[sources.{source_name}.credentials]\n"bootstrap.servers" = "localhost:9092"\n"group.id" = "dango"\n"security.protocol" = "plaintext"\n',
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/kafka",
         "popularity": 7,
         "capabilities": {
@@ -2015,13 +2017,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "type": "string",
                 "prompt": "Kinesis stream name",
                 "help": "Name of the Kinesis stream to read from",
-            },
-            {
-                "name": "credentials_env",
-                "type": "secret",
-                "env_var": "AWS_CREDENTIALS",
-                "prompt": "AWS credentials (JSON with aws_access_key_id, aws_secret_access_key, region_name)",
-                "help": "AWS credentials with Kinesis read permissions",
             },
         ],
         "optional_params": [
@@ -2047,11 +2042,11 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "help": "If True, parses message data as JSON objects",
             },
         ],
+        "secrets_toml_template": '[sources.{source_name}.credentials]\naws_access_key_id = ""\naws_secret_access_key = ""\nregion_name = "us-east-1"\n',
         "setup_guide": [
             "1. Create IAM user with Kinesis read permissions",
             "2. Get AWS access key ID and secret access key",
-            '3. Create JSON: {"aws_access_key_id": "...", "aws_secret_access_key": "...", "region_name": "us-east-1"}',
-            "4. Add to .env as AWS_CREDENTIALS",
+            "3. Fill in credentials in .dlt/secrets.toml (template added automatically)",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/kinesis",
         "popularity": 6,
@@ -2089,7 +2084,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            "incremental": False,
+            # players_games uses append with state-tracked archives
+            # (only new game archives loaded on subsequent syncs).
+            "incremental": True,
             "custom_queries": False,
         },
     },
