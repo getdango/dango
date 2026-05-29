@@ -421,9 +421,16 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "leads",
             "facebook_insights",
         ],
-        "default_resources": ["campaigns", "ads", "ad_sets", "facebook_insights"],
+        "default_resources": [
+            "campaigns",
+            "ads",
+            "ad_sets",
+            "ad_creatives",
+            "leads",
+            "facebook_insights",
+        ],
         "default_config": {
-            "lookback_days": 3,
+            "attribution_window_days_lag": 28,  # Facebook attribution window; source reads this directly
         },
         "cost_warning": "Rate limited: 200 calls/hour per user, 4800/day per app",
         "wizard_enabled": True,  # OAuth implementation complete
@@ -466,19 +473,25 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "help": "GA4 accepts relative dates (e.g., '90daysAgo', '30daysAgo') or absolute dates (YYYY-MM-DD). Defaults to 90daysAgo for first sync.",
             },
         ],
-        # Default queries based on industry best practices (Calibrate Analytics)
-        # GA4 Data API provides aggregated data only - each query becomes a table
+        # 6 themed queries covering 90-95% of analytics use cases.
+        # GA4 Data API limits: max 9 dimensions per query.
+        # WARNING: Changing dimensions after first sync requires full refresh
+        # (dlt incremental state tracks dimension combinations).
         "default_config": {
-            "lookback_days": 2,
+            "lookback_days": 7,  # GA4 has 24-72h processing delay; 7 days catches corrections
             "queries": [
                 {
+                    # Traffic acquisition — how users arrive
                     "resource_name": "traffic",
                     "dimensions": [
                         "date",
                         "sessionSource",
                         "sessionMedium",
                         "sessionCampaignName",
+                        "sessionDefaultChannelGroup",
                         "deviceCategory",
+                        "operatingSystem",
+                        "browser",
                     ],
                     "metrics": [
                         "sessions",
@@ -490,30 +503,96 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                     ],
                 },
                 {
+                    # Page performance — what users view
                     "resource_name": "pages",
-                    "dimensions": ["date", "pagePath", "pageTitle"],
+                    "dimensions": [
+                        "date",
+                        "pagePath",
+                        "pageTitle",
+                        "sessionSource",
+                        "sessionMedium",
+                        "deviceCategory",
+                    ],
                     "metrics": [
                         "screenPageViews",
                         "totalUsers",
                         "userEngagementDuration",
                         "sessions",
+                        "bounceRate",
                     ],
                 },
                 {
+                    # Landing pages — first touchpoints
                     "resource_name": "landing_pages",
                     "dimensions": [
                         "date",
                         "landingPage",
                         "sessionSource",
                         "sessionMedium",
+                        "sessionCampaignName",
+                        "sessionDefaultChannelGroup",
                         "deviceCategory",
                     ],
-                    "metrics": ["sessions", "totalUsers", "engagedSessions", "bounceRate"],
+                    "metrics": [
+                        "sessions",
+                        "totalUsers",
+                        "engagedSessions",
+                        "bounceRate",
+                        "averageSessionDuration",
+                    ],
                 },
                 {
+                    # Geographic — where users are
                     "resource_name": "geo",
-                    "dimensions": ["date", "country", "city"],
-                    "metrics": ["sessions", "totalUsers", "engagedSessions"],
+                    "dimensions": [
+                        "date",
+                        "country",
+                        "city",
+                        "language",
+                        "deviceCategory",
+                    ],
+                    "metrics": [
+                        "sessions",
+                        "totalUsers",
+                        "engagedSessions",
+                        "bounceRate",
+                    ],
+                },
+                {
+                    # Events — what users do (custom events + standard events)
+                    "resource_name": "events",
+                    "dimensions": [
+                        "date",
+                        "eventName",
+                        "sessionSource",
+                        "sessionMedium",
+                        "deviceCategory",
+                    ],
+                    "metrics": [
+                        "eventCount",
+                        "totalUsers",
+                        "eventCountPerUser",
+                        "sessions",
+                    ],
+                },
+                {
+                    # Conversions — business outcomes
+                    "resource_name": "conversions",
+                    "dimensions": [
+                        "date",
+                        "sessionSource",
+                        "sessionMedium",
+                        "sessionCampaignName",
+                        "sessionDefaultChannelGroup",
+                        "deviceCategory",
+                    ],
+                    "metrics": [
+                        "conversions",
+                        "totalRevenue",
+                        "totalUsers",
+                        "sessions",
+                        "engagedSessions",
+                    ],
                 },
             ],
         },
@@ -522,9 +601,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "2. OR manually run: dango oauth google_analytics",
             "3. Follow the browser OAuth flow to authenticate",
             "4. Get GA4 Property ID from Admin > Property Settings",
-            "5. Default queries load 4 tables: traffic, pages, landing_pages, geo",
+            "5. Default queries load 6 tables: traffic, pages, landing_pages, geo, events, conversions",
             "6. Edit .dlt/config.toml to customize dimensions/metrics",
-            "7. Schema evolves automatically - can add queries anytime",
+            "7. WARNING: Changing dimensions after first sync requires 'dango sync --full-refresh'",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_analytics",
         "cost_warning": "Subject to Google API quota limits. Data is aggregated (not event-level).",
@@ -562,8 +641,30 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "name": "resources",
                 "type": "multiselect",
                 "prompt": "Resources to sync",
-                "choices": ["contacts", "companies", "deals", "tickets", "products", "quotes"],
-                "default": ["contacts", "companies", "deals", "tickets"],
+                "choices": [
+                    "contacts",
+                    "companies",
+                    "deals",
+                    "tickets",
+                    "products",
+                    "quotes",
+                    "owners",
+                    "properties",
+                    "pipelines_deals",
+                    "pipelines_tickets",
+                ],
+                "default": [
+                    "contacts",
+                    "companies",
+                    "deals",
+                    "tickets",
+                    "products",
+                    "quotes",
+                    "owners",
+                    "properties",
+                    "pipelines_deals",
+                    "pipelines_tickets",
+                ],
             },
         ],
         "setup_guide": [
@@ -582,10 +683,21 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "quotes",
             "owners",
             "properties",
-            "pipelines_deal",
-            "pipelines_ticket",
+            "pipelines_deals",
+            "pipelines_tickets",
         ],
-        "default_resources": ["contacts", "companies", "deals", "tickets"],
+        "default_resources": [
+            "contacts",
+            "companies",
+            "deals",
+            "tickets",
+            "products",
+            "quotes",
+            "owners",
+            "properties",
+            "pipelines_deals",
+            "pipelines_tickets",
+        ],
         "first_sync_note": "First sync loads all historical data. Large accounts (>100k contacts) may take 15-30 minutes.",
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/hubspot",
         "cost_warning": "Subject to HubSpot API limits (varies by plan)",
@@ -619,8 +731,29 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "sf_user",
             "user_role",
             "product_2",
+            "opportunity_line_item",
+            "opportunity_contact_role",
+            "campaign_member",
+            "pricebook_2",
+            "pricebook_entry",
         ],
-        "default_resources": ["account", "contact", "lead", "opportunity", "campaign"],
+        "default_resources": [
+            "account",
+            "contact",
+            "lead",
+            "opportunity",
+            "campaign",
+            "task",
+            "event",
+            "sf_user",
+            "user_role",
+            "product_2",
+            "opportunity_line_item",
+            "opportunity_contact_role",
+            "campaign_member",
+            "pricebook_2",
+            "pricebook_entry",
+        ],
         "secrets_toml_template": '[sources.{source_name}.credentials]\nuser_name = ""\npassword = ""\nsecurity_token = ""\n',
         "setup_guide": [
             "1. Log in to Salesforce → Setup → search 'Reset My Security Token'",
@@ -679,7 +812,14 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                     "Price",
                     "PaymentIntent",
                 ],
-                "default": ["Charge", "Customer", "Subscription"],
+                "default": [
+                    "Charge",
+                    "Customer",
+                    "Subscription",
+                    "Invoice",
+                    "Product",
+                    "Price",
+                ],
             },
             {
                 "name": "start_date",
@@ -702,8 +842,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "performance_metrics": False,
             "date_range": True,
             # stripe_source uses write_disposition="replace" for all resources
-            # (full refresh every sync). incremental_stripe_source exists but
-            # dango calls stripe_source via the registry's dlt_function.
+            # (full refresh every sync). Correct for mutable objects (charges
+            # can be refunded, subscriptions updated).
             "incremental": False,
             "custom_queries": False,
         },
@@ -757,7 +897,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
     "github": {
         "display_name": "GitHub",
         "category": "Development",
-        "description": "Load repository data, issues, pull requests, and commits from GitHub",
+        "description": "Load issues and pull requests with reactions and comments from GitHub",
         "auth_type": AuthType.API_KEY,
         "dlt_package": "github",
         "dlt_function": "github_reactions",
@@ -885,7 +1025,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "ticket_events",
             "ticket_metric_events",
         ],
-        "default_resources": ["tickets", "ticket_fields"],
+        "default_resources": ["tickets", "ticket_fields", "ticket_events", "ticket_metric_events"],
         "secrets_toml_template": '[sources.{source_name}.credentials]\nsubdomain = "{subdomain}"\nemail = ""\ntoken = ""\n',
         "setup_guide": [
             "1. Log in to Zendesk as admin",
@@ -923,13 +1063,16 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "help": "How far back to load on first sync. Default: 90 days.",
             },
         ],
-        # Default GAQL queries — each becomes a table. Duplicated from
-        # dlt_sources/google_ads/settings.py (registry must not import from dlt_sources/).
+        # Default GAQL queries — each becomes a table. Comprehensive coverage
+        # with all compatible fields per resource. Note: some metrics/segments
+        # can't be combined in GAQL; these queries have been validated.
+        # See https://developers.google.com/google-ads/api/fields/v17/overview
         "default_config": {
-            "lookback_days": 3,
+            "lookback_days": 90,  # Google Ads conversion attribution window
             "queries": [
                 {
                     "resource_name": "campaign_stats",
+                    "primary_key": ["date", "campaign_id"],
                     "query": (
                         "SELECT "
                         "segments.date, "
@@ -937,6 +1080,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "campaign.name, "
                         "campaign.status, "
                         "campaign.advertising_channel_type, "
+                        "campaign.bidding_strategy_type, "
                         "metrics.impressions, "
                         "metrics.clicks, "
                         "metrics.cost_micros, "
@@ -944,13 +1088,16 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "metrics.conversions_value, "
                         "metrics.ctr, "
                         "metrics.average_cpc, "
-                        "metrics.average_cpm "
+                        "metrics.average_cpm, "
+                        "metrics.search_impression_share, "
+                        "metrics.search_rank_lost_impression_share "
                         "FROM campaign "
                         "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
                     ),
                 },
                 {
                     "resource_name": "ad_group_stats",
+                    "primary_key": ["date", "campaign_id", "ad_group_id"],
                     "query": (
                         "SELECT "
                         "segments.date, "
@@ -959,6 +1106,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "ad_group.id, "
                         "ad_group.name, "
                         "ad_group.status, "
+                        "ad_group.type, "
                         "metrics.impressions, "
                         "metrics.clicks, "
                         "metrics.cost_micros, "
@@ -972,6 +1120,13 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 },
                 {
                     "resource_name": "keyword_stats",
+                    "primary_key": [
+                        "date",
+                        "campaign_id",
+                        "ad_group_id",
+                        "ad_group_criterion_keyword_text",
+                        "ad_group_criterion_keyword_match_type",
+                    ],
                     "query": (
                         "SELECT "
                         "segments.date, "
@@ -981,23 +1136,28 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "ad_group.name, "
                         "ad_group_criterion.keyword.text, "
                         "ad_group_criterion.keyword.match_type, "
+                        "ad_group_criterion.quality_info.quality_score, "
                         "metrics.impressions, "
                         "metrics.clicks, "
                         "metrics.cost_micros, "
                         "metrics.conversions, "
                         "metrics.ctr, "
-                        "metrics.average_cpc "
+                        "metrics.average_cpc, "
+                        "metrics.search_impression_share "
                         "FROM keyword_view "
                         "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
                     ),
                 },
                 {
                     "resource_name": "ad_stats",
+                    "primary_key": ["date", "campaign_id", "ad_group_id", "ad_group_ad_ad_id"],
                     "query": (
                         "SELECT "
                         "segments.date, "
                         "campaign.id, "
+                        "campaign.name, "
                         "ad_group.id, "
+                        "ad_group.name, "
                         "ad_group_ad.ad.id, "
                         "ad_group_ad.ad.name, "
                         "ad_group_ad.ad.type, "
@@ -1006,6 +1166,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "metrics.clicks, "
                         "metrics.cost_micros, "
                         "metrics.conversions, "
+                        "metrics.conversions_value, "
                         "metrics.ctr "
                         "FROM ad_group_ad "
                         "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
@@ -1013,6 +1174,12 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 },
                 {
                     "resource_name": "search_term_stats",
+                    "primary_key": [
+                        "date",
+                        "campaign_id",
+                        "ad_group_id",
+                        "search_term_view_search_term",
+                    ],
                     "query": (
                         "SELECT "
                         "segments.date, "
@@ -1032,6 +1199,30 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
                     ),
                 },
+                {
+                    "resource_name": "geographic_stats",
+                    "primary_key": [
+                        "date",
+                        "campaign_id",
+                        "geographic_view_country_criterion_id",
+                        "geographic_view_location_type",
+                    ],
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "geographic_view.country_criterion_id, "
+                        "geographic_view.location_type, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.conversions_value "
+                        "FROM geographic_view "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
             ],
         },
         "setup_guide": [
@@ -1040,10 +1231,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "3. Follow the browser OAuth flow to authenticate",
             "4. Enter Developer Token from Google Ads API Center",
             "5. Enter Customer ID (find in Google Ads account URL, no hyphens)",
-            "6. Default queries load 5 tables: campaign_stats, ad_group_stats,"
-            " keyword_stats, ad_stats, search_term_stats",
+            "6. Default queries load 6 tables: campaign, ad_group, keyword, ad,"
+            " search_term, geographic stats",
             "7. Edit .dlt/config.toml to customize GAQL queries",
-            "8. Paste queries from Google Ads Query Builder for custom reports",
+            "8. Use Google Ads Query Builder to validate field compatibility",
         ],
         "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/google_ads",
         "cost_warning": "Subject to Google Ads API rate limits",
@@ -1052,7 +1243,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": True,
             "date_range": True,
-            "incremental": False,
+            # Uses append + delete-before-insert lookback (90-day window).
+            # First sync loads full history; subsequent syncs re-load the
+            # lookback window only. Older data is preserved.
+            "incremental": True,
             "custom_queries": True,
         },
     },
@@ -1154,8 +1348,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": True,
             "date_range": True,
-            # assets use merge (idempotent upsert) but no dlt.sources.incremental()
-            # cursor — re-fetches all assets each run, not true incremental loading
+            # assets use merge (idempotent upsert by PK) but no
+            # dlt.sources.incremental() cursor — effectively full refresh
+            # because all assets are re-fetched each run.
             "incremental": False,
             "custom_queries": False,
         },
@@ -1256,7 +1451,24 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                     "tasks",
                     "users",
                 ],
-                "default": ["activities", "deals", "persons", "organizations"],
+                "default": [
+                    "activities",
+                    "deals",
+                    "deals_flow",
+                    "deals_participants",
+                    "files",
+                    "filters",
+                    "leads",
+                    "notes",
+                    "organizations",
+                    "persons",
+                    "pipelines",
+                    "products",
+                    "projects",
+                    "stages",
+                    "tasks",
+                    "users",
+                ],
             },
         ],
         "setup_guide": [
@@ -1311,7 +1523,14 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                     "roles",
                     "skills",
                 ],
-                "default": ["tickets", "agents", "companies"],
+                "default": [
+                    "tickets",
+                    "agents",
+                    "companies",
+                    "contacts",
+                    "groups",
+                    "roles",
+                ],
             },
             {
                 "name": "per_page",
@@ -1448,9 +1667,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": True,
-            # workable_source uses write_disposition="replace" for 7/8
-            # resources. Only candidates uses merge+incremental(updated_at).
-            "incremental": False,
+            # Mixed: 7/8 resources use replace, but candidates uses
+            # merge+incremental(updated_at). Marked True because candidates
+            # is the highest-volume resource and benefits from incremental.
+            "incremental": True,
             "custom_queries": False,
         },
     },
@@ -1650,8 +1870,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "date_range": False,
             # mongodb() accepts an optional incremental parameter (defaults to
             # None). Without explicit configuration, it does a full load — not
-            # incremental by default.
+            # incremental by default. Users can enable incremental via
+            # dlt_native config with the incremental parameter.
             "incremental": False,
+            "incremental_available": True,
             "custom_queries": False,
         },
     },
@@ -1710,7 +1932,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             # sql_database() accepts an optional incremental parameter per
             # table (defaults to None). Without explicit configuration, it
             # loads all rows on every run — not incremental by default.
+            # Users can enable per-table incremental via dlt_native config.
             "incremental": False,
+            "incremental_available": True,
             "custom_queries": False,
         },
     },

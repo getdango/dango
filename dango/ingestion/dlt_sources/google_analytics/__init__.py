@@ -1,6 +1,7 @@
 """
 Defines all the sources and resources needed for Google Analytics V4
 """
+
 from typing import Iterator, List, Optional, Union
 
 import dlt
@@ -26,33 +27,30 @@ TIME_DIMENSIONS = {
 
 @dlt.source(max_table_nesting=2)
 def google_analytics(
-    credentials: Union[
-        GcpOAuthCredentials, GcpServiceAccountCredentials
-    ] = dlt.secrets.value,
+    credentials: Union[GcpOAuthCredentials, GcpServiceAccountCredentials] = dlt.secrets.value,
     property_id: int = dlt.config.value,
     queries: List[DictStrAny] = dlt.config.value,
     start_date: Optional[str] = START_DATE,
     rows_per_page: int = 1000,
+    lookback_days: int = 7,
 ) -> List[DltResource]:
     """
-    The DLT source for Google Analytics. Loads basic Analytics info to the pipeline.
+    The DLT source for Google Analytics. Loads GA4 report data to the pipeline.
+
+    Uses merge write disposition with dlt incremental lag for lookback.
+    First sync loads from start_date. Subsequent syncs re-fetch the last
+    lookback_days to capture GA4's 24-72h data finalization corrections.
 
     Args:
         credentials: Credentials to the Google Analytics Account.
         property_id: A numeric Google Analytics property id.
-            More info: https://developers.google.com/analytics/devguides/reporting/data/v1/property-id.
-        queries: List containing info on all the reports being requested with all the dimensions and metrics per report.
-            Each query can specify its own time granularity by including the appropriate time dimension
-            (e.g. "date", "isoYearIsoWeek", "yearMonth", etc.). If no time dimension is specified,
-            "date" will be used for incremental loading.
-        start_date: The string version of the date in the format yyyy-mm-dd and some other values.
-            More info: https://developers.google.com/analytics/devguides/reporting/data/v1/rest/v1beta/DateRange.
-            Can be left empty for default incremental load behavior.
-        rows_per_page: Controls how many rows are retrieved per page in the reports.
-            Default is 10000, maximum possible is 100000.
+        queries: List of report queries with dimensions and metrics.
+        start_date: Start date for first sync (YYYY-MM-DD or GA4 relative format).
+        rows_per_page: Rows per page in reports (default 1000, max 100000).
+        lookback_days: Days to re-fetch on each sync for data corrections (default 7).
 
     Returns:
-        resource_list: List containing all the resources in the Google Analytics Pipeline.
+        List of DltResource objects, one per query.
     """
     # validate input params for the most common mistakes
     try:
@@ -62,9 +60,7 @@ def google_analytics(
             f"{property_id} is an invalid google property id. Please use a numeric id, and not your Measurement ID like G-7F1AE12JLR"
         )
     if property_id == 0:
-        raise ValueError(
-            "Google Analytics property id is 0. Did you forget to configure it?"
-        )
+        raise ValueError("Google Analytics property id is 0. Did you forget to configure it?")
     if not rows_per_page:
         raise ValueError("Rows per page cannot be 0")
     # generate access token for credentials if we are using OAuth2.0
@@ -73,21 +69,39 @@ def google_analytics(
 
     # Build the service object for Google Analytics api.
     client = BetaAnalyticsDataClient(credentials=credentials.to_native_credentials())
-    # Skip loading metadata tables (dimensions/metrics) - they're GA4 API reference data
-    # that most users don't need. Only load the actual query results.
+
+    # GA4 lag is in seconds for DateTime cursors
+    lag_seconds = lookback_days * 86400
+
     resource_list = []
     for query in queries:
-        # always add "date" to dimensions so we are able to track the last day of a report
         dimensions = query["dimensions"]
+
+        # always add "date" to dimensions so we are able to track the last day of a report
         time_dimension = next(
             (dim for dim in dimensions if dim in TIME_DIMENSIONS),
             "date",  # Default to "date" if no time dimension found
         )
         if time_dimension not in dimensions:
-            dimensions += [time_dimension]
+            dimensions = dimensions + [time_dimension]  # don't mutate original
+
+        # Validate GA4 dimension limit AFTER auto-add (API rejects > 9)
+        if len(dimensions) > 9:
+            raise ValueError(
+                f"GA4 query '{query.get('resource_name', '?')}' has {len(dimensions)} "
+                f"dimensions (including auto-added '{time_dimension}') but the maximum "
+                f"is 9. Remove {len(dimensions) - 9} dimension(s) or split into "
+                f"multiple queries."
+            )
+
         resource_name = query["resource_name"]
         resource_list.append(
-            dlt.resource(basic_report, name=resource_name, write_disposition="append")(
+            dlt.resource(
+                basic_report,
+                name=resource_name,
+                write_disposition="merge",
+                primary_key=dimensions,
+            )(
                 client=client,
                 rows_per_page=rows_per_page,
                 property_id=property_id,
@@ -95,18 +109,14 @@ def google_analytics(
                 metrics=query["metrics"],
                 resource_name=resource_name,
                 start_date=start_date,
-                last_date=dlt.sources.incremental(
-                    time_dimension, primary_key=()
-                ),  # pass empty primary key to avoid unique checks, a primary key defined by the resource will be used
+                last_date=dlt.sources.incremental(time_dimension, primary_key=(), lag=lag_seconds),
             )
         )
     return resource_list
 
 
 @dlt.resource(selected=False)
-def get_metadata(
-    client: BetaAnalyticsDataClient, property_id: int
-) -> Iterator[Metadata]:
+def get_metadata(client: BetaAnalyticsDataClient, property_id: int) -> Iterator[Metadata]:
     """
     Get all the metrics and dimensions for a report.
 

@@ -965,16 +965,12 @@ class DltPipelineRunner:
                 elif key in config_toml_keys:
                     console.print(f"  [dim]Using {key} from .dlt/config.toml[/dim]")
 
-        # Apply lookback window: on incremental syncs, shift start_date back by
-        # lookback_days to re-load recent data and pick up late-arriving records.
-        # Ignored during full refresh (all data reloaded anyway).
-        _lookback = source_kwargs.pop("lookback_days", None)
-        if _lookback is None:
-            _lookback = getattr(source_config, "lookback_days", None)
-        if _lookback and not full_refresh and not start_date:
-            lookback_start = (date.today() - timedelta(days=int(_lookback))).isoformat()
-            source_kwargs["start_date"] = lookback_start
-            console.print(f"  [dim]Lookback: re-loading last {_lookback} day(s)[/dim]")
+        # Remove lookback_days from kwargs — it's consumed by sources that
+        # support dlt's native lag parameter (Google Ads, GA4).  Sources read
+        # it from .dlt/config.toml via dlt config resolution; we pop it here
+        # to avoid passing it as an unexpected kwarg to sources that don't
+        # accept it.
+        source_kwargs.pop("lookback_days", None)
 
         # Apply parameter transforms from registry (e.g., string -> list)
         param_transforms = metadata.get("param_transforms", {})

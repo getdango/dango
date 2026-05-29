@@ -359,6 +359,8 @@ class DltNativeConfig(BaseModel):
 class DataSource(BaseModel):
     """Data source definition"""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(description="Unique source name (used as table prefix)")
     type: SourceType
     enabled: bool = True

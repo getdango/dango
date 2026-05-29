@@ -628,6 +628,20 @@ def start(ctx: click.Context, yes: bool) -> None:
         console.print()
         console.print("[dim]💡 Change port in .dango/project.yml under platform.port[/dim]")
         console.print()
+
+        # Password reminder — help users who forgot their admin credentials
+        try:
+            from dango.auth.admin import get_auth_db_path
+
+            db_path = get_auth_db_path(project_root)
+            if db_path.exists():
+                console.print(
+                    "[dim]🔑 Forgot password? Run 'dango auth reset-password <email>'[/dim]"
+                )
+                console.print()
+        except Exception:
+            pass  # auth module may not be initialized yet
+
         console.print("[dim]Run 'dango stop' to shut down services.[/dim]")
 
         # Open dashboard in browser after health check
