@@ -79,6 +79,9 @@ def google_spreadsheet(
     # second row contains data which we'll use to sample data types.
     # google sheets return datetime and date types as lotus notes serial number. which is just a float so we cannot infer the correct types just from the data
 
+    # Track skipped ranges for CLI summary
+    skipped_ranges: list[str] = []
+
     # warn and remove empty ranges
     range_data = []
     metadata_table = []
@@ -96,9 +99,11 @@ def google_spreadsheet(
         )
         if values is None or len(values) == 0:
             logger.warning(f"Range {name} does not contain any data. Skipping.")
+            skipped_ranges.append(name)
             continue
         if len(values) == 1:
             logger.warning(f"Range {name} contain only 1 row of data. Skipping.")
+            skipped_ranges.append(name)
             continue
         if len(values[0]) == 0:
             logger.warning(
@@ -144,6 +149,14 @@ def google_spreadsheet(
             name=name,
             write_disposition="replace",
         )
+    # Print CLI summary for skipped sheets (visible to user, not just log)
+    if skipped_ranges:
+        logger.warning(
+            "Skipped %d empty/header-only sheet(s): %s",
+            len(skipped_ranges),
+            ", ".join(skipped_ranges),
+        )
+
     yield dlt.resource(
         metadata_table,
         write_disposition="merge",

@@ -29,32 +29,32 @@ def basic_report(
     """
     Retrieves the data for a report given dimensions, metrics, and filters required for the report.
 
+    Uses dlt incremental with lag for lookback — start_value is
+    automatically adjusted by dlt to re-fetch recent data.
+
     Args:
         client: The Google Analytics client used to make requests.
-        dimensions: Dimensions for the report. See metadata for the full list of dimensions.
-        metrics: Metrics for the report. See metadata for the full list of metrics.
-        property_id: A reference to the Google Analytics project.
-            More info: https://developers.google.com/analytics/devguides/reporting/data/v1/property-id
-        rows_per_page: Controls how many rows are retrieved per page in the reports.
-            Default is 10000, maximum possible is 100000.
-        resource_name: The resource name used to save incremental into dlt state.
-        start_date: Incremental load start_date.
-            Default is taken from dlt state if it exists.
-        last_date: Incremental load end date.
-            Default is taken from dlt state if it exists.
+        dimensions: Dimensions for the report.
+        metrics: Metrics for the report.
+        property_id: GA4 property ID.
+        rows_per_page: Rows per page (default 1000, max 100000).
+        resource_name: The resource name (for logging).
+        start_date: Fallback start date for first sync.
+        last_date: dlt incremental cursor (lag-adjusted by dlt).
 
     Returns:
         Generator of all rows of data in the report.
     """
 
-    # grab the start time from last dlt load if not filled, if that is also empty then use the first day of the millennium as the start time instead
-    if last_date.last_value:
-        if start_date != START_DATE:
-            logger.warning(
-                f"Using the starting date: {last_date.last_value} for incremental report: {resource_name} and ignoring start date passed as argument {start_date}"
-            )
-        # take next day after yesterday to avoid double loads
-        start_date = last_date.last_value.add(days=1).to_date_string()
+    # Use lag-adjusted start from dlt if available, else configured start_date
+    if last_date.start_value is not None:
+        sv = last_date.start_value
+        if isinstance(sv, DateTime):
+            start_date = sv.to_date_string()
+        elif isinstance(sv, str):
+            start_date = sv
+        else:
+            start_date = str(sv)
     else:
         start_date = start_date or START_DATE
 
