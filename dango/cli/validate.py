@@ -65,6 +65,8 @@ class ProjectValidator:
         self._check_data_sources()
         self._check_custom_sources()  # Check for unreferenced custom sources
         self._check_oauth_credentials()  # NEW: OAuth validation
+        self._check_source_connectivity()
+        self._check_env_vars()
         self._check_dbt_setup()
         self._check_database()
         self._check_dependencies()
@@ -299,6 +301,93 @@ class ProjectValidator:
             self.results.append(
                 ValidationResult(
                     "OAuth Credentials", "fail", f"Error checking OAuth: {str(e)[:100]}"
+                )
+            )
+
+    def _check_source_connectivity(self):
+        """Test source connectivity with live API calls for OAuth sources."""
+        try:
+            from dango.oauth.validation import validate_all_tokens
+
+            results = validate_all_tokens(self.project_root)
+
+            for result in results:
+                source_type = result.source_type
+                if result.valid:
+                    info = result.account_info or ""
+                    self.results.append(
+                        ValidationResult(
+                            f"Connectivity: {source_type}",
+                            "pass",
+                            f"API connection OK{f' ({info})' if info else ''}",
+                        )
+                    )
+                else:
+                    self.results.append(
+                        ValidationResult(
+                            f"Connectivity: {source_type}",
+                            "fail",
+                            f"API check failed: {result.message}",
+                        )
+                    )
+
+        except Exception as e:
+            self.results.append(
+                ValidationResult(
+                    "Source Connectivity",
+                    "warn",
+                    f"Could not test connectivity: {str(e)[:100]}",
+                )
+            )
+
+    def _check_env_vars(self):
+        """Check that environment variables referenced in sources.yml are set."""
+        import os
+
+        from dango.ingestion.sources.registry import get_source_metadata
+
+        try:
+            loader = ConfigLoader(self.project_root)
+            config = loader.load_config()
+            sources = config.sources.sources
+
+            # Load .env for checking (don't override existing vars)
+            env_file = self.project_root / ".env"
+            if env_file.exists():
+                from dotenv import dotenv_values
+
+                dot_env = dotenv_values(env_file)
+            else:
+                dot_env = {}
+
+            for source in sources:
+                metadata = get_source_metadata(source.type.value)
+                if not metadata:
+                    continue
+
+                # Check required secret params (env vars)
+                for param in metadata.get("required_params", []):
+                    if param.get("type") != "secret":
+                        continue
+                    env_var = param.get("env_var", "")
+                    if not env_var:
+                        continue
+                    if not os.environ.get(env_var) and env_var not in dot_env:
+                        self.results.append(
+                            ValidationResult(
+                                f"Env: {source.name}",
+                                "warn",
+                                f"Environment variable {env_var} not set. "
+                                f"Sync will fail at runtime.",
+                            )
+                        )
+
+        except Exception as e:
+            self.results.append(
+                ValidationResult(
+                    "Env Vars",
+                    "fail",
+                    f"Error checking env vars: {str(e)[:100]}",
                 )
             )
 

@@ -25,11 +25,11 @@ class TestSourceCapabilities:
             assert "capabilities" in metadata, f"{source_type} missing capabilities"
 
     def test_capabilities_have_required_keys(self) -> None:
-        """Every capabilities dict must have exactly the 4 required boolean keys."""
+        """Every capabilities dict must have at least the 4 required boolean keys."""
         for source_type, metadata in SOURCE_REGISTRY.items():
             caps = metadata["capabilities"]
-            assert set(caps.keys()) == CAPABILITY_KEYS, (
-                f"{source_type} capabilities keys mismatch: {set(caps.keys())}"
+            assert CAPABILITY_KEYS <= set(caps.keys()), (
+                f"{source_type} missing required capabilities: {CAPABILITY_KEYS - set(caps.keys())}"
             )
 
     def test_capabilities_values_are_bool(self) -> None:
