@@ -303,9 +303,9 @@ def _run_dbt_snapshots(project_root: Path) -> None:
         if success:
             logger.info("dbt_snapshots_complete")
         else:
-            logger.warning("dbt_snapshots_failed", output=output[:500])
+            logger.error("dbt_snapshots_failed", output=output[:500])
     except Exception:
-        logger.warning("dbt_snapshots_error", exc_info=True)
+        logger.error("dbt_snapshots_error", exc_info=True)
 
 
 # ---------------------------------------------------------------------------

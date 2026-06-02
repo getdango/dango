@@ -121,6 +121,21 @@ class SchedulerService:
 
         self._on_retry_callbacks.append(self._on_retry_event)
 
+        # Load user-defined schedules from .dango/schedules.yml
+        try:
+            from dango.config.schedules import load_schedules_config, reload_schedules
+
+            config = load_schedules_config(self._project_root)
+            if config.schedules:
+                result = reload_schedules(self, config.schedules, self._project_root)
+                logger.info(
+                    "schedules_loaded",
+                    added=len(result.added),
+                    skipped_disabled=len(config.schedules) - len(result.added),
+                )
+        except Exception:  # noqa: BLE001
+            logger.error("schedules_load_failed", exc_info=True)
+
         self._setup_history_cleanup()
         self._setup_login_attempts_cleanup()
         self._log_startup_summary()

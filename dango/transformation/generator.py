@@ -548,10 +548,12 @@ class DbtModelGenerator:
                 sources_file = None
                 staging_schema_file = None
                 if generate_schema_yml and tables_for_yml:
-                    sources_yml = self.generate_sources_yml(source, schema_name, tables_for_yml)
                     sources_file = self.staging_dir / f"sources_{source.name}.yml"
-                    with open(sources_file, "w") as f:
-                        f.write(sources_yml)
+                    # Only write if file doesn't exist (don't overwrite user customizations)
+                    if not sources_file.exists():
+                        sources_yml = self.generate_sources_yml(source, schema_name, tables_for_yml)
+                        with open(sources_file, "w") as f:
+                            f.write(sources_yml)
 
                     # Generate staging schema.yml (documents staging models)
                     # Uses staging_columns (excludes _dlt_*/_dango_* internal columns)
