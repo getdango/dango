@@ -211,3 +211,61 @@ class TestSaveDoTokenProjectLevel:
 
         assert cc.get_do_token(project_root=proj_a) == "token-a"
         assert cc.get_do_token(project_root=proj_b) == "token-b"
+
+
+@pytest.mark.unit
+class TestClearDoTokenProjectLevel:
+    """Test project-level clear_do_token()."""
+
+    def test_clears_project_level_token(self, monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+        """clear_do_token with project_root should remove the project-level token."""
+        import dango.config.cloud_credentials as cc
+
+        # Isolate from real global credentials
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        monkeypatch.setattr(cc, "_CREDENTIALS_DIR", global_dir)
+        monkeypatch.setattr(cc, "_CREDENTIALS_FILE", global_dir / "credentials")
+        monkeypatch.delenv("DIGITALOCEAN_TOKEN", raising=False)
+
+        project = tmp_path / "project"
+        project.mkdir()
+        cc.save_do_token("proj-token", project_root=project)
+
+        assert cc.clear_do_token(project_root=project) is True
+        assert cc.get_do_token(project_root=project) is None
+
+    def test_clear_project_does_not_touch_global(
+        self, monkeypatch: MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Clearing project-level should not affect the global credential."""
+        import dango.config.cloud_credentials as cc
+
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        monkeypatch.setattr(cc, "_CREDENTIALS_DIR", global_dir)
+        monkeypatch.setattr(cc, "_CREDENTIALS_FILE", global_dir / "credentials")
+        monkeypatch.delenv("DIGITALOCEAN_TOKEN", raising=False)
+
+        cc.save_do_token("global-token")
+        project = tmp_path / "project"
+        project.mkdir()
+        cc.save_do_token("proj-token", project_root=project)
+
+        cc.clear_do_token(project_root=project)
+
+        # Global still present
+        assert cc.get_do_token() == "global-token"
+
+    def test_returns_false_when_no_project_token(
+        self, monkeypatch: MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Returns False when no project-level token exists."""
+        import dango.config.cloud_credentials as cc
+
+        monkeypatch.delenv("DIGITALOCEAN_TOKEN", raising=False)
+
+        project = tmp_path / "project"
+        project.mkdir()
+
+        assert cc.clear_do_token(project_root=project) is False
