@@ -32,7 +32,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagram, data flow, and cross-
 
 | Path | Reason |
 |------|--------|
-| `dango/ingestion/dlt_sources/` | Vendored third-party dlt connectors (127 files). Rarely modified. |
+| `dango/ingestion/dlt_sources/` | 127 files. Helper files (`helpers/`) are custom Dango code; vendored connectors rarely modified. |
 | `dango/web/static/` | Frontend HTML/CSS/JS assets. |
 | `tests/` | Read source module first, then find its tests. |
 | `dango/ingestion/sources/registry.py` | 2008-line metadata registry. Only when adding a new source. |
@@ -259,7 +259,7 @@ dango/                          # Python package source
 │   ├── csv_loader.py           # Multi-format file loading with dedup (922 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (33 source types)
-│   └── dlt_sources/            # ⚠ DO NOT MODIFY — vendored connectors (127 files)
+│   └── dlt_sources/            # 127 files — helper files are custom Dango code (safe to modify); vendored connectors should not be changed
 │
 ├── transformation/             # Level 1 — dbt model generation & execution
 │   ├── __init__.py             # run_dbt_models(), generate_dbt_docs()

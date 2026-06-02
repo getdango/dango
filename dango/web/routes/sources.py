@@ -5,6 +5,7 @@ Source listing and detail endpoints.
 
 import asyncio
 import logging
+import re
 
 from fastapi import APIRouter, HTTPException
 
@@ -25,18 +26,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["sources"])
 
 # Cron expression → human-readable display string.
-# Keep in sync with CRON_PRESETS in config/schedules.py and
-# _FREQUENCY_CHOICES in cli/commands/schedule.py.
+# Keep in sync with CRON_PRESETS in config/schedules.py,
+# _FREQUENCY_CHOICES in cli/commands/schedule.py,
+# and humanCron() in web/templates/schedules.html.
 _CRON_DISPLAY: dict[str, str] = {
     "0 */1 * * *": "Every hour",
     "0 * * * *": "Every hour",  # CRON_PRESETS "every_hour" variant
+    "30 * * * *": "Every hour (:30)",
     "0 */2 * * *": "Every 2 hours",
+    "0 */3 * * *": "Every 3 hours",
     "0 */4 * * *": "Every 4 hours",
     "0 */6 * * *": "Every 6 hours",
+    "0 */8 * * *": "Every 8 hours",
     "0 */12 * * *": "Every 12 hours",
     "*/15 * * * *": "Every 15 minutes",  # CRON_PRESETS "every_15m"
     "0 0 * * *": "Daily at midnight",
     "0 6 * * *": "Daily at 6 AM",
+    "0 9 * * *": "Daily at 9 AM",
+    "0 12 * * *": "Daily at noon",
+    "0 18 * * *": "Daily at 6 PM",
+    "0 6 * * 1-5": "Weekdays at 6 AM",
+    "0 0 * * 1-5": "Weekdays at midnight",
     "0 0 * * 0": "Weekly (Sunday)",
     "0 0 * * 1": "Weekly (Monday)",
     "0 6 * * 1": "Weekly (Monday at 6 AM)",  # CRON_PRESETS "weekly"
@@ -45,7 +55,20 @@ _CRON_DISPLAY: dict[str, str] = {
 
 def _cron_to_display(cron: str) -> str:
     """Convert a cron expression to a human-readable string."""
-    return _CRON_DISPLAY.get(cron, cron)
+    result = _CRON_DISPLAY.get(cron)
+    if result:
+        return result
+    # Regex fallback for common patterns
+    m = re.match(r"^(\d+) (\d+) \* \* \*$", cron)
+    if m:
+        return f"Daily at {m.group(2)}:{m.group(1).zfill(2)}"
+    m = re.match(r"^0 \*/(\d+) \* \* \*$", cron)
+    if m:
+        return f"Every {m.group(1)} hours"
+    m = re.match(r"^\*/(\d+) \* \* \* \*$", cron)
+    if m:
+        return f"Every {m.group(1)} minutes"
+    return cron
 
 
 def _build_schedule_map() -> dict[str, str]:

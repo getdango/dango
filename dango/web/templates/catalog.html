@@ -258,13 +258,19 @@
                         </template>
                     </div>
                 </div>
-                <template x-if="selectedModel.type === 'source'">
-                    <button @click="refreshProfile()" :disabled="profilingLoading"
-                            class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors disabled:opacity-50">
-                        <span x-show="!profilingLoading">Refresh Profile</span>
-                        <span x-show="profilingLoading" x-cloak>Profiling...</span>
-                    </button>
-                </template>
+                <div class="flex gap-2">
+                    <template x-if="selectedModel.type === 'source'">
+                        <button @click="refreshProfile()" :disabled="profilingLoading"
+                                class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors disabled:opacity-50">
+                            <span x-show="!profilingLoading">Refresh Profile</span>
+                            <span x-show="profilingLoading" x-cloak>Profiling...</span>
+                        </button>
+                    </template>
+                    <a :href="selectedModel.schema && selectedModel.name ? '/metabase/question#' + encodeURIComponent(JSON.stringify({dataset_query: {type: 'native', native: {query: 'SELECT * FROM \"' + (selectedModel.schema || 'main') + '\".\"' + selectedModel.name + '\" LIMIT 100'}, database: 1}})) : '/metabase/'"
+                       target="_blank" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium transition-colors">
+                        View in Metabase
+                    </a>
+                </div>
             </div>
             <!-- Detail sub-tabs -->
             <div class="detail-tabs">
@@ -300,7 +306,9 @@
                                                 <span x-text="col.name"></span>
                                                 <span x-show="col._pii && col._piiProvenance === 'auto'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-800 tooltip" :data-tooltip="'Auto-detected: ' + (col._pii || '') + ' — Manage via CLI: dango governance pii-set'">PII ⚑</span>
                                                 <span x-show="col._pii && col._piiProvenance === 'confirmed'" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800 tooltip" :data-tooltip="'Confirmed: ' + (col._pii || '')">PII ✓</span>
-                                                <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800 tooltip" x-text="col._drift" :data-tooltip="'Schema drift: ' + (col._drift || '')"></span>
+                                                <span x-show="col._drift" class="ml-1 px-1.5 py-0.5 text-xs rounded bg-orange-100 text-orange-800 tooltip"
+                                                      x-text="col._drift?.event_type"
+                                                      :data-tooltip="'Schema drift: ' + (col._drift?.event_type || '') + (col._drift?.old_type ? ' (' + col._drift.old_type + ' → ' + col._drift.new_type + ')' : '') + '\nRun: dango governance accept --source ' + (selectedModel?.source_name || '')"></span>
                                             </td>
                                             <td class="px-6 py-4 whitespace-nowrap"><span class="col-type text-gray-600" x-text="col.type || '--'"></span></td>
                                             <td class="px-6 py-4 text-sm text-gray-500" x-text="col.description || '--'"></td>
@@ -741,7 +749,7 @@ function catalogPage() {
                                 const sourceMatch = model.source_name ? d.source === model.source_name : true;
                                 return sourceMatch && d.table_name === tblName && d.column_name === col.name;
                             });
-                            col._drift = drift ? drift.event_type : null;
+                            col._drift = drift || null;
                         }
                     }
                     this.selectedModel = model;

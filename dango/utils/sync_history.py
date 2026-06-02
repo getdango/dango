@@ -4,8 +4,11 @@ Shared sync history management for both CLI and Web UI.
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def get_sync_history_file(project_root: Path, source_name: str) -> Path:
@@ -38,7 +41,7 @@ def save_sync_history_entry(project_root: Path, source_name: str, entry: dict[st
             json.dump(history, f, indent=2)
 
     except Exception as e:
-        print(f"Warning: Failed to save sync history for {source_name}: {e}")
+        logger.warning("Failed to save sync history for %s: %s", source_name, e)
 
 
 def get_earliest_start_date(project_root: Path, source_name: str) -> str | None:
@@ -84,7 +87,7 @@ def update_last_sync_entry(project_root: Path, source_name: str, updates: dict[s
             with open(history_file, "w") as f:
                 json.dump(history, f, indent=2)
     except Exception as e:
-        print(f"Warning: Failed to update sync history for {source_name}: {e}")
+        logger.warning("Failed to update sync history for %s: %s", source_name, e)
 
 
 def load_sync_history(
@@ -102,5 +105,5 @@ def load_sync_history(
             # Return most recent entries first
             return history[-limit:][::-1] if history else []
     except Exception as e:
-        print(f"Warning: Failed to load sync history for {source_name}: {e}")
+        logger.warning("Failed to load sync history for %s: %s", source_name, e)
         return []

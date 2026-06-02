@@ -271,46 +271,12 @@ async def _run_initial_sync(project_root: Path, sources: list[dict[str, str]]) -
 
 async def _sync_single_source(project_root: Path, source_name: str) -> None:
     """Sync a single source using the existing run_sync pipeline."""
-    import os
-
     from dango.config.helpers import load_config
     from dango.ingestion import run_sync
+    from dango.platform.common.metabase_lifecycle import stop_metabase_for_writes
     from dango.utils import DbtLock
 
-    # Stop Metabase on cloud to release DuckDB read lock (same as sync_trigger)
-    cloud_mode = os.environ.get("DANGO_CLOUD_MODE") == "true"
-    _compose_env: dict[str, str] | None = None
-    if cloud_mode:
-        try:
-            import subprocess
-            import time as _time
-
-            from dango.platform.docker import get_compose_project_name
-
-            _proj = get_compose_project_name(project_root)
-            _compose_env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj}
-            _docker_result = subprocess.run(
-                [
-                    "docker",
-                    "compose",
-                    "-f",
-                    str(project_root / "docker-compose.yml"),
-                    "stop",
-                    "metabase",
-                ],
-                capture_output=True,
-                timeout=60,
-                env=_compose_env,
-            )
-            if _docker_result.returncode != 0:
-                logger.warning(
-                    "metabase_stop_nonzero",
-                    returncode=_docker_result.returncode,
-                    stderr=_docker_result.stderr.decode(errors="replace"),
-                )
-            _time.sleep(3)
-        except Exception:
-            logger.warning("metabase_stop_before_initial_sync_failed", exc_info=True)
+    _metabase_was_stopped = stop_metabase_for_writes(project_root)
 
     lock = DbtLock(
         project_root=project_root,
@@ -330,25 +296,10 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
             raise RuntimeError(failed[0].get("error", "Sync failed"))
     finally:
         lock.release()
-        if cloud_mode and _compose_env is not None:
-            try:
-                import subprocess
+        if _metabase_was_stopped:
+            from dango.platform.common.metabase_lifecycle import start_metabase_after_writes
 
-                subprocess.run(
-                    [
-                        "docker",
-                        "compose",
-                        "-f",
-                        str(project_root / "docker-compose.yml"),
-                        "start",
-                        "metabase",
-                    ],
-                    capture_output=True,
-                    timeout=120,
-                    env=_compose_env,
-                )
-            except Exception:
-                logger.debug("metabase_start_after_initial_sync_failed", exc_info=True)
+            start_metabase_after_writes(project_root)
 
 
 def _generate_dbt_docs(project_root: Path) -> None:

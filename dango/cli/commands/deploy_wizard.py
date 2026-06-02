@@ -419,8 +419,9 @@ def _step_backups() -> tuple[bool, str | None, str | None]:
 
     console.print(
         "\n  Create Spaces access keys at: "
-        "[link=https://cloud.digitalocean.com/account/api/spaces]"
-        "https://cloud.digitalocean.com/account/api/spaces[/link]\n"
+        "[link=https://cloud.digitalocean.com/spaces]"
+        "https://cloud.digitalocean.com/spaces[/link]"
+        " (Access Keys tab)\n"
     )
 
     access_key = click.prompt("  Spaces access key")

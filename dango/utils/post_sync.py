@@ -339,11 +339,17 @@ def dispatch_post_sync_hooks(
 
     logger.info("post_sync_hooks_start", sources=sources)
 
-    _run_profiling(project_root, sources)
-    _enrich_staging_tests(project_root, sources)
-    _run_pii_scan(project_root, sources)
-    _run_analysis(project_root, sources)
-    _run_dbt_snapshots(project_root)
+    for hook_name, hook_fn in [
+        ("profiling", lambda: _run_profiling(project_root, sources)),
+        ("staging_tests", lambda: _enrich_staging_tests(project_root, sources)),
+        ("pii_scan", lambda: _run_pii_scan(project_root, sources)),
+        ("analysis", lambda: _run_analysis(project_root, sources)),
+        ("dbt_snapshots", lambda: _run_dbt_snapshots(project_root)),
+    ]:
+        try:
+            hook_fn()
+        except Exception:
+            logger.warning("post_sync_hook_failed", hook=hook_name, exc_info=True)
 
     if not skip_sync_notification and sync_result is not None:
         _send_sync_notification(project_root, sources, sync_result, trigger=trigger)

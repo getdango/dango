@@ -33,6 +33,9 @@ MAX_LOCAL_BACKUPS = 14
 _COMPOSE_PROJECT = get_compose_project_name(PROJECT_DIR)
 
 #: Files to back up, relative to PROJECT_DIR.
+#: NOTE: See also file_sync.py SYNC_CONFIG_FILES/SYNC_DBT_DIRS/SYNC_EXTRA_DIRS
+#: for what gets synced to remote. Backup includes additional server-only files
+#: (.dlt/secrets.toml, .env, dbt/profiles.yml) that are never synced.
 BACKUP_FILES = [
     "data/warehouse.duckdb",
     ".dango/auth.db",
