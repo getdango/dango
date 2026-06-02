@@ -75,21 +75,58 @@ def get_do_token(project_root: Path | None = None) -> str | None:
     return None
 
 
-def save_do_token(token: str) -> None:
-    """Persist *token* to ``~/.dango/credentials``."""
-    config = _read_config()
-    if not config.has_section(_SECTION):
-        config.add_section(_SECTION)
-    config.set(_SECTION, _TOKEN_KEY, token)
-    _write_config(config)
+def save_do_token(token: str, project_root: Path | None = None) -> None:
+    """Persist *token* to project-level or global credentials.
+
+    When *project_root* is given, saves to ``<project>/.dango/credentials``.
+    Otherwise falls back to ``~/.dango/credentials``.
+    """
+    if project_root is not None:
+        cred_dir = project_root / ".dango"
+        cred_dir.mkdir(parents=True, exist_ok=True)
+        cred_file = cred_dir / "credentials"
+        config = configparser.ConfigParser()
+        if cred_file.is_file():
+            config.read(str(cred_file))
+        if not config.has_section(_SECTION):
+            config.add_section(_SECTION)
+        config.set(_SECTION, _TOKEN_KEY, token)
+        fd = os.open(str(cred_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            config.write(f)
+    else:
+        config = _read_config()
+        if not config.has_section(_SECTION):
+            config.add_section(_SECTION)
+        config.set(_SECTION, _TOKEN_KEY, token)
+        _write_config(config)
 
 
-def clear_do_token() -> bool:
+def clear_do_token(project_root: Path | None = None) -> bool:
     """Remove the stored DigitalOcean token.
+
+    When *project_root* is given, clears the project-level credential.
+    Otherwise clears the global ``~/.dango/credentials``.
 
     Returns:
         ``True`` if a token was removed, ``False`` if none was stored.
     """
+    if project_root is not None:
+        cred_file = project_root / ".dango" / "credentials"
+        if not cred_file.is_file():
+            return False
+        config = configparser.ConfigParser()
+        config.read(str(cred_file))
+        if not config.has_option(_SECTION, _TOKEN_KEY):
+            return False
+        config.remove_option(_SECTION, _TOKEN_KEY)
+        if not config.options(_SECTION):
+            config.remove_section(_SECTION)
+        fd = os.open(str(cred_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            config.write(f)
+        return True
+
     config = _read_config()
     if not config.has_option(_SECTION, _TOKEN_KEY):
         return False

@@ -11,6 +11,7 @@ from .sync_history import (
     get_sync_history_file,
     load_sync_history,
     save_sync_history_entry,
+    update_last_sync_entry,
 )
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "load_sync_history",
     "get_earliest_start_date",
     "get_sync_history_file",
+    "update_last_sync_entry",
     "ensure_dbt_schemas",
     "DbtLock",
     "DbtLockError",

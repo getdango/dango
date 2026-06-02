@@ -103,7 +103,7 @@ def _step_prereqs(project_root: Path) -> None:
             new_token = click.prompt("  Enter new DigitalOcean API token", hide_input=True)
             if new_token.strip():
                 token = new_token.strip()
-                save_do_token(token)
+                save_do_token(token, project_root=project_root)
     elif token and token_from_env:
         console.print("  [dim]Using DigitalOcean token from environment variable.[/dim]")
     else:
@@ -118,7 +118,7 @@ def _step_prereqs(project_root: Path) -> None:
             raise SystemExit(1)
         token = token.strip()
         # BUG-127: Persist token so subsequent commands don't re-prompt
-        save_do_token(token)
+        save_do_token(token, project_root=project_root)
 
     # BUG-238c: Validate token upfront with lightweight API call
     import httpx
