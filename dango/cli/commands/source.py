@@ -663,20 +663,11 @@ def sync(
         # Get project context
         project_root = require_project_context(ctx)
 
-        # Guard rail: warn if project is deployed to cloud
-        # Placed before lock so user doesn't wait for lock if they'll cancel.
-        if not yes:
-            cloud_cfg = ConfigLoader(project_root).load_cloud_config()
-            if cloud_cfg and cloud_cfg.droplet_ip:
-                target = cloud_cfg.domain or cloud_cfg.droplet_ip
-                console.print(f"[yellow]  This project is deployed to {target}.[/yellow]")
-                console.print(
-                    "[yellow]   `dango sync` syncs data LOCALLY, not on your cloud server.[/yellow]"
-                )
-                console.print("[yellow]   Use `dango remote sync` for cloud.[/yellow]")
-                if not safe_confirm("Continue?", default=False):
-                    raise click.Abort()
-                console.print()
+        # Informational note if project is also deployed to cloud
+        cloud_cfg = ConfigLoader(project_root).load_cloud_config()
+        if cloud_cfg and cloud_cfg.droplet_ip:
+            console.print("  \u2139 Syncing locally. Use `dango remote push` to update cloud.")
+            console.print()
 
         # --- Validate option conflicts (before lock — fast failures) ---
         if backfill and (since or until):

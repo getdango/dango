@@ -168,7 +168,8 @@ class SourceWizard:
                     # NOW we have source_name, so we can save instance-specific credentials
                     oauth_result = self._handle_oauth_setup(source_type, source_name, metadata)
                     if oauth_result == "back":
-                        # User wants to go back - return to name prompt
+                        # User chose "Back to source selection"
+                        state = "source"
                         continue
                     elif oauth_result == "cancel":
                         return False
@@ -744,11 +745,17 @@ class SourceWizard:
             if action == "Cancel source setup":
                 return "cancel"
             elif action == "Re-enter credentials and retry":
-                # Clear cached .env credentials so Google provider re-prompts
+                # Clear cached credentials from both os.environ AND .env file
                 import os
+
+                from dotenv import unset_key
 
                 os.environ.pop("GOOGLE_CLIENT_ID", None)
                 os.environ.pop("GOOGLE_CLIENT_SECRET", None)
+                env_file = self.project_root / ".env"
+                if env_file.exists():
+                    unset_key(str(env_file), "GOOGLE_CLIENT_ID")
+                    unset_key(str(env_file), "GOOGLE_CLIENT_SECRET")
                 console.print("\n[cyan]Re-entering credentials...[/cyan]\n")
                 continue
             else:  # Retry
@@ -1250,6 +1257,29 @@ def {module_name}_resource(api_key: str):
                     break
             if headers_dict:
                 params["headers"] = headers_dict
+
+        # 3c. Credential validation — test base URL with saved credentials
+        if auth_type != "none":
+            console.print("\n[dim]Testing API credentials...[/dim]")
+            status_code, _body, error = self._test_rest_api_endpoint(
+                base_url=base_url,
+                path="/",
+                auth_type=auth_type,
+                params_dict=params,
+                source_headers=params.get("headers"),
+            )
+            if error:
+                console.print(f"  [yellow]\u26a0 Credential test failed: {error}[/yellow]")
+                if not Confirm.ask("Continue anyway?", default=True):
+                    return None
+            elif status_code is not None and status_code >= 400:
+                console.print(
+                    f"  [yellow]\u26a0 Credential test returned HTTP {status_code}[/yellow]"
+                )
+                if not Confirm.ask("Continue anyway?", default=True):
+                    return None
+            elif status_code is not None:
+                console.print(f"  [green]\u2713 API responded (HTTP {status_code})[/green]")
 
         # 4. Endpoint collection
         console.print("\n[bold]API Endpoints[/bold]")

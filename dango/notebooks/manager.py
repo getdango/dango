@@ -27,11 +27,11 @@ _IDLE_TIMEOUT_CLOUD = 3600  # 1 hour
 _IDLE_TIMEOUT = _IDLE_TIMEOUT_LOCAL  # backward compat for smoke test
 
 
-def _get_idle_timeout(project_root: Path) -> int:
+def _get_idle_timeout(project_root: Path) -> int:  # noqa: ARG001
     """Return the idle timeout in seconds based on deployment mode."""
-    from dango.config.helpers import is_cloud_mode
+    from dango.config.helpers import is_running_on_cloud
 
-    if is_cloud_mode(project_root):
+    if is_running_on_cloud():
         return _IDLE_TIMEOUT_CLOUD
     return _IDLE_TIMEOUT_LOCAL
 
@@ -152,9 +152,9 @@ def start_marimo(
         ]
 
         # Add base-url for cloud proxy so SPA assets use correct prefix
-        from dango.config.helpers import is_cloud_mode
+        from dango.config.helpers import is_running_on_cloud
 
-        if is_cloud_mode(project_root):
+        if is_running_on_cloud():
             cmd.extend(["--base-url", "/notebooks/marimo"])
 
         cmd.append(str(notebooks_dir))
