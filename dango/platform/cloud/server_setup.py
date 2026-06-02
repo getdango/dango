@@ -568,33 +568,9 @@ def resolve_install_source() -> tuple[str, str]:
 
     raw = dist.read_text("direct_url.json")
     if raw is None:
-        # No direct_url.json — could be PyPI or an editable install without
-        # metadata (e.g., worktree installs).  Check if the package source
-        # is inside a git repo.
-        from pathlib import Path as _Path
-
+        # No direct_url.json → standard PyPI install.  A PyPI install never
+        # creates direct_url.json, so there is nothing more to check.
         import dango
-
-        pkg_dir = str(_Path(dango.__file__).resolve().parent)
-        try:
-            remote = subprocess.run(  # noqa: S603, S607
-                ["git", "-C", pkg_dir, "remote", "get-url", "origin"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            head = subprocess.run(  # noqa: S603, S607
-                ["git", "-C", pkg_dir, "rev-parse", "HEAD"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if remote.returncode == 0 and head.returncode == 0:
-                url = remote.stdout.strip()
-                commit = head.stdout.strip()
-                return ("git", f"git+{_normalize_git_url(url)}@{commit}#egg=getdango")
-        except Exception:
-            _logger.debug("worktree_git_info_failed", exc_info=True)
 
         return ("pypi", f"getdango=={dango.__version__}")
 

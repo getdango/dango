@@ -75,14 +75,15 @@ SYNC_CONFIG_FILES: list[tuple[str, str]] = [
         "metabase-plugins/.driver-version",
         f"{REMOTE_PROJECT_DIR}/metabase-plugins/.driver-version",
     ),
+    ("requirements.txt", f"{REMOTE_PROJECT_DIR}/requirements.txt"),
 ]
 
 #: Directories to sync via rsync (with ``--delete``).
-SYNC_DBT_DIRS: list[str] = ["dbt/models", "dbt/macros"]
+SYNC_DBT_DIRS: list[str] = ["dbt/models", "dbt/macros", "dbt/seeds"]
 
 #: Additional directories to sync via rsync (with ``--delete``).
 #: Unlike dbt dirs, these are not part of the change-detection logic.
-SYNC_EXTRA_DIRS: list[str] = ["metabase"]
+SYNC_EXTRA_DIRS: list[str] = ["metabase", "custom_sources"]
 
 
 # ---------------------------------------------------------------------------

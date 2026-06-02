@@ -3,6 +3,7 @@
 Data source management commands (add, list, remove) and sync.
 """
 
+import os
 import re
 
 import click
@@ -658,6 +659,7 @@ def sync(
     console.print()
 
     lock = None
+    _cloud_mode = False
     try:
         # Get project context
         project_root = require_project_context(ctx)
@@ -846,6 +848,35 @@ def sync(
                 console.print(f"\n[red]{oauth_err.user_message}[/red]")
                 raise click.Abort() from oauth_err
 
+        # Stop Metabase on cloud to prevent DuckDB lock conflicts
+        _cloud_mode = os.environ.get("DANGO_CLOUD_MODE") == "true"
+        if _cloud_mode:
+            try:
+                import subprocess as _sp
+
+                from dango.platform.docker import get_compose_project_name
+
+                _proj_name = get_compose_project_name(project_root)
+                _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
+                _sp.run(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(project_root / "docker-compose.yml"),
+                        "stop",
+                        "metabase",
+                    ],
+                    capture_output=True,
+                    timeout=60,
+                    env=_env,
+                )
+                import time
+
+                time.sleep(3)
+            except Exception:
+                console.print("[dim]ℹ Could not pause Metabase (continuing anyway)[/dim]")
+
         # Run sync
         try:
             summary = run_sync(
@@ -862,8 +893,10 @@ def sync(
             console.print("[green]Resume with the same command.[/green]")
             return
 
-        # Trigger Metabase schema sync (if Metabase is running)
-        if summary["failed_count"] == 0:
+        # Trigger Metabase schema sync (if Metabase is running).
+        # Skip on cloud — Metabase is stopped; the finally block restarts it
+        # and Metabase auto-syncs schema on startup.
+        if summary["failed_count"] == 0 and not _cloud_mode:
             console.print()
             console.print("[dim]Updating Metabase schema...[/dim]")
             from dango.visualization.metabase import sync_metabase_schema
@@ -911,3 +944,30 @@ def sync(
                 lock.release()
             except Exception:
                 pass
+        # Restart Metabase on cloud
+        if _cloud_mode:
+            try:
+                import subprocess as _sp
+
+                from dango.platform.docker import get_compose_project_name
+
+                _proj_name = get_compose_project_name(project_root)
+                _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
+                _sp.run(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(project_root / "docker-compose.yml"),
+                        "start",
+                        "metabase",
+                    ],
+                    capture_output=True,
+                    timeout=120,
+                    env=_env,
+                )
+            except Exception:
+                console.print(
+                    "[yellow]Warning: Could not restart Metabase — "
+                    "run 'docker compose start metabase' manually[/yellow]"
+                )
