@@ -71,6 +71,22 @@ def get_earliest_start_date(project_root: Path, source_name: str) -> str | None:
         return None
 
 
+def update_last_sync_entry(project_root: Path, source_name: str, updates: dict[str, Any]) -> None:
+    """Update the most recent sync history entry with additional fields."""
+    history_file = get_sync_history_file(project_root, source_name)
+    try:
+        if not history_file.exists():
+            return
+        with open(history_file) as f:
+            history = json.load(f)
+        if history:
+            history[-1].update(updates)
+            with open(history_file, "w") as f:
+                json.dump(history, f, indent=2)
+    except Exception as e:
+        print(f"Warning: Failed to update sync history for {source_name}: {e}")
+
+
 def load_sync_history(
     project_root: Path, source_name: str, limit: int = 10
 ) -> list[dict[str, Any]]:

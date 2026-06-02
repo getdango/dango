@@ -668,3 +668,87 @@ class TestGetSchedulerStatus:
             app.state.scheduler = original_scheduler
 
         assert result2["running"] is False
+
+
+@pytest.mark.unit
+class TestSchedulerScheduleLoading:
+    """Test that start() loads schedules from schedules.yml."""
+
+    def test_start_loads_schedules_from_config(self, tmp_path):
+        """start() should call load_schedules_config and reload_schedules."""
+        svc = _make_service(tmp_path)
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+
+        mock_config = MagicMock()
+        mock_schedule = MagicMock()
+        mock_config.schedules = [mock_schedule]
+        mock_result = MagicMock()
+        mock_result.added = ["schedule:my-sync"]
+
+        with (
+            patch(
+                "dango.config.schedules.load_schedules_config", return_value=mock_config
+            ) as mock_load,
+            patch(
+                "dango.config.schedules.reload_schedules", return_value=mock_result
+            ) as mock_reload,
+        ):
+            svc.start(loop)
+
+        mock_load.assert_called_once_with(tmp_path)
+        mock_reload.assert_called_once_with(svc, [mock_schedule], tmp_path)
+
+    def test_start_handles_missing_schedules_file(self, tmp_path):
+        """start() should not crash when schedules.yml is missing (empty config)."""
+        svc = _make_service(tmp_path)
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+
+        mock_config = MagicMock()
+        mock_config.schedules = []
+
+        with (
+            patch("dango.config.schedules.load_schedules_config", return_value=mock_config),
+            patch("dango.config.schedules.reload_schedules") as mock_reload,
+        ):
+            svc.start(loop)
+
+        # reload_schedules should NOT be called when no schedules
+        mock_reload.assert_not_called()
+
+    def test_start_handles_schedules_load_error(self, tmp_path):
+        """start() should catch exceptions and still complete startup."""
+        svc = _make_service(tmp_path)
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+
+        with patch(
+            "dango.config.schedules.load_schedules_config",
+            side_effect=RuntimeError("YAML parse error"),
+        ):
+            # Should not raise
+            svc.start(loop)
+
+        # Scheduler should still be marked as started
+        assert svc._started is True
+
+    def test_start_logs_schedule_count(self, tmp_path):
+        """start() should log the number of loaded schedules."""
+        svc = _make_service(tmp_path)
+        loop = MagicMock(spec=asyncio.AbstractEventLoop)
+
+        mock_config = MagicMock()
+        mock_config.schedules = [MagicMock(), MagicMock()]
+        mock_result = MagicMock()
+        mock_result.added = ["schedule:s1"]
+
+        with (
+            patch("dango.config.schedules.load_schedules_config", return_value=mock_config),
+            patch("dango.config.schedules.reload_schedules", return_value=mock_result),
+            patch(f"{_SCHEDULER_MOD}.logger") as mock_logger,
+        ):
+            svc.start(loop)
+
+        # Check that schedules_loaded was logged
+        info_calls = [c for c in mock_logger.info.call_args_list if c[0][0] == "schedules_loaded"]
+        assert len(info_calls) == 1
+        assert info_calls[0][1]["added"] == 1
+        assert info_calls[0][1]["skipped_disabled"] == 1
