@@ -2136,11 +2136,11 @@ Need help? Visit: https://github.com/getdango/dango/issues
 
             except Exception as e:
                 console.print(f"[dim]Warning: Could not query database for row counts: {e}[/dim]")
-                # If we can't get row counts, mark as unknown
-                stats["rows_loaded"] = -1
+                # If we can't get row counts, report 0 rather than confusing -1
+                stats["rows_loaded"] = 0
         elif not loaded_tables:
             # No tables loaded (or couldn't extract list)
-            stats["rows_loaded"] = -1  # -1 means "unknown but successful"
+            stats["rows_loaded"] = 0
             console.print(
                 "  [yellow]⚠ Sync completed but no data tables were loaded. "
                 "Check your property ID, date range, or API permissions.[/yellow]"

@@ -566,6 +566,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "eventName",
                         "sessionSource",
                         "sessionMedium",
+                        "landingPage",
                         "deviceCategory",
                     ],
                     "metrics": [
@@ -584,6 +585,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "sessionMedium",
                         "sessionCampaignName",
                         "sessionDefaultChannelGroup",
+                        "landingPage",
                         "deviceCategory",
                     ],
                     "metrics": [
@@ -1090,7 +1092,10 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "metrics.average_cpc, "
                         "metrics.average_cpm, "
                         "metrics.search_impression_share, "
-                        "metrics.search_rank_lost_impression_share "
+                        "metrics.search_rank_lost_impression_share, "
+                        "metrics.search_budget_lost_impression_share, "
+                        "metrics.search_top_impression_percentage, "
+                        "metrics.search_absolute_top_impression_percentage "
                         "FROM campaign "
                         "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
                     ),
@@ -1137,6 +1142,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "ad_group_criterion.keyword.text, "
                         "ad_group_criterion.keyword.match_type, "
                         "ad_group_criterion.quality_info.quality_score, "
+                        "ad_group_criterion.quality_info.creative_quality_score, "
+                        "ad_group_criterion.quality_info.post_click_quality_score, "
+                        "ad_group_criterion.quality_info.search_predicted_ctr, "
                         "metrics.impressions, "
                         "metrics.clicks, "
                         "metrics.cost_micros, "
@@ -1214,12 +1222,34 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "campaign.name, "
                         "geographic_view.country_criterion_id, "
                         "geographic_view.location_type, "
+                        "geo_target_constant.name, "
+                        "geo_target_constant.canonical_name, "
                         "metrics.impressions, "
                         "metrics.clicks, "
                         "metrics.cost_micros, "
                         "metrics.conversions, "
                         "metrics.conversions_value "
                         "FROM geographic_view "
+                        "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
+                    ),
+                },
+                {
+                    "resource_name": "device_stats",
+                    "primary_key": ["date", "campaign_id", "device"],
+                    "query": (
+                        "SELECT "
+                        "segments.date, "
+                        "segments.device, "
+                        "campaign.id, "
+                        "campaign.name, "
+                        "metrics.impressions, "
+                        "metrics.clicks, "
+                        "metrics.cost_micros, "
+                        "metrics.conversions, "
+                        "metrics.conversions_value, "
+                        "metrics.ctr, "
+                        "metrics.average_cpc "
+                        "FROM campaign "
                         "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
                     ),
                 },
@@ -1231,8 +1261,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "3. Follow the browser OAuth flow to authenticate",
             "4. Enter Developer Token from Google Ads API Center",
             "5. Enter Customer ID (find in Google Ads account URL, no hyphens)",
-            "6. Default queries load 6 tables: campaign, ad_group, keyword, ad,"
-            " search_term, geographic stats",
+            "6. Default queries load 7 tables: campaign, ad_group, keyword, ad,"
+            " search_term, geographic, device stats",
             "7. Edit .dlt/config.toml to customize GAQL queries",
             "8. Use Google Ads Query Builder to validate field compatibility",
         ],
