@@ -62,6 +62,7 @@ _PUBLIC_EXACT: frozenset[str] = frozenset({
     "/api/auth/oauth/callback",
     "/api/auth/accept-invite",
     "/api/initial-sync/start",  # Accepts deploy token OR admin session (own auth check)
+    "/api/internal/schedules/reload",  # CLI schedule reload (localhost-only check in handler)
     "/login",
     "/setup",
     "/api/health",

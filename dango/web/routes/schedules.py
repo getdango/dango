@@ -186,6 +186,39 @@ async def recent_executions(
     return get_recent_history(db_path, limit=limit)
 
 
+@router.post("/api/internal/schedules/reload")
+async def internal_reload_schedules(request: Request) -> JSONResponse:
+    """CLI-triggered schedule reload -- localhost only, no auth required."""
+    # Reject requests that came through a reverse proxy (Caddy/nginx always
+    # adds X-Forwarded-For). Without this, cloud requests through Caddy would
+    # appear as localhost since Caddy proxies to 127.0.0.1:8800.
+    if request.headers.get("x-forwarded-for"):
+        return JSONResponse(status_code=403, content={"error": "Localhost only"})
+    client_host = request.client.host if request.client else None
+    if client_host not in ("127.0.0.1", "::1"):
+        return JSONResponse(status_code=403, content={"error": "Localhost only"})
+
+    scheduler = _get_scheduler(request)
+    if scheduler is None:
+        return JSONResponse(
+            status_code=503,
+            content={"message": "Scheduler not available"},
+        )
+
+    project_root = get_project_root()
+    config = load_schedules_config(project_root)
+    result = reload_schedules(scheduler, config.schedules, project_root)
+
+    logger.info(
+        "schedules_reloaded_by_cli",
+        added=result.added,
+        removed=result.removed,
+        updated=result.updated,
+    )
+
+    return JSONResponse(content=result.model_dump(mode="json"))
+
+
 @router.get("/api/schedules")
 async def list_schedules(
     request: Request,
