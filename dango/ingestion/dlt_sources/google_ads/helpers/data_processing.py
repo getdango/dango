@@ -18,12 +18,12 @@ def to_dict(item: Any) -> TDataItem:
 
 
 _INTEGER_METRICS = {
-    "impressions", "clicks", "conversions", "video_views",
+    "impressions", "clicks", "video_views",
     "interactions", "gmail_forwards", "gmail_saves", "gmail_secondary_clicks",
 }
 _FLOAT_METRICS = {
+    "conversions", "conversions_value", "cost_per_conversion",
     "ctr", "average_cpc", "average_cpm", "average_cpv",
-    "conversions_value", "cost_per_conversion",
     "search_impression_share", "search_rank_lost_impression_share",
     "search_budget_lost_impression_share",
     "search_top_impression_percentage", "search_absolute_top_impression_percentage",

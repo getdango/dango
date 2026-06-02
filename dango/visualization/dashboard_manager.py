@@ -331,7 +331,7 @@ class DashboardManager:
         }
 
         # Simplify cards
-        for card in dashboard.get("dashcards") or dashboard.get("ordered_cards") or []:
+        for card in dashboard.get("dashcards", dashboard.get("ordered_cards", [])):
             card_info = card.get("card", {})
             simplified_card = {
                 "name": card_info.get("name"),
@@ -695,7 +695,7 @@ class DashboardManager:
                             "collection": collection_name,
                             "file": str(filepath.relative_to(self.project_root)),
                             "cards": len(
-                                dashboard.get("dashcards") or dashboard.get("ordered_cards") or []
+                                dashboard.get("dashcards", dashboard.get("ordered_cards", []))
                             ),
                         }
                     )
