@@ -271,6 +271,30 @@ def _show_next_runs(cron_expr: str) -> None:
             console.print(f"  {i}. {r}")
 
 
+def _try_reload_running_scheduler() -> None:
+    """Notify running server to reload schedules. Best-effort, never raises."""
+    try:
+        from dango.cli.helpers.port_manager import check_port_in_use
+
+        if not check_port_in_use(8800):
+            console.print("[dim]Schedule will load on next `dango start`.[/dim]")
+            return
+
+        import requests
+
+        resp = requests.post(
+            "http://localhost:8800/api/internal/schedules/reload",
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            console.print("[green]Scheduler reloaded.[/green]")
+        else:
+            console.print("[dim]Restart `dango start` to apply changes to running scheduler.[/dim]")
+    except Exception:
+        console.print("[dim]Restart `dango start` to apply changes to running scheduler.[/dim]")
+
+
 def _toggle_schedule(ctx: click.Context, name: str, *, enable: bool) -> None:
     """Shared logic for enable/disable commands."""
     from dango.cli.utils import require_project_context
@@ -295,6 +319,7 @@ def _toggle_schedule(ctx: click.Context, name: str, *, enable: bool) -> None:
     sched["enabled"] = enable
     _save_schedules_yaml(project_root, data)
     console.print(f"[green]Schedule '{name}' {action}.[/green]")
+    _try_reload_running_scheduler()
 
 
 # ---------------------------------------------------------------------------
@@ -700,6 +725,7 @@ def schedule_add(ctx: click.Context) -> None:
     schedules.append(entry)
     _save_schedules_yaml(project_root, data)
     console.print(f"[green]Schedule '{name}' added.[/green]")
+    _try_reload_running_scheduler()
 
 
 # ---------------------------------------------------------------------------
@@ -737,6 +763,7 @@ def schedule_remove(ctx: click.Context, name: str, yes: bool) -> None:
     data["schedules"] = schedules
     _save_schedules_yaml(project_root, data)
     console.print(f"[green]Schedule '{name}' removed.[/green]")
+    _try_reload_running_scheduler()
 
 
 # ---------------------------------------------------------------------------
