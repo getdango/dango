@@ -218,30 +218,10 @@ class SourceWizard:
             # Step 7: Create source config
             source_config = self._create_source_config(source_name, source_type, params, metadata)
 
-            # Step 7b: Prompt for lookback window if source has a registry default
+            # Step 7b: Use registry default lookback silently (no prompt)
             default_lookback = (metadata.get("default_config") or {}).get("lookback_days")
             if default_lookback is not None:
-                ad_sources = {"google_ads", "facebook_ads"}
-                console.print(f"\n[bold]Lookback window: {default_lookback} day(s)[/bold]")
-                console.print(
-                    "  [dim]Each incremental sync re-loads recent data to catch "
-                    "late-arriving records.[/dim]"
-                )
-                if source_type in ad_sources:
-                    console.print(
-                        "  [dim]Ad platform attribution can update for days after "
-                        "the initial report (e.g., Google Ads up to 30 days).[/dim]"
-                    )
-                keep = Confirm.ask(f"  Keep default of {default_lookback} days?", default=True)
-                if keep:
-                    source_config["lookback_days"] = default_lookback
-                else:
-                    from rich.prompt import IntPrompt
-
-                    custom = IntPrompt.ask("  Enter lookback days", default=default_lookback)
-                    if custom < 1:
-                        custom = 1
-                    source_config["lookback_days"] = custom
+                source_config["lookback_days"] = default_lookback
 
             # Step 8: If secrets required, validate credentials FIRST (before saving)
             if self.secret_params:
@@ -282,8 +262,14 @@ class SourceWizard:
             console.print(f"\n[green]✅ Saved '{source_name}' to sources.yml[/green]")
 
             # Step 9b: Show setup guide + secrets.toml template for
-            # sources with credentials in secrets.toml (not .env)
-            if not self.secret_params and metadata.get("setup_guide"):
+            # sources with credentials in secrets.toml (not .env).
+            # Skip for OAuth sources — their credentials are already saved.
+            auth_type = metadata.get("auth_type")
+            if (
+                not self.secret_params
+                and metadata.get("setup_guide")
+                and auth_type != AuthType.OAUTH
+            ):
                 console.print("\n[bold]Credential setup required:[/bold]")
                 for line in metadata["setup_guide"]:
                     console.print(f"  {line}")
@@ -709,35 +695,65 @@ class SourceWizard:
             console.print("until you set up OAuth credentials.[/dim]\n")
             return None
 
-        # "Set up OAuth now" - run OAuth flow
+        # "Set up OAuth now" - run OAuth flow with retry
         console.print(
             f"\n[bold]Starting OAuth setup for {metadata.get('display_name')}...[/bold]\n"
         )
 
-        success = run_oauth_for_source(source_type, source_name, self.project_root)
+        while True:
+            success = run_oauth_for_source(source_type, source_name, self.project_root)
 
-        if success:
-            console.print("\n[green]✅ OAuth credentials configured successfully![/green]")
-            console.print("[dim]  Credentials saved to .dlt/secrets.toml[/dim]\n")
-            return None
-        else:
-            console.print("\n[red]❌ OAuth setup failed[/red]")
-            console.print(
-                f"[yellow]You can try again later with: dango oauth {source_type}[/yellow]\n"
-            )
+            if success:
+                # Verify credentials were actually saved
+                oauth_storage = OAuthStorage(self.project_root)
+                verified_cred = oauth_storage.get(source_type)
+                if verified_cred and not verified_cred.is_expired():
+                    console.print("\n[green]✅ OAuth credentials configured successfully![/green]")
+                    console.print("[dim]  Credentials saved to .dlt/secrets.toml[/dim]\n")
+                    return None  # Continue to params
+                else:
+                    console.print(
+                        "\n[yellow]⚠️  OAuth flow completed but credentials could not be verified[/yellow]"
+                    )
+                    # Fall through to retry prompt
 
-            continue_anyway = Confirm.ask(
-                "Continue configuring source without OAuth credentials?", default=False
-            )
+            # OAuth failed or unverified — offer retry / cancel
+            console.print("\n[red]❌ OAuth setup did not complete successfully[/red]")
 
-            if continue_anyway:
-                console.print("[yellow]⚠️  Continuing without credentials[/yellow]")
-                console.print(
-                    "[yellow]   You won't be able to sync until you authenticate[/yellow]\n"
+            # Only offer "re-enter credentials" for Google sources (which cache
+            # client_id/secret in env vars). Facebook prompts directly each time.
+            is_google = source_type.startswith("google_")
+            retry_choices = ["Retry OAuth flow"]
+            if is_google:
+                retry_choices.append("Re-enter credentials and retry")
+            retry_choices.append("Cancel source setup")
+
+            questions = [
+                inquirer.List(
+                    "retry_action",
+                    message="How would you like to proceed?",
+                    choices=retry_choices,
+                    carousel=True,
                 )
-                return None
-            else:
-                return "back"
+            ]
+            answers = inquirer.prompt(questions, theme=themes.GreenPassion())
+            if not answers:
+                return "cancel"
+
+            action = answers["retry_action"]
+            if action == "Cancel source setup":
+                return "cancel"
+            elif action == "Re-enter credentials and retry":
+                # Clear cached .env credentials so Google provider re-prompts
+                import os
+
+                os.environ.pop("GOOGLE_CLIENT_ID", None)
+                os.environ.pop("GOOGLE_CLIENT_SECRET", None)
+                console.print("\n[cyan]Re-entering credentials...[/cyan]\n")
+                continue
+            else:  # Retry
+                console.print("\n[cyan]Retrying OAuth flow...[/cyan]\n")
+                continue
 
     def _get_source_name(self, source_type_key: str, metadata: dict[str, Any]) -> str | None:
         """Get unique source name from user with contextual help
@@ -862,60 +878,33 @@ class SourceWizard:
         console.print("\n[bold]Custom dlt Source Setup[/bold]")
         console.print("[dim]This creates a Python template and registers it in sources.yml[/dim]\n")
 
-        # 1. Module name
-        questions = [
-            inquirer.Text(
-                "module_name",
-                message="Python module name (e.g., my_api)",
-            )
-        ]
-        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
-        if not answers:
-            return False
-        module_name = answers["module_name"].strip()
-        if not module_name.isidentifier():
-            console.print(
-                f"[red]'{module_name}' is not a valid Python identifier. "
-                f"Use letters, numbers, and underscores (cannot start with a number).[/red]"
-            )
-            return False
-
-        # 2. Function name
-        default_func = f"{module_name}_source"
-        questions = [
-            inquirer.Text(
-                "function_name",
-                message="Source function name",
-                default=default_func,
-            )
-        ]
-        answers = inquirer.prompt(questions, theme=themes.GreenPassion())
-        if not answers:
-            return False
-        function_name = answers["function_name"].strip()
-        if not function_name.isidentifier():
-            console.print(f"[red]'{function_name}' is not a valid Python identifier.[/red]")
-            return False
-
-        # 3. Source name for sources.yml
-        default_source_name = module_name
+        # Single prompt — source name (module and function names derived automatically)
         questions = [
             inquirer.Text(
                 "source_name",
-                message="Source name (used in sources.yml and sync commands)",
-                default=default_source_name,
+                message="Source name (e.g., my_api, shopify_orders)",
             )
         ]
         answers = inquirer.prompt(questions, theme=themes.GreenPassion())
         if not answers:
             return False
         source_name = answers["source_name"].strip().lower()
-        if not source_name.replace("_", "").isalnum():
+
+        # Validate as both Python identifier and source name
+        if (
+            not source_name
+            or not source_name.replace("_", "").isalnum()
+            or not source_name[0].isalpha()
+        ):
             console.print(
                 f"[red]'{source_name}' is invalid. "
-                f"Use only lowercase letters, numbers, and underscores.[/red]"
+                f"Use lowercase letters, numbers, and underscores (must start with a letter).[/red]"
             )
             return False
+
+        # Auto-derive module and function names
+        module_name = source_name
+        function_name = f"{source_name}_source"
 
         # 4. Check for duplicate source names (before writing any files)
         config = load_config(self.project_root)
@@ -1869,7 +1858,12 @@ def {module_name}_resource(api_key: str):
                 # Otherwise loop back to reselect
 
         elif param_type == "date":
-            # Date parameter - leave blank if no default specified
+            # Date parameter - compute ISO date from default_days_ago if present
+            if default is None and "default_days_ago" in param:
+                from datetime import date, timedelta
+
+                days = param["default_days_ago"]
+                default = (date.today() - timedelta(days=days)).isoformat()
             default_display = str(default) if default else None
 
             questions = [
@@ -1980,6 +1974,16 @@ def {module_name}_resource(api_key: str):
 
         # Show incremental loading education for start_date parameters
         if param_name == "start_date" and value:
+            # Show what date a relative value resolves to
+            import re
+            from datetime import date, timedelta
+
+            match = re.match(r"(\d+)daysAgo", value)
+            if match:
+                days = int(match.group(1))
+                computed = date.today() - timedelta(days=days)
+                console.print(f"\n[cyan]Sync will load data from: {computed.isoformat()}[/cyan]")
+
             console.print("\n[cyan]ℹ️  About Incremental Loading:[/cyan]")
             console.print("  • start_date is only used for the FIRST sync")
             console.print("  • Future syncs load NEW data since last run")

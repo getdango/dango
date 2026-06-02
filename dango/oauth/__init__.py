@@ -34,6 +34,12 @@ from dango.config.credentials import CredentialManager
 console = Console()
 
 
+class _ReusableTCPServer(socketserver.TCPServer):
+    """TCPServer subclass that sets SO_REUSEADDR to avoid port conflicts after Ctrl+C."""
+
+    allow_reuse_address = True
+
+
 class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     """
     HTTP handler for OAuth callback
@@ -187,7 +193,7 @@ class OAuthManager:
 
         # Start callback server in a thread
         try:
-            server = socketserver.TCPServer(("localhost", self.callback_port), OAuthCallbackHandler)
+            server = _ReusableTCPServer(("localhost", self.callback_port), OAuthCallbackHandler)
         except OSError as e:
             if "Address already in use" in str(e) or e.errno == 48:  # 48 = EADDRINUSE on macOS
                 console.print(f"\n[red]✗ Port {self.callback_port} is already in use[/red]")

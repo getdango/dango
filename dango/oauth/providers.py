@@ -72,6 +72,13 @@ class GoogleOAuthProvider(BaseOAuthProvider):
     AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
     TOKEN_URL = "https://oauth2.googleapis.com/token"
 
+    # Exact API names as shown in Google Cloud Console
+    API_NAMES = {
+        "google_ads": "Google Ads API",
+        "google_analytics": "Google Analytics Data API",
+        "google_sheets": "Google Sheets API",
+    }
+
     # Scopes for different Google services
     # Always include userinfo.email to identify the authenticated user
     BASE_SCOPES = [
@@ -133,16 +140,33 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 console.print(f"[dim]  Client ID: {client_id[:20]}...{client_id[-10:]}[/dim]\n")
             else:
                 # Show setup instructions only if credentials not found
+                api_name = self.API_NAMES.get(service, "the required API")
                 instructions = [
                     "[bold]Prerequisites:[/bold]",
                     "1. Create a Google Cloud Project at https://console.cloud.google.com/",
-                    "2. Enable the required API (Google Ads API / Analytics API / Sheets API)",
-                    "3. Create OAuth 2.0 credentials:",
+                    "",
+                    "2. Configure the OAuth consent screen:",
+                    "   • Go to APIs & Services > OAuth consent screen",
+                    "   • Select [yellow]External[/yellow] user type > Create",
+                    "   • Fill in App name, User support email, Developer email",
+                    "   • Click through Scopes (no changes needed)",
+                    "   • Add your Google account email as a Test User",
+                    "   • Save and return to dashboard",
+                    "",
+                    f"3. Enable the [bold]{api_name}[/bold]:",
+                    "   • Go to APIs & Services > Library",
+                    f'   • Search for "{api_name}" and click Enable',
+                    "",
+                    "4. Create OAuth 2.0 credentials:",
                     "   • Go to APIs & Services > Credentials",
-                    "   • Create OAuth client ID",
-                    "   • Application type: [yellow]Web application[/yellow] (NOT Desktop app)",
-                    f"   • Authorized redirect URI: {self.oauth_manager.callback_url}",
-                    "4. Download or copy the Client ID and Client Secret",
+                    "   • Create Credentials > OAuth client ID",
+                    "   • Application type: [yellow]Web application[/yellow]",
+                    f"   • Add Authorized redirect URI: {self.oauth_manager.callback_url}",
+                    "   • Copy the Client ID and Client Secret",
+                    "",
+                    "[yellow]⚠  Testing mode:[/yellow] Tokens expire after 7 days.",
+                    "   To get permanent tokens, publish your app:",
+                    "   OAuth consent screen > Publishing status > [bold]Publish App[/bold]",
                     "",
                     "[dim]Tip: Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env to skip this step[/dim]",
                 ]
@@ -237,12 +261,10 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             # For Google Ads, also ask for developer token and customer ID
             if service == "google_ads":
                 console.print("\n[bold]Step 3: Google Ads Specific Credentials[/bold]")
-                console.print(
-                    "[dim]Find your Developer Token at: https://ads.google.com/aw/apicenter[/dim]"
-                )
-                console.print(
-                    "[dim]Note: You need a Google Ads Manager Account to get a Developer Token[/dim]"
-                )
+                console.print("[dim]Find your Developer Token in Google Ads:[/dim]")
+                console.print("[dim]  • Sign in at https://ads.google.com[/dim]")
+                console.print("[dim]  • Tools & Settings > Setup > API Center[/dim]")
+                console.print("[dim]  • Note: Requires a Manager Account (MCC)[/dim]")
 
                 # Collect and confirm Google Ads credentials
                 while True:
@@ -308,12 +330,8 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 return None
 
             # Success message
-            console.print("\n[green]✅ Google authentication complete![/green]\n")
-            console.print(f"[cyan]OAuth credentials saved for:[/cyan] {service}")
-            console.print("[cyan]Next steps:[/cyan]")
-            console.print("  1. Add Google source: [bold]dango source add[/bold]")
-            console.print(f"  2. Select '{service.replace('_', ' ').title()}' from the wizard")
-            console.print("  3. Run sync to load data")
+            console.print("\n[green]✅ Google authentication complete![/green]")
+            console.print(f"[dim]Credentials saved for {service}[/dim]")
 
             return service  # Return source_type, not oauth_name
 
@@ -610,16 +628,12 @@ class FacebookOAuthProvider(BaseOAuthProvider):
                 return None
 
             # Success message
-            console.print("\n[green]✅ Facebook Ads authentication complete![/green]\n")
-            console.print("[cyan]OAuth credentials saved for:[/cyan] facebook_ads")
+            console.print("\n[green]✅ Facebook Ads authentication complete![/green]")
+            console.print("[dim]Credentials saved for facebook_ads[/dim]")
             console.print(
                 f"[yellow]Token expires:[/yellow] {expires_at.strftime('%Y-%m-%d')} (60 days)"
             )
-            console.print("\n[cyan]Next steps:[/cyan]")
-            console.print("  1. Add Facebook Ads source: [bold]dango source add[/bold]")
-            console.print("  2. Select 'Facebook Ads' from the wizard")
-            console.print("  3. Run sync to load data")
-            console.print("\n[yellow]⚠️  Set a reminder to re-authenticate before expiry[/yellow]")
+            console.print("[yellow]⚠️  Set a reminder to re-authenticate before expiry[/yellow]")
 
             return "facebook_ads"  # Return source_type
 
