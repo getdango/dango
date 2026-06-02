@@ -97,7 +97,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
 
                 time.sleep(3)
             except Exception:
-                pass
+                console.print("[dim]ℹ Could not pause Metabase (continuing anyway)[/dim]")
 
         # Run dbt command from dbt directory for correct path resolution
         result = subprocess.run(cmd, cwd=str(dbt_dir))
@@ -125,17 +125,23 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
         if models_to_update:
             update_model_schemas(project_root, models_to_update)
 
-        # Refresh Metabase connection to see new/updated tables
-        console.print("\n[dim]Refreshing Metabase connection...[/dim]")
-        from dango.visualization.metabase import refresh_metabase_connection, sync_metabase_schema
+        # Refresh Metabase connection to see new/updated tables.
+        # Skip on cloud — Metabase is stopped; the finally block restarts it
+        # and Metabase auto-syncs schema on startup.
+        if not _cloud_mode:
+            console.print("\n[dim]Refreshing Metabase connection...[/dim]")
+            from dango.visualization.metabase import (
+                refresh_metabase_connection,
+                sync_metabase_schema,
+            )
 
-        if refresh_metabase_connection(project_root):
-            console.print("[green]✓ Metabase connection refreshed[/green]")
-            # Also sync schema to discover new tables/schemas from dbt run
-            if sync_metabase_schema(project_root):
-                console.print("[green]✓ Metabase schema synced[/green]")
-        else:
-            console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
+            if refresh_metabase_connection(project_root):
+                console.print("[green]✓ Metabase connection refreshed[/green]")
+                # Also sync schema to discover new tables/schemas from dbt run
+                if sync_metabase_schema(project_root):
+                    console.print("[green]✓ Metabase schema synced[/green]")
+            else:
+                console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled[/yellow]")
@@ -178,7 +184,10 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
                     env=_env,
                 )
             except Exception:
-                pass
+                console.print(
+                    "[yellow]Warning: Could not restart Metabase — "
+                    "run 'docker compose start metabase' manually[/yellow]"
+                )
 
 
 @click.command("docs")

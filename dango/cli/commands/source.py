@@ -875,7 +875,7 @@ def sync(
 
                 time.sleep(3)
             except Exception:
-                pass
+                console.print("[dim]ℹ Could not pause Metabase (continuing anyway)[/dim]")
 
         # Run sync
         try:
@@ -893,8 +893,10 @@ def sync(
             console.print("[green]Resume with the same command.[/green]")
             return
 
-        # Trigger Metabase schema sync (if Metabase is running)
-        if summary["failed_count"] == 0:
+        # Trigger Metabase schema sync (if Metabase is running).
+        # Skip on cloud — Metabase is stopped; the finally block restarts it
+        # and Metabase auto-syncs schema on startup.
+        if summary["failed_count"] == 0 and not _cloud_mode:
             console.print()
             console.print("[dim]Updating Metabase schema...[/dim]")
             from dango.visualization.metabase import sync_metabase_schema
@@ -965,4 +967,7 @@ def sync(
                     env=_env,
                 )
             except Exception:
-                pass
+                console.print(
+                    "[yellow]Warning: Could not restart Metabase — "
+                    "run 'docker compose start metabase' manually[/yellow]"
+                )
