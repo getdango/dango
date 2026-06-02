@@ -802,21 +802,16 @@ class DltPipelineRunner:
             stats = self._extract_load_stats(load_info)
             rows_loaded = stats.get("rows_loaded", 0)
 
-            if rows_loaded >= 0:
-                # Success — check for data loss on full refresh
-                if full_refresh and pre_refresh_rows is not None and rows_loaded < pre_refresh_rows:
-                    console.print(
-                        f"  [yellow]⚠️  Full refresh loaded {rows_loaded:,} rows "
-                        f"vs previous {pre_refresh_rows:,}. "
-                        f"State backup preserved at {state_backup}.[/yellow]"
-                    )
-                else:
-                    self._cleanup_state_backup(state_backup)
-                console.print(f"  ✓ Loaded {rows_loaded:,} rows")
+            # Check for data loss on full refresh
+            if full_refresh and pre_refresh_rows is not None and rows_loaded < pre_refresh_rows:
+                console.print(
+                    f"  [yellow]⚠️  Full refresh loaded {rows_loaded:,} rows "
+                    f"vs previous {pre_refresh_rows:,}. "
+                    f"State backup preserved at {state_backup}.[/yellow]"
+                )
             else:
-                # rows_loaded == -1 means we got a valid LoadInfo but couldn't extract stats
-                console.print("  ✓ Load completed (unable to count rows)")
-                rows_loaded = 0  # Set to 0 for stats
+                self._cleanup_state_backup(state_backup)
+            console.print(f"  ✓ Loaded {rows_loaded:,} rows")
 
             result = {
                 "status": "success",
@@ -1096,56 +1091,36 @@ class DltPipelineRunner:
 
             # Extract load statistics
             stats = self._extract_load_stats(load_info)
-
-            # Success criteria: rows_loaded >= 0 means we got valid data (even if 0 rows)
-            # rows_loaded == -1 means we couldn't extract stats but load succeeded
             rows_loaded = stats.get("rows_loaded", 0)
 
             # Check for row count anomalies
-            if rows_loaded >= 0:
-                total_row_count = self._get_source_total_rows(source_name)
-                if total_row_count is not None:
-                    stats["total_row_count"] = total_row_count
-                anomaly = self._check_row_count_anomaly(source_name, total_rows=total_row_count)
-                if anomaly:
-                    stats["anomaly"] = anomaly
+            total_row_count = self._get_source_total_rows(source_name)
+            if total_row_count is not None:
+                stats["total_row_count"] = total_row_count
+            anomaly = self._check_row_count_anomaly(source_name, total_rows=total_row_count)
+            if anomaly:
+                stats["anomaly"] = anomaly
 
-            if rows_loaded >= 0:
-                # Success — check for data loss on full refresh
-                if full_refresh and pre_refresh_rows is not None and rows_loaded < pre_refresh_rows:
-                    console.print(
-                        f"  [yellow]⚠️  Full refresh loaded {rows_loaded:,} rows "
-                        f"vs previous {pre_refresh_rows:,}. "
-                        f"State backup preserved at {state_backup}.[/yellow]"
-                    )
-                else:
-                    self._cleanup_state_backup(state_backup)
-                console.print(f"  ✓ Loaded {rows_loaded:,} rows")
-
-                result = {
-                    "status": "success",
-                    "source": source_name,
-                    "uses_replace_mode": uses_replace_mode,
-                    **stats,
-                }
-                if getattr(self, "_current_oauth_warning", None):
-                    result["oauth_warning"] = self._current_oauth_warning
-                return result
+            # Check for data loss on full refresh
+            if full_refresh and pre_refresh_rows is not None and rows_loaded < pre_refresh_rows:
+                console.print(
+                    f"  [yellow]⚠️  Full refresh loaded {rows_loaded:,} rows "
+                    f"vs previous {pre_refresh_rows:,}. "
+                    f"State backup preserved at {state_backup}.[/yellow]"
+                )
             else:
-                # rows_loaded is -1: unknown row count but load succeeded
-                # This should also be treated as success
                 self._cleanup_state_backup(state_backup)
-                console.print("  ✓ Load completed (row count unavailable)")
+            console.print(f"  ✓ Loaded {rows_loaded:,} rows")
 
-                result = {
-                    "status": "success",
-                    "source": source_name,
-                    "uses_replace_mode": uses_replace_mode,
-                    **stats,
-                }
-                if getattr(self, "_current_oauth_warning", None):
-                    result["oauth_warning"] = self._current_oauth_warning
-                return result
+            result = {
+                "status": "success",
+                "source": source_name,
+                "uses_replace_mode": uses_replace_mode,
+                **stats,
+            }
+            if getattr(self, "_current_oauth_warning", None):
+                result["oauth_warning"] = self._current_oauth_warning
+            return result
 
         except KeyboardInterrupt:
             # User interrupted — keep current state (progress saved by dlt)
@@ -2136,11 +2111,11 @@ Need help? Visit: https://github.com/getdango/dango/issues
 
             except Exception as e:
                 console.print(f"[dim]Warning: Could not query database for row counts: {e}[/dim]")
-                # If we can't get row counts, mark as unknown
-                stats["rows_loaded"] = -1
+                # If we can't get row counts, report 0 rather than confusing -1
+                stats["rows_loaded"] = 0
         elif not loaded_tables:
             # No tables loaded (or couldn't extract list)
-            stats["rows_loaded"] = -1  # -1 means "unknown but successful"
+            stats["rows_loaded"] = 0
             console.print(
                 "  [yellow]⚠ Sync completed but no data tables were loaded. "
                 "Check your property ID, date range, or API permissions.[/yellow]"

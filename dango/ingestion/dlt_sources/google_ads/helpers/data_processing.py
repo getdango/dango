@@ -1,3 +1,4 @@
+import datetime
 from typing import Any
 from dlt.common.typing import TDataItem
 import proto
@@ -16,6 +17,20 @@ def to_dict(item: Any) -> TDataItem:
     )
 
 
+_INTEGER_METRICS = {
+    "impressions", "clicks", "video_views",
+    "interactions", "gmail_forwards", "gmail_saves", "gmail_secondary_clicks",
+}
+_FLOAT_METRICS = {
+    "conversions", "conversions_value", "cost_per_conversion",
+    "ctr", "average_cpc", "average_cpm", "average_cpv",
+    "search_impression_share", "search_rank_lost_impression_share",
+    "search_budget_lost_impression_share",
+    "search_top_impression_percentage", "search_absolute_top_impression_percentage",
+    "interaction_rate", "average_cost",
+}
+
+
 def flatten_row(row_dict: dict[str, Any]) -> dict[str, Any]:
     """Flattens a Google Ads API response row into a flat dict.
 
@@ -28,13 +43,20 @@ def flatten_row(row_dict: dict[str, Any]) -> dict[str, Any]:
     # Promote segments to top level
     if "segments" in row_dict:
         for key, value in row_dict["segments"].items():
-            result[key] = value
+            if key == "date" and isinstance(value, str):
+                result[key] = datetime.date.fromisoformat(value)
+            else:
+                result[key] = value
 
-    # Flatten metrics, converting cost_micros -> cost
+    # Flatten metrics, converting cost_micros -> cost and casting known types
     if "metrics" in row_dict:
         for key, value in row_dict["metrics"].items():
             if key == "cost_micros":
                 result["cost"] = int(value) / 1_000_000 if value else 0.0
+            elif value is not None and key in _INTEGER_METRICS:
+                result[key] = int(value)
+            elif value is not None and key in _FLOAT_METRICS:
+                result[key] = float(value)
             else:
                 result[key] = value
 
