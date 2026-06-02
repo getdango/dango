@@ -3,6 +3,7 @@
 dbt transformation commands (run, docs, generate).
 """
 
+import os
 from typing import Any
 
 import click
@@ -40,6 +41,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
     from ..utils import require_project_context
 
     lock = None
+    _cloud_mode = False
     try:
         project_root = require_project_context(ctx)
         dbt_dir = project_root / "dbt"
@@ -67,6 +69,35 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
             raise click.Abort() from e
 
         console.print(f"[dim]Running: {' '.join(cmd)}[/dim]\n")
+
+        # Stop Metabase on cloud to prevent DuckDB lock conflicts
+        _cloud_mode = os.environ.get("DANGO_CLOUD_MODE") == "true"
+        if _cloud_mode:
+            try:
+                import subprocess as _sp
+
+                from dango.platform.docker import get_compose_project_name
+
+                _proj_name = get_compose_project_name(project_root)
+                _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
+                _sp.run(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(project_root / "docker-compose.yml"),
+                        "stop",
+                        "metabase",
+                    ],
+                    capture_output=True,
+                    timeout=60,
+                    env=_env,
+                )
+                import time
+
+                time.sleep(3)
+            except Exception:
+                pass
 
         # Run dbt command from dbt directory for correct path resolution
         result = subprocess.run(cmd, cwd=str(dbt_dir))
@@ -122,6 +153,30 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
         if lock is not None and lock._acquired:
             try:
                 lock.release()
+            except Exception:
+                pass
+        # Restart Metabase on cloud
+        if _cloud_mode:
+            try:
+                import subprocess as _sp
+
+                from dango.platform.docker import get_compose_project_name
+
+                _proj_name = get_compose_project_name(project_root)
+                _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
+                _sp.run(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(project_root / "docker-compose.yml"),
+                        "start",
+                        "metabase",
+                    ],
+                    capture_output=True,
+                    timeout=120,
+                    env=_env,
+                )
             except Exception:
                 pass
 

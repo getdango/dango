@@ -3,6 +3,7 @@
 Data source management commands (add, list, remove) and sync.
 """
 
+import os
 import re
 
 import click
@@ -658,6 +659,7 @@ def sync(
     console.print()
 
     lock = None
+    _cloud_mode = False
     try:
         # Get project context
         project_root = require_project_context(ctx)
@@ -846,6 +848,35 @@ def sync(
                 console.print(f"\n[red]{oauth_err.user_message}[/red]")
                 raise click.Abort() from oauth_err
 
+        # Stop Metabase on cloud to prevent DuckDB lock conflicts
+        _cloud_mode = os.environ.get("DANGO_CLOUD_MODE") == "true"
+        if _cloud_mode:
+            try:
+                import subprocess as _sp
+
+                from dango.platform.docker import get_compose_project_name
+
+                _proj_name = get_compose_project_name(project_root)
+                _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
+                _sp.run(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(project_root / "docker-compose.yml"),
+                        "stop",
+                        "metabase",
+                    ],
+                    capture_output=True,
+                    timeout=60,
+                    env=_env,
+                )
+                import time
+
+                time.sleep(3)
+            except Exception:
+                pass
+
         # Run sync
         try:
             summary = run_sync(
@@ -909,5 +940,29 @@ def sync(
         if lock is not None and lock._acquired:
             try:
                 lock.release()
+            except Exception:
+                pass
+        # Restart Metabase on cloud
+        if _cloud_mode:
+            try:
+                import subprocess as _sp
+
+                from dango.platform.docker import get_compose_project_name
+
+                _proj_name = get_compose_project_name(project_root)
+                _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
+                _sp.run(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(project_root / "docker-compose.yml"),
+                        "start",
+                        "metabase",
+                    ],
+                    capture_output=True,
+                    timeout=120,
+                    env=_env,
+                )
             except Exception:
                 pass

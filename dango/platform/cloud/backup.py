@@ -43,10 +43,20 @@ BACKUP_FILES = [
     ".dango/logs/audit.jsonl",
     ".dlt/secrets.toml",
     "dbt/profiles.yml",
+    "dbt/dbt_project.yml",
+    "dbt/packages.yml",
+    ".env",
 ]
 
 #: Directories to back up (recursively), relative to PROJECT_DIR.
-BACKUP_DIRS = [".dlt/pipelines"]
+BACKUP_DIRS = [
+    ".dlt/pipelines",
+    "dbt/models",
+    "dbt/macros",
+    "dbt/seeds",
+    "custom_sources",
+    "data/seeds",
+]
 
 
 @dataclass(frozen=True)
