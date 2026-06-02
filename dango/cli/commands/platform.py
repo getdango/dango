@@ -176,8 +176,10 @@ def start(ctx: click.Context, yes: bool) -> None:
             try:
                 os.kill(stale_pid, 0)
                 # Process is alive — existing server running, port check will catch it
-            except OSError:
-                # Process is dead — stale PID file
+            except ProcessLookupError:
+                # Process is dead (ESRCH) — stale PID file
+                # Note: PermissionError (EPERM) means the process exists but is
+                # owned by another user — let the port-conflict check handle it.
                 console.print("  Server was stopped. Restarting...")
                 remove_pid_file(project_root)
                 console.print()

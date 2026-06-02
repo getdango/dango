@@ -1259,6 +1259,8 @@ def {module_name}_resource(api_key: str):
                 params["headers"] = headers_dict
 
         # 3c. Credential validation — test base URL with saved credentials
+        # Only flag auth failures (401/403) or connection errors. Other status
+        # codes (404, 200, etc.) just mean the API is reachable.
         if auth_type != "none":
             console.print("\n[dim]Testing API credentials...[/dim]")
             status_code, _body, error = self._test_rest_api_endpoint(
@@ -1269,15 +1271,15 @@ def {module_name}_resource(api_key: str):
                 source_headers=params.get("headers"),
             )
             if error:
-                console.print(f"  [yellow]\u26a0 Credential test failed: {error}[/yellow]")
-                if not Confirm.ask("Continue anyway?", default=True):
-                    return None
-            elif status_code is not None and status_code >= 400:
+                console.print(f"  [yellow]\u26a0 Could not reach API: {error}[/yellow]")
+                console.print("  [dim]The API may be temporarily down.[/dim]")
+            elif status_code is not None and status_code in (401, 403):
                 console.print(
-                    f"  [yellow]\u26a0 Credential test returned HTTP {status_code}[/yellow]"
+                    f"  [yellow]\u26a0 Authentication failed (HTTP {status_code})[/yellow]"
                 )
-                if not Confirm.ask("Continue anyway?", default=True):
-                    return None
+                if Confirm.ask("Re-enter credentials?", default=True):
+                    # Re-prompt for the auth credential(s) that were just saved
+                    self._reenter_rest_credentials(auth_type, params, source_name)
             elif status_code is not None:
                 console.print(f"  [green]\u2713 API responded (HTTP {status_code})[/green]")
 
@@ -1493,6 +1495,40 @@ def {module_name}_resource(api_key: str):
 
         console.print(f"  [green]✓[/green] Saved {env_var_name} to .env")
         return value
+
+    def _reenter_rest_credentials(
+        self,
+        auth_type: str,
+        params: dict[str, Any],
+        source_name: str,
+    ) -> None:
+        """Re-prompt for REST API credentials after a failed auth test."""
+        if auth_type == "bearer":
+            env_var = params.get("auth_token_env", "")
+            if env_var:
+                self._prompt_and_save_credential(env_var, "Bearer token value")
+        elif auth_type == "api_key":
+            env_var = params.get("auth_token_env", "")
+            if env_var:
+                self._prompt_and_save_credential(env_var, "API key value")
+        elif auth_type == "basic":
+            u_env = params.get("basic_username_env", "")
+            p_env = params.get("basic_password_env", "")
+            if u_env:
+                self._prompt_and_save_credential(u_env, "Username", is_secret=False)
+            if p_env:
+                self._prompt_and_save_credential(p_env, "Password")
+        elif auth_type == "oauth2_client_credentials":
+            id_env = params.get("client_id_env", "")
+            secret_env = params.get("client_secret_env", "")
+            if id_env:
+                self._prompt_and_save_credential(id_env, "Client ID", is_secret=False)
+            if secret_env:
+                self._prompt_and_save_credential(secret_env, "Client secret")
+        elif auth_type == "custom_header":
+            env_var = params.get("auth_token_env", "")
+            if env_var:
+                self._prompt_and_save_credential(env_var, "Token value")
 
     def _test_rest_api_endpoint(
         self,

@@ -666,7 +666,9 @@ def sync(
         # Informational note if project is also deployed to cloud
         cloud_cfg = ConfigLoader(project_root).load_cloud_config()
         if cloud_cfg and cloud_cfg.droplet_ip:
-            console.print("  \u2139 Syncing locally. Use `dango remote push` to update cloud.")
+            console.print(
+                "  \u2139 Syncing locally. Use `dango remote sync <source>` to sync on cloud."
+            )
             console.print()
 
         # --- Validate option conflicts (before lock — fast failures) ---

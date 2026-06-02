@@ -271,7 +271,7 @@ class TestSyncGuardRails:
         result = self._invoke(["--dry-run"], cloud_config=cloud_cfg)
         plain = _ANSI_RE.sub("", result.output)
         assert "Syncing locally" in plain
-        assert "dango remote push" in plain
+        assert "dango remote sync" in plain
         assert result.exit_code == 0
 
     def test_cloud_info_not_shown_without_cloud(self) -> None:
