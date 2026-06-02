@@ -2512,9 +2512,15 @@ def run_sync(
             else:
                 if progress_callback is not None:
                     progress_callback("dbt_failed", "dbt run failed")
-                console.print("[red]✗ dbt run failed[/red]")
-                console.print(f"[dim]{dbt_output}[/dim]")
+                _logging.getLogger(__name__).error("dbt_transform_failed: %s", dbt_output[:500])
+                console.print("[red bold]✗ dbt transform failed[/red bold]")
+                console.print(f"[red]{dbt_output}[/red]")
                 console.print("[yellow]⚠️  Staging/marts tables were not created[/yellow]")
+                # Update sync history with transform error
+                from dango.utils.sync_history import update_last_sync_entry
+
+                for src in success_sources:
+                    update_last_sync_entry(project_root, src, {"transform_error": dbt_output[:500]})
             console.print()
         else:
             console.print("[dim]⏭  Skipping dbt run (will be coalesced)[/dim]\n")
@@ -2542,9 +2548,7 @@ def run_sync(
                 skip_sync_notification=skip_sync_notification,
             )
         except Exception:
-            import logging as _logging
-
-            _logging.getLogger(__name__).debug("post_sync_hooks_failed", exc_info=True)
-            console.print("[dim]Post-sync hooks skipped (non-critical)[/dim]")
+            _logging.getLogger(__name__).error("post_sync_hooks_failed", exc_info=True)
+            console.print("[red]⚠ Post-sync hooks failed[/red]")
 
     return summary

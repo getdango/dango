@@ -230,11 +230,17 @@ def do_token() -> None:
 
 
 @do_token.command("clear")
-def do_token_clear() -> None:
+@click.pass_context
+def do_token_clear(ctx: click.Context) -> None:
     """Remove the stored DigitalOcean API token."""
     from dango.config.cloud_credentials import clear_do_token
 
-    if clear_do_token():
+    project_root = ctx.obj.get("project_root")
+    cleared = clear_do_token(project_root=project_root)
+    if not cleared and project_root is not None:
+        # Fall back to global if no project-level token
+        cleared = clear_do_token()
+    if cleared:
         console.print("[green]DigitalOcean API token removed.[/green]")
     else:
         console.print("[dim]No stored token found.[/dim]")

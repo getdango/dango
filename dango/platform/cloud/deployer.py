@@ -510,6 +510,19 @@ def push_deploy(
                 logger.warning("chown_failed", path=REMOTE_PROJECT_DIR, stderr=chown_result.stderr)
             _notify(on_progress, "fix_ownership", "done")
 
+            # Step 5b: Install project dependencies (if requirements.txt synced)
+            if "requirements.txt" in sync_result.synced_files:
+                _notify(on_progress, "install_deps", "running")
+                pip_result = ssh.exec_command(
+                    f"sudo -u dango {VENV_BIN}/pip install -r {REMOTE_PROJECT_DIR}/requirements.txt",
+                    timeout=300,
+                )
+                if pip_result.exit_code != 0:
+                    warnings.append(
+                        f"pip install -r requirements.txt failed: {pip_result.stderr.strip()}"
+                    )
+                _notify(on_progress, "install_deps", "done")
+
             # Step 6: Validate sources
             _notify(on_progress, "validate_sources", "running")
             source_errors = _validate_remote_sources(ssh)
