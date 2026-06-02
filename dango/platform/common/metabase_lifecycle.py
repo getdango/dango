@@ -70,12 +70,14 @@ def stop_metabase_for_writes(project_root: Path) -> bool:
 def start_metabase_after_writes(project_root: Path) -> bool:
     """Restart Metabase container after write operations complete.
 
-    Returns ``True`` if Metabase was started (cloud mode), ``False`` if not
-    cloud mode or if the start failed (logged, not raised).
-    """
-    if os.environ.get("DANGO_CLOUD_MODE") != "true":
-        return False
+    Only call this when ``stop_metabase_for_writes()`` returned ``True``.
+    The cloud-mode guard is intentionally omitted here — if the stop succeeded,
+    the start must be attempted regardless of env-var state (which could
+    theoretically change between stop and start in edge cases).
 
+    Returns ``True`` if Metabase was started, ``False`` if the start failed
+    (logged, not raised).
+    """
     try:
         from dango.platform.docker import get_compose_project_name
 

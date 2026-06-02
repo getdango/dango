@@ -349,7 +349,7 @@ def dispatch_post_sync_hooks(
         try:
             hook_fn()
         except Exception:
-            logger.warning(f"post_sync_hook_{hook_name}_failed", exc_info=True)
+            logger.warning("post_sync_hook_failed", hook=hook_name, exc_info=True)
 
     if not skip_sync_notification and sync_result is not None:
         _send_sync_notification(project_root, sources, sync_result, trigger=trigger)

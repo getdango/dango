@@ -220,9 +220,10 @@ def run_manual_sync(
     # --- Stop Metabase on cloud to prevent DuckDB lock conflicts ---
     from dango.platform.common.metabase_lifecycle import stop_metabase_for_writes
 
-    _metabase_was_stopped = stop_metabase_for_writes(project_root)
-    if _metabase_was_stopped:
+    _metabase_should_stop = os.environ.get("DANGO_CLOUD_MODE") == "true"
+    if _metabase_should_stop:
         _progress("metabase_stop", "Pausing Metabase for sync")
+    _metabase_was_stopped = stop_metabase_for_writes(project_root)
 
     try:
         # Reload config (may have been loaded above for OAuth, but safe to reload)
@@ -363,8 +364,11 @@ def run_manual_sync(
             from dango.platform.common.metabase_lifecycle import start_metabase_after_writes
 
             start_metabase_after_writes(project_root)
-            # Trigger Metabase schema scan so new tables appear immediately
-            _trigger_metabase_schema_scan(project_root)
+            try:
+                # Trigger Metabase schema scan so new tables appear immediately
+                _trigger_metabase_schema_scan(project_root)
+            except Exception:
+                logger.debug("metabase_schema_scan_after_sync_failed", exc_info=True)
 
 
 def _trigger_metabase_schema_scan(project_root: Path) -> None:

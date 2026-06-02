@@ -5,6 +5,7 @@ Source listing and detail endpoints.
 
 import asyncio
 import logging
+import re
 
 from fastapi import APIRouter, HTTPException
 
@@ -54,8 +55,6 @@ _CRON_DISPLAY: dict[str, str] = {
 
 def _cron_to_display(cron: str) -> str:
     """Convert a cron expression to a human-readable string."""
-    import re
-
     result = _CRON_DISPLAY.get(cron)
     if result:
         return result
