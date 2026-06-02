@@ -239,19 +239,44 @@ class ProjectInitializer:
         """Create .gitignore file"""
         gitignore_content = """# Dango
 .dango/state/
+.dango/logs/
+.dango/auth.db
 .dango/metabase.yml
-data/warehouse/
-data/uploads/
+.dango/dev/
+.dango/snapshots/
+.dango/*.pid
+.dango/*.log
+.dango/auth.yml
+.dango/dbt_model_status.json
+.dango/history/
+data/
+metabase-data/
 metabase-plugins/
-dashboards/  # Old export location (deprecated, use 'dango metabase save' instead)
+metabase.db/
+dashboards/
 *.db
 *.db-shm
 *.db-wal
+*.duckdb
+*.duckdb.wal
+
+# dlt
+.dlt/secrets.toml
+.dlt/*.db
+dbt/.user.yml
 
 # dbt
 dbt/target/
 dbt/dbt_packages/
 dbt/logs/
+dbt/profiles.yml
+
+# Auto-generated
+.dango/monitors.yml
+requirements.txt
+COMPATIBILITY.md
+SCALABILITY.md
+.github/
 
 # Python
 __pycache__/
@@ -277,7 +302,6 @@ Thumbs.db
 .env
 .env.local
 secrets/
-.dlt/secrets.toml
 *.key
 """
 

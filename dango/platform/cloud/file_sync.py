@@ -54,6 +54,9 @@ REMOTE_PROJECT_DIR = "/srv/dango/project"
 
 #: Config files to upload via SFTP.  Tuples of (local_relative, remote_relative).
 #: Files that may not exist locally are skipped gracefully.
+#: NOTE: See also backup.py BACKUP_FILES/BACKUP_DIRS for what gets backed up.
+#: Intentionally excluded from sync: .dlt/secrets.toml (sensitive), dbt/profiles.yml
+#: (generated server-side), .env (per-server), .dango/cloud.yml (cloud metadata).
 SYNC_CONFIG_FILES: list[tuple[str, str]] = [
     (".dango/sources.yml", f"{REMOTE_PROJECT_DIR}/.dango/sources.yml"),
     (".dango/schedules.yml", f"{REMOTE_PROJECT_DIR}/.dango/schedules.yml"),

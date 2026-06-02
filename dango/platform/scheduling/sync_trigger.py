@@ -218,42 +218,11 @@ def run_manual_sync(
         }
 
     # --- Stop Metabase on cloud to prevent DuckDB lock conflicts ---
-    # :ro Docker mount does NOT prevent fcntl lock acquisition. Metabase's JDBC
-    # driver acquires locks that block DuckDB writes needed by dlt.
-    # Stopping Metabase before sync is the actual prevention mechanism.
-    _cloud_mode = os.environ.get("DANGO_CLOUD_MODE") == "true"
-    if _cloud_mode:
+    from dango.platform.common.metabase_lifecycle import stop_metabase_for_writes
+
+    _metabase_was_stopped = stop_metabase_for_writes(project_root)
+    if _metabase_was_stopped:
         _progress("metabase_stop", "Pausing Metabase for sync")
-        try:
-            import subprocess as _sp
-
-            from dango.platform.docker import get_compose_project_name
-
-            _proj_name = get_compose_project_name(project_root)
-            _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
-            result = _sp.run(
-                [
-                    "docker",
-                    "compose",
-                    "-f",
-                    str(project_root / "docker-compose.yml"),
-                    "stop",
-                    "metabase",
-                ],
-                capture_output=True,
-                timeout=60,
-                env=_env,
-            )
-            if result.returncode != 0:
-                logger.warning(
-                    "metabase_stop_nonzero",
-                    returncode=result.returncode,
-                    stderr=result.stderr.decode(errors="replace"),
-                )
-            # Wait for Metabase to fully release DuckDB file locks
-            time.sleep(3)
-        except Exception:
-            logger.warning("metabase_stop_before_sync_failed", exc_info=True)
 
     try:
         # Reload config (may have been loaded above for OAuth, but safe to reload)
@@ -267,6 +236,21 @@ def run_manual_sync(
         if not resolved:
             msg = f"No valid sources found for: {', '.join(sources)}"
             logger.warning("manual_sync_no_sources", source_names=sources)
+            # Record failure in sync history so UI shows "failed" not "never synced"
+            from dango.utils.sync_history import save_sync_history_entry
+
+            for name in sources:
+                save_sync_history_entry(
+                    project_root,
+                    name,
+                    {
+                        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                        "status": "failed",
+                        "duration_seconds": 0,
+                        "rows_processed": 0,
+                        "error_message": msg,
+                    },
+                )
             record_failure(db_path, record_id, msg)
             duration = round(time.time() - start_time, 1)
             _progress("failed", msg, error=msg)
@@ -375,31 +359,12 @@ def run_manual_sync(
             except Exception:
                 pass
         # --- Restart Metabase on cloud ---
-        if _cloud_mode:
-            try:
-                import subprocess as _sp
+        if _metabase_was_stopped:
+            from dango.platform.common.metabase_lifecycle import start_metabase_after_writes
 
-                from dango.platform.docker import get_compose_project_name
-
-                _proj_name = get_compose_project_name(project_root)
-                _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
-                _sp.run(
-                    [
-                        "docker",
-                        "compose",
-                        "-f",
-                        str(project_root / "docker-compose.yml"),
-                        "start",
-                        "metabase",
-                    ],
-                    env=_env,
-                    capture_output=True,
-                    timeout=120,
-                )
-                # Trigger Metabase schema scan so new tables appear immediately
-                _trigger_metabase_schema_scan(project_root)
-            except Exception:
-                logger.debug("metabase_start_after_sync_failed", exc_info=True)
+            start_metabase_after_writes(project_root)
+            # Trigger Metabase schema scan so new tables appear immediately
+            _trigger_metabase_schema_scan(project_root)
 
 
 def _trigger_metabase_schema_scan(project_root: Path) -> None:

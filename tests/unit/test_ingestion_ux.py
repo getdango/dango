@@ -294,10 +294,15 @@ class TestCronToDisplay:
 
         assert _cron_to_display("0 0 * * *") == "Daily at midnight"
 
+    def test_regex_fallback_every_n_minutes(self) -> None:
+        from dango.web.routes.sources import _cron_to_display
+
+        assert _cron_to_display("*/5 * * * *") == "Every 5 minutes"
+
     def test_unknown_cron_returns_raw(self) -> None:
         from dango.web.routes.sources import _cron_to_display
 
-        assert _cron_to_display("*/5 * * * *") == "*/5 * * * *"
+        assert _cron_to_display("0 9 1 * *") == "0 9 1 * *"
 
     def test_weekly_monday(self) -> None:
         from dango.web.routes.sources import _cron_to_display

@@ -267,6 +267,7 @@ function schedulesPage() {
         // WebSocket
         ws: null,
         reconnectInterval: null,
+        pollInterval: null,
 
         async init() {
             await Promise.all([
@@ -371,17 +372,37 @@ function schedulesPage() {
 
         // --- JS helpers ---
         humanCron(cron) {
+            // Keep in sync with _CRON_DISPLAY in web/routes/sources.py
+            // and CRON_PRESETS in config/schedules.py
             const map = {
                 '*/15 * * * *': 'Every 15 min',
                 '0 * * * *': 'Every hour',
+                '0 */1 * * *': 'Every hour',
+                '30 * * * *': 'Every hour (:30)',
+                '0 */2 * * *': 'Every 2h',
+                '0 */3 * * *': 'Every 3h',
+                '0 */4 * * *': 'Every 4h',
                 '0 */6 * * *': 'Every 6h',
+                '0 */8 * * *': 'Every 8h',
+                '0 */12 * * *': 'Every 12h',
                 '0 6 * * *': 'Daily 6 AM',
+                '0 9 * * *': 'Daily 9 AM',
                 '0 12 * * *': 'Daily noon',
+                '0 18 * * *': 'Daily 6 PM',
                 '0 0 * * *': 'Daily midnight',
+                '0 6 * * 1-5': 'Weekdays 6 AM',
+                '0 0 * * 1-5': 'Weekdays midnight',
                 '0 6 * * 1': 'Weekly Mon 6 AM',
                 '0 0 * * 1': 'Weekly Mon midnight',
+                '0 0 * * 0': 'Weekly Sun midnight',
             };
-            return map[cron] || cron;
+            if (map[cron]) return map[cron];
+            // Regex fallback for common patterns
+            let m;
+            if ((m = cron.match(/^(\d+) (\d+) \* \* \*$/))) return `Daily ${m[2]}:${m[1].padStart(2,'0')}`;
+            if ((m = cron.match(/^0 \*\/(\d+) \* \* \*$/))) return `Every ${m[1]}h`;
+            if ((m = cron.match(/^\*\/(\d+) \* \* \* \*$/))) return `Every ${m[1]} min`;
+            return cron;
         },
         statusBadge(status) {
             const m = {
@@ -430,6 +451,11 @@ function schedulesPage() {
                     clearInterval(this.reconnectInterval);
                     this.reconnectInterval = null;
                 }
+                // WS connected — stop polling fallback
+                if (this.pollInterval) {
+                    clearInterval(this.pollInterval);
+                    this.pollInterval = null;
+                }
             };
 
             this.ws.onmessage = (event) => {
@@ -442,6 +468,10 @@ function schedulesPage() {
             this.ws.onclose = () => {
                 if (!this.reconnectInterval) {
                     this.reconnectInterval = setInterval(() => this.connectWebSocket(), 5000);
+                }
+                // Start polling fallback when WS disconnects (cloud may not support WS)
+                if (!this.pollInterval) {
+                    this.pollInterval = setInterval(() => this.loadSchedules(), 10000);
                 }
             };
 

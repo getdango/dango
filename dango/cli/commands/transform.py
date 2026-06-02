@@ -3,7 +3,6 @@
 dbt transformation commands (run, docs, generate).
 """
 
-import os
 from typing import Any
 
 import click
@@ -41,7 +40,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
     from ..utils import require_project_context
 
     lock = None
-    _cloud_mode = False
+    _metabase_was_stopped = False
     try:
         project_root = require_project_context(ctx)
         dbt_dir = project_root / "dbt"
@@ -71,33 +70,9 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
         console.print(f"[dim]Running: {' '.join(cmd)}[/dim]\n")
 
         # Stop Metabase on cloud to prevent DuckDB lock conflicts
-        _cloud_mode = os.environ.get("DANGO_CLOUD_MODE") == "true"
-        if _cloud_mode:
-            try:
-                import subprocess as _sp
+        from dango.platform.common.metabase_lifecycle import stop_metabase_for_writes
 
-                from dango.platform.docker import get_compose_project_name
-
-                _proj_name = get_compose_project_name(project_root)
-                _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
-                _sp.run(
-                    [
-                        "docker",
-                        "compose",
-                        "-f",
-                        str(project_root / "docker-compose.yml"),
-                        "stop",
-                        "metabase",
-                    ],
-                    capture_output=True,
-                    timeout=60,
-                    env=_env,
-                )
-                import time
-
-                time.sleep(3)
-            except Exception:
-                console.print("[dim]ℹ Could not pause Metabase (continuing anyway)[/dim]")
+        _metabase_was_stopped = stop_metabase_for_writes(project_root)
 
         # Run dbt command from dbt directory for correct path resolution
         result = subprocess.run(cmd, cwd=str(dbt_dir))
@@ -128,7 +103,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
         # Refresh Metabase connection to see new/updated tables.
         # Skip on cloud — Metabase is stopped; the finally block restarts it
         # and Metabase auto-syncs schema on startup.
-        if not _cloud_mode:
+        if not _metabase_was_stopped:
             console.print("\n[dim]Refreshing Metabase connection...[/dim]")
             from dango.visualization.metabase import (
                 refresh_metabase_connection,
@@ -162,32 +137,10 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
             except Exception:
                 pass
         # Restart Metabase on cloud
-        if _cloud_mode:
-            try:
-                import subprocess as _sp
+        if _metabase_was_stopped:
+            from dango.platform.common.metabase_lifecycle import start_metabase_after_writes
 
-                from dango.platform.docker import get_compose_project_name
-
-                _proj_name = get_compose_project_name(project_root)
-                _env = {**os.environ, "COMPOSE_PROJECT_NAME": _proj_name}
-                _sp.run(
-                    [
-                        "docker",
-                        "compose",
-                        "-f",
-                        str(project_root / "docker-compose.yml"),
-                        "start",
-                        "metabase",
-                    ],
-                    capture_output=True,
-                    timeout=120,
-                    env=_env,
-                )
-            except Exception:
-                console.print(
-                    "[yellow]Warning: Could not restart Metabase — "
-                    "run 'docker compose start metabase' manually[/yellow]"
-                )
+            start_metabase_after_writes(project_root)
 
 
 @click.command("docs")

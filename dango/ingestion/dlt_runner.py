@@ -2550,5 +2550,14 @@ def run_sync(
         except Exception:
             _logging.getLogger(__name__).error("post_sync_hooks_failed", exc_info=True)
             console.print("[red]⚠ Post-sync hooks failed[/red]")
+            # Record post-sync failure in history so UI shows the error
+            from dango.utils.sync_history import update_last_sync_entry
+
+            for _src_name in success_sources:
+                update_last_sync_entry(
+                    project_root,
+                    _src_name,
+                    {"post_sync_error": "Post-sync hooks failed (see logs)"},
+                )
 
     return summary
