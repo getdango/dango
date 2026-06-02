@@ -189,6 +189,11 @@ async def recent_executions(
 @router.post("/api/internal/schedules/reload")
 async def internal_reload_schedules(request: Request) -> JSONResponse:
     """CLI-triggered schedule reload -- localhost only, no auth required."""
+    # Reject requests that came through a reverse proxy (Caddy/nginx always
+    # adds X-Forwarded-For). Without this, cloud requests through Caddy would
+    # appear as localhost since Caddy proxies to 127.0.0.1:8800.
+    if request.headers.get("x-forwarded-for"):
+        return JSONResponse(status_code=403, content={"error": "Localhost only"})
     client_host = request.client.host if request.client else None
     if client_host not in ("127.0.0.1", "::1"):
         return JSONResponse(status_code=403, content={"error": "Localhost only"})
