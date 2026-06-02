@@ -168,7 +168,8 @@ class SourceWizard:
                     # NOW we have source_name, so we can save instance-specific credentials
                     oauth_result = self._handle_oauth_setup(source_type, source_name, metadata)
                     if oauth_result == "back":
-                        # User wants to go back - return to name prompt
+                        # User chose "Back to source selection"
+                        state = "source"
                         continue
                     elif oauth_result == "cancel":
                         return False
@@ -744,11 +745,17 @@ class SourceWizard:
             if action == "Cancel source setup":
                 return "cancel"
             elif action == "Re-enter credentials and retry":
-                # Clear cached .env credentials so Google provider re-prompts
+                # Clear cached credentials from both os.environ AND .env file
                 import os
+
+                from dotenv import unset_key
 
                 os.environ.pop("GOOGLE_CLIENT_ID", None)
                 os.environ.pop("GOOGLE_CLIENT_SECRET", None)
+                env_file = self.project_root / ".env"
+                if env_file.exists():
+                    unset_key(str(env_file), "GOOGLE_CLIENT_ID")
+                    unset_key(str(env_file), "GOOGLE_CLIENT_SECRET")
                 console.print("\n[cyan]Re-entering credentials...[/cyan]\n")
                 continue
             else:  # Retry
@@ -1251,6 +1258,31 @@ def {module_name}_resource(api_key: str):
             if headers_dict:
                 params["headers"] = headers_dict
 
+        # 3c. Credential validation — test base URL with saved credentials
+        # Only flag auth failures (401/403) or connection errors. Other status
+        # codes (404, 200, etc.) just mean the API is reachable.
+        if auth_type != "none":
+            console.print("\n[dim]Testing API credentials...[/dim]")
+            status_code, _body, error = self._test_rest_api_endpoint(
+                base_url=base_url,
+                path="/",
+                auth_type=auth_type,
+                params_dict=params,
+                source_headers=params.get("headers"),
+            )
+            if error:
+                console.print(f"  [yellow]\u26a0 Could not reach API: {error}[/yellow]")
+                console.print("  [dim]The API may be temporarily down.[/dim]")
+            elif status_code is not None and status_code in (401, 403):
+                console.print(
+                    f"  [yellow]\u26a0 Authentication failed (HTTP {status_code})[/yellow]"
+                )
+                if Confirm.ask("Re-enter credentials?", default=True):
+                    # Re-prompt for the auth credential(s) that were just saved
+                    self._reenter_rest_credentials(auth_type, params, source_name)
+            elif status_code is not None:
+                console.print(f"  [green]\u2713 API responded (HTTP {status_code})[/green]")
+
         # 4. Endpoint collection
         console.print("\n[bold]API Endpoints[/bold]")
         console.print("[dim]Add one or more endpoints to sync[/dim]")
@@ -1463,6 +1495,40 @@ def {module_name}_resource(api_key: str):
 
         console.print(f"  [green]✓[/green] Saved {env_var_name} to .env")
         return value
+
+    def _reenter_rest_credentials(
+        self,
+        auth_type: str,
+        params: dict[str, Any],
+        source_name: str,
+    ) -> None:
+        """Re-prompt for REST API credentials after a failed auth test."""
+        if auth_type == "bearer":
+            env_var = params.get("auth_token_env", "")
+            if env_var:
+                self._prompt_and_save_credential(env_var, "Bearer token value")
+        elif auth_type == "api_key":
+            env_var = params.get("auth_token_env", "")
+            if env_var:
+                self._prompt_and_save_credential(env_var, "API key value")
+        elif auth_type == "basic":
+            u_env = params.get("basic_username_env", "")
+            p_env = params.get("basic_password_env", "")
+            if u_env:
+                self._prompt_and_save_credential(u_env, "Username", is_secret=False)
+            if p_env:
+                self._prompt_and_save_credential(p_env, "Password")
+        elif auth_type == "oauth2_client_credentials":
+            id_env = params.get("client_id_env", "")
+            secret_env = params.get("client_secret_env", "")
+            if id_env:
+                self._prompt_and_save_credential(id_env, "Client ID", is_secret=False)
+            if secret_env:
+                self._prompt_and_save_credential(secret_env, "Client secret")
+        elif auth_type == "custom_header":
+            env_var = params.get("auth_token_env", "")
+            if env_var:
+                self._prompt_and_save_credential(env_var, "Token value")
 
     def _test_rest_api_endpoint(
         self,

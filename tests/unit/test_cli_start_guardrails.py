@@ -88,24 +88,8 @@ class TestStartGuardRails:
         plain = _ANSI_RE.sub("", result.output)
         assert "cloned project" not in plain.lower()
 
-    def test_cloud_warning_shown_and_cancelled(self, tmp_path: Path) -> None:
-        """Cloud warning is shown and start aborts when user says 'n'."""
-        cloud_cfg = _make_cloud_config(droplet_ip="1.2.3.4")
-        mock_loader = _make_config_loader(cloud_config=cloud_cfg)
-        runner = CliRunner()
-        with (
-            patch("dango.cli.utils.require_project_context", return_value=tmp_path),
-            patch("dango.config.ConfigLoader", mock_loader),
-        ):
-            result = runner.invoke(start, [], obj={"project_root": str(tmp_path)}, input="n\n")
-
-        plain = _ANSI_RE.sub("", result.output)
-        assert "deployed to 1.2.3.4" in plain
-        assert "SEPARATE instance" in plain
-        assert result.exit_code != 0
-
-    def test_cloud_warning_skipped_with_yes(self, tmp_path: Path) -> None:
-        """Cloud warning is skipped with --yes flag."""
+    def test_cloud_info_shown_as_note(self, tmp_path: Path) -> None:
+        """Cloud deployment shown as informational note (no blocking prompt)."""
         cloud_cfg = _make_cloud_config(droplet_ip="1.2.3.4")
         mock_loader = _make_config_loader(cloud_config=cloud_cfg)
         runner = CliRunner()
@@ -114,7 +98,8 @@ class TestStartGuardRails:
             patch("dango.config.ConfigLoader", mock_loader),
             patch("dango.platform.common.startup.check_duckdb_version_alignment"),
         ):
-            result = runner.invoke(start, ["--yes"], obj={"project_root": str(tmp_path)})
+            result = runner.invoke(start, [], obj={"project_root": str(tmp_path)})
 
         plain = _ANSI_RE.sub("", result.output)
-        assert "deployed to" not in plain
+        assert "deployed to 1.2.3.4" in plain
+        assert "independent" in plain.lower()

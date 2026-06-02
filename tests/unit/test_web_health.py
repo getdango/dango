@@ -163,13 +163,10 @@ class TestDiskWarningDeduplication:
     ) -> None:
         """Cloud deployment → 80% message suggests resizing."""
         mock_data.return_value = _base_health_data(disk_status="warning", used_pct=85)
-        # Create cloud.yml to simulate cloud deployment
-        (tmp_path / ".dango").mkdir(parents=True, exist_ok=True)
-        (tmp_path / ".dango" / "cloud.yml").write_text("droplet_ip: 1.2.3.4\n")
         app = _make_app(tmp_path)
         client = TestClient(app)
 
-        with patch("dango.web.routes.health.get_project_root", return_value=tmp_path):
+        with patch.dict("os.environ", {"DANGO_CLOUD_MODE": "true"}):
             resp = client.get("/api/health/platform")
         body = resp.json()
 

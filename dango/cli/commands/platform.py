@@ -6,7 +6,6 @@ Platform lifecycle commands (start, stop, status) and port helpers.
 import click
 
 from dango.cli import console
-from dango.cli.utils import safe_confirm
 from dango.logging import get_logger
 
 logger = get_logger(__name__)
@@ -167,6 +166,24 @@ def start(ctx: click.Context, yes: bool) -> None:
     try:
         project_root = require_project_context(ctx)
 
+        # Detect stale PID file from a previous crash
+        from ..helpers.process_manager import read_pid_file, remove_pid_file
+
+        stale_pid = read_pid_file(project_root)
+        if stale_pid is not None:
+            import os
+
+            try:
+                os.kill(stale_pid, 0)
+                # Process is alive — existing server running, port check will catch it
+            except ProcessLookupError:
+                # Process is dead (ESRCH) — stale PID file
+                # Note: PermissionError (EPERM) means the process exists but is
+                # owned by another user — let the port-conflict check handle it.
+                console.print("  Server was stopped. Restarting...")
+                remove_pid_file(project_root)
+                console.print()
+
         # Guard rail: inform if this looks like a cloned project
         sources_file = project_root / ".dango" / "sources.yml"
         dango_db = project_root / ".dango" / "dango.db"
@@ -184,19 +201,12 @@ def start(ctx: click.Context, yes: bool) -> None:
         project_name = config.project.name
         platform_config = config.platform
 
-        # Guard rail: warn if project is deployed to cloud
-        if not yes:
-            cloud_cfg = config_loader.load_cloud_config()
-            if cloud_cfg and cloud_cfg.droplet_ip:
-                target = cloud_cfg.domain or cloud_cfg.droplet_ip
-                console.print(f"[yellow]  This project is deployed to {target}.[/yellow]")
-                console.print(
-                    "[yellow]   Starting locally will run a SEPARATE instance. "
-                    "Your cloud server is unaffected.[/yellow]"
-                )
-                if not safe_confirm("Continue?", default=True):
-                    raise click.Abort()
-                console.print()
+        # Informational note if project is also deployed to cloud
+        cloud_cfg = config_loader.load_cloud_config()
+        if cloud_cfg and cloud_cfg.droplet_ip:
+            target = cloud_cfg.domain or cloud_cfg.droplet_ip
+            console.print(f"  \u2139 Also deployed to {target}. Local and cloud are independent.")
+            console.print()
 
         # Version alignment check — abort early if Python DuckDB ≠ driver major.minor
         # Must run BEFORE any DuckDB write operations (migrations, schema setup)

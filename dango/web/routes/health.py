@@ -132,7 +132,9 @@ async def get_platform_health() -> dict[str, Any]:
     warnings: list[str] = []
 
     project_root = Path(get_project_root())
-    is_cloud = (project_root / ".dango" / "cloud.yml").exists()
+    from dango.config.helpers import is_running_on_cloud
+
+    is_cloud = is_running_on_cloud()
 
     if disk["status"] == "critical":
         critical_issues.append("Critical disk space")
@@ -264,23 +266,11 @@ def _get_scheduler_status() -> dict[str, Any]:
 async def _get_cloud_health_data() -> dict[str, Any] | None:
     """Collect cloud-specific health data if running on a cloud server.
 
-    Returns None if not a cloud deployment.
+    Returns None if not running on a cloud server (i.e. DANGO_CLOUD_MODE != true).
     """
-    project_root = get_project_root()
-    cloud_yml = Path(project_root) / ".dango" / "cloud.yml"
+    from dango.config.helpers import is_running_on_cloud
 
-    if not cloud_yml.exists():
-        return None
-
-    # Check if it has a droplet_ip (actual deployment vs empty config)
-    try:
-        from dango.config.loader import ConfigLoader
-
-        loader = ConfigLoader(project_root)
-        cloud_cfg = loader.load_cloud_config()
-        if cloud_cfg is None or cloud_cfg.droplet_ip is None:
-            return None
-    except Exception:  # noqa: BLE001
+    if not is_running_on_cloud():
         return None
 
     # Collect local resource usage in a thread to avoid blocking the event loop

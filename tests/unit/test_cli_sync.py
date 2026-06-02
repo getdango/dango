@@ -265,35 +265,20 @@ class TestSyncGuardRails:
             for p in patches:
                 p.stop()
 
-    def test_cloud_warning_shown_and_cancelled(self) -> None:
-        """Cloud warning is shown and sync aborts when user says 'n'."""
+    def test_cloud_info_shown_as_note(self) -> None:
+        """Cloud deployment shown as informational note (no blocking prompt)."""
         cloud_cfg = _make_cloud_config(droplet_ip="1.2.3.4")
-        result = self._invoke_with_input(["--dry-run"], input_text="n\n", cloud_config=cloud_cfg)
+        result = self._invoke(["--dry-run"], cloud_config=cloud_cfg)
         plain = _ANSI_RE.sub("", result.output)
-        assert "deployed to 1.2.3.4" in plain
+        assert "Syncing locally" in plain
         assert "dango remote sync" in plain
-        assert result.exit_code != 0
-
-    def test_cloud_warning_shows_domain(self) -> None:
-        """Cloud warning shows domain when configured."""
-        cloud_cfg = _make_cloud_config(droplet_ip="1.2.3.4", domain="data.example.com")
-        result = self._invoke_with_input(["--dry-run"], input_text="n\n", cloud_config=cloud_cfg)
-        plain = _ANSI_RE.sub("", result.output)
-        assert "deployed to data.example.com" in plain
-
-    def test_cloud_warning_skipped_with_yes(self) -> None:
-        """Cloud warning is skipped with --yes flag."""
-        cloud_cfg = _make_cloud_config(droplet_ip="1.2.3.4")
-        result = self._invoke(["--dry-run", "--yes"], cloud_config=cloud_cfg)
-        plain = _ANSI_RE.sub("", result.output)
-        assert "deployed to" not in plain
         assert result.exit_code == 0
 
-    def test_cloud_warning_not_shown_without_cloud(self) -> None:
-        """No cloud warning when project is not deployed."""
+    def test_cloud_info_not_shown_without_cloud(self) -> None:
+        """No cloud note when project is not deployed."""
         result = self._invoke(["--dry-run"], cloud_config=None)
         plain = _ANSI_RE.sub("", result.output)
-        assert "deployed to" not in plain
+        assert "Syncing locally" not in plain
         assert result.exit_code == 0
 
     def test_first_sync_shown_when_no_warehouse(self) -> None:

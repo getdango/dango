@@ -301,15 +301,15 @@ class TestStopIdleChecker:
 class TestGetIdleTimeout:
     """Tests for _get_idle_timeout() deployment mode logic."""
 
-    @patch("dango.config.helpers.is_cloud_mode", return_value=False)
+    @patch("dango.config.helpers.is_running_on_cloud", return_value=False)
     def test_local_mode_returns_7200(self, mock_cloud: MagicMock) -> None:
         from dango.notebooks.manager import _get_idle_timeout
 
         result = _get_idle_timeout(Path("/fake"))
         assert result == 7200
-        mock_cloud.assert_called_once_with(Path("/fake"))
+        mock_cloud.assert_called_once()
 
-    @patch("dango.config.helpers.is_cloud_mode", return_value=True)
+    @patch("dango.config.helpers.is_running_on_cloud", return_value=True)
     def test_cloud_mode_returns_3600(self, mock_cloud: MagicMock) -> None:
         from dango.notebooks.manager import _get_idle_timeout
 
@@ -324,7 +324,7 @@ class TestStartMarimoCloudBaseUrl:
     @patch("dango.notebooks.manager._get_idle_timeout", return_value=3600)
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
     @patch("dango.notebooks.manager.subprocess.Popen")
-    @patch("dango.config.helpers.is_cloud_mode", return_value=True)
+    @patch("dango.config.helpers.is_running_on_cloud", return_value=True)
     def test_cloud_mode_adds_base_url(
         self,
         mock_cloud: MagicMock,
@@ -352,7 +352,7 @@ class TestStartMarimoCloudBaseUrl:
     @patch("dango.notebooks.manager._get_idle_timeout", return_value=7200)
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
     @patch("dango.notebooks.manager.subprocess.Popen")
-    @patch("dango.config.helpers.is_cloud_mode", return_value=False)
+    @patch("dango.config.helpers.is_running_on_cloud", return_value=False)
     def test_local_mode_no_base_url(
         self,
         mock_cloud: MagicMock,
