@@ -271,19 +271,31 @@ def _show_next_runs(cron_expr: str) -> None:
             console.print(f"  {i}. {r}")
 
 
-def _try_reload_running_scheduler() -> None:
+def _get_configured_port(project_root: Path) -> int:
+    """Read the web UI port from project config, defaulting to 8800."""
+    try:
+        from dango.config import ConfigLoader
+
+        config = ConfigLoader(project_root).load_config()
+        return config.platform.port
+    except Exception:
+        return 8800
+
+
+def _try_reload_running_scheduler(project_root: Path) -> None:
     """Notify running server to reload schedules. Best-effort, never raises."""
     try:
         from dango.cli.helpers.port_manager import check_port_in_use
 
-        if not check_port_in_use(8800):
+        port = _get_configured_port(project_root)
+        if not check_port_in_use(port):
             console.print("[dim]Schedule will load on next `dango start`.[/dim]")
             return
 
         import requests
 
         resp = requests.post(
-            "http://localhost:8800/api/internal/schedules/reload",
+            f"http://localhost:{port}/api/internal/schedules/reload",
             headers={"X-Requested-With": "XMLHttpRequest"},
             timeout=5,
         )
@@ -319,7 +331,7 @@ def _toggle_schedule(ctx: click.Context, name: str, *, enable: bool) -> None:
     sched["enabled"] = enable
     _save_schedules_yaml(project_root, data)
     console.print(f"[green]Schedule '{name}' {action}.[/green]")
-    _try_reload_running_scheduler()
+    _try_reload_running_scheduler(project_root)
 
 
 # ---------------------------------------------------------------------------
@@ -725,7 +737,7 @@ def schedule_add(ctx: click.Context) -> None:
     schedules.append(entry)
     _save_schedules_yaml(project_root, data)
     console.print(f"[green]Schedule '{name}' added.[/green]")
-    _try_reload_running_scheduler()
+    _try_reload_running_scheduler(project_root)
 
 
 # ---------------------------------------------------------------------------
@@ -763,7 +775,7 @@ def schedule_remove(ctx: click.Context, name: str, yes: bool) -> None:
     data["schedules"] = schedules
     _save_schedules_yaml(project_root, data)
     console.print(f"[green]Schedule '{name}' removed.[/green]")
-    _try_reload_running_scheduler()
+    _try_reload_running_scheduler(project_root)
 
 
 # ---------------------------------------------------------------------------

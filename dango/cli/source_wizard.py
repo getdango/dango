@@ -720,15 +720,19 @@ class SourceWizard:
             # OAuth failed or unverified — offer retry / cancel
             console.print("\n[red]❌ OAuth setup did not complete successfully[/red]")
 
+            # Only offer "re-enter credentials" for Google sources (which cache
+            # client_id/secret in env vars). Facebook prompts directly each time.
+            is_google = source_type.startswith("google_")
+            retry_choices = ["Retry OAuth flow"]
+            if is_google:
+                retry_choices.append("Re-enter credentials and retry")
+            retry_choices.append("Cancel source setup")
+
             questions = [
                 inquirer.List(
                     "retry_action",
                     message="How would you like to proceed?",
-                    choices=[
-                        "Retry OAuth flow",
-                        "Re-enter credentials and retry",
-                        "Cancel source setup",
-                    ],
+                    choices=retry_choices,
                     carousel=True,
                 )
             ]
@@ -740,7 +744,7 @@ class SourceWizard:
             if action == "Cancel source setup":
                 return "cancel"
             elif action == "Re-enter credentials and retry":
-                # Clear cached .env credentials so provider re-prompts
+                # Clear cached .env credentials so Google provider re-prompts
                 import os
 
                 os.environ.pop("GOOGLE_CLIENT_ID", None)
