@@ -864,7 +864,11 @@ class SourceWizard:
 
     def _validate_database_connection(self, connection_url: str) -> bool:
         """Test database connection and show available tables."""
-        from sqlalchemy import create_engine, inspect
+        try:
+            from sqlalchemy import create_engine, inspect
+        except ImportError:
+            console.print("[dim]  ⚠ sqlalchemy not installed — skipping connection test[/dim]")
+            return True
 
         engine = create_engine(connection_url)
         try:
