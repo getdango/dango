@@ -261,7 +261,7 @@
                 <div class="flex gap-2">
                     <template x-if="selectedModel.type === 'source'">
                         <button @click="refreshProfile()" :disabled="profilingLoading"
-                                class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors disabled:opacity-50">
+                                class="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium transition-colors disabled:opacity-50">
                             <span x-show="!profilingLoading">Refresh Profile</span>
                             <span x-show="profilingLoading" x-cloak>Profiling...</span>
                         </button>
@@ -563,20 +563,22 @@ function catalogPage() {
             { key: 'marts', label: 'Marts' },
         ],
 
+        metabaseDatabaseId: null,
+
         metabaseQueryUrl() {
-            if (!this.selectedModel?.schema || !this.selectedModel?.name) return '/metabase/';
+            if (!this.selectedModel?.schema || !this.selectedModel?.name || !this.metabaseDatabaseId) return '/metabase/';
             const query = 'SELECT * FROM "' + (this.selectedModel.schema || 'main') + '"."' + this.selectedModel.name + '" LIMIT 100';
             return '/metabase/question#' + encodeURIComponent(JSON.stringify({
-                dataset_query: { type: 'native', native: { query }, database: 1 }
+                dataset_query: { type: 'native', native: { query }, database: this.metabaseDatabaseId }
             }));
         },
 
         async init() {
             try {
-                const [modelsRes, lineageRes, piiRes, driftRes, overridesRes] = await Promise.allSettled([
+                const [modelsRes, lineageRes, piiRes, driftRes, overridesRes, mbRes] = await Promise.allSettled([
                     fetch('/api/catalog/models'), fetch('/api/catalog/lineage'),
                     fetch('/api/governance/pii?limit=1000'), fetch('/api/governance/schema-drift?limit=1000'),
-                    fetch('/api/governance/pii/overrides'),
+                    fetch('/api/governance/pii/overrides'), fetch('/api/metabase-config'),
                 ]);
                 if (modelsRes.status === 'fulfilled' && modelsRes.value.ok) {
                     const data = await modelsRes.value.json();
@@ -601,6 +603,10 @@ function catalogPage() {
                 if (overridesRes.status === 'fulfilled' && overridesRes.value.ok) {
                     const data = await overridesRes.value.json();
                     this.piiOverrides = data.overrides || [];
+                }
+                if (mbRes.status === 'fulfilled' && mbRes.value.ok) {
+                    const data = await mbRes.value.json();
+                    this.metabaseDatabaseId = data.database_id || null;
                 }
             } catch (e) { this.error = 'Failed to load catalog data.'; }
             finally { this.loading = false; }
