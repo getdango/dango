@@ -1970,7 +1970,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
     "mysql": {
         "display_name": "MySQL",
         "category": "Databases",
-        "description": "Load tables from MySQL databases with schema filtering",
+        "description": "Load tables from MySQL databases",
         "auth_type": AuthType.BASIC,
         "dlt_package": "sql_database",
         "dlt_function": "sql_database",
