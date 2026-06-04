@@ -154,7 +154,7 @@
     {% endblock %}
 
     {% if is_cloud_server is defined and is_cloud_server and request.state.user and not request.state.user.totp_enabled %}
-    <div x-data="{ dismissed: localStorage.getItem('2fa_alert_dismissed') && (Date.now() - parseInt(localStorage.getItem('2fa_alert_dismissed'))) < 2592000000 }"
+    <div x-data="{ dismissed: (() => { const t = localStorage.getItem('2fa_alert_dismissed'); return t && (Date.now() - parseInt(t)) < 2592000000; })() }"
          x-show="!dismissed" x-cloak
          class="bg-yellow-50 border-b border-yellow-200">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between">
