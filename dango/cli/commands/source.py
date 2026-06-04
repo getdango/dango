@@ -493,6 +493,23 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
             with open(sources_file, "w") as f:
                 yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
+            # Clean up .dlt/config.toml
+            config_toml = project_root / ".dlt" / "config.toml"
+            if config_toml.exists():
+                try:
+                    import tomlkit
+
+                    doc = tomlkit.parse(config_toml.read_text())
+                    sources_section = doc.get("sources", {})
+                    if src.type.value in sources_section:
+                        del sources_section[src.type.value]
+                        if not sources_section:
+                            del doc["sources"]
+                        config_toml.write_text(tomlkit.dumps(doc))
+                        console.print("[green]✓[/green] Cleaned up .dlt/config.toml")
+                except Exception as e:
+                    console.print(f"[dim]Could not clean up config.toml: {e}[/dim]")
+
             # Clean up dbt staging files for this source
             # Naming: stg_{name}__*.sql, sources_{name}.yml, stg_{name}.yml
             staging_dir = project_root / "dbt" / "models" / "staging"

@@ -202,6 +202,10 @@ class SourceWizard:
             if metadata.get("default_config"):
                 self._write_config_template(source_type, metadata)
 
+            # Step 6a: Provision geo_targets seed + staging model for Google Ads
+            if source_type == "google_ads":
+                self._provision_geo_targets(source_name)
+
             # Step 6b: Create directory if this is a file-based source
             if source_type in ("csv", "local_files") and "directory" in params:
                 directory_path = self.project_root / params["directory"]
@@ -2355,6 +2359,31 @@ def {module_name}_resource(api_key: str):
             config["generic_config"] = params if params else {}
 
         return config
+
+    def _provision_geo_targets(self, source_name: str) -> None:
+        """Provision geo_targets seed CSV and staging join model for Google Ads."""
+        templates_dir = Path(__file__).parent.parent / "templates" / "dbt"
+
+        # 1. Copy geo_targets.csv to dbt/seeds/
+        seeds_dir = self.project_root / "dbt" / "seeds"
+        seed_dest = seeds_dir / "geo_targets.csv"
+        if not seed_dest.exists():
+            seeds_dir.mkdir(parents=True, exist_ok=True)
+            seed_src = templates_dir / "seeds" / "geo_targets.csv"
+            seed_dest.write_text(seed_src.read_text(encoding="utf-8"), encoding="utf-8")
+            console.print("[green]✓[/green] Provisioned dbt/seeds/geo_targets.csv (country names)")
+
+        # 2. Create staging join model from template
+        staging_dir = self.project_root / "dbt" / "models" / "staging"
+        model_dest = staging_dir / f"stg_{source_name}__geo_names.sql"
+        if not model_dest.exists():
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            template = (templates_dir / "stg_geo_names.sql").read_text(encoding="utf-8")
+            model_sql = template.replace("__SOURCE_NAME__", source_name)
+            model_dest.write_text(model_sql, encoding="utf-8")
+            console.print(
+                f"[green]✓[/green] Provisioned staging model stg_{source_name}__geo_names.sql"
+            )
 
     def _write_config_template(self, source_type: str, metadata: dict[str, Any]) -> None:
         """
