@@ -558,10 +558,23 @@ function catalogPage() {
         ],
 
         metabaseDatabaseId: null,
+        metabaseTableMap: {},
 
-        metabaseBrowseUrl() {
+        metabaseQueryUrl() {
             if (!this.selectedModel?.schema || !this.selectedModel?.name || !this.metabaseDatabaseId) return '/metabase/';
-            return '/metabase/browse/' + this.metabaseDatabaseId + '/schema/' + encodeURIComponent(this.selectedModel.schema) + '/table/' + encodeURIComponent(this.selectedModel.name);
+            const key = this.selectedModel.schema + '.' + this.selectedModel.name;
+            const tableId = this.metabaseTableMap[key];
+            if (!tableId) return '/metabase/';
+            const state = {
+                dataset_query: {
+                    database: this.metabaseDatabaseId,
+                    'lib/type': 'mbql/query',
+                    stages: [{ 'lib/type': 'mbql.stage/mbql', 'source-table': tableId }]
+                },
+                display: 'table',
+                visualization_settings: {}
+            };
+            return '/metabase/question#' + btoa(JSON.stringify(state));
         },
 
         async init() {
@@ -598,6 +611,19 @@ function catalogPage() {
                 if (mbRes.status === 'fulfilled' && mbRes.value.ok) {
                     const data = await mbRes.value.json();
                     this.metabaseDatabaseId = data.database_id || null;
+                    if (this.metabaseDatabaseId) {
+                        try {
+                            const tbRes = await fetch('/metabase/api/table');
+                            if (tbRes.ok) {
+                                const tables = await tbRes.json();
+                                for (const t of tables) {
+                                    if (t.db_id === this.metabaseDatabaseId && t.schema && t.name) {
+                                        this.metabaseTableMap[t.schema + '.' + t.name] = t.id;
+                                    }
+                                }
+                            }
+                        } catch (_) { /* Metabase table lookup non-critical */ }
+                    }
                 }
             } catch (e) { this.error = 'Failed to load catalog data.'; }
             finally { this.loading = false; }
