@@ -198,6 +198,21 @@ class TestReloadSchedules:
         scheduler.remove_job.assert_called_with("schedule:my_sync")
         scheduler.add_job.assert_called_once()
 
+    def test_changed_timezone_updates_job(self):
+        """Job with same cron but different timezone is removed and re-added."""
+        from dango.config.schedules import ScheduleConfig, reload_schedules
+
+        scheduler = self._make_scheduler(existing_jobs=[("schedule:my_sync", "0 6 * * *")])
+        scheds = [
+            ScheduleConfig(name="my_sync", cron="0 6 * * *", sources=["csv"], timezone="US/Eastern")
+        ]
+
+        result = reload_schedules(scheduler, scheds, Path("/tmp/project"))
+
+        assert "my_sync" in result.updated
+        scheduler.remove_job.assert_called_with("schedule:my_sync")
+        scheduler.add_job.assert_called_once()
+
     def test_disabled_schedule_not_added(self):
         from dango.config.schedules import ScheduleConfig, reload_schedules
 
