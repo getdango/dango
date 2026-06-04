@@ -81,8 +81,8 @@
                                     </div>
                                 </div>
                                 <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0"
-                                      :class="sd.freshness_status === 'fresh' ? 'bg-green-100 text-green-800' : sd.freshness_status === 'stale' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'"
-                                      x-text="sd.freshness_status || 'unknown'"></span>
+                                      :class="sd.freshness_status === 'synced' ? 'bg-green-100 text-green-800' : sd.freshness_status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'"
+                                      x-text="sd.freshness_status === 'never_synced' ? 'not synced' : sd.freshness_status || 'unknown'"></span>
                             </div>
                         </template>
                     </div>
@@ -266,13 +266,7 @@
                             <span x-show="profilingLoading" x-cloak>Profiling...</span>
                         </button>
                     </template>
-                    <template x-if="hasLineage && view !== 'lineage'">
-                        <button @click="viewInLineage(selectedModel.name, selectedModel.source_name)"
-                                class="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 text-sm font-medium transition-colors">
-                            View in Lineage
-                        </button>
-                    </template>
-                    <a :href="metabaseQueryUrl()"
+                    <a :href="metabaseBrowseUrl()"
                        target="_blank" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium transition-colors">
                         View in Metabase
                     </a>
@@ -565,12 +559,9 @@ function catalogPage() {
 
         metabaseDatabaseId: null,
 
-        metabaseQueryUrl() {
+        metabaseBrowseUrl() {
             if (!this.selectedModel?.schema || !this.selectedModel?.name || !this.metabaseDatabaseId) return '/metabase/';
-            const query = 'SELECT * FROM "' + (this.selectedModel.schema || 'main') + '"."' + this.selectedModel.name + '" LIMIT 100';
-            return '/metabase/question#' + encodeURIComponent(JSON.stringify({
-                dataset_query: { type: 'native', native: { query }, database: this.metabaseDatabaseId }
-            }));
+            return '/metabase/browse/' + this.metabaseDatabaseId + '/schema/' + encodeURIComponent(this.selectedModel.schema) + '/table/' + encodeURIComponent(this.selectedModel.name);
         },
 
         async init() {
