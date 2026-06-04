@@ -260,7 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Connect WebSocket (needed on pages with real-time updates)
-    if (hasSources || hasActivityLog) {
+    if (hasSources || hasActivityLog || hasModels) {
         connectWebSocket();
     }
 
@@ -535,6 +535,8 @@ async function handleWebSocketMessage(data) {
             dbtRunStartTime = Date.now();
             console.log('🟡 [WS] dbtRunStartTime set to:', dbtRunStartTime);
             addLogEntry('info', message, source || 'dbt');
+            showDbtBuildBanner('building', 'Building models…');
+            renderSourcesTable();  // Update status pills to show "Building models..."
             // Don't show toast - reduces spam
             // Always update UI to show running state, but avoid querying DB during file operations
             const totalFileOpsStart = getTotalFileOperations();
@@ -579,6 +581,9 @@ async function handleWebSocketMessage(data) {
 
             console.log('🟢 [WS] dbt complete. Refreshing models list.');
             addLogEntry('success', message, source || 'dbt');
+            showDbtBuildBanner('success', 'Models built successfully');
+            setTimeout(hideDbtBuildBanner, 5000);
+            renderSourcesTable();  // Revert status pills from "Building models..."
 
             // Refresh dbt models list only — do NOT clear activeSyncs or
             // stop timers here.  The subprocess is still running post-sync
@@ -609,6 +614,7 @@ async function handleWebSocketMessage(data) {
             console.log('🔴 [WS] dbt_run_all_failed - Clearing flag and refreshing');
             console.log('🔴 [WS] dbtRunStartTime before clear:', dbtRunStartTime);
             dbtRunStartTime = null;
+            showDbtBuildBanner('error', message || 'dbt build failed');
 
             // Extract source name if this was triggered by a source operation
             const sourceMatchFailed = source?.match(/triggered by (\w+)/);
@@ -1341,6 +1347,10 @@ function renderRowCount(source) {
 function renderStatusPill(source, isSyncing, hasFileOps) {
     // Handle active states first
     if (isSyncing) {
+        // Distinguish dbt-building from data-loading
+        if (dbtRunStartTime !== null) {
+            return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800 animate-pulse">🔨 Building models...</span>';
+        }
         return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 animate-pulse">⏳ Syncing...</span>';
     }
 
@@ -2524,6 +2534,34 @@ function showDbtModelsError() {
             </td>
         </tr>
     `;
+}
+
+// ---------------------------------------------------------------------------
+// dbt build banner (models page)
+// ---------------------------------------------------------------------------
+
+function showDbtBuildBanner(type, message) {
+    const banner = document.getElementById('dbt-build-banner');
+    if (!banner) return;
+
+    banner.className = 'mb-4 rounded-lg px-4 py-3 text-sm font-medium flex items-center';
+    if (type === 'building') {
+        banner.className += ' bg-blue-50 text-blue-800';
+        banner.innerHTML = '<span class="inline-block animate-spin mr-2 text-base">⟳</span>' + message;
+    } else if (type === 'success') {
+        banner.className += ' bg-green-50 text-green-800';
+        banner.innerHTML = '✓ ' + message;
+    } else if (type === 'error') {
+        banner.className += ' bg-red-50 text-red-800';
+        banner.innerHTML = '✗ ' + message;
+    }
+}
+
+function hideDbtBuildBanner() {
+    const banner = document.getElementById('dbt-build-banner');
+    if (!banner) return;
+    banner.className = 'hidden mb-4 rounded-lg px-4 py-3 text-sm font-medium';
+    banner.innerHTML = '';
 }
 
 function refreshDbtModels() {
