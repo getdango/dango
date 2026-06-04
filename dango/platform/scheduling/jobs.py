@@ -564,21 +564,21 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         dashboard_url = _build_dashboard_url(project_root)
 
         # Determine overall status: failed (dbt or partial), completed
-        combined_error = transform_error or source_error
-        if combined_error:
+        overall_error: str | None = transform_error or source_error
+        if overall_error:
             # Combine both errors when present
             if transform_error and source_error:
-                combined_error = f"{source_error}; {transform_error}"
+                overall_error = f"{source_error}; {transform_error}"
 
             _try_finish_record(
-                project_root, schedule_name, record_id, "record_failure", error=combined_error
+                project_root, schedule_name, record_id, "record_failure", error=overall_error
             )
             _log_execution_event(
                 schedule_name=schedule_name,
                 job_type="sync",
                 status="failed",
                 duration_seconds=elapsed,
-                error=combined_error,
+                error=overall_error,
                 sources=source_names,
             )
             _broadcast(
@@ -586,7 +586,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                     "event": "sync_failed",
                     "schedule": schedule_name,
                     "sources": source_names,
-                    "error": combined_error,
+                    "error": overall_error,
                     "failed_sources": list(failed_source_errors.keys()),
                     "timestamp": _ts(),
                 }
@@ -596,7 +596,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 event_type=EventType.SYNC_FAILED,
                 schedule_name=schedule_name,
                 sources=source_names,
-                error=combined_error,
+                error=overall_error,
                 duration_seconds=round(elapsed, 2),
             )
         else:
