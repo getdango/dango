@@ -6,6 +6,7 @@ Metadata-driven wizard that works for all 27+ data sources. Uses SOURCE_REGISTRY
 from pathlib import Path
 from typing import Any
 
+import click
 import inquirer
 from inquirer import themes
 from rich.console import Console
@@ -257,6 +258,28 @@ class SourceWizard:
                         console.print("\n[cyan]To retry:[/cyan]")
                         console.print("  dango source add")
                         return False
+
+                    # Validate database connection for postgres sources
+                    if source_type in ("postgres",):
+                        import os
+
+                        from dotenv import load_dotenv
+
+                        load_dotenv(self.env_file, override=True)
+                        for sp in self.secret_params:
+                            env_val = os.getenv(sp.get("name", ""))
+                            if env_val and sp.get("name", "").endswith("_CREDENTIALS"):
+                                while not self._validate_database_connection(env_val):
+                                    if not click.confirm(
+                                        "  Try a different connection URL?", default=True
+                                    ):
+                                        break
+                                    env_val = click.prompt("  Connection URL")
+                                    if env_val:
+                                        # Update .env with new value
+                                        from dotenv import set_key
+
+                                        set_key(str(self.env_file), sp["name"], env_val)
 
             # Step 9: Only save source config if validation passed or no secrets required
             self._save_source(source_config)
@@ -650,15 +673,21 @@ class SourceWizard:
             elif existing_cred.is_expiring_soon():
                 days_left = existing_cred.days_until_expiry()
                 console.print(f"[yellow]⚠️  OAuth credentials expire in {days_left} days[/yellow]")
-                console.print(f"[green]✓ Using: {existing_cred.account_info}[/green]\n")
-                return None
+                console.print(f"[green]✓ Using: {existing_cred.account_info}[/green]")
+                if click.confirm("  Re-enter credentials instead?", default=False):
+                    pass  # fall through to re-authenticate
+                else:
+                    return None
 
             else:
                 # Valid credentials exist
                 console.print(
-                    f"[green]✓ OAuth credentials found: {existing_cred.account_info}[/green]\n"
+                    f"[green]✓ OAuth credentials found: {existing_cred.account_info}[/green]"
                 )
-                return None
+                if click.confirm("  Re-enter credentials instead?", default=False):
+                    pass  # fall through to re-authenticate
+                else:
+                    return None
 
         # No existing credentials - prompt to set up new OAuth
         console.print("[yellow]⚠️  OAuth authentication required[/yellow]")
@@ -831,6 +860,30 @@ class SourceWizard:
         config = load_config(self.project_root)
         return any(s.name == name for s in config.sources.sources)
 
+    def _validate_database_connection(self, connection_url: str) -> bool:
+        """Test database connection and show available tables."""
+        try:
+            from sqlalchemy import create_engine, inspect
+
+            engine = create_engine(connection_url)
+            with engine.connect():
+                inspector = inspect(engine)
+                tables = inspector.get_table_names()
+                console.print(
+                    f"[green]  ✓ Connected successfully — {len(tables)} tables found[/green]"
+                )
+                if tables:
+                    preview = tables[:10]
+                    console.print(
+                        f"[dim]    Tables: {', '.join(preview)}"
+                        f"{'...' if len(tables) > 10 else ''}[/dim]"
+                    )
+            engine.dispose()
+            return True
+        except Exception as e:
+            console.print(f"[red]  ✗ Connection failed: {e}[/red]")
+            return False
+
     def _is_credential_param(self, param: dict[str, Any], source_type: str) -> bool:
         """Check if a parameter is a credential/secret that should be skipped when using OAuth
 
@@ -863,7 +916,7 @@ class SourceWizard:
         # These are stored in .dlt/secrets.toml by the OAuth provider
         oauth_collected_params = {
             "facebook_ads": [],  # account_id is a required wizard param, not OAuth-collected
-            "google_ads": ["customer_id"],  # Google Ads OAuth collects customer_id
+            "google_ads": [],  # customer_id is source-specific, not OAuth-collected
         }
 
         if source_type in oauth_collected_params:
@@ -2339,34 +2392,39 @@ def {module_name}_resource(api_key: str):
             source_table = doc["sources"][source_type]
 
             for key, value in default_config.items():
-                if key not in source_table:
-                    # Add comment explaining this is a default that can be customized
-                    if key == "queries":
-                        # Special handling for queries (GA4)
-                        source_table.add(tomlkit.comment(""))
-                        source_table.add(tomlkit.comment("Default queries for Google Analytics 4"))
-                        source_table.add(
-                            tomlkit.comment(
-                                "Each query creates a table with the specified dimensions and metrics"
-                            )
-                        )
-                        source_table.add(
-                            tomlkit.comment("Customize by editing, adding, or removing queries")
-                        )
-                        source_table.add(
-                            tomlkit.comment(
-                                "GA4 API limits: max 9 dimensions, 10 metrics per query"
-                            )
-                        )
-                        source_table.add(
-                            tomlkit.comment(
-                                "Docs: https://developers.google.com/analytics/devguides/reporting/data/v1"
-                            )
-                        )
-                        source_table.add(tomlkit.comment(""))
+                if key in source_table:
+                    if not click.confirm(
+                        f"  Overwrite existing '{key}' config for {source_type}?",
+                        default=False,
+                    ):
+                        continue  # skip this key, keep existing
+                    del source_table[key]
 
-                    # Convert value to TOML-compatible format
-                    source_table.add(key, value)
+                # Add comment explaining this is a default that can be customized
+                if key == "queries":
+                    # Special handling for queries (GA4)
+                    source_table.add(tomlkit.comment(""))
+                    source_table.add(tomlkit.comment("Default queries for Google Analytics 4"))
+                    source_table.add(
+                        tomlkit.comment(
+                            "Each query creates a table with the specified dimensions and metrics"
+                        )
+                    )
+                    source_table.add(
+                        tomlkit.comment("Customize by editing, adding, or removing queries")
+                    )
+                    source_table.add(
+                        tomlkit.comment("GA4 API limits: max 9 dimensions, 10 metrics per query")
+                    )
+                    source_table.add(
+                        tomlkit.comment(
+                            "Docs: https://developers.google.com/analytics/devguides/reporting/data/v1"
+                        )
+                    )
+                    source_table.add(tomlkit.comment(""))
+
+                # Convert value to TOML-compatible format
+                source_table.add(key, value)
 
             # Write config file
             config_path.write_text(tomlkit.dumps(doc))

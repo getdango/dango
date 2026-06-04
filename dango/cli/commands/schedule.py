@@ -8,7 +8,6 @@ Operates directly on ``.dango/schedules.yml``.  Webhook subcommands in
 from __future__ import annotations
 
 import re
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -108,10 +107,16 @@ def _get_next_runs(cron_expr: str, count: int = 3) -> list[str]:
 
 
 def _get_local_timezone() -> str:
-    """Return the local timezone name."""
-    if time.daylight and time.localtime().tm_isdst > 0:
-        return time.tzname[1]
-    return time.tzname[0]
+    """Return the local IANA timezone name (e.g., 'America/New_York')."""
+    from datetime import datetime, timezone
+
+    try:
+        tz = datetime.now(timezone.utc).astimezone().tzinfo
+        if hasattr(tz, "key"):
+            return tz.key
+    except Exception:
+        pass
+    return "UTC"
 
 
 def _build_hourly_hours(interval: int, start_hour: int) -> list[int]:
@@ -671,12 +676,25 @@ def schedule_add(ctx: click.Context) -> None:
     _show_next_runs(cron)
 
     # 5. Timezone
+    from zoneinfo import available_timezones
+
+    valid_zones = available_timezones()
     answers = inquirer.prompt(
         [inquirer.Text("timezone", message="Timezone", default=_get_local_timezone())]
     )
     if answers is None:
         return
     timezone_str: str = answers["timezone"]
+
+    while timezone_str not in valid_zones:
+        console.print(f"[red]Invalid timezone: '{timezone_str}'[/red]")
+        console.print(
+            "[dim]Examples: US/Eastern, US/Pacific, Europe/London, Asia/Singapore, UTC[/dim]"
+        )
+        answers = inquirer.prompt([inquirer.Text("timezone", message="Timezone", default="UTC")])
+        if answers is None:
+            return
+        timezone_str = answers["timezone"]
 
     # 6. Notify on (BUG-040: skip if no webhooks configured)
     notify_on: list[str] = []

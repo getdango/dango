@@ -690,3 +690,34 @@ class TestScheduleAdd:
         result = runner.invoke(cli, ["schedule", "add"])
         # Should exit cleanly without error
         assert result.exit_code == 0
+
+
+@pytest.mark.unit
+class TestGetLocalTimezone:
+    """Tests for _get_local_timezone()."""
+
+    def test_returns_iana_name(self) -> None:
+        """_get_local_timezone should return an IANA timezone name, not an abbreviation."""
+        from dango.cli.commands.schedule import _get_local_timezone
+
+        tz = _get_local_timezone()
+        # Should be a valid IANA name (contains '/') or 'UTC'
+        assert tz == "UTC" or "/" in tz, f"Expected IANA name, got '{tz}'"
+
+    def test_returns_valid_timezone(self) -> None:
+        """_get_local_timezone should return a timezone recognized by zoneinfo."""
+        from zoneinfo import available_timezones
+
+        from dango.cli.commands.schedule import _get_local_timezone
+
+        tz = _get_local_timezone()
+        assert tz in available_timezones(), f"'{tz}' not in available_timezones()"
+
+    @patch("dango.cli.commands.schedule.datetime")
+    def test_fallback_to_utc(self, mock_datetime: MagicMock) -> None:
+        """Falls back to 'UTC' when timezone detection fails."""
+        from dango.cli.commands.schedule import _get_local_timezone
+
+        mock_datetime.now.side_effect = Exception("no tz")
+        tz = _get_local_timezone()
+        assert tz == "UTC"
