@@ -386,8 +386,8 @@ class TestRunManualSync:
 
 
 @pytest.mark.unit
-class TestDataLoadedPhase:
-    """Tests for data_loaded phase when skip_dbt=True."""
+class TestDataLoadedStatus:
+    """Tests for data_loaded return status when skip_dbt=True."""
 
     @patch(
         f"{_PATCH_INGESTION}.run_sync",
@@ -429,7 +429,7 @@ class TestDataLoadedPhase:
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=21)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
     @patch(f"{_PATCH_OAUTH}.validate_before_sync")
-    def test_skip_dbt_writes_data_loaded_progress(
+    def test_skip_dbt_writes_completed_phase_for_poller(
         self,
         mock_oauth,
         mock_db_path,
@@ -440,6 +440,8 @@ class TestDataLoadedPhase:
         mock_sync,
         tmp_path,
     ):
+        """Phase must be 'completed' (not 'data_loaded') so poll_sync_status_blocking
+        recognises the terminal state. The return dict carries 'data_loaded' status."""
         from dango.platform.scheduling.sync_trigger import run_manual_sync
 
         mock_config.return_value = _make_config(["src1"])
@@ -456,7 +458,9 @@ class TestDataLoadedPhase:
         status_file = tmp_path / ".dango" / "state" / "sync_status_dl1.json"
         assert status_file.exists()
         data = json.loads(status_file.read_text())
-        assert data["phase"] == "data_loaded"
+        # Phase must be "completed" for poll_sync_status_blocking compatibility
+        assert data["phase"] == "completed"
+        assert "dbt deferred" in data["message"]
 
 
 @pytest.mark.unit

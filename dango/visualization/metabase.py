@@ -1084,7 +1084,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
             logger.warning(f"Error updating table metadata: {e}")
 
         if not tables:
-            logger.warning("sync_metabase_schema_no_tables", extra={"database_id": database_id})
+            logger.warning("sync_metabase_schema_no_tables: database_id=%s", database_id)
             return False
 
         return True

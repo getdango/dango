@@ -334,10 +334,10 @@ def run_manual_sync(
             }
 
         record_completion(db_path, record_id)
-        if skip_dbt:
-            _progress("data_loaded", "Data loaded (dbt deferred)", rows_loaded=rows_loaded)
-        else:
-            _progress("completed", "Sync completed successfully", rows_loaded=rows_loaded)
+        # Always write phase="completed" so poll_sync_status_blocking recognises
+        # the terminal state.  The return dict carries the semantic status.
+        msg = "Data loaded (dbt deferred)" if skip_dbt else "Sync completed successfully"
+        _progress("completed", msg, rows_loaded=rows_loaded)
         return {
             "record_id": record_id,
             "status": "data_loaded" if skip_dbt else "success",

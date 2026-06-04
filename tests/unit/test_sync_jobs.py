@@ -361,7 +361,11 @@ class TestRunScheduledSync:
         assert "sync_completed" not in events
 
     def test_multi_source_continues_on_failure(self, tmp_path):
-        """When one source fails, remaining sources still sync."""
+        """When one source fails, remaining sources still sync.
+
+        Partial failure (some succeeded, some failed) records failure with the
+        failed source details.
+        """
         config = _make_config_with_sources("src1", "src2")
 
         call_count = [0]
@@ -381,12 +385,11 @@ class TestRunScheduledSync:
             ) as mock_launch,
             patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", side_effect=_poll_side_effect),
             patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
-            patch(f"{_JOBS_MOD}._broadcast"),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._notify"),
-            patch(f"{_JOBS_MOD}._check_freshness"),
             patch(f"{_JOBS_MOD}._add_pending_dbt_source") as mock_pending,
             patch(f"{_JOBS_MOD}._run_coalesced_dbt", return_value=True),
-            patch(f"{_JOBS_MOD}._try_finish_record"),
+            patch(f"{_JOBS_MOD}._try_finish_record") as mock_finish,
         ):
             from dango.platform.scheduling.jobs import run_scheduled_sync
 
@@ -396,6 +399,16 @@ class TestRunScheduledSync:
         assert mock_launch.call_count == 2
         # Only the successful source should add pending dbt
         mock_pending.assert_called_once()
+
+        # Partial failure should record failure (not completion)
+        assert mock_finish.call_count == 1
+        assert mock_finish.call_args[0][3] == "record_failure"
+        assert "src1" in mock_finish.call_args[1]["error"]
+
+        # Should broadcast sync_failed (not sync_completed) due to partial failure
+        events = [c.args[0]["event"] for c in mock_bc.call_args_list]
+        assert "sync_failed" in events
+        assert "sync_completed" not in events
 
     def test_is_pickle_serializable(self):
         """Job function must be pickle-serializable (APScheduler requirement)."""
