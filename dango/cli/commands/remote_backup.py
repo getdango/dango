@@ -509,8 +509,11 @@ def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> No
         console.print(f"[red]Error:[/red] {exc}")
         raise SystemExit(1) from exc
     finally:
-        # Clean up remote temp file
-        ssh.exec_command(f"rm -f {remote_tmp}")
+        # Clean up remote temp file (best-effort — SSH may already be dead)
+        try:
+            ssh.exec_command(f"rm -f {remote_tmp}")
+        except Exception:  # noqa: BLE001
+            pass
         ssh.disconnect()
 
 

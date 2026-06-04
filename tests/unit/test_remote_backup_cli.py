@@ -376,6 +376,31 @@ class TestBackupRestoreFromLocal:
         assert result.exit_code == 0
         assert "cancelled" in result.output.lower()
 
+    def test_restore_from_local_handles_restore_failure(self, tmp_path):
+        """Exits with error and cleans up when restore_from_archive raises."""
+        backup_file = tmp_path / "backup.tar.gz"
+        backup_file.write_bytes(b"fake-archive")
+
+        ssh = _make_ssh_mock()
+
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=_make_loader()):
+                with patch(_PATCH_SSH_MANAGER, return_value=ssh):
+                    with patch(
+                        "dango.platform.cloud.backup.restore_from_archive",
+                        side_effect=RuntimeError("SSH connection lost"),
+                    ):
+                        result = _run(
+                            ["backup", "restore", str(backup_file), "--from-local", "-y"],
+                            tmp_path,
+                        )
+
+        assert result.exit_code == 1
+        assert "SSH connection lost" in result.output
+        # Verify cleanup was attempted
+        ssh.exec_command.assert_called()
+        ssh.disconnect.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # 7. rollback command
