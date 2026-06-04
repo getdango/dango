@@ -450,23 +450,16 @@ class SchedulerService:
         )
 
     def _check_dual_scheduler(self) -> None:
-        """Warn if a cloud deployment exists while running locally.
-
-        Prevents confusion when both local and cloud schedulers are active.
-        """
+        """Warn if running on cloud server (local scheduler may also be active)."""
         try:
-            from dango.config.loader import ConfigLoader
+            from dango.config.helpers import is_running_on_cloud
 
-            loader = ConfigLoader(self._project_root)
-            cloud_cfg = loader.load_cloud_config()
-            if cloud_cfg is not None and cloud_cfg.droplet_ip is not None:
+            if is_running_on_cloud():
                 logger.warning(
                     "dual_scheduler_warning",
                     message=(
-                        "A cloud deployment is active (server="
-                        f"{cloud_cfg.droplet_ip}). Running a local scheduler "
-                        "alongside the cloud scheduler may cause duplicate job "
-                        "execution."
+                        "Running scheduler on cloud server. Ensure no local "
+                        "scheduler is also active to avoid duplicate job execution."
                     ),
                 )
         except Exception:  # noqa: BLE001

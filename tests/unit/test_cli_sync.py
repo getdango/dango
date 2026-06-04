@@ -265,18 +265,10 @@ class TestSyncGuardRails:
             for p in patches:
                 p.stop()
 
-    def test_cloud_info_shown_as_note(self) -> None:
-        """Cloud deployment shown as informational note (no blocking prompt)."""
+    def test_cloud_info_not_shown(self) -> None:
+        """Cloud info note removed — no mention of cloud on sync (D2)."""
         cloud_cfg = _make_cloud_config(droplet_ip="1.2.3.4")
         result = self._invoke(["--dry-run"], cloud_config=cloud_cfg)
-        plain = _ANSI_RE.sub("", result.output)
-        assert "Syncing locally" in plain
-        assert "dango remote sync" in plain
-        assert result.exit_code == 0
-
-    def test_cloud_info_not_shown_without_cloud(self) -> None:
-        """No cloud note when project is not deployed."""
-        result = self._invoke(["--dry-run"], cloud_config=None)
         plain = _ANSI_RE.sub("", result.output)
         assert "Syncing locally" not in plain
         assert result.exit_code == 0

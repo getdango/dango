@@ -88,8 +88,8 @@ class TestStartGuardRails:
         plain = _ANSI_RE.sub("", result.output)
         assert "cloned project" not in plain.lower()
 
-    def test_cloud_info_shown_as_note(self, tmp_path: Path) -> None:
-        """Cloud deployment shown as informational note (no blocking prompt)."""
+    def test_cloud_info_not_shown(self, tmp_path: Path) -> None:
+        """Cloud info note removed — no mention of cloud deployment on start (D1)."""
         cloud_cfg = _make_cloud_config(droplet_ip="1.2.3.4")
         mock_loader = _make_config_loader(cloud_config=cloud_cfg)
         runner = CliRunner()
@@ -101,5 +101,4 @@ class TestStartGuardRails:
             result = runner.invoke(start, [], obj={"project_root": str(tmp_path)})
 
         plain = _ANSI_RE.sub("", result.output)
-        assert "deployed to 1.2.3.4" in plain
-        assert "independent" in plain.lower()
+        assert "deployed to 1.2.3.4" not in plain

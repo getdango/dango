@@ -385,11 +385,9 @@ def log_startup_checks(
 
     # Cloud conflict check
     try:
-        from dango.config.loader import ConfigLoader
+        from dango.config.helpers import is_running_on_cloud
 
-        loader = ConfigLoader(project_root)
-        cloud_cfg = loader.load_cloud_config()
-        if cloud_cfg is not None and cloud_cfg.droplet_ip is not None:
+        if is_running_on_cloud():
             logger.warning(
                 "cloud_schedule_conflict",
                 message=(

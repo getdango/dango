@@ -48,18 +48,22 @@ class TestValidateVersionString:
         validate_version_string("1.0.0")
         validate_version_string("0.1.1")
         validate_version_string("99.88.77")
+        # PEP 440 pre-release versions
+        validate_version_string("1.0.0b4")
+        validate_version_string("1.0.0rc1")
+        validate_version_string("1.0.0a1")
+        # PEP 440 shorthand (e.g. "1.0" normalizes to "1.0")
+        validate_version_string("1.0")
+        validate_version_string("v1.0.0")
 
     def test_invalid_versions(self) -> None:
         from dango.platform.cloud.upgrade import validate_version_string
 
         with pytest.raises(CloudError, match="Invalid version string"):
-            validate_version_string("1.0")
+            validate_version_string("not-a-version")
 
         with pytest.raises(CloudError, match="Invalid version string"):
-            validate_version_string("v1.0.0")
-
-        with pytest.raises(CloudError, match="Invalid version string"):
-            validate_version_string("1.0.0-beta")
+            validate_version_string("abc")
 
     def test_injection_attempts(self) -> None:
         from dango.platform.cloud.upgrade import validate_version_string
