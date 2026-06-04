@@ -585,18 +585,11 @@ def schedule_status(ctx: click.Context, name: str | None = None) -> None:
     sched_api = _query_scheduler_api(project_root)
     if sched_api is not None:
         if sched_api.get("running"):
-            api_job_count = sched_api.get("job_count", 0)
             yaml_enabled = sum(1 for s in schedules if s.get("enabled", True))
-            if api_job_count != yaml_enabled:
-                console.print(
-                    f"[yellow]Warning:[/yellow] Scheduler has {api_job_count} jobs loaded, "
-                    f"but {yaml_enabled} schedules are enabled — "
-                    "run [bold]dango schedule status[/bold] after restarting to reload."
-                )
-            else:
-                console.print(
-                    f"[bold]Scheduler:[/bold] [green]running[/green] ({api_job_count} jobs loaded)"
-                )
+            console.print(
+                f"[bold]Scheduler:[/bold] [green]running[/green] "
+                f"({yaml_enabled} schedule(s) enabled)"
+            )
         else:
             console.print("[bold]Scheduler:[/bold] [red]not running[/red]")
 

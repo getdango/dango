@@ -299,6 +299,85 @@ class TestBackupRestore:
 
 
 # ---------------------------------------------------------------------------
+# 6b. backup restore --from-local
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestBackupRestoreFromLocal:
+    def test_restore_from_local_success(self, tmp_path):
+        """Uploads local file, restores on server, cleans up temp file."""
+        from dango.platform.cloud.backup import RestoreResult
+
+        backup_file = tmp_path / "backup-20260224-143000.tar.gz"
+        backup_file.write_bytes(b"fake-archive")
+
+        ssh = _make_ssh_mock()
+        mock_result = RestoreResult(
+            restored_from="/tmp/backup-20260224-143000.tar.gz",
+            services_restarted=True,
+            health_check_passed=True,
+            duration_seconds=12.0,
+        )
+
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=_make_loader()):
+                with patch(_PATCH_SSH_MANAGER, return_value=ssh):
+                    with patch(
+                        "dango.platform.cloud.backup.restore_from_archive",
+                        return_value=mock_result,
+                    ):
+                        result = _run(
+                            ["backup", "restore", str(backup_file), "--from-local", "-y"],
+                            tmp_path,
+                        )
+
+        assert result.exit_code == 0
+        assert "complete" in result.output.lower()
+        ssh.upload_file.assert_called_once()
+        ssh.disconnect.assert_called_once()
+
+    def test_restore_from_local_file_not_found(self, tmp_path):
+        """Exits with error when local file does not exist."""
+        result = _run(
+            ["backup", "restore", "/nonexistent/backup.tar.gz", "--from-local", "-y"],
+            tmp_path,
+        )
+
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+    def test_restore_from_local_not_tar_gz(self, tmp_path):
+        """Exits with error when file is not a .tar.gz archive."""
+        bad_file = tmp_path / "backup.zip"
+        bad_file.write_bytes(b"not-a-tarball")
+
+        result = _run(
+            ["backup", "restore", str(bad_file), "--from-local", "-y"],
+            tmp_path,
+        )
+
+        assert result.exit_code == 1
+        assert ".tar.gz" in result.output
+
+    def test_restore_from_local_prompts_confirmation(self, tmp_path):
+        """Restore --from-local asks for confirmation."""
+        backup_file = tmp_path / "backup.tar.gz"
+        backup_file.write_bytes(b"fake-archive")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            remote,
+            ["backup", "restore", str(backup_file), "--from-local"],
+            obj={"project_root": tmp_path},
+            input="n\n",
+        )
+
+        assert result.exit_code == 0
+        assert "cancelled" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
 # 7. rollback command
 # ---------------------------------------------------------------------------
 
