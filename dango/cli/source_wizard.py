@@ -6,6 +6,7 @@ Metadata-driven wizard that works for all 27+ data sources. Uses SOURCE_REGISTRY
 from pathlib import Path
 from typing import Any
 
+import click
 import inquirer
 from inquirer import themes
 from rich.console import Console
@@ -201,6 +202,10 @@ class SourceWizard:
             if metadata.get("default_config"):
                 self._write_config_template(source_type, metadata)
 
+            # Step 6a: Provision geo_targets seed + staging model for Google Ads
+            if source_type == "google_ads":
+                self._provision_geo_targets(source_name)
+
             # Step 6b: Create directory if this is a file-based source
             if source_type in ("csv", "local_files") and "directory" in params:
                 directory_path = self.project_root / params["directory"]
@@ -257,6 +262,30 @@ class SourceWizard:
                         console.print("\n[cyan]To retry:[/cyan]")
                         console.print("  dango source add")
                         return False
+
+                    # Validate database connection for postgres sources
+                    if source_type in ("postgres",):
+                        import os
+
+                        from dotenv import load_dotenv
+
+                        load_dotenv(self.env_file, override=True)
+                        for sp in self.secret_params:
+                            if sp.get("param_name") != "credentials_env":
+                                continue
+                            env_val = os.getenv(sp.get("name", ""))
+                            if not env_val:
+                                continue
+                            while not self._validate_database_connection(env_val):
+                                if not click.confirm(
+                                    "  Try a different connection URL?", default=True
+                                ):
+                                    break
+                                env_val = click.prompt("  Connection URL")
+                                # Update .env with new value
+                                from dotenv import set_key
+
+                                set_key(str(self.env_file), sp["name"], env_val)
 
             # Step 9: Only save source config if validation passed or no secrets required
             self._save_source(source_config)
@@ -650,15 +679,21 @@ class SourceWizard:
             elif existing_cred.is_expiring_soon():
                 days_left = existing_cred.days_until_expiry()
                 console.print(f"[yellow]⚠️  OAuth credentials expire in {days_left} days[/yellow]")
-                console.print(f"[green]✓ Using: {existing_cred.account_info}[/green]\n")
-                return None
+                console.print(f"[green]✓ Using: {existing_cred.account_info}[/green]")
+                if click.confirm("  Re-enter credentials instead?", default=False):
+                    pass  # fall through to re-authenticate
+                else:
+                    return None
 
             else:
                 # Valid credentials exist
                 console.print(
-                    f"[green]✓ OAuth credentials found: {existing_cred.account_info}[/green]\n"
+                    f"[green]✓ OAuth credentials found: {existing_cred.account_info}[/green]"
                 )
-                return None
+                if click.confirm("  Re-enter credentials instead?", default=False):
+                    pass  # fall through to re-authenticate
+                else:
+                    return None
 
         # No existing credentials - prompt to set up new OAuth
         console.print("[yellow]⚠️  OAuth authentication required[/yellow]")
@@ -831,6 +866,35 @@ class SourceWizard:
         config = load_config(self.project_root)
         return any(s.name == name for s in config.sources.sources)
 
+    def _validate_database_connection(self, connection_url: str) -> bool:
+        """Test database connection and show available tables."""
+        try:
+            from sqlalchemy import create_engine, inspect
+        except ImportError:
+            console.print("[dim]  ⚠ sqlalchemy not installed — skipping connection test[/dim]")
+            return True
+
+        engine = create_engine(connection_url)
+        try:
+            with engine.connect():
+                inspector = inspect(engine)
+                tables = inspector.get_table_names()
+                console.print(
+                    f"[green]  ✓ Connected successfully — {len(tables)} tables found[/green]"
+                )
+                if tables:
+                    preview = tables[:10]
+                    console.print(
+                        f"[dim]    Tables: {', '.join(preview)}"
+                        f"{'...' if len(tables) > 10 else ''}[/dim]"
+                    )
+            return True
+        except Exception as e:
+            console.print(f"[red]  ✗ Connection failed: {e}[/red]")
+            return False
+        finally:
+            engine.dispose()
+
     def _is_credential_param(self, param: dict[str, Any], source_type: str) -> bool:
         """Check if a parameter is a credential/secret that should be skipped when using OAuth
 
@@ -863,7 +927,7 @@ class SourceWizard:
         # These are stored in .dlt/secrets.toml by the OAuth provider
         oauth_collected_params = {
             "facebook_ads": [],  # account_id is a required wizard param, not OAuth-collected
-            "google_ads": ["customer_id"],  # Google Ads OAuth collects customer_id
+            "google_ads": [],  # customer_id is source-specific, not OAuth-collected
         }
 
         if source_type in oauth_collected_params:
@@ -1792,6 +1856,7 @@ def {module_name}_resource(api_key: str):
             if not env_exists:
                 secret_metadata = {
                     "name": env_var,
+                    "param_name": param_name,  # Original registry param name
                     "display_name": param.get("prompt", env_var),
                     "help": help_text or param.get("help", ""),
                     "format": param.get("format", ""),
@@ -2295,6 +2360,31 @@ def {module_name}_resource(api_key: str):
 
         return config
 
+    def _provision_geo_targets(self, source_name: str) -> None:
+        """Provision geo_targets seed CSV and staging join model for Google Ads."""
+        templates_dir = Path(__file__).parent.parent / "templates" / "dbt"
+
+        # 1. Copy geo_targets.csv to dbt/seeds/
+        seeds_dir = self.project_root / "dbt" / "seeds"
+        seed_dest = seeds_dir / "geo_targets.csv"
+        if not seed_dest.exists():
+            seeds_dir.mkdir(parents=True, exist_ok=True)
+            seed_src = templates_dir / "seeds" / "geo_targets.csv"
+            seed_dest.write_text(seed_src.read_text(encoding="utf-8"), encoding="utf-8")
+            console.print("[green]✓[/green] Provisioned dbt/seeds/geo_targets.csv (country names)")
+
+        # 2. Create staging join model from template
+        staging_dir = self.project_root / "dbt" / "models" / "staging"
+        model_dest = staging_dir / f"stg_{source_name}__geo_names.sql"
+        if not model_dest.exists():
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            template = (templates_dir / "stg_geo_names.sql").read_text(encoding="utf-8")
+            model_sql = template.replace("__SOURCE_NAME__", source_name)
+            model_dest.write_text(model_sql, encoding="utf-8")
+            console.print(
+                f"[green]✓[/green] Provisioned staging model stg_{source_name}__geo_names.sql"
+            )
+
     def _write_config_template(self, source_type: str, metadata: dict[str, Any]) -> None:
         """
         Write default_config to .dlt/config.toml for pipeline stability.
@@ -2339,34 +2429,41 @@ def {module_name}_resource(api_key: str):
             source_table = doc["sources"][source_type]
 
             for key, value in default_config.items():
-                if key not in source_table:
-                    # Add comment explaining this is a default that can be customized
-                    if key == "queries":
-                        # Special handling for queries (GA4)
-                        source_table.add(tomlkit.comment(""))
-                        source_table.add(tomlkit.comment("Default queries for Google Analytics 4"))
-                        source_table.add(
-                            tomlkit.comment(
-                                "Each query creates a table with the specified dimensions and metrics"
-                            )
-                        )
-                        source_table.add(
-                            tomlkit.comment("Customize by editing, adding, or removing queries")
-                        )
-                        source_table.add(
-                            tomlkit.comment(
-                                "GA4 API limits: max 9 dimensions, 10 metrics per query"
-                            )
-                        )
-                        source_table.add(
-                            tomlkit.comment(
-                                "Docs: https://developers.google.com/analytics/devguides/reporting/data/v1"
-                            )
-                        )
-                        source_table.add(tomlkit.comment(""))
+                if key in source_table:
+                    if not click.confirm(
+                        f"  Overwrite existing '{key}' config for {source_type}?",
+                        default=False,
+                    ):
+                        continue  # skip this key, keep existing
+                    # In-place update preserves key position in file
+                    source_table[key] = value
+                    continue
 
-                    # Convert value to TOML-compatible format
-                    source_table.add(key, value)
+                # New key — add with optional comments
+                if key == "queries":
+                    # Special handling for queries (GA4)
+                    source_table.add(tomlkit.comment(""))
+                    source_table.add(tomlkit.comment("Default queries for Google Analytics 4"))
+                    source_table.add(
+                        tomlkit.comment(
+                            "Each query creates a table with the specified dimensions and metrics"
+                        )
+                    )
+                    source_table.add(
+                        tomlkit.comment("Customize by editing, adding, or removing queries")
+                    )
+                    source_table.add(
+                        tomlkit.comment("GA4 API limits: max 9 dimensions, 10 metrics per query")
+                    )
+                    source_table.add(
+                        tomlkit.comment(
+                            "Docs: https://developers.google.com/analytics/devguides/reporting/data/v1"
+                        )
+                    )
+                    source_table.add(tomlkit.comment(""))
+
+                # Convert value to TOML-compatible format
+                source_table.add(key, value)
 
             # Write config file
             config_path.write_text(tomlkit.dumps(doc))

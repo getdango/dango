@@ -110,8 +110,8 @@ def _google_analytics_metrics(
     """Google Analytics metrics using actual DuckDB column names.
 
     When ``project_root`` is provided and the warehouse contains the GA4 traffic
-    table, column names are read from DuckDB (e.g. ``sessions_integer``,
-    ``bounce_rate_float``).  Without a warehouse the function returns an empty
+    table, column names are read from DuckDB (e.g. ``sessions``,
+    ``bounce_rate``, ``average_session_duration``).  Without a warehouse the function returns an empty
     list — metrics will be generated after the first sync.
     """
     schema = f"raw_{name}"

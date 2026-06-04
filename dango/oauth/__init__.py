@@ -171,7 +171,7 @@ class OAuthManager:
         self.cred_manager.init_dlt_directory()
 
     def start_oauth_flow(
-        self, provider_name: str, auth_url: str, timeout_seconds: int = 300
+        self, provider_name: str, auth_url: str, timeout_seconds: int = 120
     ) -> dict[str, str] | None:
         """
         Start OAuth flow and wait for callback
@@ -182,76 +182,101 @@ class OAuthManager:
             timeout_seconds: How long to wait for user authorization
 
         Returns:
-            Dictionary with 'code' and 'state' if successful, None if failed
+            Dictionary with 'code' and 'state' if successful,
+            {'action': 'reenter'} if user wants to re-enter credentials,
+            None if cancelled or failed
         """
+        import inquirer
+        from inquirer import themes
+
         console.print(f"\n[bold cyan]{provider_name} OAuth Authorization[/bold cyan]\n")
-        console.print("[dim]Starting local callback server...[/dim]")
 
-        # Reset class-level response storage
-        OAuthCallbackHandler.oauth_response = None
-        OAuthCallbackHandler.oauth_error = None
+        while True:
+            console.print("[dim]Starting local callback server...[/dim]")
 
-        # Start callback server in a thread
-        try:
-            server = _ReusableTCPServer(("localhost", self.callback_port), OAuthCallbackHandler)
-        except OSError as e:
-            if "Address already in use" in str(e) or e.errno == 48:  # 48 = EADDRINUSE on macOS
-                console.print(f"\n[red]✗ Port {self.callback_port} is already in use[/red]")
-                console.print("\n[yellow]Possible solutions:[/yellow]")
-                console.print(f"  1. Stop the process using port {self.callback_port}:")
-                console.print(f"     [dim]lsof -i :{self.callback_port}[/dim]")
-                console.print("     [dim]kill <PID>[/dim]")
-                console.print("  2. Set a different callback port in .env:")
-                console.print(
-                    "     [dim]DANGO_OAUTH_CALLBACK_URL=http://localhost:8081/callback[/dim]"
-                )
-                console.print(
-                    "     [dim](Remember to update this in your OAuth app redirect URIs)[/dim]"
-                )
+            # Reset class-level response storage
+            OAuthCallbackHandler.oauth_response = None
+            OAuthCallbackHandler.oauth_error = None
+
+            # Start callback server in a thread
+            try:
+                server = _ReusableTCPServer(("localhost", self.callback_port), OAuthCallbackHandler)
+            except OSError as e:
+                if "Address already in use" in str(e) or e.errno == 48:
+                    console.print(f"\n[red]✗ Port {self.callback_port} is already in use[/red]")
+                    console.print("\n[yellow]Possible solutions:[/yellow]")
+                    console.print(f"  1. Stop the process using port {self.callback_port}:")
+                    console.print(f"     [dim]lsof -i :{self.callback_port}[/dim]")
+                    console.print("     [dim]kill <PID>[/dim]")
+                    console.print("  2. Set a different callback port in .env:")
+                    console.print(
+                        "     [dim]DANGO_OAUTH_CALLBACK_URL=http://localhost:8081/callback[/dim]"
+                    )
+                    console.print(
+                        "     [dim](Remember to update this in your OAuth app redirect URIs)[/dim]"
+                    )
+                    return None
+                else:
+                    raise
+
+            server.timeout = timeout_seconds
+
+            server_thread = threading.Thread(target=server.handle_request, daemon=True)
+            server_thread.start()
+
+            console.print(f"[dim]Callback server listening on port {self.callback_port}[/dim]")
+
+            # Open browser for authorization
+            console.print("\n[cyan]Opening browser for authorization...[/cyan]")
+            console.print(f"[dim]If browser doesn't open, visit: {auth_url}[/dim]\n")
+
+            webbrowser.open(auth_url)
+
+            # Wait for callback with timeout
+            console.print("[yellow]Waiting for authorization...[/yellow]")
+            console.print("[dim](This window will close automatically once you authorize)[/dim]\n")
+
+            start_time = time.time()
+            while time.time() - start_time < timeout_seconds:
+                if OAuthCallbackHandler.oauth_response is not None:
+                    console.print("[green]✓ Authorization received![/green]")
+                    server.server_close()
+                    return OAuthCallbackHandler.oauth_response
+
+                if OAuthCallbackHandler.oauth_error is not None:
+                    error = OAuthCallbackHandler.oauth_error
+                    console.print(f"[red]✗ Authorization failed: {error['error']}[/red]")
+                    console.print(f"[red]{error['error_description']}[/red]")
+                    server.server_close()
+                    return None
+
+                time.sleep(0.5)
+
+            # Timeout — offer retry
+            console.print(f"\n[red]✗ Authorization timeout after {timeout_seconds} seconds[/red]")
+            server.server_close()
+
+            answers = inquirer.prompt(
+                [
+                    inquirer.List(
+                        "timeout_action",
+                        message="What would you like to do?",
+                        choices=[
+                            "Retry (re-open browser)",
+                            "Re-enter credentials",
+                            "Cancel",
+                        ],
+                        carousel=True,
+                    )
+                ],
+                theme=themes.GreenPassion(),
+            )
+
+            if not answers or answers["timeout_action"] == "Cancel":
                 return None
-            else:
-                raise
-
-        server.timeout = timeout_seconds
-
-        server_thread = threading.Thread(target=server.handle_request, daemon=True)
-        server_thread.start()
-
-        console.print(f"[dim]Callback server listening on port {self.callback_port}[/dim]")
-
-        # Open browser for authorization
-        console.print("\n[cyan]Opening browser for authorization...[/cyan]")
-        console.print(f"[dim]If browser doesn't open, visit: {auth_url}[/dim]\n")
-
-        webbrowser.open(auth_url)
-
-        # Wait for callback with timeout
-        console.print("[yellow]Waiting for authorization...[/yellow]")
-        console.print("[dim](This window will close automatically once you authorize)[/dim]\n")
-
-        start_time = time.time()
-        while time.time() - start_time < timeout_seconds:
-            if OAuthCallbackHandler.oauth_response is not None:
-                console.print("[green]✓ Authorization received![/green]")
-                # Don't call server.shutdown() - it can hang
-                # The daemon thread will be cleaned up automatically
-                server.server_close()
-                return OAuthCallbackHandler.oauth_response
-
-            if OAuthCallbackHandler.oauth_error is not None:
-                error = OAuthCallbackHandler.oauth_error
-                console.print(f"[red]✗ Authorization failed: {error['error']}[/red]")
-                console.print(f"[red]{error['error_description']}[/red]")
-                server.server_close()
-                return None
-
-            time.sleep(0.5)
-
-        # Timeout
-        console.print(f"[red]✗ Authorization timeout after {timeout_seconds} seconds[/red]")
-        console.print("[yellow]Please try again and complete the authorization promptly.[/yellow]")
-        server.server_close()
-        return None
+            elif answers["timeout_action"] == "Re-enter credentials":
+                return {"action": "reenter"}
+            # "Retry" — loop continues: new server, re-open browser
 
     def generate_state(self) -> str:
         """

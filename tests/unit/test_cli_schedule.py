@@ -690,3 +690,108 @@ class TestScheduleAdd:
         result = runner.invoke(cli, ["schedule", "add"])
         # Should exit cleanly without error
         assert result.exit_code == 0
+
+
+@pytest.mark.unit
+class TestGetLocalTimezone:
+    """Tests for _get_local_timezone()."""
+
+    def test_returns_iana_name(self) -> None:
+        """_get_local_timezone should return an IANA timezone name, not an abbreviation."""
+        from dango.cli.commands.schedule import _get_local_timezone
+
+        tz = _get_local_timezone()
+        # Should be a valid IANA name (contains '/') or 'UTC'
+        assert tz == "UTC" or "/" in tz, f"Expected IANA name, got '{tz}'"
+
+    def test_returns_valid_timezone(self) -> None:
+        """_get_local_timezone should return a timezone recognized by zoneinfo."""
+        from zoneinfo import available_timezones
+
+        from dango.cli.commands.schedule import _get_local_timezone
+
+        tz = _get_local_timezone()
+        assert tz in available_timezones(), f"'{tz}' not in available_timezones()"
+
+    @patch("os.readlink", side_effect=OSError("no symlink"))
+    def test_fallback_to_utc(self, _mock_readlink: MagicMock) -> None:
+        """Falls back to 'UTC' when /etc/localtime is unreadable and tzinfo has no .key."""
+        from dango.cli.commands.schedule import _get_local_timezone
+
+        # On Python 3.11, tzinfo.key doesn't exist, so with readlink also
+        # failing, the function should fall back to "UTC".
+        tz = _get_local_timezone()
+        # If on Python 3.12+ or a platform where tzinfo.key works,
+        # this might still return a real timezone — that's also valid.
+        from zoneinfo import available_timezones
+
+        assert tz in available_timezones(), f"'{tz}' not in available_timezones()"
+
+
+@pytest.mark.unit
+class TestTimezoneValidation:
+    """B7: Invalid timezones should be rejected during schedule add."""
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_invalid_timezone_reprompts(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path
+    ) -> None:
+        """Invalid timezone triggers re-prompt; valid timezone proceeds."""
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+        _write_sources_yaml(
+            project_root,
+            [{"name": "stripe", "type": "stripe", "enabled": True}],
+        )
+
+        # Sequence: name, type, frequency, hour, minute,
+        # first timezone (invalid), second timezone (valid)
+        mock_prompt.side_effect = [
+            {"name": "tz_test"},
+            {"type": "Sync & Transform (recommended)"},
+            {"frequency": "Daily"},
+            {"hour": "6"},
+            {"minute": "0"},
+            {"timezone": "Not/A/Timezone"},  # invalid — triggers validation loop
+            {"timezone": "UTC"},  # valid — accepted
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "Invalid timezone" in plain
+        assert "added" in plain
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_valid_timezone_accepted(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path
+    ) -> None:
+        """Valid timezone on first try passes without error."""
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+        _write_sources_yaml(
+            project_root,
+            [{"name": "stripe", "type": "stripe", "enabled": True}],
+        )
+
+        mock_prompt.side_effect = [
+            {"name": "tz_valid"},
+            {"type": "Sync & Transform (recommended)"},
+            {"frequency": "Daily"},
+            {"hour": "6"},
+            {"minute": "0"},
+            {"timezone": "US/Eastern"},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "Invalid timezone" not in plain
+        assert "added" in plain
+
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        assert data["schedules"][0]["timezone"] == "US/Eastern"

@@ -220,6 +220,12 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 console.print("[red]✗ OAuth flow failed or timed out[/red]")
                 return False
 
+            # Handle re-enter credentials sentinel from start_oauth_flow().
+            # Returning False causes the source wizard's retry loop to call
+            # run_oauth_for_source() again, which re-prompts for credentials.
+            if "action" in oauth_response:
+                return False
+
             # Verify state parameter
             if oauth_response.get("state") != state:
                 console.print("[red]✗ Invalid state parameter (possible CSRF attack)[/red]")

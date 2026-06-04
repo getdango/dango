@@ -468,7 +468,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             {
                 "name": "start_date",
                 "type": "string",
-                "prompt": "Start date (YYYY-MM-DD or relative like '90daysAgo')",
+                "prompt": "Start date (YYYY-MM-DD)",
                 "default": "90daysAgo",
                 "help": "GA4 accepts relative dates (e.g., '90daysAgo', '30daysAgo') or absolute dates (YYYY-MM-DD). Defaults to 90daysAgo for first sync.",
             },
@@ -1094,8 +1094,8 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "metrics.search_impression_share, "
                         "metrics.search_rank_lost_impression_share, "
                         "metrics.search_budget_lost_impression_share, "
-                        "metrics.search_top_impression_percentage, "
-                        "metrics.search_absolute_top_impression_percentage "
+                        "metrics.search_top_impression_share, "
+                        "metrics.search_absolute_top_impression_share "
                         "FROM campaign "
                         "WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'"
                     ),
@@ -1222,8 +1222,6 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                         "campaign.name, "
                         "geographic_view.country_criterion_id, "
                         "geographic_view.location_type, "
-                        "geo_target_constant.name, "
-                        "geo_target_constant.canonical_name, "
                         "metrics.impressions, "
                         "metrics.clicks, "
                         "metrics.cost_micros, "
@@ -1969,6 +1967,62 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
             "custom_queries": False,
         },
     },
+    "mysql": {
+        "display_name": "MySQL",
+        "category": "Databases",
+        "description": "Load tables from MySQL databases",
+        "auth_type": AuthType.BASIC,
+        "dlt_package": "sql_database",
+        "dlt_function": "sql_database",
+        "pip_dependencies": [
+            {"pip": "sqlalchemy", "import": "sqlalchemy"},
+            {"pip": "pymysql", "import": "pymysql"},
+        ],
+        "wizard_enabled": True,
+        "required_params": [
+            {
+                "name": "credentials_env",
+                "type": "secret",
+                "env_var": "MYSQL_CREDENTIALS",
+                "prompt": "MySQL connection URL",
+                "help": "Format: mysql+pymysql://username:password@host:3306/database",
+            },
+        ],
+        "optional_params": [
+            {
+                "name": "schema",
+                "type": "string",
+                "prompt": "Database name (empty = from URL)",
+                "default": None,
+                "help": "MySQL database to load tables from",
+            },
+            {
+                "name": "table_names",
+                "type": "list",
+                "prompt": "Tables to sync (comma-separated, empty = all)",
+                "default": None,
+                "help": "Leave empty to sync all tables in the database",
+            },
+        ],
+        "setup_guide": [
+            "1. Ensure MySQL is accessible from your network",
+            "2. Create a read-only user (recommended):",
+            "   CREATE USER 'dango'@'%' IDENTIFIED BY 'your_password';",
+            "   GRANT SELECT ON mydb.* TO 'dango'@'%';",
+            "   FLUSH PRIVILEGES;",
+            "3. Build connection URL: mysql+pymysql://dango:your_password@host:3306/mydb",
+            "4. Install driver: pip install sqlalchemy pymysql",
+        ],
+        "docs_url": "https://dlthub.com/docs/dlt-ecosystem/verified-sources/sql_database",
+        "popularity": 7,
+        "capabilities": {
+            "performance_metrics": False,
+            "date_range": False,
+            "incremental": False,
+            "incremental_available": True,
+            "custom_queries": False,
+        },
+    },
     "kafka": {
         "display_name": "Apache Kafka",
         "category": "Streaming",
@@ -2235,7 +2289,7 @@ CATEGORIES = {
     ],
     "E-commerce & Payment": ["stripe", "shopify"],
     "Files & Storage": ["notion", "inbox"],
-    "Databases": ["mongodb", "postgres"],  # postgres uses built-in sql_database
+    "Databases": ["mongodb", "postgres", "mysql"],  # postgres/mysql use built-in sql_database
     "Streaming": ["kafka", "kinesis"],
     "Development": ["github"],
     "Communication": ["slack"],
