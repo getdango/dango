@@ -71,8 +71,8 @@ class ProjectInitializer:
             # Create default .gitignore
             self._create_gitignore()
 
-            # Create CI workflow
-            self._create_ci_workflow()
+            # Create pre-commit config
+            self._create_pre_commit_config()
 
             # Create README
             self._create_readme(config)
@@ -356,6 +356,39 @@ echo ""
             os.close(fd)
 
         console.print("[green]✓[/green] Created .git/hooks/pre-push checklist")
+
+    def _create_pre_commit_config(self):
+        """Create .pre-commit-config.yaml with ruff and dango validation hooks."""
+        pre_commit_content = """\
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: dango-validate
+        name: dango config validate
+        entry: dango config validate
+        language: system
+        pass_filenames: false
+        files: '(\\.dango/|dbt/)'
+      - id: no-secrets
+        name: check for secrets
+        entry: >-
+          bash -c 'git diff --cached --name-only |
+          grep -qE "\\.dlt/secrets\\.toml|\\.env$|\\.env\\.local|cloud_key|\\.key$"
+          && echo "ERROR: Sensitive files staged" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false
+"""
+        config_path = self.project_dir / ".pre-commit-config.yaml"
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.write(pre_commit_content)
+
+        print_success("Created .pre-commit-config.yaml")
 
     def _create_ci_workflow(self):
         """Create GitHub Actions CI workflow for PR validation."""
