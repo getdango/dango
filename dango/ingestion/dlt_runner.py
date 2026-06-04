@@ -796,9 +796,9 @@ class DltPipelineRunner:
 
             # Drop raw schema so dlt recreates with fresh column types
             try:
-                import duckdb as _duckdb
+                import duckdb
 
-                conn = _duckdb.connect(str(self.duckdb_path))
+                conn = duckdb.connect(str(self.duckdb_path))
                 try:
                     conn.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
                     console.print(f"  🔄 Full refresh: dropped schema {dataset_name}")
@@ -1100,9 +1100,9 @@ class DltPipelineRunner:
 
             # Drop raw schema so dlt recreates with fresh column types
             try:
-                import duckdb as _duckdb
+                import duckdb
 
-                conn = _duckdb.connect(str(self.duckdb_path))
+                conn = duckdb.connect(str(self.duckdb_path))
                 try:
                     conn.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
                     console.print(f"  🔄 Full refresh: dropped schema {dataset_name}")
