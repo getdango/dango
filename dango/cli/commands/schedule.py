@@ -107,15 +107,35 @@ def _get_next_runs(cron_expr: str, count: int = 3) -> list[str]:
 
 
 def _get_local_timezone() -> str:
-    """Return the local IANA timezone name (e.g., 'America/New_York')."""
-    from datetime import datetime, timezone
+    """Return the local IANA timezone name (e.g., 'America/New_York').
 
+    Tries multiple detection methods:
+    1. /etc/localtime symlink (macOS/Linux)
+    2. tzinfo.key (Python 3.12+ or zoneinfo-backed runtimes)
+    3. Falls back to "UTC"
+    """
+    import os
+
+    # Method 1: /etc/localtime symlink (macOS/Linux)
     try:
+        link = os.readlink("/etc/localtime")
+        if "zoneinfo/" in link:
+            iana = link.split("zoneinfo/")[-1]
+            if iana:
+                return iana
+    except (OSError, ValueError):
+        pass
+
+    # Method 2: tzinfo.key (Python 3.12+)
+    try:
+        from datetime import datetime, timezone
+
         tz = datetime.now(timezone.utc).astimezone().tzinfo
         if hasattr(tz, "key"):
             return tz.key
     except Exception:
         pass
+
     return "UTC"
 
 

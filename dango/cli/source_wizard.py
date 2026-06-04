@@ -267,19 +267,21 @@ class SourceWizard:
 
                         load_dotenv(self.env_file, override=True)
                         for sp in self.secret_params:
+                            if sp.get("param_name") != "credentials_env":
+                                continue
                             env_val = os.getenv(sp.get("name", ""))
-                            if env_val and sp.get("name", "").endswith("_CREDENTIALS"):
-                                while not self._validate_database_connection(env_val):
-                                    if not click.confirm(
-                                        "  Try a different connection URL?", default=True
-                                    ):
-                                        break
-                                    env_val = click.prompt("  Connection URL")
-                                    if env_val:
-                                        # Update .env with new value
-                                        from dotenv import set_key
+                            if not env_val:
+                                continue
+                            while not self._validate_database_connection(env_val):
+                                if not click.confirm(
+                                    "  Try a different connection URL?", default=True
+                                ):
+                                    break
+                                env_val = click.prompt("  Connection URL")
+                                # Update .env with new value
+                                from dotenv import set_key
 
-                                        set_key(str(self.env_file), sp["name"], env_val)
+                                set_key(str(self.env_file), sp["name"], env_val)
 
             # Step 9: Only save source config if validation passed or no secrets required
             self._save_source(source_config)
@@ -862,10 +864,10 @@ class SourceWizard:
 
     def _validate_database_connection(self, connection_url: str) -> bool:
         """Test database connection and show available tables."""
-        try:
-            from sqlalchemy import create_engine, inspect
+        from sqlalchemy import create_engine, inspect
 
-            engine = create_engine(connection_url)
+        engine = create_engine(connection_url)
+        try:
             with engine.connect():
                 inspector = inspect(engine)
                 tables = inspector.get_table_names()
@@ -878,11 +880,12 @@ class SourceWizard:
                         f"[dim]    Tables: {', '.join(preview)}"
                         f"{'...' if len(tables) > 10 else ''}[/dim]"
                     )
-            engine.dispose()
             return True
         except Exception as e:
             console.print(f"[red]  ✗ Connection failed: {e}[/red]")
             return False
+        finally:
+            engine.dispose()
 
     def _is_credential_param(self, param: dict[str, Any], source_type: str) -> bool:
         """Check if a parameter is a credential/secret that should be skipped when using OAuth
@@ -1845,6 +1848,7 @@ def {module_name}_resource(api_key: str):
             if not env_exists:
                 secret_metadata = {
                     "name": env_var,
+                    "param_name": param_name,  # Original registry param name
                     "display_name": param.get("prompt", env_var),
                     "help": help_text or param.get("help", ""),
                     "format": param.get("format", ""),
@@ -2398,9 +2402,11 @@ def {module_name}_resource(api_key: str):
                         default=False,
                     ):
                         continue  # skip this key, keep existing
-                    del source_table[key]
+                    # In-place update preserves key position in file
+                    source_table[key] = value
+                    continue
 
-                # Add comment explaining this is a default that can be customized
+                # New key — add with optional comments
                 if key == "queries":
                     # Special handling for queries (GA4)
                     source_table.add(tomlkit.comment(""))
