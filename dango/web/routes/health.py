@@ -173,7 +173,7 @@ async def get_platform_health() -> dict[str, Any]:
     try:
         db_path = project_root / "data" / "warehouse.duckdb"
         if db_path.exists():
-            configured_sources = {s.get("name") for s in sources_config}
+            configured_sources = {s.get("name") for s in sources_config if s.get("name")}
 
             def _check_orphaned_schemas() -> list[str]:
                 import duckdb as _duckdb

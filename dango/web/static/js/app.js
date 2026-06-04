@@ -192,12 +192,13 @@ function formatRelativeTime(timestamp) {
         return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${minutes}m ago</span>`;
     }
     const hours = Math.floor(minutes / 60);
-    const shortDate = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
     if (hours < 24) {
+        const shortDate = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
         return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${hours}h ago <span class="text-gray-400">\u00b7 ${shortDate}</span></span>`;
     }
     const days = Math.floor(hours / 24);
     if (days < 7) {
+        const shortDate = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
         return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${days}d ago <span class="text-gray-400">\u00b7 ${shortDate}</span></span>`;
     }
 

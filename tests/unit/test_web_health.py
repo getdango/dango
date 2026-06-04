@@ -142,12 +142,13 @@ class TestDiskWarningDeduplication:
         assert not any("80%" in w for w in body["warnings"])
         assert "Low disk space" in body["warnings"]
 
+    @patch("dango.config.helpers.is_running_on_cloud", return_value=False)
     @patch(
         "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
     )
     @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
     def test_warning_below_80pct_shows_low_disk(
-        self, mock_data: AsyncMock, mock_cloud: AsyncMock, tmp_path: Path
+        self, mock_data: AsyncMock, mock_cloud: AsyncMock, mock_is_cloud: MagicMock, tmp_path: Path
     ) -> None:
         """Disk in warning status but below 80% → generic "Low disk space"."""
         mock_data.return_value = _base_health_data(disk_status="warning", used_pct=75)
@@ -214,12 +215,13 @@ class TestDiskWarningDeduplication:
 
         assert any("resizing" in w for w in body["warnings"])
 
+    @patch("dango.config.helpers.is_running_on_cloud", return_value=False)
     @patch(
         "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
     )
     @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
     def test_local_low_free_gb_message(
-        self, mock_data: AsyncMock, mock_cloud: AsyncMock, tmp_path: Path
+        self, mock_data: AsyncMock, mock_cloud: AsyncMock, mock_is_cloud: MagicMock, tmp_path: Path
     ) -> None:
         """Local deployment with <10GB free → cleanup message with free GB."""
         data = _base_health_data(disk_status="warning", used_pct=85)
