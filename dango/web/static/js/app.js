@@ -192,12 +192,13 @@ function formatRelativeTime(timestamp) {
         return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${minutes}m ago</span>`;
     }
     const hours = Math.floor(minutes / 60);
+    const shortDate = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ', ' + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
     if (hours < 24) {
-        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${hours}h ago</span>`;
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${hours}h ago <span class="text-gray-400">\u00b7 ${shortDate}</span></span>`;
     }
     const days = Math.floor(hours / 24);
     if (days < 7) {
-        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${days}d ago</span>`;
+        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${days}d ago <span class="text-gray-400">\u00b7 ${shortDate}</span></span>`;
     }
 
     // Older than 7 days — show formatted date
@@ -1212,8 +1213,19 @@ function renderSourcesTable() {
                 >
                     ${buttonText}
                 </button>`;
+        } else if (source.sync_mode === 'full_refresh' && !source.supports_date_range) {
+            // Full-refresh source without date range: simple button (no dropdown)
+            actionColumn = `
+                <button
+                    onclick="event.stopPropagation(); triggerSync('${source.name}')"
+                    class="text-blue-600 hover:text-blue-900 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors duration-150"
+                    id="sync-btn-${source.name}"
+                    ${buttonDisabled}
+                >
+                    ${buttonText}
+                </button>`;
         } else {
-            // API sources: split button — main click syncs, chevron opens dropdown
+            // API sources with incremental or date range: split button
             actionColumn = `
                 <div class="relative inline-flex" id="sync-menu-${source.name}">
                     <button
@@ -2709,7 +2721,7 @@ async function renderAttentionBanner() {
         const canManage = window.DANGO_USER_ROLE === 'admin';
         const sourceItems = attentionSources.map(s => {
             const acceptBtn = canManage
-                ? `<button onclick="acceptDrift(${JSON.stringify(s.source)})" class="ml-2 text-sm text-yellow-700 underline hover:text-yellow-900">Accept</button>`
+                ? `<button onclick="acceptDrift('${s.source}')" class="ml-2 text-sm text-yellow-700 underline hover:text-yellow-900">Accept</button>`
                 : '';
             return `<span class="font-medium">${escapeHtml(s.source)}</span>: ${escapeHtml(s.reason)}${acceptBtn}`;
         }).join('<br>');

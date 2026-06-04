@@ -859,21 +859,32 @@ async def get_source_status_data(source: dict) -> SourceStatus:
 
     # CSV and local_files sources are always full refresh
     is_file_source = source_type in ("csv", "local_files")
+
+    # Fetch registry metadata early — reused for write_disposition and lookback_days
+    from dango.ingestion.sources.registry import get_source_metadata
+
+    meta = get_source_metadata(source_type)
+
     if sync_mode_from_history is not None:
         sync_mode = sync_mode_from_history
     elif is_file_source:
         sync_mode = "full_refresh"
     else:
-        sync_mode = "incremental" if supports_incremental else "full_refresh"
+        # Check source config or registry default_config for write_disposition
+        source_wd = source.get("write_disposition")
+        if source_wd is None and meta:
+            source_wd = (meta.get("default_config") or {}).get("write_disposition")
+        if source_wd == "replace":
+            sync_mode = "full_refresh"
+        elif supports_incremental:
+            sync_mode = "incremental"
+        else:
+            sync_mode = "full_refresh"
     write_disposition = "replace" if sync_mode == "full_refresh" else "merge"
 
     lookback_days = source.get("lookback_days")
-    if lookback_days is None:
-        from dango.ingestion.sources.registry import get_source_metadata
-
-        meta = get_source_metadata(source_type)
-        if meta:
-            lookback_days = (meta.get("default_config") or {}).get("lookback_days")
+    if lookback_days is None and meta:
+        lookback_days = (meta.get("default_config") or {}).get("lookback_days")
 
     return SourceStatus(
         name=source_name,

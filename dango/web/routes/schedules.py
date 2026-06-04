@@ -147,7 +147,7 @@ async def test_notification(
             status_code=400,
             content={
                 "error_code": "DANGO-S008",
-                "message": "No webhooks configured. Add webhooks in .dango/schedules.yml.",
+                "message": "No webhooks configured. Run `dango schedule webhook add` to configure.",
             },
         )
 

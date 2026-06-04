@@ -82,14 +82,15 @@ class TestDiskWarningDeduplication:
         disk_warnings = [w for w in body["warnings"] if "disk" in w.lower() or "80%" in w]
         assert disk_warnings == []
 
+    @patch("dango.config.helpers.is_running_on_cloud", return_value=True)
     @patch(
         "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
     )
     @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
-    def test_above_80pct_warning_suppresses_low_disk(
-        self, mock_data: AsyncMock, mock_cloud: AsyncMock, tmp_path: Path
+    def test_above_80pct_cloud_warning_suppresses_low_disk(
+        self, mock_data: AsyncMock, mock_cloud: AsyncMock, mock_is_cloud: MagicMock, tmp_path: Path
     ) -> None:
-        """Disk at 85% with warning status → only 80% message, not "Low disk space"."""
+        """Cloud: disk at 85% with warning status → only 80% message, not "Low disk space"."""
         mock_data.return_value = _base_health_data(disk_status="warning", used_pct=85)
         app = _make_app(tmp_path)
         client = TestClient(app)
@@ -99,6 +100,47 @@ class TestDiskWarningDeduplication:
 
         assert any("80%" in w for w in body["warnings"])
         assert "Low disk space" not in body["warnings"]
+
+    @patch("dango.config.helpers.is_running_on_cloud", return_value=False)
+    @patch(
+        "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
+    )
+    @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
+    def test_local_low_free_gb_warning(
+        self, mock_data: AsyncMock, mock_cloud: AsyncMock, mock_is_cloud: MagicMock, tmp_path: Path
+    ) -> None:
+        """Local: disk with <10GB free → absolute threshold warning."""
+        data = _base_health_data(disk_status="warning", used_pct=85)
+        data["disk"]["free_gb"] = 5
+        mock_data.return_value = data
+        app = _make_app(tmp_path)
+        client = TestClient(app)
+
+        resp = client.get("/api/health/platform")
+        body = resp.json()
+
+        assert any("5 GB free" in w for w in body["warnings"])
+        assert "Low disk space" not in body["warnings"]
+        assert not any("80%" in w for w in body["warnings"])
+
+    @patch("dango.config.helpers.is_running_on_cloud", return_value=False)
+    @patch(
+        "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
+    )
+    @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
+    def test_local_high_pct_but_plenty_free_no_warning(
+        self, mock_data: AsyncMock, mock_cloud: AsyncMock, mock_is_cloud: MagicMock, tmp_path: Path
+    ) -> None:
+        """Local: disk at 85% but 20GB free → falls through to generic warning status."""
+        mock_data.return_value = _base_health_data(disk_status="warning", used_pct=85)
+        app = _make_app(tmp_path)
+        client = TestClient(app)
+
+        resp = client.get("/api/health/platform")
+        body = resp.json()
+
+        assert not any("80%" in w for w in body["warnings"])
+        assert "Low disk space" in body["warnings"]
 
     @patch(
         "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
@@ -176,11 +218,13 @@ class TestDiskWarningDeduplication:
         "dango.web.routes.health._get_cloud_health_data", new_callable=AsyncMock, return_value=None
     )
     @patch("dango.web.routes.health.get_platform_health_data", new_callable=AsyncMock)
-    def test_local_80pct_message(
+    def test_local_low_free_gb_message(
         self, mock_data: AsyncMock, mock_cloud: AsyncMock, tmp_path: Path
     ) -> None:
-        """Local deployment → 80% message suggests dango cleanup."""
-        mock_data.return_value = _base_health_data(disk_status="warning", used_pct=85)
+        """Local deployment with <10GB free → cleanup message with free GB."""
+        data = _base_health_data(disk_status="warning", used_pct=85)
+        data["disk"]["free_gb"] = 5
+        mock_data.return_value = data
         # No cloud.yml → local
         app = _make_app(tmp_path)
         client = TestClient(app)

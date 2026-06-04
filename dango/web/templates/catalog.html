@@ -266,7 +266,13 @@
                             <span x-show="profilingLoading" x-cloak>Profiling...</span>
                         </button>
                     </template>
-                    <a :href="selectedModel.schema && selectedModel.name ? '/metabase/question#' + encodeURIComponent(JSON.stringify({dataset_query: {type: 'native', native: {query: 'SELECT * FROM \"' + (selectedModel.schema || 'main') + '\".\"' + selectedModel.name + '\" LIMIT 100'}, database: 1}})) : '/metabase/'"
+                    <template x-if="hasLineage && view !== 'lineage'">
+                        <button @click="viewInLineage(selectedModel.name, selectedModel.source_name)"
+                                class="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 text-sm font-medium transition-colors">
+                            View in Lineage
+                        </button>
+                    </template>
+                    <a :href="metabaseQueryUrl()"
                        target="_blank" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium transition-colors">
                         View in Metabase
                     </a>
@@ -557,6 +563,14 @@ function catalogPage() {
             { key: 'marts', label: 'Marts' },
         ],
 
+        metabaseQueryUrl() {
+            if (!this.selectedModel?.schema || !this.selectedModel?.name) return '/metabase/';
+            const query = 'SELECT * FROM "' + (this.selectedModel.schema || 'main') + '"."' + this.selectedModel.name + '" LIMIT 100';
+            return '/metabase/question#' + encodeURIComponent(JSON.stringify({
+                dataset_query: { type: 'native', native: { query }, database: 1 }
+            }));
+        },
+
         async init() {
             try {
                 const [modelsRes, lineageRes, piiRes, driftRes, overridesRes] = await Promise.allSettled([
@@ -814,7 +828,10 @@ function catalogPage() {
                 if (res.ok) {
                     // Reload model detail to get fresh profiling
                     await this.openModel(tblName);
-                } else { this.error = 'Failed to refresh profile.'; }
+                } else {
+                    const data = await res.json().catch(() => null);
+                    this.error = data?.detail || 'Failed to refresh profile.';
+                }
             } catch (e) { this.error = 'Failed to refresh profile.'; }
             finally { this.profilingLoading = false; }
         },
