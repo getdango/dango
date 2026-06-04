@@ -54,7 +54,7 @@ def _execute_query_incremental(
     query_template: str,
     end_date: str,
     start_date: str = "2020-01-01",
-    date_cursor: dlt.sources.incremental[str] = dlt.sources.incremental("date"),
+    date_cursor: dlt.sources.incremental[date] = dlt.sources.incremental("date"),
     resource_name: str = "",
 ) -> Iterator[TDataItem]:
     """Runs a GAQL query with incremental date tracking and yields flattened rows.
@@ -65,7 +65,9 @@ def _execute_query_incremental(
     # Use lag-adjusted cursor start if available, else configured start_date
     effective_start = start_date
     if date_cursor.start_value is not None:
-        effective_start = date_cursor.start_value
+        # Cursor may be datetime.date (from flatten_row) — convert to string for GAQL
+        sv = date_cursor.start_value
+        effective_start = sv.isoformat() if isinstance(sv, date) else str(sv)
 
     query = query_template.format(start_date=effective_start, end_date=end_date)
 
