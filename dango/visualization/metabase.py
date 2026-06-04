@@ -1007,6 +1007,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
                     break
 
         # Update table descriptions to guide users
+        tables: list[dict[str, Any]] = []
         try:
             # Get all tables
             metadata_response = requests.get(
@@ -1082,6 +1083,10 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
             # Log but don't fail - descriptions are nice-to-have
             logger.warning(f"Error updating table metadata: {e}")
 
+        if not tables:
+            logger.warning("sync_metabase_schema_no_tables: database_id=%s", database_id)
+            return False
+
         return True
 
     except Exception:
@@ -1091,7 +1096,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
 
 def refresh_metabase_connection(
     project_root: Path, metabase_url: str = "http://localhost:3000"
-) -> bool:
+) -> tuple[bool, str | None]:
     """
     Force Metabase to refresh its DuckDB connection to see latest data.
 
@@ -1103,7 +1108,7 @@ def refresh_metabase_connection(
         metabase_url: Metabase URL
 
     Returns:
-        True if refresh succeeded, False otherwise
+        Tuple of (success, error_message). error_message is None on success.
     """
     import subprocess
 
@@ -1124,7 +1129,7 @@ def refresh_metabase_connection(
 
         if container_name not in check_result.stdout:
             # Container not running
-            return False
+            return (False, "Metabase container not running")
 
         # Restart Metabase container to force reconnection
         restart_result = subprocess.run(
@@ -1132,7 +1137,7 @@ def refresh_metabase_connection(
         )
 
         if restart_result.returncode != 0:
-            return False
+            return (False, f"Docker restart failed: {restart_result.stderr[:200]}")
 
         # Wait for Metabase to come back up (max 20 seconds)
         max_attempts = 20
@@ -1140,13 +1145,13 @@ def refresh_metabase_connection(
             try:
                 response = requests.get(f"{metabase_url}/api/health", timeout=1)
                 if response.status_code == 200:
-                    return True
+                    return (True, None)
             except requests.exceptions.RequestException:
                 pass
             time.sleep(1)
 
-        return False
+        return (False, "Metabase did not become healthy after restart")
 
-    except Exception:
-        # Silent failure
-        return False
+    except Exception as e:
+        logger.warning("refresh_metabase_connection_error", error=str(e), exc_info=True)
+        return (False, str(e))

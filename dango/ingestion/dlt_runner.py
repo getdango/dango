@@ -2389,6 +2389,10 @@ def run_sync(
 
     console.print(f"{'=' * 60}\n")
 
+    # Initialize transform tracking (used in summary dict below)
+    transform_status = "skipped"
+    transform_error_msg: str | None = None
+
     # Auto-generate staging models for successful sources
     if success_sources:
         console.print("🔄 [bold]Generating staging models...[/bold]\n")
@@ -2489,6 +2493,7 @@ def run_sync(
                 skip_dbt = True  # Skip docs generation below too
 
             if dbt_success:
+                transform_status = "success"
                 if progress_callback is not None:
                     progress_callback("dbt_complete", "dbt models complete")
                 # Parse and display dbt model execution details
@@ -2526,7 +2531,8 @@ def run_sync(
                     sync_metabase_schema,
                 )
 
-                if refresh_metabase_connection(project_root):
+                mb_ok, _mb_err = refresh_metabase_connection(project_root)
+                if mb_ok:
                     console.print("[green]✓ Metabase connection refreshed[/green]")
 
                     # Sync schema metadata to ensure all tables are discovered
@@ -2536,6 +2542,8 @@ def run_sync(
                 else:
                     console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
             else:
+                transform_status = "failed"
+                transform_error_msg = dbt_output[:500]
                 if progress_callback is not None:
                     progress_callback("dbt_failed", "dbt run failed")
                 _logging.getLogger(__name__).error("dbt_transform_failed: %s", dbt_output[:500])
@@ -2551,7 +2559,14 @@ def run_sync(
         else:
             console.print("[dim]⏭  Skipping dbt run (will be coalesced)[/dim]\n")
 
-    summary = {
+    # Track partial syncs (Issue 1.3)
+    partial_sources = [
+        r.get("source", "unknown")
+        for r in results
+        if isinstance(r, dict) and r.get("status") == "partial"
+    ]
+
+    summary: dict[str, Any] = {
         "success_count": len(success_sources),
         "failed_count": len(failed_sources),
         "skipped_count": len(skipped_sources),
@@ -2560,22 +2575,32 @@ def run_sync(
         "skipped_sources": skipped_sources,
         "results": results,
         "oauth_warnings": oauth_warnings,  # For display at very end of sync
+        "transform_status": transform_status,
+        "transform_error": transform_error_msg,
+        "hooks_status": "success",
+        "hooks_failed": [],
     }
+    if partial_sources:
+        summary["partial_sources"] = partial_sources
 
     # Post-sync hooks (profiling, drift detection, PII scanning, analysis, notifications)
     if success_sources:
         try:
             from dango.utils.post_sync import dispatch_post_sync_hooks
 
-            dispatch_post_sync_hooks(
+            hooks_result = dispatch_post_sync_hooks(
                 project_root=project_root,
                 sources=success_sources,
                 sync_result=summary,
                 skip_sync_notification=skip_sync_notification,
             )
+            if hooks_result and hooks_result.get("failed_hooks"):
+                summary["hooks_status"] = "partial"
+                summary["hooks_failed"] = hooks_result["failed_hooks"]
         except Exception:
             _logging.getLogger(__name__).error("post_sync_hooks_failed", exc_info=True)
             console.print("[red]⚠ Post-sync hooks failed[/red]")
+            summary["hooks_status"] = "failed"
             # Record post-sync failure in history so UI shows the error
             from dango.utils.sync_history import update_last_sync_entry
 

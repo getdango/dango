@@ -25,18 +25,20 @@ class TestDispatchPostSyncHooks:
             patch("dango.utils.post_sync._run_pii_scan") as mock_pii,
             patch("dango.utils.post_sync._run_analysis") as mock_analysis,
         ):
-            dispatch_post_sync_hooks(project_root=tmp_path, sources=sources)
+            result = dispatch_post_sync_hooks(project_root=tmp_path, sources=sources)
 
         mock_prof.assert_called_once_with(tmp_path, sources)
         mock_pii.assert_called_once_with(tmp_path, sources)
         mock_analysis.assert_called_once_with(tmp_path, sources)
+        assert result == {"failed_hooks": []}
 
     def test_empty_sources_skips_hooks(self, tmp_path: Path):
         """No hooks are called when sources list is empty."""
         with patch("dango.utils.post_sync._run_profiling") as mock_prof:
-            dispatch_post_sync_hooks(project_root=tmp_path, sources=[])
+            result = dispatch_post_sync_hooks(project_root=tmp_path, sources=[])
 
         mock_prof.assert_not_called()
+        assert result == {"failed_hooks": []}
 
     def test_stubs_are_noop(self, tmp_path: Path):
         """Calling with real stubs does not raise."""
@@ -134,6 +136,21 @@ class TestDispatchPostSyncHooks:
         events = [c[0][0] for c in info_calls]
         assert "post_sync_hooks_start" in events
         assert "post_sync_hooks_complete" in events
+
+    def test_failed_hooks_returned(self, tmp_path: Path) -> None:
+        """When hooks raise, their names appear in failed_hooks."""
+        with (
+            patch("dango.utils.post_sync._run_profiling", side_effect=RuntimeError("boom")),
+            patch("dango.utils.post_sync._enrich_staging_tests"),
+            patch("dango.utils.post_sync._run_pii_scan", side_effect=RuntimeError("pii fail")),
+            patch("dango.utils.post_sync._run_analysis"),
+            patch("dango.utils.post_sync._run_dbt_snapshots"),
+        ):
+            result = dispatch_post_sync_hooks(project_root=tmp_path, sources=["s1"])
+
+        assert "profiling" in result["failed_hooks"]
+        assert "pii_scan" in result["failed_hooks"]
+        assert len(result["failed_hooks"]) == 2
 
     def test_drift_detection_removed_from_post_sync(self, tmp_path: Path) -> None:
         """_run_drift_detection was removed (drift now runs pre-dbt in dlt_runner)."""

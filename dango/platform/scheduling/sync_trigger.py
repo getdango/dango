@@ -171,9 +171,9 @@ def run_manual_sync(
             "duration_seconds": duration,
             "error": error_msg,
         }
-    except Exception:
+    except Exception as e:
         # Non-OAuth errors during validation: continue (benefit of the doubt)
-        pass
+        logger.warning("pre_sync_validation_error", error=str(e), exc_info=True)
 
     # --- Lock acquisition with retry ---
     _progress("lock_waiting", "Waiting for lock")
@@ -334,10 +334,13 @@ def run_manual_sync(
             }
 
         record_completion(db_path, record_id)
-        _progress("completed", "Sync completed successfully", rows_loaded=rows_loaded)
+        # Always write phase="completed" so poll_sync_status_blocking recognises
+        # the terminal state.  The return dict carries the semantic status.
+        msg = "Data loaded (dbt deferred)" if skip_dbt else "Sync completed successfully"
+        _progress("completed", msg, rows_loaded=rows_loaded)
         return {
             "record_id": record_id,
-            "status": "success",
+            "status": "data_loaded" if skip_dbt else "success",
             "duration_seconds": duration,
             "rows_loaded": rows_loaded,
         }

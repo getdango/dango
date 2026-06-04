@@ -215,6 +215,7 @@ class TestRunScheduledSync:
                 f"{_SYNC_PROC_MOD}.poll_sync_status_blocking",
                 return_value=(False, {"error": "boom"}),
             ),
+            patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
             patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
             patch(f"{_JOBS_MOD}._notify"),
         ):
@@ -324,6 +325,90 @@ class TestRunScheduledSync:
 
         mock_pending.assert_not_called()
         mock_dbt.assert_not_called()
+
+    def test_dbt_failure_records_failure(self, tmp_path):
+        """When dbt fails after sync, record_failure is called instead of record_completion."""
+        config = _make_config_with_sources("src1")
+
+        with (
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=(MagicMock(), "test_id")
+            ),
+            patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
+            patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+            patch(f"{_JOBS_MOD}._notify"),
+            patch(f"{_JOBS_MOD}._add_pending_dbt_source"),
+            patch(f"{_JOBS_MOD}._run_coalesced_dbt", return_value=False),
+            patch(f"{_JOBS_MOD}._try_finish_record") as mock_finish,
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["src1"], project_root=str(tmp_path))
+
+        # Should call record_failure (not record_completion) when dbt fails
+        assert mock_finish.call_count == 1
+        call_args = mock_finish.call_args
+        assert call_args[0][3] == "record_failure"
+        assert "error" in call_args[1]
+
+        # Should broadcast sync_failed (not sync_completed)
+        events = [c.args[0]["event"] for c in mock_bc.call_args_list]
+        assert "sync_failed" in events
+        assert "sync_completed" not in events
+
+    def test_multi_source_continues_on_failure(self, tmp_path):
+        """When one source fails, remaining sources still sync.
+
+        Partial failure (some succeeded, some failed) records failure with the
+        failed source details.
+        """
+        config = _make_config_with_sources("src1", "src2")
+
+        call_count = [0]
+
+        def _poll_side_effect(*_a, **_kw):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return (False, {"error": "src1 boom"})
+            return (True, {"rows_loaded": 10})
+
+        with (
+            patch(f"{_NOTIF_MOD}.load_notification_config", return_value=None),
+            patch(f"{_NOTIF_MOD}.WebhookSender"),
+            patch(f"{_CFG_MOD}.load_config", return_value=config),
+            patch(
+                f"{_SYNC_PROC_MOD}.launch_sync_subprocess", return_value=(MagicMock(), "test_id")
+            ) as mock_launch,
+            patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", side_effect=_poll_side_effect),
+            patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
+            patch(f"{_JOBS_MOD}._broadcast") as mock_bc,
+            patch(f"{_JOBS_MOD}._notify"),
+            patch(f"{_JOBS_MOD}._add_pending_dbt_source") as mock_pending,
+            patch(f"{_JOBS_MOD}._run_coalesced_dbt", return_value=True),
+            patch(f"{_JOBS_MOD}._try_finish_record") as mock_finish,
+        ):
+            from dango.platform.scheduling.jobs import run_scheduled_sync
+
+            run_scheduled_sync("daily", ["src1", "src2"], project_root=str(tmp_path))
+
+        # Both sources should have been attempted
+        assert mock_launch.call_count == 2
+        # Only the successful source should add pending dbt
+        mock_pending.assert_called_once()
+
+        # Partial failure should record failure (not completion)
+        assert mock_finish.call_count == 1
+        assert mock_finish.call_args[0][3] == "record_failure"
+        assert "src1" in mock_finish.call_args[1]["error"]
+
+        # Should broadcast sync_failed (not sync_completed) due to partial failure
+        events = [c.args[0]["event"] for c in mock_bc.call_args_list]
+        assert "sync_failed" in events
+        assert "sync_completed" not in events
 
     def test_is_pickle_serializable(self):
         """Job function must be pickle-serializable (APScheduler requirement)."""

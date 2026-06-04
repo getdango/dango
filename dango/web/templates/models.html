@@ -4,6 +4,9 @@
 
 {% block content %}
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <!-- dbt build status banner (shown/hidden by WebSocket events) -->
+        <div id="dbt-build-banner" class="hidden mb-4 rounded-lg px-4 py-3 text-sm font-medium"></div>
+
         <!-- dbt Models -->
         <div class="bg-white rounded-lg shadow">
             <div class="px-6 py-4 border-b border-gray-200">

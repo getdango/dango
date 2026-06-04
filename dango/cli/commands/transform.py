@@ -113,7 +113,8 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
                 sync_metabase_schema,
             )
 
-            if refresh_metabase_connection(project_root):
+            mb_ok, _mb_err = refresh_metabase_connection(project_root)
+            if mb_ok:
                 console.print("[green]✓ Metabase connection refreshed[/green]")
                 # Also sync schema to discover new tables/schemas from dbt run
                 if sync_metabase_schema(project_root):

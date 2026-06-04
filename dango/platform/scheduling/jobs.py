@@ -361,10 +361,11 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
                 sync_metabase_schema,
             )
 
-            if refresh_metabase_connection(project_root):
+            mb_ok, _mb_err = refresh_metabase_connection(project_root)
+            if mb_ok:
                 sync_metabase_schema(project_root)
         except Exception:
-            logger.debug("metabase_refresh_after_coalesced_dbt_failed", exc_info=True)
+            logger.warning("metabase_refresh_after_coalesced_dbt_failed", exc_info=True)
     else:
         logger.error("coalesced_dbt_run_failed", sources=pending, select=select_criteria)
 
@@ -440,6 +441,8 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
 
         job_id = f"schedule:{schedule_name}"
         total_rows = 0
+        succeeded_sources: list[str] = []
+        failed_source_errors: dict[str, str] = {}
 
         # Sync each source in a subprocess with skip_dbt=True
         # (dbt coalesced after all sources)
@@ -468,7 +471,17 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 error_msg = (
                     _result.get("error", "Unknown error") if _result else "Subprocess failed"
                 )
-                raise RuntimeError(f"Sync failed for {src.name}: {error_msg}")
+                failed_source_errors[src.name] = error_msg
+                logger.warning(
+                    "scheduled_source_sync_failed",
+                    schedule=schedule_name,
+                    source=src.name,
+                    error=error_msg,
+                )
+                cleanup_sync_status(project_root, sync_id=sync_id)
+                continue
+
+            succeeded_sources.append(src.name)
 
             # Accumulate rows_loaded from subprocess result
             src_rows = 0
@@ -479,6 +492,45 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             if not skip_dbt:
                 _add_pending_dbt_source(project_root, src.name)
             cleanup_sync_status(project_root, sync_id=sync_id)
+
+        # If all sources failed, record failure and return early
+        if not succeeded_sources:
+            combined_error = "; ".join(f"{n}: {e}" for n, e in failed_source_errors.items())
+            elapsed = time.monotonic() - t0
+            _try_finish_record(
+                project_root, schedule_name, record_id, "record_failure", error=combined_error
+            )
+            _log_execution_event(
+                schedule_name=schedule_name,
+                job_type="sync",
+                status="failed",
+                duration_seconds=elapsed,
+                error=combined_error,
+                sources=source_names,
+            )
+            _broadcast(
+                {
+                    "event": "sync_failed",
+                    "schedule": schedule_name,
+                    "sources": source_names,
+                    "error": combined_error,
+                    "timestamp": _ts(),
+                }
+            )
+            _notify(
+                sender,
+                event_type=EventType.SYNC_FAILED,
+                schedule_name=schedule_name,
+                sources=source_names,
+                error=combined_error,
+                duration_seconds=round(elapsed, 2),
+            )
+            return
+
+        # Build combined error string for partial source failures
+        source_error: str | None = None
+        if failed_source_errors:
+            source_error = "; ".join(f"{n}: {e}" for n, e in failed_source_errors.items())
 
         # Run coalesced dbt (waits for coalesce window, merges pending sources)
         transform_error: str | None = None
@@ -511,36 +563,70 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
 
         dashboard_url = _build_dashboard_url(project_root)
 
-        _try_finish_record(project_root, schedule_name, record_id, "record_completion")
+        # Determine overall status: failed (dbt or partial), completed
+        overall_error: str | None = transform_error or source_error
+        if overall_error:
+            # Combine both errors when present
+            if transform_error and source_error:
+                overall_error = f"{source_error}; {transform_error}"
 
-        _log_execution_event(
-            schedule_name=schedule_name,
-            job_type="sync",
-            status="completed",
-            duration_seconds=elapsed,
-            error=transform_error,
-            sources=source_names,
-        )
-        _broadcast(
-            {
-                "event": "sync_completed",
-                "schedule": schedule_name,
-                "sources": source_names,
-                "duration_seconds": round(elapsed, 2),
-                "transform_error": transform_error,
-                "timestamp": _ts(),
-            }
-        )
-        _notify(
-            sender,
-            event_type=EventType.SYNC_COMPLETED,
-            schedule_name=schedule_name,
-            sources=source_names,
-            duration_seconds=round(elapsed, 2),
-            rows_loaded=total_rows,
-            dashboard_url=dashboard_url,
-        )
-        _check_freshness(project_root, schedule_name, source_names, sender)
+            _try_finish_record(
+                project_root, schedule_name, record_id, "record_failure", error=overall_error
+            )
+            _log_execution_event(
+                schedule_name=schedule_name,
+                job_type="sync",
+                status="failed",
+                duration_seconds=elapsed,
+                error=overall_error,
+                sources=source_names,
+            )
+            _broadcast(
+                {
+                    "event": "sync_failed",
+                    "schedule": schedule_name,
+                    "sources": source_names,
+                    "error": overall_error,
+                    "failed_sources": list(failed_source_errors.keys()),
+                    "timestamp": _ts(),
+                }
+            )
+            _notify(
+                sender,
+                event_type=EventType.SYNC_FAILED,
+                schedule_name=schedule_name,
+                sources=source_names,
+                error=overall_error,
+                duration_seconds=round(elapsed, 2),
+            )
+        else:
+            _try_finish_record(project_root, schedule_name, record_id, "record_completion")
+            _log_execution_event(
+                schedule_name=schedule_name,
+                job_type="sync",
+                status="completed",
+                duration_seconds=elapsed,
+                sources=source_names,
+            )
+            _broadcast(
+                {
+                    "event": "sync_completed",
+                    "schedule": schedule_name,
+                    "sources": source_names,
+                    "duration_seconds": round(elapsed, 2),
+                    "timestamp": _ts(),
+                }
+            )
+            _notify(
+                sender,
+                event_type=EventType.SYNC_COMPLETED,
+                schedule_name=schedule_name,
+                sources=source_names,
+                duration_seconds=round(elapsed, 2),
+                rows_loaded=total_rows,
+                dashboard_url=dashboard_url,
+            )
+            _check_freshness(project_root, schedule_name, source_names, sender)
 
     except JobTimeoutError:
         elapsed = time.monotonic() - t0

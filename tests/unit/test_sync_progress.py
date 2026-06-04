@@ -29,7 +29,7 @@ class TestProgressCallback:
 
     @patch(f"{_PATCH_POST_SYNC}.dispatch_post_sync_hooks")
     @patch(f"{_PATCH_VIZ}.sync_metabase_schema", return_value=True)
-    @patch(f"{_PATCH_VIZ}.refresh_metabase_connection", return_value=True)
+    @patch(f"{_PATCH_VIZ}.refresh_metabase_connection", return_value=(True, None))
     @patch(f"{_PATCH_TRANSFORM}.generate_dbt_docs", return_value=(True, ""))
     @patch(f"{_PATCH_TRANSFORM}.run_dbt_models", return_value=(True, ""))
     @patch(f"{_PATCH_GOVERNANCE}.detect_drift_for_sources", return_value=[])
