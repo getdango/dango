@@ -113,13 +113,14 @@ class SchedulerService:
         self._scheduler.add_listener(self._on_job_error, EVENT_JOB_ERROR)
         self._scheduler.add_listener(self._on_job_missed, EVENT_JOB_MISSED)
 
-        # Log missed jobs that will be recovered on start
-        self._log_missed_recovery()
-
         self._scheduler.start()
         self._started = True
 
         self._on_retry_callbacks.append(self._on_retry_event)
+
+        # Log missed jobs that will be recovered (must be after start()
+        # so APScheduler has loaded persisted jobs from the job store)
+        self._log_missed_recovery()
 
         # Load user-defined schedules from .dango/schedules.yml
         try:
@@ -128,10 +129,13 @@ class SchedulerService:
             config = load_schedules_config(self._project_root)
             if config.schedules:
                 result = reload_schedules(self, config.schedules, self._project_root)
+                loaded = len(result.added) + len(result.updated) + len(result.unchanged)
                 logger.info(
                     "schedules_loaded",
                     added=len(result.added),
-                    skipped_disabled=len(config.schedules) - len(result.added),
+                    updated=len(result.updated),
+                    unchanged=len(result.unchanged),
+                    skipped_disabled=len(config.schedules) - loaded,
                 )
         except Exception:  # noqa: BLE001
             logger.error("schedules_load_failed", exc_info=True)
@@ -450,23 +454,16 @@ class SchedulerService:
         )
 
     def _check_dual_scheduler(self) -> None:
-        """Warn if a cloud deployment exists while running locally.
-
-        Prevents confusion when both local and cloud schedulers are active.
-        """
+        """Warn if running on cloud server (local scheduler may also be active)."""
         try:
-            from dango.config.loader import ConfigLoader
+            from dango.config.helpers import is_running_on_cloud
 
-            loader = ConfigLoader(self._project_root)
-            cloud_cfg = loader.load_cloud_config()
-            if cloud_cfg is not None and cloud_cfg.droplet_ip is not None:
+            if is_running_on_cloud():
                 logger.warning(
                     "dual_scheduler_warning",
                     message=(
-                        "A cloud deployment is active (server="
-                        f"{cloud_cfg.droplet_ip}). Running a local scheduler "
-                        "alongside the cloud scheduler may cause duplicate job "
-                        "execution."
+                        "Running scheduler on cloud server. Ensure no local "
+                        "scheduler is also active to avoid duplicate job execution."
                     ),
                 )
         except Exception:  # noqa: BLE001

@@ -4,7 +4,7 @@ Tests for dango.config.schedules — models, validators, and cross-validation.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -290,14 +290,11 @@ class TestLogStartupChecks:
         from dango.config.schedules import ScheduleConfig, log_startup_checks
 
         scheds = [ScheduleConfig(name="s1", cron="daily", sources=["csv"])]
-        cloud_cfg = MagicMock()
-        cloud_cfg.droplet_ip = "1.2.3.4"
 
         with (
             patch(f"{_MOD}.logger") as mock_logger,
-            patch("dango.config.loader.ConfigLoader") as mock_loader_cls,
+            patch("dango.config.helpers.is_running_on_cloud", return_value=True),
         ):
-            mock_loader_cls.return_value.load_cloud_config.return_value = cloud_cfg
             log_startup_checks(scheds, {"csv"}, Path("/tmp/project"))
 
         mock_logger.warning.assert_called_once()
@@ -309,9 +306,8 @@ class TestLogStartupChecks:
         scheds = [ScheduleConfig(name="s1", cron="daily", sources=["csv"])]
         with (
             patch(f"{_MOD}.logger") as mock_logger,
-            patch("dango.config.loader.ConfigLoader") as mock_loader_cls,
+            patch("dango.config.helpers.is_running_on_cloud", return_value=False),
         ):
-            mock_loader_cls.return_value.load_cloud_config.return_value = None
             log_startup_checks(scheds, {"csv"}, Path("/tmp/project"))
 
         info_calls = mock_logger.info.call_args_list

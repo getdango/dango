@@ -127,13 +127,26 @@ class TestReloadSchedules:
     """Test reload_schedules() diff and apply logic."""
 
     def _make_scheduler(self, existing_jobs=None):
-        """Create a mock SchedulerService with optional existing jobs."""
+        """Create a mock SchedulerService with optional existing jobs.
+
+        *existing_jobs* can be a list of job ID strings (trigger defaults
+        to a ``0 6 * * *`` cron) or a list of ``(job_id, cron_expr)``
+        tuples for explicit trigger control.
+        """
+        from apscheduler.triggers.cron import CronTrigger
+
         scheduler = MagicMock()
         jobs = []
         if existing_jobs:
-            for job_id in existing_jobs:
+            for entry in existing_jobs:
+                if isinstance(entry, tuple):
+                    job_id, cron_expr = entry
+                else:
+                    job_id = entry
+                    cron_expr = "0 6 * * *"
                 job = MagicMock()
                 job.id = job_id
+                job.trigger = CronTrigger.from_crontab(cron_expr)
                 jobs.append(job)
         scheduler.get_jobs.return_value = jobs
         return scheduler
@@ -159,7 +172,8 @@ class TestReloadSchedules:
         assert "old_job" in result.removed
         scheduler.remove_job.assert_called_once_with("schedule:old_job")
 
-    def test_update_existing_job(self):
+    def test_unchanged_trigger_preserves_job(self):
+        """Job with same trigger is left in place (preserves next_run_time)."""
         from dango.config.schedules import ScheduleConfig, reload_schedules
 
         scheduler = self._make_scheduler(existing_jobs=["schedule:my_sync"])
@@ -167,8 +181,35 @@ class TestReloadSchedules:
 
         result = reload_schedules(scheduler, scheds, Path("/tmp/project"))
 
+        assert "my_sync" in result.unchanged
+        scheduler.remove_job.assert_not_called()
+        scheduler.add_job.assert_not_called()
+
+    def test_changed_trigger_updates_job(self):
+        """Job with different trigger is removed and re-added."""
+        from dango.config.schedules import ScheduleConfig, reload_schedules
+
+        scheduler = self._make_scheduler(existing_jobs=[("schedule:my_sync", "0 6 * * *")])
+        scheds = [ScheduleConfig(name="my_sync", cron="0 12 * * *", sources=["csv"])]
+
+        result = reload_schedules(scheduler, scheds, Path("/tmp/project"))
+
         assert "my_sync" in result.updated
-        # remove + re-add for update
+        scheduler.remove_job.assert_called_with("schedule:my_sync")
+        scheduler.add_job.assert_called_once()
+
+    def test_changed_timezone_updates_job(self):
+        """Job with same cron but different timezone is removed and re-added."""
+        from dango.config.schedules import ScheduleConfig, reload_schedules
+
+        scheduler = self._make_scheduler(existing_jobs=[("schedule:my_sync", "0 6 * * *")])
+        scheds = [
+            ScheduleConfig(name="my_sync", cron="0 6 * * *", sources=["csv"], timezone="US/Eastern")
+        ]
+
+        result = reload_schedules(scheduler, scheds, Path("/tmp/project"))
+
+        assert "my_sync" in result.updated
         scheduler.remove_job.assert_called_with("schedule:my_sync")
         scheduler.add_job.assert_called_once()
 

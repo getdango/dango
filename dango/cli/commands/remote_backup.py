@@ -380,19 +380,28 @@ def backup_download(ctx: click.Context, name: str, output: str | None) -> None:
 @backup_group.command("restore")
 @click.argument("source")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
+@click.option(
+    "--from-local", is_flag=True, help="Restore from a local backup file instead of Spaces."
+)
 @click.pass_context
-def backup_restore(ctx: click.Context, source: str, yes: bool) -> None:
-    """Restore the server from a Spaces backup.
+def backup_restore(ctx: click.Context, source: str, yes: bool, from_local: bool) -> None:
+    """Restore the server from a Spaces or local backup.
 
-    SOURCE is the backup name (e.g. ``backup-20260224-143000.tar.gz``).
+    SOURCE is the backup name (e.g. ``backup-20260224-143000.tar.gz``)
+    or a local file path when using ``--from-local``.
 
     This downloads the backup to the server, then restores it.  Current
     data will be overwritten.
 
     Examples:
       dango remote backup restore backup-20260224-143000.tar.gz
+      dango remote backup restore ./my-backup.tar.gz --from-local
     """
     from rich.status import Status
+
+    if from_local:
+        _backup_restore_from_local(ctx, source, yes)
+        return
 
     if not yes:
         if not safe_confirm(
@@ -447,6 +456,64 @@ def backup_restore(ctx: click.Context, source: str, yes: bool) -> None:
         console.print(f"[red]Error:[/red] {exc}")
         raise SystemExit(1) from exc
     finally:
+        ssh.disconnect()
+
+
+def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> None:
+    """Restore from a local backup file by uploading it to the server."""
+    from rich.status import Status
+
+    local_path = Path(source).resolve()
+    if not local_path.is_file():
+        console.print(f"[red]Error:[/red] Local file not found: {local_path}")
+        raise SystemExit(1)
+
+    if not local_path.name.endswith(".tar.gz"):
+        console.print("[red]Error:[/red] Backup file must be a .tar.gz archive.")
+        raise SystemExit(1)
+
+    if not yes:
+        if not safe_confirm(
+            f"This will upload '{local_path.name}' and restore the server from it. "
+            "Current data will be overwritten. Continue?"
+        ):
+            console.print("[yellow]Restore cancelled.[/yellow]")
+            return
+
+    cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
+    remote_tmp = f"/tmp/{local_path.name}"
+
+    try:
+        with Status(f"[bold blue]Uploading {local_path.name}...", console=console):
+            ssh.upload_file(local_path, remote_tmp)
+
+        console.print(f"[green]Uploaded.[/green] Restoring from {local_path.name}...")
+
+        from dango.platform.cloud.backup import restore_from_archive
+
+        with Status("[bold blue]Restoring from backup...", console=console):
+            result = restore_from_archive(ssh, remote_tmp)
+
+        if result.health_check_passed:
+            console.print(f"[green]Restore complete.[/green] Restored from: {local_path.name}")
+        else:
+            console.print(
+                f"[yellow]Restore finished[/yellow] from {local_path.name}, "
+                "but health check did not pass. Check 'dango remote status'."
+            )
+            for w in result.warnings:
+                console.print(f"  [yellow]Warning:[/yellow] {w}")
+    except SystemExit:
+        raise
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(1) from exc
+    finally:
+        # Clean up remote temp file (best-effort — SSH may already be dead)
+        try:
+            ssh.exec_command(f"rm -f {remote_tmp}")
+        except Exception:  # noqa: BLE001
+            pass
         ssh.disconnect()
 
 

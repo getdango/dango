@@ -271,8 +271,12 @@ def _get_sync_history(ssh: Any) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def check_latest_pypi_version() -> str | None:
+def check_latest_pypi_version(*, include_pre: bool = False) -> str | None:
     """Check the latest ``getdango`` version on PyPI.
+
+    Args:
+        include_pre: If ``True``, include pre-release versions (alpha, beta, rc).
+            When ``False`` (default), returns the latest stable version only.
 
     Returns the version string (e.g. ``"1.0.0"``) or ``None`` on any failure
     (network error, timeout, unexpected response format).
@@ -290,6 +294,14 @@ def check_latest_pypi_version() -> str | None:
         )
         if response.status_code == 200:
             data: dict[str, Any] = response.json()
+            if include_pre:
+                from packaging.version import Version
+
+                releases = data.get("releases", {})
+                versions = [v for v in releases if releases[v]]
+                if versions:
+                    return str(max(versions, key=Version))
+                # Fall through to stable version if no releases found
             version: str | None = data.get("info", {}).get("version")
             return version
     except Exception:  # noqa: BLE001 — intentionally broad for resilience

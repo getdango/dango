@@ -426,20 +426,14 @@ class TestSchedulerServiceCoroutineBridge:
 
 @pytest.mark.unit
 class TestSchedulerServiceCloudWarning:
-    """Test dual-scheduler cloud detection."""
+    """Test dual-scheduler cloud detection (uses is_running_on_cloud env var)."""
 
     def test_cloud_warning_logged(self, tmp_path):
-        """Warning should be logged if cloud config has a droplet_ip."""
+        """Warning should be logged when running on cloud server."""
         svc = _make_service(tmp_path)
 
-        cloud_cfg = MagicMock()
-        cloud_cfg.droplet_ip = "1.2.3.4"
-
-        mock_loader = MagicMock()
-        mock_loader.return_value.load_cloud_config.return_value = cloud_cfg
-
         with (
-            patch("dango.config.loader.ConfigLoader", mock_loader),
+            patch("dango.config.helpers.is_running_on_cloud", return_value=True),
             patch(f"{_SCHEDULER_MOD}.logger") as mock_logger,
         ):
             svc._check_dual_scheduler()
@@ -448,33 +442,12 @@ class TestSchedulerServiceCloudWarning:
         call_args = mock_logger.warning.call_args
         assert call_args[0][0] == "dual_scheduler_warning"
 
-    def test_no_cloud_warning_when_no_deployment(self, tmp_path):
-        """No warning when cloud config has no droplet_ip."""
+    def test_no_cloud_warning_when_not_on_cloud(self, tmp_path):
+        """No warning when not running on cloud server."""
         svc = _make_service(tmp_path)
 
-        cloud_cfg = MagicMock()
-        cloud_cfg.droplet_ip = None
-
-        mock_loader = MagicMock()
-        mock_loader.return_value.load_cloud_config.return_value = cloud_cfg
-
         with (
-            patch("dango.config.loader.ConfigLoader", mock_loader),
-            patch(f"{_SCHEDULER_MOD}.logger") as mock_logger,
-        ):
-            svc._check_dual_scheduler()
-
-        mock_logger.warning.assert_not_called()
-
-    def test_no_cloud_warning_when_no_config(self, tmp_path):
-        """No warning when cloud config doesn't exist."""
-        svc = _make_service(tmp_path)
-
-        mock_loader = MagicMock()
-        mock_loader.return_value.load_cloud_config.return_value = None
-
-        with (
-            patch("dango.config.loader.ConfigLoader", mock_loader),
+            patch("dango.config.helpers.is_running_on_cloud", return_value=False),
             patch(f"{_SCHEDULER_MOD}.logger") as mock_logger,
         ):
             svc._check_dual_scheduler()

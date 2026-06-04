@@ -106,6 +106,28 @@ def _get_next_runs(cron_expr: str, count: int = 3) -> list[str]:
         return []
 
 
+def _query_scheduler_api(project_root: Path) -> dict[str, Any] | None:
+    """Query the running web server for scheduler status.
+
+    Returns the scheduler dict from ``/api/health/platform`` or ``None``
+    if the server is not reachable.
+    """
+    try:
+        import httpx
+
+        from dango.config.loader import ConfigLoader
+
+        config = ConfigLoader(project_root).load_config()
+        port = config.platform.port
+        resp = httpx.get(f"http://localhost:{port}/api/health/platform", timeout=3.0)
+        if resp.status_code == 200:
+            data: dict[str, Any] = resp.json()
+            return data.get("scheduler")
+    except Exception:  # noqa: BLE001
+        logger.debug("scheduler_api_query_failed", exc_info=True)
+    return None
+
+
 def _get_local_timezone() -> str:
     """Return the local IANA timezone name (e.g., 'America/New_York').
 
@@ -451,6 +473,13 @@ def _show_schedule_detail(project_root: Path, schedules: list[dict[str, Any]], n
     if sched.get("notify_on"):
         console.print(f"  Notify:   {', '.join(sched['notify_on'])}")
 
+    # Scheduler loaded state
+    sched_api = _query_scheduler_api(project_root)
+    if sched_api is not None and sched_api.get("running"):
+        console.print("  Loaded:   [green]yes[/green] (scheduler running)")
+    elif sched_api is not None:
+        console.print("  Loaded:   [red]no[/red] (scheduler not running)")
+
     # Next run
     if enabled:
         console.print(f"  Next run: {_get_next_run(sched.get('cron', ''))}")
@@ -576,6 +605,18 @@ def schedule_status(ctx: click.Context, name: str | None = None) -> None:
             console.print(f"[yellow]Warning:[/yellow] {w}")
     except Exception:
         logger.debug("schedule_validation_failed")
+
+    # 5. Scheduler loaded state (query running web server)
+    sched_api = _query_scheduler_api(project_root)
+    if sched_api is not None:
+        if sched_api.get("running"):
+            yaml_enabled = sum(1 for s in schedules if s.get("enabled", True))
+            console.print(
+                f"[bold]Scheduler:[/bold] [green]running[/green] "
+                f"({yaml_enabled} schedule(s) enabled)"
+            )
+        else:
+            console.print("[bold]Scheduler:[/bold] [red]not running[/red]")
 
 
 # ---------------------------------------------------------------------------

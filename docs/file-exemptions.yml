@@ -128,6 +128,18 @@ exemptions:
     reason: "R6F: Schedule wizard expanded with time customization (BUG-039), per-schedule status (BUG-041), type labels (BUG-037), auto-select (BUG-038), webhook check (BUG-040). R12-G added wizard name validation loop, checkbox hint. R12-N2 added sync_only option. Sequential wizard flow doesn't benefit from splitting."
     review_by: "v1.1"
 
+  - file: dango/config/schedules.py
+    lines: 506
+    category: exempt
+    reason: "R2-D13b: Added trigger comparison in reload_schedules() to preserve missed job state on restart."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/remote_backup.py
+    lines: 518
+    category: exempt
+    reason: "R2-D10: Added --from-local flag + _backup_restore_from_local helper for restoring from local backup files."
+    review_by: "v1.1"
+
   - file: dango/platform/cloud/deployer.py
     lines: 613
     category: exempt

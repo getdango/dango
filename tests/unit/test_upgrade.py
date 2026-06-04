@@ -48,18 +48,22 @@ class TestValidateVersionString:
         validate_version_string("1.0.0")
         validate_version_string("0.1.1")
         validate_version_string("99.88.77")
+        # PEP 440 pre-release versions
+        validate_version_string("1.0.0b4")
+        validate_version_string("1.0.0rc1")
+        validate_version_string("1.0.0a1")
+        # PEP 440 shorthand (e.g. "1.0" normalizes to "1.0")
+        validate_version_string("1.0")
+        validate_version_string("v1.0.0")
 
     def test_invalid_versions(self) -> None:
         from dango.platform.cloud.upgrade import validate_version_string
 
         with pytest.raises(CloudError, match="Invalid version string"):
-            validate_version_string("1.0")
+            validate_version_string("not-a-version")
 
         with pytest.raises(CloudError, match="Invalid version string"):
-            validate_version_string("v1.0.0")
-
-        with pytest.raises(CloudError, match="Invalid version string"):
-            validate_version_string("1.0.0-beta")
+            validate_version_string("abc")
 
     def test_injection_attempts(self) -> None:
         from dango.platform.cloud.upgrade import validate_version_string
@@ -153,6 +157,91 @@ class TestUpgradeDango:
         assert result.old_version == "1.0.0"
         cmds = [c[0][0] for c in ssh.exec_command.call_args_list]
         assert any("getdango==1.2.0" in cmd for cmd in cmds)
+
+    def test_upgrade_from_prerelease_uses_pre_flag(self) -> None:
+        """When current version is pre-release, pip install should include --pre."""
+        from dango.platform.cloud.upgrade import upgrade_dango
+
+        ssh = _make_ssh_mock(
+            exec_results={
+                "import dango": ("1.0.0b3", "", 0),
+                "pip install": ("", "", 0),
+                "apply_all_pending": ("", "", 0),
+                "docker compose": ("", "", 0),
+                "curl -sf": ("ok", "", 0),
+                "systemctl": ("", "", 0),
+            }
+        )
+
+        backup_result = MagicMock()
+        backup_result.archive_path = "/srv/dango/backups/deploy/backup-test.tar.gz"
+
+        with (
+            patch(_PATCH_PYPI, return_value="1.0.0b4"),
+            patch(_PATCH_BACKUP, return_value=backup_result),
+        ):
+            result = upgrade_dango(ssh)
+
+        assert result.old_version == "1.0.0b3"
+        pip_cmds = [c[0][0] for c in ssh.exec_command.call_args_list if "pip install" in c[0][0]]
+        assert len(pip_cmds) == 1
+        assert "--pre" in pip_cmds[0]
+
+    def test_upgrade_to_prerelease_version_uses_pre_flag(self) -> None:
+        """When target version is pre-release, pip install should include --pre."""
+        from dango.platform.cloud.upgrade import upgrade_dango
+
+        ssh = _make_ssh_mock(
+            exec_results={
+                "import dango": ("1.0.0", "", 0),
+                "pip install": ("", "", 0),
+                "apply_all_pending": ("", "", 0),
+                "docker compose": ("", "", 0),
+                "curl -sf": ("ok", "", 0),
+                "systemctl": ("", "", 0),
+            }
+        )
+
+        backup_result = MagicMock()
+        backup_result.archive_path = "/srv/dango/backups/deploy/backup-test.tar.gz"
+
+        with patch(_PATCH_BACKUP, return_value=backup_result):
+            result = upgrade_dango(ssh, version="1.1.0rc1")
+
+        assert result.old_version == "1.0.0"
+        pip_cmds = [c[0][0] for c in ssh.exec_command.call_args_list if "pip install" in c[0][0]]
+        assert len(pip_cmds) == 1
+        assert "--pre" in pip_cmds[0]
+        assert "getdango==1.1.0rc1" in pip_cmds[0]
+
+    def test_upgrade_stable_no_pre_flag(self) -> None:
+        """When both versions are stable, pip install should NOT include --pre."""
+        from dango.platform.cloud.upgrade import upgrade_dango
+
+        ssh = _make_ssh_mock(
+            exec_results={
+                "import dango": ("1.0.0", "", 0),
+                "pip install": ("", "", 0),
+                "apply_all_pending": ("", "", 0),
+                "docker compose": ("", "", 0),
+                "curl -sf": ("ok", "", 0),
+                "systemctl": ("", "", 0),
+            }
+        )
+
+        backup_result = MagicMock()
+        backup_result.archive_path = "/srv/dango/backups/deploy/backup-test.tar.gz"
+
+        with (
+            patch(_PATCH_PYPI, return_value="1.1.0"),
+            patch(_PATCH_BACKUP, return_value=backup_result),
+        ):
+            result = upgrade_dango(ssh)
+
+        assert result.old_version == "1.0.0"
+        pip_cmds = [c[0][0] for c in ssh.exec_command.call_args_list if "pip install" in c[0][0]]
+        assert len(pip_cmds) == 1
+        assert "--pre" not in pip_cmds[0]
 
     def test_already_at_target_version(self) -> None:
         from dango.platform.cloud.upgrade import upgrade_dango

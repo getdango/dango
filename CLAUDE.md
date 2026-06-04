@@ -99,7 +99,7 @@ dango/                          # Python package source
 │   │   ├── remote.py           # remote group + push/rollback/firewall/domain (702 lines)
 │   │   ├── remote_env.py       # remote env subgroup (set/get/list/delete)
 │   │   ├── remote_ops.py       # remote upgrade/resize/migrate
-│   │   ├── remote_backup.py    # remote backup subgroup
+│   │   ├── remote_backup.py    # remote backup subgroup (518 lines)
 │   │   ├── remote_auth.py      # remote auth subgroup (add-user/list-users/remove-user/reset-password)
 │   │   ├── remote_repair.py    # remote repair/reset-metabase
 │   │   ├── remote_mgmt.py      # remote status/logs/ssh/query/history
@@ -351,6 +351,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `ingestion/csv_loader.py` | 922 | — |
 | `platform/scheduling/jobs.py` | 849 | — (module-level job functions) |
 | `utils/post_sync.py` | 762 | — (post-sync hooks + sync notification) |
+| `config/schedules.py` | 506 | — (R2-D13b: trigger comparison in reload) |
 | `web/routes/schedules.py` | 519 | — (schedule read-only, history, trigger, notifications) |
 | `web/routes/notebooks.py` | 574 | — (notebook management API + heartbeat lock expiry + WS notify) |
 | `web/routes/upload.py` | 713 | — (extracted from app.py by TASK-085) |
@@ -375,6 +376,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `platform/local/watcher.py` | 524 | — |
 | `cli/commands/schedule.py` | 776 | — (schedule wizard + time customization) |
 | `cli/model_wizard.py` | 507 | — |
+| `cli/commands/remote_backup.py` | 518 | — (R2-D10: --from-local flag) |
 | `platform/cloud/scheduled_backup.py` | 508 | — (server-side scheduled backup) |
 | `governance/schema_drift.py` | 654 | — (R9-D: breaking drift protection + accept flow) |
 | `governance/pii_detector.py` | 623 | — (BUG-027/BUG-133/BUG-139/BUG-185: spaCy fallback + PERSON threshold + override application + structured data heuristic) |

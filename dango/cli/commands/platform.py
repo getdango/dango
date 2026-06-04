@@ -201,13 +201,6 @@ def start(ctx: click.Context, yes: bool) -> None:
         project_name = config.project.name
         platform_config = config.platform
 
-        # Informational note if project is also deployed to cloud
-        cloud_cfg = config_loader.load_cloud_config()
-        if cloud_cfg and cloud_cfg.droplet_ip:
-            target = cloud_cfg.domain or cloud_cfg.droplet_ip
-            console.print(f"  \u2139 Also deployed to {target}. Local and cloud are independent.")
-            console.print()
-
         # Version alignment check — abort early if Python DuckDB ≠ driver major.minor
         # Must run BEFORE any DuckDB write operations (migrations, schema setup)
         # because write mode auto-migrates the file format irreversibly.
@@ -945,9 +938,9 @@ def status(ctx: click.Context) -> None:
                 table.add_row("File Watcher (auto-sync)", "[dim]● Disabled[/dim]")
 
         # Add Web UI / FastAPI — BUG-243: cloud uses systemd, local uses PID file
-        from dango.config.helpers import is_cloud_mode
+        from dango.config.helpers import is_running_on_cloud
 
-        cloud_mode = is_cloud_mode(project_root)
+        cloud_mode = is_running_on_cloud()
         if cloud_mode:
             import subprocess
 

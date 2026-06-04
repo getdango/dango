@@ -366,7 +366,7 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
         except Exception:
             logger.debug("metabase_refresh_after_coalesced_dbt_failed", exc_info=True)
     else:
-        logger.warning("coalesced_dbt_run_failed", sources=pending, select=select_criteria)
+        logger.error("coalesced_dbt_run_failed", sources=pending, select=select_criteria)
 
     return dbt_success
 
@@ -481,19 +481,31 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             cleanup_sync_status(project_root, sync_id=sync_id)
 
         # Run coalesced dbt (waits for coalesce window, merges pending sources)
+        transform_error: str | None = None
         if not skip_dbt:
             dbt_ok = _run_coalesced_dbt(project_root)
 
             if not dbt_ok:
+                transform_error = "Coalesced dbt run failed after sync"
                 _broadcast(
                     {
                         "event": "dbt_run_all_failed",
                         "schedule": schedule_name,
                         "sources": source_names,
-                        "message": "Coalesced dbt run failed after sync",
+                        "message": transform_error,
                         "timestamp": _ts(),
                     }
                 )
+                # Record transform_error in sync history (mirrors dlt_runner behavior)
+                try:
+                    from dango.utils.sync_history import update_last_sync_entry
+
+                    for src_name in source_names:
+                        update_last_sync_entry(
+                            project_root, src_name, {"transform_error": transform_error}
+                        )
+                except Exception:  # noqa: BLE001
+                    logger.debug("transform_error_history_update_failed", exc_info=True)
 
         elapsed = time.monotonic() - t0
 
@@ -506,6 +518,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             job_type="sync",
             status="completed",
             duration_seconds=elapsed,
+            error=transform_error,
             sources=source_names,
         )
         _broadcast(
@@ -514,6 +527,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 "schedule": schedule_name,
                 "sources": source_names,
                 "duration_seconds": round(elapsed, 2),
+                "transform_error": transform_error,
                 "timestamp": _ts(),
             }
         )

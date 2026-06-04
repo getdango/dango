@@ -658,7 +658,7 @@ def sync(
     """
     from datetime import datetime, timedelta
 
-    from dango.config import ConfigLoader, get_config
+    from dango.config import get_config
     from dango.ingestion import run_sync
     from dango.utils import DbtLock, DbtLockError
 
@@ -679,14 +679,6 @@ def sync(
     try:
         # Get project context
         project_root = require_project_context(ctx)
-
-        # Informational note if project is also deployed to cloud
-        cloud_cfg = ConfigLoader(project_root).load_cloud_config()
-        if cloud_cfg and cloud_cfg.droplet_ip:
-            console.print(
-                "  \u2139 Syncing locally. Use `dango remote sync <source>` to sync on cloud."
-            )
-            console.print()
 
         # --- Validate option conflicts (before lock — fast failures) ---
         if backfill and (since or until):

@@ -9,7 +9,6 @@ require an already-connected ``SSHManager`` (as root).
 
 from __future__ import annotations
 
-import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -20,7 +19,6 @@ from dango.exceptions import CloudError, CloudProvisioningError
 if TYPE_CHECKING:
     from dango.platform.cloud.ssh import SSHManager
 
-_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 _VENV_PIP = "/srv/dango/venv/bin/pip"
 _VENV_PYTHON = "/srv/dango/venv/bin/python"
 _PROJECT_DIR = "/srv/dango/project"
@@ -41,16 +39,21 @@ class UpgradeResult:
 
 
 def validate_version_string(version: str) -> None:
-    """Validate a version string against the ``X.Y.Z`` semver pattern.
+    """Validate a version string is PEP 440 compliant.
 
     Raises:
-        CloudError: If *version* does not match ``^\\d+\\.\\d+\\.\\d+$``.
+        CloudError: If *version* is not a valid PEP 440 version.
     """
-    if not _VERSION_PATTERN.match(version):
+    from packaging.version import InvalidVersion, Version
+
+    try:
+        Version(version)
+    except InvalidVersion:
         raise CloudError(
-            f"Invalid version string: {version!r}. Expected format: X.Y.Z (e.g. 1.2.3).",
+            f"Invalid version string: {version!r}. "
+            "Expected a PEP 440 version (e.g. 1.0.0, 1.0.0b4, 1.0.0rc1).",
             error_code="DANGO-D020",
-        )
+        ) from None
 
 
 def check_versions(ssh: SSHManager) -> tuple[str | None, str | None]:
@@ -133,12 +136,17 @@ def upgrade_dango(
     _notify(on_progress, "check_version", "done")
 
     # 2. Determine target version
+    from packaging.version import Version as _Version
+
+    _is_pre = old_version is not None and _Version(old_version).is_prerelease
     if version is not None:
         validate_version_string(version)
         target_version = version
+        if _Version(version).is_prerelease:
+            _is_pre = True
     else:
         _notify(on_progress, "check_pypi", "running")
-        latest = check_latest_pypi_version()
+        latest = check_latest_pypi_version(include_pre=_is_pre)
         _notify(on_progress, "check_pypi", "done")
         if latest is None:
             raise CloudError(
@@ -183,10 +191,11 @@ def upgrade_dango(
     try:
         # 6. pip install
         _notify(on_progress, "pip_install", "running")
+        pre_flag = "--pre " if _is_pre else ""
         if version is not None:
-            pip_cmd = f"{_VENV_PIP} install getdango=={target_version}"
+            pip_cmd = f"{_VENV_PIP} install {pre_flag}getdango=={target_version}"
         else:
-            pip_cmd = f"{_VENV_PIP} install --upgrade getdango"
+            pip_cmd = f"{_VENV_PIP} install {pre_flag}--upgrade getdango"
         _run_checked(ssh, pip_cmd, step="pip_install", timeout=300)
         _notify(on_progress, "pip_install", "done")
 
@@ -197,7 +206,10 @@ def upgrade_dango(
         _notify(on_progress, "migrations", "running")
         migrations_run = False
         migrate_result = ssh.exec_command(
-            f"sudo -u dango {_VENV_PYTHON} -m dango.migrations run 2>&1",
+            f'sudo -u dango {_VENV_PYTHON} -c "'
+            "from pathlib import Path; "
+            "from dango.migrations import apply_all_pending; "
+            f"apply_all_pending(Path('{_PROJECT_DIR}'))\" 2>&1",
             timeout=120,
         )
         if migrate_result.success:
