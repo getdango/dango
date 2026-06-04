@@ -171,9 +171,9 @@ def run_manual_sync(
             "duration_seconds": duration,
             "error": error_msg,
         }
-    except Exception:
+    except Exception as e:
         # Non-OAuth errors during validation: continue (benefit of the doubt)
-        pass
+        logger.warning("pre_sync_validation_error", error=str(e), exc_info=True)
 
     # --- Lock acquisition with retry ---
     _progress("lock_waiting", "Waiting for lock")
@@ -334,10 +334,13 @@ def run_manual_sync(
             }
 
         record_completion(db_path, record_id)
-        _progress("completed", "Sync completed successfully", rows_loaded=rows_loaded)
+        if skip_dbt:
+            _progress("data_loaded", "Data loaded (dbt deferred)", rows_loaded=rows_loaded)
+        else:
+            _progress("completed", "Sync completed successfully", rows_loaded=rows_loaded)
         return {
             "record_id": record_id,
-            "status": "success",
+            "status": "data_loaded" if skip_dbt else "success",
             "duration_seconds": duration,
             "rows_loaded": rows_loaded,
         }

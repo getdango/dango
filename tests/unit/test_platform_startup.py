@@ -586,7 +586,7 @@ class TestRefreshMetabaseConnection:
 
         restart_call = mock_subprocess_run.call_args_list[1]
         assert restart_call[0][0] == ["docker", "restart", "dango-abc123-metabase-1"]
-        assert result is True
+        assert result == (True, None)
 
     def test_returns_false_when_container_not_running(self, tmp_path: Path) -> None:
         """Returns False when the Metabase container is not found."""
@@ -600,7 +600,8 @@ class TestRefreshMetabaseConnection:
             patch("subprocess.run", return_value=MagicMock(stdout="", returncode=0)),
         ):
             result = refresh_metabase_connection(tmp_path)
-        assert result is False
+        assert result[0] is False
+        assert result[1] == "Metabase container not running"
 
 
 @pytest.mark.unit

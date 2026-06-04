@@ -219,7 +219,7 @@ class TestRunManualSync:
 
         result = run_manual_sync(tmp_path, sources=["src1"], skip_dbt=True)
 
-        assert result["status"] == "success"
+        assert result["status"] == "data_loaded"
         call_kwargs = mock_sync.call_args[1]
         assert call_kwargs["skip_dbt"] is True
         # Verify progress_callback is always passed
@@ -383,6 +383,122 @@ class TestRunManualSync:
 
         assert result["status"] == "success"
         assert attempts[0] == 3
+
+
+@pytest.mark.unit
+class TestDataLoadedPhase:
+    """Tests for data_loaded phase when skip_dbt=True."""
+
+    @patch(
+        f"{_PATCH_INGESTION}.run_sync",
+        return_value={"results": [{"rows_loaded": 5}], "failed_count": 0},
+    )
+    @patch(f"{_PATCH_CONFIG}.load_config")
+    @patch(f"{_PATCH_UTILS}.DbtLock")
+    @patch(f"{_PATCH_HISTORY}.record_completion")
+    @patch(f"{_PATCH_HISTORY}.record_start", return_value=20)
+    @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
+    @patch(f"{_PATCH_OAUTH}.validate_before_sync")
+    def test_skip_dbt_returns_data_loaded_status(
+        self,
+        mock_oauth,
+        mock_db_path,
+        mock_start,
+        mock_complete,
+        mock_lock_cls,
+        mock_config,
+        mock_sync,
+        tmp_path,
+    ):
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+
+        mock_config.return_value = _make_config(["src1"])
+
+        result = run_manual_sync(tmp_path, sources=["src1"], skip_dbt=True)
+
+        assert result["status"] == "data_loaded"
+        mock_complete.assert_called_once()
+
+    @patch(
+        f"{_PATCH_INGESTION}.run_sync",
+        return_value={"results": [{"rows_loaded": 5}], "failed_count": 0},
+    )
+    @patch(f"{_PATCH_CONFIG}.load_config")
+    @patch(f"{_PATCH_UTILS}.DbtLock")
+    @patch(f"{_PATCH_HISTORY}.record_completion")
+    @patch(f"{_PATCH_HISTORY}.record_start", return_value=21)
+    @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
+    @patch(f"{_PATCH_OAUTH}.validate_before_sync")
+    def test_skip_dbt_writes_data_loaded_progress(
+        self,
+        mock_oauth,
+        mock_db_path,
+        mock_start,
+        mock_complete,
+        mock_lock_cls,
+        mock_config,
+        mock_sync,
+        tmp_path,
+    ):
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+
+        mock_config.return_value = _make_config(["src1"])
+
+        result = run_manual_sync(
+            tmp_path,
+            sources=["src1"],
+            skip_dbt=True,
+            write_progress=True,
+            sync_id="dl1",
+        )
+
+        assert result["status"] == "data_loaded"
+        status_file = tmp_path / ".dango" / "state" / "sync_status_dl1.json"
+        assert status_file.exists()
+        data = json.loads(status_file.read_text())
+        assert data["phase"] == "data_loaded"
+
+
+@pytest.mark.unit
+class TestValidationErrorLogging:
+    """Tests for logging of non-OAuth validation errors."""
+
+    @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
+    @patch(f"{_PATCH_CONFIG}.load_config")
+    @patch(f"{_PATCH_UTILS}.DbtLock")
+    @patch(f"{_PATCH_HISTORY}.record_completion")
+    @patch(f"{_PATCH_HISTORY}.record_start", return_value=30)
+    @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
+    def test_non_oauth_validation_error_logged(
+        self,
+        mock_db_path,
+        mock_start,
+        mock_complete,
+        mock_lock_cls,
+        mock_config,
+        mock_sync,
+        tmp_path,
+    ):
+        """Non-OAuth validation errors should be logged but not fail the sync."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+
+        mock_config.return_value = _make_config(["src1"])
+
+        with (
+            patch(
+                f"{_PATCH_OAUTH}.validate_before_sync",
+                side_effect=RuntimeError("validation boom"),
+            ),
+            patch(f"{_PATCH_HISTORY}.logger") as mock_logger,
+        ):
+            result = run_manual_sync(tmp_path, sources=["src1"])
+
+        # Should succeed (validation error is non-fatal)
+        assert result["status"] == "success"
+        # But should have logged the warning
+        mock_logger.warning.assert_called()
+        warning_events = [c[0][0] for c in mock_logger.warning.call_args_list]
+        assert "pre_sync_validation_error" in warning_events
 
 
 @pytest.mark.unit

@@ -657,7 +657,7 @@ def start(ctx: click.Context, yes: bool) -> None:
         console.print("[dim]Waiting for services to be ready...[/dim]")
 
         # Wait for both FastAPI and Metabase to be ready
-        max_wait = 15
+        max_wait = 45
         fastapi_ready = False
         metabase_ready = False
 

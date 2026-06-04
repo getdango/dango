@@ -320,7 +320,7 @@ def dispatch_post_sync_hooks(
     sync_result: dict[str, Any] | None = None,
     skip_sync_notification: bool = False,
     trigger: str = "cli",
-) -> None:
+) -> dict[str, Any]:
     """Run post-sync hooks for successfully synced sources.
 
     Invokes each hook in order: profiling, PII scanning, analysis,
@@ -333,12 +333,16 @@ def dispatch_post_sync_hooks(
         skip_sync_notification: If True, skip sending sync webhooks
             (e.g. when the scheduler sends its own notifications).
         trigger: Label for the sync trigger (e.g. ``"cli"``, ``"web"``).
+
+    Returns:
+        Dict with ``failed_hooks`` key listing names of hooks that raised.
     """
     if not sources:
-        return
+        return {"failed_hooks": []}
 
     logger.info("post_sync_hooks_start", sources=sources)
 
+    failed_hooks: list[str] = []
     for hook_name, hook_fn in [
         ("profiling", lambda: _run_profiling(project_root, sources)),
         ("staging_tests", lambda: _enrich_staging_tests(project_root, sources)),
@@ -350,11 +354,13 @@ def dispatch_post_sync_hooks(
             hook_fn()
         except Exception:
             logger.warning("post_sync_hook_failed", hook=hook_name, exc_info=True)
+            failed_hooks.append(hook_name)
 
     if not skip_sync_notification and sync_result is not None:
         _send_sync_notification(project_root, sources, sync_result, trigger=trigger)
 
     logger.info("post_sync_hooks_complete", sources=sources)
+    return {"failed_hooks": failed_hooks}
 
 
 def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
