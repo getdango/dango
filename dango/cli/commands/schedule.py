@@ -131,8 +131,8 @@ def _get_local_timezone() -> str:
         from datetime import datetime, timezone
 
         tz = datetime.now(timezone.utc).astimezone().tzinfo
-        if hasattr(tz, "key"):
-            return tz.key
+        if tz is not None and hasattr(tz, "key"):
+            return str(tz.key)
     except Exception:
         pass
 
