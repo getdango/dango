@@ -81,8 +81,8 @@
                                     </div>
                                 </div>
                                 <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium flex-shrink-0"
-                                      :class="sd.freshness_status === 'fresh' ? 'bg-green-100 text-green-800' : sd.freshness_status === 'stale' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'"
-                                      x-text="sd.freshness_status || 'unknown'"></span>
+                                      :class="sd.freshness_status === 'synced' ? 'bg-green-100 text-green-800' : sd.freshness_status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'"
+                                      x-text="sd.freshness_status === 'never_synced' ? 'not synced' : sd.freshness_status || 'unknown'"></span>
                             </div>
                         </template>
                     </div>
@@ -261,12 +261,12 @@
                 <div class="flex gap-2">
                     <template x-if="selectedModel.type === 'source'">
                         <button @click="refreshProfile()" :disabled="profilingLoading"
-                                class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors disabled:opacity-50">
+                                class="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium transition-colors disabled:opacity-50">
                             <span x-show="!profilingLoading">Refresh Profile</span>
                             <span x-show="profilingLoading" x-cloak>Profiling...</span>
                         </button>
                     </template>
-                    <a :href="selectedModel.schema && selectedModel.name ? '/metabase/question#' + encodeURIComponent(JSON.stringify({dataset_query: {type: 'native', native: {query: 'SELECT * FROM \"' + (selectedModel.schema || 'main') + '\".\"' + selectedModel.name + '\" LIMIT 100'}, database: 1}})) : '/metabase/'"
+                    <a :href="metabaseQueryUrl()"
                        target="_blank" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium transition-colors">
                         View in Metabase
                     </a>
@@ -557,12 +557,32 @@ function catalogPage() {
             { key: 'marts', label: 'Marts' },
         ],
 
+        metabaseDatabaseId: null,
+        metabaseTableMap: {},
+
+        metabaseQueryUrl() {
+            if (!this.selectedModel?.schema || !this.selectedModel?.name || !this.metabaseDatabaseId) return '/metabase/';
+            const key = this.selectedModel.schema + '.' + this.selectedModel.name;
+            const tableId = this.metabaseTableMap[key];
+            if (!tableId) return '/metabase/';
+            const state = {
+                dataset_query: {
+                    database: this.metabaseDatabaseId,
+                    'lib/type': 'mbql/query',
+                    stages: [{ 'lib/type': 'mbql.stage/mbql', 'source-table': tableId }]
+                },
+                display: 'table',
+                visualization_settings: {}
+            };
+            return '/metabase/question#' + btoa(JSON.stringify(state));
+        },
+
         async init() {
             try {
-                const [modelsRes, lineageRes, piiRes, driftRes, overridesRes] = await Promise.allSettled([
+                const [modelsRes, lineageRes, piiRes, driftRes, overridesRes, mbRes] = await Promise.allSettled([
                     fetch('/api/catalog/models'), fetch('/api/catalog/lineage'),
                     fetch('/api/governance/pii?limit=1000'), fetch('/api/governance/schema-drift?limit=1000'),
-                    fetch('/api/governance/pii/overrides'),
+                    fetch('/api/governance/pii/overrides'), fetch('/api/metabase-config'),
                 ]);
                 if (modelsRes.status === 'fulfilled' && modelsRes.value.ok) {
                     const data = await modelsRes.value.json();
@@ -587,6 +607,23 @@ function catalogPage() {
                 if (overridesRes.status === 'fulfilled' && overridesRes.value.ok) {
                     const data = await overridesRes.value.json();
                     this.piiOverrides = data.overrides || [];
+                }
+                if (mbRes.status === 'fulfilled' && mbRes.value.ok) {
+                    const data = await mbRes.value.json();
+                    this.metabaseDatabaseId = data.database_id || null;
+                    if (this.metabaseDatabaseId) {
+                        try {
+                            const tbRes = await fetch('/metabase/api/table');
+                            if (tbRes.ok) {
+                                const tables = await tbRes.json();
+                                for (const t of tables) {
+                                    if (t.db_id === this.metabaseDatabaseId && t.schema && t.name) {
+                                        this.metabaseTableMap[t.schema + '.' + t.name] = t.id;
+                                    }
+                                }
+                            }
+                        } catch (_) { /* Metabase table lookup non-critical */ }
+                    }
                 }
             } catch (e) { this.error = 'Failed to load catalog data.'; }
             finally { this.loading = false; }
@@ -814,7 +851,10 @@ function catalogPage() {
                 if (res.ok) {
                     // Reload model detail to get fresh profiling
                     await this.openModel(tblName);
-                } else { this.error = 'Failed to refresh profile.'; }
+                } else {
+                    const data = await res.json().catch(() => null);
+                    this.error = data?.detail || 'Failed to refresh profile.';
+                }
             } catch (e) { this.error = 'Failed to refresh profile.'; }
             finally { this.profilingLoading = false; }
         },

@@ -22,7 +22,7 @@
         </div>
 
         <!-- Scheduled sources table -->
-        <div class="bg-white shadow rounded-lg overflow-hidden mb-6">
+        <div class="bg-white shadow rounded-lg overflow-x-auto mb-6">
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
                     <tr>
@@ -66,7 +66,7 @@
                                           x-text="sched.last_run.status"></span>
                                 </template>
                                 <template x-if="!runningJobs[sched.name] && !sched.last_run">
-                                    <span class="text-gray-400">—</span>
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-500">Not yet run</span>
                                 </template>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap hidden sm:table-cell">
@@ -133,7 +133,7 @@
         </div>
 
         <!-- Unscheduled sources (collapsed by default) -->
-        <div class="bg-white shadow rounded-lg overflow-hidden mb-6">
+        <div class="bg-white shadow rounded-lg overflow-x-auto mb-6">
             <button @click="showUnscheduled = !showUnscheduled"
                     class="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-gray-50">
                 <div class="flex items-center space-x-2">
@@ -171,7 +171,7 @@
             </div>
             <div class="px-6 py-4">
                 <template x-if="notifConfig.webhooks.length === 0">
-                    <p class="text-sm text-gray-500">Not configured. Add webhooks in <code class="bg-gray-100 px-1 rounded">.dango/schedules.yml</code>.</p>
+                    <p class="text-sm text-gray-500">Not configured. Run <code class="bg-gray-100 px-1 rounded">dango schedule webhook add</code> to configure.</p>
                 </template>
                 <template x-if="notifConfig.webhooks.length > 0">
                     <div>
@@ -386,6 +386,8 @@ function schedulesPage() {
                 '0 */8 * * *': 'Every 8h',
                 '0 */12 * * *': 'Every 12h',
                 '0 6 * * *': 'Daily 6 AM',
+                '0 7 * * *': 'Daily 7 AM',
+                '0 8 * * *': 'Daily 8 AM',
                 '0 9 * * *': 'Daily 9 AM',
                 '0 12 * * *': 'Daily noon',
                 '0 18 * * *': 'Daily 6 PM',
@@ -399,7 +401,13 @@ function schedulesPage() {
             if (map[cron]) return map[cron];
             // Regex fallback for common patterns
             let m;
-            if ((m = cron.match(/^(\d+) (\d+) \* \* \*$/))) return `Daily ${m[2]}:${m[1].padStart(2,'0')}`;
+            if ((m = cron.match(/^(\d+) (\d+) \* \* \*$/))) {
+                const hour = parseInt(m[2]);
+                const min = m[1].padStart(2, '0');
+                const suffix = hour >= 12 ? 'PM' : 'AM';
+                const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+                return min === '00' ? `Daily ${h12} ${suffix}` : `Daily ${h12}:${min} ${suffix}`;
+            }
             if ((m = cron.match(/^0 \*\/(\d+) \* \* \*$/))) return `Every ${m[1]}h`;
             if ((m = cron.match(/^\*\/(\d+) \* \* \* \*$/))) return `Every ${m[1]} min`;
             return cron;

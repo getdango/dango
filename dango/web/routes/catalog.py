@@ -803,12 +803,18 @@ async def refresh_table_profile(
     project_root = get_project_root()
     db_path = await _validate_and_resolve(source, table, project_root)
 
-    fresh_stats = await asyncio.to_thread(
-        profile_table,
-        project_root,
-        source,
-        table,
-    )
+    try:
+        fresh_stats = await asyncio.to_thread(
+            profile_table,
+            project_root,
+            source,
+            table,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Profiling failed for {source}.{table}: {type(exc).__name__}",
+        ) from exc
 
     columns, row_count, profiled_at = await asyncio.gather(
         asyncio.to_thread(_get_column_schema, db_path, source, table),

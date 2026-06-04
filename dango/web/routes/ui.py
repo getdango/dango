@@ -70,6 +70,13 @@ def _render_template(
             context["is_cloud"] = is_cloud_deployment(project_root)
         except Exception:
             context["is_cloud"] = False
+    if "is_cloud_server" not in context:
+        try:
+            from dango.config.helpers import is_running_on_cloud
+
+            context["is_cloud_server"] = is_running_on_cloud()
+        except Exception:
+            context["is_cloud_server"] = False
     if "query_hash" not in context:
         try:
             import base64

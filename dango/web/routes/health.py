@@ -138,12 +138,12 @@ async def get_platform_health() -> dict[str, Any]:
 
     if disk["status"] == "critical":
         critical_issues.append("Critical disk space")
-    elif disk.get("used_pct", 0) > 80:
-        # Prefer the actionable 80% message over generic "Low disk space"
-        if is_cloud:
-            warnings.append("Disk usage above 80% \u2014 consider resizing or running cleanup")
-        else:
-            warnings.append("Disk usage above 80% \u2014 run `dango cleanup` to free space")
+    elif is_cloud and disk.get("used_pct", 0) > 80:
+        warnings.append("Disk usage above 80% \u2014 consider resizing or running cleanup")
+    elif not is_cloud and disk.get("free_gb", 999) < 10:
+        warnings.append(
+            f"Low disk space ({disk.get('free_gb', 0):.0f} GB free) \u2014 run `dango cleanup` to free space"
+        )
     elif disk["status"] == "warning":
         warnings.append("Low disk space")
 
@@ -168,6 +168,33 @@ async def get_platform_health() -> dict[str, Any]:
         ]
         if never_synced:
             warnings.append(f"{len(never_synced)} source(s) never synced")
+
+    # Check for orphaned raw schemas (no matching source config)
+    try:
+        db_path = project_root / "data" / "warehouse.duckdb"
+        if db_path.exists():
+            configured_sources = {s.get("name") for s in sources_config if s.get("name")}
+
+            def _check_orphaned_schemas() -> list[str]:
+                import duckdb as _duckdb
+
+                conn = _duckdb.connect(str(db_path), config={"access_mode": "read_only"})
+                try:
+                    schemas = conn.execute(
+                        "SELECT DISTINCT schema_name FROM information_schema.schemata "
+                        "WHERE schema_name LIKE 'raw_%'"
+                    ).fetchall()
+                finally:
+                    conn.close()
+                return [s[0][4:] for s in schemas if s[0][4:] not in configured_sources]
+
+            orphaned = await asyncio.to_thread(_check_orphaned_schemas)
+            if orphaned:
+                warnings.append(
+                    f"Orphaned tables found ({', '.join(orphaned[:3])}) \u2014 run `dango db clean`"
+                )
+    except Exception:
+        pass  # Non-critical check
 
     if failed_dbt:
         warnings.append("dbt run failures")
