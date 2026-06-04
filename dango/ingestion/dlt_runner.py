@@ -794,6 +794,19 @@ class DltPipelineRunner:
             except Exception as e:
                 console.print(f"  ⚠️  Could not drop pipeline: {e}")
 
+            # Drop raw schema so dlt recreates with fresh column types
+            try:
+                import duckdb as _duckdb
+
+                conn = _duckdb.connect(str(self.duckdb_path))
+                try:
+                    conn.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
+                    console.print(f"  🔄 Full refresh: dropped schema {dataset_name}")
+                finally:
+                    conn.close()
+            except Exception as e:
+                console.print(f"  ⚠️  Could not drop schema: {e}")
+
         try:
             # Run pipeline with retry logic
             load_info = self._run_with_retry(pipeline, source, max_retries=3)
@@ -1084,6 +1097,19 @@ class DltPipelineRunner:
                 pipeline.drop()
             except Exception as e:
                 console.print(f"  ⚠️  Could not drop pipeline: {e}")
+
+            # Drop raw schema so dlt recreates with fresh column types
+            try:
+                import duckdb as _duckdb
+
+                conn = _duckdb.connect(str(self.duckdb_path))
+                try:
+                    conn.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
+                    console.print(f"  🔄 Full refresh: dropped schema {dataset_name}")
+                finally:
+                    conn.close()
+            except Exception as e:
+                console.print(f"  ⚠️  Could not drop schema: {e}")
 
         try:
             # Run pipeline with retry logic
