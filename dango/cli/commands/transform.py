@@ -17,7 +17,7 @@ from dango.cli import console
 @click.pass_context
 def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
     """
-    Run dbt models (wrapper for dbt run).
+    Run dbt models (wrapper for dbt build).
 
     This command works from anywhere within your project directory
     and automatically finds the dbt project.
@@ -29,8 +29,8 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
       dango run --select tag:marts        Run models with tag
       dango run --full-refresh            Full refresh of incremental models
 
-    Any dbt run arguments are passed through to dbt.
-    See 'dbt run --help' for all available options.
+    Any dbt build arguments are passed through to dbt.
+    See 'dbt build --help' for all available options.
     """
     import subprocess
 
@@ -53,7 +53,10 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
         # Build dbt command
         cmd = ["dbt", "build", "--project-dir", str(dbt_dir), "--profiles-dir", str(dbt_dir)]
         if dbt_args:
-            cmd.extend(dbt_args)
+            # Filter out --yes/-y flags that dbt doesn't accept
+            filtered_args = [a for a in dbt_args if a not in ("--yes", "-y")]
+            if filtered_args:
+                cmd.extend(filtered_args)
 
         # Try to acquire lock before running dbt
         try:

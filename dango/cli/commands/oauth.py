@@ -217,16 +217,16 @@ def oauth_remove(ctx: click.Context, source_type: str) -> None:
 
 
 @oauth.command("refresh")
-@click.argument("oauth_name")
+@click.argument("source_type")
 @click.pass_context
-def oauth_refresh(ctx: click.Context, oauth_name: str) -> None:
+def oauth_refresh(ctx: click.Context, source_type: str) -> None:
     """
     Re-authenticate OAuth credential
 
-    OAUTH_NAME: Name of OAuth credential to refresh (from dango oauth list)
+    SOURCE_TYPE: Source type of OAuth credential to refresh (from dango oauth list)
 
     Example:
-      dango oauth refresh facebook_ads_123456789
+      dango oauth refresh google_ads
     """
     from dango.oauth import create_oauth_manager
     from dango.oauth.providers import (
@@ -242,9 +242,9 @@ def oauth_refresh(ctx: click.Context, oauth_name: str) -> None:
         oauth_storage = OAuthStorage(project_root)
 
         # Check if credential exists
-        cred = oauth_storage.get(oauth_name)
+        cred = oauth_storage.get(source_type)
         if not cred:
-            console.print(f"\n[red]✗ OAuth credential '{oauth_name}' not found[/red]")
+            console.print(f"\n[red]✗ OAuth credential '{source_type}' not found[/red]")
             console.print("\n[cyan]To see all credentials:[/cyan] dango oauth list\n")
             raise click.Abort()
 

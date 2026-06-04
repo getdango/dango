@@ -417,6 +417,29 @@ def _step_backups() -> tuple[bool, str | None, str | None]:
     if not enable:
         return False, None, None
 
+    # Offer to enter keys now or skip
+    import inquirer
+    from inquirer import themes
+
+    answers = inquirer.prompt(
+        [
+            inquirer.List(
+                "backup_action",
+                message="Spaces credentials",
+                choices=[
+                    "Enter Spaces keys now",
+                    "Skip — configure backups later",
+                ],
+                carousel=True,
+            )
+        ],
+        theme=themes.GreenPassion(),
+    )
+    if not answers or answers["backup_action"].startswith("Skip"):
+        console.print("  [yellow]Backups enabled but keys not configured.[/yellow]")
+        console.print("  [dim]Run 'dango remote backup enable' later to add Spaces keys.[/dim]")
+        return True, None, None
+
     console.print(
         "\n  Create Spaces access keys at: "
         "[link=https://cloud.digitalocean.com/spaces]"
