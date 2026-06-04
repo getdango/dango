@@ -480,13 +480,23 @@ def reload_schedules(
             }
 
         if job_id in existing_ids:
-            # Update: remove then re-add (APScheduler 3.x has no atomic trigger update)
-            scheduler.remove_job(job_id)
-            updated.append(sched.name)
+            # Check if trigger actually changed before removing.
+            # Removing and re-adding destroys APScheduler's stored next_run_time,
+            # which prevents catch-up of missed jobs on restart.
+            existing_job = existing_jobs[job_id]
+            existing_trigger = existing_job.trigger
+            trigger_changed = str(existing_trigger) != str(trigger) or str(
+                getattr(existing_trigger, "timezone", None)
+            ) != str(getattr(trigger, "timezone", None))
+            if trigger_changed:
+                scheduler.remove_job(job_id)
+                updated.append(sched.name)
+                scheduler.add_job(func, trigger, kwargs=func_kwargs, **job_kwargs)
+            else:
+                unchanged.append(sched.name)
         else:
             added.append(sched.name)
-
-        scheduler.add_job(func, trigger, kwargs=func_kwargs, **job_kwargs)
+            scheduler.add_job(func, trigger, kwargs=func_kwargs, **job_kwargs)
 
     return ReloadResult(
         added=added,

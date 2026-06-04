@@ -351,6 +351,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `ingestion/csv_loader.py` | 922 | — |
 | `platform/scheduling/jobs.py` | 849 | — (module-level job functions) |
 | `utils/post_sync.py` | 762 | — (post-sync hooks + sync notification) |
+| `config/schedules.py` | 506 | — (R2-D13b: trigger comparison in reload) |
 | `web/routes/schedules.py` | 519 | — (schedule read-only, history, trigger, notifications) |
 | `web/routes/notebooks.py` | 574 | — (notebook management API + heartbeat lock expiry + WS notify) |
 | `web/routes/upload.py` | 713 | — (extracted from app.py by TASK-085) |

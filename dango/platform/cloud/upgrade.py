@@ -136,11 +136,13 @@ def upgrade_dango(
     _notify(on_progress, "check_version", "done")
 
     # 2. Determine target version
-    _is_pre = old_version is not None and any(tag in old_version for tag in ("a", "b", "rc", "dev"))
+    from packaging.version import Version as _Version
+
+    _is_pre = old_version is not None and _Version(old_version).is_prerelease
     if version is not None:
         validate_version_string(version)
         target_version = version
-        if any(tag in version for tag in ("a", "b", "rc", "dev")):
+        if _Version(version).is_prerelease:
             _is_pre = True
     else:
         _notify(on_progress, "check_pypi", "running")

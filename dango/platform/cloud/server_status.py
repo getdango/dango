@@ -301,6 +301,7 @@ def check_latest_pypi_version(*, include_pre: bool = False) -> str | None:
                 versions = [v for v in releases if releases[v]]
                 if versions:
                     return str(max(versions, key=Version))
+                # Fall through to stable version if no releases found
             version: str | None = data.get("info", {}).get("version")
             return version
     except Exception:  # noqa: BLE001 — intentionally broad for resilience
