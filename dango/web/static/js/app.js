@@ -582,7 +582,7 @@ async function handleWebSocketMessage(data) {
             console.log('🟢 [WS] dbt complete. Refreshing models list.');
             addLogEntry('success', message, source || 'dbt');
             showDbtBuildBanner('success', 'Models built successfully');
-            setTimeout(hideDbtBuildBanner, 5000);
+            _dbtBannerHideTimer = setTimeout(hideDbtBuildBanner, 5000);
             renderSourcesTable();  // Revert status pills from "Building models..."
 
             // Refresh dbt models list only — do NOT clear activeSyncs or
@@ -2540,24 +2540,44 @@ function showDbtModelsError() {
 // dbt build banner (models page)
 // ---------------------------------------------------------------------------
 
+let _dbtBannerHideTimer = null;
+
+function _escapeText(str) {
+    const el = document.createElement('span');
+    el.textContent = str;
+    return el.innerHTML;
+}
+
 function showDbtBuildBanner(type, message) {
     const banner = document.getElementById('dbt-build-banner');
     if (!banner) return;
 
-    banner.className = 'mb-4 rounded-lg px-4 py-3 text-sm font-medium flex items-center';
+    // Cancel any pending auto-hide so a new build isn't hidden by a stale timer
+    if (_dbtBannerHideTimer) {
+        clearTimeout(_dbtBannerHideTimer);
+        _dbtBannerHideTimer = null;
+    }
+
+    const safe = _escapeText(message);
+    banner.className = 'mb-4 rounded-lg px-4 py-3 text-sm font-medium flex items-center justify-between';
     if (type === 'building') {
         banner.className += ' bg-blue-50 text-blue-800';
-        banner.innerHTML = '<span class="inline-block animate-spin mr-2 text-base">⟳</span>' + message;
+        banner.innerHTML = '<span class="flex items-center"><span class="inline-block animate-spin mr-2 text-base">⟳</span>' + safe + '</span>';
     } else if (type === 'success') {
         banner.className += ' bg-green-50 text-green-800';
-        banner.innerHTML = '✓ ' + message;
+        banner.innerHTML = '<span>✓ ' + safe + '</span>';
     } else if (type === 'error') {
         banner.className += ' bg-red-50 text-red-800';
-        banner.innerHTML = '✗ ' + message;
+        banner.innerHTML = '<span>✗ ' + safe + '</span>'
+            + '<button onclick="hideDbtBuildBanner()" class="ml-4 text-red-600 hover:text-red-800 font-bold" aria-label="Dismiss">✕</button>';
     }
 }
 
 function hideDbtBuildBanner() {
+    if (_dbtBannerHideTimer) {
+        clearTimeout(_dbtBannerHideTimer);
+        _dbtBannerHideTimer = null;
+    }
     const banner = document.getElementById('dbt-build-banner');
     if (!banner) return;
     banner.className = 'hidden mb-4 rounded-lg px-4 py-3 text-sm font-medium';
