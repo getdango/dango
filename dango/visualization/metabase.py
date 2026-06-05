@@ -990,7 +990,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         # Wait for sync to complete (poll up to 10 seconds)
         import time
 
-        for _ in range(10):
+        for _ in range(30):
             time.sleep(1)
             db_status = requests.get(
                 f"{metabase_url}/api/database/{database_id}",
@@ -1084,7 +1084,11 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
             logger.warning(f"Error updating table metadata: {e}")
 
         if not tables:
-            logger.warning("sync_metabase_schema_no_tables: database_id=%s", database_id)
+            logger.warning(
+                "sync_metabase_schema: no tables found after sync poll — "
+                "Metabase may still be syncing. database_id=%s",
+                database_id,
+            )
             return False
 
         return True
