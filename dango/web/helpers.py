@@ -113,6 +113,32 @@ def get_dbt_model_row_count(schema: str, model_name: str) -> int | None:
         return None
 
 
+def _get_all_model_row_counts() -> dict[str, int]:
+    """Get row counts for ALL models in a single DuckDB query.
+
+    Returns a dict mapping ``schema.table_name`` to row count.
+    Much faster than per-model queries (1 connection vs N).
+    """
+    db_path = get_duckdb_path()
+    if not db_path.exists():
+        return {}
+
+    try:
+        conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
+        try:
+            rows = conn.execute(
+                "SELECT schema_name, table_name, estimated_size "
+                "FROM duckdb_tables() "
+                "WHERE schema_name IN ('staging', 'intermediate', 'marts')"
+            ).fetchall()
+            return {f"{r[0]}.{r[1]}": r[2] for r in rows}
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting model row counts: {e}")
+        return {}
+
+
 def get_dbt_model_last_run() -> str | None:
     """Get last dbt run timestamp from run_results.json."""
     project_root = get_project_root()
@@ -161,6 +187,9 @@ def get_dbt_models() -> list[dict[str, Any]]:
     # Get statuses and per-model timing from run_results.json
     model_statuses = get_dbt_model_statuses()
 
+    # Batch fetch all row counts in one query (instead of N individual queries)
+    row_counts = _get_all_model_row_counts()
+
     models = []
     nodes = manifest.get("nodes", {})
 
@@ -170,8 +199,8 @@ def get_dbt_models() -> list[dict[str, Any]]:
             schema = node.get("schema")
             model_name = node.get("name")
 
-            # Get row count from DuckDB
-            row_count = get_dbt_model_row_count(schema, model_name)
+            # Look up row count from batch result
+            row_count = row_counts.get(f"{schema}.{model_name}")
 
             # Get status and per-model last_run from run_results
             # If not in run_results, default to None (never run)
