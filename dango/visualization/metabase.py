@@ -987,7 +987,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         if response.status_code != 200:
             return False
 
-        # Wait for sync to complete (poll up to 10 seconds)
+        # Wait for sync to complete (poll up to 30 seconds)
         import time
 
         for _ in range(30):
