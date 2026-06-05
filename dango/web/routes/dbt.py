@@ -252,6 +252,9 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
             }
         )
     except Exception as e:
+        log_activity(
+            project_root, "error", f"dbt:{model_name}", f"Model '{model_name}' failed: {e!s:.200}"
+        )
         logger.error(f"Error running dbt model {model_name}: {e}")
         await ws_manager.broadcast(
             {
