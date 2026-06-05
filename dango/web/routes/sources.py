@@ -87,7 +87,7 @@ def _build_schedule_map() -> dict[str, str]:
             display = _cron_to_display(schedule.cron)
             for src in schedule.sources:
                 per_source[src].append(display)
-        return {src: ", ".join(displays) for src, displays in per_source.items()}
+        return {src: ", ".join(dict.fromkeys(displays)) for src, displays in per_source.items()}
     except Exception:
         return {}
 

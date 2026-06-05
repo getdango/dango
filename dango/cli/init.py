@@ -970,26 +970,26 @@ custom_sources/
                     if attempt > 0:
                         console.print(f"    Retry {attempt}/2...")
                         time.sleep(2)  # Wait before retry
-                    response = urllib.request.urlopen(driver_url, timeout=120)
-                    total = int(response.headers.get("Content-Length", 0))
-                    with Progress(
-                        TextColumn("[progress.description]{task.description}"),
-                        BarColumn(),
-                        DownloadColumn(),
-                        TransferSpeedColumn(),
-                        console=console,
-                    ) as progress:
-                        task = progress.add_task(
-                            "Downloading DuckDB driver",
-                            total=total if total > 0 else None,
-                        )
-                        with open(duckdb_driver_path, "wb") as f:
-                            while True:
-                                chunk = response.read(65536)
-                                if not chunk:
-                                    break
-                                f.write(chunk)
-                                progress.advance(task, len(chunk))
+                    with urllib.request.urlopen(driver_url, timeout=120) as response:
+                        total = int(response.headers.get("Content-Length", 0))
+                        with Progress(
+                            TextColumn("[progress.description]{task.description}"),
+                            BarColumn(),
+                            DownloadColumn(),
+                            TransferSpeedColumn(),
+                            console=console,
+                        ) as progress:
+                            task = progress.add_task(
+                                "Downloading DuckDB driver",
+                                total=total if total > 0 else None,
+                            )
+                            with open(duckdb_driver_path, "wb") as f:
+                                while True:
+                                    chunk = response.read(65536)
+                                    if not chunk:
+                                        break
+                                    f.write(chunk)
+                                    progress.advance(task, len(chunk))
                     write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
                     console.print(
                         f"[green]✓[/green] Downloaded DuckDB driver ({duckdb_driver_path.stat().st_size // 1024 // 1024}MB)"

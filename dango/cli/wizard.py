@@ -114,18 +114,6 @@ class ProjectWizard:
         org = str(answers.get("organization", "")).strip()
         return org if org else None
 
-    def _ask_created_by(self) -> str:
-        """Ask for creator info"""
-        questions = [
-            inquirer.Text(
-                "created_by", message="Your name and email (e.g., 'Jane Doe <jane@company.com>')"
-            )
-        ]
-        answers = inquirer.prompt(questions)
-        if answers is None:
-            raise KeyboardInterrupt()
-        return str(answers["created_by"])
-
     def _ask_purpose(self) -> str:
         """Ask for project purpose"""
         console.print()

@@ -227,10 +227,6 @@ class OAuthManager:
             console.print(f"[dim]Callback server listening on port {self.callback_port}[/dim]")
 
             # Open browser for authorization
-            console.print(
-                "\n[yellow]Your browser will show 'Google hasn't verified this app' — "
-                "this is normal.\nClick Advanced \u2192 Go to app \u2192 Continue.[/yellow]"
-            )
             console.print("\n[cyan]Opening browser for authorization...[/cyan]")
             console.print(f"[dim]If browser doesn't open, visit: {auth_url}[/dim]\n")
 

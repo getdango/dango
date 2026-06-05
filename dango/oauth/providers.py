@@ -214,6 +214,10 @@ class GoogleOAuthProvider(BaseOAuthProvider):
 
             # Start OAuth flow
             console.print("\n[bold]Step 2: Authorize Dango[/bold]")
+            console.print(
+                "\n[yellow]Your browser will show 'Google hasn't verified this app' — "
+                "this is normal.\nClick Advanced \u2192 Go to app \u2192 Continue.[/yellow]"
+            )
             oauth_response = self.oauth_manager.start_oauth_flow("Google", auth_url)
 
             if not oauth_response:
