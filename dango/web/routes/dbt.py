@@ -120,8 +120,15 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
+        from dango.utils.activity_log import log_activity
+
+        log_activity(project_root, "warning", f"dbt:{model_name}", "dbt lock unavailable")
         logger.warning(f"Could not acquire dbt lock for {model_name}: {e}")
         return
+
+    from dango.utils.activity_log import log_activity
+
+    log_activity(project_root, "info", f"dbt:{model_name}", f"dbt run started: {model_name}")
 
     # Get dbt executable path (from venv or system PATH)
     python_bin_dir = Path(sys.executable).parent
@@ -181,6 +188,12 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
             update_model_status(project_root)
 
             # Success
+            log_activity(
+                project_root,
+                "success",
+                f"dbt:{model_name}",
+                f"Model '{model_name}' completed in {duration:.1f}s",
+            )
             await ws_manager.broadcast(
                 {
                     "event": "dbt_run_completed",
@@ -208,6 +221,12 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
         else:
             # Failed
             error_msg = result.stderr or result.stdout or "Unknown error"
+            log_activity(
+                project_root,
+                "error",
+                f"dbt:{model_name}",
+                f"Model '{model_name}' failed: {error_msg[:200]}",
+            )
             await ws_manager.broadcast(
                 {
                     "event": "dbt_run_failed",
@@ -218,6 +237,12 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
             )
 
     except subprocess.TimeoutExpired:
+        log_activity(
+            project_root,
+            "error",
+            f"dbt:{model_name}",
+            f"Model '{model_name}' timed out after 5 minutes",
+        )
         await ws_manager.broadcast(
             {
                 "event": "dbt_run_failed",

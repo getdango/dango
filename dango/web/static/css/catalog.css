@@ -130,6 +130,7 @@
 
 /* Test status indicators */
 .test-pass { color: #059669; }
+.test-warn { color: #d97706; }
 .test-fail { color: #dc2626; }
 
 /* Instant tooltip — replaces native title (which has ~2s delay).

@@ -818,19 +818,17 @@ class TestRawTableDiscovery:
 
     @patch("dango.web.routes.catalog._get_source_summary_stats")
     @patch("dango.web.routes.catalog.get_project_root")
-    @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
-    def test_raw_tables_appended_to_sources(
+    def test_raw_tables_not_appended_to_sources(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
-        mock_raw_tables: MagicMock,
         mock_root: MagicMock,
         mock_source_stats: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Unmodeled raw tables appear in sources list (BUG-132)."""
+        """Raw tables are NOT injected into catalog list (raw table discovery removed)."""
         client, project_root = _setup_client(tmp_path)
         db_dir = tmp_path / "data"
         db_dir.mkdir()
@@ -847,29 +845,22 @@ class TestRawTableDiscovery:
             },
         )
         mock_run_results.return_value = None
-        mock_raw_tables.return_value = [
-            {"schema": "raw_shop", "table": "orders", "source_name": "shop"},
-            {"schema": "raw_shop", "table": "order_items", "source_name": "shop"},
-        ]
 
         resp = client.get("/api/catalog/models")
         data = resp.json()
 
         source_names = [s["name"] for s in data["sources"]]
         assert "orders" in source_names  # from manifest
-        assert "order_items" in source_names  # from raw tables
-        assert source_names.count("orders") == 1  # no duplicate
+        assert len(source_names) == 1  # no raw tables injected
 
     @patch("dango.web.routes.catalog._get_source_summary_stats")
     @patch("dango.web.routes.catalog.get_project_root")
-    @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_overview_included_in_response(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
-        mock_raw_tables: MagicMock,
         mock_root: MagicMock,
         mock_source_stats: MagicMock,
         tmp_path: Path,
@@ -897,7 +888,6 @@ class TestRawTableDiscovery:
             },
         )
         mock_run_results.return_value = None
-        mock_raw_tables.return_value = []
 
         resp = client.get("/api/catalog/models")
         data = resp.json()
@@ -941,14 +931,12 @@ class TestSourcesDetail:
     @patch("dango.web.helpers.get_project_root")
     @patch("dango.web.routes.catalog._get_source_summary_stats")
     @patch("dango.web.routes.catalog.get_project_root")
-    @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_sources_detail_in_overview(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
-        mock_raw_tables: MagicMock,
         mock_root: MagicMock,
         mock_source_stats: MagicMock,
         mock_helpers_root: MagicMock,
@@ -971,7 +959,6 @@ class TestSourcesDetail:
 
         mock_manifest.return_value = _make_manifest()
         mock_run_results.return_value = None
-        mock_raw_tables.return_value = []
         mock_source_stats.return_value = {
             "shop": {"table_count": 5, "estimated_row_total": 12000},
             "crm": {"table_count": 3, "estimated_row_total": 800},
@@ -994,14 +981,12 @@ class TestSourcesDetail:
     @patch("dango.web.helpers.get_project_root")
     @patch("dango.web.routes.catalog._get_source_summary_stats")
     @patch("dango.web.routes.catalog.get_project_root")
-    @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_sources_detail_missing_source_in_duckdb(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
-        mock_raw_tables: MagicMock,
         mock_root: MagicMock,
         mock_source_stats: MagicMock,
         mock_helpers_root: MagicMock,
@@ -1024,7 +1009,6 @@ class TestSourcesDetail:
 
         mock_manifest.return_value = _make_manifest()
         mock_run_results.return_value = None
-        mock_raw_tables.return_value = []
         mock_source_stats.return_value = {
             "shop": {"table_count": 3, "estimated_row_total": 500},
             # new_source is NOT in DuckDB yet

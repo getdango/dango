@@ -239,8 +239,10 @@ async function loadSources() {
 // ============================================================================
 
 function setupFilterListeners() {
-    // Real-time search filter
     document.getElementById('filter-search')?.addEventListener('input', applyFilters);
+    document.getElementById('filter-level')?.addEventListener('change', applyFilters);
+    document.getElementById('filter-source')?.addEventListener('change', applyFilters);
+    document.getElementById('filter-time')?.addEventListener('change', applyFilters);
 }
 
 function applyFilters() {

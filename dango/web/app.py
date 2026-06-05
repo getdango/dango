@@ -169,6 +169,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.debug("sync_status_watcher_start_failed", exc_info=True)
         app.state.sync_watcher_task = None
 
+    try:
+        from dango.utils.activity_log import log_activity
+
+        log_activity(project_root, "info", "system", "Dango server starting")
+    except Exception:
+        logger.debug("startup_activity_log_failed", exc_info=True)
+
     yield
 
     # Shutdown
@@ -190,6 +197,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await asyncio.to_thread(sched.shutdown, True)
         except Exception:
             logger.error("scheduler_shutdown_failed", exc_info=True)
+
+    try:
+        from dango.utils.activity_log import log_activity
+
+        log_activity(project_root, "info", "system", "Dango server shutting down")
+    except Exception:
+        pass
 
     logger.info("api_shutting_down")
 

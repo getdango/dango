@@ -340,7 +340,12 @@ def dispatch_post_sync_hooks(
     if not sources:
         return {"failed_hooks": []}
 
+    from dango.utils.activity_log import log_activity
+
     logger.info("post_sync_hooks_start", sources=sources)
+    log_activity(
+        project_root, "info", "post_sync", f"Post-sync hooks starting for {', '.join(sources)}"
+    )
 
     failed_hooks: list[str] = []
     for hook_name, hook_fn in [
@@ -363,6 +368,12 @@ def dispatch_post_sync_hooks(
             logger.warning("post_sync_hook_failed", hook="sync_notification", exc_info=True)
             failed_hooks.append("sync_notification")
 
+    log_activity(
+        project_root,
+        "success" if not failed_hooks else "warning",
+        "post_sync",
+        f"Post-sync hooks completed{' with failures: ' + ', '.join(failed_hooks) if failed_hooks else ''}",
+    )
     logger.info("post_sync_hooks_complete", sources=sources)
     return {"failed_hooks": failed_hooks}
 

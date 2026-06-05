@@ -385,6 +385,7 @@ def _build_catalog_models(
         cols_documented = sum(1 for c in columns.values() if c.get("description"))
         tests = test_map.get(uid, [])
         tests_passing = sum(1 for t in tests if t["status"] == "pass")
+        tests_warning = sum(1 for t in tests if t["status"] == "warn")
         tests_failing = sum(1 for t in tests if t["status"] in ("fail", "error"))
 
         models.append(
@@ -397,6 +398,7 @@ def _build_catalog_models(
                 "description": node.get("description", ""),
                 "test_count": len(tests),
                 "tests_passing": tests_passing,
+                "tests_warning": tests_warning,
                 "tests_failing": tests_failing,
                 "columns_total": len(columns),
                 "columns_documented": cols_documented,
@@ -414,6 +416,7 @@ def _build_catalog_models(
         cols_documented = sum(1 for c in columns.values() if c.get("description"))
         tests = test_map.get(uid, [])
         tests_passing = sum(1 for t in tests if t["status"] == "pass")
+        tests_warning = sum(1 for t in tests if t["status"] == "warn")
         tests_failing = sum(1 for t in tests if t["status"] in ("fail", "error"))
 
         sources.append(
@@ -426,6 +429,7 @@ def _build_catalog_models(
                 "source_name": src.get("source_name", ""),
                 "test_count": len(tests),
                 "tests_passing": tests_passing,
+                "tests_warning": tests_warning,
                 "tests_failing": tests_failing,
                 "columns_total": len(columns),
                 "columns_documented": cols_documented,
@@ -867,32 +871,11 @@ async def list_catalog_models(
     else:
         result = await asyncio.to_thread(_build_catalog_models, manifest, run_results)
 
-    # BUG-132: Discover raw tables without dbt staging models
     project_root = get_project_root()
     db_path = project_root / "data" / "warehouse.duckdb"
     source_stats: dict[str, dict[str, int]] = {}
     if db_path.exists():
-        raw_tables, source_stats = await asyncio.gather(
-            asyncio.to_thread(_get_raw_tables_from_duckdb, db_path),
-            asyncio.to_thread(_get_source_summary_stats, db_path),
-        )
-        known_names = {s["name"] for s in result["sources"]}
-        for rt in raw_tables:
-            if rt["table"] not in known_names:
-                result["sources"].append(
-                    {
-                        "unique_id": f"raw.{rt['schema']}.{rt['table']}",
-                        "name": rt["table"],
-                        "type": "source",
-                        "schema": rt["schema"],
-                        "description": "",
-                        "source_name": rt["source_name"],
-                        "test_count": 0,
-                        "columns_total": 0,
-                        "columns_documented": 0,
-                    }
-                )
-        result["sources"].sort(key=lambda s: s["name"].lower())
+        source_stats = await asyncio.to_thread(_get_source_summary_stats, db_path)
 
     # BUG-128: Overview summary with source freshness
     sources_config = await asyncio.to_thread(load_sources_config)
