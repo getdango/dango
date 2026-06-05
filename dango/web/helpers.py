@@ -80,39 +80,6 @@ def get_dbt_manifest() -> dict[str, Any] | None:
         return None
 
 
-def get_dbt_model_row_count(schema: str, model_name: str) -> int | None:
-    """Get row count for a dbt model from DuckDB."""
-    db_path = get_duckdb_path()
-
-    if not db_path.exists():
-        return None
-
-    try:
-        conn = duckdb.connect(str(db_path), config={"access_mode": "read_only"})
-        try:
-            # Check if table exists
-            result = conn.execute(
-                "SELECT COUNT(*) FROM information_schema.tables "
-                "WHERE table_schema = ? AND table_name = ?",
-                [schema, model_name],
-            ).fetchone()
-
-            if result and result[0] > 0:
-                # Table exists, get row count
-                count_result = conn.execute(
-                    f'SELECT COUNT(*) FROM "{schema}"."{model_name}"'
-                ).fetchone()
-                return count_result[0] if count_result else 0
-
-            return None
-        finally:
-            conn.close()
-
-    except Exception as e:
-        logger.error(f"Error getting row count for {schema}.{model_name}: {e}")
-        return None
-
-
 def _get_all_model_row_counts() -> dict[str, int]:
     """Get row counts for ALL models in a single DuckDB query.
 
