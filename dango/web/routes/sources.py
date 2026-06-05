@@ -74,18 +74,20 @@ def _cron_to_display(cron: str) -> str:
 def _build_schedule_map() -> dict[str, str]:
     """Build source_name → schedule display mapping."""
     try:
+        from collections import defaultdict
+
         from dango.config.schedules import load_schedules_config
         from dango.web.helpers import get_project_root
 
         config = load_schedules_config(get_project_root())
-        mapping: dict[str, str] = {}
+        per_source: defaultdict[str, list[str]] = defaultdict(list)
         for schedule in config.schedules:
             if not schedule.enabled:
                 continue
             display = _cron_to_display(schedule.cron)
             for src in schedule.sources:
-                mapping[src] = display
-        return mapping
+                per_source[src].append(display)
+        return {src: ", ".join(displays) for src, displays in per_source.items()}
     except Exception:
         return {}
 

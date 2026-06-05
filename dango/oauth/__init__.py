@@ -227,6 +227,10 @@ class OAuthManager:
             console.print(f"[dim]Callback server listening on port {self.callback_port}[/dim]")
 
             # Open browser for authorization
+            console.print(
+                "\n[yellow]Your browser will show 'Google hasn't verified this app' — "
+                "this is normal.\nClick Advanced \u2192 Go to app \u2192 Continue.[/yellow]"
+            )
             console.print("\n[cyan]Opening browser for authorization...[/cyan]")
             console.print(f"[dim]If browser doesn't open, visit: {auth_url}[/dim]\n")
 
@@ -255,6 +259,7 @@ class OAuthManager:
             # Timeout — offer retry
             console.print(f"\n[red]✗ Authorization timeout after {timeout_seconds} seconds[/red]")
             server.server_close()
+            server_thread.join(timeout=2)
 
             answers = inquirer.prompt(
                 [

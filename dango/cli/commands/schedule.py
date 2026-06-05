@@ -637,6 +637,8 @@ def schedule_add(ctx: click.Context) -> None:
     schedules = data.setdefault("schedules", [])
     existing_names = {s.get("name") for s in schedules}
 
+    console.print("[dim]Press Ctrl+C at any time to cancel[/dim]\n")
+
     # 1. Name (validate after prompt to avoid per-keystroke flicker)
     console.print(
         "[dim]Format: lowercase, start with letter, only letters/digits/underscores[/dim]"

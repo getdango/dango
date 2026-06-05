@@ -50,9 +50,7 @@ class ProjectWizard:
         project_name = self._ask_project_name()
         organization = self._ask_organization()
 
-        # Try to get creator from git config, otherwise use default
-        # (User can edit .dango/project.yml later if needed)
-        created_by = self._get_git_user() or "Unknown"
+        created_by = "Unknown"
 
         # Use simple defaults for everything else
         from dango import __version__
@@ -103,35 +101,18 @@ class ProjectWizard:
 
     def _ask_organization(self) -> str | None:
         """Ask for organization name (optional)"""
-        console.print("[cyan]Optional - used in UI/Metabase[/cyan]")
-        questions = [inquirer.Text("organization", message="Organization name", default="")]
+        questions = [
+            inquirer.Text(
+                "organization",
+                message="Organization name (optional, used in UI/Metabase)",
+                default="",
+            )
+        ]
         answers = inquirer.prompt(questions)
         if answers is None:
             raise KeyboardInterrupt()
         org = str(answers.get("organization", "")).strip()
         return org if org else None
-
-    def _get_git_user(self) -> str | None:
-        """Get user name and email from git config"""
-        import subprocess
-
-        try:
-            name_result = subprocess.run(
-                ["git", "config", "user.name"], capture_output=True, text=True, timeout=2
-            )
-            email_result = subprocess.run(
-                ["git", "config", "user.email"], capture_output=True, text=True, timeout=2
-            )
-
-            if name_result.returncode == 0 and email_result.returncode == 0:
-                name = name_result.stdout.strip()
-                email = email_result.stdout.strip()
-                if name and email:
-                    return f"{name} <{email}>"
-        except Exception:
-            pass
-
-        return None
 
     def _ask_created_by(self) -> str:
         """Ask for creator info"""
@@ -279,10 +260,6 @@ class ProjectWizard:
         # Show organization if provided
         if self.config.project.organization:
             summary_lines.append(f"[bold]Organization:[/bold] {self.config.project.organization}")
-
-        # Show created_by if not "Unknown"
-        if self.config.project.created_by and self.config.project.created_by != "Unknown":
-            summary_lines.append(f"[bold]Created by:[/bold] {self.config.project.created_by}")
 
         # Show purpose if meaningful
         if self.config.project.purpose and self.config.project.purpose != "Data analytics project":

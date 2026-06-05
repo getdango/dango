@@ -545,6 +545,7 @@ def run_wizard(project_root: Path) -> WizardConfig:
         Completed ``WizardConfig`` ready for provisioning.
     """
     console.print("\n[bold blue]Dango Cloud Deployment Wizard[/bold blue]\n")
+    console.print("[dim]Press Ctrl+C at any time to cancel[/dim]\n")
 
     # Step 1: Prerequisites
     _step_prereqs(project_root)

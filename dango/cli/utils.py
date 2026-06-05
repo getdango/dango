@@ -115,19 +115,24 @@ def safe_confirm(
         click.Abort: When *abort* is ``True`` and the answer is no.
     """
     default_str = "yes" if default else "no"
-    try:
-        result = click.prompt(f"{text} (yes/no)", default=default_str, show_default=True)
-    except (click.Abort, EOFError):
-        # Non-interactive context with no input available
-        if not default and abort:
-            raise click.Abort() from None
-        return default
-    answered_yes = str(result).lower().strip() in ("yes", "y")
+    while True:
+        try:
+            result = click.prompt(f"{text} (yes/no)", default=default_str, show_default=True)
+        except (click.Abort, EOFError):
+            # Non-interactive context with no input available
+            if not default and abort:
+                raise click.Abort() from None
+            return default
+        normalised = str(result).lower().strip()
+        if normalised not in ("yes", "y", "no", "n"):
+            click.echo("Please answer yes or no.")
+            continue
+        answered_yes = normalised in ("yes", "y")
 
-    if not answered_yes and abort:
-        raise click.Abort()
+        if not answered_yes and abort:
+            raise click.Abort()
 
-    return answered_yes
+        return answered_yes
 
 
 def confirm(message: str, default: bool = False) -> bool:
