@@ -2449,18 +2449,14 @@ def run_sync(
                     by_source: dict[str, list[dict[str, Any]]] = {}
                     for ev in breaking_events:
                         by_source.setdefault(ev["source"], []).append(ev)
-                    console.print("[yellow]Breaking schema drift detected:[/yellow]")
+                    console.print("[yellow]Schema drift detected:[/yellow]")
                     for src, evts in by_source.items():
                         console.print(f"  [bold]{src}[/bold]:")
                         for ev in evts:
                             console.print(
                                 f"    {ev['column_name']}: {ev['event_type']} ({ev['detail']})"
                             )
-                    console.print("\n[yellow]dbt skipped to protect dashboards.[/yellow]")
-                    console.print(
-                        "[dim]Accept: dango governance accept <source> (or via web UI)[/dim]\n"
-                    )
-                    skip_dbt = True
+                    console.print()
             except Exception:
                 import logging as _drift_log
 

@@ -228,8 +228,7 @@ async def get_platform_health() -> dict[str, Any]:
         result["backup_health"] = cloud_data["backup_health"]
         if cloud_data["backup_health"]["status"] == "stale":
             warnings.append(f"Backup is stale (>{_BACKUP_STALENESS_HOURS}h)")
-        elif cloud_data["backup_health"]["status"] == "none":
-            warnings.append("No backups configured")
+        # "No backups configured" is informational — backup_health data is already in the response
 
     # Deployment info (cloud only — journal written on the cloud server)
     if is_cloud:
