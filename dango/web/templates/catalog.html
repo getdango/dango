@@ -496,7 +496,7 @@
                             </div>
                             <div class="lineage-detail-row">
                                 <span class="lineage-detail-label">Doc coverage</span>
-                                <span class="lineage-detail-value" x-text="selectedNode ? (selectedNode.columns_documented + '/' + selectedNode.columns_total) : ''"></span>
+                                <span class="lineage-detail-value" x-text="selectedNode ? (selectedNode.columns_total > 0 ? selectedNode.columns_documented + '/' + selectedNode.columns_total : 'Seed table') : ''"></span>
                             </div>
                             <div class="mt-4 space-y-2">
                                 <button @click="openModel(selectedNode.name)"
