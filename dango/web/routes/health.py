@@ -182,7 +182,8 @@ async def get_platform_health() -> dict[str, Any]:
                 try:
                     schemas = conn.execute(
                         "SELECT DISTINCT schema_name FROM information_schema.schemata "
-                        "WHERE schema_name LIKE 'raw_%'"
+                        "WHERE schema_name LIKE 'raw_%' "
+                        "AND schema_name NOT LIKE '%_staging'"
                     ).fetchall()
                 finally:
                     conn.close()
