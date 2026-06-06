@@ -184,19 +184,21 @@
                                         <template x-for="item in filteredItems" :key="item.unique_id">
                                             <tr class="hover:bg-gray-50 cursor-pointer" @click="openModel(item.name)">
                                                 <td class="px-6 py-4 whitespace-nowrap">
-                                                    <a :href="'/catalog?model=' + encodeURIComponent(item.name)" @click.prevent class="text-sm font-medium text-blue-600 hover:text-blue-800" x-text="item.name"></a>
+                                                    <a :href="'/catalog?model=' + encodeURIComponent(item.name)" @click.prevent class="text-sm font-medium text-blue-600 hover:text-blue-800" x-text="item.schema ? item.schema + '.' + item.name : item.name"></a>
                                                 </td>
                                                 <td class="px-6 py-4 whitespace-nowrap">
                                                     <span class="model-badge" :class="'model-badge-' + item.type" x-text="item.type"></span>
                                                 </td>
                                                 <td class="px-6 py-4 hidden sm:table-cell">
-                                                    <div class="desc-truncate text-sm text-gray-500" x-text="item.description || '--'"></div>
+                                                    <div class="desc-truncate text-sm text-gray-500" :title="item.description" x-text="item.description || '--'"></div>
                                                 </td>
                                                 <td class="px-6 py-4 whitespace-nowrap text-sm hidden md:table-cell">
                                                     <template x-if="item.test_count > 0">
                                                         <span>
                                                             <span x-show="item.tests_passing > 0" class="test-pass" x-text="item.tests_passing + ' pass'"></span>
-                                                            <span x-show="item.tests_passing > 0 && item.tests_failing > 0"> / </span>
+                                                            <span x-show="item.tests_passing > 0 && (item.tests_warning > 0 || item.tests_failing > 0)"> / </span>
+                                                            <span x-show="item.tests_warning > 0" class="test-warn" x-text="item.tests_warning + ' warn'"></span>
+                                                            <span x-show="item.tests_warning > 0 && item.tests_failing > 0"> / </span>
                                                             <span x-show="item.tests_failing > 0" class="test-fail" x-text="item.tests_failing + ' fail'"></span>
                                                         </span>
                                                     </template>
@@ -206,7 +208,7 @@
                                                 </td>
                                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell" x-text="getItemFreshness(item)"></td>
                                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell"
-                                                    x-text="item.columns_total > 0 ? item.columns_documented + '/' + item.columns_total : '--'"></td>
+                                                    x-text="item.columns_total > 0 ? item.columns_documented + '/' + item.columns_total : 'No metadata'"></td>
                                                 <td class="px-6 py-4 whitespace-nowrap hidden lg:table-cell">
                                                     <template x-if="item.tags && item.tags.length > 0">
                                                         <div>
