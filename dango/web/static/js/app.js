@@ -1320,7 +1320,7 @@ function renderRowCount(source) {
 
     // If no tables breakdown or single table, show simple count
     if (!source.tables || source.tables.length <= 1) {
-        return `${source.row_count.toLocaleString()} rows`;
+        return `1 table, ${source.row_count.toLocaleString()} rows`;
     }
 
     // Multi-resource source: show breakdown with clean bullets (no monospace needed)
@@ -2052,7 +2052,7 @@ async function openSourceDetail(sourceName) {
                 `;
             } else {
                 // Single resource or no breakdown: show simple count
-                detailRowCountElement.textContent = details.row_count.toLocaleString() + ' rows';
+                detailRowCountElement.textContent = '1 table, ' + details.row_count.toLocaleString() + ' rows';
             }
         }
 
