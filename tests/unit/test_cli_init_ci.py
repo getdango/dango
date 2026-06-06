@@ -89,7 +89,7 @@ class TestCreateCiWorkflow:
         content = (tmp_path / ".github" / "workflows" / "dango-validate.yml").read_text()
         assert "dango config validate" in content
         assert "dbt parse --profiles-dir ." in content
-        assert "pip install --pre getdango" in content
+        assert "pip install getdango" in content
 
     def test_idempotent_on_existing_directory(self, tmp_path: Path) -> None:
         """Works when .github/workflows/ already exists."""
