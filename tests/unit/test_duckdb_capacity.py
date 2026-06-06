@@ -29,7 +29,7 @@ class TestDuckDBCapacity:
         db_file.parent.mkdir(parents=True)
         db_file.write_bytes(b"\x00" * 100)  # 100 bytes
 
-        # RAM=1 GB, disk free=10 GB → recommended_max = min(4GB, 8GB) = 4 GB
+        # RAM=1 GB, disk total=20 GB → recommended_max = min(4GB, 16GB) = 4 GB
         with (
             patch("dango.utils.db_health.shutil.disk_usage") as mock_disk,
             patch("psutil.virtual_memory") as mock_vmem,
@@ -129,7 +129,7 @@ class TestDuckDBCapacity:
         assert result["duckdb_capacity_warning"] is False
 
     def test_recommended_max_uses_minimum(self, tmp_path):
-        """recommended_max = min(RAM*4, disk_free*0.8)."""
+        """recommended_max = min(RAM*4, disk_total*0.8)."""
         db_file = tmp_path / "data" / "warehouse.duckdb"
         db_file.parent.mkdir(parents=True)
         db_file.write_bytes(b"\x00" * 100)
@@ -146,7 +146,7 @@ class TestDuckDBCapacity:
 
         assert result["recommended_max_db_size_bytes"] == 4 * 1024**3
 
-        # Case 2: disk*0.8 < RAM*4 → disk*0.8 wins
+        # Case 2: disk_total*0.8 < RAM*4 → disk_total*0.8 wins
         with (
             patch("dango.utils.db_health.shutil.disk_usage") as mock_disk,
             patch("psutil.virtual_memory") as mock_vmem,
@@ -158,4 +158,4 @@ class TestDuckDBCapacity:
 
             result = get_duckdb_capacity(db_file, tmp_path)
 
-        assert result["recommended_max_db_size_bytes"] == int(2 * 1024**3 * 0.8)
+        assert result["recommended_max_db_size_bytes"] == int(10 * 1024**3 * 0.8)

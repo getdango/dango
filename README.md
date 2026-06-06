@@ -18,6 +18,7 @@ Dango gives you a complete data stack — ingestion, warehouse, transformations,
 **Prerequisites:** Python 3.10-3.12, [Docker](https://docs.docker.com/desktop/) (for Metabase)
 
 ```bash
+mkdir my-project && cd my-project
 pip install --pre getdango
 dango init
 dango start

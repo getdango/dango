@@ -255,6 +255,7 @@ class OAuthManager:
             # Timeout — offer retry
             console.print(f"\n[red]✗ Authorization timeout after {timeout_seconds} seconds[/red]")
             server.server_close()
+            server_thread.join(timeout=2)
 
             answers = inquirer.prompt(
                 [

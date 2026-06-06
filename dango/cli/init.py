@@ -952,18 +952,44 @@ custom_sources/
                 duckdb_driver_path.unlink()
 
             driver_url = get_duckdb_driver_url()
-            console.print("⏳ Downloading DuckDB driver (70MB, this may take a moment)...")
             driver_downloaded = False
 
             # Retry same URL 3 times (network issues are transient)
             import time
+
+            from rich.progress import (
+                BarColumn,
+                DownloadColumn,
+                Progress,
+                TextColumn,
+                TransferSpeedColumn,
+            )
 
             for attempt in range(3):
                 try:
                     if attempt > 0:
                         console.print(f"    Retry {attempt}/2...")
                         time.sleep(2)  # Wait before retry
-                    urllib.request.urlretrieve(driver_url, duckdb_driver_path)
+                    with urllib.request.urlopen(driver_url, timeout=120) as response:
+                        total = int(response.headers.get("Content-Length", 0))
+                        with Progress(
+                            TextColumn("[progress.description]{task.description}"),
+                            BarColumn(),
+                            DownloadColumn(),
+                            TransferSpeedColumn(),
+                            console=console,
+                        ) as progress:
+                            task = progress.add_task(
+                                "Downloading DuckDB driver",
+                                total=total if total > 0 else None,
+                            )
+                            with open(duckdb_driver_path, "wb") as f:
+                                while True:
+                                    chunk = response.read(65536)
+                                    if not chunk:
+                                        break
+                                    f.write(chunk)
+                                    progress.advance(task, len(chunk))
                     write_driver_version(plugins_dir, METABASE_DUCKDB_DRIVER_VERSION)
                     console.print(
                         f"[green]✓[/green] Downloaded DuckDB driver ({duckdb_driver_path.stat().st_size // 1024 // 1024}MB)"
@@ -971,6 +997,7 @@ custom_sources/
                     driver_downloaded = True
                     break
                 except Exception:
+                    duckdb_driver_path.unlink(missing_ok=True)
                     if attempt == 2:  # Last attempt failed
                         break
                     continue

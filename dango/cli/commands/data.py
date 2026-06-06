@@ -178,12 +178,12 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
         # Connect to database
         conn = duckdb.connect(str(duckdb_path))
 
-        # Get all tables from relevant schemas (without row counts first)
-        # Include: raw, raw_*, staging, intermediate, marts
+        # Get all tables from raw schemas (without row counts first)
+        # Include: raw, raw_*
         tables = conn.execute("""
             SELECT table_schema, table_name
             FROM information_schema.tables
-            WHERE table_schema IN ('raw', 'staging', 'intermediate', 'marts')
+            WHERE table_schema = 'raw'
                OR table_schema LIKE 'raw_%'
             ORDER BY table_schema, table_name
         """).fetchall()
@@ -220,9 +220,9 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
                 schema, table, schema_to_tables, source_to_schema, actual_raw_tables
             ):
                 orphaned_tables.append((schema, table, size))
-            # Note: We do NOT clean intermediate or marts tables
-            # These are custom models created by users with dango model add
-            # and should not be automatically deleted
+            # Note: Only raw schemas are in scope for cleanup.
+            # staging/intermediate/marts contain dbt models and should
+            # not be automatically deleted.
 
         if not orphaned_tables:
             console.print("[green]✅ No orphaned tables found[/green]")

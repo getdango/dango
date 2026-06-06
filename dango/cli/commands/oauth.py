@@ -665,6 +665,7 @@ def oauth_setup(ctx: click.Context, provider: str) -> None:
             load_dotenv(env_file)
 
         console.print(f"\n[bold cyan]OAuth Setup Wizard: {provider.title()}[/bold cyan]\n")
+        console.print("[dim]Press Ctrl+C at any time to cancel[/dim]\n")
 
         # Provider-specific configuration
         provider_config = {
