@@ -352,13 +352,17 @@ class GoogleOAuthHelper(OAuthHelper):
                     "[dim]  Use a manager (MCC) account ID if managing multiple accounts,[/dim]"
                 )
                 console.print("[dim]  or a regular account ID for a single account.[/dim]")
-                dev_token = Prompt.ask("Developer Token (from Google Ads API Center)")
+                dev_token = Prompt.ask(
+                    "Developer Token (from a Manager/MCC account → Tools & Settings → API Center)"
+                )
                 if dev_token:
                     self.save_to_env(
                         "GOOGLE_ADS_DEV_TOKEN", dev_token, "Google Ads Developer Token"
                     )
 
-                customer_id = Prompt.ask("Customer ID (optional, can add later)", default="")
+                customer_id = Prompt.ask(
+                    "Customer ID (10-digit number from top-right of your Google Ads account, no hyphens)"
+                )
                 if customer_id:
                     customer_id = customer_id.replace("-", "")
                     self.save_to_env(

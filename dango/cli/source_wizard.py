@@ -11,6 +11,7 @@ import inquirer
 from inquirer import themes
 from rich.console import Console
 from rich.markup import escape
+from rich.panel import Panel
 from rich.prompt import Confirm
 
 from dango.cli.env_helpers import (
@@ -118,9 +119,13 @@ class SourceWizard:
             True if source added successfully, False otherwise
         """
         try:
-            console.print("\n[bold cyan]🍡 Dango Source Wizard[/bold cyan]\n")
+            console.print()
             console.print(
-                "[dim]Press Ctrl+C at any time to abort (nothing saved until the end)[/dim]\n"
+                Panel(
+                    "[bold]Press Ctrl+C at any time to abort (nothing saved until the end)[/bold]",
+                    title="🍡 Dango Source Wizard",
+                    border_style="cyan",
+                )
             )
 
             # State machine for navigation with back button support
@@ -1810,7 +1815,8 @@ def {module_name}_resource(api_key: str):
 
         # Enhance prompt text with default value for optional params
         if not required and default is not None and param_type not in ("secret", "boolean", "bool"):
-            prompt = f"{prompt} (default: {default})"
+            if not (help_text and "default" in help_text.lower()):
+                prompt = f"{prompt} (default: {default})"
 
         # Different prompt types based on parameter type
         if param_type == "secret" or param_name.endswith("_env"):

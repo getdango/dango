@@ -9,8 +9,6 @@
 
 Dango gives you a complete data stack — ingestion, warehouse, transformations, and dashboards — in a single CLI. It combines [dlt](https://dlthub.com/) for data loading, [DuckDB](https://duckdb.org/) as the analytics database, [dbt](https://www.getdbt.com/) for SQL transformations, and [Metabase](https://www.metabase.com/) for dashboards. One `pip install`, one command to start.
 
-> **Beta Release:** Dango v1 is currently in beta (v1.0.0b7). We'd love your feedback — [report issues](https://github.com/getdango/dango/issues) or [join the discussion](https://github.com/getdango/dango/discussions).
-
 > **Upgrading from v0.1.x?** v1.0.0 is a complete rewrite. Back up your data and run `dango init` to create a new v1 project. See the [migration guide](https://docs.getdango.dev) for details.
 
 ## Quick Start
@@ -19,7 +17,7 @@ Dango gives you a complete data stack — ingestion, warehouse, transformations,
 
 ```bash
 mkdir my-project && cd my-project
-pip install --pre getdango
+pip install getdango
 dango init
 dango start
 ```
