@@ -470,7 +470,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
                 "type": "string",
                 "prompt": "Start date (YYYY-MM-DD)",
                 "default": "90daysAgo",
-                "help": "GA4 accepts relative dates (e.g., '90daysAgo', '30daysAgo') or absolute dates (YYYY-MM-DD). Defaults to 90daysAgo for first sync.",
+                "help": "How far back to load on first sync. Default: 90 days.",
             },
         ],
         # 6 themed queries covering 90-95% of analytics use cases.
