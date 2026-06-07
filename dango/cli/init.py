@@ -335,7 +335,21 @@ secrets/
         hooks_dir.mkdir(exist_ok=True)
 
         hook_path = hooks_dir / "pre-push"
-        hook_content = """\
+        import os
+        import sys
+
+        if sys.platform == "win32":
+            hook_content = """\
+#!/usr/bin/env python3
+print()
+print("  Warning: Dango pre-push checklist:")
+print("    - Run 'dango validate' to check config and models")
+print("    - Run 'dango dev' to verify model changes against data")
+print("    - Ensure no credentials are committed (.dlt/secrets.toml, .env)")
+print()
+"""
+        else:
+            hook_content = """\
 #!/bin/bash
 echo ""
 echo "  ⚠ Dango pre-push checklist:"
@@ -344,7 +358,6 @@ echo "    • Run 'dango dev' to verify model changes against data"
 echo "    • Ensure no credentials are committed (.dlt/secrets.toml, .env)"
 echo ""
 """
-        import os
 
         try:
             fd = os.open(str(hook_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o755)
