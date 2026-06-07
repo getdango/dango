@@ -749,7 +749,7 @@ async def get_platform_health_data():
 
         scheduler_db = get_scheduler_db_path(project_root)
         if scheduler_db.exists():
-            recent = await asyncio.to_thread(get_recent_history, scheduler_db, limit=50)
+            recent = await asyncio.to_thread(get_recent_history, scheduler_db, limit=100)
             # Group by schedule_name, check if most recent per schedule is "failed"
             seen_schedules: set[str] = set()
             already_failed_sources = {f["source"] for f in failed_syncs}
@@ -758,7 +758,7 @@ async def get_platform_health_data():
                 if sched in seen_schedules:
                     continue
                 seen_schedules.add(sched)
-                if record.get("status") == "failed":
+                if record.get("status") in ("failed", "timeout"):
                     started = record.get("started_at", "")
                     try:
                         ts = datetime.fromisoformat(started.replace("Z", "+00:00"))
@@ -767,8 +767,14 @@ async def get_platform_health_data():
                         hours_ago = (datetime.now(tz=timezone.utc) - ts).total_seconds() / 3600
                         if hours_ago < 24:
                             # Add sources from this schedule that aren't already counted
-                            sources_json = record.get("sources")
-                            source_list = json.loads(sources_json) if sources_json else []
+                            # get_recent_history returns sources pre-parsed as list
+                            sources_val = record.get("sources")
+                            if isinstance(sources_val, list):
+                                source_list = sources_val
+                            elif sources_val:
+                                source_list = json.loads(sources_val)
+                            else:
+                                source_list = []
                             for src in source_list:
                                 if src not in already_failed_sources:
                                     failed_syncs.append(

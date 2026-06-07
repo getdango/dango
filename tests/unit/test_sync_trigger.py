@@ -280,6 +280,42 @@ class TestRunManualSync:
         assert "OAuth" in result["error"]
         mock_failure.assert_called_once()
 
+    @patch(f"{_PATCH_CONFIG}.load_config")
+    @patch(f"{_PATCH_HISTORY}.record_failure")
+    @patch(f"{_PATCH_HISTORY}.record_start", return_value=8)
+    @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
+    @patch("dango.utils.sync_history.save_sync_history_entry")
+    def test_oauth_failure_records_sync_history(
+        self, mock_save_history, mock_db_path, mock_start, mock_failure, mock_config, tmp_path
+    ):
+        """OAuth failures should record to per-source sync_history (M1)."""
+        from dango.exceptions import OAuthTokenRevokedError
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+
+        mock_config.return_value = _make_config(["google_sheets", "hubspot"])
+
+        with patch(
+            f"{_PATCH_OAUTH}.validate_before_sync",
+            side_effect=OAuthTokenRevokedError(
+                "Token revoked",
+                user_message="Token revoked",
+            ),
+        ):
+            result = run_manual_sync(tmp_path, sources=["google_sheets", "hubspot"])
+
+        assert result["status"] == "failed"
+        # save_sync_history_entry should be called once per source
+        assert mock_save_history.call_count == 2
+        source_names = [call.args[1] for call in mock_save_history.call_args_list]
+        assert "google_sheets" in source_names
+        assert "hubspot" in source_names
+        # Each entry should have status=failed and the OAuth error message
+        for call in mock_save_history.call_args_list:
+            entry = call.args[2]
+            assert entry["status"] == "failed"
+            assert "OAuth" in entry["error_message"]
+            assert entry["duration_seconds"] == 0
+
     @patch(
         f"{_PATCH_INGESTION}.run_sync",
         return_value={"results": [{"rows_loaded": 100}], "failed_count": 0},
