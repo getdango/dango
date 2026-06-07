@@ -162,6 +162,21 @@ def run_manual_sync(
                 validate_before_sync(src.type.value, project_root)
     except (OAuthTokenExpiredError, OAuthTokenRevokedError) as oauth_err:
         error_msg = f"OAuth validation failed: {oauth_err.user_message}"
+        # Record in per-source sync history so health page sees it
+        from dango.utils.sync_history import save_sync_history_entry
+
+        for name in sources:
+            save_sync_history_entry(
+                project_root,
+                name,
+                {
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                    "status": "failed",
+                    "duration_seconds": 0,
+                    "rows_processed": 0,
+                    "error_message": error_msg,
+                },
+            )
         record_failure(db_path, record_id, error_msg)
         duration = round(time.time() - start_time, 1)
         _progress("failed", error_msg, error=error_msg)
