@@ -743,6 +743,49 @@ async def get_platform_health_data():
                 except Exception:
                     pass
 
+    # Check execution_history for schedule-level failures (M3)
+    try:
+        from dango.platform.scheduling.history import get_recent_history, get_scheduler_db_path
+
+        scheduler_db = get_scheduler_db_path(project_root)
+        if scheduler_db.exists():
+            recent = await asyncio.to_thread(get_recent_history, scheduler_db, limit=50)
+            # Group by schedule_name, check if most recent per schedule is "failed"
+            seen_schedules: set[str] = set()
+            already_failed_sources = {f["source"] for f in failed_syncs}
+            for record in recent:
+                sched = record.get("schedule_name", "")
+                if sched in seen_schedules:
+                    continue
+                seen_schedules.add(sched)
+                if record.get("status") == "failed":
+                    started = record.get("started_at", "")
+                    try:
+                        ts = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=timezone.utc)
+                        hours_ago = (datetime.now(tz=timezone.utc) - ts).total_seconds() / 3600
+                        if hours_ago < 24:
+                            # Add sources from this schedule that aren't already counted
+                            sources_json = record.get("sources")
+                            source_list = json.loads(sources_json) if sources_json else []
+                            for src in source_list:
+                                if src not in already_failed_sources:
+                                    failed_syncs.append(
+                                        {
+                                            "source": src,
+                                            "count": 1,
+                                            "last_error": record.get(
+                                                "error", "Schedule execution failed"
+                                            ),
+                                        }
+                                    )
+                                    already_failed_sources.add(src)
+                    except Exception:
+                        pass
+    except Exception:
+        pass  # Don't break health page if scheduler.db is unavailable
+
     # Check for failed dbt runs
     failed_dbt = []
     run_results_path = project_root / "dbt" / "target" / "run_results.json"
