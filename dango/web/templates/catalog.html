@@ -208,7 +208,7 @@
                                                 </td>
                                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell" x-text="getItemFreshness(item)"></td>
                                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell"
-                                                    x-text="item.columns_total > 0 ? item.columns_documented + '/' + item.columns_total : 'No metadata'"></td>
+                                                    x-text="item.columns_total > 0 ? item.columns_documented + '/' + item.columns_total : 'Seed table'"></td>
                                                 <td class="px-6 py-4 whitespace-nowrap hidden lg:table-cell">
                                                     <template x-if="item.tags && item.tags.length > 0">
                                                         <div>
@@ -496,7 +496,7 @@
                             </div>
                             <div class="lineage-detail-row">
                                 <span class="lineage-detail-label">Doc coverage</span>
-                                <span class="lineage-detail-value" x-text="selectedNode ? (selectedNode.columns_documented + '/' + selectedNode.columns_total) : ''"></span>
+                                <span class="lineage-detail-value" x-text="selectedNode ? (selectedNode.columns_total > 0 ? selectedNode.columns_documented + '/' + selectedNode.columns_total : 'Seed table') : ''"></span>
                             </div>
                             <div class="mt-4 space-y-2">
                                 <button @click="openModel(selectedNode.name)"
