@@ -364,10 +364,16 @@ exemptions:
     reason: "R10-G2: Added _enrich_staging_tests for post-sync dbt test enrichment from profiling data. R12-F added _run_dbt_snapshots hook (+29 lines). M2-final: Added _profile_dbt_models for intermediate/marts schema profiling (+62 lines)."
     review_by: "v1.1"
 
-  - file: dango/web/routes/schedules.py
-    lines: 519
+  - file: dango/utils/db_health.py
+    lines: 654
     category: exempt
-    reason: "TASK-037+038+045b: 11 read-only endpoints (history×2, list/get, trigger, reload, cancel, unscheduled, page route, notification config/test). R10-C removed 5 config-mutating endpoints (BUG-175). R12-N2 added SYNC_ONLY dispatch in manual trigger."
+    reason: "R5-N5: Unified orphan detection (build_schema_table_mapping, is_table_configured, find_orphaned_tables) moved from cli/db_helpers.py to share between CLI and web health page."
+    review_by: "v1.1"
+
+  - file: dango/web/routes/schedules.py
+    lines: 608
+    category: exempt
+    reason: "TASK-037+038+045b: 11 read-only endpoints (history×2, list/get, trigger, reload, cancel, unscheduled, page route, notification config/test). R10-C removed 5 config-mutating endpoints (BUG-175). R12-N2 added SYNC_ONLY dispatch in manual trigger. R5-N6: per-source failure details (+48 lines)."
     review_by: "v1.1"
 
   # Removed: dango/web/routes/sync.py — now ~370 lines after R10-N (sync moved to subprocess)

@@ -175,58 +175,13 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
             console.print("[yellow]⚠️  No database found[/yellow]")
             return
 
-        # Connect to database
-        conn = duckdb.connect(str(duckdb_path))
+        # Find orphaned tables using shared detection logic
+        from dango.utils.db_health import find_orphaned_tables
 
-        # Get all tables from raw schemas (without row counts first)
-        # Include: raw, raw_*
-        tables = conn.execute("""
-            SELECT table_schema, table_name
-            FROM information_schema.tables
-            WHERE table_schema = 'raw'
-               OR table_schema LIKE 'raw_%'
-            ORDER BY table_schema, table_name
-        """).fetchall()
-
-        # Get row counts for each table individually
-        result = []
-        for schema, table in tables:
-            try:
-                row = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()
-                count = row[0] if row else 0
-                result.append((schema, table, f"{count:,} rows"))
-            except Exception:
-                result.append((schema, table, "Error"))
-
-        # Build schema-to-table mapping from source configurations
-        from ..db_helpers import build_schema_table_mapping, is_table_configured
-
-        schema_to_tables, source_to_schema = build_schema_table_mapping(config)
-
-        # Build actual raw tables mapping from database
-        # This is used to validate that staging tables have corresponding raw tables
-        actual_raw_tables: dict[str, set[str]] = {}
-        for schema, table, _size in result:
-            if schema.startswith("raw_") and not table.startswith("_dlt_"):
-                if schema not in actual_raw_tables:
-                    actual_raw_tables[schema] = set()
-                actual_raw_tables[schema].add(table)
-
-        # Find orphaned tables
-        orphaned_tables = []
-
-        for schema, table, size in result:
-            if not is_table_configured(
-                schema, table, schema_to_tables, source_to_schema, actual_raw_tables
-            ):
-                orphaned_tables.append((schema, table, size))
-            # Note: Only raw schemas are in scope for cleanup.
-            # staging/intermediate/marts contain dbt models and should
-            # not be automatically deleted.
+        orphaned_tables = find_orphaned_tables(duckdb_path, config)
 
         if not orphaned_tables:
             console.print("[green]✅ No orphaned tables found[/green]")
-            conn.close()
             return
 
         # Show orphaned tables
@@ -240,8 +195,10 @@ def db_clean(ctx: click.Context, yes: bool) -> None:
         if not yes:
             if not Confirm.ask("Remove these orphaned tables?"):
                 console.print("[yellow]Cancelled[/yellow]")
-                conn.close()
                 return
+
+        # Open a write connection for the DROP phase
+        conn = duckdb.connect(str(duckdb_path))
 
         # Drop orphaned tables
         dropped_count = 0

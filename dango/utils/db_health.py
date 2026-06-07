@@ -8,7 +8,10 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from dango.config import DangoConfig
 
 import duckdb
 from rich.console import Console
@@ -494,3 +497,158 @@ def print_health_summary(project_root: Path, duckdb_path: Path) -> None:
 
     except Exception as e:
         console.print(f"[yellow]⚠️  Could not print health summary: {e}[/yellow]")
+
+
+# ---------------------------------------------------------------------------
+# Orphan detection — shared between CLI (db clean) and web (health page)
+# ---------------------------------------------------------------------------
+
+
+def build_schema_table_mapping(
+    config: "DangoConfig",
+) -> tuple[dict[str, set[str]], dict[str, str]]:
+    """Build mapping of schemas to expected tables based on source configurations.
+
+    All sources use the pattern:
+      - Schema: raw_{source_name} (e.g., raw_stripe_test, raw_orders)
+      - Tables: endpoint/resource names from config
+
+    Args:
+        config: Dango configuration with source definitions
+
+    Returns:
+        Tuple of:
+          - schema_to_tables: Dict[schema_name, Set[table_names]]
+          - source_to_schema: Dict[source_name, schema_name]
+    """
+
+    schema_to_tables: dict[str, set[str]] = {}
+    source_to_schema: dict[str, str] = {}
+
+    for source in config.sources.sources:
+        source_name = source.name.lower()
+        schema_name = f"raw_{source_name}"
+        source_to_schema[source_name] = schema_name
+
+        source_config = getattr(source, source.type.value, None)
+        if source_config:
+            source_dict = source_config.model_dump() if hasattr(source_config, "model_dump") else {}
+            endpoints = (
+                source_dict.get("endpoints")
+                or source_dict.get("resources")
+                or source_dict.get("tables")
+            )
+            if endpoints:
+                if schema_name not in schema_to_tables:
+                    schema_to_tables[schema_name] = set()
+                for endpoint in endpoints:
+                    schema_to_tables[schema_name].add(endpoint.lower())
+            else:
+                if schema_name not in schema_to_tables:
+                    schema_to_tables[schema_name] = set()
+        else:
+            if schema_name not in schema_to_tables:
+                schema_to_tables[schema_name] = set()
+
+    return schema_to_tables, source_to_schema
+
+
+def is_table_configured(
+    schema: str,
+    table: str,
+    schema_to_tables: dict[str, set[str]],
+    source_to_schema: dict[str, str],
+    actual_raw_tables: dict[str, set[str]] | None = None,
+) -> bool:
+    """Check if a table is configured in sources.yml.
+
+    Args:
+        schema: Table schema name
+        table: Table name
+        schema_to_tables: Mapping from schema to expected tables
+        source_to_schema: Mapping from source name to schema
+        actual_raw_tables: Optional dict of raw schema -> set of actual table names in DB
+
+    Returns:
+        True if table is configured, False if orphaned
+    """
+    # dlt internal staging schemas
+    if schema.endswith("_staging"):
+        base_schema = schema.removesuffix("_staging")
+        return base_schema in schema_to_tables
+
+    # dlt internal tables
+    if table.startswith("_dlt_"):
+        if schema.startswith("raw_"):
+            return schema in schema_to_tables
+        return True
+
+    # Raw tables: check schema-specific expected tables
+    if schema.startswith("raw_"):
+        expected_in_schema = schema_to_tables.get(schema, set())
+        if not expected_in_schema:
+            return schema in schema_to_tables
+        return table in expected_in_schema
+
+    # Staging tables
+    elif schema == "staging":
+        if table.startswith("stg_"):
+            for source_name, raw_schema in source_to_schema.items():
+                if table.startswith(f"stg_{source_name}__"):
+                    prefix = f"stg_{source_name}__"
+                    raw_table_name = table[len(prefix) :]
+                    if actual_raw_tables and raw_schema in actual_raw_tables:
+                        return raw_table_name in actual_raw_tables[raw_schema]
+                    return True
+                elif table == f"stg_{source_name}":
+                    return True
+            return False
+        else:
+            return True
+
+    # Intermediate and marts tables — always configured
+    elif schema in ("intermediate", "marts"):
+        return True
+
+    return False
+
+
+def find_orphaned_tables(duckdb_path: Path, config: "DangoConfig") -> list[tuple[str, str, str]]:
+    """Find tables in DuckDB with no matching source config.
+
+    Returns list of (schema, table, size_str) for orphaned tables.
+    """
+    conn = duckdb.connect(str(duckdb_path), config={"access_mode": "read_only"})
+    try:
+        tables = conn.execute("""
+            SELECT table_schema, table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'raw' OR table_schema LIKE 'raw_%'
+            ORDER BY table_schema, table_name
+        """).fetchall()
+
+        result: list[tuple[str, str, str]] = []
+        for schema, table in tables:
+            try:
+                row = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{table}"').fetchone()
+                count = row[0] if row else 0
+                result.append((schema, table, f"{count:,} rows"))
+            except Exception:
+                result.append((schema, table, "Error"))
+
+        schema_to_tables_map, source_to_schema_map = build_schema_table_mapping(config)
+
+        actual_raw_tables: dict[str, set[str]] = {}
+        for schema, table, _ in result:
+            if schema.startswith("raw_") and not table.startswith("_dlt_"):
+                actual_raw_tables.setdefault(schema, set()).add(table)
+
+        return [
+            (schema, table, size)
+            for schema, table, size in result
+            if not is_table_configured(
+                schema, table, schema_to_tables_map, source_to_schema_map, actual_raw_tables
+            )
+        ]
+    finally:
+        conn.close()

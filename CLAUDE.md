@@ -286,7 +286,7 @@ dango/                          # Python package source
 │   ├── activity_log.py         # Append-only JSON activity log
 │   ├── sync_history.py         # Per-source sync results
 │   ├── database.py             # Schema creation helpers
-│   ├── db_health.py            # DuckDB health checks + component disk breakdown
+│   ├── db_health.py            # DuckDB health checks + component disk breakdown + orphan detection (~654 lines)
 │   ├── dbt_status.py           # dbt model status tracking
 │   ├── log_rotation.py         # JSONL log rotation with gzip compression
 │   ├── data_validation.py      # Data validation utilities
@@ -350,9 +350,10 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/helpers.py` | 893 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
 | `platform/scheduling/jobs.py` | 849 | — (module-level job functions) |
+| `utils/db_health.py` | 654 | — (R5-N5: unified orphan detection from cli/db_helpers.py) |
 | `utils/post_sync.py` | 762 | — (post-sync hooks + sync notification) |
 | `config/schedules.py` | 506 | — (R2-D13b: trigger comparison in reload) |
-| `web/routes/schedules.py` | 519 | — (schedule read-only, history, trigger, notifications) |
+| `web/routes/schedules.py` | 608 | — (schedule read-only, history, trigger, notifications) |
 | `web/routes/notebooks.py` | 574 | — (notebook management API + heartbeat lock expiry + WS notify) |
 | `web/routes/upload.py` | 713 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 670 | — |

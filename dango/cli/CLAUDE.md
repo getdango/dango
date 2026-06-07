@@ -53,7 +53,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | **Helpers** | | |
 | `utils.py` (164 lines) | Display helpers + project context | `require_project_context()` |
 | `validate.py` (652 lines) | Project validation logic | `validate_project()` |
-| `db_helpers.py` (140 lines) | Schema/table matching for db commands | `build_schema_table_mapping()`, `is_table_configured()` |
+| `db_helpers.py` (11 lines) | Re-exports from `utils/db_health.py` for backwards compatibility | `build_schema_table_mapping()`, `is_table_configured()` |
 | `env_helpers.py` (319 lines) | `.env` file management | `create_env_template()`, `validate_env_file()`, `guide_env_setup()` |
 | `oauth.py` (439 lines) | OAuth CLI flows | `authenticate_facebook()`, `authenticate_google()`, `check_token_expiry()` |
 | `schema_manager.py` (338 lines) | dbt `schema.yml` auto-generation | `update_model_schemas()` |
