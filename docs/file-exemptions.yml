@@ -210,7 +210,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/transformation/generator.py
-    lines: 614
+    lines: 626
     category: exempt
     reason: "DbtModelGenerator — generates dbt models from source configs. R10-G2 added _enrich_columns_from_profiling for dbt test enrichment."
     review_by: "v1.1"
