@@ -209,6 +209,9 @@ async def list_oauth_credentials(
                     "expires_at": cred.expires_at.isoformat() if cred.expires_at else None,
                     "is_expired": cred.is_expired(),
                     "days_until_expiry": cred.days_until_expiry(),
+                    "valid": None,
+                    "error": None,
+                    "error_code": None,
                 }
             )
         # Validate all tokens in parallel

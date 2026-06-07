@@ -371,9 +371,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/web/routes/schedules.py
-    lines: 519
+    lines: 608
     category: exempt
-    reason: "TASK-037+038+045b: 11 read-only endpoints (history×2, list/get, trigger, reload, cancel, unscheduled, page route, notification config/test). R10-C removed 5 config-mutating endpoints (BUG-175). R12-N2 added SYNC_ONLY dispatch in manual trigger."
+    reason: "TASK-037+038+045b: 11 read-only endpoints (history×2, list/get, trigger, reload, cancel, unscheduled, page route, notification config/test). R10-C removed 5 config-mutating endpoints (BUG-175). R12-N2 added SYNC_ONLY dispatch in manual trigger. R5-N6: per-source failure details (+48 lines)."
     review_by: "v1.1"
 
   # Removed: dango/web/routes/sync.py — now ~370 lines after R10-N (sync moved to subprocess)

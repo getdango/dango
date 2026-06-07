@@ -130,11 +130,12 @@ def oauth_status(ctx: click.Context) -> None:
             console.print("\n[yellow]No OAuth credentials configured[/yellow]\n")
             return
 
-        from dango.oauth.validation import validate_token
+        from dango.oauth.storage import OAuthCredential
+        from dango.oauth.validation import TokenValidationResult, validate_token
 
         # Validate all tokens and categorize
-        invalid: list[tuple] = []  # (cred, result)
-        expiring_soon: list[tuple] = []  # (cred, result)
+        invalid: list[tuple[OAuthCredential, TokenValidationResult]] = []
+        expiring_soon: list[tuple[OAuthCredential, TokenValidationResult]] = []
 
         with console.status("Validating tokens..."):
             for cred in credentials:

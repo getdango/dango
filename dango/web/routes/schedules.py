@@ -8,6 +8,7 @@ exclusively via the CLI (``dango schedule add``, ``dango schedule webhook add``)
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -309,8 +310,8 @@ async def list_schedules(
         # Add per-source error details for failed runs
         entry["source_errors"] = None
         if last_run and last_run.get("status") == "failed":
-            entry["source_errors"] = _get_source_errors(
-                list(sched.sources), last_run.get("started_at")
+            entry["source_errors"] = await asyncio.to_thread(
+                _get_source_errors, list(sched.sources), last_run.get("started_at")
             )
         result.append(entry)
 
