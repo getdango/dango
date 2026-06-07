@@ -364,6 +364,12 @@ exemptions:
     reason: "R10-G2: Added _enrich_staging_tests for post-sync dbt test enrichment from profiling data. R12-F added _run_dbt_snapshots hook (+29 lines). M2-final: Added _profile_dbt_models for intermediate/marts schema profiling (+62 lines)."
     review_by: "v1.1"
 
+  - file: dango/utils/db_health.py
+    lines: 654
+    category: exempt
+    reason: "R5-N5: Unified orphan detection (build_schema_table_mapping, is_table_configured, find_orphaned_tables) moved from cli/db_helpers.py to share between CLI and web health page."
+    review_by: "v1.1"
+
   - file: dango/web/routes/schedules.py
     lines: 519
     category: exempt

@@ -61,6 +61,54 @@ def _get_scheduler(request: Request) -> SchedulerService | None:
     return getattr(request.app.state, "scheduler", None)
 
 
+def _find_closest_entry(
+    history: list[dict[str, Any]],
+    target: datetime,
+    tolerance_seconds: int = 300,
+) -> dict[str, Any] | None:
+    """Find sync history entry closest to target timestamp within tolerance."""
+    best: dict[str, Any] | None = None
+    best_diff = float("inf")
+    for entry in history:
+        ts = entry.get("started_at") or entry.get("timestamp")
+        if not ts:
+            continue
+        try:
+            t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        diff = abs((t - target).total_seconds())
+        if diff < best_diff and diff <= tolerance_seconds:
+            best_diff, best = diff, entry
+    return best
+
+
+def _get_source_errors(
+    sources: list[str],
+    schedule_started_at: str | None,
+) -> dict[str, dict[str, Any]] | None:
+    """Get per-source error details for a failed schedule run."""
+    if not schedule_started_at or not sources:
+        return None
+    from dango.web.helpers import load_sync_history
+
+    try:
+        target = datetime.fromisoformat(schedule_started_at.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+    errors: dict[str, dict[str, Any]] = {}
+    for source_name in sources:
+        history = load_sync_history(source_name, limit=5)
+        match = _find_closest_entry(history, target)
+        if match:
+            errors[source_name] = {
+                "status": match.get("status", "unknown"),
+                "error": match.get("error"),
+            }
+    return errors or None
+
+
 def _find_schedule(config: SchedulesConfig, name: str) -> ScheduleConfig | None:
     """Find a schedule by name in the config."""
     for sched in config.schedules:
@@ -248,6 +296,7 @@ async def list_schedules(
     result: list[dict[str, Any]] = []
     for sched in config.schedules:
         job_id = get_schedule_job_id(sched.name)
+        last_run = last_runs.get(sched.name)
         entry: dict[str, Any] = {
             "name": sched.name,
             "type": sched.type.value,
@@ -255,8 +304,14 @@ async def list_schedules(
             "sources": list(sched.sources),
             "enabled": sched.enabled,
             "next_run_time": next_runs.get(job_id),
-            "last_run": last_runs.get(sched.name),
+            "last_run": last_run,
         }
+        # Add per-source error details for failed runs
+        entry["source_errors"] = None
+        if last_run and last_run.get("status") == "failed":
+            entry["source_errors"] = _get_source_errors(
+                list(sched.sources), last_run.get("started_at")
+            )
         result.append(entry)
 
     return JSONResponse(content=result)

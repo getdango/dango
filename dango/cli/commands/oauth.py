@@ -54,6 +54,8 @@ def oauth_list(ctx: click.Context) -> None:
             console.print("  dango oauth facebook_ads")
             return
 
+        from dango.oauth.validation import validate_token
+
         # Create table
         table = Table(title=f"OAuth Credentials ({len(credentials)})", show_header=True)
         table.add_column("Source Type", style="cyan")
@@ -62,20 +64,32 @@ def oauth_list(ctx: click.Context) -> None:
         table.add_column("Status", style="yellow")
         table.add_column("Created", style="dim")
 
-        for cred in credentials:
-            # Determine status
-            if cred.is_expired():
-                status = "[red]EXPIRED[/red]"
-            elif cred.is_expiring_soon():
-                days_left = cred.days_until_expiry()
-                status = f"[yellow]Expires in {days_left}d[/yellow]"
-            else:
-                status = "[green]Active[/green]"
+        with console.status("Validating tokens..."):
+            for cred in credentials:
+                # Live-validate token status
+                result = validate_token(cred)
+                if result.error_code == "network_error":
+                    # Fallback to metadata when we can't reach the API
+                    if cred.is_expired():
+                        status = "[red]EXPIRED[/red]"
+                    elif cred.is_expiring_soon():
+                        days_left = cred.days_until_expiry()
+                        status = f"[yellow]Expires in {days_left}d[/yellow]"
+                    else:
+                        status = "[green]Active[/green]"
+                elif result.valid:
+                    status = "[green]Valid[/green]"
+                elif result.error_code == "revoked":
+                    status = "[red]REVOKED[/red]"
+                elif result.error_code == "expired":
+                    status = "[red]EXPIRED[/red]"
+                else:
+                    status = f"[red]{result.message}[/red]"
 
-            # Format created date
-            created = cred.created_at.strftime("%Y-%m-%d") if cred.created_at else "Unknown"
+                # Format created date
+                created = cred.created_at.strftime("%Y-%m-%d") if cred.created_at else "Unknown"
 
-            table.add_row(cred.source_type, cred.provider, cred.account_info, status, created)
+                table.add_row(cred.source_type, cred.provider, cred.account_info, status, created)
 
         console.print("\n")
         console.print(table)
@@ -116,21 +130,34 @@ def oauth_status(ctx: click.Context) -> None:
             console.print("\n[yellow]No OAuth credentials configured[/yellow]\n")
             return
 
-        # Find credentials that need attention
-        expired = [c for c in credentials if c.is_expired()]
-        expiring_soon = [c for c in credentials if c.is_expiring_soon() and not c.is_expired()]
+        from dango.oauth.validation import validate_token
 
-        if not expired and not expiring_soon:
-            console.print("\n[green]✓ All OAuth credentials are active[/green]\n")
+        # Validate all tokens and categorize
+        invalid: list[tuple] = []  # (cred, result)
+        expiring_soon: list[tuple] = []  # (cred, result)
+
+        with console.status("Validating tokens..."):
+            for cred in credentials:
+                result = validate_token(cred)
+                if not result.valid and result.error_code != "network_error":
+                    invalid.append((cred, result))
+                elif (
+                    result.valid
+                    and result.days_until_expiry is not None
+                    and result.days_until_expiry <= 30
+                ):
+                    expiring_soon.append((cred, result))
+
+        if not invalid and not expiring_soon:
+            console.print("\n[green]✓ All OAuth credentials are valid[/green]\n")
             return
 
-        # Show expired credentials
-        if expired:
-            console.print("\n[red]⚠️  Expired OAuth Credentials:[/red]")
-            for cred in expired:
+        # Show invalid credentials
+        if invalid:
+            console.print("\n[red]⚠️  Invalid OAuth Credentials:[/red]")
+            for cred, result in invalid:
                 console.print(f"  • {cred.account_info} ({cred.source_type})")
-                expiry_str = cred.expires_at.strftime("%Y-%m-%d") if cred.expires_at else "Unknown"
-                console.print(f"    [dim]Expired: {expiry_str}[/dim]")
+                console.print(f"    [dim]{result.message}[/dim]")
                 console.print(
                     f"    [yellow]Re-authenticate: dango oauth refresh {cred.source_type}[/yellow]\n"
                 )
@@ -138,8 +165,8 @@ def oauth_status(ctx: click.Context) -> None:
         # Show expiring soon
         if expiring_soon:
             console.print("\n[yellow]⚠️  OAuth Credentials Expiring Soon:[/yellow]")
-            for cred in expiring_soon:
-                days_left = cred.days_until_expiry()
+            for cred, result in expiring_soon:
+                days_left = result.days_until_expiry
                 console.print(f"  • {cred.account_info} ({cred.source_type})")
                 console.print(
                     f"    [dim]Expires: {cred.expires_at.strftime('%Y-%m-%d') if cred.expires_at else 'Unknown'} ({days_left} days)[/dim]"

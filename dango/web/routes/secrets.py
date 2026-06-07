@@ -9,6 +9,7 @@ All endpoints require ``config.manage`` permission (admin-only).
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Any
@@ -193,9 +194,11 @@ async def list_oauth_credentials(
 
     try:
         from dango.oauth.storage import OAuthStorage
+        from dango.oauth.validation import validate_token
 
         storage = OAuthStorage(project_root)
-        for cred in storage.list():
+        creds_list = list(storage.list())
+        for cred in creds_list:
             items.append(
                 {
                     "source_type": cred.source_type,
@@ -208,6 +211,14 @@ async def list_oauth_credentials(
                     "days_until_expiry": cred.days_until_expiry(),
                 }
             )
+        # Validate all tokens in parallel
+        results = await asyncio.gather(
+            *[asyncio.to_thread(validate_token, cred) for cred in creds_list]
+        )
+        for item, result in zip(items, results, strict=True):
+            item["valid"] = result.valid
+            item["error"] = result.message if not result.valid else None
+            item["error_code"] = result.error_code
     except Exception:
         logger.warning("secrets_oauth_list_failed", exc_info=True)
 
