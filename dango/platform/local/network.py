@@ -329,10 +329,9 @@ server {{
             with open(self.nginx_pid) as f:
                 pid = int(f.read().strip())
 
-            from dango.utils.process import kill_process
+            import psutil
 
-            if not kill_process(pid):
-                return False, "Failed to stop nginx: process could not be killed"
+            psutil.Process(pid).terminate()
             return True, "nginx stopped"
         except Exception as e:
             return False, f"Failed to stop nginx: {e}"
