@@ -15,10 +15,15 @@ Public API:
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import json
+import sys
 import time
 from datetime import datetime, timezone
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -292,7 +297,10 @@ def _add_pending_dbt_source(project_root: Path, source_name: str) -> None:
     path = project_root / _PENDING_DBT_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a+") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        if sys.platform == "win32":
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(f, fcntl.LOCK_EX)
         f.seek(0)
         try:
             data = json.load(f)
@@ -311,7 +319,10 @@ def _consume_pending_dbt_sources(project_root: Path) -> list[str]:
     if not path.exists():
         return []
     with open(path, "r+") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        if sys.platform == "win32":
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(f, fcntl.LOCK_EX)
         try:
             data = json.load(f)
         except (json.JSONDecodeError, ValueError):

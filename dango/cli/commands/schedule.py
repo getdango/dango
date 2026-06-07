@@ -137,6 +137,7 @@ def _get_local_timezone() -> str:
     3. Falls back to "UTC"
     """
     import os
+    import sys
 
     # Method 1: /etc/localtime symlink (macOS/Linux)
     try:
@@ -147,6 +148,25 @@ def _get_local_timezone() -> str:
                 return iana
     except (OSError, ValueError):
         pass
+
+    # Method 1.5: Windows — try tzlocal (IANA names), then time.tzname
+    if sys.platform == "win32":
+        try:
+            from tzlocal import get_localzone_name
+
+            tz_name = get_localzone_name()
+            if tz_name:
+                return tz_name
+        except (ImportError, Exception):
+            pass
+        try:
+            import time as _time
+
+            tz_name = _time.tzname[0]
+            if tz_name:
+                return tz_name
+        except Exception:
+            pass
 
     # Method 2: tzinfo.key (Python 3.12+)
     try:

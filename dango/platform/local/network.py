@@ -9,6 +9,7 @@ import json
 import os
 import socket
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -328,7 +329,9 @@ server {{
             with open(self.nginx_pid) as f:
                 pid = int(f.read().strip())
 
-            os.kill(pid, 15)  # SIGTERM
+            from dango.utils.process import kill_process
+
+            kill_process(pid)
             return True, "nginx stopped"
         except Exception as e:
             return False, f"Failed to stop nginx: {e}"
@@ -365,7 +368,11 @@ class HostsManager:
     - Handle sudo prompts
     """
 
-    HOSTS_FILE = Path("/etc/hosts")
+    HOSTS_FILE = (
+        Path(r"C:\Windows\System32\drivers\etc\hosts")
+        if sys.platform == "win32"
+        else Path("/etc/hosts")
+    )
     BEGIN_MARKER = "# BEGIN DANGO MANAGED HOSTS"
     END_MARKER = "# END DANGO MANAGED HOSTS"
 
