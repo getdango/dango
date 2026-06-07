@@ -87,18 +87,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     console.print(format_credentials_panel(user.email, password))
                     console.print()
 
-                    # Sync newly created admin to Metabase (if Metabase is running)
-                    try:
-                        from dango.auth.metabase_bridge import (
-                            ensure_metabase_synced,
-                            get_metabase_url,
-                        )
+                    # Sync newly created admin to Metabase in background
+                    # (don't block startup — Metabase may still be starting)
+                    import asyncio
 
-                        mb_url = await get_metabase_url(project_root)
-                        if mb_url is not None:
-                            await ensure_metabase_synced(db_path, user.id, project_root, mb_url)
-                    except Exception:
-                        logger.debug("metabase_sync_on_admin_create_skipped", exc_info=True)
+                    async def _sync_admin_to_metabase(
+                        _db_path: Path, _user_id: int, _project_root: Path
+                    ) -> None:
+                        try:
+                            from dango.auth.metabase_bridge import (
+                                ensure_metabase_synced,
+                                get_metabase_url,
+                            )
+
+                            mb_url = await get_metabase_url(_project_root)
+                            if mb_url is not None:
+                                await ensure_metabase_synced(
+                                    _db_path, _user_id, _project_root, mb_url
+                                )
+                        except Exception:
+                            logger.debug("metabase_sync_on_admin_create_skipped", exc_info=True)
+
+                    # Store task reference on app.state to prevent GC
+                    task = asyncio.create_task(
+                        _sync_admin_to_metabase(db_path, user.id, project_root)
+                    )
+                    app.state._metabase_sync_task = task
         except Exception:
             logger.warning("first_run_admin_check_failed", exc_info=True)
 

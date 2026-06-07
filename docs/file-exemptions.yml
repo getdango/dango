@@ -10,6 +10,12 @@ schema_version: 1
 limit: 500  # Informational — scripts/check_file_sizes.py owns the enforced threshold
 
 exemptions:
+  - file: dango/web/app.py
+    lines: 510
+    category: exempt
+    reason: "FastAPI entry point + lifespan. Background Metabase sync (v1.0.1) added ~10 lines over 500."
+    review_by: "v1.1"
+
   # --- Post-TASK-085 split results (from web/app.py 3032 → web/routes/) ---
   - file: dango/web/helpers.py
     lines: 893

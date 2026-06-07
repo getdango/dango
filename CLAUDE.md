@@ -164,7 +164,7 @@ dango/                          # Python package source
 │   └── formatter.py            # Result categorization + display formatting
 │
 ├── web/                        # Level 2 — FastAPI web server
-│   ├── app.py                  # Entry point (~480 lines) — routers, middleware, admin bootstrap
+│   ├── app.py                  # Entry point (~510 lines) — routers, middleware, admin bootstrap
 │   ├── models.py               # Pydantic request/response DTOs (incl. auth DTOs)
 │   ├── helpers.py              # Shared helpers: DuckDB queries, config, logging (893 lines)
 │   ├── middleware/             # Request middleware
@@ -347,6 +347,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/platform.py` | 1075 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 902 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
+| `web/app.py` | 510 | — (background Metabase sync in v1.0.1) |
 | `web/helpers.py` | 893 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
 | `platform/scheduling/jobs.py` | 849 | — (module-level job functions) |
@@ -366,7 +367,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `config/models.py` | 620 | — (Pydantic config models) |
 | `cli/commands/deploy.py` | 767 | — (deploy group with DO + BYOS routing, destroy command) |
 | `cli/commands/deploy_wizard.py` | 898 | — (interactive deploy wizard + BYOS) |
-| `transformation/generator.py` | 614 | — |
+| `transformation/generator.py` | 626 | — |
 | `web/routes/catalog.py` | 1351 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
 | `cli/commands/deploy_provision.py` | 1000 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
