@@ -55,6 +55,8 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup and shutdown logic."""
+    import asyncio
+
     project_root: Path = app.state.project_root
     logger.info("api_starting", project_root=str(project_root))
 
@@ -89,8 +91,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
                     # Sync newly created admin to Metabase in background
                     # (don't block startup — Metabase may still be starting)
-                    import asyncio
-
                     async def _sync_admin_to_metabase(
                         _db_path: Path, _user_id: int, _project_root: Path
                     ) -> None:
@@ -162,8 +162,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Initialize APScheduler for job scheduling
     try:
-        import asyncio
-
         from dango.platform.scheduling import SchedulerService
 
         scheduler = SchedulerService(project_root)
@@ -193,7 +191,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # Shutdown
-    import asyncio
+    mb_task = getattr(app.state, "_metabase_sync_task", None)
+    if mb_task is not None and not mb_task.done():
+        mb_task.cancel()
+        try:
+            await mb_task
+        except asyncio.CancelledError:
+            pass
 
     sync_task = getattr(app.state, "sync_watcher_task", None)
     if sync_task is not None:
