@@ -341,7 +341,6 @@ secrets/
         if sys.platform == "win32":
             hook_content = """\
 #!/usr/bin/env python3
-import sys
 print()
 print("  Warning: Dango pre-push checklist:")
 print("    - Run 'dango validate' to check config and models")

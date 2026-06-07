@@ -157,7 +157,7 @@ def _get_local_timezone() -> str:
             tz_name = get_localzone_name()
             if tz_name:
                 return tz_name
-        except (ImportError, Exception):
+        except Exception:
             pass
         try:
             import time as _time

@@ -24,8 +24,7 @@ def setup_signal_handlers(watcher: Any) -> None:
         watcher.stop()
         sys.exit(0)
 
-    if hasattr(signal, "SIGTERM"):
-        signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
 
@@ -302,8 +301,7 @@ def main() -> None:
         multi_watcher.stop()
         sys.exit(0)
 
-    if hasattr(signal, "SIGTERM"):
-        signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
     # Start watching

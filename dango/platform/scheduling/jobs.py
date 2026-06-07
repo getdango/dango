@@ -298,7 +298,8 @@ def _add_pending_dbt_source(project_root: Path, source_name: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a+") as f:
         if sys.platform == "win32":
-            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
         else:
             fcntl.flock(f, fcntl.LOCK_EX)
         f.seek(0)
@@ -320,7 +321,7 @@ def _consume_pending_dbt_sources(project_root: Path) -> list[str]:
         return []
     with open(path, "r+") as f:
         if sys.platform == "win32":
-            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
         else:
             fcntl.flock(f, fcntl.LOCK_EX)
         try:

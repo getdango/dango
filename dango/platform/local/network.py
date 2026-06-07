@@ -331,7 +331,8 @@ server {{
 
             from dango.utils.process import kill_process
 
-            kill_process(pid)
+            if not kill_process(pid):
+                return False, "Failed to stop nginx: process could not be killed"
             return True, "nginx stopped"
         except Exception as e:
             return False, f"Failed to stop nginx: {e}"
