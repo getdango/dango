@@ -61,14 +61,20 @@ def check_versions(ssh: SSHManager) -> tuple[str | None, str | None]:
 
     Uses ``_get_dango_version()`` from ``server_status`` for the remote
     version and ``check_latest_pypi_version()`` for the PyPI version.
+    When the current remote version is a pre-release, ``include_pre=True``
+    is passed so that PyPI returns the latest pre-release rather than the
+    latest stable version.
     """
+    from packaging.version import Version
+
     from dango.platform.cloud.server_status import (
         _get_dango_version,
         check_latest_pypi_version,
     )
 
     current = _get_dango_version(ssh)
-    latest = check_latest_pypi_version()
+    include_pre = current is not None and Version(current).is_prerelease
+    latest = check_latest_pypi_version(include_pre=include_pre)
     return current, latest
 
 
@@ -94,6 +100,7 @@ def upgrade_dango(
     *,
     version: str | None = None,
     skip_backup: bool = False,
+    force: bool = False,
     on_progress: Callable[[str, str], None] | None = None,
 ) -> UpgradeResult:
     """Upgrade Dango on the remote server.
@@ -167,6 +174,14 @@ def upgrade_dango(
             health_check_passed=True,
             duration_seconds=round(time.monotonic() - start_time, 1),
             warnings=["Already at target version — no upgrade performed."],
+        )
+
+    # 3b. Downgrade guard
+    if old_version is not None and _Version(target_version) < _Version(old_version) and not force:
+        raise CloudError(
+            f"Target version {target_version} is older than current version {old_version}. "
+            "Use --force to downgrade.",
+            error_code="DANGO-D022",
         )
 
     # 4. Pre-upgrade backup

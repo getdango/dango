@@ -169,7 +169,7 @@ def _resolve_dimension_value(dimension_name: str, dimension_value: str) -> Any:
     """
 
     if dimension_name == "date":
-        return pendulum.from_format(dimension_value, "YYYYMMDD", tz="UTC").date()
+        return pendulum.from_format(dimension_value, "YYYYMMDD", tz="UTC")
     elif dimension_name == "dateHour":
         return pendulum.from_format(dimension_value, "YYYYMMDDHH", tz="UTC")
     elif dimension_name == "dateHourMinute":

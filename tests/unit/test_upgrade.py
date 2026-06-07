@@ -102,6 +102,27 @@ class TestCheckVersions:
         assert current is None
         assert latest is None
 
+    def test_prerelease_passes_include_pre(self) -> None:
+        from dango.platform.cloud.upgrade import check_versions
+
+        ssh = _make_ssh_mock(exec_results={"import dango": ("1.0.0b3", "", 0)})
+        with patch(_PATCH_PYPI, return_value="1.0.0b4") as mock_pypi:
+            current, latest = check_versions(ssh)
+
+        assert current == "1.0.0b3"
+        assert latest == "1.0.0b4"
+        mock_pypi.assert_called_once_with(include_pre=True)
+
+    def test_stable_does_not_pass_include_pre(self) -> None:
+        from dango.platform.cloud.upgrade import check_versions
+
+        ssh = _make_ssh_mock(exec_results={"import dango": ("1.0.0", "", 0)})
+        with patch(_PATCH_PYPI, return_value="1.1.0") as mock_pypi:
+            current, latest = check_versions(ssh)
+
+        assert current == "1.0.0"
+        mock_pypi.assert_called_once_with(include_pre=False)
+
 
 @pytest.mark.unit
 class TestUpgradeDango:
@@ -361,3 +382,34 @@ class TestUpgradeDango:
         assert "check_version" in steps
         assert "pip_install" in steps
         assert "verify_health" in steps
+
+    def test_downgrade_blocked_without_force(self) -> None:
+        from dango.platform.cloud.upgrade import upgrade_dango
+
+        ssh = _make_ssh_mock(exec_results={"import dango": ("1.1.0", "", 0)})
+
+        with pytest.raises(CloudError, match="older than current"):
+            upgrade_dango(ssh, version="1.0.0")
+
+    def test_downgrade_allowed_with_force(self) -> None:
+        from dango.platform.cloud.upgrade import upgrade_dango
+
+        ssh = _make_ssh_mock(
+            exec_results={
+                "import dango": ("1.1.0", "", 0),
+                "pip install": ("", "", 0),
+                "migrations run": ("", "", 0),
+                "docker compose": ("", "", 0),
+                "curl -sf": ("ok", "", 0),
+                "systemctl": ("", "", 0),
+            }
+        )
+
+        backup_result = MagicMock()
+        backup_result.archive_path = "/srv/dango/backups/deploy/backup-test.tar.gz"
+
+        with patch(_PATCH_BACKUP, return_value=backup_result):
+            result = upgrade_dango(ssh, version="1.0.0", force=True)
+
+        assert result.old_version == "1.1.0"
+        assert result.health_check_passed is True

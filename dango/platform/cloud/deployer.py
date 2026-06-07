@@ -245,11 +245,14 @@ def _start_all_services(ssh: SSHManager, *, rebuild_docker: bool = False) -> Non
         logger.warning("service_start_failed", service="dango-web", stderr=result.stderr)
 
 
+_NO_CREDENTIAL_TYPES = frozenset({"csv", "local_files", "dlt_native", "filesystem"})
+
+
 def _validate_remote_sources(ssh: SSHManager) -> list[str]:
     """Validate that remote sources have corresponding credentials.
 
     Parses ``.dango/sources.yml`` on the remote and checks that
-    ``.dlt/secrets.toml`` has section headers for each source.
+    ``.dlt/secrets.toml`` has section headers for each source type.
 
     Returns:
         List of error messages.  Empty list means all sources are valid.
@@ -282,10 +285,16 @@ def _validate_remote_sources(ssh: SSHManager) -> list[str]:
         if not isinstance(source, dict):
             continue
         name = source.get("name", "")
+        source_type = source.get("type", "")
         if not name:
             continue
-        # Check for TOML section header at start of line
-        pattern = rf"^\[sources\.{re.escape(name)}\]"
+        if not source_type:
+            logger.warning("source_missing_type", source_name=name)
+            continue
+        if source_type in _NO_CREDENTIAL_TYPES:
+            continue
+        # Check for TOML section header by source type (credentials are keyed by type)
+        pattern = rf"^\[sources\.{re.escape(source_type)}\]"
         if not re.search(pattern, secrets_content, re.MULTILINE):
             errors.append(f"Source '{name}' has no credentials in .dlt/secrets.toml on the server")
 
@@ -510,8 +519,14 @@ def push_deploy(
                 logger.warning("chown_failed", path=REMOTE_PROJECT_DIR, stderr=chown_result.stderr)
             _notify(on_progress, "fix_ownership", "done")
 
-            # Step 5b: Install project dependencies (if requirements.txt synced)
-            if "requirements.txt" in sync_result.synced_files:
+            # Step 5b: Install project dependencies (if requirements.txt exists on server).
+            # Runs every deploy (not just when the file changed) because the old
+            # sync_result.synced_files check missed deploys where the file existed
+            # but wasn't modified. pip resolves already-installed packages quickly.
+            req_check = ssh.exec_command(
+                f"test -f {REMOTE_PROJECT_DIR}/requirements.txt && echo exists"
+            )
+            if req_check.stdout.strip() == "exists":
                 _notify(on_progress, "install_deps", "running")
                 pip_result = ssh.exec_command(
                     f"sudo -u dango {VENV_BIN}/pip install -r {REMOTE_PROJECT_DIR}/requirements.txt",
@@ -521,6 +536,8 @@ def push_deploy(
                     warnings.append(
                         f"pip install -r requirements.txt failed: {pip_result.stderr.strip()}"
                     )
+                else:
+                    logger.info("requirements_installed", path="requirements.txt")
                 _notify(on_progress, "install_deps", "done")
 
             # Step 6: Validate sources

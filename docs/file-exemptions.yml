@@ -438,6 +438,12 @@ exemptions:
     reason: "R9-B: BUG-115/118 tests added metabase.yml write-back assertions and refresh_metabase_connection container-name tests. Each test class requires independent auth DB setup and multi-layer mocking."
     review_by: "v1.1"
 
+  - file: tests/unit/test_deployer_push.py
+    lines: 533
+    category: exempt
+    reason: "R4: push_deploy orchestration + Docker rebuild + requirements.txt install tests. Split from test_deployer.py for file-size compliance."
+    review_by: "v1.1"
+
   # --- Scripts ---
   - file: scripts/smoke_test.sh
     lines: 866

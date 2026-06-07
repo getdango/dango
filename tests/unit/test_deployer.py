@@ -237,7 +237,7 @@ class TestSourceValidation:
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if "sources.yml" in cmd:
                 return CommandResult(
-                    stdout="sources:\n  - name: google_sheets\n  - name: facebook_ads\n",
+                    stdout="sources:\n  - name: google_sheets\n    type: google_sheets\n  - name: facebook_ads\n    type: facebook_ads\n",
                     stderr="",
                     exit_code=0,
                 )
@@ -259,7 +259,7 @@ class TestSourceValidation:
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if "sources.yml" in cmd:
                 return CommandResult(
-                    stdout="sources:\n  - name: google_sheets\n",
+                    stdout="sources:\n  - name: google_sheets\n    type: google_sheets\n",
                     stderr="",
                     exit_code=0,
                 )
@@ -275,6 +275,48 @@ class TestSourceValidation:
     def test_no_sources_configured(self):
         ssh = make_ssh_mock()
         ssh.exec_command.return_value = CommandResult(stdout="", stderr="", exit_code=1)
+        errors = _validate_remote_sources(ssh)
+        assert errors == []
+
+    def test_no_credential_type_skipped(self):
+        """Sources with types that don't need credentials should not produce errors."""
+        ssh = make_ssh_mock()
+
+        def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
+            if "sources.yml" in cmd:
+                return CommandResult(
+                    stdout="sources:\n  - name: my_csv\n    type: csv\n",
+                    stderr="",
+                    exit_code=0,
+                )
+            if "secrets.toml" in cmd:
+                return CommandResult(stdout="# empty", stderr="", exit_code=0)
+            return CommandResult(stdout="", stderr="", exit_code=0)
+
+        ssh.exec_command.side_effect = _side_effect
+        errors = _validate_remote_sources(ssh)
+        assert errors == []
+
+    def test_type_differs_from_name(self):
+        """Credential lookup uses source type, not source name."""
+        ssh = make_ssh_mock()
+
+        def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
+            if "sources.yml" in cmd:
+                return CommandResult(
+                    stdout="sources:\n  - name: my_ga4\n    type: google_analytics\n",
+                    stderr="",
+                    exit_code=0,
+                )
+            if "secrets.toml" in cmd:
+                return CommandResult(
+                    stdout='[sources.google_analytics]\nkey = "abc"\n',
+                    stderr="",
+                    exit_code=0,
+                )
+            return CommandResult(stdout="", stderr="", exit_code=0)
+
+        ssh.exec_command.side_effect = _side_effect
         errors = _validate_remote_sources(ssh)
         assert errors == []
 

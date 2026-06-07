@@ -4,8 +4,10 @@ Creates and provisions "Data Pipeline Health" dashboard for monitoring data pipe
 """
 
 import logging
+import os
 import secrets
 import string
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -529,6 +531,65 @@ def hide_internal_tables(metabase_url: str, headers: dict[str, str], db_id: int)
     return result
 
 
+def _reset_metabase_volume(project_root: Path) -> bool:
+    """Remove stale Metabase Docker volume and restart the container.
+
+    Used when Metabase has existing data from a different project (no
+    ``metabase.yml``) and setup cannot proceed with the stale state.
+
+    Returns ``True`` if the reset succeeded, ``False`` otherwise.
+    """
+    from dango.platform.docker import get_compose_project_name
+
+    compose_name = get_compose_project_name(project_root)
+    env = {**os.environ, "COMPOSE_PROJECT_NAME": compose_name}
+
+    try:
+        # Stop and remove the metabase container
+        subprocess.run(
+            ["docker", "compose", "stop", "metabase"],
+            cwd=project_root,
+            env=env,
+            capture_output=True,
+            timeout=60,
+        )
+        subprocess.run(
+            ["docker", "compose", "rm", "-f", "metabase"],
+            cwd=project_root,
+            env=env,
+            capture_output=True,
+            timeout=30,
+        )
+
+        # Remove the volume — this is the critical step
+        volume_name = f"{compose_name}_metabase-data"
+        rm_result = subprocess.run(
+            ["docker", "volume", "rm", volume_name],
+            capture_output=True,
+            timeout=30,
+        )
+        if rm_result.returncode != 0:
+            logger.warning(
+                "metabase_volume_rm_failed",
+                volume=volume_name,
+                stderr=rm_result.stderr.decode(errors="replace").strip(),
+            )
+            return False
+
+        # Restart metabase container
+        subprocess.run(
+            ["docker", "compose", "up", "-d", "metabase"],
+            cwd=project_root,
+            env=env,
+            capture_output=True,
+            timeout=120,
+        )
+        return True
+    except Exception:
+        logger.debug("metabase_volume_reset_failed", exc_info=True)
+        return False
+
+
 def setup_metabase(
     project_root: Path,
     project_name: str,
@@ -622,17 +683,34 @@ def setup_metabase(
                     # Credentials will be saved at the end with DuckDB info
 
                 else:
-                    summary["errors"].append(
-                        "Metabase already initialized but default credentials don't work. "
-                        "Delete Docker volume or metabase.yml to reset."
-                    )
-                    return summary
+                    # Stale volume from a different project — reset and retry
+                    print("  ⚠ Stale Metabase volume detected, resetting...")
+                    if _reset_metabase_volume(project_root):
+                        print("  ⏳ Waiting for Metabase to restart...")
+                        if wait_for_metabase_ready(metabase_url, timeout=120):
+                            # Get fresh setup token after reset
+                            props_resp = requests.get(
+                                f"{metabase_url}/api/session/properties", timeout=10
+                            )
+                            if props_resp.status_code == 200:
+                                setup_token = props_resp.json().get("setup-token")
+                        if not setup_token:
+                            summary["errors"].append(
+                                "Metabase volume reset but setup token not available."
+                            )
+                            return summary
+                    else:
+                        summary["errors"].append(
+                            "Metabase already initialized but default credentials don't work. "
+                            "Delete Docker volume or metabase.yml to reset."
+                        )
+                        return summary
 
             except Exception as e:
                 summary["errors"].append(f"Could not login to existing Metabase: {e}")
                 return summary
 
-        else:
+        if setup_token:
             # Fresh Metabase - create admin user with default credentials
             setup_data = {
                 "token": setup_token,

@@ -29,12 +29,14 @@ from dango.cli.utils import safe_confirm
 )
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
 @click.option("--skip-backup", is_flag=True, help="Skip the pre-upgrade backup.")
+@click.option("--force", is_flag=True, help="Allow downgrades to an older version.")
 @click.pass_context
 def remote_upgrade(
     ctx: click.Context,
     target_version: str | None,
     yes: bool,
     skip_backup: bool,
+    force: bool,
 ) -> None:
     """Upgrade Dango on the remote server."""
     from rich.status import Status
@@ -108,6 +110,7 @@ def remote_upgrade(
                 ssh,
                 version=target_version,
                 skip_backup=skip_backup,
+                force=force,
                 on_progress=_on_progress,
             )
 

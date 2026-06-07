@@ -259,7 +259,7 @@ class TestPushDeploy:
         def _side_effect(cmd: str, **kwargs: object) -> CommandResult:
             if "sources.yml" in cmd and "cat" in cmd:
                 return CommandResult(
-                    stdout="sources:\n  - name: missing_source\n",
+                    stdout="sources:\n  - name: missing_source\n    type: google_sheets\n",
                     stderr="",
                     exit_code=0,
                 )
@@ -475,3 +475,59 @@ class TestDockerRebuild:
 
         assert not any("down --rmi" in c for c in commands)
         assert any("systemctl restart dango-web" in c for c in commands)
+
+
+# ---------------------------------------------------------------------------
+# Requirements.txt install tests (K2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRequirementsInstall:
+    """Test requirements.txt is installed when it exists on server."""
+
+    @patch("dango.platform.cloud.backup.create_backup")
+    @patch("dango.platform.cloud.file_sync.sync_project_files")
+    def test_requirements_installed_when_exists_on_server(self, mock_sync, mock_backup, tmp_path):
+        """pip install runs when requirements.txt exists on server, even if not in synced_files."""
+        mock_sync.return_value = _make_sync_result(
+            synced_files=["dbt/models/", ".dango/sources.yml"],  # no requirements.txt
+        )
+        mock_backup.return_value = _make_backup_result()
+        ssh = make_ssh_mock()
+
+        commands: list[str] = []
+
+        def _tracking_exec(cmd: str, **kwargs: object) -> CommandResult:
+            commands.append(cmd)
+            if "test -f" in cmd and "requirements.txt" in cmd:
+                return CommandResult(stdout="exists", stderr="", exit_code=0)
+            return CommandResult(stdout="", stderr="", exit_code=0)
+
+        ssh.exec_command.side_effect = _tracking_exec
+
+        push_deploy(ssh, tmp_path, "10.0.0.1")
+
+        assert any("pip install -r" in c and "requirements.txt" in c for c in commands)
+
+    @patch("dango.platform.cloud.backup.create_backup")
+    @patch("dango.platform.cloud.file_sync.sync_project_files")
+    def test_requirements_skipped_when_not_on_server(self, mock_sync, mock_backup, tmp_path):
+        """pip install does NOT run when requirements.txt does not exist on server."""
+        mock_sync.return_value = _make_sync_result()
+        mock_backup.return_value = _make_backup_result()
+        ssh = make_ssh_mock()
+
+        commands: list[str] = []
+
+        def _tracking_exec(cmd: str, **kwargs: object) -> CommandResult:
+            commands.append(cmd)
+            if "test -f" in cmd and "requirements.txt" in cmd:
+                return CommandResult(stdout="", stderr="", exit_code=1)
+            return CommandResult(stdout="", stderr="", exit_code=0)
+
+        ssh.exec_command.side_effect = _tracking_exec
+
+        push_deploy(ssh, tmp_path, "10.0.0.1")
+
+        assert not any("pip install -r" in c and "requirements.txt" in c for c in commands)

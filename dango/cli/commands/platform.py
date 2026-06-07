@@ -657,45 +657,56 @@ def start(ctx: click.Context, yes: bool) -> None:
         console.print("[dim]Waiting for services to be ready...[/dim]")
 
         # Wait for both FastAPI and Metabase to be ready
-        max_wait = 60
+        from dango.utils.process import is_process_running
+
+        max_wait = 180
         fastapi_ready = False
         metabase_ready = False
+        process_died = False
 
         for _i in range(max_wait):
+            # Check if FastAPI process is still alive
+            if fastapi_pid and not is_process_running(fastapi_pid):
+                console.print("[red]⚠[/red]  Web UI process exited unexpectedly")
+                process_died = True
+                break
+
             try:
-                # Check FastAPI
                 if not fastapi_ready:
                     response = requests.get(f"{base_url}/api/status", timeout=1)
                     if response.status_code == 200:
                         fastapi_ready = True
-                        console.print("[dim]  ✓ Dashboard ready[/dim]")
+                        console.print("[dim]  ✓ Web UI ready[/dim]")
+            except Exception:
+                pass
 
-                # Check Metabase
+            try:
                 if not metabase_ready:
                     metabase_response = requests.get("http://localhost:3000/api/health", timeout=1)
                     if metabase_response.status_code == 200:
                         metabase_ready = True
                         console.print("[dim]  ✓ Metabase ready[/dim]")
-
-                # Both ready? Break
-                if fastapi_ready and metabase_ready:
-                    break
-
             except Exception:
                 pass
 
+            if fastapi_ready and metabase_ready:
+                break
+
             time.sleep(1)
 
-        if not fastapi_ready:
-            console.print("[yellow]⚠[/yellow]  Dashboard not ready within timeout")
-        if not metabase_ready:
-            console.print(
-                "[yellow]⚠[/yellow]  Metabase not ready within timeout (may still be starting)"
-            )
+        if not process_died:
+            if not fastapi_ready:
+                console.print(
+                    "[yellow]⚠[/yellow]  Web UI not ready within timeout (may still be starting)"
+                )
+            if not metabase_ready:
+                console.print(
+                    "[yellow]⚠[/yellow]  Metabase not ready within timeout (may still be starting)"
+                )
 
         try:
             webbrowser.open(base_url)
-            console.print("[dim]✨ Opening dashboard in your browser...[/dim]")
+            console.print("[dim]✨ Opening Dango in your browser...[/dim]")
         except Exception:
             logger.debug("browser_open_failed", exc_info=True)
 
