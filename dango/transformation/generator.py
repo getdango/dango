@@ -13,6 +13,16 @@ import jinja2
 from dango.config.models import DataSource
 
 
+def _has_not_null_test(tests: list) -> bool:
+    """Check if a not_null test already exists in any form (string or dict)."""
+    for test in tests:
+        if test == "not_null":
+            return True
+        if isinstance(test, dict) and "not_null" in test:
+            return True
+    return False
+
+
 class DbtModelGenerator:
     """
     Generates dbt staging models from data sources configuration.
@@ -373,7 +383,7 @@ class DbtModelGenerator:
             return
 
         for col in columns:
-            if col["name"] in zero_null_cols and "not_null" not in col.get("tests", []):
+            if col["name"] in zero_null_cols and not _has_not_null_test(col.get("tests", [])):
                 col.setdefault("tests", []).append("not_null")
 
     def generate_staging_schema_yml(

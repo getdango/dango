@@ -22,6 +22,21 @@ from dango.validation import validate_identifier
 logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
+# dbt test helpers
+# ---------------------------------------------------------------------------
+
+
+def _has_not_null_test(tests: list) -> bool:
+    """Check if a not_null test already exists in any form (string or dict)."""
+    for test in tests:
+        if test == "not_null":
+            return True
+        if isinstance(test, dict) and "not_null" in test:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Type classification helpers
 # ---------------------------------------------------------------------------
 
@@ -434,7 +449,7 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
                 for col in model.get("columns", []):
                     if col["name"] in zero_null_cols:
                         tests = col.get("tests", [])
-                        if "not_null" not in tests:
+                        if not _has_not_null_test(tests):
                             tests.append("not_null")
                             col["tests"] = tests
                             changed = True

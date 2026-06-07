@@ -208,6 +208,33 @@ class TestEnrichColumnsFromProfiling:
 
         assert columns[0]["tests"].count("not_null") == 1
 
+    def test_does_not_duplicate_not_null_dict_form(self, tmp_path):
+        """If not_null exists in dict form (with config), don't add a string duplicate."""
+        gen = DbtModelGenerator(tmp_path)
+
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = [("order_id",)]
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+
+        columns = [
+            {
+                "name": "order_id",
+                "tests": [{"not_null": {"config": {"severity": "warn"}}}, "unique"],
+            },
+        ]
+
+        with patch("dango.utils.dango_db.connect", return_value=mock_conn):
+            gen._enrich_columns_from_profiling("shopify", "orders", columns)
+
+        # Should not add a string "not_null" when dict form already exists
+        not_null_count = sum(
+            1
+            for t in columns[0]["tests"]
+            if t == "not_null" or (isinstance(t, dict) and "not_null" in t)
+        )
+        assert not_null_count == 1
+
     def test_handles_db_error_gracefully(self, tmp_path):
         """Database errors should leave columns unchanged."""
         gen = DbtModelGenerator(tmp_path)

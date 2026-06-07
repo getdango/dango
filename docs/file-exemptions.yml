@@ -10,6 +10,12 @@ schema_version: 1
 limit: 500  # Informational — scripts/check_file_sizes.py owns the enforced threshold
 
 exemptions:
+  - file: dango/web/app.py
+    lines: 514
+    category: exempt
+    reason: "FastAPI entry point + lifespan. Background Metabase sync (v1.0.1) added ~14 lines over 500."
+    review_by: "v1.1"
+
   # --- Post-TASK-085 split results (from web/app.py 3032 → web/routes/) ---
   - file: dango/web/helpers.py
     lines: 893
@@ -204,7 +210,7 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/transformation/generator.py
-    lines: 614
+    lines: 626
     category: exempt
     reason: "DbtModelGenerator — generates dbt models from source configs. R10-G2 added _enrich_columns_from_profiling for dbt test enrichment."
     review_by: "v1.1"
@@ -359,7 +365,7 @@ exemptions:
   # --- Phase 4 scheduling ---
 
   - file: dango/utils/post_sync.py
-    lines: 762
+    lines: 804
     category: exempt
     reason: "R10-G2: Added _enrich_staging_tests for post-sync dbt test enrichment from profiling data. R12-F added _run_dbt_snapshots hook (+29 lines). M2-final: Added _profile_dbt_models for intermediate/marts schema profiling (+62 lines)."
     review_by: "v1.1"
