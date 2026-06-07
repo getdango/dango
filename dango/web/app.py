@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     # Sync newly created admin to Metabase in background
                     # (don't block startup — Metabase may still be starting)
                     async def _sync_admin_to_metabase(
-                        _db_path: Path, _user_id: int, _project_root: Path
+                        _db_path: Path, _user_id: str, _project_root: Path
                     ) -> None:
                         try:
                             from dango.auth.metabase_bridge import (
