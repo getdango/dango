@@ -355,7 +355,7 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
 
         # Create table
         table = Table(show_header=True, header_style="bold cyan")
-        table.add_column("Name", style="white")
+        table.add_column("Name", style="white", no_wrap=False)
         table.add_column("Type", style="dim")
         table.add_column("Mode", style="dim")
         table.add_column("Status", style="white")

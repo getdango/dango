@@ -169,30 +169,19 @@ async def get_platform_health() -> dict[str, Any]:
         if never_synced:
             warnings.append(f"{len(never_synced)} source(s) never synced")
 
-    # Check for orphaned raw schemas (no matching source config)
+    # Check for orphaned tables (no matching source config)
     try:
         db_path = project_root / "data" / "warehouse.duckdb"
         if db_path.exists():
-            configured_sources = {s.get("name") for s in sources_config if s.get("name")}
+            from dango.config import get_config
+            from dango.utils.db_health import find_orphaned_tables
 
-            def _check_orphaned_schemas() -> list[str]:
-                import duckdb as _duckdb
-
-                conn = _duckdb.connect(str(db_path), config={"access_mode": "read_only"})
-                try:
-                    schemas = conn.execute(
-                        "SELECT DISTINCT schema_name FROM information_schema.schemata "
-                        "WHERE schema_name LIKE 'raw_%' "
-                        "AND schema_name NOT LIKE '%_staging'"
-                    ).fetchall()
-                finally:
-                    conn.close()
-                return [s[0][4:] for s in schemas if s[0][4:] not in configured_sources]
-
-            orphaned = await asyncio.to_thread(_check_orphaned_schemas)
+            dango_config = get_config(project_root)
+            orphaned = await asyncio.to_thread(find_orphaned_tables, db_path, dango_config)
             if orphaned:
+                orphan_names = sorted({s.removeprefix("raw_") for s, _, _ in orphaned})
                 warnings.append(
-                    f"Orphaned tables found ({', '.join(orphaned[:3])}) \u2014 run `dango db clean`"
+                    f"Orphaned tables found ({', '.join(orphan_names[:3])}) \u2014 run `dango db clean`"
                 )
     except Exception:
         pass  # Non-critical check

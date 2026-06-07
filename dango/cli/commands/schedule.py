@@ -440,10 +440,10 @@ def schedule_list(ctx: click.Context) -> None:
     from rich.table import Table
 
     table = Table(title="Schedules")
-    table.add_column("Name", style="bold")
+    table.add_column("Name", style="bold", no_wrap=False)
     table.add_column("Type")
     table.add_column("Cron")
-    table.add_column("Sources")
+    table.add_column("Sources", no_wrap=False, overflow="fold")
     table.add_column("Enabled")
     table.add_column("Next Run")
 
@@ -451,8 +451,6 @@ def schedule_list(ctx: click.Context) -> None:
         sources = sched.get("sources", [])
         enabled = sched.get("enabled", True)
         sources_str = ", ".join(sources) if sources else "—"
-        if len(sources_str) > 40:
-            sources_str = sources_str[:37] + "..."
         table.add_row(
             sched.get("name", "?"),
             sched.get("type", "sync"),
