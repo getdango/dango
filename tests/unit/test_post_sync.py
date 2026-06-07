@@ -346,3 +346,47 @@ class TestEnsureDefaultMetrics:
         added = mock_add.call_args[0][1]
         assert len(added) == 1
         assert added[0].name == "shared_metric"
+
+
+@pytest.mark.unit
+class TestEnrichStagingTests:
+    """Tests for _enrich_staging_tests not_null dedup logic."""
+
+    def test_does_not_duplicate_not_null_dict_form(self, tmp_path: Path):
+        """If not_null exists in dict form, don't add a plain string duplicate."""
+        from dango.utils.post_sync import _enrich_staging_tests
+
+        # Create staging schema file with dict-form not_null
+        staging_dir = tmp_path / "dbt" / "models" / "staging"
+        staging_dir.mkdir(parents=True)
+        schema_content = """\
+models:
+  - name: stg_shopify__orders
+    columns:
+      - name: order_id
+        tests:
+          - not_null:
+              config:
+                severity: warn
+          - unique
+"""
+        (staging_dir / "stg_shopify.yml").write_text(schema_content)
+
+        # Mock profiling to say order_id has 0% nulls
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = [("order_id",)]
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+
+        with patch("dango.utils.post_sync.connect", return_value=mock_conn):
+            _enrich_staging_tests(tmp_path, ["shopify"])
+
+        # Re-read and verify no duplicate
+        import yaml
+
+        data = yaml.safe_load((staging_dir / "stg_shopify.yml").read_text())
+        col_tests = data["models"][0]["columns"][0]["tests"]
+        not_null_count = sum(
+            1 for t in col_tests if t == "not_null" or (isinstance(t, dict) and "not_null" in t)
+        )
+        assert not_null_count == 1

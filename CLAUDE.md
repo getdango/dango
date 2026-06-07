@@ -164,7 +164,7 @@ dango/                          # Python package source
 │   └── formatter.py            # Result categorization + display formatting
 │
 ├── web/                        # Level 2 — FastAPI web server
-│   ├── app.py                  # Entry point (~510 lines) — routers, middleware, admin bootstrap
+│   ├── app.py                  # Entry point (~514 lines) — routers, middleware, admin bootstrap
 │   ├── models.py               # Pydantic request/response DTOs (incl. auth DTOs)
 │   ├── helpers.py              # Shared helpers: DuckDB queries, config, logging (893 lines)
 │   ├── middleware/             # Request middleware
@@ -292,7 +292,7 @@ dango/                          # Python package source
 │   ├── data_validation.py      # Data validation utilities
 │   ├── env_file.py             # .env file parsing and serialization
 │   ├── dango_db.py             # SQLite context manager for .dango/dango.db + schema init
-│   ├── post_sync.py            # Post-sync hook dispatcher (~762 lines)
+│   ├── post_sync.py            # Post-sync hook dispatcher (~804 lines)
 │   └── git_info.py             # Git repository info + deployment guardrails
 │
 ├── migrations/                 # Level 0 — Database migration framework
@@ -347,12 +347,12 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/platform.py` | 1075 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 902 | — (split evaluated in DOC-025: exempt, security-critical) |
 | `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
-| `web/app.py` | 510 | — (background Metabase sync in v1.0.1) |
+| `web/app.py` | 514 | — (background Metabase sync in v1.0.1) |
 | `web/helpers.py` | 893 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
 | `platform/scheduling/jobs.py` | 849 | — (module-level job functions) |
 | `utils/db_health.py` | 654 | — (R5-N5: unified orphan detection from cli/db_helpers.py) |
-| `utils/post_sync.py` | 762 | — (post-sync hooks + sync notification) |
+| `utils/post_sync.py` | 804 | — (post-sync hooks + sync notification) |
 | `config/schedules.py` | 506 | — (R2-D13b: trigger comparison in reload) |
 | `web/routes/schedules.py` | 608 | — (schedule read-only, history, trigger, notifications) |
 | `web/routes/notebooks.py` | 574 | — (notebook management API + heartbeat lock expiry + WS notify) |
