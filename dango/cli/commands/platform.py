@@ -662,11 +662,13 @@ def start(ctx: click.Context, yes: bool) -> None:
         max_wait = 180
         fastapi_ready = False
         metabase_ready = False
+        process_died = False
 
         for _i in range(max_wait):
             # Check if FastAPI process is still alive
             if fastapi_pid and not is_process_running(fastapi_pid):
                 console.print("[red]⚠[/red]  Web UI process exited unexpectedly")
+                process_died = True
                 break
 
             try:
@@ -692,14 +694,15 @@ def start(ctx: click.Context, yes: bool) -> None:
 
             time.sleep(1)
 
-        if not fastapi_ready:
-            console.print(
-                "[yellow]⚠[/yellow]  Web UI not ready within timeout (may still be starting)"
-            )
-        if not metabase_ready:
-            console.print(
-                "[yellow]⚠[/yellow]  Metabase not ready within timeout (may still be starting)"
-            )
+        if not process_died:
+            if not fastapi_ready:
+                console.print(
+                    "[yellow]⚠[/yellow]  Web UI not ready within timeout (may still be starting)"
+                )
+            if not metabase_ready:
+                console.print(
+                    "[yellow]⚠[/yellow]  Metabase not ready within timeout (may still be starting)"
+                )
 
         try:
             webbrowser.open(base_url)

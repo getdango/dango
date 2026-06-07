@@ -286,7 +286,10 @@ def _validate_remote_sources(ssh: SSHManager) -> list[str]:
             continue
         name = source.get("name", "")
         source_type = source.get("type", "")
-        if not name or not source_type:
+        if not name:
+            continue
+        if not source_type:
+            logger.warning("source_missing_type", source_name=name)
             continue
         if source_type in _NO_CREDENTIAL_TYPES:
             continue
@@ -516,7 +519,10 @@ def push_deploy(
                 logger.warning("chown_failed", path=REMOTE_PROJECT_DIR, stderr=chown_result.stderr)
             _notify(on_progress, "fix_ownership", "done")
 
-            # Step 5b: Install project dependencies (if requirements.txt exists on server)
+            # Step 5b: Install project dependencies (if requirements.txt exists on server).
+            # Runs every deploy (not just when the file changed) because the old
+            # sync_result.synced_files check missed deploys where the file existed
+            # but wasn't modified. pip resolves already-installed packages quickly.
             req_check = ssh.exec_command(
                 f"test -f {REMOTE_PROJECT_DIR}/requirements.txt && echo exists"
             )

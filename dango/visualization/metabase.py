@@ -561,13 +561,20 @@ def _reset_metabase_volume(project_root: Path) -> bool:
             timeout=30,
         )
 
-        # Remove the volume
+        # Remove the volume — this is the critical step
         volume_name = f"{compose_name}_metabase-data"
-        subprocess.run(
+        rm_result = subprocess.run(
             ["docker", "volume", "rm", volume_name],
             capture_output=True,
             timeout=30,
         )
+        if rm_result.returncode != 0:
+            logger.warning(
+                "metabase_volume_rm_failed",
+                volume=volume_name,
+                stderr=rm_result.stderr.decode(errors="replace").strip(),
+            )
+            return False
 
         # Restart metabase container
         subprocess.run(

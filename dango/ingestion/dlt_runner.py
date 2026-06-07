@@ -2444,17 +2444,19 @@ def run_sync(
                 from dango.governance.schema_drift import detect_drift_for_sources
 
                 drift_events = detect_drift_for_sources(project_root, success_sources)
-                breaking_events = [e for e in drift_events if e.get("severity") == "breaking"]
-                if breaking_events:
+                if drift_events:
                     by_source: dict[str, list[dict[str, Any]]] = {}
-                    for ev in breaking_events:
+                    for ev in drift_events:
                         by_source.setdefault(ev["source"], []).append(ev)
                     console.print("[yellow]Schema drift detected:[/yellow]")
                     for src, evts in by_source.items():
                         console.print(f"  [bold]{src}[/bold]:")
                         for ev in evts:
+                            severity = ev.get("severity", "")
+                            label = f" [red]({severity})[/red]" if severity == "breaking" else ""
                             console.print(
-                                f"    {ev['column_name']}: {ev['event_type']} ({ev['detail']})"
+                                f"    {ev['column_name']}: {ev['event_type']}"
+                                f" ({ev['detail']}){label}"
                             )
                     console.print()
             except Exception:
