@@ -2460,11 +2460,15 @@ def run_sync(
                                 f" ({ev['detail']}){label}"
                             )
                     if has_breaking:
+                        breaking_sources = [
+                            src
+                            for src, evts in by_source.items()
+                            if any(e.get("severity") == "breaking" for e in evts)
+                        ]
                         console.print()
-                        console.print(
-                            "[dim]Accept breaking changes with:[/dim] "
-                            "[cyan]dango governance accept[/cyan]"
-                        )
+                        console.print("[dim]Accept breaking changes with:[/dim]")
+                        for src in breaking_sources:
+                            console.print(f"  [cyan]dango governance accept {src}[/cyan]")
                     console.print()
             except Exception:
                 import logging as _drift_log
