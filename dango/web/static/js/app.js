@@ -2796,7 +2796,7 @@ async function renderAttentionBanner() {
                     <div class="ml-3">
                         <h3 class="text-sm font-medium text-yellow-800">Breaking Schema Drift Detected</h3>
                         <div class="mt-2 text-sm text-yellow-700">${sourceItems}</div>
-                        <p class="mt-1 text-xs text-yellow-600">dbt is paused for affected sources. Accept changes to resume.</p>
+                        <p class="mt-1 text-xs text-yellow-600">Accept changes to update the schema baseline and clear this warning.</p>
                     </div>
                 </div>
             </div>

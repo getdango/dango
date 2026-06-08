@@ -884,20 +884,29 @@ function catalogPage() {
             return Math.floor(diff / 86400) + 'd ago';
         },
         getItemFreshness(item) {
-            if (!this.overview || !this.overview.freshness) return '--';
-            // Source tables: use source_name directly.
-            // Staging/models: derive source from name (stg_{source}__{table}).
-            let srcName = item.source_name || (item.schema || '').replace(/^raw_/, '');
-            if (!srcName || srcName === item.schema) {
-                const m = (item.name || '').match(/^stg_(.+?)__/);
-                if (m) srcName = m[1];
+            // Source tables + staging: derive from source freshness.
+            if (this.overview && this.overview.freshness) {
+                let srcName = item.source_name || (item.schema || '').replace(/^raw_/, '');
+                if (!srcName || srcName === item.schema) {
+                    const m = (item.name || '').match(/^stg_(.+?)__/);
+                    if (m) srcName = m[1];
+                }
+                const f = this.overview.freshness.find(f => f.source === srcName);
+                if (f && f.hours_since_sync != null) {
+                    const h = f.hours_since_sync;
+                    if (h < 1) return Math.round(h * 60) + 'm ago';
+                    if (h < 24) return Math.round(h) + 'h ago';
+                    return Math.round(h / 24) + 'd ago';
+                }
             }
-            const f = this.overview.freshness.find(f => f.source === srcName);
-            if (!f || f.hours_since_sync == null) return '--';
-            const h = f.hours_since_sync;
-            if (h < 1) return Math.round(h * 60) + 'm ago';
-            if (h < 24) return Math.round(h) + 'h ago';
-            return Math.round(h / 24) + 'd ago';
+            // Intermediate/marts: fall back to dbt last_run timestamp.
+            if (item.last_run) {
+                const h = (Date.now() - new Date(item.last_run).getTime()) / 3600000;
+                if (h < 1) return Math.round(h * 60) + 'm ago';
+                if (h < 24) return Math.round(h) + 'h ago';
+                return Math.round(h / 24) + 'd ago';
+            }
+            return '--';
         },
 
         toggleLineageView() {

@@ -2448,6 +2448,7 @@ def run_sync(
                     by_source: dict[str, list[dict[str, Any]]] = {}
                     for ev in drift_events:
                         by_source.setdefault(ev["source"], []).append(ev)
+                    has_breaking = any(ev.get("severity") == "breaking" for ev in drift_events)
                     console.print("[yellow]Schema drift detected:[/yellow]")
                     for src, evts in by_source.items():
                         console.print(f"  [bold]{src}[/bold]:")
@@ -2458,6 +2459,12 @@ def run_sync(
                                 f"    {ev['column_name']}: {ev['event_type']}"
                                 f" ({ev['detail']}){label}"
                             )
+                    if has_breaking:
+                        console.print()
+                        console.print(
+                            "[dim]Accept breaking changes with:[/dim] "
+                            "[cyan]dango governance accept[/cyan]"
+                        )
                     console.print()
             except Exception:
                 import logging as _drift_log

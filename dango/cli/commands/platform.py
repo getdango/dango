@@ -673,7 +673,7 @@ def start(ctx: click.Context, yes: bool) -> None:
 
             try:
                 if not fastapi_ready:
-                    response = requests.get(f"{base_url}/api/status", timeout=1)
+                    response = requests.get(f"{base_url}/api/health", timeout=1)
                     if response.status_code == 200:
                         fastapi_ready = True
                         console.print("[dim]  ✓ Web UI ready[/dim]")
