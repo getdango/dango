@@ -377,6 +377,12 @@ def _build_catalog_models(
     """
     test_map = _build_test_status_map(manifest, run_results)
 
+    # Load persistent dbt model statuses for last_run timestamps
+    from dango.utils.dbt_status import get_model_statuses
+
+    project_root = get_project_root()
+    model_statuses = get_model_statuses(project_root)
+
     models: list[dict[str, Any]] = []
     for uid, node in manifest.get("nodes", {}).items():
         if node.get("resource_type") != "model":
@@ -387,6 +393,8 @@ def _build_catalog_models(
         tests_passing = sum(1 for t in tests if t["status"] == "pass")
         tests_warning = sum(1 for t in tests if t["status"] == "warn")
         tests_failing = sum(1 for t in tests if t["status"] in ("fail", "error"))
+
+        status_info = model_statuses.get(uid, {})
 
         models.append(
             {
@@ -403,6 +411,8 @@ def _build_catalog_models(
                 "columns_total": len(columns),
                 "columns_documented": cols_documented,
                 "tags": node.get("tags", []),
+                "last_run": status_info.get("last_run"),
+                "status": status_info.get("status"),
             }
         )
 

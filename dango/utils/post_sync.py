@@ -434,6 +434,17 @@ def _enrich_staging_tests(project_root: Path, sources: list[str]) -> None:
                 if not table_name:
                     continue
 
+                # Deduplicate tests: if a column has both a plain "not_null"
+                # and a configured {"not_null": {...}}, keep only the configured one.
+                for col in model.get("columns", []):
+                    tests = col.get("tests", [])
+                    if len(tests) > 1:
+                        has_plain = any(t == "not_null" for t in tests)
+                        has_configured = any(isinstance(t, dict) and "not_null" in t for t in tests)
+                        if has_plain and has_configured:
+                            col["tests"] = [t for t in tests if t != "not_null"]
+                            changed = True
+
                 # Query profiling for this specific table
                 with connect(project_root) as conn:
                     rows = conn.execute(

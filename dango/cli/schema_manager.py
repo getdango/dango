@@ -97,7 +97,7 @@ class SchemaManager:
         existing_schema = self._load_schema_yml(schema_path)
 
         # Merge schemas
-        updated_schema, changes = self._merge_schema(model_name, columns, existing_schema)
+        updated_schema, changes = self._merge_schema(model_name, columns, existing_schema, layer)
 
         # Write updated schema
         self._write_schema_yml(schema_path, updated_schema)
@@ -163,6 +163,7 @@ class SchemaManager:
         model_name: str,
         actual_columns: list[dict[str, str]],
         existing_schema: dict[str, Any] | None,
+        layer: str = "marts",
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """
         Merge actual columns with existing schema, preserving descriptions
@@ -223,10 +224,22 @@ class SchemaManager:
             if col_name not in actual_col_names:
                 removed_columns.append({"name": col_name, "description": description})
 
-        # Build model entry
+        # Build model entry — generate a default description for new models
+        if existing_model:
+            description = existing_model.get("description", "")
+        else:
+            # Auto-generate from model name: int_foo_bar → "Foo bar"
+            readable = model_name
+            for prefix in ("int_", "intermediate_"):
+                if readable.startswith(prefix):
+                    readable = readable[len(prefix) :]
+                    break
+            readable = readable.replace("_", " ").strip().capitalize()
+            description = f"{layer.capitalize()} model: {readable}"
+
         new_model = {
             "name": model_name,
-            "description": existing_model.get("description", "") if existing_model else "",
+            "description": description,
             "columns": new_columns,
         }
 
