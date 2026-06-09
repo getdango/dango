@@ -5,7 +5,29 @@ All notable changes to Dango will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - Unreleased
+## [1.0.2] - 2026-06-09
+
+### Fixed
+
+- `dango start` health check: use `/api/health` (public) instead of `/api/status` (requires auth) — eliminates 180s startup wait
+- Staging schema test dedup: clean up duplicate `not_null` tests where both plain and configured (`severity: warn`) versions coexist — fixes dbt compilation error
+- Schema drift CLI: add `dango governance accept <source>` remediation hint when breaking drift is detected
+- Sources page: fix false "dbt is paused" label — dbt is not actually paused for drift
+- Catalog API: add `last_run` and `status` from `dbt_model_status.json` so intermediate/marts models show "Last Updated" in the catalog
+- Schema manager: generate default descriptions for new intermediate/marts models instead of empty strings
+
+## [1.0.1] - 2026-06-08
+
+### Fixed
+
+- Duplicate `not_null` dbt tests causing compilation error on sync
+- `dango start` timeout waiting for web UI (auth middleware blocking health check)
+- Web UI display fixes (sources table count, catalog seed labels, logs filter naming)
+- Cloud, health, governance, Metabase, and startup UX fixes
+- Windows compatibility fixes for local code paths
+- Review feedback: consistent API fields, type hints, async I/O
+
+## [1.0.0] - 2026-06-07
 
 ### Added
 
