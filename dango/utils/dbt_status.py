@@ -103,8 +103,10 @@ def mark_source_models_stale(project_root: Path, failed_sources: list[str]) -> N
                 # source.project_name.source_name.table_name
                 parts = dep.split(".")
                 if len(parts) >= 3 and parts[2] in failed_set:
-                    # Preserve last_run but mark as stale
+                    # Don't downgrade "error" to "stale" — error is more severe
                     existing = persistent_status.get(node_id, {})
+                    if existing.get("status") == "error":
+                        break
                     persistent_status[node_id] = {
                         "status": "stale",
                         "last_run": existing.get("last_run"),

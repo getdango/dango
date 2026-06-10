@@ -53,10 +53,12 @@ logger = get_logger(__name__)
 
 
 def _install_sigterm_logger(project_root: Path) -> None:
-    """Install a SIGTERM handler that logs the sender PID before shutdown.
+    """Install a SIGTERM handler that logs the signal before shutdown.
 
-    Helps diagnose unexpected shutdowns — the sender PID is recorded in
-    activity.jsonl so we can identify what killed the server.
+    Records a warning-level entry in activity.jsonl when SIGTERM arrives,
+    then chains to uvicorn's original handler for graceful shutdown.
+    Helps diagnose unexpected shutdowns — the timestamp narrows the window
+    for investigating what sent the signal.
     """
     import signal
 
@@ -78,6 +80,8 @@ def _install_sigterm_logger(project_root: Path) -> None:
         if callable(_original_handler):
             _original_handler(signum, frame)
         elif _original_handler == signal.SIG_DFL:
+            # Restore default and re-send so the process exits normally.
+            # No infinite loop: SIG_DFL is restored before the re-send.
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             os.kill(os.getpid(), signal.SIGTERM)
 

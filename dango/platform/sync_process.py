@@ -209,7 +209,8 @@ async def poll_sync_status(
                     }
                 )
                 _handle_crash(project_root, source_list, None, log_path, error_msg)
-                _cleanup_sync_log(log_path, keep=True) if log_path else None
+                if log_path:
+                    _cleanup_sync_log(log_path, keep=True)
                 return False, {"error": error_msg, "phase": "failed"}
 
             # Check if subprocess has exited
@@ -399,13 +400,30 @@ def _handle_crash(
     Called when a sync subprocess terminates without writing a terminal status.
     """
     from dango.utils.activity_log import log_activity
-    from dango.utils.sync_history import save_sync_history_entry
+    from dango.utils.sync_history import load_sync_history, save_sync_history_entry
 
     log_tail = _read_log_tail(log_path) if log_path else ""
     detail = f"{error_msg}\n{log_tail}".strip() if log_tail else error_msg
 
     for src in sources:
         try:
+            # Skip if the subprocess already wrote a terminal history entry
+            # (e.g., it crashed after recording its own failure in dlt_runner)
+            recent = load_sync_history(project_root, src, limit=1)
+            if recent and recent[0].get("status") in ("failed", "success", "partial"):
+                # Check if this entry is recent (within last 5 minutes)
+                from datetime import datetime, timezone
+
+                entry_ts = recent[0].get("timestamp", "")
+                try:
+                    clean = entry_ts.replace("+00:00", "").replace("Z", "")
+                    ts = datetime.fromisoformat(clean).replace(tzinfo=timezone.utc)
+                    age = (datetime.now(tz=timezone.utc) - ts).total_seconds()
+                    if age < 300:  # 5 minutes
+                        continue  # subprocess already recorded this
+                except (ValueError, TypeError):
+                    pass  # can't parse — write our own entry
+
             save_sync_history_entry(
                 project_root,
                 src,

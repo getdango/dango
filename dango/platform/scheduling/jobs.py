@@ -359,11 +359,11 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
         return True
 
     from dango.transformation import generate_dbt_docs, run_dbt_models
-    from dango.utils.activity_log import log_activity as _coalesced_log
+    from dango.utils.activity_log import log_activity as log_activity_fn
 
     select_criteria = " ".join(f"source:{s}+" for s in pending)
     logger.info("coalesced_dbt_run", sources=pending, select=select_criteria)
-    _coalesced_log(
+    log_activity_fn(
         project_root,
         "info",
         f"dbt:{select_criteria}",
@@ -812,11 +812,12 @@ def run_scheduled_dbt(
         WebhookSender,
         load_notification_config,
     )
-    from dango.utils.activity_log import log_activity as _log_activity
+    from dango.utils.activity_log import log_activity
     from dango.utils.dbt_lock import DbtLock
 
     sender = WebhookSender(load_notification_config(project_root))
     lock = DbtLock(project_root, source="scheduler", operation=f"dbt:{schedule_name}")
+    dbt_label = f"dbt:{dbt_command}" if dbt_command else "dbt:all"
 
     record_id: int | None = None
 
@@ -862,8 +863,7 @@ def run_scheduled_dbt(
 
         record_id = _try_record_start(project_root, schedule_name, source_names=None)
 
-        dbt_label = f"dbt:{dbt_command}" if dbt_command else "dbt:all"
-        _log_activity(
+        log_activity(
             project_root,
             "info",
             dbt_label,
@@ -887,7 +887,7 @@ def run_scheduled_dbt(
         dbt_dashboard_url = _build_dashboard_url(project_root)
 
         if success:
-            _log_activity(
+            log_activity(
                 project_root,
                 "success",
                 dbt_label,
@@ -916,7 +916,7 @@ def run_scheduled_dbt(
                 dashboard_url=dbt_dashboard_url,
             )
         else:
-            _log_activity(
+            log_activity(
                 project_root,
                 "error",
                 dbt_label,
@@ -950,7 +950,7 @@ def run_scheduled_dbt(
 
     except JobTimeoutError:
         elapsed = time.monotonic() - t0
-        _log_activity(project_root, "error", dbt_label, "Scheduled dbt timed out")
+        log_activity(project_root, "error", dbt_label, "Scheduled dbt timed out")
         _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
         _log_execution_event(
             schedule_name=schedule_name,
@@ -977,7 +977,7 @@ def run_scheduled_dbt(
 
     except JobCancelledError:
         elapsed = time.monotonic() - t0
-        _log_activity(project_root, "warning", dbt_label, "Scheduled dbt cancelled")
+        log_activity(project_root, "warning", dbt_label, "Scheduled dbt cancelled")
         _try_finish_record(project_root, schedule_name, record_id, "record_cancellation")
         _log_execution_event(
             schedule_name=schedule_name,
@@ -997,7 +997,7 @@ def run_scheduled_dbt(
     except Exception as exc:  # noqa: BLE001
         elapsed = time.monotonic() - t0
         error_msg = str(exc)
-        _log_activity(project_root, "error", dbt_label, f"Scheduled dbt failed: {error_msg}")
+        log_activity(project_root, "error", dbt_label, f"Scheduled dbt failed: {error_msg}")
         logger.error(
             "scheduled_dbt_failed",
             schedule=schedule_name,
