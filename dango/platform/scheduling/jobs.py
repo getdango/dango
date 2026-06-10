@@ -359,9 +359,16 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
         return True
 
     from dango.transformation import generate_dbt_docs, run_dbt_models
+    from dango.utils.activity_log import log_activity as _coalesced_log
 
     select_criteria = " ".join(f"source:{s}+" for s in pending)
     logger.info("coalesced_dbt_run", sources=pending, select=select_criteria)
+    _coalesced_log(
+        project_root,
+        "info",
+        f"dbt:{select_criteria}",
+        f"Coalesced dbt starting for sources: {', '.join(pending)}",
+    )
     dbt_success, _dbt_output = run_dbt_models(project_root, select=select_criteria)
 
     if dbt_success:
@@ -420,6 +427,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         launch_sync_subprocess,
         poll_sync_status_blocking,
     )
+    from dango.utils.activity_log import log_activity
 
     sender = WebhookSender(load_notification_config(project_root))
     source_names = list(sources)
@@ -442,6 +450,13 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
 
         record_id = _try_record_start(project_root, schedule_name, source_names)
 
+        log_activity(
+            project_root,
+            "info",
+            f"schedule:{schedule_name}",
+            f"Scheduled sync starting: {', '.join(source_names)}",
+        )
+
         _broadcast(
             {
                 "event": "sync_started",
@@ -462,7 +477,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             if _scheduler_service is not None and _scheduler_service.is_cancelled(job_id):
                 raise JobCancelledError(f"Sync cancelled between sources for {schedule_name}")
 
-            process, sync_id = launch_sync_subprocess(
+            process, sync_id, log_path = launch_sync_subprocess(
                 project_root,
                 sources=[src.name],
                 full_refresh=full_refresh,
@@ -477,6 +492,8 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 source_name=src.name,
                 sync_id=sync_id,
                 broadcast_fn=_broadcast,
+                log_path=log_path,
+                sources=[src.name],
             )
 
             if not success:
@@ -484,6 +501,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                     _result.get("error", "Unknown error") if _result else "Subprocess failed"
                 )
                 failed_source_errors[src.name] = error_msg
+                log_activity(project_root, "error", src.name, f"Scheduled sync failed: {error_msg}")
                 logger.warning(
                     "scheduled_source_sync_failed",
                     schedule=schedule_name,
@@ -509,6 +527,19 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         if not succeeded_sources:
             combined_error = "; ".join(f"{n}: {e}" for n, e in failed_source_errors.items())
             elapsed = time.monotonic() - t0
+            log_activity(
+                project_root,
+                "error",
+                f"schedule:{schedule_name}",
+                f"All sources failed: {combined_error}",
+            )
+            # Mark downstream dbt models as stale
+            try:
+                from dango.utils.dbt_status import mark_source_models_stale
+
+                mark_source_models_stale(project_root, list(failed_source_errors.keys()))
+            except Exception:  # noqa: BLE001
+                logger.debug("mark_stale_after_all_failed", exc_info=True)
             _try_finish_record(
                 project_root, schedule_name, record_id, "record_failure", error=combined_error
             )
@@ -543,6 +574,13 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         source_error: str | None = None
         if failed_source_errors:
             source_error = "; ".join(f"{n}: {e}" for n, e in failed_source_errors.items())
+            # Mark downstream dbt models as stale for failed sources
+            try:
+                from dango.utils.dbt_status import mark_source_models_stale
+
+                mark_source_models_stale(project_root, list(failed_source_errors.keys()))
+            except Exception:  # noqa: BLE001
+                logger.debug("mark_stale_after_partial_failure", exc_info=True)
 
         # Run coalesced dbt (waits for coalesce window, merges pending sources)
         transform_error: str | None = None
@@ -612,6 +650,12 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 duration_seconds=round(elapsed, 2),
             )
         else:
+            log_activity(
+                project_root,
+                "success",
+                f"schedule:{schedule_name}",
+                f"Completed: {total_rows} rows ({round(elapsed, 1)}s)",
+            )
             _try_finish_record(project_root, schedule_name, record_id, "record_completion")
             _log_execution_event(
                 schedule_name=schedule_name,
@@ -642,6 +686,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
 
     except JobTimeoutError:
         elapsed = time.monotonic() - t0
+        log_activity(project_root, "error", f"schedule:{schedule_name}", "Sync timed out")
         _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
         _log_execution_event(
             schedule_name=schedule_name,
@@ -671,6 +716,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
 
     except JobCancelledError:
         elapsed = time.monotonic() - t0
+        log_activity(project_root, "warning", f"schedule:{schedule_name}", "Sync cancelled")
         _try_finish_record(project_root, schedule_name, record_id, "record_cancellation")
         _log_execution_event(
             schedule_name=schedule_name,
@@ -701,6 +747,9 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
     except Exception as exc:  # noqa: BLE001
         elapsed = time.monotonic() - t0
         error_msg = str(exc)
+        log_activity(
+            project_root, "error", f"schedule:{schedule_name}", f"Sync failed: {error_msg}"
+        )
         logger.error(
             "scheduled_sync_failed",
             schedule=schedule_name,
@@ -763,6 +812,7 @@ def run_scheduled_dbt(
         WebhookSender,
         load_notification_config,
     )
+    from dango.utils.activity_log import log_activity as _log_activity
     from dango.utils.dbt_lock import DbtLock
 
     sender = WebhookSender(load_notification_config(project_root))
@@ -812,6 +862,14 @@ def run_scheduled_dbt(
 
         record_id = _try_record_start(project_root, schedule_name, source_names=None)
 
+        dbt_label = f"dbt:{dbt_command}" if dbt_command else "dbt:all"
+        _log_activity(
+            project_root,
+            "info",
+            dbt_label,
+            f"Scheduled dbt run starting ({schedule_name})",
+        )
+
         _broadcast(
             {
                 "event": "dbt_started",
@@ -829,6 +887,12 @@ def run_scheduled_dbt(
         dbt_dashboard_url = _build_dashboard_url(project_root)
 
         if success:
+            _log_activity(
+                project_root,
+                "success",
+                dbt_label,
+                f"Scheduled dbt completed ({round(elapsed, 1)}s)",
+            )
             _try_finish_record(project_root, schedule_name, record_id, "record_completion")
             _log_execution_event(
                 schedule_name=schedule_name,
@@ -852,6 +916,12 @@ def run_scheduled_dbt(
                 dashboard_url=dbt_dashboard_url,
             )
         else:
+            _log_activity(
+                project_root,
+                "error",
+                dbt_label,
+                f"Scheduled dbt failed: {output}",
+            )
             _try_finish_record(
                 project_root, schedule_name, record_id, "record_failure", error=output
             )
@@ -880,6 +950,7 @@ def run_scheduled_dbt(
 
     except JobTimeoutError:
         elapsed = time.monotonic() - t0
+        _log_activity(project_root, "error", dbt_label, "Scheduled dbt timed out")
         _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
         _log_execution_event(
             schedule_name=schedule_name,
@@ -906,6 +977,7 @@ def run_scheduled_dbt(
 
     except JobCancelledError:
         elapsed = time.monotonic() - t0
+        _log_activity(project_root, "warning", dbt_label, "Scheduled dbt cancelled")
         _try_finish_record(project_root, schedule_name, record_id, "record_cancellation")
         _log_execution_event(
             schedule_name=schedule_name,
@@ -925,6 +997,7 @@ def run_scheduled_dbt(
     except Exception as exc:  # noqa: BLE001
         elapsed = time.monotonic() - t0
         error_msg = str(exc)
+        _log_activity(project_root, "error", dbt_label, f"Scheduled dbt failed: {error_msg}")
         logger.error(
             "scheduled_dbt_failed",
             schedule=schedule_name,

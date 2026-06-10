@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 LogLevel = Literal["info", "success", "warning", "error"]
+LogCategory = Literal["core", "auxiliary"]
 
 
 def get_activity_log_file(project_root: Path) -> Path:
@@ -19,7 +20,12 @@ def get_activity_log_file(project_root: Path) -> Path:
 
 
 def log_activity(
-    project_root: Path, level: LogLevel, source: str, message: str, timestamp: str | None = None
+    project_root: Path,
+    level: LogLevel,
+    source: str,
+    message: str,
+    timestamp: str | None = None,
+    category: LogCategory = "core",
 ) -> None:
     """
     Write an activity log entry
@@ -30,6 +36,8 @@ def log_activity(
         source: Source name or system component
         message: Log message (will be trimmed of extra whitespace)
         timestamp: ISO timestamp (defaults to now)
+        category: Event category — "core" (syncs, schedules, failures) or
+                  "auxiliary" (queries, notebooks). Defaults to "core".
     """
     if timestamp is None:
         timestamp = datetime.now(tz=timezone.utc).isoformat()
@@ -39,6 +47,7 @@ def log_activity(
         "level": level,
         "source": source,
         "message": message.strip(),  # Remove leading/trailing whitespace
+        "category": category,
     }
 
     log_file = get_activity_log_file(project_root)

@@ -64,18 +64,22 @@ async def get_source_logs(source_name: str, limit: int = 100) -> list[LogEntry]:
 
 
 @router.get("/api/logs")
-async def get_all_logs(limit: int = 1000) -> list[dict[str, object]]:
+async def get_all_logs(limit: int = 1000, category: str | None = None) -> list[dict[str, object]]:
     """Get all activity logs.
 
     Args:
         limit: Maximum number of log entries to return (default 1000)
+        category: Filter by category ("core" or "auxiliary"). None returns all.
 
     Returns:
         List of all log entries
     """
     limit = validate_limit(limit)
+    # Validate category if provided
+    if category is not None and category not in ("core", "auxiliary"):
+        category = None
     try:
-        logs = load_all_logs(limit=limit)
+        logs = load_all_logs(limit=limit, category=category)
         return logs
     except Exception as e:
         logger.error(f"Error fetching logs: {e}")

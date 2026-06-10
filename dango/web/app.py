@@ -171,6 +171,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error("scheduler_startup_failed", exc_info=True)
         app.state.scheduler = None
 
+    # Clean stale sync status files (dead PIDs from prior shutdown)
+    try:
+        from dango.platform.sync_process import cleanup_sync_status
+
+        state_dir = project_root / ".dango" / "state"
+        if state_dir.exists():
+            for path in state_dir.iterdir():
+                if path.name.startswith("sync_status_") and path.name.endswith(".json"):
+                    sync_id = path.name[len("sync_status_") : -len(".json")]
+                    cleanup_sync_status(project_root, sync_id=sync_id)
+    except Exception:
+        logger.debug("stale_sync_status_cleanup_failed", exc_info=True)
+
+    # Clean old sync log files (>7 days)
+    try:
+        import time as _time
+
+        logs_dir = project_root / ".dango" / "logs"
+        if logs_dir.exists():
+            cutoff = _time.time() - 7 * 86400
+            for path in logs_dir.iterdir():
+                if path.name.startswith("sync_") and path.name.endswith(".log"):
+                    try:
+                        if path.stat().st_mtime < cutoff:
+                            path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+    except Exception:
+        logger.debug("old_sync_log_cleanup_failed", exc_info=True)
+
     # Start background sync status watcher (multi-worker support)
     try:
         from dango.platform.sync_process import start_sync_status_watcher

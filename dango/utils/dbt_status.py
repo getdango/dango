@@ -65,6 +65,57 @@ def update_model_status(project_root: Path) -> None:
         pass
 
 
+def mark_source_models_stale(project_root: Path, failed_sources: list[str]) -> None:
+    """Mark dbt models whose upstream source failed as "stale".
+
+    Loads ``dbt/target/manifest.json`` to discover model→source dependencies.
+    Updates the persistent status file so the UI shows a yellow "stale" badge.
+    Models are automatically cleared back to their real status on the next
+    successful dbt run (``update_model_status()``).
+
+    Silently returns if the manifest doesn't exist or on any error.
+    """
+    if not failed_sources:
+        return
+
+    manifest_path = project_root / "dbt" / "target" / "manifest.json"
+    if not manifest_path.exists():
+        return
+
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+
+        persistent_status = _load_persistent_status(project_root)
+
+        # Build a set of source node prefixes to match against
+        # dbt source nodes: "source.{project_name}.{source_name}.{table}"
+        failed_set = set(failed_sources)
+
+        nodes = manifest.get("nodes", {})
+        for node_id, node in nodes.items():
+            if node.get("resource_type") != "model":
+                continue
+            depends_on = node.get("depends_on", {}).get("nodes", [])
+            for dep in depends_on:
+                if not dep.startswith("source."):
+                    continue
+                # source.project_name.source_name.table_name
+                parts = dep.split(".")
+                if len(parts) >= 3 and parts[2] in failed_set:
+                    # Preserve last_run but mark as stale
+                    existing = persistent_status.get(node_id, {})
+                    persistent_status[node_id] = {
+                        "status": "stale",
+                        "last_run": existing.get("last_run"),
+                    }
+                    break  # Only need to mark once per model
+
+        _save_persistent_status(project_root, persistent_status)
+    except Exception:
+        pass
+
+
 def get_model_statuses(project_root: Path) -> dict[str, dict[str, Any]]:
     """
     Get persistent model statuses for UI display

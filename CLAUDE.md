@@ -224,7 +224,7 @@ dango/                          # Python package source
 │   │   ├── scheduler.py        # SchedulerService (lifecycle, events, cancellation)
 │   │   ├── resilience.py       # Retry, timeout, cancellation
 │   │   ├── history.py          # Execution history tracking
-│   │   ├── jobs.py             # Module-level job functions (849 lines)
+│   │   ├── jobs.py             # Module-level job functions (1034 lines)
 │   │   └── sync_trigger.py     # Server-side manual sync runner
 │   ├── notifications/          # Webhook notifications (TASK-043+)
 │   │   ├── webhook.py          # Event types, config, async sender
@@ -350,7 +350,8 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/app.py` | 514 | — (background Metabase sync in v1.0.1) |
 | `web/helpers.py` | 893 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
-| `platform/scheduling/jobs.py` | 849 | — (module-level job functions) |
+| `platform/sync_process.py` | 603 | — (subprocess launch + crash handling) |
+| `platform/scheduling/jobs.py` | 1034 | — (module-level job functions) |
 | `utils/db_health.py` | 654 | — (R5-N5: unified orphan detection from cli/db_helpers.py) |
 | `utils/post_sync.py` | 804 | — (post-sync hooks + sync notification) |
 | `config/schedules.py` | 506 | — (R2-D13b: trigger comparison in reload) |

@@ -87,7 +87,7 @@ class TestSyncFailureNotification:
                 patch(f"{_CFG_MOD}.load_config", return_value=config),
                 patch(
                     f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
-                    return_value=(MagicMock(), "test_id"),
+                    return_value=(MagicMock(), "test_id", tmp_path / "fake.log"),
                 ),
                 patch(
                     f"{_SYNC_PROC_MOD}.poll_sync_status_blocking",

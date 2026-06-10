@@ -223,7 +223,7 @@ class TestMultiSourceDbtLock:
             patch(f"{_CFG_MOD}.load_config", return_value=config),
             patch(
                 f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
-                return_value=(MagicMock(), "test_id"),
+                return_value=(MagicMock(), "test_id", MagicMock()),
             ),
             patch(
                 f"{_SYNC_PROC_MOD}.poll_sync_status_blocking",
@@ -273,7 +273,7 @@ class TestCancellationBetweenSources:
 
         def mock_launch(project_root, sources, **kw):
             launched_sources.append(sources[0])
-            return MagicMock(), "test_id"
+            return MagicMock(), "test_id", MagicMock()
 
         old_svc = jobs_mod._scheduler_service
         try:
@@ -368,7 +368,7 @@ class TestRecordStartWiring:
             patch(f"{_CFG_MOD}.load_config", return_value=config),
             patch(
                 f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
-                return_value=(MagicMock(), "test_id"),
+                return_value=(MagicMock(), "test_id", MagicMock()),
             ),
             patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
             patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),

@@ -134,7 +134,7 @@ class TestLaunchSyncSubprocess:
         mock_process.pid = 12345
         mock_popen.return_value = mock_process
 
-        process, sync_id = launch_sync_subprocess(
+        process, sync_id, log_path = launch_sync_subprocess(
             project_root=tmp_path,
             sources=["hubspot"],
             full_refresh=True,
@@ -143,6 +143,7 @@ class TestLaunchSyncSubprocess:
 
         assert process is mock_process
         assert len(sync_id) == 12  # uuid hex[:12]
+        assert log_path.name == f"sync_{sync_id}.log"
         call_args = mock_popen.call_args
         cmd = call_args[0][0]
         assert cmd[0] == sys.executable
@@ -159,8 +160,8 @@ class TestLaunchSyncSubprocess:
         assert args["sync_id"] == sync_id
 
     @patch("subprocess.Popen")
-    def test_uses_devnull_not_pipe(self, mock_popen, tmp_path):
-        """Stdout/stderr must use DEVNULL to prevent pipe deadlock."""
+    def test_captures_output_to_log_file(self, mock_popen, tmp_path):
+        """Stdout/stderr must be captured to a log file for crash diagnostics."""
         import subprocess
 
         mock_popen.return_value = MagicMock(pid=1)
@@ -168,11 +169,15 @@ class TestLaunchSyncSubprocess:
             "dango.platform.sync_process", fromlist=["launch_sync_subprocess"]
         ).launch_sync_subprocess
 
-        launch(project_root=tmp_path, sources=["src"])
+        _proc, _sid, log_path = launch(project_root=tmp_path, sources=["src"])
 
         call_kwargs = mock_popen.call_args[1]
-        assert call_kwargs["stdout"] == subprocess.DEVNULL
-        assert call_kwargs["stderr"] == subprocess.DEVNULL
+        # stderr should be merged into stdout
+        assert call_kwargs["stderr"] == subprocess.STDOUT
+        # stdout should NOT be DEVNULL (it's a file handle that was opened then closed)
+        assert call_kwargs["stdout"] != subprocess.DEVNULL
+        # Log file path should exist in the logs directory
+        assert log_path.parent == tmp_path / ".dango" / "logs"
 
     @patch("subprocess.Popen")
     def test_includes_optional_params(self, mock_popen, tmp_path):
@@ -180,7 +185,7 @@ class TestLaunchSyncSubprocess:
 
         mock_popen.return_value = MagicMock(pid=1)
 
-        _process, _sync_id = launch_sync_subprocess(
+        _process, _sync_id, _log_path = launch_sync_subprocess(
             project_root=tmp_path,
             sources=["src"],
             start_date="2026-01-01",
@@ -206,8 +211,8 @@ class TestLaunchSyncSubprocess:
 
         mock_popen.return_value = MagicMock(pid=1)
 
-        _, id1 = launch_sync_subprocess(project_root=tmp_path, sources=["src"])
-        _, id2 = launch_sync_subprocess(project_root=tmp_path, sources=["src"])
+        _, id1, _ = launch_sync_subprocess(project_root=tmp_path, sources=["src"])
+        _, id2, _ = launch_sync_subprocess(project_root=tmp_path, sources=["src"])
         assert id1 != id2
 
 
