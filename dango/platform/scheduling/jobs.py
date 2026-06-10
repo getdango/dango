@@ -372,6 +372,12 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
     dbt_success, _dbt_output = run_dbt_models(project_root, select=select_criteria)
 
     if dbt_success:
+        log_activity_fn(
+            project_root,
+            "success",
+            f"dbt:{select_criteria}",
+            f"Coalesced dbt completed for sources: {', '.join(pending)}",
+        )
         # Generate docs and refresh Metabase (mirrors run_sync post-dbt steps)
         generate_dbt_docs(project_root)
         try:
@@ -386,6 +392,12 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
         except Exception:
             logger.warning("metabase_refresh_after_coalesced_dbt_failed", exc_info=True)
     else:
+        log_activity_fn(
+            project_root,
+            "error",
+            f"dbt:{select_criteria}",
+            f"Coalesced dbt failed for sources: {', '.join(pending)}",
+        )
         logger.error("coalesced_dbt_run_failed", sources=pending, select=select_criteria)
 
     return dbt_success
@@ -620,6 +632,12 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
             if transform_error and source_error:
                 overall_error = f"{source_error}; {transform_error}"
 
+            log_activity(
+                project_root,
+                "error",
+                f"schedule:{schedule_name}",
+                f"Partial failure: {overall_error}",
+            )
             _try_finish_record(
                 project_root, schedule_name, record_id, "record_failure", error=overall_error
             )

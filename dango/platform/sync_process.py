@@ -208,7 +208,8 @@ async def poll_sync_status(
                         "timestamp": _ts(),
                     }
                 )
-                _handle_crash(project_root, source_list, None, log_path, error_msg)
+                # Timeout is not a crash — don't call _handle_crash (the caller
+                # has its own timeout handling). Just keep the log for diagnostics.
                 if log_path:
                     _cleanup_sync_log(log_path, keep=True)
                 return False, {"error": error_msg, "phase": "failed"}
@@ -310,7 +311,8 @@ def poll_sync_status_blocking(
                         "timestamp": _ts(),
                     }
                 )
-            _handle_crash(project_root, source_list, None, log_path, error_msg)
+            # Timeout is not a crash — don't call _handle_crash (the caller
+            # has its own timeout handling). Just keep the log for diagnostics.
             if log_path:
                 _cleanup_sync_log(log_path, keep=True)
             return False, {"error": error_msg, "phase": "failed"}

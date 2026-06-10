@@ -115,6 +115,7 @@ def mark_source_models_stale(project_root: Path, failed_sources: list[str]) -> N
 
         _save_persistent_status(project_root, persistent_status)
     except Exception:
+        # Don't fail the caller — stale marking is best-effort
         pass
 
 

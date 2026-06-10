@@ -154,7 +154,7 @@ class TestRunScheduledSync:
             patch(f"{_CFG_MOD}.load_config", return_value=config),
             patch(
                 f"{_SYNC_PROC_MOD}.launch_sync_subprocess",
-                return_value=(mock_process, "test_id"),
+                return_value=(mock_process, "test_id", MagicMock()),
             ) as mock_launch,
             patch(f"{_SYNC_PROC_MOD}.poll_sync_status_blocking", return_value=(True, {})),
             patch(f"{_SYNC_PROC_MOD}.cleanup_sync_status"),
