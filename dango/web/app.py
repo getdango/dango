@@ -52,6 +52,38 @@ from dango.web.middleware import AuthMiddleware, RateLimitMiddleware
 logger = get_logger(__name__)
 
 
+def _install_sigterm_logger(project_root: Path) -> None:
+    """Install a SIGTERM handler that logs the sender PID before shutdown.
+
+    Helps diagnose unexpected shutdowns — the sender PID is recorded in
+    activity.jsonl so we can identify what killed the server.
+    """
+    import signal
+
+    _original_handler = signal.getsignal(signal.SIGTERM)
+
+    def _on_sigterm(signum: int, frame: object) -> None:
+        try:
+            from dango.utils.activity_log import log_activity
+
+            log_activity(
+                project_root,
+                "warning",
+                "system",
+                f"Received SIGTERM (signal {signum}) — server shutting down",
+            )
+        except Exception:
+            pass
+        # Chain to the original handler (uvicorn's graceful shutdown)
+        if callable(_original_handler):
+            _original_handler(signum, frame)
+        elif _original_handler == signal.SIG_DFL:
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup and shutdown logic."""
@@ -59,6 +91,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     project_root: Path = app.state.project_root
     logger.info("api_starting", project_root=str(project_root))
+
+    # Install SIGTERM logger to diagnose unexpected shutdowns
+    _install_sigterm_logger(project_root)
 
     # Write auth.yml if missing (migration path for pre-075d projects)
     try:
