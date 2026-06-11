@@ -556,6 +556,7 @@ def append_log_entry(log_entry: dict[str, Any]):
             source=log_entry.get("source", "system"),
             message=log_entry.get("message", ""),
             timestamp=log_entry.get("timestamp"),
+            category=log_entry.get("category", "core"),
         )
     except Exception as e:
         logger.error(f"Error appending log entry: {e}")

@@ -140,12 +140,17 @@ def launch_sync_subprocess(
     json_args = json.dumps(args_dict)
 
     log_handle = open(log_path, "w")  # noqa: SIM115
-    process = subprocess.Popen(
-        [sys.executable, "-m", "dango.platform.scheduling.sync_trigger", json_args],
-        cwd=str(project_root),
-        stdout=log_handle,
-        stderr=subprocess.STDOUT,
-    )
+    try:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "dango.platform.scheduling.sync_trigger", json_args],
+            cwd=str(project_root),
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+        )
+    except Exception:
+        log_handle.close()
+        log_path.unlink(missing_ok=True)
+        raise
     # Close the handle in the parent process — the child has its own fd copy
     log_handle.close()
 
@@ -418,8 +423,12 @@ def _handle_crash(
 
                 entry_ts = recent[0].get("timestamp", "")
                 try:
-                    clean = entry_ts.replace("+00:00", "").replace("Z", "")
-                    ts = datetime.fromisoformat(clean).replace(tzinfo=timezone.utc)
+                    # Normalise common UTC representations for Python 3.10 compat
+                    # (3.11+ handles full ISO 8601 natively)
+                    clean = entry_ts.replace("Z", "+00:00").replace("+0000", "+00:00")
+                    ts = datetime.fromisoformat(clean)
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
                     age = (datetime.now(tz=timezone.utc) - ts).total_seconds()
                     if age < 300:  # 5 minutes
                         continue  # subprocess already recorded this
