@@ -5,6 +5,25 @@ All notable changes to Dango will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-06-11
+
+### Added
+
+- Activity log category field (`core` vs `auxiliary`) with UI filter dropdown on logs page
+- Subprocess stderr captured to `.dango/logs/sync_*.log` files (was discarded to `/dev/null`)
+- Scheduler now writes start/complete/fail/timeout/cancel events to activity log
+- "Stale" status badge (yellow) on models page when upstream source sync fails
+- Stale sync status files and old sync logs (>7 days) cleaned on server startup
+- SIGTERM signal handler logs shutdown events to activity log for crash diagnostics
+
+### Fixed
+
+- "undefined synced successfully" toast when scheduled sync broadcasts missing source name
+- Phantom toast notifications on server restart from stale sync status files
+- Subprocess crashes now recorded in activity log and sync history (were silent)
+- Source failure now cascades to mark downstream dbt models as stale
+- Stale status does not overwrite error status on models (error is more severe)
+
 ## [1.0.2] - 2026-06-09
 
 ### Fixed

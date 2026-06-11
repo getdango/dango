@@ -405,7 +405,8 @@ function connectWebSocket() {
 }
 
 async function handleWebSocketMessage(data) {
-    const { event, source, message, timestamp } = data;
+    const { event, message, timestamp } = data;
+    const source = data.source || 'Unknown';
 
     // 🔍 DIAGNOSTIC: Log ALL incoming WebSocket messages
     console.log('🔔 [WebSocket] Received event:', event, {source, message, timestamp});
@@ -2401,6 +2402,9 @@ function renderDbtModelsTable() {
         } else if (model.status === 'success') {
             // Last run succeeded
             statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">✓ Success</span>';
+        } else if (model.status === 'stale') {
+            // Upstream source failed — data may be outdated
+            statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">Stale</span>';
         } else if (model.status === 'error') {
             // Last run failed
             statusBadge = '<span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">✗ Error</span>';

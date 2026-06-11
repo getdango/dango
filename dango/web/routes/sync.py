@@ -128,7 +128,7 @@ async def run_sync_task(
     sync_id: str | None = None
     try:
         # Launch subprocess (DbtLock acquired inside subprocess)
-        process, sync_id = launch_sync_subprocess(
+        process, sync_id, log_path = launch_sync_subprocess(
             project_root=project_root,
             sources=[source_name],
             full_refresh=full_refresh,
@@ -141,7 +141,12 @@ async def run_sync_task(
 
         # Poll until completion (broadcasts WS events + heartbeat internally)
         success, result = await poll_sync_status(
-            project_root, process, source_name, sync_id=sync_id
+            project_root,
+            process,
+            source_name,
+            sync_id=sync_id,
+            log_path=log_path,
+            sources=[source_name],
         )
 
         # Calculate duration
@@ -306,7 +311,7 @@ async def _run_manual_sync(
     sync_id: str | None = None
     try:
         # Pass record_id so subprocess reuses it (avoids double history records)
-        process, sync_id = launch_sync_subprocess(
+        process, sync_id, log_path = launch_sync_subprocess(
             project_root=project_root,
             sources=source_names,
             full_refresh=full_refresh,
@@ -319,7 +324,12 @@ async def _run_manual_sync(
         # Use first source name for WS events (manual sync may have multiple)
         display_name = source_names[0] if source_names else "manual"
         success, _result = await poll_sync_status(
-            project_root, process, display_name, sync_id=sync_id
+            project_root,
+            process,
+            display_name,
+            sync_id=sync_id,
+            log_path=log_path,
+            sources=source_names,
         )
 
         # Subprocess records its own completion/failure via record_id for normal

@@ -52,6 +52,43 @@ from dango.web.middleware import AuthMiddleware, RateLimitMiddleware
 logger = get_logger(__name__)
 
 
+def _install_sigterm_logger(project_root: Path) -> None:
+    """Install a SIGTERM handler that logs the signal before shutdown.
+
+    Records a warning-level entry in activity.jsonl when SIGTERM arrives,
+    then chains to uvicorn's original handler for graceful shutdown.
+    Helps diagnose unexpected shutdowns — the timestamp narrows the window
+    for investigating what sent the signal.
+    """
+    import signal
+    from types import FrameType
+
+    _original_handler = signal.getsignal(signal.SIGTERM)
+
+    def _on_sigterm(signum: int, frame: FrameType | None) -> None:
+        try:
+            from dango.utils.activity_log import log_activity
+
+            log_activity(
+                project_root,
+                "warning",
+                "system",
+                f"Received SIGTERM (signal {signum}) — server shutting down",
+            )
+        except Exception:
+            pass
+        # Chain to the original handler (uvicorn's graceful shutdown)
+        if callable(_original_handler):
+            _original_handler(signum, frame)
+        elif _original_handler == signal.SIG_DFL:
+            # Restore default and re-send so the process exits normally.
+            # No infinite loop: SIG_DFL is restored before the re-send.
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup and shutdown logic."""
@@ -59,6 +96,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     project_root: Path = app.state.project_root
     logger.info("api_starting", project_root=str(project_root))
+
+    # Install SIGTERM logger to diagnose unexpected shutdowns
+    _install_sigterm_logger(project_root)
 
     # Write auth.yml if missing (migration path for pre-075d projects)
     try:
@@ -170,6 +210,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.error("scheduler_startup_failed", exc_info=True)
         app.state.scheduler = None
+
+    # Clean stale sync status files (dead PIDs from prior shutdown)
+    try:
+        from dango.platform.sync_process import cleanup_sync_status
+
+        state_dir = project_root / ".dango" / "state"
+        if state_dir.exists():
+            for path in state_dir.iterdir():
+                if path.name.startswith("sync_status_") and path.name.endswith(".json"):
+                    sync_id = path.name[len("sync_status_") : -len(".json")]
+                    cleanup_sync_status(project_root, sync_id=sync_id)
+    except Exception:
+        logger.debug("stale_sync_status_cleanup_failed", exc_info=True)
+
+    # Clean old sync log files (>7 days)
+    try:
+        import time as _time
+
+        logs_dir = project_root / ".dango" / "logs"
+        if logs_dir.exists():
+            cutoff = _time.time() - 7 * 86400
+            for path in logs_dir.iterdir():
+                if path.name.startswith("sync_") and path.name.endswith(".log"):
+                    try:
+                        if path.stat().st_mtime < cutoff:
+                            path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+    except Exception:
+        logger.debug("old_sync_log_cleanup_failed", exc_info=True)
 
     # Start background sync status watcher (multi-worker support)
     try:

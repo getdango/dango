@@ -206,7 +206,11 @@ async function loadLogs() {
     showLoading();
 
     try {
-        const logs = await apiCall('/api/logs');
+        // Read category filter (defaults to "core" on page load)
+        const categoryEl = document.getElementById('filter-category');
+        const category = categoryEl ? categoryEl.value : '';
+        const url = category ? `/api/logs?category=${encodeURIComponent(category)}` : '/api/logs';
+        const logs = await apiCall(url);
         allLogs = logs || [];
         applyFilters();
     } catch (error) {
@@ -243,6 +247,8 @@ function setupFilterListeners() {
     document.getElementById('filter-level')?.addEventListener('change', applyFilters);
     document.getElementById('filter-source')?.addEventListener('change', applyFilters);
     document.getElementById('filter-time')?.addEventListener('change', applyFilters);
+    // Category changes reload from server (server-side filter)
+    document.getElementById('filter-category')?.addEventListener('change', loadLogs);
 }
 
 function applyFilters() {
@@ -306,6 +312,8 @@ function applyFilters() {
 }
 
 function clearFilters() {
+    const categoryEl = document.getElementById('filter-category');
+    if (categoryEl) categoryEl.value = 'core';
     const levelEl = document.getElementById('filter-level');
     if (levelEl) levelEl.value = '';
     const sourceEl = document.getElementById('filter-source');
@@ -314,7 +322,7 @@ function clearFilters() {
     if (timeEl) timeEl.value = 'all';
     const searchEl = document.getElementById('filter-search');
     if (searchEl) searchEl.value = '';
-    applyFilters();
+    loadLogs();  // Reload from server with default category
 }
 
 function sortLogs(field) {

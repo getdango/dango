@@ -98,11 +98,12 @@ def launch_sync_subprocess(
     source_label: str = "ui",
     max_lock_wait: int = 0,
     record_id: int | None = None,
-) -> tuple[subprocess.Popen, str]:
+) -> tuple[subprocess.Popen, str, Path]:
     """Spawn sync subprocess via sys.executable.
 
-    Returns (Popen handle, sync_id). The sync_id uniquely identifies the
-    status file so concurrent syncs don't clobber each other.
+    Returns (Popen handle, sync_id, log_path). The sync_id uniquely identifies
+    the status file so concurrent syncs don't clobber each other. The log_path
+    captures stdout+stderr so crash output is available for diagnostics.
 
     The subprocess runs ``python -m dango.platform.scheduling.sync_trigger``
     with write_progress=True.
@@ -111,6 +112,11 @@ def launch_sync_subprocess(
 
     # Clean up any stale status file for the default path (legacy)
     cleanup_sync_status(project_root)
+
+    # Capture subprocess output to a log file (was DEVNULL — silent crashes)
+    log_dir = project_root / ".dango" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"sync_{sync_id}.log"
 
     args_dict: dict[str, Any] = {
         "project_root": str(project_root),
@@ -133,12 +139,20 @@ def launch_sync_subprocess(
 
     json_args = json.dumps(args_dict)
 
-    process = subprocess.Popen(
-        [sys.executable, "-m", "dango.platform.scheduling.sync_trigger", json_args],
-        cwd=str(project_root),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    log_handle = open(log_path, "w")  # noqa: SIM115
+    try:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "dango.platform.scheduling.sync_trigger", json_args],
+            cwd=str(project_root),
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+        )
+    except Exception:
+        log_handle.close()
+        log_path.unlink(missing_ok=True)
+        raise
+    # Close the handle in the parent process — the child has its own fd copy
+    log_handle.close()
 
     logger.info(
         "sync_subprocess_launched",
@@ -146,8 +160,9 @@ def launch_sync_subprocess(
         sources=sources,
         source_label=source_label,
         sync_id=sync_id,
+        log_path=str(log_path),
     )
-    return process, sync_id
+    return process, sync_id, log_path
 
 
 async def poll_sync_status(
@@ -158,18 +173,25 @@ async def poll_sync_status(
     poll_interval: float = 2.0,
     heartbeat_interval: float = 30.0,
     max_poll_time: float = 3600.0,
+    log_path: Path | None = None,
+    sources: list[str] | None = None,
 ) -> tuple[bool, dict[str, Any] | None]:
     """Async poll — reads status file, broadcasts WS events on transitions.
 
     Emits heartbeat every ``heartbeat_interval`` seconds. Detects subprocess
     crash via ``process.poll()``. Times out after ``max_poll_time`` seconds.
     Returns (success, result_dict).
+
+    When *log_path* is provided, crash output is read from the file and
+    written to activity log + sync history.  On success the log file is
+    deleted; on failure it is kept for 7 days of diagnostics.
     """
     from dango.web.routes.websocket import ws_manager
 
     if sync_id:
         _locally_polled.add(sync_id)
 
+    source_list = sources or ([source_name] if source_name else [])
     last_phase: str | None = None
     last_heartbeat = time.time()
     start_time = time.time()
@@ -191,6 +213,10 @@ async def poll_sync_status(
                         "timestamp": _ts(),
                     }
                 )
+                # Timeout is not a crash — don't call _handle_crash (the caller
+                # has its own timeout handling). Just keep the log for diagnostics.
+                if log_path:
+                    _cleanup_sync_log(log_path, keep=True)
                 return False, {"error": error_msg, "phase": "failed"}
 
             # Check if subprocess has exited
@@ -211,7 +237,10 @@ async def poll_sync_status(
 
                 # Detect terminal state
                 if current_phase in ("completed", "failed"):
-                    return current_phase == "completed", status
+                    success = current_phase == "completed"
+                    if log_path:
+                        _cleanup_sync_log(log_path, keep=not success)
+                    return success, status
 
             # Heartbeat
             now = time.time()
@@ -232,6 +261,9 @@ async def poll_sync_status(
                 status is None or status.get("phase") not in ("completed", "failed")
             ):
                 error_msg = f"Sync process terminated unexpectedly (exit code {exit_code})"
+                _handle_crash(project_root, source_list, exit_code, log_path, error_msg)
+                if log_path:
+                    _cleanup_sync_log(log_path, keep=True)
                 await ws_manager.broadcast(
                     {
                         "event": "sync_failed",
@@ -254,11 +286,16 @@ def poll_sync_status_blocking(
     broadcast_fn: Callable[[dict[str, Any]], None] | None = None,
     poll_interval: float = 2.0,
     max_poll_time: float = 3600.0,
+    log_path: Path | None = None,
+    sources: list[str] | None = None,
 ) -> tuple[bool, dict[str, Any] | None]:
     """Synchronous version for APScheduler thread pool. Returns (success, result_dict).
 
     Uses time.sleep() for polling. Calls optional broadcast_fn on phase transitions.
+    When *log_path* is provided, crash output is captured and written to
+    activity log + sync history.
     """
+    source_list = sources or ([source_name] if source_name else [])
     last_phase: str | None = None
     start_time = time.time()
 
@@ -279,6 +316,10 @@ def poll_sync_status_blocking(
                         "timestamp": _ts(),
                     }
                 )
+            # Timeout is not a crash — don't call _handle_crash (the caller
+            # has its own timeout handling). Just keep the log for diagnostics.
+            if log_path:
+                _cleanup_sync_log(log_path, keep=True)
             return False, {"error": error_msg, "phase": "failed"}
 
         exit_code = process.poll()
@@ -305,6 +346,8 @@ def poll_sync_status_blocking(
             # Detect terminal state
             if current_phase in ("completed", "failed"):
                 success = current_phase == "completed"
+                if log_path:
+                    _cleanup_sync_log(log_path, keep=not success)
                 return success, status
 
         # Process crashed without writing final status
@@ -312,6 +355,9 @@ def poll_sync_status_blocking(
             status is None or status.get("phase") not in ("completed", "failed")
         ):
             error_msg = f"Sync process terminated unexpectedly (exit code {exit_code})"
+            _handle_crash(project_root, source_list, exit_code, log_path, error_msg)
+            if log_path:
+                _cleanup_sync_log(log_path, keep=True)
             if broadcast_fn is not None:
                 broadcast_fn(
                     {
@@ -322,6 +368,100 @@ def poll_sync_status_blocking(
                     }
                 )
             return False, {"error": error_msg, "phase": "failed"}
+
+
+# ---------------------------------------------------------------------------
+# Crash handling helpers
+# ---------------------------------------------------------------------------
+
+
+def _read_log_tail(log_path: Path, max_lines: int = 50) -> str:
+    """Read the last *max_lines* of a sync log file.  Returns '' on any error."""
+    try:
+        if not log_path.exists():
+            return ""
+        lines = log_path.read_text(errors="replace").splitlines()
+        return "\n".join(lines[-max_lines:])
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _cleanup_sync_log(log_path: Path, *, keep: bool) -> None:
+    """Delete or keep a sync log file depending on outcome."""
+    try:
+        if not keep and log_path.exists():
+            log_path.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _handle_crash(
+    project_root: Path,
+    sources: list[str],
+    exit_code: int | None,
+    log_path: Path | None,
+    error_msg: str,
+) -> None:
+    """Write crash information to activity log and sync history.
+
+    Called when a sync subprocess terminates without writing a terminal status.
+    """
+    from dango.utils.activity_log import log_activity
+    from dango.utils.sync_history import load_sync_history, save_sync_history_entry
+
+    log_tail = _read_log_tail(log_path) if log_path else ""
+    detail = f"{error_msg}\n{log_tail}".strip() if log_tail else error_msg
+
+    for src in sources:
+        try:
+            # Skip if the subprocess already wrote a terminal history entry
+            # (e.g., it crashed after recording its own failure in dlt_runner)
+            recent = load_sync_history(project_root, src, limit=1)
+            if recent and recent[0].get("status") in ("failed", "success", "partial"):
+                # Check if this entry is recent (within last 5 minutes)
+                from datetime import datetime, timezone
+
+                entry_ts = recent[0].get("timestamp", "")
+                try:
+                    # Normalise common UTC representations for Python 3.10 compat
+                    # (3.11+ handles full ISO 8601 natively)
+                    clean = entry_ts.replace("Z", "+00:00").replace("+0000", "+00:00")
+                    ts = datetime.fromisoformat(clean)
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    age = (datetime.now(tz=timezone.utc) - ts).total_seconds()
+                    if age < 300:  # 5 minutes
+                        continue  # subprocess already recorded this
+                except (ValueError, TypeError):
+                    pass  # can't parse — write our own entry
+
+            save_sync_history_entry(
+                project_root,
+                src,
+                {
+                    "timestamp": _ts(),
+                    "status": "failed",
+                    "duration_seconds": 0,
+                    "rows_processed": 0,
+                    "error_message": detail[:2000],  # cap length
+                },
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        source_label = ", ".join(sources) if sources else "unknown"
+        log_activity(project_root, "error", source_label, f"Sync crashed: {detail[:1000]}")
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Mark downstream dbt models as stale
+    try:
+        from dango.utils.dbt_status import mark_source_models_stale
+
+        mark_source_models_stale(project_root, sources)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ---------------------------------------------------------------------------

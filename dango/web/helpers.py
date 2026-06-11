@@ -556,13 +556,20 @@ def append_log_entry(log_entry: dict[str, Any]):
             source=log_entry.get("source", "system"),
             message=log_entry.get("message", ""),
             timestamp=log_entry.get("timestamp"),
+            category=log_entry.get("category", "core"),
         )
     except Exception as e:
         logger.error(f"Error appending log entry: {e}")
 
 
-def load_all_logs(limit: int = 1000) -> list[dict[str, Any]]:
-    """Load all logs from the persistent file."""
+def load_all_logs(limit: int = 1000, category: str | None = None) -> list[dict[str, Any]]:
+    """Load all logs from the persistent file.
+
+    Args:
+        limit: Maximum number of entries to return.
+        category: If set, only return entries matching this category.
+                  Entries without a ``category`` field are treated as ``"core"``.
+    """
     logs_file = get_logs_file()
 
     if not logs_file.exists():
@@ -574,9 +581,14 @@ def load_all_logs(limit: int = 1000) -> list[dict[str, Any]]:
             for line in f:
                 if line.strip():
                     try:
-                        logs.append(json.loads(line))
+                        entry = json.loads(line)
                     except json.JSONDecodeError:
                         continue
+                    if category is not None:
+                        entry_cat = entry.get("category", "core")
+                        if entry_cat != category:
+                            continue
+                    logs.append(entry)
 
         # Return most recent logs first, limited to 'limit'
         return logs[-limit:][::-1]
