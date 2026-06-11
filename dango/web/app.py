@@ -258,6 +258,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.debug("startup_activity_log_failed", exc_info=True)
 
+    # Shared HTTP client for Metabase proxy (connection pooling)
+    import httpx as _httpx
+
+    app.state.http_client = _httpx.AsyncClient(follow_redirects=False, timeout=30.0)
+
     yield
 
     # Shutdown
@@ -285,6 +290,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await asyncio.to_thread(sched.shutdown, True)
         except Exception:
             logger.error("scheduler_shutdown_failed", exc_info=True)
+
+    # Close HTTP clients after scheduler (jobs may use health checks during shutdown)
+    http_client = getattr(app.state, "http_client", None)
+    if http_client is not None:
+        await http_client.aclose()
+
+    try:
+        from dango.web.helpers import close_health_check_client
+
+        close_health_check_client()
+    except Exception:
+        pass
 
     try:
         from dango.utils.activity_log import log_activity

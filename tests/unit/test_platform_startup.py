@@ -575,7 +575,7 @@ class TestRefreshMetabaseConnection:
         with (
             patch("dango.platform.docker.DockerManager", return_value=mock_dm),
             patch("subprocess.run", mock_subprocess_run),
-            patch("requests.get", return_value=MagicMock(status_code=200)),
+            patch("requests.Session.get", return_value=MagicMock(status_code=200)),
         ):
             result = refresh_metabase_connection(tmp_path)
 

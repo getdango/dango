@@ -219,6 +219,7 @@ def _make_proxy_app(tmp_path: Path) -> FastAPI:
     """Create a FastAPI app with proxy routes and a fake authenticated user."""
     app = FastAPI()
     app.state.project_root = tmp_path
+    app.state.http_client = MagicMock()  # Shared httpx.AsyncClient (connection pooling)
 
     user = MagicMock()
     user.email = "proxy@example.com"
