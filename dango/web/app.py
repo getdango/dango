@@ -266,17 +266,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # Shutdown
-    http_client = getattr(app.state, "http_client", None)
-    if http_client is not None:
-        await http_client.aclose()
-
-    try:
-        from dango.web.helpers import close_health_check_client
-
-        close_health_check_client()
-    except Exception:
-        pass
-
     mb_task = getattr(app.state, "_metabase_sync_task", None)
     if mb_task is not None and not mb_task.done():
         mb_task.cancel()
@@ -301,6 +290,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await asyncio.to_thread(sched.shutdown, True)
         except Exception:
             logger.error("scheduler_shutdown_failed", exc_info=True)
+
+    # Close HTTP clients after scheduler (jobs may use health checks during shutdown)
+    http_client = getattr(app.state, "http_client", None)
+    if http_client is not None:
+        await http_client.aclose()
+
+    try:
+        from dango.web.helpers import close_health_check_client
+
+        close_health_check_client()
+    except Exception:
+        pass
 
     try:
         from dango.utils.activity_log import log_activity
