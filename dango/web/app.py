@@ -61,10 +61,11 @@ def _install_sigterm_logger(project_root: Path) -> None:
     for investigating what sent the signal.
     """
     import signal
+    from types import FrameType
 
     _original_handler = signal.getsignal(signal.SIGTERM)
 
-    def _on_sigterm(signum: int, frame: object) -> None:
+    def _on_sigterm(signum: int, frame: FrameType | None) -> None:
         try:
             from dango.utils.activity_log import log_activity
 
