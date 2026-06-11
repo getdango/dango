@@ -142,6 +142,7 @@ class MetabaseProvisioner:
         self.username = username
         self.password = password
         self.session_token = None
+        self.session = requests.Session()
 
     def authenticate(self) -> bool:
         """
@@ -151,7 +152,7 @@ class MetabaseProvisioner:
             True if authentication successful
         """
         try:
-            response = requests.post(
+            response = self.session.post(
                 f"{self.metabase_url}/api/session",
                 json={"username": self.username, "password": self.password},
                 timeout=10,
@@ -182,7 +183,7 @@ class MetabaseProvisioner:
 
         try:
             headers = {"X-Metabase-Session": self.session_token}
-            response = requests.get(
+            response = self.session.get(
                 f"{self.metabase_url}/api/database", headers=headers, timeout=10
             )
 
@@ -233,7 +234,7 @@ class MetabaseProvisioner:
 
         try:
             headers = {"X-Metabase-Session": self.session_token}
-            response = requests.post(
+            response = self.session.post(
                 f"{self.metabase_url}/api/card", headers=headers, json=card_data, timeout=10
             )
 
@@ -267,7 +268,7 @@ class MetabaseProvisioner:
 
         try:
             headers = {"X-Metabase-Session": self.session_token}
-            response = requests.post(
+            response = self.session.post(
                 f"{self.metabase_url}/api/dashboard",
                 headers=headers,
                 json=dashboard_data,
@@ -312,7 +313,7 @@ class MetabaseProvisioner:
 
         try:
             headers = {"X-Metabase-Session": self.session_token}
-            response = requests.post(
+            response = self.session.post(
                 f"{self.metabase_url}/api/dashboard/{dashboard_id}/cards",
                 headers=headers,
                 json=card_data,
@@ -442,10 +443,11 @@ def wait_for_metabase_ready(metabase_url: str = "http://localhost:3000", timeout
     Returns:
         True if ready, False if timeout
     """
+    session = requests.Session()
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            response = requests.get(f"{metabase_url}/api/health", timeout=5)
+            response = session.get(f"{metabase_url}/api/health", timeout=5)
             if response.status_code == 200:
                 return True
         except Exception:
@@ -470,10 +472,11 @@ def hide_internal_tables(metabase_url: str, headers: dict[str, str], db_id: int)
         Summary of hidden tables
     """
     result = {"hidden_count": 0, "errors": []}
+    session = requests.Session()
 
     try:
         # First, trigger a sync to ensure tables are discovered
-        requests.post(
+        session.post(
             f"{metabase_url}/api/database/{db_id}/sync_schema", headers=headers, timeout=10
         )
 
@@ -481,7 +484,7 @@ def hide_internal_tables(metabase_url: str, headers: dict[str, str], db_id: int)
         time.sleep(3)
 
         # Get all tables from this database
-        metadata_response = requests.get(
+        metadata_response = session.get(
             f"{metabase_url}/api/database/{db_id}/metadata", headers=headers, timeout=30
         )
 
@@ -514,7 +517,7 @@ def hide_internal_tables(metabase_url: str, headers: dict[str, str], db_id: int)
 
             if should_hide:
                 try:
-                    hide_response = requests.put(
+                    hide_response = session.put(
                         f"{metabase_url}/api/table/{table_id}",
                         headers=headers,
                         json={"visibility_type": "technical"},
@@ -629,6 +632,7 @@ def setup_metabase(
     metabase_url = metabase_url.rstrip("/")
     project_root / "data" / "warehouse.duckdb"
     credentials_file = project_root / ".dango" / "metabase.yml"
+    session = requests.Session()
 
     # Check if already setup
     if credentials_file.exists():
@@ -646,7 +650,7 @@ def setup_metabase(
 
     try:
         # Get setup token
-        response = requests.get(f"{metabase_url}/api/session/properties", timeout=10)
+        response = session.get(f"{metabase_url}/api/session/properties", timeout=10)
         if response.status_code != 200:
             summary["errors"].append("Could not get setup token")
             return summary
@@ -666,7 +670,7 @@ def setup_metabase(
 
             # Try to login with default credentials to verify they work
             try:
-                login_response = requests.post(
+                login_response = session.post(
                     f"{metabase_url}/api/session",
                     json={"username": admin_email, "password": admin_password},
                     timeout=10,
@@ -689,7 +693,7 @@ def setup_metabase(
                         print("  ⏳ Waiting for Metabase to restart...")
                         if wait_for_metabase_ready(metabase_url, timeout=120):
                             # Get fresh setup token after reset
-                            props_resp = requests.get(
+                            props_resp = session.get(
                                 f"{metabase_url}/api/session/properties", timeout=10
                             )
                             if props_resp.status_code == 200:
@@ -725,13 +729,13 @@ def setup_metabase(
                 "prefs": {"site_name": f"{org_name} Analytics", "allow_tracking": False},
             }
 
-            response = requests.post(f"{metabase_url}/api/setup", json=setup_data, timeout=30)
+            response = session.post(f"{metabase_url}/api/setup", json=setup_data, timeout=30)
 
             if response.status_code != 200:
                 # Check if user already exists - fall back to login
                 if "user currently exists" in response.text or "first user" in response.text:
                     print("  ⚠ User already exists, attempting login with default credentials...")
-                    login_response = requests.post(
+                    login_response = session.post(
                         f"{metabase_url}/api/session",
                         json={"username": admin_email, "password": admin_password},
                         timeout=10,
@@ -757,7 +761,7 @@ def setup_metabase(
                 print(f"  ✓ Created admin user: {admin_email}")
 
                 # Login to get session token
-                login_response = requests.post(
+                login_response = session.post(
                     f"{metabase_url}/api/session",
                     json={"username": admin_email, "password": admin_password},
                     timeout=10,
@@ -777,7 +781,7 @@ def setup_metabase(
         db_name = f"{org_name} Analytics"
 
         try:
-            db_list = requests.get(f"{metabase_url}/api/database", headers=headers, timeout=10)
+            db_list = session.get(f"{metabase_url}/api/database", headers=headers, timeout=10)
             if db_list.status_code == 200:
                 databases = db_list.json().get("data", [])
                 for db in databases:
@@ -809,7 +813,7 @@ def setup_metabase(
 
         if existing_db_id:
             # Update existing connection
-            db_response = requests.put(
+            db_response = session.put(
                 f"{metabase_url}/api/database/{existing_db_id}",
                 headers=headers,
                 json=duckdb_config,
@@ -817,7 +821,7 @@ def setup_metabase(
             )
         else:
             # Create new connection
-            db_response = requests.post(
+            db_response = session.post(
                 f"{metabase_url}/api/database", headers=headers, json=duckdb_config, timeout=10
             )
 
@@ -834,7 +838,7 @@ def setup_metabase(
 
                 # Set as default database
                 try:
-                    requests.put(
+                    session.put(
                         f"{metabase_url}/api/database/{duckdb_id}",
                         headers=headers,
                         json={"is_sample": False, "is_full_sync": True},
@@ -872,7 +876,7 @@ def setup_metabase(
         # Hide H2 sample database and remove example content
         try:
             # Get all databases to find H2
-            db_list_response = requests.get(
+            db_list_response = session.get(
                 f"{metabase_url}/api/database", headers=headers, timeout=10
             )
 
@@ -886,7 +890,7 @@ def setup_metabase(
                     if db_engine == "h2":
                         try:
                             # Try to delete it entirely
-                            delete_response = requests.delete(
+                            delete_response = session.delete(
                                 f"{metabase_url}/api/database/{db_id}", headers=headers, timeout=10
                             )
                             if delete_response.status_code == 204:
@@ -894,7 +898,7 @@ def setup_metabase(
                                 print(f"  ✓ Deleted H2 sample database (ID: {db_id})")
                             else:
                                 # If delete fails, try to hide it
-                                hide_response = requests.put(
+                                hide_response = session.put(
                                     f"{metabase_url}/api/database/{db_id}",
                                     headers=headers,
                                     json={"is_sample": True},
@@ -911,7 +915,7 @@ def setup_metabase(
         # Remove example dashboards and collections
         try:
             # Get all collections
-            collections_response = requests.get(
+            collections_response = session.get(
                 f"{metabase_url}/api/collection", headers=headers, timeout=10
             )
 
@@ -927,7 +931,7 @@ def setup_metabase(
 
                     # Archive example collections
                     try:
-                        archive_response = requests.put(
+                        archive_response = session.put(
                             f"{metabase_url}/api/collection/{collection_id}",
                             headers=headers,
                             json={"archived": True},
@@ -952,7 +956,7 @@ def setup_metabase(
                     "description": description,
                     "color": "#509EE3" if collection_name == "Shared" else "#9AA0AF",
                 }
-                coll_response = requests.post(
+                coll_response = session.post(
                     f"{metabase_url}/api/collection",
                     headers=headers,
                     json=collection_data,
@@ -1023,6 +1027,8 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
     if not credentials_file.exists():
         return False
 
+    session = requests.Session()
+
     try:
         # Load credentials
         with open(credentials_file) as f:
@@ -1042,7 +1048,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
             return False
 
         # Login to get session
-        login_response = requests.post(
+        login_response = session.post(
             f"{metabase_url}/api/session",
             json={"username": email, "password": password},
             timeout=10,
@@ -1056,7 +1062,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
             return False
 
         # Trigger sync
-        response = requests.post(
+        response = session.post(
             f"{metabase_url}/api/database/{database_id}/sync_schema",
             headers={"X-Metabase-Session": session_id},
             timeout=10,
@@ -1070,7 +1076,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
 
         for _ in range(30):
             time.sleep(1)
-            db_status = requests.get(
+            db_status = session.get(
                 f"{metabase_url}/api/database/{database_id}",
                 headers={"X-Metabase-Session": session_id},
                 timeout=5,
@@ -1088,7 +1094,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         tables: list[dict[str, Any]] = []
         try:
             # Get all tables
-            metadata_response = requests.get(
+            metadata_response = session.get(
                 f"{metabase_url}/api/database/{database_id}/metadata",
                 headers={"X-Metabase-Session": session_id},
                 timeout=10,
@@ -1145,7 +1151,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
                     if visibility_type:
                         update_payload["visibility_type"] = visibility_type
 
-                    response = requests.put(
+                    response = session.put(
                         f"{metabase_url}/api/table/{table_id}",
                         headers={"X-Metabase-Session": session_id},
                         json=update_payload,
@@ -1194,6 +1200,8 @@ def refresh_metabase_connection(
     """
     import subprocess
 
+    session = requests.Session()
+
     try:
         # Get container name from DockerManager (uses hash-based naming)
         from dango.platform.docker import DockerManager
@@ -1225,7 +1233,7 @@ def refresh_metabase_connection(
         max_attempts = 20
         for _ in range(max_attempts):
             try:
-                response = requests.get(f"{metabase_url}/api/health", timeout=1)
+                response = session.get(f"{metabase_url}/api/health", timeout=1)
                 if response.status_code == 200:
                     return (True, None)
             except requests.exceptions.RequestException:

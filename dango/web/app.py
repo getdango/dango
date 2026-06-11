@@ -258,9 +258,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.debug("startup_activity_log_failed", exc_info=True)
 
+    # Shared HTTP client for Metabase proxy (connection pooling)
+    import httpx as _httpx
+
+    app.state.http_client = _httpx.AsyncClient(follow_redirects=False, timeout=30.0)
+
     yield
 
     # Shutdown
+    http_client = getattr(app.state, "http_client", None)
+    if http_client is not None:
+        await http_client.aclose()
+
+    try:
+        from dango.web.helpers import close_health_check_client
+
+        close_health_check_client()
+    except Exception:
+        pass
+
     mb_task = getattr(app.state, "_metabase_sync_task", None)
     if mb_task is not None and not mb_task.done():
         mb_task.cancel()

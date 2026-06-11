@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+import httpx
 import yaml
 
 from dango.web.models import SourceStatus, TableInfo
@@ -598,10 +599,27 @@ def load_all_logs(limit: int = 1000, category: str | None = None) -> list[dict[s
         return []
 
 
+_health_check_client: httpx.Client | None = None
+
+
+def _get_health_check_client() -> httpx.Client:
+    """Return a shared sync httpx client for health checks (connection pooling)."""
+    global _health_check_client  # noqa: PLW0603
+    if _health_check_client is None:
+        _health_check_client = httpx.Client(timeout=5.0, follow_redirects=False)
+    return _health_check_client
+
+
+def close_health_check_client() -> None:
+    """Close the shared health check HTTP client. Called on server shutdown."""
+    global _health_check_client  # noqa: PLW0603
+    if _health_check_client is not None:
+        _health_check_client.close()
+        _health_check_client = None
+
+
 def check_service_via_http(service_name: str) -> str:
     """Check service via HTTP health endpoint (faster on Windows)."""
-    import httpx
-
     # Map service names to their health check URLs
     health_urls = {
         "metabase": "http://localhost:3000/api/health",
@@ -613,7 +631,7 @@ def check_service_via_http(service_name: str) -> str:
         return "unknown"
 
     try:
-        response = httpx.get(url, timeout=5.0, follow_redirects=False)
+        response = _get_health_check_client().get(url)
         if response.status_code in [200, 302]:  # 302 for dbt-docs redirect
             return "running"
         else:

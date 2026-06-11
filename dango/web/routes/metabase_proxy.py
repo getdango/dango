@@ -182,14 +182,18 @@ async def proxy_to_metabase(
     if request.method in ("POST", "PUT", "PATCH"):
         body = await request.body()
 
+    client: httpx.AsyncClient = request.app.state.http_client
+
     try:
-        response = await _do_proxy(target_url, request.method, headers, body, session_id)
+        response = await _do_proxy(target_url, request.method, headers, body, session_id, client)
 
         # Re-bridge on 401 (session expired) or 403 (stale/mismatched session)
         if response.status_code in (401, 403) and session_id is not None:
             new_session = await _rebridge_if_needed(request, metabase_url)
             if new_session is not None:
-                response = await _do_proxy(target_url, request.method, headers, body, new_session)
+                response = await _do_proxy(
+                    target_url, request.method, headers, body, new_session, client
+                )
                 if response.status_code not in (401, 403):
                     final = _build_response(response)
                     _set_mb_session_cookie(final, new_session, request)
@@ -230,8 +234,9 @@ async def _do_proxy(
     headers: dict[str, str],
     body: bytes | None,
     session_id: str | None,
+    client: httpx.AsyncClient,
 ) -> httpx.Response:
-    """Execute the actual HTTP request to Metabase."""
+    """Execute the actual HTTP request to Metabase using the shared client."""
     proxy_headers = dict(headers)
     if session_id:
         # Strip any existing metabase.SESSION from forwarded cookies to avoid duplicates
@@ -250,8 +255,7 @@ async def _do_proxy(
         else:
             proxy_headers["cookie"] = f"{_MB_SESSION_COOKIE}={session_id}"
 
-    async with httpx.AsyncClient(follow_redirects=False, timeout=30.0) as client:
-        return await client.request(method=method, url=url, headers=proxy_headers, content=body)
+    return await client.request(method=method, url=url, headers=proxy_headers, content=body)
 
 
 _SKIP_HEADERS = frozenset(("content-encoding", "transfer-encoding", "content-length"))

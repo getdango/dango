@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Subprocess crashes now recorded in activity log and sync history (were silent)
 - Source failure now cascades to mark downstream dbt models as stale
 - Stale status does not overwrite error status on models (error is more severe)
+- HTTP connection pooling for Metabase proxy, health checks, and Metabase API (prevents TCP port exhaustion from per-request connections)
 
 ## [1.0.2] - 2026-06-09
 
