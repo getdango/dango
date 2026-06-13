@@ -2389,6 +2389,31 @@ def run_sync(
 
     console.print(f"{'=' * 60}\n")
 
+    # Clean up empty dlt staging schemas after successful sync
+    if success_sources:
+        try:
+            import duckdb as _duckdb
+
+            _conn = _duckdb.connect(str(project_root / "data" / "warehouse.duckdb"))
+            try:
+                _schemas = _conn.execute(
+                    "SELECT schema_name FROM information_schema.schemata "
+                    "WHERE schema_name LIKE '%\\_staging' ESCAPE '\\'"
+                ).fetchall()
+                _dropped = []
+                for (schema_name_val,) in _schemas:
+                    base_name = schema_name_val.removesuffix("_staging")
+                    source_name = base_name.removeprefix("raw_")
+                    if source_name in success_sources or base_name in success_sources:
+                        _conn.execute(f'DROP SCHEMA IF EXISTS "{schema_name_val}" CASCADE')
+                        _dropped.append(schema_name_val)
+                if _dropped:
+                    console.print(f"[dim]🧹 Cleaned up {len(_dropped)} staging schema(s)[/dim]")
+            finally:
+                _conn.close()
+        except Exception:
+            pass  # Don't fail sync for cleanup errors
+
     # Initialize transform tracking (used in summary dict below)
     transform_status = "skipped"
     transform_error_msg: str | None = None

@@ -278,6 +278,40 @@ class DbtModelGenerator:
         except Exception:
             return []
 
+    def _provision_geo_targets(self, source_name: str) -> list[str]:
+        """Provision geo_targets seed CSV and staging join model for Google Ads.
+
+        Copies the seed file and staging model template if they don't already exist.
+        This runs on every sync so existing projects get the seed retroactively.
+
+        Args:
+            source_name: Name of the Google Ads source
+
+        Returns:
+            List of provisioned file names
+        """
+        provisioned: list[str] = []
+
+        # 1. Copy geo_targets.csv to dbt/seeds/
+        seeds_dir = self.project_root / "dbt" / "seeds"
+        seed_dest = seeds_dir / "geo_targets.csv"
+        if not seed_dest.exists():
+            seeds_dir.mkdir(parents=True, exist_ok=True)
+            seed_src = self.templates_dir / "seeds" / "geo_targets.csv"
+            seed_dest.write_text(seed_src.read_text(encoding="utf-8"), encoding="utf-8")
+            provisioned.append("geo_targets.csv")
+
+        # 2. Create staging join model from template
+        model_dest = self.staging_dir / f"stg_{source_name}__geo_names.sql"
+        if not model_dest.exists():
+            self.staging_dir.mkdir(parents=True, exist_ok=True)
+            template = (self.templates_dir / "stg_geo_names.sql").read_text(encoding="utf-8")
+            model_sql = template.replace("__SOURCE_NAME__", source_name)
+            model_dest.write_text(model_sql, encoding="utf-8")
+            provisioned.append(f"stg_{source_name}__geo_names.sql")
+
+        return provisioned
+
     def generate_staging_model(
         self,
         source: DataSource,
@@ -285,6 +319,7 @@ class DbtModelGenerator:
         schema_name: str = "raw",
         dedup_strategy: str | None = None,
         dedup_columns: list[str] | None = None,
+        date_cast_columns: list[str] | None = None,
     ) -> str:
         """
         Generate staging model SQL for a data source
@@ -314,6 +349,7 @@ class DbtModelGenerator:
             "table_name": table_name,
             "dedup_strategy": dedup_strategy,
             "dedup_columns": dedup_columns or [],
+            "date_cast_columns": date_cast_columns or [],
             "generated_at": datetime.now().isoformat(),
         }
 
@@ -447,6 +483,10 @@ class DbtModelGenerator:
                 # Always use raw_{source_name} schema (industry best practice)
                 schema_name = f"raw_{source.name}"
 
+                # Auto-provision geo_targets seed for Google Ads sources
+                if source.type.value == "google_ads":
+                    self._provision_geo_targets(source.name)
+
                 # Try to get endpoints from config, fall back to DB discovery
                 endpoints = self._get_source_endpoints(source)
                 if not endpoints:
@@ -523,6 +563,13 @@ class DbtModelGenerator:
                         source, staging_columns
                     )
 
+                    # Detect GA4 date columns that need TIMESTAMPTZ → DATE cast
+                    date_cast_columns: list[str] = []
+                    if source.type.value == "google_analytics":
+                        for col in staging_columns:
+                            if col["name"] == "date" and "TIMESTAMP" in col["type"].upper():
+                                date_cast_columns.append(col["name"])
+
                     # Generate staging model SQL
                     model_sql = self.generate_staging_model(
                         source=source,
@@ -530,6 +577,7 @@ class DbtModelGenerator:
                         schema_name=schema_name,
                         dedup_strategy=dedup_strategy,
                         dedup_columns=dedup_columns,
+                        date_cast_columns=date_cast_columns,
                     )
 
                     # Write model file
