@@ -2784,7 +2784,7 @@ async function renderAttentionBanner() {
         const canManage = window.DANGO_USER_ROLE === 'admin';
         const sourceItems = attentionSources.map(s => {
             const acceptBtn = canManage
-                ? `<button onclick="acceptDrift('${s.source}')" class="ml-2 text-xs px-3 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200 font-medium">Accept</button>`
+                ? `<button onclick="acceptDrift('${escapeHtml(s.source)}')" class="ml-2 text-xs px-3 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200 font-medium">Accept</button>`
                 : '';
             return `<span class="font-medium">${escapeHtml(s.source)}</span>: ${escapeHtml(s.reason)}${acceptBtn}`;
         }).join('<br>');
