@@ -477,6 +477,7 @@ class TestSourceTypeCoverage:
             patch.object(runner, "_get_source_total_rows", return_value=2000),
             patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
             patch.object(runner, "_restore_dlt_state") as mock_restore,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
             patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
@@ -499,6 +500,40 @@ class TestSourceTypeCoverage:
 
         assert result["status"] == "failed"
         assert "existing 2,000 rows preserved" in result["error"]
+        mock_restore.assert_called_once()
+
+    def test_dlt_native_replace_mode_no_full_refresh_protected(self, tmp_path):
+        """Test 10b: dlt native with uses_replace_mode but no full_refresh → protected."""
+        runner = _make_runner(tmp_path)
+
+        with (
+            patch.object(runner, "_get_source_total_rows", return_value=1500),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_restore_dlt_state") as mock_restore,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
+            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("dango.ingestion.dlt_runner.importlib") as mock_importlib,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_module = MagicMock()
+            mock_module.test_func = MagicMock(return_value=MagicMock())
+            mock_importlib.import_module.return_value = mock_module
+
+            mock_pipeline = MagicMock()
+            mock_dlt.pipeline.return_value = mock_pipeline
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+
+            # full_refresh=False but uses_replace_mode=True → still protected
+            result = runner._run_dlt_native_source(
+                _make_dlt_native_config(),
+                full_refresh=False,
+            )
+
+        assert result["status"] == "failed"
+        assert "existing 1,500 rows preserved" in result["error"]
         mock_restore.assert_called_once()
 
     def test_csv_source_zero_rows_previous_data_fails(self, tmp_path):
