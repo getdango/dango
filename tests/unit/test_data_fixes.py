@@ -112,6 +112,28 @@ class TestGeoTargetsProvisioning:
             gen.generate_all_models([source])
             mock_provision.assert_called_once_with("my_ads")
 
+    def test_geo_targets_end_to_end_via_generate_all_models(self, tmp_path: Path):
+        """generate_all_models creates geo seed files for google_ads (no mocking)."""
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        (project_root / "data").mkdir()
+
+        gen = DbtModelGenerator(project_root)
+        source = _make_source("my_ads", "google_ads")
+
+        # No tables in DB — generate_all_models will skip model generation
+        # but should still provision geo_targets
+        with patch.object(gen, "_discover_tables_from_db", return_value=[]):
+            gen.generate_all_models([source])
+
+        seed_file = project_root / "dbt" / "seeds" / "geo_targets.csv"
+        model_file = project_root / "dbt" / "models" / "staging" / "stg_my_ads__geo_names.sql"
+
+        assert seed_file.exists()
+        assert model_file.exists()
+        assert "my_ads" in model_file.read_text()
+        assert "__SOURCE_NAME__" not in model_file.read_text()
+
 
 # ---------------------------------------------------------------------------
 # Fix 2: GA4 date column cast (P7-1)
