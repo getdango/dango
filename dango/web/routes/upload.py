@@ -52,6 +52,7 @@ def _audit(
     project_root: Path,
     **extra: Any,
 ) -> None:
+    """Log an audit event with standard fields."""
     log_auth_event(
         event,
         user_id=user.id,
