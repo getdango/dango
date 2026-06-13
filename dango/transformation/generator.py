@@ -485,7 +485,13 @@ class DbtModelGenerator:
 
                 # Auto-provision geo_targets seed for Google Ads sources
                 if source.type.value == "google_ads":
-                    self._provision_geo_targets(source.name)
+                    geo_provisioned = self._provision_geo_targets(source.name)
+                    if geo_provisioned:
+                        import logging
+
+                        logging.getLogger(__name__).info(
+                            "geo_targets_provisioned: %s", ", ".join(geo_provisioned)
+                        )
 
                 # Try to get endpoints from config, fall back to DB discovery
                 endpoints = self._get_source_endpoints(source)
