@@ -570,9 +570,9 @@ class DltPipelineRunner:
         # Capture pre-refresh row count for empty replace protection
         pre_refresh_rows = self._get_csv_table_rows(source_config.name)
         has_backup = False
+        metadata_backup: list[tuple] = []  # backed-up _dango_file_metadata rows
 
         # Full refresh: backup or drop existing table
-        # Metadata deletion is deferred until after 0-row check (C-2 fix)
         if full_refresh:
             conn = duckdb.connect(str(self.duckdb_path))
             try:
@@ -601,8 +601,14 @@ class DltPipelineRunner:
                     conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
                     console.print("  🔄 Full refresh: dropped existing table")
 
+                # Backup metadata rows before deleting (restored on 0-row rollback)
+                if has_backup:
+                    metadata_backup = conn.execute(
+                        "SELECT * FROM _dango_file_metadata WHERE source_name = ?",
+                        [source_config.name],
+                    ).fetchall()
+
                 # Clear metadata so files are treated as new
-                # (will be restored if 0-row rollback triggers)
                 conn.execute(
                     """
                     DELETE FROM _dango_file_metadata
@@ -635,7 +641,7 @@ class DltPipelineRunner:
             "uses_replace_mode": True,  # CSV sources always do full refresh
         }
 
-        # Empty replace protection: restore backup if 0 rows loaded
+        # Empty replace protection: restore backup table + metadata if 0 rows loaded
         if has_backup and merged["rows_loaded"] == 0:
             conn = duckdb.connect(str(self.duckdb_path))
             try:
@@ -644,6 +650,12 @@ class DltPipelineRunner:
                     f'ALTER TABLE "{target_schema}"."{source_config.name}_pre_refresh_backup" '
                     f'RENAME TO "{source_config.name}"'
                 )
+                # Restore file metadata so next incremental sync resumes correctly
+                if metadata_backup:
+                    conn.executemany(
+                        "INSERT INTO _dango_file_metadata VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        metadata_backup,
+                    )
             finally:
                 conn.close()
             error_msg = (
@@ -710,9 +722,9 @@ class DltPipelineRunner:
         # Capture pre-refresh row count for empty replace protection
         pre_refresh_rows = self._get_csv_table_rows(source_config.name)
         has_backup = False
+        metadata_backup: list[tuple] = []  # backed-up _dango_file_metadata rows
 
         # Full refresh: backup or drop existing table
-        # Metadata deletion is deferred until after 0-row check (C-2 fix)
         if full_refresh:
             conn = duckdb.connect(str(self.duckdb_path))
             try:
@@ -740,6 +752,13 @@ class DltPipelineRunner:
                     # No data to protect — drop normally
                     conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
                     console.print("  🔄 Full refresh: dropped existing table")
+
+                # Backup metadata rows before deleting (restored on 0-row rollback)
+                if has_backup:
+                    metadata_backup = conn.execute(
+                        "SELECT * FROM _dango_file_metadata WHERE source_name = ?",
+                        [source_config.name],
+                    ).fetchall()
 
                 # Clear metadata so files are treated as new
                 conn.execute(
@@ -772,7 +791,7 @@ class DltPipelineRunner:
             "uses_replace_mode": True,  # Local file sources always do full refresh
         }
 
-        # Empty replace protection: restore backup if 0 rows loaded
+        # Empty replace protection: restore backup table + metadata if 0 rows loaded
         if has_backup and merged["rows_loaded"] == 0:
             conn = duckdb.connect(str(self.duckdb_path))
             try:
@@ -781,6 +800,12 @@ class DltPipelineRunner:
                     f'ALTER TABLE "{target_schema}"."{source_config.name}_pre_refresh_backup" '
                     f'RENAME TO "{source_config.name}"'
                 )
+                # Restore file metadata so next incremental sync resumes correctly
+                if metadata_backup:
+                    conn.executemany(
+                        "INSERT INTO _dango_file_metadata VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        metadata_backup,
+                    )
             finally:
                 conn.close()
             error_msg = (
