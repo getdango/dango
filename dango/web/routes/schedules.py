@@ -41,7 +41,7 @@ from dango.platform.scheduling.history import (
     get_schedule_history,
     get_scheduler_db_path,
 )
-from dango.web.helpers import get_project_root, load_sources_config
+from dango.web.helpers import append_log_entry, get_project_root, load_sources_config
 from dango.web.models import TriggerRequest
 from dango.web.routes.ui import _render_template
 
@@ -531,6 +531,15 @@ async def trigger_schedule(
         request,
         project_root,
         schedule_name=name,
+    )
+
+    append_log_entry(
+        {
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+            "level": "info",
+            "source": f"schedule:{name}",
+            "message": "Schedule manually triggered",
+        }
     )
 
     return JSONResponse(
