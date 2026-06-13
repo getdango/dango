@@ -233,6 +233,12 @@ def start(ctx: click.Context, yes: bool) -> None:
                 raise click.Abort() from migration_exc
             raise
 
+        # Clean up stale dbt lock from crashed process
+        from dango.platform.common.startup import cleanup_stale_dbt_lock
+
+        if cleanup_stale_dbt_lock(project_root):
+            console.print("[yellow]⚠[/yellow] Removed stale dbt lock from crashed process")
+
         # Ensure all dbt schemas exist (for Metabase visibility)
         ensure_dbt_schemas(project_root)
 
@@ -578,10 +584,14 @@ def start(ctx: click.Context, yes: bool) -> None:
             console.print("[cyan]Starting file watcher...[/cyan]")
             try:
                 from dango.platform.watcher_lifecycle import (
+                    kill_orphan_watchers,
                     start_file_watcher,
                     stop_file_watcher,
                 )
 
+                orphans_killed = kill_orphan_watchers(project_root)
+                if orphans_killed:
+                    console.print(f"[yellow]⚠[/yellow] Killed {orphans_killed} orphaned watcher(s)")
                 stop_file_watcher(project_root)  # Clean up any orphaned watcher
                 watcher_pid = start_file_watcher(project_root)
                 console.print(f"[green]✓[/green] File watcher started (PID {watcher_pid})")
@@ -800,12 +810,19 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
         console.print("[cyan]Stopping services...[/cyan]")
 
         # Stop file watcher
-        from dango.platform.watcher_lifecycle import get_watcher_status, stop_file_watcher
+        from dango.platform.watcher_lifecycle import (
+            get_watcher_status,
+            kill_orphan_watchers,
+            stop_file_watcher,
+        )
 
         watcher_was_running = get_watcher_status(project_root)["running"]
         watcher_stopped = stop_file_watcher(project_root)
         if watcher_was_running and not watcher_stopped:
             console.print("[yellow]⚠[/yellow] Failed to stop file watcher")
+        orphans_killed = kill_orphan_watchers(project_root)
+        if orphans_killed:
+            console.print(f"[yellow]⚠[/yellow] Killed {orphans_killed} orphaned watcher(s)")
 
         # Stop Marimo notebook server
         from dango.notebooks.manager import get_marimo_status, stop_idle_checker, stop_marimo
