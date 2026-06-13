@@ -635,6 +635,7 @@ class SourceWizard:
             None if OAuth setup successful or not needed
             "back" if user wants to go back
             "cancel" if user cancelled
+            "skipped" if user chose to skip OAuth setup
         """
         # Check if this source requires OAuth
         auth_type = metadata.get("auth_type")

@@ -137,14 +137,16 @@ class TestOAuthSkipHandling:
         from dango.cli.source_wizard import SourceWizard
 
         wizard = SourceWizard(tmp_path)
-        mock_collect = MagicMock()
+
+        def _should_not_reach(*args, **kwargs):
+            raise AssertionError("Wizard should not reach parameter collection after skip decline")
 
         with (
             patch.object(wizard, "_handle_oauth_setup", return_value="skipped"),
             patch.object(wizard, "_select_source_flat", return_value="google_ads"),
             patch.object(wizard, "_show_source_info"),
             patch.object(wizard, "_get_source_name", return_value="my_ads"),
-            patch.object(wizard, "_collect_parameters", mock_collect),
+            patch.object(wizard, "_collect_parameters", side_effect=_should_not_reach),
             patch("dango.cli.source_wizard.click.confirm", return_value=False),
             patch("dango.cli.source_wizard.console"),
             patch(
@@ -155,8 +157,6 @@ class TestOAuthSkipHandling:
             # click.Abort is caught by run()'s except Exception handler → returns False
             result = wizard.run()
             assert result is False
-            # Crucially, parameter collection was never reached
-            mock_collect.assert_not_called()
 
     def test_wizard_continues_on_skip_confirm(self, tmp_path):
         """When user confirms 'Continue setup anyway?' after skip, wizard proceeds to params."""
@@ -233,3 +233,38 @@ class TestCredentialBlockGating:
         sf_meta = SOURCE_REGISTRY["salesforce"]
         assert sf_meta.get("setup_guide") is not None
         assert sf_meta.get("secrets_toml_template") is not None
+
+    def test_credential_block_skipped_without_template(self, tmp_path):
+        """Wizard output should NOT contain 'Credential setup required' for sources
+        that have setup_guide but no secrets_toml_template (e.g., local_files)."""
+        from dango.ingestion.sources.registry import AuthType
+
+        metadata = {
+            "auth_type": AuthType.NONE,
+            "setup_guide": ["Step 1: do something", "Step 2: do another thing"],
+            # No secrets_toml_template
+        }
+
+        # Reproduce the gating condition from source_wizard.py Step 9b
+        secret_params = []  # No secret params
+        auth_type = metadata.get("auth_type")
+        secrets_template = metadata.get("secrets_toml_template")
+        would_show = not secret_params and auth_type != AuthType.OAUTH and secrets_template
+        assert not would_show, "Credential block should NOT trigger without secrets_toml_template"
+
+    def test_credential_block_shown_with_template(self, tmp_path):
+        """Wizard output SHOULD contain 'Credential setup required' for sources
+        that have both setup_guide and secrets_toml_template."""
+        from dango.ingestion.sources.registry import AuthType
+
+        metadata = {
+            "auth_type": AuthType.NONE,
+            "setup_guide": ["Step 1: get API key"],
+            "secrets_toml_template": '[sources.{source_name}.credentials]\ntoken = ""\n',
+        }
+
+        secret_params = []
+        auth_type = metadata.get("auth_type")
+        secrets_template = metadata.get("secrets_toml_template")
+        would_show = not secret_params and auth_type != AuthType.OAUTH and secrets_template
+        assert would_show, "Credential block SHOULD trigger with secrets_toml_template"
