@@ -765,7 +765,7 @@ class SourceWizard:
                     return None  # Continue to params
                 elif verified_cred and not has_tokens:
                     console.print(
-                        "\n[yellow]⚠  Client credentials saved but authorization not completed.[/yellow]"
+                        "\n[yellow]⚠️  Client credentials saved but authorization not completed.[/yellow]"
                     )
                     console.print(f"[cyan]Run `dango oauth {source_type}` to complete.[/cyan]")
                     # Fall through to retry prompt
@@ -774,9 +774,9 @@ class SourceWizard:
                         "\n[yellow]⚠️  OAuth flow completed but credentials could not be verified[/yellow]"
                     )
                     # Fall through to retry prompt
-
-            # OAuth failed or unverified — offer retry / cancel
-            console.print("\n[red]❌ OAuth setup did not complete successfully[/red]")
+            else:
+                # OAuth truly failed (run_oauth_for_source returned False)
+                console.print("\n[red]❌ OAuth setup did not complete successfully[/red]")
 
             # Only offer "re-enter credentials" for Google sources (which cache
             # client_id/secret in env vars). Facebook prompts directly each time.
