@@ -169,9 +169,14 @@
             init() {
                 this._connect();
             },
+            destroy() {
+                if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
+                if (this._ws) this._ws.close();
+            },
             _connect() {
                 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
                 this._ws = new WebSocket(`${proto}//${location.host}/ws`);
+                this._ws.onerror = () => {};
                 this._ws.onmessage = (e) => {
                     try {
                         const data = JSON.parse(e.data);

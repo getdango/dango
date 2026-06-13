@@ -10,6 +10,7 @@ import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import yaml
@@ -44,7 +45,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["upload"])
 
 
-def _audit(event, user, request, project_root, **extra):
+def _audit(
+    event: AuditEvent,
+    user: User,
+    request: Request,
+    project_root: Path,
+    **extra: Any,
+) -> None:
     log_auth_event(
         event,
         user_id=user.id,
@@ -546,7 +553,8 @@ async def delete_csv_file(
                 "source": source_name,
                 "message": f"Deleted {filename}",
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-            }
+            },
+            log=False,
         )
 
         # Log activity
