@@ -219,43 +219,57 @@ class OAuthManager:
                 else:
                     raise
 
-            server.timeout = timeout_seconds
+            try:
+                server.timeout = timeout_seconds
 
-            server_thread = threading.Thread(target=server.handle_request, daemon=True)
-            server_thread.start()
+                server_thread = threading.Thread(target=server.handle_request, daemon=True)
+                server_thread.start()
 
-            console.print(f"[dim]Callback server listening on port {self.callback_port}[/dim]")
+                console.print(f"[dim]Callback server listening on port {self.callback_port}[/dim]")
 
-            # Open browser for authorization
-            console.print("\n[cyan]Opening browser for authorization...[/cyan]")
-            console.print(f"[dim]If browser doesn't open, visit: {auth_url}[/dim]\n")
+                # Open browser for authorization
+                console.print("\n[cyan]Opening browser for authorization...[/cyan]")
+                console.print(f"[dim]If browser doesn't open, visit: {auth_url}[/dim]\n")
 
-            webbrowser.open(auth_url)
+                webbrowser.open(auth_url)
 
-            # Wait for callback with timeout
-            console.print("[yellow]Waiting for authorization...[/yellow]")
-            console.print("[dim](This window will close automatically once you authorize)[/dim]\n")
+                # Wait for callback with timeout
+                console.print("[yellow]Waiting for authorization...[/yellow]")
+                console.print(
+                    "[dim](This window will close automatically once you authorize)[/dim]\n"
+                )
 
-            start_time = time.time()
-            while time.time() - start_time < timeout_seconds:
-                if OAuthCallbackHandler.oauth_response is not None:
-                    console.print("[green]✓ Authorization received![/green]")
+                start_time = time.time()
+                while time.time() - start_time < timeout_seconds:
+                    if OAuthCallbackHandler.oauth_response is not None:
+                        console.print("[green]✓ Authorization received![/green]")
+                        server.server_close()
+                        return OAuthCallbackHandler.oauth_response
+
+                    if OAuthCallbackHandler.oauth_error is not None:
+                        error = OAuthCallbackHandler.oauth_error
+                        console.print(f"[red]✗ Authorization failed: {error['error']}[/red]")
+                        console.print(f"[red]{error['error_description']}[/red]")
+                        server.server_close()
+                        return None
+
+                    time.sleep(0.5)
+
+                # Timeout — offer retry
+                console.print(
+                    f"\n[red]✗ Authorization timeout after {timeout_seconds} seconds[/red]"
+                )
+                server.server_close()
+                server_thread.join(timeout=2)
+            finally:
+                try:
                     server.server_close()
-                    return OAuthCallbackHandler.oauth_response
-
-                if OAuthCallbackHandler.oauth_error is not None:
-                    error = OAuthCallbackHandler.oauth_error
-                    console.print(f"[red]✗ Authorization failed: {error['error']}[/red]")
-                    console.print(f"[red]{error['error_description']}[/red]")
-                    server.server_close()
-                    return None
-
-                time.sleep(0.5)
-
-            # Timeout — offer retry
-            console.print(f"\n[red]✗ Authorization timeout after {timeout_seconds} seconds[/red]")
-            server.server_close()
-            server_thread.join(timeout=2)
+                except Exception:
+                    pass
+                try:
+                    server_thread.join(timeout=5)
+                except Exception:
+                    pass
 
             answers = inquirer.prompt(
                 [

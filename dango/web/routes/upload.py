@@ -13,8 +13,18 @@ from pathlib import Path
 
 import duckdb
 import yaml
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 
+from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.validation import sanitize_path_component, validate_source_name
@@ -34,9 +44,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["upload"])
 
 
+def _audit(event, user, request, project_root, **extra):
+    log_auth_event(
+        event,
+        user_id=user.id,
+        email=user.email,
+        ip=request.client.host if request.client else None,
+        details=extra,
+        log_dir=project_root / ".dango" / "logs",
+    )
+
+
 @router.post("/api/sources/{source_name}/upload-csv")
 async def upload_csv_to_source(
     source_name: str,
+    request: Request,
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     trigger_sync: bool = False,  # Default to false - let frontend control when to sync
@@ -140,6 +162,23 @@ async def upload_csv_to_source(
 
         logger.info(f"Uploaded file for source '{source_name}': {file_path}")
 
+        append_log_entry(
+            {
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "level": "success",
+                "source": source_name,
+                "message": f"CSV uploaded: {safe_filename}",
+            }
+        )
+        _audit(
+            AuditEvent.CSV_UPLOADED,
+            user,
+            request,
+            project_root,
+            source_name=source_name,
+            filename=safe_filename,
+        )
+
         # Broadcast upload event via WebSocket
         await ws_manager.broadcast(
             {
@@ -147,7 +186,8 @@ async def upload_csv_to_source(
                 "source": source_name,
                 "message": f"File {safe_filename} uploaded to {source_name}",
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-            }
+            },
+            log=False,
         )
 
         # Only trigger sync if explicitly requested (for batch upload optimization)
@@ -337,6 +377,7 @@ async def get_csv_files(source_name: str):
 @router.delete("/api/sources/{source_name}/csv-files")
 async def delete_csv_file(
     source_name: str,
+    request: Request,
     file_path: str = Query(..., description="Full path to file to delete"),
     background_tasks: BackgroundTasks = None,
     user: User = Depends(require_permission("csv.delete")),
@@ -516,6 +557,14 @@ async def delete_csv_file(
                 "source": source_name,
                 "message": f"Deleted file: {filename}",
             }
+        )
+        _audit(
+            AuditEvent.CSV_DELETED,
+            user,
+            request,
+            project_root,
+            source_name=source_name,
+            filename=filename,
         )
 
         # Trigger dbt run for downstream models (in background)

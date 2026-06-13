@@ -73,6 +73,8 @@ class AuditEvent(str, Enum):
     DEPLOYMENT_HISTORY_VIEWED    = "deployment_history_viewed"
     GOVERNANCE_DRIFT_ACCEPTED   = "governance_drift_accepted"
     QUERY_EXECUTED              = "query_executed"
+    CSV_UPLOADED                = "csv_uploaded"
+    CSV_DELETED                 = "csv_deleted"
     # fmt: on
 
 
