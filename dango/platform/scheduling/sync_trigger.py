@@ -103,6 +103,7 @@ def run_manual_sync(
     max_lock_wait: int = 0,
     sync_id: str | None = None,
     record_id: int | None = None,
+    allow_empty_replace: bool = False,
 ) -> dict[str, Any]:
     """Execute a manual sync with execution history tracking.
 
@@ -306,6 +307,7 @@ def run_manual_sync(
             end_date=end_date_obj,
             skip_dbt=skip_dbt,
             progress_callback=_sync_progress_cb,
+            allow_empty_replace=allow_empty_replace,
         )
 
         # Extract rows loaded from sync result
@@ -478,5 +480,6 @@ if __name__ == "__main__":
         max_lock_wait=args.get("max_lock_wait", 0),
         sync_id=args.get("sync_id"),
         record_id=args.get("record_id"),
+        allow_empty_replace=args.get("allow_empty_replace", False),
     )
     print(json.dumps(result))
