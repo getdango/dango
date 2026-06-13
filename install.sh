@@ -542,7 +542,7 @@ print_activation_instructions() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo
     echo "Once activated, try these commands:"
-    echo -e "  ${YELLOW}dango source add${NC}    # Add a data source (CSV or Stripe)"
+    echo -e "  ${YELLOW}dango source add${NC}    # Add a data source"
     echo -e "  ${YELLOW}dango sync${NC}          # Sync data"
     echo -e "  ${YELLOW}dango start${NC}         # Start platform (opens http://localhost:8800)"
     echo
@@ -595,7 +595,7 @@ print_global_success() {
         echo -e "  ${YELLOW}cd my-project${NC}"
     fi
 
-    echo -e "  ${YELLOW}dango source add${NC}       # Add a data source (CSV or Stripe)"
+    echo -e "  ${YELLOW}dango source add${NC}       # Add a data source"
     echo -e "  ${YELLOW}dango sync${NC}             # Sync data"
     echo -e "  ${YELLOW}dango start${NC}            # Start platform (opens http://localhost:8800)"
     echo
