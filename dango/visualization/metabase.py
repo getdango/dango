@@ -632,17 +632,16 @@ def setup_metabase(
     metabase_url = metabase_url.rstrip("/")
     project_root / "data" / "warehouse.duckdb"
     credentials_file = project_root / ".dango" / "metabase.yml"
-
-    from dango.platform.docker import get_compose_project_name
-
-    compose_name = get_compose_project_name(project_root)
-
     session = requests.Session()
 
     # Check if already setup
     if credentials_file.exists():
         summary["errors"].append("Metabase already configured (credentials file exists)")
         return summary
+
+    from dango.platform.docker import get_compose_project_name
+
+    compose_name = get_compose_project_name(project_root)
 
     # Wait for Metabase to be ready (longer timeout for cloud cold start)
     ready_timeout = 300 if cloud_mode else 60
