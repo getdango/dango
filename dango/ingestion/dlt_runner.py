@@ -560,6 +560,8 @@ class DltPipelineRunner:
         Returns:
             Load statistics
         """
+        import duckdb
+
         if not source_config.csv:
             raise ValueError(f"CSV config missing for source: {source_config.name}")
 
@@ -569,10 +571,9 @@ class DltPipelineRunner:
         pre_refresh_rows = self._get_csv_table_rows(source_config.name)
         has_backup = False
 
-        # Full refresh: backup or drop existing table and clear metadata
+        # Full refresh: backup or drop existing table
+        # Metadata deletion is deferred until after 0-row check (C-2 fix)
         if full_refresh:
-            import duckdb
-
             conn = duckdb.connect(str(self.duckdb_path))
             try:
                 if (
@@ -580,26 +581,28 @@ class DltPipelineRunner:
                     and pre_refresh_rows > 0
                     and not allow_empty_replace
                 ):
+                    # Drop stale backup if one exists from a previous crash
+                    backup_name = f"{source_config.name}_pre_refresh_backup"
+                    conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{backup_name}"')
                     # Rename to backup instead of dropping — restore if 0 rows loaded
                     try:
                         conn.execute(
                             f'ALTER TABLE "{target_schema}"."{source_config.name}" '
-                            f'RENAME TO "{source_config.name}_pre_refresh_backup"'
+                            f'RENAME TO "{backup_name}"'
                         )
                         has_backup = True
                         console.print("  🔄 Full refresh: existing data backed up")
-                    except Exception:
-                        # Table may not exist — fall through to normal drop
-                        conn.execute(
-                            f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"'
-                        )
-                        console.print("  🔄 Full refresh: dropped existing table")
+                    except duckdb.CatalogException:
+                        # Table does not exist — nothing to protect
+                        has_backup = False
+                        console.print("  🔄 Full refresh: no existing table")
                 else:
                     # No data to protect — drop normally
                     conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
                     console.print("  🔄 Full refresh: dropped existing table")
 
-                # Always clear metadata so files are treated as new
+                # Clear metadata so files are treated as new
+                # (will be restored if 0-row rollback triggers)
                 conn.execute(
                     """
                     DELETE FROM _dango_file_metadata
@@ -634,8 +637,6 @@ class DltPipelineRunner:
 
         # Empty replace protection: restore backup if 0 rows loaded
         if has_backup and merged["rows_loaded"] == 0:
-            import duckdb
-
             conn = duckdb.connect(str(self.duckdb_path))
             try:
                 conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
@@ -648,7 +649,7 @@ class DltPipelineRunner:
             error_msg = (
                 f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
                 f"preserved. To force sync with empty data, use: "
-                f"dango sync --source {source_config.name} --allow-empty-replace"
+                f"dango sync {source_config.name} --allow-empty-replace"
             )
             console.print(f"  [red]❌ {error_msg}[/red]")
             return {
@@ -661,8 +662,6 @@ class DltPipelineRunner:
 
         # Clean up backup table on success
         if has_backup:
-            import duckdb
-
             conn = duckdb.connect(str(self.duckdb_path))
             try:
                 conn.execute(
@@ -701,6 +700,8 @@ class DltPipelineRunner:
         Returns:
             Load statistics
         """
+        import duckdb
+
         if not source_config.local_files:
             raise ValueError(f"local_files config missing for source: {source_config.name}")
 
@@ -710,10 +711,9 @@ class DltPipelineRunner:
         pre_refresh_rows = self._get_csv_table_rows(source_config.name)
         has_backup = False
 
-        # Full refresh: backup or drop existing table and clear metadata
+        # Full refresh: backup or drop existing table
+        # Metadata deletion is deferred until after 0-row check (C-2 fix)
         if full_refresh:
-            import duckdb
-
             conn = duckdb.connect(str(self.duckdb_path))
             try:
                 if (
@@ -721,25 +721,27 @@ class DltPipelineRunner:
                     and pre_refresh_rows > 0
                     and not allow_empty_replace
                 ):
+                    # Drop stale backup if one exists from a previous crash
+                    backup_name = f"{source_config.name}_pre_refresh_backup"
+                    conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{backup_name}"')
                     # Rename to backup instead of dropping — restore if 0 rows loaded
                     try:
                         conn.execute(
                             f'ALTER TABLE "{target_schema}"."{source_config.name}" '
-                            f'RENAME TO "{source_config.name}_pre_refresh_backup"'
+                            f'RENAME TO "{backup_name}"'
                         )
                         has_backup = True
                         console.print("  🔄 Full refresh: existing data backed up")
-                    except Exception:
-                        # Table may not exist — fall through to normal drop
-                        conn.execute(
-                            f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"'
-                        )
-                        console.print("  🔄 Full refresh: dropped existing table")
+                    except duckdb.CatalogException:
+                        # Table does not exist — nothing to protect
+                        has_backup = False
+                        console.print("  🔄 Full refresh: no existing table")
                 else:
                     # No data to protect — drop normally
                     conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
                     console.print("  🔄 Full refresh: dropped existing table")
 
+                # Clear metadata so files are treated as new
                 conn.execute(
                     """
                     DELETE FROM _dango_file_metadata
@@ -772,8 +774,6 @@ class DltPipelineRunner:
 
         # Empty replace protection: restore backup if 0 rows loaded
         if has_backup and merged["rows_loaded"] == 0:
-            import duckdb
-
             conn = duckdb.connect(str(self.duckdb_path))
             try:
                 conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
@@ -786,7 +786,7 @@ class DltPipelineRunner:
             error_msg = (
                 f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
                 f"preserved. To force sync with empty data, use: "
-                f"dango sync --source {source_config.name} --allow-empty-replace"
+                f"dango sync {source_config.name} --allow-empty-replace"
             )
             console.print(f"  [red]❌ {error_msg}[/red]")
             return {
@@ -799,8 +799,6 @@ class DltPipelineRunner:
 
         # Clean up backup table on success
         if has_backup:
-            import duckdb
-
             conn = duckdb.connect(str(self.duckdb_path))
             try:
                 conn.execute(
@@ -913,6 +911,9 @@ class DltPipelineRunner:
                 if custom_sources_dir.exists() and str(custom_sources_dir) in sys.path:
                     sys.path.remove(str(custom_sources_dir))
 
+            # Detect if source uses replace write_disposition
+            uses_replace_mode = self._detect_write_disposition(source)
+
             # Determine dataset name (use custom or default to raw_{source_name})
             dataset_name = config.dataset_name or f"raw_{source_name}"
 
@@ -951,13 +952,13 @@ class DltPipelineRunner:
             stats = self._extract_load_stats(load_info)
             rows_loaded = stats.get("rows_loaded", 0)
 
-            # Empty replace protection: block 0-row full-refresh syncs
+            # Empty replace protection: block 0-row replace-mode syncs
             # that would wipe existing data
             if (
                 rows_loaded == 0
                 and pre_refresh_rows is not None
                 and pre_refresh_rows > 0
-                and full_refresh
+                and (full_refresh or uses_replace_mode)
                 and not allow_empty_replace
             ):
                 # Restore pipeline state so next sync retries correctly
@@ -965,7 +966,7 @@ class DltPipelineRunner:
                 error_msg = (
                     f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
                     f"preserved. To force sync with empty data, use: "
-                    f"dango sync --source {source_name} --allow-empty-replace"
+                    f"dango sync {source_name} --allow-empty-replace"
                 )
                 console.print(f"  [red]❌ {error_msg}[/red]")
                 return {
@@ -973,6 +974,7 @@ class DltPipelineRunner:
                     "source": source_name,
                     "error": error_msg,
                     "rows_loaded": 0,
+                    "uses_replace_mode": uses_replace_mode,
                 }
 
             # Check for data loss on full refresh
@@ -1281,7 +1283,7 @@ class DltPipelineRunner:
                 error_msg = (
                     f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
                     f"preserved. To force sync with empty data, use: "
-                    f"dango sync --source {source_name} --allow-empty-replace"
+                    f"dango sync {source_name} --allow-empty-replace"
                 )
                 console.print(f"  [red]❌ {error_msg}[/red]")
                 return {
