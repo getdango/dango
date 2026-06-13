@@ -2784,7 +2784,7 @@ async function renderAttentionBanner() {
         const canManage = window.DANGO_USER_ROLE === 'admin';
         const sourceItems = attentionSources.map(s => {
             const acceptBtn = canManage
-                ? `<button onclick="acceptDrift('${s.source}')" class="ml-2 text-sm text-yellow-700 underline hover:text-yellow-900">Accept</button>`
+                ? `<button onclick="acceptDrift('${s.source}')" class="ml-2 text-xs px-3 py-1 bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200 font-medium">Accept</button>`
                 : '';
             return `<span class="font-medium">${escapeHtml(s.source)}</span>: ${escapeHtml(s.reason)}${acceptBtn}`;
         }).join('<br>');
@@ -2800,7 +2800,7 @@ async function renderAttentionBanner() {
                     <div class="ml-3">
                         <h3 class="text-sm font-medium text-yellow-800">Breaking Schema Drift Detected</h3>
                         <div class="mt-2 text-sm text-yellow-700">${sourceItems}</div>
-                        <p class="mt-1 text-xs text-yellow-600">Accept changes to update the schema baseline and clear this warning.</p>
+                        <p class="mt-1 text-xs text-yellow-600">Accept changes to update the schema baseline, or run <code class="bg-yellow-100 px-1 rounded">dango governance accept &lt;source&gt;</code> from the CLI.</p>
                     </div>
                 </div>
             </div>
