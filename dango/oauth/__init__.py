@@ -219,6 +219,7 @@ class OAuthManager:
                 else:
                     raise
 
+            server_thread = None
             try:
                 server.timeout = timeout_seconds
 
@@ -266,10 +267,11 @@ class OAuthManager:
                     server.server_close()
                 except Exception:
                     pass
-                try:
-                    server_thread.join(timeout=5)
-                except Exception:
-                    pass
+                if server_thread is not None:
+                    try:
+                        server_thread.join(timeout=5)
+                    except Exception:
+                        pass
 
             answers = inquirer.prompt(
                 [
