@@ -624,6 +624,7 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
     help="Allow CSV schema changes (add columns, treat missing as NULL)",
 )
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
+@click.option("--allow-empty-replace", is_flag=True, hidden=True)
 @click.pass_context
 def sync(
     ctx: click.Context,
@@ -637,6 +638,7 @@ def sync(
     dry_run: bool,
     allow_schema_changes: bool,
     yes: bool,
+    allow_empty_replace: bool,
 ) -> None:
     """
     Load data from all sources (or specific source).
@@ -864,6 +866,7 @@ def sync(
                 full_refresh=full_refresh,
                 limit=limit,
                 allow_schema_changes=allow_schema_changes,
+                allow_empty_replace=allow_empty_replace,
             )
         except KeyboardInterrupt:
             console.print("\n[yellow]Sync interrupted — progress saved.[/yellow]")
