@@ -653,7 +653,10 @@ class DltPipelineRunner:
                 # Restore file metadata so next incremental sync resumes correctly
                 if metadata_backup:
                     conn.executemany(
-                        "INSERT INTO _dango_file_metadata VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO _dango_file_metadata "
+                        "(source_name, file_path, file_size, file_mtime, "
+                        "rows_loaded, status, loaded_at, error_message) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         metadata_backup,
                     )
             finally:
@@ -803,7 +806,10 @@ class DltPipelineRunner:
                 # Restore file metadata so next incremental sync resumes correctly
                 if metadata_backup:
                     conn.executemany(
-                        "INSERT INTO _dango_file_metadata VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO _dango_file_metadata "
+                        "(source_name, file_path, file_size, file_mtime, "
+                        "rows_loaded, status, loaded_at, error_message) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         metadata_backup,
                     )
             finally:
