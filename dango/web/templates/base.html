@@ -70,8 +70,17 @@
                     </a>
                 </div>
 
-                <!-- Right side: user email + settings gear + hamburger (mobile) -->
-                <div class="flex items-center space-x-2 ml-auto">
+                <!-- Right side: sync indicator + user email + settings gear + hamburger (mobile) -->
+                <div class="flex items-center space-x-2 ml-auto" x-data="globalSyncIndicator()" x-init="init()">
+                    <!-- Global sync status indicator -->
+                    <div x-show="activeSyncCount > 0" x-cloak
+                         class="flex items-center space-x-1.5 px-2 py-1 rounded-md bg-gray-700 text-xs text-gray-200">
+                        <svg class="animate-spin h-3.5 w-3.5 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        <span x-text="'Syncing ' + activeSyncCount + ' source' + (activeSyncCount > 1 ? 's' : '')"></span>
+                    </div>
                     {% if request.state.user %}
                     <span class="text-xs text-gray-400 hidden lg:inline mr-2">{{ request.state.user.email }}</span>
                     <span class="text-xs px-1.5 py-0.5 rounded-full hidden lg:inline mr-1
@@ -150,6 +159,43 @@
             </div>
             {% endif %}
         </div>
+    <script>
+    function globalSyncIndicator() {
+        return {
+            activeSyncCount: 0,
+            _activeSources: new Set(),
+            _ws: null,
+            _reconnectTimer: null,
+            init() {
+                this._connect();
+            },
+            destroy() {
+                if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
+                if (this._ws) this._ws.close();
+            },
+            _connect() {
+                const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+                this._ws = new WebSocket(`${proto}//${location.host}/ws`);
+                this._ws.onerror = () => {};
+                this._ws.onmessage = (e) => {
+                    try {
+                        const data = JSON.parse(e.data);
+                        const source = data.source || '';
+                        if (data.event === 'sync_started' && source) {
+                            this._activeSources.add(source);
+                        } else if ((data.event === 'sync_completed' || data.event === 'sync_failed') && source) {
+                            this._activeSources.delete(source);
+                        }
+                        this.activeSyncCount = this._activeSources.size;
+                    } catch {}
+                };
+                this._ws.onclose = () => {
+                    this._reconnectTimer = setTimeout(() => this._connect(), 3000);
+                };
+            }
+        };
+    }
+    </script>
     </nav>
     {% endblock %}
 
