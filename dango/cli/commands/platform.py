@@ -579,19 +579,26 @@ def start(ctx: click.Context, yes: bool) -> None:
             console.print()
             raise click.Abort() from e
 
+        # Kill orphaned watcher processes (non-critical — runs regardless of auto_sync
+        # because orphans from a previous session with auto_sync=true may still exist)
+        try:
+            from dango.platform.watcher_lifecycle import kill_orphan_watchers
+
+            orphans_killed = kill_orphan_watchers(project_root)
+            if orphans_killed:
+                console.print(f"[yellow]⚠[/yellow] Killed {orphans_killed} orphaned watcher(s)")
+        except Exception:
+            logger.debug("orphan_watcher_cleanup_failed", exc_info=True)
+
         # Start file watcher if auto-sync is enabled (non-critical - can continue without it)
         if platform_config.auto_sync:
             console.print("[cyan]Starting file watcher...[/cyan]")
             try:
                 from dango.platform.watcher_lifecycle import (
-                    kill_orphan_watchers,
                     start_file_watcher,
                     stop_file_watcher,
                 )
 
-                orphans_killed = kill_orphan_watchers(project_root)
-                if orphans_killed:
-                    console.print(f"[yellow]⚠[/yellow] Killed {orphans_killed} orphaned watcher(s)")
                 stop_file_watcher(project_root)  # Clean up any orphaned watcher
                 watcher_pid = start_file_watcher(project_root)
                 console.print(f"[green]✓[/green] File watcher started (PID {watcher_pid})")

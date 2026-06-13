@@ -119,6 +119,8 @@ class DbtLock:
 
         Returns:
             True if a stale lock was cleaned up, False otherwise
+
+        See also: startup.cleanup_stale_dbt_lock() for the proactive startup variant.
         """
         lock_info = self._read_lock_info()
         if not lock_info:

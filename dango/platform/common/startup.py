@@ -58,6 +58,11 @@ def cleanup_stale_dbt_lock(project_root: Path) -> bool:
     Called during startup to proactively clean up locks from crashed processes.
     Returns True if a stale lock was cleaned up, False otherwise.
     Never raises.
+
+    Note: DbtLock._cleanup_stale_lock() has similar logic invoked lazily on
+    acquire().  This function exists separately because startup.py follows the
+    never-display / never-raise contract and cannot instantiate DbtLock (which
+    creates directories as a side effect).
     """
     import json
     import logging
@@ -83,10 +88,8 @@ def cleanup_stale_dbt_lock(project_root: Path) -> bool:
 
         # Process is dead — clean up stale lock files
         lock_file_path = project_root / ".dango" / "state" / "dbt.lock"
-        if lock_file_path.exists():
-            lock_file_path.unlink()
-        if lock_info_path.exists():
-            lock_info_path.unlink()
+        lock_file_path.unlink(missing_ok=True)
+        lock_info_path.unlink(missing_ok=True)
 
         logger.warning(
             "Removed stale dbt lock (PID %d: %s — %s)",
