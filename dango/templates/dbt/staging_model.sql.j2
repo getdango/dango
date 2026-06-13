@@ -28,4 +28,8 @@
     schema='staging'
 {{ ") }}" }}
 
+{% if date_cast_columns %}
+SELECT * REPLACE ({% for col in date_cast_columns %}CAST({{ col }} AS DATE) AS {{ col }}{% if not loop.last %}, {% endif %}{% endfor %}) FROM {{ "{{ source('" ~ source_name ~ "', '" ~ table_name ~ "') }}" }}
+{% else %}
 SELECT * FROM {{ "{{ source('" ~ source_name ~ "', '" ~ table_name ~ "') }}" }}
+{% endif %}
