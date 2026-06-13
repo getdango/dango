@@ -632,6 +632,11 @@ def setup_metabase(
     metabase_url = metabase_url.rstrip("/")
     project_root / "data" / "warehouse.duckdb"
     credentials_file = project_root / ".dango" / "metabase.yml"
+
+    from dango.platform.docker import get_compose_project_name
+
+    compose_name = get_compose_project_name(project_root)
+
     session = requests.Session()
 
     # Check if already setup
@@ -706,7 +711,7 @@ def setup_metabase(
                     else:
                         summary["errors"].append(
                             "Metabase already initialized but default credentials don't work. "
-                            "Delete Docker volume or metabase.yml to reset."
+                            f"To reset: docker volume rm {compose_name}_metabase-data && dango start"
                         )
                         return summary
 
@@ -750,7 +755,7 @@ def setup_metabase(
                         summary["errors"].append(
                             f"Failed to create admin user: {response.text}\n"
                             "And could not login with default credentials.\n"
-                            "To reset: docker volume rm <project>_metabase_data && dango start"
+                            f"To reset: docker volume rm {compose_name}_metabase-data && dango start"
                         )
                         return summary
                 else:

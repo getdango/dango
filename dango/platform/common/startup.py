@@ -52,6 +52,53 @@ def run_pending_migrations(project_root: Path) -> dict[str, Any]:
     return apply_all_pending(project_root)
 
 
+def cleanup_stale_dbt_lock(project_root: Path) -> bool:
+    """Remove stale dbt lock if the holding process is dead.
+
+    Called during startup to proactively clean up locks from crashed processes.
+    Returns True if a stale lock was cleaned up, False otherwise.
+    Never raises.
+    """
+    import json
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        import psutil
+
+        lock_info_path = project_root / ".dango" / "state" / "dbt.lock.json"
+        if not lock_info_path.exists():
+            return False
+
+        with open(lock_info_path) as f:
+            lock_info = json.load(f)
+
+        pid = lock_info.get("pid")
+        if pid is None:
+            return False
+
+        if psutil.pid_exists(pid):
+            return False
+
+        # Process is dead — clean up stale lock files
+        lock_file_path = project_root / ".dango" / "state" / "dbt.lock"
+        if lock_file_path.exists():
+            lock_file_path.unlink()
+        if lock_info_path.exists():
+            lock_info_path.unlink()
+
+        logger.warning(
+            "Removed stale dbt lock (PID %d: %s — %s)",
+            pid,
+            lock_info.get("source", "unknown"),
+            lock_info.get("operation", "unknown"),
+        )
+        return True
+    except Exception:
+        return False
+
+
 def ensure_dbt_schemas(project_root: Path) -> None:
     """
     Create DuckDB schemas required for Metabase visibility.

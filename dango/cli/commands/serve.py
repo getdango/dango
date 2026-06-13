@@ -41,6 +41,7 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
     from dango.config import ConfigLoader
     from dango.platform.common.startup import (
         check_duckdb_version_alignment,
+        cleanup_stale_dbt_lock,
         ensure_dbt_schemas,
         ensure_duckdb_driver,
         import_dashboards,
@@ -98,6 +99,10 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
     except Exception as exc:
         print(f"Migration failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
+
+    # Clean up stale dbt lock from crashed process
+    if cleanup_stale_dbt_lock(project_root):
+        print("WARNING: Removed stale dbt lock from crashed process", file=sys.stderr)
 
     # BUG-104: Stop leftover containers before DuckDB write operations.
     # Containers from a previous crashed run may hold the DuckDB file lock.

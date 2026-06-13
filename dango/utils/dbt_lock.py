@@ -6,6 +6,7 @@ Prevents concurrent dbt runs from UI, CLI, and sync operations to avoid DuckDB l
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from collections.abc import Generator
@@ -17,6 +18,8 @@ from typing import IO, Any
 import psutil
 
 from dango.exceptions import DbtLockError
+
+logger = logging.getLogger(__name__)
 
 # Platform-specific file locking
 if sys.platform == "win32":
@@ -129,6 +132,12 @@ class DbtLock:
                     self.lock_file_path.unlink()
                 if self.lock_info_path.exists():
                     self.lock_info_path.unlink()
+                logger.warning(
+                    "Removed stale dbt lock (PID %d: %s — %s)",
+                    pid,
+                    lock_info.get("source", "unknown"),
+                    lock_info.get("operation", "unknown"),
+                )
                 return True
             except OSError:
                 pass
