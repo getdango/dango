@@ -639,6 +639,10 @@ def setup_metabase(
         summary["errors"].append("Metabase already configured (credentials file exists)")
         return summary
 
+    from dango.platform.docker import get_compose_project_name
+
+    compose_name = get_compose_project_name(project_root)
+
     # Wait for Metabase to be ready (longer timeout for cloud cold start)
     ready_timeout = 300 if cloud_mode else 60
     print("  ⏳ Waiting for Metabase to be ready...")
@@ -706,7 +710,7 @@ def setup_metabase(
                     else:
                         summary["errors"].append(
                             "Metabase already initialized but default credentials don't work. "
-                            "Delete Docker volume or metabase.yml to reset."
+                            f"To reset: docker volume rm {compose_name}_metabase-data && dango start"
                         )
                         return summary
 
@@ -750,7 +754,7 @@ def setup_metabase(
                         summary["errors"].append(
                             f"Failed to create admin user: {response.text}\n"
                             "And could not login with default credentials.\n"
-                            "To reset: docker volume rm <project>_metabase_data && dango start"
+                            f"To reset: docker volume rm {compose_name}_metabase-data && dango start"
                         )
                         return summary
                 else:
