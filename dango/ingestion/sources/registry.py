@@ -467,9 +467,9 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "optional_params": [
             {
                 "name": "start_date",
-                "type": "string",
+                "type": "date",
                 "prompt": "Start date (YYYY-MM-DD)",
-                "default": "90daysAgo",
+                "default_days_ago": 90,
                 "help": "How far back to load on first sync. Default: 90 days.",
             },
         ],

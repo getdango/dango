@@ -179,6 +179,13 @@ class SourceWizard:
                         continue
                     elif oauth_result == "cancel":
                         return False
+                    elif oauth_result == "skipped":
+                        console.print(
+                            "\n[yellow]⚠  No access token obtained — syncs will fail "
+                            "until you complete authentication.[/yellow]"
+                        )
+                        if not click.confirm("Continue setup anyway?", default=False):
+                            raise click.Abort()
 
                     state = "params"
 
@@ -299,50 +306,48 @@ class SourceWizard:
             # Step 9b: Show setup guide + secrets.toml template for
             # sources with credentials in secrets.toml (not .env).
             # Skip for OAuth sources — their credentials are already saved.
+            # Skip for sources without secrets_toml_template (e.g., CSV,
+            # local_files) — their setup_guide is informational, not
+            # credential setup.
             auth_type = metadata.get("auth_type")
-            if (
-                not self.secret_params
-                and metadata.get("setup_guide")
-                and auth_type != AuthType.OAUTH
-            ):
-                console.print("\n[bold]Credential setup required:[/bold]")
-                for line in metadata["setup_guide"]:
-                    console.print(f"  {line}")
+            secrets_template = metadata.get("secrets_toml_template")
+            if not self.secret_params and auth_type != AuthType.OAUTH and secrets_template:
+                if metadata.get("setup_guide"):
+                    console.print("\n[bold]Credential setup required:[/bold]")
+                    for line in metadata["setup_guide"]:
+                        console.print(f"  {line}")
 
-                secrets_template = metadata.get("secrets_toml_template")
-                if secrets_template:
-                    dlt_dir = self.project_root / ".dlt"
-                    secrets_path = dlt_dir / "secrets.toml"
-                    dlt_dir.mkdir(parents=True, exist_ok=True)
-                    try:
-                        existing = secrets_path.read_text() if secrets_path.exists() else ""
-                        section_header = f"[sources.{source_name}."
-                        if section_header not in existing:
-                            # Pre-populate template with wizard-collected params
-                            # (e.g., zendesk subdomain). defaultdict(str) returns ""
-                            # for unknown placeholders — prevents wizard crash from
-                            # registry template typos (caught during manual testing).
-                            from collections import defaultdict
+                dlt_dir = self.project_root / ".dlt"
+                secrets_path = dlt_dir / "secrets.toml"
+                dlt_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    existing = secrets_path.read_text() if secrets_path.exists() else ""
+                    section_header = f"[sources.{source_name}."
+                    if section_header not in existing:
+                        # Pre-populate template with wizard-collected params
+                        # (e.g., zendesk subdomain). defaultdict(str) returns ""
+                        # for unknown placeholders — prevents wizard crash from
+                        # registry template typos (caught during manual testing).
+                        from collections import defaultdict
 
-                            template_vars = defaultdict(str, source_name=source_name, **params)
-                            template_text = secrets_template.format_map(template_vars)
-                            prefix = existing.rstrip() + "\n\n" if existing.strip() else ""
-                            new_content = prefix + template_text + "\n"
-                            secrets_path.write_text(new_content)
-                            console.print(
-                                "\n[green]✓[/green] Added credential template to "
-                                "[cyan].dlt/secrets.toml[/cyan]"
-                            )
-                            console.print(
-                                "[yellow]Fill in the credential values before syncing.[/yellow]"
-                            )
-                        else:
-                            console.print(
-                                "\n[dim]Credential template already exists in "
-                                ".dlt/secrets.toml[/dim]"
-                            )
-                    except Exception as e:
-                        console.print(f"[yellow]Could not write secrets template: {e}[/yellow]")
+                        template_vars = defaultdict(str, source_name=source_name, **params)
+                        template_text = secrets_template.format_map(template_vars)
+                        prefix = existing.rstrip() + "\n\n" if existing.strip() else ""
+                        new_content = prefix + template_text + "\n"
+                        secrets_path.write_text(new_content)
+                        console.print(
+                            "\n[green]✓[/green] Added credential template to "
+                            "[cyan].dlt/secrets.toml[/cyan]"
+                        )
+                        console.print(
+                            "[yellow]Fill in the credential values before syncing.[/yellow]"
+                        )
+                    else:
+                        console.print(
+                            "\n[dim]Credential template already exists in .dlt/secrets.toml[/dim]"
+                        )
+                except Exception as e:
+                    console.print(f"[yellow]Could not write secrets template: {e}[/yellow]")
 
             # Step 10: Offer automatic analysis metrics
             try:
@@ -734,7 +739,7 @@ class SourceWizard:
                 "\n[dim]You can still configure this source, but you won't be able to sync"
             )
             console.print("until you set up OAuth credentials.[/dim]\n")
-            return None
+            return "skipped"
 
         # "Set up OAuth now" - run OAuth flow with retry
         console.print(
@@ -748,10 +753,21 @@ class SourceWizard:
                 # Verify credentials were actually saved
                 oauth_storage = OAuthStorage(self.project_root)
                 verified_cred = oauth_storage.get(source_type)
-                if verified_cred and not verified_cred.is_expired():
+                # Check for actual auth tokens, not just client credentials
+                has_tokens = verified_cred and (
+                    verified_cred.credentials.get("refresh_token")
+                    or verified_cred.credentials.get("access_token")
+                )
+                if verified_cred and not verified_cred.is_expired() and has_tokens:
                     console.print("\n[green]✅ OAuth credentials configured successfully![/green]")
                     console.print("[dim]  Credentials saved to .dlt/secrets.toml[/dim]\n")
                     return None  # Continue to params
+                elif verified_cred and not has_tokens:
+                    console.print(
+                        "\n[yellow]⚠  Client credentials saved but authorization not completed.[/yellow]"
+                    )
+                    console.print(f"[cyan]Run `dango oauth {source_type}` to complete.[/cyan]")
+                    # Fall through to retry prompt
                 else:
                     console.print(
                         "\n[yellow]⚠️  OAuth flow completed but credentials could not be verified[/yellow]"
