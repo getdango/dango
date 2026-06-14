@@ -316,8 +316,11 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     idle_timeout = (
         auth_config.idle_timeout_minutes if auth_config else AuthConfig().idle_timeout_minutes
     )
+    # project_root may be None at import time (global app = create_app());
+    # lifespan() sets the real value before any request is processed.
+    middleware_root = project_root if project_root is not None else Path(".")
     application.add_middleware(
-        AuthMiddleware, project_root=project_root, idle_timeout_minutes=idle_timeout
+        AuthMiddleware, project_root=middleware_root, idle_timeout_minutes=idle_timeout
     )
 
     # Rate limiting (middle) — auto-inject trusted_proxies for cloud
