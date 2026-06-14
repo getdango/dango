@@ -125,6 +125,11 @@ def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 
         # Open log file
         log_handle = open(log_file, "w")  # noqa: SIM115
 
+        # Pass project root via env var so the uvicorn worker can resolve it
+        import os
+
+        env = {**os.environ, "DANGO_PROJECT_ROOT": str(project_root)}
+
         # Start uvicorn server
         proc = subprocess.Popen(
             [
@@ -140,6 +145,7 @@ def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 
                 "info",
             ],
             cwd=project_root,
+            env=env,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,  # Detach from parent session

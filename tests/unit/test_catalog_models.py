@@ -152,16 +152,22 @@ def _make_run_results(
 class TestListCatalogModels:
     """Tests for GET /api/catalog/models."""
 
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_response_includes_all_model_types(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
+        mock_get_root: MagicMock,
+        mock_helpers_root: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Response includes staging, intermediate, and marts models."""
         client, _ = _setup_client(tmp_path)
+        mock_get_root.return_value = tmp_path
+        mock_helpers_root.return_value = tmp_path
         mock_manifest.return_value = _make_manifest(
             sources={
                 "source.proj.shop.orders": {
@@ -195,16 +201,22 @@ class TestListCatalogModels:
         types = {m["type"] for m in data["models"]}
         assert types == {"staging", "intermediate", "marts"}
 
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_model_type_classification(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
+        mock_get_root: MagicMock,
+        mock_helpers_root: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Models are classified by schema name first, then name prefix."""
         client, _ = _setup_client(tmp_path)
+        mock_get_root.return_value = tmp_path
+        mock_helpers_root.return_value = tmp_path
         mock_manifest.return_value = _make_manifest(
             models={
                 "model.proj.stg_orders": {
@@ -231,16 +243,22 @@ class TestListCatalogModels:
         assert model_map["dim_customers"] == "marts"
         assert model_map["some_model"] == "intermediate"
 
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_test_counts_from_run_results(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
+        mock_get_root: MagicMock,
+        mock_helpers_root: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Test counts and pass/fail from run_results are correct."""
         client, _ = _setup_client(tmp_path)
+        mock_get_root.return_value = tmp_path
+        mock_helpers_root.return_value = tmp_path
         mock_manifest.return_value = _make_manifest(
             models={
                 "model.proj.stg_orders": {"name": "stg_orders", "schema": "staging"},
@@ -271,16 +289,22 @@ class TestListCatalogModels:
         assert model["tests_passing"] == 1
         assert model["tests_failing"] == 1
 
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_documentation_counts(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
+        mock_get_root: MagicMock,
+        mock_helpers_root: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Columns total and documented counts are correct."""
         client, _ = _setup_client(tmp_path)
+        mock_get_root.return_value = tmp_path
+        mock_helpers_root.return_value = tmp_path
         mock_manifest.return_value = _make_manifest(
             models={
                 "model.proj.stg_orders": {
@@ -303,16 +327,22 @@ class TestListCatalogModels:
         assert model["columns_total"] == 3
         assert model["columns_documented"] == 2
 
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_empty_when_no_manifest(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
+        mock_get_root: MagicMock,
+        mock_helpers_root: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Returns empty lists (not 404) when no manifest exists."""
         client, _ = _setup_client(tmp_path)
+        mock_get_root.return_value = tmp_path
+        mock_helpers_root.return_value = tmp_path
         mock_manifest.return_value = None
         mock_run_results.return_value = None
 
@@ -323,16 +353,22 @@ class TestListCatalogModels:
         assert data["models"] == []
         assert data["sources"] == []
 
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_tags_included(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
+        mock_get_root: MagicMock,
+        mock_helpers_root: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Tags array from manifest is included in response."""
         client, _ = _setup_client(tmp_path)
+        mock_get_root.return_value = tmp_path
+        mock_helpers_root.return_value = tmp_path
         mock_manifest.return_value = _make_manifest(
             models={
                 "model.proj.stg_orders": {
@@ -355,16 +391,22 @@ class TestListCatalogModels:
         resp = client.get("/api/catalog/models")
         assert resp.status_code != 403
 
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_sources_included(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
+        mock_get_root: MagicMock,
+        mock_helpers_root: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Sources from manifest appear in response with source_name."""
         client, _ = _setup_client(tmp_path)
+        mock_get_root.return_value = tmp_path
+        mock_helpers_root.return_value = tmp_path
         mock_manifest.return_value = _make_manifest(
             sources={
                 "source.proj.shop.orders": {
@@ -588,16 +630,19 @@ class TestGetCatalogModel:
         assert id_col["tests"][0]["name"] == "not_null_stg_orders_id"
         assert id_col["tests"][0]["status"] == "pass"
 
+    @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_404_model_not_found(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
+        mock_root: MagicMock,
         tmp_path: Path,
     ) -> None:
         """404 when model name is not in manifest."""
         client, _ = _setup_client(tmp_path)
+        mock_root.return_value = tmp_path
         mock_manifest.return_value = _make_manifest(
             models={"model.proj.stg_orders": {"name": "stg_orders"}},
         )
@@ -608,16 +653,19 @@ class TestGetCatalogModel:
         assert resp.status_code == 404
         assert "nonexistent" in resp.json()["detail"]
 
+    @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_404_no_manifest(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
+        mock_root: MagicMock,
         tmp_path: Path,
     ) -> None:
         """404 when no manifest exists."""
         client, _ = _setup_client(tmp_path)
+        mock_root.return_value = tmp_path
         mock_manifest.return_value = None
         mock_run_results.return_value = None
 
@@ -816,6 +864,7 @@ class TestGetCatalogModel:
 class TestRawTableDiscovery:
     """Tests for _get_raw_tables_from_duckdb and list endpoint integration."""
 
+    @patch("dango.web.helpers.get_project_root")
     @patch("dango.web.routes.catalog._get_source_summary_stats")
     @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
@@ -826,6 +875,7 @@ class TestRawTableDiscovery:
         mock_run_results: MagicMock,
         mock_root: MagicMock,
         mock_source_stats: MagicMock,
+        mock_helpers_root: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Raw tables are NOT injected into catalog list (raw table discovery removed)."""
@@ -834,6 +884,7 @@ class TestRawTableDiscovery:
         db_dir.mkdir()
         (db_dir / "warehouse.duckdb").touch()
         mock_root.return_value = project_root
+        mock_helpers_root.return_value = project_root
         mock_source_stats.return_value = {}
 
         mock_manifest.return_value = _make_manifest(
@@ -853,6 +904,7 @@ class TestRawTableDiscovery:
         assert "orders" in source_names  # from manifest
         assert len(source_names) == 1  # no raw tables injected
 
+    @patch("dango.web.helpers.get_project_root")
     @patch("dango.web.routes.catalog._get_source_summary_stats")
     @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
@@ -863,6 +915,7 @@ class TestRawTableDiscovery:
         mock_run_results: MagicMock,
         mock_root: MagicMock,
         mock_source_stats: MagicMock,
+        mock_helpers_root: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Response includes overview with source/table/model counts (BUG-128)."""
@@ -871,6 +924,7 @@ class TestRawTableDiscovery:
         db_dir.mkdir()
         (db_dir / "warehouse.duckdb").touch()
         mock_root.return_value = project_root
+        mock_helpers_root.return_value = project_root
         mock_source_stats.return_value = {}
 
         mock_manifest.return_value = _make_manifest(
@@ -898,16 +952,22 @@ class TestRawTableDiscovery:
         assert overview["table_count"] == 1  # 1 source
         assert isinstance(overview["freshness"], list)
 
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_overview_present_when_no_manifest(
         self,
         mock_manifest: MagicMock,
         mock_run_results: MagicMock,
+        mock_root: MagicMock,
+        mock_helpers_root: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Overview is present even when manifest is None."""
         client, _ = _setup_client(tmp_path)
+        mock_root.return_value = tmp_path
+        mock_helpers_root.return_value = tmp_path
         mock_manifest.return_value = None
         mock_run_results.return_value = None
 
