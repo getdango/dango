@@ -51,6 +51,12 @@ from dango.web.middleware import AuthMiddleware, RateLimitMiddleware
 
 logger = get_logger(__name__)
 
+_PROJECT_ROOT_ERROR = (
+    "project_root not configured on app state. "
+    "Production entry points (dango start/serve/web) must set "
+    "app.state.project_root before starting uvicorn."
+)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -64,11 +70,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             project_root = Path(env_root)
             app.state.project_root = project_root
         else:
-            raise RuntimeError(
-                "project_root not configured on app state. "
-                "Production entry points (dango start/serve/web) must set "
-                "app.state.project_root before starting uvicorn."
-            )
+            raise RuntimeError(_PROJECT_ROOT_ERROR)
     logger.info("api_starting", project_root=str(project_root))
 
     # Write auth.yml if missing (migration path for pre-075d projects)

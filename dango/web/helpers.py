@@ -30,15 +30,11 @@ def get_project_root() -> Path:
     Raises RuntimeError if project_root has not been configured,
     preventing silent fallback to Path.cwd().
     """
-    from dango.web.app import app
+    from dango.web.app import _PROJECT_ROOT_ERROR, app
 
     root = getattr(app.state, "project_root", None)
     if root is None:
-        raise RuntimeError(
-            "project_root not configured on app state. "
-            "Production entry points (dango start/serve/web) must set "
-            "app.state.project_root before starting uvicorn."
-        )
+        raise RuntimeError(_PROJECT_ROOT_ERROR)
     return root
 
 
@@ -82,6 +78,7 @@ def get_dbt_manifest() -> dict[str, Any] | None:
     try:
         manifest_path = get_project_root() / "dbt" / "target" / "manifest.json"
     except RuntimeError:
+        logger.debug("get_dbt_manifest_skipped", reason="project_root not configured")
         return None
 
     if not manifest_path.exists():
