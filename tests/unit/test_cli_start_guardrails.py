@@ -37,6 +37,13 @@ def _make_config_loader(cloud_config: MagicMock | None = None) -> MagicMock:
     return mock_loader
 
 
+def _mock_port_free():
+    """Return a mock socket whose connect_ex always returns non-zero (port free)."""
+    mock_sock = MagicMock()
+    mock_sock.connect_ex.return_value = 1  # non-zero = port free
+    return mock_sock
+
+
 @pytest.mark.unit
 class TestStartGuardRails:
     """Tests for start command guard rails."""
@@ -55,6 +62,8 @@ class TestStartGuardRails:
             patch("dango.cli.utils.require_project_context", return_value=tmp_path),
             patch("dango.config.ConfigLoader", mock_loader),
             patch("dango.platform.common.startup.check_duckdb_version_alignment"),
+            patch("socket.socket", return_value=_mock_port_free()),
+            patch("subprocess.run", return_value=MagicMock(returncode=1, stdout="")),
         ):
             # Abort after cloud check by injecting an error in version check
             mock_loader.return_value.load_cloud_config.return_value = None
@@ -81,6 +90,8 @@ class TestStartGuardRails:
             patch("dango.cli.utils.require_project_context", return_value=tmp_path),
             patch("dango.config.ConfigLoader", mock_loader),
             patch("dango.platform.common.startup.check_duckdb_version_alignment"),
+            patch("socket.socket", return_value=_mock_port_free()),
+            patch("subprocess.run", return_value=MagicMock(returncode=1, stdout="")),
         ):
             mock_loader.return_value.load_cloud_config.return_value = None
             result = runner.invoke(start, ["--yes"], obj={"project_root": str(tmp_path)})
@@ -97,6 +108,8 @@ class TestStartGuardRails:
             patch("dango.cli.utils.require_project_context", return_value=tmp_path),
             patch("dango.config.ConfigLoader", mock_loader),
             patch("dango.platform.common.startup.check_duckdb_version_alignment"),
+            patch("socket.socket", return_value=_mock_port_free()),
+            patch("subprocess.run", return_value=MagicMock(returncode=1, stdout="")),
         ):
             result = runner.invoke(start, [], obj={"project_root": str(tmp_path)})
 
