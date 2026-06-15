@@ -98,6 +98,7 @@ def launch_sync_subprocess(
     source_label: str = "ui",
     max_lock_wait: int = 0,
     record_id: int | None = None,
+    allow_empty_replace: bool = False,
 ) -> tuple[subprocess.Popen, str, Path]:
     """Spawn sync subprocess via sys.executable.
 
@@ -136,14 +137,22 @@ def launch_sync_subprocess(
         args_dict["backfill_days"] = backfill_days
     if record_id is not None:
         args_dict["record_id"] = record_id
+    if allow_empty_replace:
+        args_dict["allow_empty_replace"] = True
 
     json_args = json.dumps(args_dict)
+
+    # Prevent fd 0 clobbering: see ensure_std_fds() docstring for details.
+    from dango.utils.process import ensure_std_fds
+
+    ensure_std_fds()
 
     log_handle = open(log_path, "w")  # noqa: SIM115
     try:
         process = subprocess.Popen(
             [sys.executable, "-m", "dango.platform.scheduling.sync_trigger", json_args],
             cwd=str(project_root),
+            stdin=subprocess.DEVNULL,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
         )

@@ -3,7 +3,26 @@
 Generic process utilities shared by platform/ and cli/.
 """
 
+import os
+
 import psutil
+
+
+def ensure_std_fds() -> None:
+    """Ensure file descriptors 0-2 (stdin/stdout/stderr) are open.
+
+    When a process is daemonized (terminal closed), fd 0 may be closed.
+    If open() then gets fd 0 for a log file, subprocess.Popen's
+    dup2(devnull, 0) clobbers the log handle, crashing the child with
+    "Bad file descriptor" at init_sys_streams.
+
+    Call this before opening files that will be passed to subprocess.Popen.
+    """
+    for fd in range(3):
+        try:
+            os.fstat(fd)
+        except OSError:
+            os.open(os.devnull, os.O_RDWR)
 
 
 def is_process_running(pid: int) -> bool:

@@ -77,6 +77,7 @@ async def trigger_sync(source_name: str, sync_request: SyncRequest) -> SyncRespo
             sync_request.full_refresh,
             sync_request.start_date,
             sync_request.end_date,
+            allow_empty_replace=sync_request.allow_empty_replace,
         )
     )
 
@@ -89,7 +90,11 @@ async def trigger_sync(source_name: str, sync_request: SyncRequest) -> SyncRespo
 
 
 async def run_sync_task(
-    source_name: str, full_refresh: bool, start_date: str | None, end_date: str | None
+    source_name: str,
+    full_refresh: bool,
+    start_date: str | None,
+    end_date: str | None,
+    allow_empty_replace: bool = False,
 ) -> None:
     """Run sync task in a subprocess, polling for status and broadcasting updates."""
     from dango.platform.sync_process import (
@@ -137,6 +142,7 @@ async def run_sync_task(
             source_label="ui",
             record_id=record_id,
             max_lock_wait=300,
+            allow_empty_replace=allow_empty_replace,
         )
 
         # Poll until completion (broadcasts WS events + heartbeat internally)
@@ -267,6 +273,7 @@ async def trigger_manual_sync(
             backfill_days,
             job_id,
             db_path,
+            allow_empty_replace=body.allow_empty_replace,
         )
     )
 
@@ -300,6 +307,7 @@ async def _run_manual_sync(
     backfill_days: int | None,
     record_id: int,
     db_path: Any,
+    allow_empty_replace: bool = False,
 ) -> None:
     """Background task that executes a manual sync in a subprocess and records the result."""
     from dango.platform.sync_process import (
@@ -319,6 +327,7 @@ async def _run_manual_sync(
             source_label="manual",
             record_id=record_id,
             max_lock_wait=300,
+            allow_empty_replace=allow_empty_replace,
         )
 
         # Use first source name for WS events (manual sync may have multiple)

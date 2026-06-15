@@ -51,42 +51,11 @@ from dango.web.middleware import AuthMiddleware, RateLimitMiddleware
 
 logger = get_logger(__name__)
 
-
-def _install_sigterm_logger(project_root: Path) -> None:
-    """Install a SIGTERM handler that logs the signal before shutdown.
-
-    Records a warning-level entry in activity.jsonl when SIGTERM arrives,
-    then chains to uvicorn's original handler for graceful shutdown.
-    Helps diagnose unexpected shutdowns — the timestamp narrows the window
-    for investigating what sent the signal.
-    """
-    import signal
-    from types import FrameType
-
-    _original_handler = signal.getsignal(signal.SIGTERM)
-
-    def _on_sigterm(signum: int, frame: FrameType | None) -> None:
-        try:
-            from dango.utils.activity_log import log_activity
-
-            log_activity(
-                project_root,
-                "warning",
-                "system",
-                f"Received SIGTERM (signal {signum}) — server shutting down",
-            )
-        except Exception:
-            pass
-        # Chain to the original handler (uvicorn's graceful shutdown)
-        if callable(_original_handler):
-            _original_handler(signum, frame)
-        elif _original_handler == signal.SIG_DFL:
-            # Restore default and re-send so the process exits normally.
-            # No infinite loop: SIG_DFL is restored before the re-send.
-            signal.signal(signal.SIGTERM, signal.SIG_DFL)
-            os.kill(os.getpid(), signal.SIGTERM)
-
-    signal.signal(signal.SIGTERM, _on_sigterm)
+_PROJECT_ROOT_ERROR = (
+    "project_root not configured on app state. "
+    "Production entry points (dango start/serve/web) must set "
+    "app.state.project_root before starting uvicorn."
+)
 
 
 @asynccontextmanager
@@ -94,11 +63,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup and shutdown logic."""
     import asyncio
 
-    project_root: Path = app.state.project_root
+    project_root: Path | None = getattr(app.state, "project_root", None)
+    if project_root is None:
+        env_root = os.environ.get("DANGO_PROJECT_ROOT")
+        if env_root:
+            project_root = Path(env_root)
+            app.state.project_root = project_root
+        else:
+            raise RuntimeError(_PROJECT_ROOT_ERROR)
     logger.info("api_starting", project_root=str(project_root))
-
-    # Install SIGTERM logger to diagnose unexpected shutdowns
-    _install_sigterm_logger(project_root)
 
     # Write auth.yml if missing (migration path for pre-075d projects)
     try:
@@ -331,10 +304,9 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Resolve project_root first (needed by middleware)
-    if project_root is None:
-        project_root = Path.cwd()
-    application.state.project_root = project_root
+    # Set project_root on app state if provided (middleware uses its own fallbacks)
+    if project_root is not None:
+        application.state.project_root = project_root
 
     # Middleware stack (LIFO: last added = outermost in request flow)
     # Request flow: CORS → RateLimit → Auth → Route handlers
@@ -344,8 +316,11 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     idle_timeout = (
         auth_config.idle_timeout_minutes if auth_config else AuthConfig().idle_timeout_minutes
     )
+    # project_root may be None at import time (global app = create_app());
+    # lifespan() sets the real value before any request is processed.
+    middleware_root = project_root if project_root is not None else Path(".")
     application.add_middleware(
-        AuthMiddleware, project_root=project_root, idle_timeout_minutes=idle_timeout
+        AuthMiddleware, project_root=middleware_root, idle_timeout_minutes=idle_timeout
     )
 
     # Rate limiting (middle) — auto-inject trusted_proxies for cloud

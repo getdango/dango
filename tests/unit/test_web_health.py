@@ -21,6 +21,14 @@ from fastapi.testclient import TestClient
 from dango.web.routes.health import router
 
 
+@pytest.fixture(autouse=True)
+def _patch_get_project_root(tmp_path: Path) -> Any:
+    """Patch get_project_root so the health route resolves project_root
+    without requiring the global app singleton to have it set."""
+    with patch("dango.web.routes.health.get_project_root", return_value=tmp_path):
+        yield
+
+
 def _make_app(project_root: Path) -> FastAPI:
     """Create a minimal FastAPI app with just the health router."""
     app = FastAPI()

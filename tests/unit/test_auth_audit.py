@@ -55,6 +55,7 @@ class TestGetAuditLogPath:
     def test_default_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Default path is .dango/logs/audit.jsonl under cwd."""
         monkeypatch.chdir(tmp_path)
+        (tmp_path / ".dango").mkdir()
         result = get_audit_log_path()
         assert result == tmp_path / ".dango" / "logs" / "audit.jsonl"
 

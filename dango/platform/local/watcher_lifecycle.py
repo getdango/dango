@@ -22,6 +22,39 @@ def get_watcher_pid_file_path(project_root: Path) -> Path:
     return project_root / ".dango" / "watcher.pid"
 
 
+def kill_orphan_watchers(project_root: Path) -> int:
+    """Scan for and kill orphaned watcher_runner.py processes for this project.
+
+    Catches orphans that have no PID file (e.g., parent crashed before writing it).
+    Returns count of killed orphans.
+    """
+    import os
+
+    import psutil
+
+    resolved_root = str(project_root.resolve())
+    killed = 0
+    current_pid = os.getpid()
+
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            if proc.pid == current_pid:
+                continue
+            cmdline = proc.info.get("cmdline") or []
+            if not cmdline:
+                continue
+            has_runner = any("watcher_runner.py" in arg for arg in cmdline)
+            has_root = any(resolved_root in arg for arg in cmdline)
+            if has_runner and has_root:
+                logger.warning("Killing orphaned watcher process (PID %d)", proc.pid)
+                kill_process(proc.pid)
+                killed += 1
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+
+    return killed
+
+
 def start_file_watcher(project_root: Path) -> int | None:
     """
     Start file watcher in background.
@@ -58,6 +91,11 @@ def start_file_watcher(project_root: Path) -> int | None:
     log_file = project_root / ".dango" / "watcher.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
+    # Prevent fd 0 clobbering: see ensure_std_fds() docstring for details.
+    from dango.utils.process import ensure_std_fds
+
+    ensure_std_fds()
+
     try:
         # Open log file
         log_handle = open(log_file, "w")  # noqa: SIM115
@@ -68,6 +106,7 @@ def start_file_watcher(project_root: Path) -> int | None:
         # Start watcher runner
         proc = subprocess.Popen(
             [sys.executable, str(watcher_runner), str(project_root)],
+            stdin=subprocess.DEVNULL,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,  # Detach from parent session

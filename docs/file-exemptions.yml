@@ -462,6 +462,12 @@ exemptions:
     reason: "R4: push_deploy orchestration + Docker rebuild + requirements.txt install tests. Split from test_deployer.py for file-size compliance."
     review_by: "v1.1"
 
+  - file: tests/unit/test_empty_replace_protection.py
+    lines: 1179
+    category: exempt
+    reason: "41 test cases covering empty replace protection across all source types, CLI, web, scheduler, error messages, and edge cases."
+    review_by: "v1.1"
+
   # --- Scripts ---
   - file: scripts/smoke_test.sh
     lines: 866

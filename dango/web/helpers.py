@@ -25,10 +25,17 @@ logger = logging.getLogger(__name__)
 
 
 def get_project_root() -> Path:
-    """Get project root from app state."""
-    from dango.web.app import app
+    """Get project root from app state.
 
-    return app.state.project_root
+    Raises RuntimeError if project_root has not been configured,
+    preventing silent fallback to Path.cwd().
+    """
+    from dango.web.app import _PROJECT_ROOT_ERROR, app
+
+    root = getattr(app.state, "project_root", None)
+    if root is None:
+        raise RuntimeError(_PROJECT_ROOT_ERROR)
+    return root
 
 
 def is_cloud_deployment(project_root: Path) -> bool:
@@ -68,7 +75,11 @@ def get_duckdb_path() -> Path:
 
 def get_dbt_manifest() -> dict[str, Any] | None:
     """Load dbt manifest.json."""
-    manifest_path = get_project_root() / "dbt" / "target" / "manifest.json"
+    try:
+        manifest_path = get_project_root() / "dbt" / "target" / "manifest.json"
+    except RuntimeError:
+        logger.debug("get_dbt_manifest_skipped", reason="project_root not configured")
+        return None
 
     if not manifest_path.exists():
         return None

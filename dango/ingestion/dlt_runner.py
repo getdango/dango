@@ -173,6 +173,7 @@ class DltPipelineRunner:
         full_refresh: bool = False,
         timeout_minutes: int = 60,
         limit: int | None = None,
+        allow_empty_replace: bool = False,
     ) -> dict[str, Any]:
         """
         Run data pipeline for any source type
@@ -184,6 +185,7 @@ class DltPipelineRunner:
             full_refresh: Drop existing data and reload from scratch
             timeout_minutes: Timeout in minutes (default: 60)
             limit: Max rows to load (dev testing, applies to dlt sources only)
+            allow_empty_replace: If True, allow 0-row syncs to replace existing data
 
         Returns:
             Dictionary with load statistics and status
@@ -340,10 +342,14 @@ class DltPipelineRunner:
         try:
             # CSV: Custom implementation (Phase 1 loader)
             if source_type == SourceType.CSV:
-                result = self._run_csv_source(source_config, full_refresh)
+                result = self._run_csv_source(
+                    source_config, full_refresh, allow_empty_replace=allow_empty_replace
+                )
             # LOCAL_FILES: Unified local file source (CSV, JSON, JSONL, Parquet)
             elif source_type == SourceType.LOCAL_FILES:
-                result = self._run_local_files_source(source_config, full_refresh)
+                result = self._run_local_files_source(
+                    source_config, full_refresh, allow_empty_replace=allow_empty_replace
+                )
             # DLT_NATIVE: Advanced registry bypass
             elif source_type == SourceType.DLT_NATIVE:
                 try:
@@ -353,6 +359,7 @@ class DltPipelineRunner:
                         source_config,
                         full_refresh,
                         limit=limit,
+                        allow_empty_replace=allow_empty_replace,
                     )
                 except SyncTimeoutError as e:
                     error_message = str(e)
@@ -397,6 +404,7 @@ class DltPipelineRunner:
                         end_date,
                         full_refresh,
                         limit=limit,
+                        allow_empty_replace=allow_empty_replace,
                     )
                 except SyncTimeoutError as e:
                     error_message = str(e)
@@ -536,7 +544,10 @@ class DltPipelineRunner:
             }
 
     def _run_csv_source(
-        self, source_config: DataSource, full_refresh: bool = False
+        self,
+        source_config: DataSource,
+        full_refresh: bool = False,
+        allow_empty_replace: bool = False,
     ) -> dict[str, Any]:
         """
         Run CSV source using custom CSV loader
@@ -544,24 +555,60 @@ class DltPipelineRunner:
         Args:
             source_config: Source configuration
             full_refresh: If True, drop existing table and reload
+            allow_empty_replace: If True, allow 0-row syncs to replace existing data
 
         Returns:
             Load statistics
         """
+        import duckdb
+
         if not source_config.csv:
             raise ValueError(f"CSV config missing for source: {source_config.name}")
 
-        # Full refresh: drop existing table and clear metadata
-        if full_refresh:
-            import duckdb
+        target_schema = f"raw_{source_config.name}"
 
-            target_schema = f"raw_{source_config.name}"
+        # Capture pre-refresh row count for empty replace protection
+        pre_refresh_rows = self._get_csv_table_rows(source_config.name)
+        has_backup = False
+        metadata_backup: list[tuple] = []  # backed-up _dango_file_metadata rows
+
+        # Full refresh: backup or drop existing table
+        if full_refresh:
             conn = duckdb.connect(str(self.duckdb_path))
             try:
-                conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
-                console.print("  🔄 Full refresh: dropped existing table")
+                if (
+                    pre_refresh_rows is not None
+                    and pre_refresh_rows > 0
+                    and not allow_empty_replace
+                ):
+                    # Drop stale backup if one exists from a previous crash
+                    backup_name = f"{source_config.name}_pre_refresh_backup"
+                    conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{backup_name}"')
+                    # Rename to backup instead of dropping — restore if 0 rows loaded
+                    try:
+                        conn.execute(
+                            f'ALTER TABLE "{target_schema}"."{source_config.name}" '
+                            f'RENAME TO "{backup_name}"'
+                        )
+                        has_backup = True
+                        console.print("  🔄 Full refresh: existing data backed up")
+                    except duckdb.CatalogException:
+                        # Table does not exist — nothing to protect
+                        has_backup = False
+                        console.print("  🔄 Full refresh: no existing table")
+                else:
+                    # No data to protect — drop normally
+                    conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
+                    console.print("  🔄 Full refresh: dropped existing table")
 
-                # Also clear metadata for this source so files are treated as new
+                # Backup metadata rows before deleting (restored on 0-row rollback)
+                if has_backup:
+                    metadata_backup = conn.execute(
+                        "SELECT * FROM _dango_file_metadata WHERE source_name = ?",
+                        [source_config.name],
+                    ).fetchall()
+
+                # Clear metadata so files are treated as new
                 conn.execute(
                     """
                     DELETE FROM _dango_file_metadata
@@ -577,7 +624,6 @@ class DltPipelineRunner:
 
         # Run CSV loader
         # Use raw_{source_name} schema pattern (consistent with all other sources)
-        target_schema = f"raw_{source_config.name}"
         loader = CSVLoader(self.project_root, self.duckdb_path)
         result = loader.load(
             source_name=source_config.name,
@@ -595,6 +641,51 @@ class DltPipelineRunner:
             "uses_replace_mode": True,  # CSV sources always do full refresh
         }
 
+        # Empty replace protection: restore backup table + metadata if 0 rows loaded
+        if has_backup and merged["rows_loaded"] == 0:
+            conn = duckdb.connect(str(self.duckdb_path))
+            try:
+                conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
+                conn.execute(
+                    f'ALTER TABLE "{target_schema}"."{source_config.name}_pre_refresh_backup" '
+                    f'RENAME TO "{source_config.name}"'
+                )
+                # Restore file metadata so next incremental sync resumes correctly
+                if metadata_backup:
+                    conn.executemany(
+                        "INSERT INTO _dango_file_metadata "
+                        "(source_name, file_path, file_size, file_mtime, "
+                        "rows_loaded, status, loaded_at, error_message) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        metadata_backup,
+                    )
+            finally:
+                conn.close()
+            error_msg = (
+                f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
+                f"preserved. To force sync with empty data, use: "
+                f"dango sync {source_config.name} --allow-empty-replace"
+            )
+            console.print(f"  [red]❌ {error_msg}[/red]")
+            return {
+                "status": "failed",
+                "source": source_config.name,
+                "error": error_msg,
+                "rows_loaded": 0,
+                "uses_replace_mode": True,
+            }
+
+        # Clean up backup table on success
+        if has_backup:
+            conn = duckdb.connect(str(self.duckdb_path))
+            try:
+                conn.execute(
+                    f"DROP TABLE IF EXISTS "
+                    f'"{target_schema}"."{source_config.name}_pre_refresh_backup"'
+                )
+            finally:
+                conn.close()
+
         # No files found, no data loaded, no deletions → error
         if (
             merged["status"] == "success"
@@ -608,7 +699,10 @@ class DltPipelineRunner:
         return merged
 
     def _run_local_files_source(
-        self, source_config: DataSource, full_refresh: bool = False
+        self,
+        source_config: DataSource,
+        full_refresh: bool = False,
+        allow_empty_replace: bool = False,
     ) -> dict[str, Any]:
         """
         Run local files source using CSVLoader with multi-format support.
@@ -616,23 +710,60 @@ class DltPipelineRunner:
         Args:
             source_config: Source configuration with local_files config
             full_refresh: If True, drop existing table and reload
+            allow_empty_replace: If True, allow 0-row syncs to replace existing data
 
         Returns:
             Load statistics
         """
+        import duckdb
+
         if not source_config.local_files:
             raise ValueError(f"local_files config missing for source: {source_config.name}")
 
-        # Full refresh: drop existing table and clear metadata
         target_schema = f"raw_{source_config.name}"
-        if full_refresh:
-            import duckdb
 
+        # Capture pre-refresh row count for empty replace protection
+        pre_refresh_rows = self._get_csv_table_rows(source_config.name)
+        has_backup = False
+        metadata_backup: list[tuple] = []  # backed-up _dango_file_metadata rows
+
+        # Full refresh: backup or drop existing table
+        if full_refresh:
             conn = duckdb.connect(str(self.duckdb_path))
             try:
-                conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
-                console.print("  🔄 Full refresh: dropped existing table")
+                if (
+                    pre_refresh_rows is not None
+                    and pre_refresh_rows > 0
+                    and not allow_empty_replace
+                ):
+                    # Drop stale backup if one exists from a previous crash
+                    backup_name = f"{source_config.name}_pre_refresh_backup"
+                    conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{backup_name}"')
+                    # Rename to backup instead of dropping — restore if 0 rows loaded
+                    try:
+                        conn.execute(
+                            f'ALTER TABLE "{target_schema}"."{source_config.name}" '
+                            f'RENAME TO "{backup_name}"'
+                        )
+                        has_backup = True
+                        console.print("  🔄 Full refresh: existing data backed up")
+                    except duckdb.CatalogException:
+                        # Table does not exist — nothing to protect
+                        has_backup = False
+                        console.print("  🔄 Full refresh: no existing table")
+                else:
+                    # No data to protect — drop normally
+                    conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
+                    console.print("  🔄 Full refresh: dropped existing table")
 
+                # Backup metadata rows before deleting (restored on 0-row rollback)
+                if has_backup:
+                    metadata_backup = conn.execute(
+                        "SELECT * FROM _dango_file_metadata WHERE source_name = ?",
+                        [source_config.name],
+                    ).fetchall()
+
+                # Clear metadata so files are treated as new
                 conn.execute(
                     """
                     DELETE FROM _dango_file_metadata
@@ -645,6 +776,7 @@ class DltPipelineRunner:
                 console.print(f"  ⚠️  Could not drop table/metadata: {e}")
             finally:
                 conn.close()
+
         loader = CSVLoader(self.project_root, self.duckdb_path)
         result = loader.load(
             source_name=source_config.name,
@@ -661,6 +793,51 @@ class DltPipelineRunner:
             "files_processed": result.get("new", 0) + result.get("updated", 0),
             "uses_replace_mode": True,  # Local file sources always do full refresh
         }
+
+        # Empty replace protection: restore backup table + metadata if 0 rows loaded
+        if has_backup and merged["rows_loaded"] == 0:
+            conn = duckdb.connect(str(self.duckdb_path))
+            try:
+                conn.execute(f'DROP TABLE IF EXISTS "{target_schema}"."{source_config.name}"')
+                conn.execute(
+                    f'ALTER TABLE "{target_schema}"."{source_config.name}_pre_refresh_backup" '
+                    f'RENAME TO "{source_config.name}"'
+                )
+                # Restore file metadata so next incremental sync resumes correctly
+                if metadata_backup:
+                    conn.executemany(
+                        "INSERT INTO _dango_file_metadata "
+                        "(source_name, file_path, file_size, file_mtime, "
+                        "rows_loaded, status, loaded_at, error_message) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        metadata_backup,
+                    )
+            finally:
+                conn.close()
+            error_msg = (
+                f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
+                f"preserved. To force sync with empty data, use: "
+                f"dango sync {source_config.name} --allow-empty-replace"
+            )
+            console.print(f"  [red]❌ {error_msg}[/red]")
+            return {
+                "status": "failed",
+                "source": source_config.name,
+                "error": error_msg,
+                "rows_loaded": 0,
+                "uses_replace_mode": True,
+            }
+
+        # Clean up backup table on success
+        if has_backup:
+            conn = duckdb.connect(str(self.duckdb_path))
+            try:
+                conn.execute(
+                    f"DROP TABLE IF EXISTS "
+                    f'"{target_schema}"."{source_config.name}_pre_refresh_backup"'
+                )
+            finally:
+                conn.close()
 
         # No files found, no data loaded, no deletions → error
         if (
@@ -679,6 +856,7 @@ class DltPipelineRunner:
         source_config: DataSource,
         full_refresh: bool = False,
         limit: int | None = None,
+        allow_empty_replace: bool = False,
     ) -> dict[str, Any]:
         """
         Run dlt native source (registry bypass for advanced users)
@@ -764,6 +942,9 @@ class DltPipelineRunner:
                 if custom_sources_dir.exists() and str(custom_sources_dir) in sys.path:
                     sys.path.remove(str(custom_sources_dir))
 
+            # Detect if source uses replace write_disposition
+            uses_replace_mode = self._detect_write_disposition(source)
+
             # Determine dataset name (use custom or default to raw_{source_name})
             dataset_name = config.dataset_name or f"raw_{source_name}"
 
@@ -781,31 +962,18 @@ class DltPipelineRunner:
         # Backup dlt state BEFORE drop (so backup captures pre-drop state)
         state_backup = self._backup_dlt_state(pipeline_name)
 
-        # Capture pre-refresh row count for data loss detection
-        pre_refresh_rows: int | None = None
-        if full_refresh:
-            pre_refresh_rows = self._get_source_total_rows(source_name)
+        # Always capture pre-refresh row count for empty replace protection
+        pre_refresh_rows = self._get_source_total_rows(source_name)
 
-        # Full refresh: drop pipeline state
+        # Full refresh: drop pipeline state only (NOT schema)
+        # dlt with write_disposition="replace" handles table replacement automatically.
+        # Removing pre-load schema drop preserves data when 0 rows are returned.
         if full_refresh:
             console.print("  🔄 Full refresh: dropping pipeline state")
             try:
                 pipeline.drop()
             except Exception as e:
                 console.print(f"  ⚠️  Could not drop pipeline: {e}")
-
-            # Drop raw schema so dlt recreates with fresh column types
-            try:
-                import duckdb
-
-                conn = duckdb.connect(str(self.duckdb_path))
-                try:
-                    conn.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
-                    console.print(f"  🔄 Full refresh: dropped schema {dataset_name}")
-                finally:
-                    conn.close()
-            except Exception as e:
-                console.print(f"  ⚠️  Could not drop schema: {e}")
 
         try:
             # Run pipeline with retry logic
@@ -814,6 +982,31 @@ class DltPipelineRunner:
             # Extract load statistics
             stats = self._extract_load_stats(load_info)
             rows_loaded = stats.get("rows_loaded", 0)
+
+            # Empty replace protection: block 0-row replace-mode syncs
+            # that would wipe existing data
+            if (
+                rows_loaded == 0
+                and pre_refresh_rows is not None
+                and pre_refresh_rows > 0
+                and (full_refresh or uses_replace_mode)
+                and not allow_empty_replace
+            ):
+                # Restore pipeline state so next sync retries correctly
+                self._restore_dlt_state(state_backup)
+                error_msg = (
+                    f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
+                    f"preserved. To force sync with empty data, use: "
+                    f"dango sync {source_name} --allow-empty-replace"
+                )
+                console.print(f"  [red]❌ {error_msg}[/red]")
+                return {
+                    "status": "failed",
+                    "source": source_name,
+                    "error": error_msg,
+                    "rows_loaded": 0,
+                    "uses_replace_mode": uses_replace_mode,
+                }
 
             # Check for data loss on full refresh
             if full_refresh and pre_refresh_rows is not None and rows_loaded < pre_refresh_rows:
@@ -904,6 +1097,7 @@ class DltPipelineRunner:
         end_date: datetime | None = None,
         full_refresh: bool = False,
         limit: int | None = None,
+        allow_empty_replace: bool = False,
     ) -> dict[str, Any]:
         """
         Run dlt pipeline for any verified source (generic implementation)
@@ -1085,31 +1279,18 @@ class DltPipelineRunner:
         # Backup dlt state BEFORE drop (so backup captures pre-drop state)
         state_backup = self._backup_dlt_state(source_name)
 
-        # Capture pre-refresh row count for data loss detection
-        pre_refresh_rows: int | None = None
-        if full_refresh:
-            pre_refresh_rows = self._get_source_total_rows(source_name)
+        # Always capture pre-refresh row count for empty replace protection
+        pre_refresh_rows = self._get_source_total_rows(source_name)
 
-        # Full refresh: drop pipeline state
+        # Full refresh: drop pipeline state only (NOT schema)
+        # dlt with write_disposition="replace" handles table replacement automatically.
+        # Removing pre-load schema drop preserves data when 0 rows are returned.
         if full_refresh:
             console.print("  🔄 Full refresh: dropping pipeline state")
             try:
                 pipeline.drop()
             except Exception as e:
                 console.print(f"  ⚠️  Could not drop pipeline: {e}")
-
-            # Drop raw schema so dlt recreates with fresh column types
-            try:
-                import duckdb
-
-                conn = duckdb.connect(str(self.duckdb_path))
-                try:
-                    conn.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
-                    console.print(f"  🔄 Full refresh: dropped schema {dataset_name}")
-                finally:
-                    conn.close()
-            except Exception as e:
-                console.print(f"  ⚠️  Could not drop schema: {e}")
 
         try:
             # Run pipeline with retry logic
@@ -1118,6 +1299,31 @@ class DltPipelineRunner:
             # Extract load statistics
             stats = self._extract_load_stats(load_info)
             rows_loaded = stats.get("rows_loaded", 0)
+
+            # Empty replace protection: block 0-row replace-mode syncs
+            # that would wipe existing data
+            if (
+                rows_loaded == 0
+                and pre_refresh_rows is not None
+                and pre_refresh_rows > 0
+                and (full_refresh or uses_replace_mode)
+                and not allow_empty_replace
+            ):
+                # Restore pipeline state so next sync retries correctly
+                self._restore_dlt_state(state_backup)
+                error_msg = (
+                    f"Sync returned 0 rows — existing {pre_refresh_rows:,} rows "
+                    f"preserved. To force sync with empty data, use: "
+                    f"dango sync {source_name} --allow-empty-replace"
+                )
+                console.print(f"  [red]❌ {error_msg}[/red]")
+                return {
+                    "status": "failed",
+                    "source": source_name,
+                    "error": error_msg,
+                    "rows_loaded": 0,
+                    "uses_replace_mode": uses_replace_mode,
+                }
 
             # Check for row count anomalies
             total_row_count = self._get_source_total_rows(source_name)
@@ -1777,6 +1983,21 @@ class DltPipelineRunner:
         except Exception:
             return None
 
+    def _get_csv_table_rows(self, source_name: str) -> int | None:
+        """Get row count for a CSV/local_files source's single table."""
+        import duckdb
+
+        schema = f"raw_{source_name}"
+        try:
+            conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
+            try:
+                result = conn.execute(f'SELECT COUNT(*) FROM "{schema}"."{source_name}"').fetchone()
+                return result[0] if result else None
+            finally:
+                conn.close()
+        except Exception:
+            return None
+
     def _check_row_count_anomaly(
         self, source_name: str, total_rows: int | None = None
     ) -> dict[str, Any] | None:
@@ -2306,6 +2527,7 @@ def run_sync(
     *,
     skip_sync_notification: bool = False,
     progress_callback: Callable[[str, str], None] | None = None,
+    allow_empty_replace: bool = False,
 ) -> dict[str, Any]:
     """
     Sync multiple sources and return summary
@@ -2324,6 +2546,7 @@ def run_sync(
         progress_callback: Optional callback invoked at sync milestones with
             (phase, message). Phases: ``data_load_complete``, ``dbt_started``,
             ``dbt_complete`` (on success), ``dbt_failed`` (on failure).
+        allow_empty_replace: If True, allow 0-row syncs to replace existing data.
 
     Returns:
         Summary dictionary with success/failed counts
@@ -2342,7 +2565,14 @@ def run_sync(
             skipped_sources.append(source_config.name)
             continue
 
-        result = runner.run_source(source_config, start_date, end_date, full_refresh, limit=limit)
+        result = runner.run_source(
+            source_config,
+            start_date,
+            end_date,
+            full_refresh,
+            limit=limit,
+            allow_empty_replace=allow_empty_replace,
+        )
         results.append(result)
 
         if result.get("status") == "success":
@@ -2388,6 +2618,31 @@ def run_sync(
     oauth_warnings = [r.get("oauth_warning") for r in results if r.get("oauth_warning")]
 
     console.print(f"{'=' * 60}\n")
+
+    # Clean up empty dlt staging schemas after successful sync
+    if success_sources:
+        try:
+            import duckdb
+
+            conn = duckdb.connect(str(project_root / "data" / "warehouse.duckdb"))
+            try:
+                schemas = conn.execute(
+                    "SELECT schema_name FROM information_schema.schemata "
+                    "WHERE schema_name LIKE '%\\_staging' ESCAPE '\\'"
+                ).fetchall()
+                dropped = []
+                for (schema_name_val,) in schemas:
+                    base_name = schema_name_val.removesuffix("_staging")
+                    source_name = base_name.removeprefix("raw_")
+                    if source_name in success_sources or base_name in success_sources:
+                        conn.execute(f'DROP SCHEMA IF EXISTS "{schema_name_val}" CASCADE')
+                        dropped.append(schema_name_val)
+                if dropped:
+                    console.print(f"[dim]🧹 Cleaned up {len(dropped)} staging schema(s)[/dim]")
+            finally:
+                conn.close()
+        except Exception:
+            pass  # Don't fail sync for cleanup errors
 
     # Initialize transform tracking (used in summary dict below)
     transform_status = "skipped"

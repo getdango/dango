@@ -510,7 +510,7 @@ function Write-ActivationInstructions {
     Write-Host ""
     Write-Host "Try these commands now:"
     Write-Host "  dango source add" -ForegroundColor Yellow -NoNewline
-    Write-Host "    # Add a data source (CSV or Stripe)"
+    Write-Host "    # Add a data source"
     Write-Host "  dango sync" -ForegroundColor Yellow -NoNewline
     Write-Host "          # Sync data"
     Write-Host "  dango start" -ForegroundColor Yellow -NoNewline
@@ -572,7 +572,7 @@ function Write-GlobalSuccess {
     }
 
     Write-Host "  dango source add" -ForegroundColor Yellow -NoNewline
-    Write-Host "       # Add a data source (CSV or Stripe)"
+    Write-Host "       # Add a data source"
     Write-Host "  dango sync" -ForegroundColor Yellow -NoNewline
     Write-Host "             # Sync data"
     Write-Host "  dango start" -ForegroundColor Yellow -NoNewline
