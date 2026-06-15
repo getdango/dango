@@ -146,6 +146,7 @@ def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 
             ],
             cwd=project_root,
             env=env,
+            stdin=subprocess.DEVNULL,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,  # Detach from parent session

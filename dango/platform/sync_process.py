@@ -147,6 +147,7 @@ def launch_sync_subprocess(
         process = subprocess.Popen(
             [sys.executable, "-m", "dango.platform.scheduling.sync_trigger", json_args],
             cwd=str(project_root),
+            stdin=subprocess.DEVNULL,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
         )
