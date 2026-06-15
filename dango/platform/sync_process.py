@@ -142,6 +142,11 @@ def launch_sync_subprocess(
 
     json_args = json.dumps(args_dict)
 
+    # Prevent fd 0 clobbering: see ensure_std_fds() docstring for details.
+    from dango.utils.process import ensure_std_fds
+
+    ensure_std_fds()
+
     log_handle = open(log_path, "w")  # noqa: SIM115
     try:
         process = subprocess.Popen(

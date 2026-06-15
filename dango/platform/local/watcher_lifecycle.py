@@ -91,6 +91,11 @@ def start_file_watcher(project_root: Path) -> int | None:
     log_file = project_root / ".dango" / "watcher.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
+    # Prevent fd 0 clobbering: see ensure_std_fds() docstring for details.
+    from dango.utils.process import ensure_std_fds
+
+    ensure_std_fds()
+
     try:
         # Open log file
         log_handle = open(log_file, "w")  # noqa: SIM115
