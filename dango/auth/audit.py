@@ -86,10 +86,30 @@ def get_audit_log_path(log_dir: Path | None = None) -> Path:
 
     Args:
         log_dir: Override for the log directory.  Defaults to
-            ``.dango/logs`` relative to the current working directory.
+            ``.dango/logs`` relative to ``DANGO_PROJECT_ROOT`` env var
+            or the current working directory (only if ``.dango/`` already
+            exists — prevents leaking directories into non-project dirs).
+
+    Raises:
+        FileNotFoundError: If no log directory can be determined (no env
+            var set and CWD has no ``.dango/`` directory).
     """
     if log_dir is None:
-        log_dir = Path.cwd() / ".dango" / "logs"
+        import os
+
+        project_root_env = os.environ.get("DANGO_PROJECT_ROOT")
+        if project_root_env:
+            log_dir = Path(project_root_env) / ".dango" / "logs"
+        else:
+            # Only use CWD if .dango/ already exists (real project dir)
+            cwd_dango = Path.cwd() / ".dango"
+            if cwd_dango.is_dir():
+                log_dir = cwd_dango / "logs"
+            else:
+                raise FileNotFoundError(
+                    "Cannot determine audit log path: DANGO_PROJECT_ROOT not set "
+                    "and .dango/ does not exist in CWD"
+                )
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir / "audit.jsonl"
 

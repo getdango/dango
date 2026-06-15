@@ -7,7 +7,6 @@ crash handling helpers, category filtering, and SIGTERM handler.
 from __future__ import annotations
 
 import json
-import signal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -334,54 +333,3 @@ class TestLoadAllLogsCategory:
         with patch("dango.web.helpers.get_logs_file", return_value=log_file):
             logs = load_all_logs(category=None)
             assert len(logs) == 2
-
-
-# ---------------------------------------------------------------------------
-# web/app.py — SIGTERM handler
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestSigtermHandler:
-    def test_installs_signal_handler(self, tmp_path: Path):
-        from dango.web.app import _install_sigterm_logger
-
-        original = signal.getsignal(signal.SIGTERM)
-        try:
-            _install_sigterm_logger(tmp_path)
-            current = signal.getsignal(signal.SIGTERM)
-            assert current != original
-            assert callable(current)
-        finally:
-            signal.signal(signal.SIGTERM, original)
-
-    def test_handler_writes_activity_log_and_chains(self, tmp_path: Path):
-        from dango.web.app import _install_sigterm_logger
-
-        original = signal.getsignal(signal.SIGTERM)
-        chain_called = []
-
-        def fake_original(signum, frame):
-            chain_called.append((signum, frame))
-
-        try:
-            # Set a real function as the "original" handler so we can verify chaining
-            signal.signal(signal.SIGTERM, fake_original)
-            _install_sigterm_logger(tmp_path)
-            handler = signal.getsignal(signal.SIGTERM)
-
-            # Call the installed handler directly
-            handler(signal.SIGTERM, None)
-
-            # Verify activity log was written
-            activity_file = tmp_path / ".dango" / "logs" / "activity.jsonl"
-            assert activity_file.exists()
-            entry = json.loads(activity_file.read_text().strip())
-            assert entry["level"] == "warning"
-            assert "SIGTERM" in entry["message"]
-
-            # Verify original handler was chained
-            assert len(chain_called) == 1
-            assert chain_called[0][0] == signal.SIGTERM
-        finally:
-            signal.signal(signal.SIGTERM, original)

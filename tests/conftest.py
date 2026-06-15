@@ -3,6 +3,10 @@
 Root test fixtures for the Dango test suite.
 """
 
+import logging
+import os
+from pathlib import Path
+
 import pytest
 import yaml
 
@@ -11,6 +15,27 @@ from tests.factories.config_factories import (
     make_project_context,
     make_sources_config,
 )
+
+_session_id = f"{Path.cwd().name}:{os.getpid()}"
+
+
+def pytest_sessionstart(session):
+    logger = logging.getLogger("pytest.session")
+    logger.info("=" * 60)
+    logger.info(f"SESSION START [{_session_id}]")
+
+
+def pytest_sessionfinish(session, exitstatus):
+    logger = logging.getLogger("pytest.session")
+    logger.info(f"SESSION END [{_session_id}] exit={exitstatus}")
+
+
+def pytest_runtest_logstart(nodeid, location):
+    logging.getLogger("pytest.test").info(f"[{_session_id}] START {nodeid}")
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    logging.getLogger("pytest.test").info(f"[{_session_id}] END {nodeid}")
 
 
 @pytest.fixture

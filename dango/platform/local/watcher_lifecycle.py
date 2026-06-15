@@ -101,6 +101,7 @@ def start_file_watcher(project_root: Path) -> int | None:
         # Start watcher runner
         proc = subprocess.Popen(
             [sys.executable, str(watcher_runner), str(project_root)],
+            stdin=subprocess.DEVNULL,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,  # Detach from parent session

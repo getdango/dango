@@ -166,6 +166,11 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
     # H4: Check port availability before starting uvicorn
     _check_port(effective_port)
 
+    # Set project root env var so uvicorn workers can resolve it on import
+    import os
+
+    os.environ["DANGO_PROJECT_ROOT"] = str(project_root)
+
     # H3: Wrap uvicorn in try/finally for Docker cleanup
     import uvicorn
 
