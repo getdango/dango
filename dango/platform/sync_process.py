@@ -142,16 +142,10 @@ def launch_sync_subprocess(
 
     json_args = json.dumps(args_dict)
 
-    # Ensure fds 0-2 are occupied so open() never returns a std fd number.
-    # When the server runs daemonized, fd 0 (stdin) may be closed. If open()
-    # gets fd 0 for the log file, subprocess.Popen's dup2(devnull, 0) clobbers
-    # the log handle before it can be duped to stdout, crashing the child with
-    # "Bad file descriptor" at init_sys_streams.
-    for _fd in range(3):
-        try:
-            os.fstat(_fd)
-        except OSError:
-            os.open(os.devnull, os.O_RDWR)
+    # Prevent fd 0 clobbering: see ensure_std_fds() docstring for details.
+    from dango.utils.process import ensure_std_fds
+
+    ensure_std_fds()
 
     log_handle = open(log_path, "w")  # noqa: SIM115
     try:
