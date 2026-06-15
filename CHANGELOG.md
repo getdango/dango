@@ -5,6 +5,48 @@ All notable changes to Dango will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-06-15
+
+### Added
+
+- Global sync status indicator in UI header — shows "Syncing N source(s)" on all pages (F-5)
+- Activity log entries for CSV uploads, CSV deletes, and manual schedule triggers (P4-2)
+- "View in Metabase" link in catalog table detail (P8-1)
+- Empty sync protection — replace-mode syncs that return 0 rows when previous data existed now fail and preserve existing data instead of silently wiping it (P1-4)
+- `--allow-empty-replace` hidden CLI flag to override empty sync protection when intentional
+- Pytest session logging with timestamps and worktree IDs for crash diagnosis (P0-8)
+
+### Fixed
+
+- OAuth wizard: success message only shown after actual auth tokens obtained, not just client credentials (P2-2)
+- OAuth wizard: warns and asks before continuing setup after failed/skipped OAuth (P2-4)
+- OAuth wizard: "No" to continue exits cleanly instead of looping (P2-6)
+- OAuth wizard: non-GA4 sources use YYYY-MM-DD format for start_date (P2-7)
+- OAuth wizard: end-of-wizard block only shows incomplete steps (P8-3)
+- OAuth port released after Ctrl+C — second attempt no longer fails with "port in use" (P2-1)
+- Orphaned file watcher processes detected and killed on `dango start` and `dango stop` (P0-1)
+- Metabase error messages show actual Docker volume name instead of placeholder (P0-2)
+- Stale DbtLock from crashed processes auto-recovered on startup (P1-1)
+- Geo targets seed auto-provisioned for existing Google Ads projects on sync (P3-1)
+- GA4 date columns cast from TIMESTAMPTZ to DATE in staging models (P7-1)
+- Empty dlt staging schemas (`raw_*_staging`) dropped from DuckDB after successful sync (P7-3)
+- Schema drift banner Accept button restyled for visibility, CLI hint added (P8-2)
+- Installer help text: removed outdated "(CSV or Stripe)" from `dango source add` (P6-4)
+- Scheduled syncs no longer crash with "Bad file descriptor" after launching terminal closes (P0-9)
+- `create_app()` no longer sets project_root from CWD at import time — prevents `.dango/` directories leaking into worktrees during pytest (P0-6)
+- Audit log path no longer creates `.dango/logs/` in non-project directories (P0-6)
+- `test_cli_start_guardrails` no longer kills real running services during pytest (P0-7)
+- XSS fix: escape source name in drift banner onclick handler
+
+### Removed
+
+- SIGTERM signal handler from web/app.py — added in 1.0.3 for diagnostics, investigation concluded, no longer needed (P0-5)
+
+### Changed
+
+- Full refresh no longer drops the raw schema before loading — dlt's `write_disposition="replace"` handles table replacement. If an upstream API changes column types, the sync will fail with an error instead of silently recreating. Recovery: `dango db clean --source <name>` + re-sync.
+- Pin `fastapi<0.137` — 0.137.0 changes `app.routes` internals, breaking route introspection tests
+
 ## [1.0.3] - 2026-06-11
 
 ### Added
