@@ -447,8 +447,8 @@ git checkout main && git pull && git checkout -b feat/<task-name>
 git push -u origin feat/<task-name>
 gh pr create --base main --title "Description" --body "..."
 
-# Merge — Option A (preferred when merge queue is enabled):
-gh pr merge NUMBER --merge-queue
+# Merge — Option A (merge):
+gh pr merge NUMBER --merge
 
 # Merge — Option B (direct merge via API):
 gh api repos/getdango/dango/pulls/NUMBER/merge -X PUT -f merge_method=merge
