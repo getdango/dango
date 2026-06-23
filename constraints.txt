@@ -13,6 +13,7 @@ dlt==1.24.0
 # Transitive — prevent known breakage
 starlette>=1.0.0
 pydantic-core>=2.20.0
+numpy<2.5               # 2.5.0 type stubs break mypy 1.19.1 on Python 3.12
 #
 # Transitive — CVE floor pins (2026-05-14 audit)
 aiohttp>=3.13.4         # 10 CVEs (CVE-2026-34513 through CVE-2026-22815)
