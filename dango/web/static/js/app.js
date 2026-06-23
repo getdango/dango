@@ -37,6 +37,7 @@ let isLoadingSources = false;
 let isLoadingStatus = false;
 // Track active syncs: Map<sourceName, startTimestamp>
 let activeSyncs = new Map();
+let postSyncSources = new Set();  // sources currently in post-sync hook phase
 // Track pending loadSources retry timeout
 let loadSourcesRetryTimeout = null;
 // Track active upload/delete operations to prevent premature loadSources() retries
@@ -80,7 +81,12 @@ function startSyncTimer(sourceName) {
     const timerId = setInterval(() => {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
         const btn = document.getElementById(`sync-btn-${sourceName}`);
-        if (btn) btn.textContent = `Syncing... ${formatElapsed(elapsed)}`;
+        if (btn) {
+            const isPostSync = postSyncSources.has(sourceName);
+            btn.textContent = isPostSync
+                ? `Processing... ${formatElapsed(elapsed)}`
+                : `Syncing... ${formatElapsed(elapsed)}`;
+        }
     }, 1000);
     syncTimers.set(sourceName, timerId);
 }
@@ -475,6 +481,7 @@ async function handleWebSocketMessage(data) {
 
             // Clean up sync state and refresh
             activeSyncs.delete(source);
+            postSyncSources.delete(source);
             updateSyncCounter();
             loadSources();  // Reload from API to get correct status
             // Fallback: if activeSyncs wasn't set (e.g. upload-triggered sync),
@@ -496,6 +503,7 @@ async function handleWebSocketMessage(data) {
             console.log('❌ [WS] sync_failed - Source:', source);
             stopSyncTimer(source);
             activeSyncs.delete(source);
+            postSyncSources.delete(source);
             updateSyncCounter();  // Update header counter
             addLogEntry('error', message || `Sync failed`, source);
             showToast(`${source} sync failed`, 'error');
@@ -593,6 +601,18 @@ async function handleWebSocketMessage(data) {
             loadDbtModels();
             break;
 
+        case 'post_sync_started':
+            console.log('🟣 [WS] post_sync_started - Source:', source);
+            postSyncSources.add(source);
+            renderSourcesTable();
+            break;
+
+        case 'post_sync_completed':
+            console.log('🟣 [WS] post_sync_completed - Source:', source);
+            postSyncSources.delete(source);
+            renderSourcesTable();
+            break;
+
         case 'dbt_run_failed':
             console.log('❌ [WS] dbt_run_failed - Individual model:', source);
             addLogEntry('error', message, source);
@@ -626,6 +646,7 @@ async function handleWebSocketMessage(data) {
                 // DO clear activeSyncs since the operation failed
                 if (activeSyncs.has(triggeredSource)) {
                     activeSyncs.delete(triggeredSource);
+                    postSyncSources.delete(triggeredSource);
                     stopSyncTimer(triggeredSource);
                     const btn = document.getElementById(`sync-btn-${triggeredSource}`);
                     if (btn) btn.textContent = 'Sync Now';
@@ -679,8 +700,10 @@ function updateSyncCounter() {
 
     // If syncing, show count
     if (count > 0) {
+        const allInPostSync = postSyncSources.size > 0 && postSyncSources.size === count;
+        const prefix = allInPostSync ? 'Processing' : 'Syncing';
         const plural = count === 1 ? 'source' : 'sources';
-        text.textContent = `Syncing ${count} ${plural}...`;
+        text.textContent = `${prefix} ${count} ${plural}...`;
         text.className = 'text-xs sm:text-sm text-blue-600 font-medium animate-pulse-slow';
     } else if (ws && ws.readyState === WebSocket.OPEN) {
         // Connected and not syncing
@@ -1188,12 +1211,15 @@ function renderSourcesTable() {
     tbody.innerHTML = sources.map(source => {
         const isSyncing = activeSyncs.has(source.name);
         const hasFileOps = activeFileOperations.has(source.name);
+        const isPostSync = postSyncSources.has(source.name);
         const isDisabled = isSyncing || hasFileOps;
 
-        console.log(`🎨 [renderSourcesTable] Source "${source.name}": isSyncing=${isSyncing}, hasFileOps=${hasFileOps}, status="${source.status}"`);
+        console.log(`🎨 [renderSourcesTable] Source "${source.name}": isSyncing=${isSyncing}, hasFileOps=${hasFileOps}, isPostSync=${isPostSync}, status="${source.status}"`);
 
         const buttonDisabled = isDisabled ? 'disabled' : '';
-        const buttonText = isSyncing ? 'Syncing...' : (hasFileOps ? 'Processing...' : 'Sync Now');
+        const buttonText = isSyncing
+            ? (isPostSync ? 'Processing...' : 'Syncing...')
+            : (hasFileOps ? 'Processing...' : 'Sync Now');
 
         // For file sources (csv/local_files), clicking the row opens upload modal
         // For other sources, clicking the row opens detail modal
@@ -1351,6 +1377,9 @@ function renderStatusPill(source, isSyncing, hasFileOps) {
         // Distinguish dbt-building from data-loading
         if (dbtRunStartTime !== null) {
             return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800 animate-pulse">🔨 Building models...</span>';
+        }
+        if (postSyncSources.has(source.name)) {
+            return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800 animate-pulse">⚙️ Processing...</span>';
         }
         return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 animate-pulse">⏳ Syncing...</span>';
     }
