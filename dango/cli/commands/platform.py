@@ -400,8 +400,17 @@ def start(ctx: click.Context, yes: bool) -> None:
 
         # Auto-clean orphaned Docker containers from previous Dango session
         try:
+            from dango.platform.docker import get_compose_project_name
+
+            compose_project = get_compose_project_name(project_root)
             result = subprocess.run(
-                ["docker", "ps", "-q", "--filter", "name=metabase", "--filter", "name=dbt"],
+                [
+                    "docker",
+                    "ps",
+                    "-q",
+                    "--filter",
+                    f"label=com.docker.compose.project={compose_project}",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -410,7 +419,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                 container_ids = [c for c in result.stdout.strip().split("\n") if c]
                 console.print(
                     f"[yellow]⚠[/yellow]  Found {len(container_ids)} orphaned Docker "
-                    "container(s) from a previous session, cleaning up..."
+                    f"container(s) from a previous session of this project, cleaning up..."
                 )
                 from dango.platform import DockerManager
 
@@ -800,7 +809,7 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
     if stop_all:
         # Create a dummy manager just to call the global cleanup method
         manager = DockerManager(Path.cwd())
-        manager.stop_all_dango_containers()
+        manager.stop_all_dango_containers(all_projects=True)
         console.print()
         console.print("[green]✅ Stopped all Dango containers[/green]")
         console.print()

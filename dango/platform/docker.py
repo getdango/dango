@@ -297,27 +297,50 @@ class DockerManager:
         except Exception:
             pass  # Best-effort, never block stop
 
-    def stop_all_dango_containers(self) -> bool:
+    def stop_all_dango_containers(self, all_projects: bool = False) -> bool:
         """
-        Stop ALL Dango containers globally (from any project).
+        Stop Dango containers.
 
-        This is useful when switching between test projects or when
-        containers from a previous project are still running on required ports.
+        By default, stops only containers belonging to this project (determined
+        by the Docker Compose project label).
+
+        Args:
+            all_projects: If True, stop ALL Dango containers globally (from any
+                project), using name-based filtering. This is useful when
+                switching between test projects or cleaning up containers
+                from a previous naming scheme.
 
         Returns:
             True if successful, False otherwise
         """
-        console.print("Stopping all Dango containers (from any project)...")
+        if all_projects:
+            console.print("Stopping all Dango containers (from any project)...")
+        else:
+            console.print(f"Stopping Dango containers for {self.compose_project_name}...")
 
         try:
-            # Find all containers with Dango service names (metabase, dbt-docs)
-            # These are created by docker-compose with predictable naming
-            result = subprocess.run(
-                ["docker", "ps", "-q", "--filter", "name=metabase", "--filter", "name=dbt"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
+            if all_projects:
+                # Find all containers with Dango service names globally
+                result = subprocess.run(
+                    ["docker", "ps", "-q", "--filter", "name=metabase", "--filter", "name=dbt"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+            else:
+                # Find containers belonging to this project via compose project label
+                result = subprocess.run(
+                    [
+                        "docker",
+                        "ps",
+                        "-q",
+                        "--filter",
+                        f"label=com.docker.compose.project={self.compose_project_name}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
 
             if result.returncode != 0:
                 console.print("[yellow]⚠[/yellow]  Could not list Docker containers")
@@ -327,7 +350,8 @@ class DockerManager:
             container_ids = [cid for cid in container_ids if cid]  # Filter empty strings
 
             if not container_ids:
-                console.print("[dim]No Dango containers found running[/dim]")
+                scope = "any project" if all_projects else "this project"
+                console.print(f"[dim]No Dango containers found running for {scope}[/dim]")
                 return True
 
             # Stop the containers
@@ -337,7 +361,10 @@ class DockerManager:
             )
 
             if result.returncode == 0:
-                console.print("[green]✓[/green] Stopped all Dango containers")
+                if all_projects:
+                    console.print("[green]✓[/green] Stopped all Dango containers")
+                else:
+                    console.print("[green]✓[/green] Stopped Dango containers for this project")
                 return True
             else:
                 console.print("[yellow]⚠[/yellow]  Some containers may not have stopped")
