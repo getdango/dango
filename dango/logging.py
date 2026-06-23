@@ -36,6 +36,8 @@ from structlog.contextvars import (
     unbind_contextvars,
 )
 
+import dango
+
 __all__ = [
     "configure_logging",
     "get_logger",
@@ -145,7 +147,11 @@ def configure_logging(
 
     # Resolve log directory
     if log_dir is None:
-        log_dir = Path.cwd() / ".dango" / "logs"
+        project_root_env = os.environ.get("DANGO_PROJECT_ROOT")
+        if project_root_env:
+            log_dir = Path(project_root_env) / ".dango" / "logs"
+        else:
+            log_dir = Path.cwd() / ".dango" / "logs"
 
     # --- Build handlers ---
     handlers: dict[str, dict] = {}
@@ -209,6 +215,9 @@ def configure_logging(
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=False,
     )
+
+    # Bind version at process start — static for the lifetime of the process.
+    bind_contextvars(dango_version=dango.__version__)
 
     if not file_handler_ok:
         logger = get_logger("dango.logging")

@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+import dango
+
 LogLevel = Literal["info", "success", "warning", "error"]
 LogCategory = Literal["core", "auxiliary"]
 
@@ -48,6 +50,7 @@ def log_activity(
         "source": source,
         "message": message.strip(),  # Remove leading/trailing whitespace
         "category": category,
+        "dango_version": dango.__version__,
     }
 
     log_file = get_activity_log_file(project_root)

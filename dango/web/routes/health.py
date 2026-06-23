@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from starlette.responses import JSONResponse
 
+import dango
 from dango.oauth.storage import OAuthStorage
 from dango.web.helpers import (
     check_service_status_async,
@@ -49,7 +50,7 @@ async def get_status() -> ServiceHealth:
 
     return ServiceHealth(
         status="healthy",
-        dango_version="0.1.0",
+        dango_version=dango.__version__,
         services={
             "api": "running",
             "duckdb": duckdb_status,

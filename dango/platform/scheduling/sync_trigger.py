@@ -458,6 +458,10 @@ def _trigger_metabase_schema_scan(project_root: Path) -> None:
 
 
 if __name__ == "__main__":
+    from dango.logging import configure_logging
+
+    configure_logging()
+
     if len(sys.argv) < 2:
         print(
             "Usage: python -m dango.platform.scheduling.sync_trigger '<json>'",

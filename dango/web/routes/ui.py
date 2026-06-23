@@ -262,7 +262,12 @@ async def query_redirect(request: Request) -> HTMLResponse:
 @router.get("/api")
 async def api_info() -> dict[str, str]:
     """API information endpoint."""
-    return {"message": "Dango API", "version": "0.1.0", "docs": "/api/docs", "websocket": "/ws"}
+    return {
+        "message": "Dango API",
+        "version": dango.__version__,
+        "docs": "/api/docs",
+        "websocket": "/ws",
+    }
 
 
 @router.get("/api/docs", include_in_schema=False)
