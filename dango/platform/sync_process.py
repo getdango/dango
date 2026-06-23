@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import dango
 from dango.logging import get_logger
 
 logger = get_logger(__name__)
@@ -147,8 +148,11 @@ def launch_sync_subprocess(
 
     ensure_std_fds()
 
-    log_handle = open(log_path, "w")  # noqa: SIM115
+    log_handle = None
     try:
+        log_handle = open(log_path, "w")  # noqa: SIM115
+
+        log_handle.write(f"# dango_version={dango.__version__}\n")
         process = subprocess.Popen(
             [sys.executable, "-m", "dango.platform.scheduling.sync_trigger", json_args],
             cwd=str(project_root),
@@ -157,7 +161,8 @@ def launch_sync_subprocess(
             stderr=subprocess.STDOUT,
         )
     except Exception:
-        log_handle.close()
+        if log_handle is not None:
+            log_handle.close()
         log_path.unlink(missing_ok=True)
         raise
     # Close the handle in the parent process — the child has its own fd copy

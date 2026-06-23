@@ -16,6 +16,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import dango
 from dango.logging import get_logger
 
 _logger = get_logger("dango.auth.audit")
@@ -143,6 +144,7 @@ def log_auth_event(
     entry: dict[str, Any] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "event": event_type.value,
+        "dango_version": dango.__version__,
     }
     if user_id is not None:
         entry["user_id"] = user_id

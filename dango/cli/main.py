@@ -55,6 +55,10 @@ def cli(ctx: click.Context) -> None:
     """
     ctx.ensure_object(dict)
 
+    from dango.logging import configure_logging
+
+    configure_logging()
+
     # Warn if the dango binary doesn't match the active venv
     import os
     import sys

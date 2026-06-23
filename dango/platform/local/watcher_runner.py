@@ -177,6 +177,10 @@ def run_validate_command(project_root: Path) -> bool:
 def main() -> None:
     """Main entry point for watcher runner"""
 
+    from dango.logging import configure_logging
+
+    configure_logging()
+
     # Get project root from command line argument
     if len(sys.argv) < 2:
         print("Usage: watcher_runner.py <project_root>")
