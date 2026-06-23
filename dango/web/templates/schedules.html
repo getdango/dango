@@ -50,8 +50,13 @@
                                       :class="sched.type.startsWith('sync') ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'"
                                       x-text="sched.type"></span>
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell"
-                                x-text="sched.sources.join(', ')"></td>
+                            <td class="px-6 py-4 text-sm text-gray-500 hidden md:table-cell">
+                                <ul class="list-disc list-inside space-y-0.5">
+                                    <template x-for="src in sched.sources.sort()" :key="src">
+                                        <li x-text="src"></li>
+                                    </template>
+                                </ul>
+                            </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
                                 x-text="humanCron(sched.cron)"></td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden lg:table-cell"
