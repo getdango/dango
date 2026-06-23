@@ -313,14 +313,20 @@ class TestStopFastapiServer:
 
     # --- Port-based fallback phase ---
 
+    @patch("psutil.Process")
     @patch("dango.cli.helpers.process_manager.kill_process", return_value=True)
     @patch("dango.cli.helpers.process_manager.subprocess.run")
     @patch("dango.cli.helpers.process_manager.console")
     @patch("dango.cli.helpers.process_manager.is_process_running", return_value=False)
     def test_no_pid_dango_process_on_port(
-        self, _mock_running, _mock_console, mock_sub_run, mock_kill, tmp_path
+        self, _mock_running, _mock_console, mock_sub_run, mock_kill, mock_psutil, tmp_path
     ):
         self._setup_project(tmp_path)
+
+        # Mock psutil.Process to return CWD matching project root
+        mock_proc = MagicMock()
+        mock_proc.cwd.return_value = str(tmp_path)
+        mock_psutil.return_value = mock_proc
 
         with patch("dango.config.ConfigLoader") as mock_cl:
             mock_config = MagicMock()
@@ -374,14 +380,20 @@ class TestStopFastapiServer:
 
             assert stop_fastapi_server(tmp_path) is False
 
+    @patch("psutil.Process")
     @patch("dango.cli.helpers.process_manager.kill_process", return_value=False)
     @patch("dango.cli.helpers.process_manager.subprocess.run")
     @patch("dango.cli.helpers.process_manager.console")
     @patch("dango.cli.helpers.process_manager.is_process_running", return_value=False)
     def test_dango_pids_found_but_all_kills_fail(
-        self, _mock_running, _mock_console, mock_sub_run, mock_kill, tmp_path
+        self, _mock_running, _mock_console, mock_sub_run, mock_kill, mock_psutil, tmp_path
     ):
         self._setup_project(tmp_path)
+
+        # Mock psutil.Process to return CWD matching project root
+        mock_proc = MagicMock()
+        mock_proc.cwd.return_value = str(tmp_path)
+        mock_psutil.return_value = mock_proc
 
         with patch("dango.config.ConfigLoader") as mock_cl:
             mock_config = MagicMock()
@@ -460,6 +472,115 @@ class TestStopFastapiServer:
             mock_sub_run.side_effect = subprocess.TimeoutExpired(cmd="lsof", timeout=5)
 
             assert stop_fastapi_server(tmp_path) is False
+
+    @patch("psutil.Process")
+    @patch("dango.cli.helpers.process_manager.subprocess.run")
+    @patch("dango.cli.helpers.process_manager.console")
+    @patch("dango.cli.helpers.process_manager.is_process_running", return_value=False)
+    def test_dango_process_from_another_project_not_killed(
+        self, _mock_running, mock_console, mock_sub_run, mock_psutil, tmp_path
+    ):
+        """Port fallback finds a Dango process but CWD differs → skip, don't kill."""
+        self._setup_project(tmp_path)
+
+        # Mock psutil.Process so CWD points to a different project
+        mock_proc = MagicMock()
+        mock_proc.cwd.return_value = "/tmp/other-project"
+        mock_psutil.return_value = mock_proc
+
+        with patch("dango.config.ConfigLoader") as mock_cl:
+            mock_config = MagicMock()
+            mock_config.platform.port = 8080
+            mock_cl.return_value.load_config.return_value = mock_config
+
+            lsof_result = MagicMock(returncode=0, stdout="1234\n")
+            ps_result = MagicMock(
+                returncode=0,
+                stdout="python -m uvicorn dango.web.app:app --host 0.0.0.0 --port 8080",
+            )
+            mock_sub_run.side_effect = [lsof_result, ps_result]
+
+            with patch("dango.cli.helpers.process_manager.kill_process") as mock_kill:
+                result = stop_fastapi_server(tmp_path, verbose=True)
+                assert result is False
+                mock_kill.assert_not_called()
+
+        # Should print a warning about skipping (different project)
+        print_calls = [str(c) for c in mock_console.print.call_args_list]
+        assert any("different project" in str(c).lower() for c in print_calls)
+
+    @patch("psutil.Process")
+    @patch("dango.cli.helpers.process_manager.subprocess.run")
+    @patch("dango.cli.helpers.process_manager.console")
+    @patch("dango.cli.helpers.process_manager.is_process_running", return_value=False)
+    def test_dango_process_cwd_unreadable_skips_safely(
+        self, _mock_running, mock_console, mock_sub_run, mock_psutil, tmp_path
+    ):
+        """Port fallback: Dango process found but CWD is unreadable → skip gracefully."""
+        import psutil as psutil_mod
+
+        self._setup_project(tmp_path)
+
+        mock_proc = MagicMock()
+        mock_proc.cwd.side_effect = psutil_mod.AccessDenied()
+        mock_psutil.return_value = mock_proc
+
+        with patch("dango.config.ConfigLoader") as mock_cl:
+            mock_config = MagicMock()
+            mock_config.platform.port = 8080
+            mock_cl.return_value.load_config.return_value = mock_config
+
+            lsof_result = MagicMock(returncode=0, stdout="1234\n")
+            ps_result = MagicMock(
+                returncode=0,
+                stdout="python -m uvicorn dango.web.app:app",
+            )
+            mock_sub_run.side_effect = [lsof_result, ps_result]
+
+            with patch("dango.cli.helpers.process_manager.kill_process") as mock_kill:
+                result = stop_fastapi_server(tmp_path, verbose=True)
+                assert result is False
+                mock_kill.assert_not_called()
+
+        # Should print a warning about being unable to verify CWD
+        print_calls = [str(c) for c in mock_console.print.call_args_list]
+        assert any("Could not verify CWD" in str(c) for c in print_calls)
+
+    @patch("psutil.Process")
+    @patch("dango.cli.helpers.process_manager.kill_process", return_value=True)
+    @patch("dango.cli.helpers.process_manager.subprocess.run")
+    @patch("dango.cli.helpers.process_manager.console")
+    @patch("dango.cli.helpers.process_manager.is_process_running", return_value=False)
+    def test_symlinked_project_root_matches_after_resolution(
+        self, _mock_running, _mock_console, mock_sub_run, mock_kill, mock_psutil, tmp_path
+    ):
+        """Port fallback: symlinked project root matches resolved CWD → kills process."""
+        self._setup_project(tmp_path)
+
+        # Create a symlink pointing to tmp_path
+        link_dir = tmp_path / "link-to-project"
+        link_dir.symlink_to(tmp_path, target_is_directory=True)
+
+        # Mock CWD returns the real path (not the symlink)
+        mock_proc = MagicMock()
+        mock_proc.cwd.return_value = str(tmp_path)
+        mock_psutil.return_value = mock_proc
+
+        with patch("dango.config.ConfigLoader") as mock_cl:
+            mock_config = MagicMock()
+            mock_config.platform.port = 8080
+            mock_cl.return_value.load_config.return_value = mock_config
+
+            lsof_result = MagicMock(returncode=0, stdout="1234\n")
+            ps_result = MagicMock(
+                returncode=0,
+                stdout="python -m uvicorn dango.web.app:app",
+            )
+            mock_sub_run.side_effect = [lsof_result, ps_result]
+
+            result = stop_fastapi_server(link_dir, verbose=True)
+            assert result is True
+            mock_kill.assert_called_once_with(1234, timeout=5)
 
 
 @pytest.mark.unit

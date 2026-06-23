@@ -7,6 +7,7 @@ import subprocess
 import time
 from pathlib import Path
 
+import psutil
 from rich.console import Console
 
 from dango.utils.process import is_process_running, kill_process
@@ -234,6 +235,7 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
             # Check each process to see if it's a Dango process
             dango_pids = []
             other_pids = []
+            resolved_project_root = project_root.resolve()
 
             for proc_pid_str in pids:
                 try:
@@ -252,7 +254,33 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
 
                         # Check if it's a Dango uvicorn process
                         if "uvicorn" in cmd_line and "dango.web.app" in cmd_line:
-                            dango_pids.append(proc_pid)
+                            # Verify CWD matches current project root to avoid
+                            # killing servers from other Dango projects on the same port.
+                            try:
+                                proc = psutil.Process(proc_pid)
+                                proc_cwd = Path(proc.cwd()).resolve()
+                                if proc_cwd == resolved_project_root:
+                                    dango_pids.append(proc_pid)
+                                else:
+                                    other_pids.append((proc_pid, cmd_line))
+                                    if verbose:
+                                        console.print(
+                                            f"  [dim]Skipping Dango process {proc_pid} "
+                                            f"(belongs to different project: {proc_cwd})[/dim]"
+                                        )
+                            except (
+                                psutil.AccessDenied,
+                                psutil.NoSuchProcess,
+                                psutil.ZombieProcess,
+                                OSError,
+                            ) as e:
+                                # Can't verify CWD → don't kill (conservative)
+                                other_pids.append((proc_pid, cmd_line))
+                                if verbose:
+                                    console.print(
+                                        f"  [yellow]⚠[/yellow] Could not verify CWD for "
+                                        f"PID {proc_pid}: {e}"
+                                    )
                         else:
                             other_pids.append((proc_pid, cmd_line))
                 except (ValueError, Exception):
