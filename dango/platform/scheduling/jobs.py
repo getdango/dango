@@ -495,7 +495,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 full_refresh=full_refresh,
                 skip_dbt=True,
                 source_label="scheduler",
-                max_lock_wait=300,
+                max_lock_wait=60,
             )
 
             success, _result = poll_sync_status_blocking(
@@ -841,17 +841,20 @@ def run_scheduled_dbt(
 
     try:
         try:
-            lock.acquire()
+            lock.acquire(timeout=60)
         except DbtLockError:
             elapsed = time.monotonic() - t0
             logger.warning(
-                "scheduler_lock_contention", schedule=schedule_name, dbt_command=dbt_command
+                "scheduler_lock_timeout",
+                schedule=schedule_name,
+                dbt_command=dbt_command,
+                timeout_seconds=60,
             )
             _broadcast(
                 {
                     "event": "job_queued",
                     "schedule": schedule_name,
-                    "message": "Lock contention",
+                    "message": "Lock unavailable after 60s wait",
                     "timestamp": _ts(),
                 }
             )

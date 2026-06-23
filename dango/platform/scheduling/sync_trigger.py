@@ -117,7 +117,7 @@ def run_manual_sync(
         write_progress: If True, write progress to .dango/state/sync_status.json.
         source_label: Label for the sync trigger (e.g., "ui", "scheduler", "manual").
         skip_dbt: If True, skip dbt run after data load.
-        max_lock_wait: Max seconds to wait for lock (0 = fail immediately).
+        max_lock_wait: Max seconds to wait for lock (0 = use default of 300s).
         sync_id: Unique identifier for the status file (avoids concurrent clobber).
         record_id: Existing execution history record ID to reuse (avoids double records).
 
@@ -191,7 +191,7 @@ def run_manual_sync(
         # Non-OAuth errors during validation: continue (benefit of the doubt)
         logger.warning("pre_sync_validation_error", error=str(e), exc_info=True)
 
-    # --- Lock acquisition with retry ---
+    # --- Lock acquisition ---
     _progress("lock_waiting", "Waiting for lock")
     lock = None
     try:
@@ -200,27 +200,7 @@ def run_manual_sync(
             source=source_label,
             operation=f"sync:{','.join(sources)}",
         )
-
-        acquired = False
-        wait_start = time.time()
-        while not acquired:
-            try:
-                lock.acquire()
-                acquired = True
-            except DbtLockError as exc:
-                elapsed_wait = time.time() - wait_start
-                if elapsed_wait >= max_lock_wait:
-                    error_msg = f"Lock unavailable: {exc}"
-                    record_failure(db_path, record_id, error_msg)
-                    duration = round(time.time() - start_time, 1)
-                    _progress("failed", error_msg, error=error_msg)
-                    return {
-                        "record_id": record_id,
-                        "status": "failed",
-                        "duration_seconds": duration,
-                        "error": error_msg,
-                    }
-                time.sleep(5)
+        lock.acquire(timeout=max_lock_wait or 300)
     except DbtLockError as exc:
         error_msg = f"Lock unavailable: {exc}"
         record_failure(db_path, record_id, error_msg)
