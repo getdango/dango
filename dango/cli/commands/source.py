@@ -765,6 +765,7 @@ def sync(
                     raise click.Abort()
 
         # Try to acquire lock before running sync (which includes dbt)
+        console.print("\n[bold yellow]⌛ Waiting for lock...[/bold yellow]")
         try:
             lock = DbtLock(
                 project_root=project_root,

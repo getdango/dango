@@ -493,8 +493,7 @@ def _ts() -> str:
 def _phase_to_event(phase: str) -> str:
     """Map status file phase to a WebSocket event name."""
     mapping = {
-        "starting": "sync_started",
-        "lock_waiting": "sync_progress",
+        "lock_waiting": "sync_queued",
         "data_load": "sync_progress",
         "data_load_complete": "data_load_complete",
         "dbt_started": "dbt_run_all_started",
@@ -519,6 +518,7 @@ async def _broadcast_phase_transition(
     message: dict[str, Any] = {
         "event": event,
         "source": source_name,
+        "phase": phase,
         "message": status.get("message", ""),
         "timestamp": _ts(),
     }

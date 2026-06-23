@@ -72,7 +72,7 @@ class TestRunManualSync:
         assert result["status"] == "success"
         assert result["record_id"] == 1
         assert "duration_seconds" in result
-        mock_lock_cls.return_value.acquire.assert_called_once()
+        mock_lock_cls.return_value.acquire.assert_called_once_with(timeout=300)
         mock_lock_cls.return_value.release.assert_called_once()
         mock_sync.assert_called_once()
         mock_complete.assert_called_once()
@@ -136,6 +136,7 @@ class TestRunManualSync:
         assert result["status"] == "failed"
         assert "Lock unavailable" in result["error"]
         mock_failure.assert_called_once()
+        mock_lock_cls.return_value.acquire.assert_called_once_with(timeout=300)
 
     @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
     @patch(f"{_PATCH_CONFIG}.load_config")
@@ -378,47 +379,61 @@ class TestRunManualSync:
         assert result["status"] == "success"
         assert result["rows_loaded"] == 150
 
+    @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
+    @patch(f"{_PATCH_CONFIG}.load_config")
     @patch(f"{_PATCH_UTILS}.DbtLock")
-    @patch(f"{_PATCH_HISTORY}.record_failure")
+    @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=10)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
-    @patch(f"{_PATCH_CONFIG}.load_config")
     @patch(f"{_PATCH_OAUTH}.validate_before_sync")
-    def test_lock_retry_loop(
+    def test_acquire_passes_timeout(
         self,
         mock_oauth,
-        mock_config,
         mock_db_path,
         mock_start,
-        mock_failure,
+        mock_complete,
         mock_lock_cls,
+        mock_config,
+        mock_sync,
         tmp_path,
     ):
-        """With max_lock_wait > 0, should retry before failing."""
-        from dango.exceptions import DbtLockError
+        """Lock acquire() should pass max_lock_wait as timeout."""
         from dango.platform.scheduling.sync_trigger import run_manual_sync
 
         mock_config.return_value = _make_config(["src1"])
 
-        # Fail first 2 attempts, succeed on third
-        attempts = [0]
+        result = run_manual_sync(tmp_path, sources=["src1"], max_lock_wait=30)
 
-        def _side_effect():
-            attempts[0] += 1
-            if attempts[0] < 3:
-                raise DbtLockError("lock held")
-
-        mock_lock_cls.return_value.acquire.side_effect = _side_effect
-
-        with (
-            patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0}),
-            patch(f"{_PATCH_HISTORY}.record_completion"),
-            patch(f"{_PATCH_HISTORY}.time.sleep"),
-        ):
-            result = run_manual_sync(tmp_path, sources=["src1"], max_lock_wait=30)
-
+        mock_lock_cls.return_value.acquire.assert_called_once_with(timeout=30)
         assert result["status"] == "success"
-        assert attempts[0] == 3
+
+    @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
+    @patch(f"{_PATCH_CONFIG}.load_config")
+    @patch(f"{_PATCH_UTILS}.DbtLock")
+    @patch(f"{_PATCH_HISTORY}.record_completion")
+    @patch(f"{_PATCH_HISTORY}.record_start", return_value=11)
+    @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
+    @patch(f"{_PATCH_OAUTH}.validate_before_sync")
+    def test_default_timeout_is_300(
+        self,
+        mock_oauth,
+        mock_db_path,
+        mock_start,
+        mock_complete,
+        mock_lock_cls,
+        mock_config,
+        mock_sync,
+        tmp_path,
+    ):
+        """Without max_lock_wait, should use 300s default timeout."""
+        from dango.platform.scheduling.sync_trigger import run_manual_sync
+
+        mock_config.return_value = _make_config(["src1"])
+
+        result = run_manual_sync(tmp_path, sources=["src1"])
+
+        mock_lock_cls.return_value.acquire.assert_called_once_with(timeout=300)
+        assert result["status"] == "success"
 
 
 @pytest.mark.unit

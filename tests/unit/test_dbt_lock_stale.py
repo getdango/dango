@@ -93,10 +93,63 @@ class TestDbtLockCleanupStaleIntegration:
 
         try:
             contender = DbtLock(tmp_path, source="contender", operation="contend")
-            with pytest.raises(DbtLockErr, match="Another sync operation"):
+            with pytest.raises(DbtLockErr, match="Sync queue timeout"):
                 contender.acquire(timeout=0)
         finally:
             holder.release()
+
+    def test_acquire_immediate_no_contention(self, tmp_path: Path) -> None:
+        """Lock acquired immediately when no contention."""
+        lock = DbtLock(tmp_path, source="test", operation="test op")
+        acquired = lock.acquire(timeout=0)
+        assert acquired is True
+        lock.release()
+
+    def test_lock_wait_times_out(self, tmp_path: Path) -> None:
+        """Lock wait raises DbtLockError after timeout."""
+        from dango.exceptions import DbtLockError as DbtLockErr
+
+        holder = DbtLock(tmp_path, source="holder", operation="hold")
+        holder.acquire(timeout=0)
+
+        try:
+            contender = DbtLock(tmp_path, source="contender", operation="contend")
+            with pytest.raises(DbtLockErr, match="Sync queue timeout"):
+                contender.acquire(timeout=1)  # short timeout for test speed
+        finally:
+            holder.release()
+
+    def test_lock_wait_succeeds_when_released(self, tmp_path: Path) -> None:
+        """Lock acquired when holder releases within timeout."""
+        import threading
+
+        from dango.exceptions import DbtLockError as DbtLockErr
+
+        holder = DbtLock(tmp_path, source="holder", operation="hold")
+        holder.acquire(timeout=0)
+
+        result = {"acquired": False, "error": None}
+
+        def _contend():
+            try:
+                c = DbtLock(tmp_path, source="contender", operation="contend")
+                c.acquire(timeout=5)
+                result["acquired"] = True
+                c.release()
+            except DbtLockErr as e:
+                result["error"] = e
+
+        t = threading.Thread(target=_contend)
+        t.start()
+
+        import time
+
+        time.sleep(0.1)  # let contender start waiting
+        holder.release()
+        t.join(timeout=6)
+
+        assert result["acquired"] is True
+        assert result["error"] is None
 
 
 @pytest.mark.unit

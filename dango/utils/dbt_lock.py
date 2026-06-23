@@ -146,13 +146,13 @@ class DbtLock:
 
         return False
 
-    def acquire(self, timeout: float = 30) -> bool:
+    def acquire(self, timeout: float = 300) -> bool:
         """
         Acquire the lock.
 
         Args:
             timeout: Maximum time to wait for the lock (0 = don't wait).
-                Retries every 1 second until timeout is reached.
+                Retries every 3 seconds until timeout is reached.
 
         Returns:
             True if lock was acquired
@@ -196,31 +196,19 @@ class DbtLock:
 
                 # Retry if we still have time
                 if time.monotonic() < deadline:
-                    time.sleep(1)
+                    lock_info = self._read_lock_info()
+                    if lock_info:
+                        logger.info(
+                            "Waiting for dbt lock... (held by PID %d)",
+                            lock_info.get("pid", "unknown"),
+                        )
+                    else:
+                        logger.info("Waiting for dbt lock...")
+                    time.sleep(3)
                     continue
 
                 lock_info = self._read_lock_info()
-
-                # Build a helpful error message
-                if lock_info:
-                    source = lock_info.get("source", "unknown")
-                    operation = lock_info.get("operation", "unknown operation")
-                    started_at = lock_info.get("started_at", "unknown time")
-                    pid = lock_info.get("pid", "unknown")
-
-                    message = (
-                        f"Another sync operation is currently running.\n"
-                        f"Source: {source}\n"
-                        f"Operation: {operation}\n"
-                        f"Started at: {started_at}\n"
-                        f"Process ID: {pid}\n"
-                        f"Please wait for it to complete before starting a new operation."
-                    )
-                else:
-                    message = (
-                        "Another sync operation is currently running. "
-                        "Please wait for it to complete before starting a new operation."
-                    )
+                message = "Sync queue timeout. Another sync is still running."
 
                 raise DbtLockError(message, lock_info=lock_info) from None
 
