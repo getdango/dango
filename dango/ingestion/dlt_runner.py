@@ -2849,6 +2849,11 @@ def run_sync(
 
     # Post-sync hooks (profiling, drift detection, PII scanning, analysis, notifications)
     if success_sources:
+        if progress_callback is not None:
+            progress_callback(
+                "post_sync_started",
+                "Running post-sync hooks (profiling, PII scan, analysis, snapshots)",
+            )
         try:
             from dango.utils.post_sync import dispatch_post_sync_hooks
 
@@ -2874,5 +2879,7 @@ def run_sync(
                     _src_name,
                     {"post_sync_error": "Post-sync hooks failed (see logs)"},
                 )
+        if progress_callback is not None:
+            progress_callback("post_sync_completed", "Post-sync hooks complete")
 
     return summary

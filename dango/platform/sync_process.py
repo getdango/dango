@@ -495,6 +495,8 @@ def _phase_to_event(phase: str) -> str:
         "dbt_started": "dbt_run_all_started",
         "dbt_complete": "dbt_run_all_completed",
         "dbt_failed": "dbt_run_all_failed",
+        "post_sync_started": "post_sync_started",
+        "post_sync_completed": "post_sync_completed",
         "completed": "sync_completed",
         "failed": "sync_failed",
     }

@@ -75,11 +75,11 @@
                     <!-- Global sync status indicator -->
                     <div x-show="activeSyncCount > 0" x-cloak
                          class="flex items-center space-x-1.5 px-2 py-1 rounded-md bg-gray-700 text-xs text-gray-200">
-                        <svg class="animate-spin h-3.5 w-3.5 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <svg class="animate-spin h-3.5 w-3.5" :class="_postSyncSources.size === activeSyncCount ? 'text-purple-400' : 'text-blue-400'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                         </svg>
-                        <span x-text="'Syncing ' + activeSyncCount + ' source' + (activeSyncCount > 1 ? 's' : '')"></span>
+                        <span x-text="(_postSyncSources.size === activeSyncCount ? 'Processing' : 'Syncing') + ' ' + activeSyncCount + ' source' + (activeSyncCount > 1 ? 's' : '')"></span>
                     </div>
                     {% if request.state.user %}
                     <span class="text-xs text-gray-400 hidden lg:inline mr-2">{{ request.state.user.email }}</span>
@@ -164,6 +164,7 @@
         return {
             activeSyncCount: 0,
             _activeSources: new Set(),
+            _postSyncSources: new Set(),
             _ws: null,
             _reconnectTimer: null,
             init() {
@@ -183,8 +184,13 @@
                         const source = data.source || '';
                         if (data.event === 'sync_started' && source) {
                             this._activeSources.add(source);
+                        } else if (data.event === 'post_sync_started' && source) {
+                            this._postSyncSources.add(source);
+                        } else if (data.event === 'post_sync_completed' && source) {
+                            this._postSyncSources.delete(source);
                         } else if ((data.event === 'sync_completed' || data.event === 'sync_failed') && source) {
                             this._activeSources.delete(source);
+                            this._postSyncSources.delete(source);
                         }
                         this.activeSyncCount = this._activeSources.size;
                     } catch {}
