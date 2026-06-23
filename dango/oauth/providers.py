@@ -134,113 +134,148 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                         elif line.startswith("GOOGLE_CLIENT_SECRET="):
                             client_secret = line.split("=", 1)[1].strip().strip('"').strip("'")
 
-            if client_id and client_secret:
-                # Credentials found in .env
-                console.print("[green]✓ Found OAuth credentials in .env[/green]")
-                console.print(f"[dim]  Client ID: {client_id[:20]}...{client_id[-10:]}[/dim]\n")
-            else:
-                # Show setup instructions only if credentials not found
-                api_name = self.API_NAMES.get(service, "the required API")
-                instructions = [
-                    "[bold]Prerequisites:[/bold]",
-                    "1. Create a Google Cloud Project at https://console.cloud.google.com/",
-                    "",
-                    "2. Configure the OAuth consent screen:",
-                    "   • Go to APIs & Services > OAuth consent screen",
-                    "   • Select [yellow]External[/yellow] user type > Create",
-                    "   • Fill in App name, User support email, Developer email",
-                    "   • Click through Scopes (no changes needed)",
-                    "   • Add your Google account email as a Test User",
-                    "   • Save and return to dashboard",
-                    "",
-                    f"3. Enable the [bold]{api_name}[/bold]:",
-                    "   • Go to APIs & Services > Library",
-                    f'   • Search for "{api_name}" and click Enable',
-                    "",
-                    "4. Create OAuth 2.0 credentials:",
-                    "   • Go to APIs & Services > Credentials",
-                    "   • Create Credentials > OAuth client ID",
-                    "   • Application type: [yellow]Web application[/yellow]",
-                    f"   • Add Authorized redirect URI: {self.oauth_manager.callback_url}",
-                    "   • Copy the Client ID and Client Secret",
-                    "",
-                    "[yellow]⚠  Testing mode:[/yellow] Tokens expire after 7 days.",
-                    "   To get permanent tokens, publish your app:",
-                    "   OAuth consent screen > Publishing status > [bold]Publish App[/bold]",
-                    "",
-                    "[dim]Tip: Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env to skip this step[/dim]",
-                ]
-
-                console.print(
-                    Panel("\n".join(instructions), title="Setup Instructions", border_style="cyan")
-                )
-
-                # Get OAuth client credentials
-                console.print("\n[bold]Enter OAuth Client Credentials:[/bold]")
-                client_id = _clean_pasted_input(Prompt.ask("Client ID"))
-                client_secret = _clean_pasted_input(Prompt.ask("Client Secret", password=True))
-
-                # Save to .env for future Google services (shared credentials)
+            while True:
                 if client_id and client_secret:
-                    from dotenv import set_key
+                    # Credentials found in .env
+                    console.print("[green]✓ Found OAuth credentials in .env[/green]")
+                    console.print(f"[dim]  Client ID: {client_id[:20]}...{client_id[-10:]}[/dim]\n")
+                    # Check if actual Google tokens exist - without tokens, .env creds
+                    # may be stale from a previous failed OAuth flow (P2-3 guard).
+                    has_any_google_token = any(
+                        self.oauth_storage.exists(svc)
+                        for svc in ["google_ads", "google_analytics", "google_sheets"]
+                    )
+                    if not has_any_google_token:
+                        console.print(
+                            "\n[yellow]⚠️  OAuth credentials found in .env but no Google tokens exist.[/yellow]"
+                        )
+                        console.print(
+                            "   [yellow]This can happen if a previous OAuth flow failed to complete.[/yellow]"
+                        )
+                        console.print(
+                            "   [yellow]Check your credentials at: https://console.cloud.google.com/apis/credentials[/yellow]"
+                        )
+                        if Confirm.ask("\n[cyan]Re-enter credentials?[/cyan]", default=False):
+                            from dotenv import unset_key
 
-                    if not env_file.exists():
-                        env_file.touch()
-                    set_key(str(env_file), "GOOGLE_CLIENT_ID", client_id)
-                    set_key(str(env_file), "GOOGLE_CLIENT_SECRET", client_secret)
-                    console.print("[dim]Saved credentials to .env for future use[/dim]")
+                            client_id = ""
+                            client_secret = ""
+                            os.environ.pop("GOOGLE_CLIENT_ID", None)
+                            os.environ.pop("GOOGLE_CLIENT_SECRET", None)
+                            if env_file.exists():
+                                unset_key(str(env_file), "GOOGLE_CLIENT_ID")
+                                unset_key(str(env_file), "GOOGLE_CLIENT_SECRET")
+                            continue
+                else:
+                    # Show setup instructions only if credentials not found
+                    api_name = self.API_NAMES.get(service, "the required API")
+                    instructions = [
+                        "[bold]Prerequisites:[/bold]",
+                        "1. Create a Google Cloud Project at https://console.cloud.google.com/",
+                        "",
+                        "2. Configure the OAuth consent screen:",
+                        "   • Go to APIs & Services > OAuth consent screen",
+                        "   • Select [yellow]External[/yellow] user type > Create",
+                        "   • Fill in App name, User support email, Developer email",
+                        "   • Click through Scopes (no changes needed)",
+                        "   • Add your Google account email as a Test User",
+                        "   • Save and return to dashboard",
+                        "",
+                        f"3. Enable the [bold]{api_name}[/bold]:",
+                        "   • Go to APIs & Services > Library",
+                        f'   • Search for "{api_name}" and click Enable',
+                        "",
+                        "4. Create OAuth 2.0 credentials:",
+                        "   • Go to APIs & Services > Credentials",
+                        "   • Create Credentials > OAuth client ID",
+                        "   • Application type: [yellow]Web application[/yellow]",
+                        f"   • Add Authorized redirect URI: {self.oauth_manager.callback_url}",
+                        "   • Copy the Client ID and Client Secret",
+                        "",
+                        "[yellow]⚠  Testing mode:[/yellow] Tokens expire after 7 days.",
+                        "   To get permanent tokens, publish your app:",
+                        "   OAuth consent screen > Publishing status > [bold]Publish App[/bold]",
+                        "",
+                        "[dim]Tip: Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env to skip this step[/dim]",
+                    ]
 
-            if not client_id or not client_secret:
-                console.print("[red]✗ Client ID and Secret are required[/red]")
-                return False
+                    console.print(
+                        Panel(
+                            "\n".join(instructions), title="Setup Instructions", border_style="cyan"
+                        )
+                    )
 
-            # Build authorization URL
-            # Combine base scopes (userinfo) with service-specific scopes
-            service_scopes = self.SCOPES.get(service, self.SCOPES["google_ads"])
-            all_scopes = self.BASE_SCOPES + service_scopes
-            state = self.oauth_manager.generate_state()
+                    # Get OAuth client credentials
+                    console.print("\n[bold]Enter OAuth Client Credentials:[/bold]")
+                    client_id = _clean_pasted_input(Prompt.ask("Client ID"))
+                    client_secret = _clean_pasted_input(Prompt.ask("Client Secret", password=True))
 
-            auth_params = {
-                "client_id": client_id,
-                "redirect_uri": self.oauth_manager.callback_url,
-                "response_type": "code",
-                "scope": " ".join(all_scopes),
-                "access_type": "offline",  # Request refresh token
-                "prompt": "consent",  # Force consent screen to get refresh token
-                "state": state,
-            }
+                if not client_id or not client_secret:
+                    console.print("[red]✗ Client ID and Secret are required[/red]")
+                    return None
 
-            auth_url = f"{self.AUTH_URL}?{urlencode(auth_params)}"
+                # Build authorization URL
+                # Combine base scopes (userinfo) with service-specific scopes
+                service_scopes = self.SCOPES.get(service, self.SCOPES["google_ads"])
+                all_scopes = self.BASE_SCOPES + service_scopes
+                state = self.oauth_manager.generate_state()
 
-            # Start OAuth flow
-            console.print("\n[bold]Step 2: Authorize Dango[/bold]")
-            console.print(
-                "\n[yellow]If your app is in Testing mode (the default):[/yellow]"
-                "\n[yellow]  Your browser will show 'Google hasn't verified this app'[/yellow]"
-                "\n[yellow]  Click [bold]Advanced[/bold] → [bold]Go to <app name> "
-                "(unsafe)[/bold] → [bold]Continue[/bold][/yellow]"
-            )
-            console.print(
-                "[yellow]If your app is Published:[/yellow]"
-                "\n[yellow]  You'll see a standard Google consent screen — "
-                "click [bold]Allow[/bold][/yellow]"
-            )
-            oauth_response = self.oauth_manager.start_oauth_flow("Google", auth_url)
+                auth_params = {
+                    "client_id": client_id,
+                    "redirect_uri": self.oauth_manager.callback_url,
+                    "response_type": "code",
+                    "scope": " ".join(all_scopes),
+                    "access_type": "offline",  # Request refresh token
+                    "prompt": "consent",  # Force consent screen to get refresh token
+                    "state": state,
+                }
 
-            if not oauth_response:
-                console.print("[red]✗ OAuth flow failed or timed out[/red]")
-                return False
+                auth_url = f"{self.AUTH_URL}?{urlencode(auth_params)}"
 
-            # Handle re-enter credentials sentinel from start_oauth_flow().
-            # Returning False causes the source wizard's retry loop to call
-            # run_oauth_for_source() again, which re-prompts for credentials.
-            if "action" in oauth_response:
-                return False
+                # Start OAuth flow
+                console.print("\n[bold]Step 2: Authorize Dango[/bold]")
+                console.print(
+                    "\n[yellow]If your app is in Testing mode (the default):[/yellow]"
+                    "\n[yellow]  Your browser will show 'Google hasn't verified this app'[/yellow]"
+                    "\n[yellow]  Click [bold]Advanced[/bold] → [bold]Go to <app name> "
+                    "(unsafe)[/bold] → [bold]Continue[/bold][/yellow]"
+                )
+                console.print(
+                    "[yellow]If your app is Published:[/yellow]"
+                    "\n[yellow]  You'll see a standard Google consent screen — "
+                    "click [bold]Allow[/bold][/yellow]"
+                )
+                oauth_response = self.oauth_manager.start_oauth_flow("Google", auth_url)
+
+                if not oauth_response:
+                    console.print("[red]✗ OAuth flow failed or timed out[/red]")
+                    return None
+
+                # Handle re-enter credentials sentinel from start_oauth_flow().
+                # Clear cached credentials and loop back to the credential prompt
+                # so the user can re-enter immediately without a second prompt.
+                if "action" in oauth_response:
+                    from dotenv import unset_key
+
+                    os.environ.pop("GOOGLE_CLIENT_ID", None)
+                    os.environ.pop("GOOGLE_CLIENT_SECRET", None)
+                    if env_file.exists():
+                        unset_key(str(env_file), "GOOGLE_CLIENT_ID")
+                        unset_key(str(env_file), "GOOGLE_CLIENT_SECRET")
+                    console.print(
+                        "\n[yellow]Cleared cached credentials. Please enter new OAuth credentials.[/yellow]\n"
+                    )
+                    client_id = ""
+                    client_secret = ""
+                    continue
+
+                # Exit loop on successful OAuth callback (has code, not sentinel)
+                break
 
             # Verify state parameter
             if oauth_response.get("state") != state:
                 console.print("[red]✗ Invalid state parameter (possible CSRF attack)[/red]")
-                return False
+                return None
 
             # Exchange authorization code for tokens
             console.print("\n[cyan]Exchanging authorization code for tokens...[/cyan]")
@@ -253,6 +288,18 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             if not tokens:
                 console.print("[red]✗ Token exchange failed[/red]")
                 return None
+
+            # Save OAuth client credentials to .env only after token exchange succeeds.
+            # Token exchange validates the client_id/secret against Google's endpoint.
+            # If invalid, we never reach this point and bad credentials are not persisted.
+            if client_id and client_secret:
+                from dotenv import set_key
+
+                if not env_file.exists():
+                    env_file.touch()
+                set_key(str(env_file), "GOOGLE_CLIENT_ID", client_id)
+                set_key(str(env_file), "GOOGLE_CLIENT_SECRET", client_secret)
+                console.print("[dim]Saved credentials to .env for future use[/dim]")
 
             # Fetch user info to get email (identifier)
             console.print("\n[cyan]Fetching user info...[/cyan]")
