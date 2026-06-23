@@ -3,6 +3,7 @@
 Automatically generates dbt staging models from configured data sources.
 """
 
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,13 @@ def _has_not_null_test(tests: list) -> bool:
         if isinstance(test, dict) and "not_null" in test:
             return True
     return False
+
+
+def _quote_column_name(name: str) -> str:
+    """Double-quote a column name if it contains special characters."""
+    if name and all(c.isalnum() or c == "_" for c in name):
+        return name
+    return f'"{name}"'
 
 
 class DbtModelGenerator:
@@ -320,6 +328,7 @@ class DbtModelGenerator:
         dedup_strategy: str | None = None,
         dedup_columns: list[str] | None = None,
         date_cast_columns: list[str] | None = None,
+        staging_columns: list[dict] | None = None,
     ) -> str:
         """
         Generate staging model SQL for a data source
@@ -330,6 +339,8 @@ class DbtModelGenerator:
             schema_name: Schema name in DuckDB (raw or raw_{source_name})
             dedup_strategy: Deduplication strategy (one of DEDUP_STRATEGIES keys)
             dedup_columns: Columns to use for deduplication
+            date_cast_columns: Columns to CAST from TIMESTAMPTZ to DATE
+            staging_columns: Column definitions with "name" and "type" keys for explicit listing
 
         Returns:
             Generated SQL content
@@ -341,6 +352,16 @@ class DbtModelGenerator:
                 f"Invalid dedup_strategy '{dedup_strategy}'. Must be one of: {valid_strategies}"
             )
 
+        # Prepare columns with quoted names for the template
+        prepared_columns = []
+        for col in staging_columns or []:
+            prepared_columns.append(
+                {
+                    "name": col["name"],
+                    "quoted_name": _quote_column_name(col["name"]),
+                }
+            )
+
         # Template context
         context = {
             "source_name": source.name,
@@ -350,6 +371,7 @@ class DbtModelGenerator:
             "dedup_strategy": dedup_strategy,
             "dedup_columns": dedup_columns or [],
             "date_cast_columns": date_cast_columns or [],
+            "staging_columns": prepared_columns,
             "generated_at": datetime.now().isoformat(),
         }
 
@@ -573,7 +595,10 @@ class DbtModelGenerator:
                     date_cast_columns: list[str] = []
                     if source.type.value == "google_analytics":
                         for col in staging_columns:
-                            if col["name"] == "date" and "TIMESTAMP" in col["type"].upper():
+                            if (
+                                re.search(r"\bdate\b", col["name"].lower())
+                                and "TIMESTAMP" in col["type"].upper()
+                            ):
                                 date_cast_columns.append(col["name"])
 
                     # Generate staging model SQL
@@ -584,6 +609,7 @@ class DbtModelGenerator:
                         dedup_strategy=dedup_strategy,
                         dedup_columns=dedup_columns,
                         date_cast_columns=date_cast_columns,
+                        staging_columns=staging_columns,
                     )
 
                     # Write model file
