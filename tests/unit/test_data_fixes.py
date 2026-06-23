@@ -9,12 +9,36 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from dango.config.models import DataSource, SourceType
-from dango.transformation.generator import DbtModelGenerator
+from dango.transformation.generator import DbtModelGenerator, _quote_column_name
 
 
 def _make_source(name: str, source_type: str) -> DataSource:
     """Create a minimal DataSource for testing."""
     return DataSource(name=name, type=SourceType(source_type))
+
+
+# ---------------------------------------------------------------------------
+# _quote_column_name unit tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestQuoteColumnName:
+    def test_alphanumeric_unquoted(self):
+        """Column names with only alphanumeric and underscore are not quoted."""
+        assert _quote_column_name("id") == "id"
+        assert _quote_column_name("customer_id") == "customer_id"
+        assert _quote_column_name("_dlt_load_id") == "_dlt_load_id"
+
+    def test_special_chars_quoted(self):
+        """Column names with spaces, hyphens, or other special chars are double-quoted."""
+        assert _quote_column_name("spaces in name") == '"spaces in name"'
+        assert _quote_column_name("column-name") == '"column-name"'
+        assert _quote_column_name("col.name") == '"col.name"'
+
+    def test_empty_string_quoted(self):
+        """Empty column name is quoted (edge case, shouldn't occur in practice)."""
+        assert _quote_column_name("") == '""'
 
 
 # ---------------------------------------------------------------------------
@@ -156,9 +180,13 @@ class TestGA4DateCast:
             table_name="sessions",
             schema_name="raw_my_ga4",
             date_cast_columns=["date"],
+            staging_columns=[
+                {"name": "date", "type": "TIMESTAMP WITH TIME ZONE"},
+                {"name": "sessions", "type": "BIGINT"},
+            ],
         )
 
-        assert "REPLACE" in sql
+        assert "WITH source AS" in sql
         assert "CAST(date AS DATE) AS date" in sql
         assert "source('my_ga4', 'sessions')" in sql
 
@@ -175,10 +203,14 @@ class TestGA4DateCast:
             source=source,
             table_name="charges",
             schema_name="raw_my_stripe",
+            staging_columns=[
+                {"name": "id", "type": "VARCHAR"},
+                {"name": "amount", "type": "BIGINT"},
+            ],
         )
 
-        assert "REPLACE" not in sql
-        assert "SELECT *" in sql
+        assert "WITH source AS" in sql
+        assert "CAST" not in sql
         assert "source('my_stripe', 'charges')" in sql
 
     def test_ga4_no_cast_when_already_date(self, tmp_path: Path):
@@ -196,10 +228,14 @@ class TestGA4DateCast:
             table_name="sessions",
             schema_name="raw_my_ga4",
             date_cast_columns=[],
+            staging_columns=[
+                {"name": "date", "type": "DATE"},
+                {"name": "sessions", "type": "BIGINT"},
+            ],
         )
 
-        assert "REPLACE" not in sql
-        assert "SELECT *" in sql
+        assert "WITH source AS" in sql
+        assert "CAST" not in sql
 
     def test_ga4_date_detection_in_generate_all_models(self, tmp_path: Path):
         """generate_all_models detects TIMESTAMP date columns for GA4 sources."""
@@ -235,7 +271,15 @@ class TestGA4DateCast:
             gen.generate_all_models([source], generate_schema_yml=False)
 
             mock_gen.assert_called_once()
-            assert mock_gen.call_args.kwargs.get("date_cast_columns") == ["date"]
+            call_kwargs = mock_gen.call_args.kwargs
+            assert call_kwargs.get("date_cast_columns") == ["date"]
+            # Verify staging_columns is passed with _dlt_*/_dango_* filtered out
+            staging_cols = call_kwargs.get("staging_columns")
+            assert staging_cols is not None
+            staging_names = [c["name"] for c in staging_cols]
+            assert "_dlt_load_id" not in staging_names
+            assert "_dlt_id" not in staging_names
+            assert "sessions" in staging_names
 
     def test_ga4_no_detection_when_date_is_date_type(self, tmp_path: Path):
         """generate_all_models does NOT add date_cast_columns when type is already DATE."""
@@ -272,6 +316,8 @@ class TestGA4DateCast:
 
             mock_gen.assert_called_once()
             assert mock_gen.call_args.kwargs.get("date_cast_columns") == []
+            # Verify staging_columns is passed even when no date casts needed
+            assert mock_gen.call_args.kwargs.get("staging_columns") is not None
 
 
 # ---------------------------------------------------------------------------
