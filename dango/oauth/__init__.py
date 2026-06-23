@@ -256,10 +256,45 @@ class OAuthManager:
 
                     time.sleep(0.5)
 
-                # Timeout — offer retry
+                # Timeout — offer retry with troubleshooting guidance
                 console.print(
-                    f"\n[red]✗ Authorization timeout after {timeout_seconds} seconds[/red]"
+                    f"\n[red]✗ Authorization timed out after {timeout_seconds} seconds[/red]"
                 )
+                console.print(
+                    "\n[yellow]  This usually means your OAuth credentials are incorrect or you did not[/yellow]"
+                )
+                console.print("[yellow]  complete the authorization in the browser.[/yellow]")
+                if provider_name.lower() == "google":
+                    console.print(
+                        "\n[yellow]  Check the following in Google Cloud Console:[/yellow]"
+                    )
+                    console.print(
+                        "[yellow]  1. Your Client ID and Client Secret are correct[/yellow]"
+                    )
+                    console.print(
+                        f"[yellow]  2. The redirect URI [cyan]{self.callback_url}[/cyan] is listed in[/yellow]"
+                    )
+                    console.print(
+                        "[yellow]     Authorized redirect URIs (APIs & Services > Credentials)[/yellow]"
+                    )
+                    console.print(
+                        "[yellow]  3. The required API is enabled (APIs & Services > Library)[/yellow]"
+                    )
+                    console.print(
+                        "[yellow]  4. Your email is added as a Test User (OAuth consent screen)[/yellow]"
+                    )
+                    console.print("[yellow]     if the app is in Testing mode[/yellow]")
+                    console.print(
+                        "\n[yellow]  Link: https://console.cloud.google.com/apis/credentials[/yellow]"
+                    )
+                else:
+                    console.print(
+                        "\n[yellow]  Check that your OAuth credentials are correct and that the[/yellow]"
+                    )
+                    console.print(
+                        f"[yellow]  redirect URI [cyan]{self.callback_url}[/cyan] is configured in your[/yellow]"
+                    )
+                    console.print("[yellow]  provider's developer console.[/yellow]")
                 server.server_close()
                 server_thread.join(timeout=2)
             finally:
