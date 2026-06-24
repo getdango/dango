@@ -25,6 +25,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -118,7 +119,10 @@ def launch_sync_subprocess(
     # Capture subprocess output to a log file (was DEVNULL — silent crashes)
     log_dir = project_root / ".dango" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / f"sync_{sync_id}.log"
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    source_tag = sources[0].replace("/", "_") if sources else "unknown"
+    log_path = log_dir / f"sync_{source_tag}_{ts}.log"
 
     args_dict: dict[str, Any] = {
         "project_root": str(project_root),
@@ -433,7 +437,6 @@ def _handle_crash(
             recent = load_sync_history(project_root, src, limit=1)
             if recent and recent[0].get("status") in ("failed", "success", "partial"):
                 # Check if this entry is recent (within last 5 minutes)
-                from datetime import datetime, timezone
 
                 entry_ts = recent[0].get("timestamp", "")
                 try:
@@ -485,8 +488,6 @@ def _handle_crash(
 
 def _ts() -> str:
     """UTC ISO timestamp."""
-    from datetime import datetime, timezone
-
     return datetime.now(tz=timezone.utc).isoformat()
 
 
