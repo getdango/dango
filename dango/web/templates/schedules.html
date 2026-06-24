@@ -51,11 +51,7 @@
                                       x-text="sched.type"></span>
                             </td>
                             <td class="px-6 py-4 text-sm text-gray-500 hidden md:table-cell">
-                                <ul class="list-disc list-inside space-y-0.5">
-                                    <template x-for="src in sched.sources.sort()" :key="src">
-                                        <li x-text="src"></li>
-                                    </template>
-                                </ul>
+                                <span x-text="sched.sources.sort().join(' • ')"></span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
                                 x-text="humanCron(sched.cron)"></td>
@@ -435,7 +431,10 @@ function schedulesPage() {
             if (!iso) return '—';
             let ts = String(iso);
             if (!ts.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ts)) { ts += 'Z'; }
-            const diff = (new Date() - new Date(ts)) / 1000;
+            const date = new Date(ts);
+            if (isNaN(date.getTime())) return '—';
+            const now = new Date();
+            const diff = (now - date) / 1000;
             if (diff < 0) {
                 const absDiff = Math.abs(diff);
                 if (absDiff < 60) return 'in ' + Math.round(absDiff) + 's';
@@ -443,10 +442,23 @@ function schedulesPage() {
                 if (absDiff < 86400) return 'in ' + Math.round(absDiff / 3600) + 'h';
                 return 'in ' + Math.round(absDiff / 86400) + 'd';
             }
-            if (diff < 60) return Math.round(diff) + 's ago';
-            if (diff < 3600) return Math.round(diff / 60) + ' min ago';
-            if (diff < 86400) return Math.round(diff / 3600) + 'h ago';
-            return Math.round(diff / 86400) + 'd ago';
+            // Unified thresholds (FUP-13)
+            const seconds = Math.floor(diff);
+            if (seconds < 60) return 'just now';
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return minutes + ' min ago';
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return hours + 'h ago';
+            const days = Math.floor(hours / 24);
+            if (days < 7) {
+                return date.toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+            }
+            // 7+ days — month + day, add year if not current year
+            const monthDay = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            if (date.getFullYear() !== now.getFullYear()) {
+                return monthDay + ', ' + date.getFullYear();
+            }
+            return monthDay;
         },
         formatDuration(seconds) {
             if (seconds == null) return '—';
