@@ -167,52 +167,16 @@ function getTotalFileOperations() {
 function formatRelativeTime(timestamp) {
     if (!timestamp) return 'Never';
 
-    // Server sends UTC timestamps (with +00:00 or Z suffix).
-    // For legacy naive timestamps, append 'Z' so the browser treats them as UTC.
+    const text = timeAgoIso(timestamp);
+    if (text === '\u2014') return 'Invalid date';
+
+    // Build full timestamp for the tooltip
     let ts = String(timestamp);
-    if (!ts.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ts)) {
-        ts += 'Z';
-    }
+    if (!ts.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ts)) ts += 'Z';
     const date = new Date(ts);
-    if (isNaN(date.getTime())) return 'Invalid date';
+    const fullTimestamp = isNaN(date.getTime()) ? String(timestamp) : date.toLocaleString();
 
-    const now = new Date();
-    const seconds = Math.floor((now - date) / 1000);
-    const fullTimestamp = date.toLocaleString();
-
-    // Small negative values (clock skew up to 60s) → "just now"
-    // Large negative values → show the actual date (something is wrong)
-    if (seconds < -60) {
-        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${date.toLocaleDateString()}</span>`;
-    }
-    if (seconds < 0) {
-        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">just now</span>`;
-    }
-
-    // Unified thresholds (FUP-13)
-    if (seconds < 60) {
-        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">just now</span>`;
-    }
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) {
-        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${minutes} min ago</span>`;
-    }
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) {
-        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${hours}h ago</span>`;
-    }
-    const days = Math.floor(hours / 24);
-    if (days < 7) {
-        const dayTime = date.toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${dayTime}</span>`;
-    }
-
-    // 7+ days — month + day, add year if not current year
-    const monthDay = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    if (date.getFullYear() !== now.getFullYear()) {
-        return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${monthDay}, ${date.getFullYear()}</span>`;
-    }
-    return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${monthDay}</span>`;
+    return `<span data-tooltip="${fullTimestamp}" class="tooltip cursor-help">${text}</span>`;
 }
 
 // Initialize on page load — conditionally based on which page elements exist

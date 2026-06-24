@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -143,7 +144,9 @@ class TestLaunchSyncSubprocess:
 
         assert process is mock_process
         assert len(sync_id) == 12  # uuid hex[:12]
-        assert log_path.name == f"sync_{sync_id}.log"
+
+        name_match = re.match(r"^sync_hubspot_\d{8}_\d{6}\.log$", log_path.name)
+        assert name_match, f"Unexpected log name: {log_path.name}"
         call_args = mock_popen.call_args
         cmd = call_args[0][0]
         assert cmd[0] == sys.executable

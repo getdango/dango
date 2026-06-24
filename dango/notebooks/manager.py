@@ -167,23 +167,15 @@ def start_marimo(
             env=env,
         )
 
-        # Wait for Marimo to start responding (up to 10 seconds).
-        # 1 second is often insufficient on cold start.
-        started = False
-        for _attempt in range(10):
+        # Wait for Marimo to start responding (poll until ready or dead).
+        # Previously used a fixed 10-attempt loop which redirected to an
+        # unready server if marimo was slow to boot (FUP-15).
+        while True:
             time.sleep(1)
             if proc.poll() is not None:
                 raise RuntimeError(f"Marimo failed to start. Check logs at {log_file}")
             if _is_marimo_responding(port, timeout=1.0):
-                started = True
                 break
-
-        if not started:
-            logger.warning(
-                "Marimo process running (PID %d) but not yet responding on port %d",
-                proc.pid,
-                port,
-            )
 
         pid_file.write_text(str(proc.pid))
 

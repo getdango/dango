@@ -124,7 +124,7 @@ class TestConfigureLoggingWiring:
         from dango.logging import configure_logging, get_logger
 
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
 
         logger = get_logger("fup4.test")
         logger.info("check_configured")
