@@ -30,7 +30,7 @@ class TestGetMarimoPidFilePath:
 @pytest.mark.unit
 class TestStartMarimo:
     @patch("dango.notebooks.manager._get_idle_timeout", return_value=7200)
-    @patch("dango.notebooks.manager._is_marimo_responding", side_effect=[False, True])
+    @patch("dango.notebooks.manager._is_marimo_responding", return_value=True)
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
     @patch("dango.notebooks.manager.subprocess.Popen")
     def test_start_creates_pid_file(
@@ -62,7 +62,7 @@ class TestStartMarimo:
             self._call(tmp_path, port=7805)
 
     @patch("dango.notebooks.manager._get_idle_timeout", return_value=7200)
-    @patch("dango.notebooks.manager._is_marimo_responding", side_effect=[False, True])
+    @patch("dango.notebooks.manager._is_marimo_responding", return_value=True)
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
     @patch("dango.notebooks.manager.subprocess.Popen")
     def test_start_cleans_stale_pid(
@@ -328,7 +328,7 @@ class TestStartMarimoCloudBaseUrl:
     """Tests for --base-url flag when running in cloud mode."""
 
     @patch("dango.notebooks.manager._get_idle_timeout", return_value=3600)
-    @patch("dango.notebooks.manager._is_marimo_responding", side_effect=[False, True])
+    @patch("dango.notebooks.manager._is_marimo_responding", return_value=True)
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
     @patch("dango.notebooks.manager.subprocess.Popen")
     @patch("dango.config.helpers.is_running_on_cloud", return_value=True)
@@ -358,7 +358,7 @@ class TestStartMarimoCloudBaseUrl:
         assert cmd[idx + 1] == "/notebooks/marimo"
 
     @patch("dango.notebooks.manager._get_idle_timeout", return_value=7200)
-    @patch("dango.notebooks.manager._is_marimo_responding", side_effect=[False, True])
+    @patch("dango.notebooks.manager._is_marimo_responding", return_value=True)
     @patch("dango.notebooks.manager.is_process_running", return_value=False)
     @patch("dango.notebooks.manager.subprocess.Popen")
     @patch("dango.config.helpers.is_running_on_cloud", return_value=False)
@@ -391,7 +391,7 @@ class TestStartMarimoSnapshotPath:
     """Tests for snapshot_path env var in start_marimo()."""
 
     @patch("dango.notebooks.manager._get_idle_timeout", return_value=7200)
-    @patch("dango.notebooks.manager._is_marimo_responding", side_effect=[False, True])
+    @patch("dango.notebooks.manager._is_marimo_responding", return_value=True)
     @patch("dango.notebooks.manager.is_process_running", return_value=True)
     def test_with_snapshot_path_sets_env_var(
         self,
@@ -425,7 +425,7 @@ class TestStartMarimoSnapshotPath:
             assert env["DANGO_NOTEBOOK_DB_PATH"] == str(snapshot)
 
     @patch("dango.notebooks.manager._get_idle_timeout", return_value=7200)
-    @patch("dango.notebooks.manager._is_marimo_responding", side_effect=[False, True])
+    @patch("dango.notebooks.manager._is_marimo_responding", return_value=True)
     @patch("dango.notebooks.manager.is_process_running", return_value=True)
     def test_without_snapshot_no_env_var(
         self,

@@ -107,16 +107,6 @@ def start_marimo(
         config = loader.load_config()
         port = config.platform.marimo_port
 
-    # After force-unlock, marimo may still be running on the configured port.
-    # Check if the port is already responding before starting a new instance.
-    if _is_marimo_responding(port):
-        logger.debug("Marimo already responding on port %d — reusing existing server", port)
-        # PID file may be missing (e.g., after force-unlock), but we can't
-        # recover it without knowing the PID. The server is reachable, so
-        # return success. stop_marimo() won't find a PID to kill — the
-        # process will exit via its own --timeout or manual kill.
-        return None
-
     notebooks_dir = project_root / "notebooks"
     notebooks_dir.mkdir(parents=True, exist_ok=True)
 

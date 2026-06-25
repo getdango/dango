@@ -50,6 +50,8 @@ jobs:
           cache: pip
       - run: pip install -c constraints.txt -e ".[dev]"
       - name: pytest
+        env:
+          DANGO_LOG_LEVEL: ERROR
         run: pytest --tb=short -q
 
   security:
