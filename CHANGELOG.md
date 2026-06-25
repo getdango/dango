@@ -5,6 +5,41 @@ All notable changes to Dango will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-06-25
+
+### Added
+
+- Sync queue — concurrent syncs wait instead of failing with "Lock unavailable," with queued status in the web UI (F-1)
+- WebSocket sync phase events — UI shows "Processing..." during post-sync hooks instead of "Syncing..." (P1-2)
+- Structured logging wired up — JSON logs to `.dango/logs/dango.log` with daily rotation, gzip compression, and `dango_version` field in every entry
+- `dango_version` field in activity log, audit log, and sync subprocess headers
+- Schedules page: sources displayed as alphabetically sorted bullet list instead of comma-separated text
+- OAuth timeout with 120s limit, retry option, and provider-specific troubleshooting (Google Cloud Console checklist)
+- Quality gate automated tests (`test_quality_gate.py`) — verifies version consistency across API responses, logging, and sync subprocesses
+- Shared `timeAgoIso()` frontend utility in `static/js/utils.js`
+
+### Fixed
+
+- OAuth credentials saved only after token exchange succeeds, not before entry (P2-3)
+- Cross-project port kill — `dango stop` scoped to current project via CWD verification, Docker containers filtered by compose project label (P0-3)
+- Staging models generate explicit column lists instead of `SELECT *`, exclude `_dlt_*` and `_dango_*` internal columns, cast GA4 date columns from TIMESTAMPTZ to DATE (P7-2)
+- Console log level set to WARNING — no more structlog INFO spam in terminal during sync
+- Presidio CARDINAL, PRODUCT, MONEY entity warnings suppressed
+- `dango source list` shows full source names without truncation
+- Timestamp display unified across Sources and Schedules pages (relative < 24h, day+time < 7d, month+day beyond)
+- Sync log filenames include source name and timestamp (was `sync_<uuid>.log`)
+- Notebook startup waits indefinitely for marimo to respond (removed 10-second timeout that redirected to unready server)
+- `configure_logging()` default `log_dir` respects `DANGO_PROJECT_ROOT` env var instead of CWD
+- FastAPI version field uses `dango.__version__` instead of hardcoded `"0.1.0"`
+- `DANGO_LOG_LEVEL=ERROR` scoped to CI workflow only, not global docs — prevents tests from silently breaking when env var is set
+- `_is_marimo_responding()` no longer called twice in `start_marimo()` — removed redundant early-exit guard
+
+### Removed
+
+- `--source` flag from `dango sync` — use positional arg: `dango sync <name>`
+- `--merge-queue` references from CLAUDE.md (not available in this environment)
+- Duplicate `sync_started` event emission
+
 ## [1.0.4] - 2026-06-15
 
 ### Added
