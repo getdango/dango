@@ -15,6 +15,9 @@
     <!-- Alpine.js via CDN (ADR-007: used for new page interactivity) -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
 
+    <!-- Shared Dango utilities (timeAgoIso, etc.) -->
+    <script src="{{ static_url('js/utils.js') }}"></script>
+
     <style>[x-cloak] { display: none !important; }</style>
 </head>
 <body class="bg-gray-50">
@@ -72,14 +75,19 @@
 
                 <!-- Right side: sync indicator + user email + settings gear + hamburger (mobile) -->
                 <div class="flex items-center space-x-2 ml-auto" x-data="globalSyncIndicator()" x-init="init()">
-                    <!-- Global sync status indicator -->
-                    <div x-show="activeSyncCount > 0" x-cloak
+                    <!-- Global sync status indicator (queued + active) -->
+                    <div x-show="queuedCount > 0 || activeSyncCount > 0" x-cloak
                          class="flex items-center space-x-1.5 px-2 py-1 rounded-md bg-gray-700 text-xs text-gray-200">
-                        <svg class="animate-spin h-3.5 w-3.5 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <!-- Clock icon when queued (not yet syncing) -->
+                        <svg x-show="activeSyncCount === 0 && queuedCount > 0" class="h-3.5 w-3.5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <!-- Spinner when actively syncing (purple = post-sync, blue = syncing) -->
+                        <svg x-show="activeSyncCount > 0" class="animate-spin h-3.5 w-3.5" :class="_postSyncSources.size === activeSyncCount && activeSyncCount > 0 ? 'text-purple-400' : 'text-blue-400'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                         </svg>
-                        <span x-text="'Syncing ' + activeSyncCount + ' source' + (activeSyncCount > 1 ? 's' : '')"></span>
+                        <span x-text="statusText"></span>
                     </div>
                     {% if request.state.user %}
                     <span class="text-xs text-gray-400 hidden lg:inline mr-2">{{ request.state.user.email }}</span>
@@ -163,7 +171,10 @@
     function globalSyncIndicator() {
         return {
             activeSyncCount: 0,
+            queuedCount: 0,
             _activeSources: new Set(),
+            _postSyncSources: new Set(),
+            _queuedSources: new Set(),
             _ws: null,
             _reconnectTimer: null,
             init() {
@@ -173,6 +184,18 @@
                 if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
                 if (this._ws) this._ws.close();
             },
+            get statusText() {
+                if (this.activeSyncCount > 0) {
+                    let verb = this._postSyncSources.size === this.activeSyncCount ? 'Processing' : 'Syncing';
+                    let text = verb + ' ' + this.activeSyncCount;
+                    if (this.queuedCount > 0) text += ' (+' + this.queuedCount + ' queued)';
+                    return text;
+                }
+                if (this.queuedCount > 0) {
+                    return 'Queued ' + this.queuedCount + ' source' + (this.queuedCount > 1 ? 's' : '');
+                }
+                return '';
+            },
             _connect() {
                 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
                 this._ws = new WebSocket(`${proto}//${location.host}/ws`);
@@ -181,12 +204,26 @@
                     try {
                         const data = JSON.parse(e.data);
                         const source = data.source || '';
-                        if (data.event === 'sync_started' && source) {
+                        if (data.event === 'sync_queued' && source) {
+                            this._activeSources.delete(source);
+                            this._queuedSources.add(source);
+                        } else if (data.event === 'sync_started' && source) {
+                            this._queuedSources.delete(source);
                             this._activeSources.add(source);
+                        } else if (data.event === 'sync_progress' && source && data.phase === 'data_load' && this._queuedSources.has(source)) {
+                            this._queuedSources.delete(source);
+                            this._activeSources.add(source);
+                        } else if (data.event === 'post_sync_started' && source) {
+                            this._postSyncSources.add(source);
+                        } else if (data.event === 'post_sync_completed' && source) {
+                            this._postSyncSources.delete(source);
                         } else if ((data.event === 'sync_completed' || data.event === 'sync_failed') && source) {
                             this._activeSources.delete(source);
+                            this._postSyncSources.delete(source);
+                            this._queuedSources.delete(source);
                         }
                         this.activeSyncCount = this._activeSources.size;
+                        this.queuedCount = this._queuedSources.size;
                     } catch {}
                 };
                 this._ws.onclose = () => {

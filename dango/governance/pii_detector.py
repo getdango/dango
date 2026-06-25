@@ -162,6 +162,9 @@ def _get_analyzer() -> Any | None:
             nlp_configuration={
                 "nlp_engine_name": "spacy",
                 "models": [{"lang_code": "en", "model_name": _SPACY_MODEL}],
+                "ner_model_configuration": {
+                    "labels_to_ignore": ["CARDINAL", "PRODUCT", "MONEY"],
+                },
             }
         )
         _analyzer = AnalyzerEngine(nlp_engine=provider.create_engine())

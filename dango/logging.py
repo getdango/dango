@@ -36,6 +36,8 @@ from structlog.contextvars import (
     unbind_contextvars,
 )
 
+import dango
+
 __all__ = [
     "configure_logging",
     "get_logger",
@@ -127,6 +129,7 @@ def configure_logging(
     log_level: str | None = None,
     log_dir: Path | None = None,
     json_console: bool = False,
+    console_level: str | None = None,
 ) -> None:
     """Configure structured logging for Dango.
 
@@ -140,12 +143,20 @@ def configure_logging(
             falls back to console-only logging with a warning.
         json_console: If True, console output uses JSON. Otherwise uses
             structlog's ``ConsoleRenderer`` (human-readable, colored when TTY).
+        console_level: Logging level for console output only. Defaults to
+            ``"WARNING"`` so that sync progress lines are not printed to the
+            terminal. The file handler continues to use *log_level*.
     """
     level = _resolve_log_level(log_level)
+    resolved_console_level = _resolve_log_level(console_level or "WARNING")
 
     # Resolve log directory
     if log_dir is None:
-        log_dir = Path.cwd() / ".dango" / "logs"
+        project_root_env = os.environ.get("DANGO_PROJECT_ROOT")
+        if project_root_env:
+            log_dir = Path(project_root_env) / ".dango" / "logs"
+        else:
+            log_dir = Path.cwd() / ".dango" / "logs"
 
     # --- Build handlers ---
     handlers: dict[str, dict] = {}
@@ -164,7 +175,7 @@ def configure_logging(
         "class": "logging.StreamHandler",
         "formatter": console_formatter,
         "stream": "ext://sys.stderr",
-        "level": level,
+        "level": resolved_console_level,
     }
 
     # --- stdlib logging config ---
@@ -209,6 +220,9 @@ def configure_logging(
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=False,
     )
+
+    # Bind version at process start — static for the lifetime of the process.
+    bind_contextvars(dango_version=dango.__version__)
 
     if not file_handler_ok:
         logger = get_logger("dango.logging")

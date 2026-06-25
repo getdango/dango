@@ -107,16 +107,6 @@ def start_marimo(
         config = loader.load_config()
         port = config.platform.marimo_port
 
-    # After force-unlock, marimo may still be running on the configured port.
-    # Check if the port is already responding before starting a new instance.
-    if _is_marimo_responding(port):
-        logger.debug("Marimo already responding on port %d — reusing existing server", port)
-        # PID file may be missing (e.g., after force-unlock), but we can't
-        # recover it without knowing the PID. The server is reachable, so
-        # return success. stop_marimo() won't find a PID to kill — the
-        # process will exit via its own --timeout or manual kill.
-        return None
-
     notebooks_dir = project_root / "notebooks"
     notebooks_dir.mkdir(parents=True, exist_ok=True)
 
@@ -167,23 +157,15 @@ def start_marimo(
             env=env,
         )
 
-        # Wait for Marimo to start responding (up to 10 seconds).
-        # 1 second is often insufficient on cold start.
-        started = False
-        for _attempt in range(10):
+        # Wait for Marimo to start responding (poll until ready or dead).
+        # Previously used a fixed 10-attempt loop which redirected to an
+        # unready server if marimo was slow to boot (FUP-15).
+        while True:
             time.sleep(1)
             if proc.poll() is not None:
                 raise RuntimeError(f"Marimo failed to start. Check logs at {log_file}")
             if _is_marimo_responding(port, timeout=1.0):
-                started = True
                 break
-
-        if not started:
-            logger.warning(
-                "Marimo process running (PID %d) but not yet responding on port %d",
-                proc.pid,
-                port,
-            )
 
         pid_file.write_text(str(proc.pid))
 

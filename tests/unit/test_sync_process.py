@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -143,7 +144,9 @@ class TestLaunchSyncSubprocess:
 
         assert process is mock_process
         assert len(sync_id) == 12  # uuid hex[:12]
-        assert log_path.name == f"sync_{sync_id}.log"
+
+        name_match = re.match(r"^sync_hubspot_\d{8}_\d{6}\.log$", log_path.name)
+        assert name_match, f"Unexpected log name: {log_path.name}"
         call_args = mock_popen.call_args
         cmd = call_args[0][0]
         assert cmd[0] == sys.executable
@@ -743,3 +746,177 @@ class TestBroadcastDbtError:
         call_msg = broadcast_fn.call_args[0][0]
         assert call_msg["event"] == "dbt_run_all_failed"
         assert call_msg["source"] == "dbt (triggered by hubspot)"
+
+
+@pytest.mark.unit
+class TestPhaseToEvent:
+    """Tests for _phase_to_event mapping function."""
+
+    def test_post_sync_phase_mappings(self):
+        """post_sync_started and post_sync_completed map to themselves."""
+        from dango.platform.sync_process import _phase_to_event
+
+        assert _phase_to_event("post_sync_started") == "post_sync_started"
+        assert _phase_to_event("post_sync_completed") == "post_sync_completed"
+
+    def test_existing_mappings_unchanged(self):
+        """Existing phase mappings are not affected."""
+        from dango.platform.sync_process import _phase_to_event
+
+        assert _phase_to_event("lock_waiting") == "sync_queued"
+        assert _phase_to_event("data_load_complete") == "data_load_complete"
+        assert _phase_to_event("dbt_started") == "dbt_run_all_started"
+        assert _phase_to_event("dbt_complete") == "dbt_run_all_completed"
+        assert _phase_to_event("completed") == "sync_completed"
+        assert _phase_to_event("failed") == "sync_failed"
+
+    def test_unknown_phase_defaults_to_sync_progress(self):
+        """Unknown phases (including removed 'starting') fall back to sync_progress."""
+        from dango.platform.sync_process import _phase_to_event
+
+        assert _phase_to_event("starting") == "sync_progress"
+        assert _phase_to_event("nonexistent_phase") == "sync_progress"
+
+
+@pytest.mark.unit
+class TestBroadcastPostSyncPhases:
+    """Tests for broadcast behavior with post_sync phase events."""
+
+    @pytest.mark.anyio
+    async def test_broadcast_post_sync_started_includes_source(self):
+        """_broadcast_phase_transition for post_sync_started includes source name."""
+        from dango.platform.sync_process import _broadcast_phase_transition
+
+        mock_ws = MagicMock()
+        mock_ws.broadcast = AsyncMock()
+
+        status = {"message": "Running post-sync hooks (profiling, PII scan, analysis, snapshots)"}
+        await _broadcast_phase_transition(mock_ws, "hubspot", "post_sync_started", status)
+
+        call_msg = mock_ws.broadcast.call_args[0][0]
+        assert call_msg["event"] == "post_sync_started"
+        assert call_msg["source"] == "hubspot"
+        assert call_msg["message"] == status["message"]
+
+    @pytest.mark.anyio
+    async def test_broadcast_post_sync_completed_includes_source(self):
+        """_broadcast_phase_transition for post_sync_completed includes source name."""
+        from dango.platform.sync_process import _broadcast_phase_transition
+
+        mock_ws = MagicMock()
+        mock_ws.broadcast = AsyncMock()
+
+        status = {"message": "Post-sync hooks complete"}
+        await _broadcast_phase_transition(mock_ws, "stripe", "post_sync_completed", status)
+
+        call_msg = mock_ws.broadcast.call_args[0][0]
+        assert call_msg["event"] == "post_sync_completed"
+        assert call_msg["source"] == "stripe"
+        assert call_msg["message"] == status["message"]
+
+
+@pytest.mark.unit
+class TestBlockingPollPostSyncPhases:
+    """Tests for poll_sync_status_blocking with post_sync phase transitions."""
+
+    def test_blocking_poll_post_sync_started(self, tmp_path):
+        """poll_sync_status_blocking broadcasts post_sync_started for new phase."""
+        from dango.platform.sync_process import poll_sync_status_blocking
+
+        _write_status_file(
+            tmp_path,
+            phase="post_sync_started",
+            sync_id="ps_block",
+            message="Running post-sync hooks",
+        )
+        process = MagicMock()
+        process.poll.return_value = None  # still running
+        broadcast_fn = MagicMock()
+
+        read_count = [0]
+
+        def _side_effect(proj_root, sync_id=None):
+            read_count[0] += 1
+            if read_count[0] == 1:
+                return {
+                    "pid": os.getpid(),
+                    "phase": "post_sync_started",
+                    "message": "Running post-sync hooks",
+                    "sources": ["hubspot"],
+                }
+            # Return completed on next read to terminate
+            return {
+                "pid": os.getpid(),
+                "phase": "completed",
+                "message": "Done",
+                "sources": ["hubspot"],
+            }
+
+        with (
+            patch(f"{_MOD}.read_sync_status", side_effect=_side_effect),
+            patch(f"{_MOD}.time.sleep"),
+        ):
+            success, _ = poll_sync_status_blocking(
+                tmp_path,
+                process,
+                source_name="hubspot",
+                sync_id="ps_block",
+                broadcast_fn=broadcast_fn,
+                poll_interval=0.01,
+            )
+
+        assert success is True
+        # Should have broadcast at least post_sync_started and sync_completed
+        events = [c[0][0]["event"] for c in broadcast_fn.call_args_list]
+        assert "post_sync_started" in events
+        assert "sync_completed" in events
+
+    def test_blocking_poll_post_sync_completed(self, tmp_path):
+        """poll_sync_status_blocking broadcasts post_sync_completed for completed phase."""
+        from dango.platform.sync_process import poll_sync_status_blocking
+
+        _write_status_file(
+            tmp_path,
+            phase="post_sync_completed",
+            sync_id="ps_comp",
+            message="Post-sync hooks complete",
+        )
+        process = MagicMock()
+        process.poll.return_value = None  # still running
+        broadcast_fn = MagicMock()
+
+        read_count = [0]
+
+        def _side_effect(proj_root, sync_id=None):
+            read_count[0] += 1
+            if read_count[0] == 1:
+                return {
+                    "pid": os.getpid(),
+                    "phase": "post_sync_completed",
+                    "message": "Post-sync hooks complete",
+                    "sources": ["stripe"],
+                }
+            return {
+                "pid": os.getpid(),
+                "phase": "completed",
+                "message": "Done",
+                "sources": ["stripe"],
+            }
+
+        with (
+            patch(f"{_MOD}.read_sync_status", side_effect=_side_effect),
+            patch(f"{_MOD}.time.sleep"),
+        ):
+            success, _ = poll_sync_status_blocking(
+                tmp_path,
+                process,
+                source_name="stripe",
+                sync_id="ps_comp",
+                broadcast_fn=broadcast_fn,
+                poll_interval=0.01,
+            )
+
+        assert success is True
+        events = [c[0][0]["event"] for c in broadcast_fn.call_args_list]
+        assert "post_sync_completed" in events
+        assert "sync_completed" in events

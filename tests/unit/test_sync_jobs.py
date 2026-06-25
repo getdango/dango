@@ -173,7 +173,7 @@ class TestRunScheduledSync:
         assert call_kwargs["sources"] == ["src1"]
         assert call_kwargs["skip_dbt"] is True
         assert call_kwargs["source_label"] == "scheduler"
-        assert call_kwargs["max_lock_wait"] == 300
+        assert call_kwargs["max_lock_wait"] == 60
 
     def test_broadcasts_sync_started_and_completed(self, tmp_path):
         config = _make_config_with_sources("src1")
@@ -451,7 +451,7 @@ class TestRunScheduledDbt:
 
             run_scheduled_dbt("nightly", "model_name+", project_root=str(tmp_path))
 
-        mock_lock.acquire.assert_called_once()
+        mock_lock.acquire.assert_called_once_with(timeout=60)
         mock_lock.release.assert_called_once()
 
     def test_broadcasts_dbt_events(self, tmp_path):

@@ -71,6 +71,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             app.state.project_root = project_root
         else:
             raise RuntimeError(_PROJECT_ROOT_ERROR)
+
+    from dango.logging import configure_logging
+
+    configure_logging(log_dir=project_root / ".dango" / "logs")
     logger.info("api_starting", project_root=str(project_root))
 
     # Write auth.yml if missing (migration path for pre-075d projects)
@@ -298,7 +302,7 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     application = FastAPI(
         title="Dango API",
         description="API for managing and monitoring Dango data pipelines",
-        version="0.1.0",
+        version=dango.__version__,
         docs_url=None,  # Disable default docs, we'll create custom ones with navbar
         redoc_url=None,  # Disable default redoc
         lifespan=lifespan,

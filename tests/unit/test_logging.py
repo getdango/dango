@@ -44,31 +44,31 @@ def _reset_logging():
 class TestConfigureLogging:
     def test_creates_log_directory(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         assert log_dir.exists()
 
     def test_creates_log_file(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         assert (log_dir / "dango.log").exists()
 
     def test_creates_file_handler(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         root = logging.getLogger()
         handler_types = [type(h).__name__ for h in root.handlers]
         assert "_DangoFileHandler" in handler_types
 
     def test_creates_console_handler(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         root = logging.getLogger()
         handler_types = [type(h).__name__ for h in root.handlers]
         assert "StreamHandler" in handler_types
 
     def test_writes_json_to_file(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         logger = get_logger("test")
         logger.info("test_event", key="value")
 
@@ -81,7 +81,7 @@ class TestConfigureLogging:
 
     def test_idempotent_reconfiguration(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         configure_logging(log_dir=log_dir, json_console=True, log_level="DEBUG")
 
         # Should still be functional after reconfiguration
@@ -127,7 +127,7 @@ class TestGetLogger:
 
     def test_preserves_logger_name_in_output(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         logger = get_logger("my.custom.name")
         logger.info("name_test")
 
@@ -138,7 +138,8 @@ class TestGetLogger:
 
 @pytest.mark.unit
 class TestLogLevelConfiguration:
-    def test_default_level_is_info(self, tmp_path: Path) -> None:
+    def test_default_level_is_info(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("DANGO_LOG_LEVEL", raising=False)
         log_dir = tmp_path / "logs"
         configure_logging(log_dir=log_dir, json_console=True)
         root = logging.getLogger()
@@ -175,7 +176,7 @@ class TestLogLevelConfiguration:
 class TestJSONOutput:
     def test_required_fields_present(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         logger = get_logger("fields.test")
         logger.info("check_fields")
 
@@ -205,7 +206,7 @@ class TestJSONOutput:
 
     def test_structlog_kv_pairs_in_json(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         logger = get_logger("kv.test")
         logger.info("sync_done", source="stripe", rows=42)
 
@@ -218,7 +219,7 @@ class TestJSONOutput:
 class TestFileRotation:
     def _get_file_handler(self, tmp_path: Path) -> logging.Handler:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         root = logging.getLogger()
         timed_handlers = [
             h for h in root.handlers if isinstance(h, logging.handlers.TimedRotatingFileHandler)
@@ -282,7 +283,7 @@ class TestFileRotation:
 class TestCorrelationIds:
     def test_bind_adds_fields_to_output(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         bind_contextvars(request_id="req-123", user_id="usr-456")
         logger = get_logger("ctx.test")
         logger.info("with_context")
@@ -293,7 +294,7 @@ class TestCorrelationIds:
 
     def test_clear_removes_all_context(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         bind_contextvars(request_id="req-123")
         clear_contextvars()
         logger = get_logger("ctx.test")
@@ -304,7 +305,7 @@ class TestCorrelationIds:
 
     def test_unbind_removes_specific_keys(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         bind_contextvars(request_id="req-123", user_id="usr-456")
         unbind_contextvars("request_id")
         logger = get_logger("ctx.test")
@@ -319,7 +320,7 @@ class TestCorrelationIds:
 class TestStdlibIntegration:
     def test_stdlib_logger_produces_structured_json(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         stdlib_logger = logging.getLogger("stdlib.test")
         stdlib_logger.info("stdlib_event")
 
@@ -330,7 +331,7 @@ class TestStdlibIntegration:
 
     def test_stdlib_logger_includes_bound_correlation_ids(self, tmp_path: Path) -> None:
         log_dir = tmp_path / "logs"
-        configure_logging(log_dir=log_dir, json_console=True)
+        configure_logging(log_dir=log_dir, json_console=True, log_level="INFO")
         bind_contextvars(trace_id="trace-abc")
         stdlib_logger = logging.getLogger("stdlib.corr")
         stdlib_logger.info("stdlib_with_ctx")

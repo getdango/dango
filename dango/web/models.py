@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+import dango
+
 
 class TableInfo(BaseModel):
     """Table information for multi-resource sources."""
@@ -44,7 +46,7 @@ class ServiceHealth(BaseModel):
     """Service health check response."""
 
     status: str
-    dango_version: str = "0.1.0"
+    dango_version: str = dango.__version__
     services: dict[str, str]
     uptime: str
 

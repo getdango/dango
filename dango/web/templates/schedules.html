@@ -50,8 +50,9 @@
                                       :class="sched.type.startsWith('sync') ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'"
                                       x-text="sched.type"></span>
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden md:table-cell"
-                                x-text="sched.sources.join(', ')"></td>
+                            <td class="px-6 py-4 text-sm text-gray-500 hidden md:table-cell">
+                                <span x-text="sched.sources.sort().join(' • ')"></span>
+                            </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
                                 x-text="humanCron(sched.cron)"></td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden lg:table-cell"
@@ -427,21 +428,7 @@ function schedulesPage() {
             return m[status] || 'bg-gray-100 text-gray-800';
         },
         timeAgo(iso) {
-            if (!iso) return '—';
-            let ts = String(iso);
-            if (!ts.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(ts)) { ts += 'Z'; }
-            const diff = (new Date() - new Date(ts)) / 1000;
-            if (diff < 0) {
-                const absDiff = Math.abs(diff);
-                if (absDiff < 60) return 'in ' + Math.round(absDiff) + 's';
-                if (absDiff < 3600) return 'in ' + Math.round(absDiff / 60) + ' min';
-                if (absDiff < 86400) return 'in ' + Math.round(absDiff / 3600) + 'h';
-                return 'in ' + Math.round(absDiff / 86400) + 'd';
-            }
-            if (diff < 60) return Math.round(diff) + 's ago';
-            if (diff < 3600) return Math.round(diff / 60) + ' min ago';
-            if (diff < 86400) return Math.round(diff / 3600) + 'h ago';
-            return Math.round(diff / 86400) + 'd ago';
+            return timeAgoIso(iso);
         },
         formatDuration(seconds) {
             if (seconds == null) return '—';

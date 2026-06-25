@@ -25,10 +25,12 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import dango
 from dango.logging import get_logger
 
 logger = get_logger(__name__)
@@ -117,7 +119,10 @@ def launch_sync_subprocess(
     # Capture subprocess output to a log file (was DEVNULL — silent crashes)
     log_dir = project_root / ".dango" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / f"sync_{sync_id}.log"
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    source_tag = sources[0].replace("/", "_") if sources else "unknown"
+    log_path = log_dir / f"sync_{source_tag}_{ts}.log"
 
     args_dict: dict[str, Any] = {
         "project_root": str(project_root),
@@ -147,8 +152,11 @@ def launch_sync_subprocess(
 
     ensure_std_fds()
 
-    log_handle = open(log_path, "w")  # noqa: SIM115
+    log_handle = None
     try:
+        log_handle = open(log_path, "w")  # noqa: SIM115
+
+        log_handle.write(f"# dango_version={dango.__version__}\n")
         process = subprocess.Popen(
             [sys.executable, "-m", "dango.platform.scheduling.sync_trigger", json_args],
             cwd=str(project_root),
@@ -157,7 +165,8 @@ def launch_sync_subprocess(
             stderr=subprocess.STDOUT,
         )
     except Exception:
-        log_handle.close()
+        if log_handle is not None:
+            log_handle.close()
         log_path.unlink(missing_ok=True)
         raise
     # Close the handle in the parent process — the child has its own fd copy
@@ -428,7 +437,6 @@ def _handle_crash(
             recent = load_sync_history(project_root, src, limit=1)
             if recent and recent[0].get("status") in ("failed", "success", "partial"):
                 # Check if this entry is recent (within last 5 minutes)
-                from datetime import datetime, timezone
 
                 entry_ts = recent[0].get("timestamp", "")
                 try:
@@ -480,21 +488,20 @@ def _handle_crash(
 
 def _ts() -> str:
     """UTC ISO timestamp."""
-    from datetime import datetime, timezone
-
     return datetime.now(tz=timezone.utc).isoformat()
 
 
 def _phase_to_event(phase: str) -> str:
     """Map status file phase to a WebSocket event name."""
     mapping = {
-        "starting": "sync_started",
-        "lock_waiting": "sync_progress",
+        "lock_waiting": "sync_queued",
         "data_load": "sync_progress",
         "data_load_complete": "data_load_complete",
         "dbt_started": "dbt_run_all_started",
         "dbt_complete": "dbt_run_all_completed",
         "dbt_failed": "dbt_run_all_failed",
+        "post_sync_started": "post_sync_started",
+        "post_sync_completed": "post_sync_completed",
         "completed": "sync_completed",
         "failed": "sync_failed",
     }
@@ -512,6 +519,7 @@ async def _broadcast_phase_transition(
     message: dict[str, Any] = {
         "event": event,
         "source": source_name,
+        "phase": phase,
         "message": status.get("message", ""),
         "timestamp": _ts(),
     }

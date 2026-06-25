@@ -355,7 +355,7 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
 
         # Create table
         table = Table(show_header=True, header_style="bold cyan")
-        table.add_column("Name", style="white", no_wrap=False)
+        table.add_column("Name", style="white", no_wrap=False, min_width=30)
         table.add_column("Type", style="dim")
         table.add_column("Mode", style="dim")
         table.add_column("Status", style="white")
@@ -609,9 +609,6 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
 
 @click.command()
 @click.argument("source_name", required=False, default=None)
-@click.option(
-    "--source", "source_option", help="Sync specific source (deprecated, use positional arg)"
-)
 @click.option("--since", help="Start date for incremental loading (YYYY-MM-DD)")
 @click.option("--until", help="End date for incremental loading (YYYY-MM-DD)")
 @click.option("--backfill", help="Backfill duration (e.g. '7d', '2w', '1m')")
@@ -629,7 +626,6 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
 def sync(
     ctx: click.Context,
     source_name: str | None,
-    source_option: str | None,
     since: str | None,
     until: str | None,
     backfill: str | None,
@@ -646,7 +642,6 @@ def sync(
     Examples:
       dango sync                               Sync all enabled sources
       dango sync chess                         Sync only 'chess' source
-      dango sync --source orders               Sync only 'orders' (deprecated form)
       dango sync --since 2024-01-01            Override start date
       dango sync --backfill 30d                Backfill last 30 days
       dango sync --limit 1000                  Dev mode: limit rows per source
@@ -668,10 +663,7 @@ def sync(
 
     check_v01x_project()
 
-    # Resolve source: positional arg takes precedence over --source option
-    if source_option and not source_name:
-        console.print("[yellow]Note:[/yellow] --source is deprecated, use: dango sync <name>")
-    source = source_name or source_option
+    source = source_name
 
     console.print("🍡 [bold]Syncing data...[/bold]")
     console.print()
@@ -765,6 +757,7 @@ def sync(
                     raise click.Abort()
 
         # Try to acquire lock before running sync (which includes dbt)
+        console.print("\n[bold yellow]⌛ Waiting for lock...[/bold yellow]")
         try:
             lock = DbtLock(
                 project_root=project_root,
