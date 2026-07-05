@@ -183,13 +183,12 @@ def _create_local_archive(
         metabase_vol = _get_metabase_volume_path()
         staging.mkdir(parents=True, exist_ok=True)
 
-        from dango.platform.cloud.backup import BACKUP_DIRS, BACKUP_FILES
+        from dango.platform.cloud.backup import BACKUP_DIRS, BACKUP_FILES, SECRET_FILES
 
         # Build runtime file list — secrets excluded by default
         file_list = list(BACKUP_FILES)
         if include_secrets:
-            file_list.append(".dlt/secrets.toml")
-            file_list.append(".env")
+            file_list.extend(SECRET_FILES)
 
         for fpath in file_list:
             src = PROJECT_DIR / fpath

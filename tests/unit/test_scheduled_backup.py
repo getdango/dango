@@ -412,35 +412,40 @@ class TestMonthlyRetention:
 
     @patch("dango.platform.cloud.spaces.SpacesClient")
     def test_monthly_zero_skips_monthly_tier(self, mock_spaces_cls):
-        """monthly_retention=0 produces identical behavior (no monthly deletions)."""
+        """monthly_retention=0 deletes more than monthly=2 (tier is skipped)."""
         from dango.platform.cloud.scheduled_backup import _apply_retention
 
         now = datetime.now(tz=timezone.utc)
-        # 20 archives spanning ~3 weeks
-        archives = [self._make_archive(now - timedelta(days=i)) for i in range(20)]
+        # 60 days of archives spanning ~2 months
+        archives = [self._make_archive(now - timedelta(days=i)) for i in range(60)]
 
         mock_client = MagicMock()
         mock_spaces_cls.return_value = mock_client
         mock_client.list_objects.return_value = archives
 
-        # Run with monthly=0 and default daily/weekly
-        deleted_monthly_zero = _apply_retention(
-            {"bucket": "test", "region": "nyc3"},
-            daily_retention=7,
-            weekly_retention=4,
-            monthly_retention=0,
-        )
-        # Reset mock
-        mock_client.reset_mock()
-        deleted_default = _apply_retention(
+        deleted_zero = _apply_retention(
             {"bucket": "test", "region": "nyc3"},
             daily_retention=7,
             weekly_retention=4,
             monthly_retention=0,
         )
 
-        # Same inputs → same result
-        assert deleted_monthly_zero == deleted_default
+        # New mock for second call
+        mock_client2 = MagicMock()
+        mock_spaces_cls.return_value = mock_client2
+        mock_client2.list_objects.return_value = archives
+
+        deleted_two = _apply_retention(
+            {"bucket": "test", "region": "nyc3"},
+            daily_retention=7,
+            weekly_retention=4,
+            monthly_retention=2,
+        )
+
+        # monthly=2 keeps more → fewer deletions
+        assert deleted_zero > deleted_two, (
+            f"monthly=0 deleted {deleted_zero}, monthly=2 deleted {deleted_two}"
+        )
 
     @patch("dango.platform.cloud.spaces.SpacesClient")
     def test_monthly_enabled_keeps_per_month(self, mock_spaces_cls):

@@ -62,6 +62,14 @@ BACKUP_DIRS = [
     "data/seeds",
 ]
 
+#: Secrets files excluded from backup by default.  Added dynamically when
+#: ``include_secrets=True`` is passed to :func:`create_backup` or set in
+#: the ``backup:`` section of cloud.yml.
+SECRET_FILES = [
+    ".dlt/secrets.toml",
+    ".env",
+]
+
 
 @dataclass(frozen=True)
 class BackupManifest:
@@ -219,8 +227,7 @@ def _create_archive(
         # Build runtime file list — secrets excluded by default
         file_list = list(BACKUP_FILES)
         if include_secrets:
-            file_list.append(".dlt/secrets.toml")
-            file_list.append(".env")
+            file_list.extend(SECRET_FILES)
 
         # Build copy commands for all files/dirs/metabase
         copy_cmds: list[str] = []

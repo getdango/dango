@@ -558,16 +558,16 @@ class SpacesConfig(BaseModel):
 class SpacesRetentionConfig(BaseModel):
     """Backup retention policy for Spaces (daily/weekly/monthly tiers)."""
 
-    daily: int = 7
-    weekly: int = 4
-    monthly: int = 0
+    daily: int = Field(default=7, ge=0)
+    weekly: int = Field(default=4, ge=0)
+    monthly: int = Field(default=0, ge=0)
 
 
 class BackupConfig(BaseModel):
     """Backup configuration stored under the ``backup:`` key in cloud.yml."""
 
     include_secrets: bool = False
-    on_server_retention: int = 1
+    on_server_retention: int = Field(default=1, ge=0)
     spaces_retention: SpacesRetentionConfig = Field(default_factory=SpacesRetentionConfig)
 
 
