@@ -13,11 +13,11 @@ Click-based command-line interface for all Dango operations — project init, so
 | **commands/** | | |
 | `commands/__init__.py` (4 lines) | Package marker | — |
 | `commands/project.py` (307 lines) | `init`, `rename`, `info` | `init()`, `rename()`, `info()` |
-| `commands/source.py` (888 lines) | `source` group (`add`, `list`, `remove`, `edit`) + `sync` | `source`, `sync()` |
-| `commands/platform.py` (1067 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
-| `commands/auth.py` (660 lines) | `auth` group (13 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, change-role, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_change_role()`, `auth_status()`, etc. |
+| `commands/source.py` (924 lines) | `source` group (`add`, `list`, `remove`, `edit`) + `sync` | `source`, `sync()` |
+| `commands/platform.py` (1136 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
+| `commands/auth.py` (666 lines) | `auth` group (13 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, change-role, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_change_role()`, `auth_status()`, etc. |
 | `commands/cleanup.py` (388 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
-| `commands/oauth.py` (813 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
+| `commands/oauth.py` (842 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
 | `commands/transform.py` (343 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
 | `commands/upgrade.py` (236 lines) | `upgrade` command — local Dango upgrade via pip + migrations | `upgrade()`, `get_latest_version_cached()` |
 | `commands/data.py` (388 lines) | `db` group (`status`, `clean`) + `validate` | `db`, `validate()` |
@@ -29,7 +29,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
 | `commands/serve.py` (~205 lines) | `serve` production foreground server with `--workers` option. Metabase setup failure is non-fatal (prints warning, continues to uvicorn). | `serve()` |
 | `commands/deploy.py` (767 lines) | `deploy` group (wizard default, --byos, destroy) | `deploy`, `deploy_destroy()` |
-| `commands/deploy_wizard.py` (898 lines) | Interactive wizard steps 1-8 + BYOS wizard + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig`, `run_byos_wizard()`, `run_byos_non_interactive()`, `BYOSConfig` |
+| `commands/deploy_wizard.py` (923 lines) | Interactive wizard steps 1-8 + BYOS wizard + non-interactive | `run_wizard()`, `run_non_interactive()`, `WizardConfig`, `run_byos_wizard()`, `run_byos_non_interactive()`, `BYOSConfig` |
 | `commands/deploy_provision.py` (1000 lines) | Provisioning orchestration (DO + BYOS) + cleanup | `run_provisioning()`, `run_byos_setup()`, `ProvisionResult`, `BYOSResult`, `_ResourceTracker` |
 | `commands/remote_env.py` | `remote env` subgroup (set, get, list, delete) | `env` (Click group) |
 | `commands/remote_ops.py` | `remote upgrade`, `remote resize`, `remote migrate` | `remote_upgrade()`, `remote_resize()`, `remote_migrate()` |
@@ -37,7 +37,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/remote_auth.py` (~217 lines) | `remote auth` subgroup (add-user, list-users, remove-user, reset-password) | `auth_group` |
 | `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query`, `remote history` | `remote_status()`, `remote_logs()` |
 | `commands/remote_sync.py` (131 lines) | `remote sync` — trigger data syncs on cloud server via SSH | `remote_sync()` |
-| `commands/schedule.py` (770 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
+| `commands/schedule.py` (914 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
 | `commands/schedule_webhook.py` (226 lines) | `schedule webhook` subgroup (add, list, remove, test) | `webhook_group` |
 | `commands/governance.py` (220 lines) | `governance` group (accept, drift-report, pii-report, pii-set, pii-list) | `governance`, `accept()`, `drift_report()`, `pii_report()`, `pii_set()`, `pii_list()` |
 | `commands/notebook.py` (~209 lines) | `notebook` group (new, open) | `notebook`, `notebook_new()`, `notebook_open()` |
@@ -46,13 +46,13 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/dev.py` (~429 lines) | `dev` group (default run + clean) — branch-based dbt development | `dev` (group), `dev_clean()` |
 | `commands/web.py` (69 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
-| `init.py` (1334 lines) | Project initialization wizard | `ProjectInitializer` |
+| `init.py` (1496 lines) | Project initialization wizard | `ProjectInitializer` |
 | `wizard.py` (307 lines) | Interactive setup wizards | `ProjectWizard` |
-| `source_wizard.py` (2311 lines) | Source configuration wizard | `add_source()` |
+| `source_wizard.py` (2525 lines) | Source configuration wizard | `add_source()` |
 | `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |
 | **Helpers** | | |
 | `utils.py` (164 lines) | Display helpers + project context | `require_project_context()` |
-| `validate.py` (652 lines) | Project validation logic | `validate_project()` |
+| `validate.py` (787 lines) | Project validation logic | `validate_project()` |
 | `db_helpers.py` (11 lines) | Re-exports from `utils/db_health.py` for backwards compatibility | `build_schema_table_mapping()`, `is_table_configured()` |
 | `env_helpers.py` (319 lines) | `.env` file management | `create_env_template()`, `validate_env_file()`, `guide_env_setup()` |
 | `oauth.py` (439 lines) | OAuth CLI flows | `authenticate_facebook()`, `authenticate_google()`, `check_token_expiry()` |

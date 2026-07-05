@@ -48,6 +48,20 @@ For detailed installation instructions, see the [documentation](https://docs.get
 - **Webhooks** — Slack notifications for sync results and alerts
 - **File watcher** — auto-sync when CSV files change on disk
 
+## Screenshots
+
+<img src="https://raw.githubusercontent.com/getdango/dango/main/docs/assets/screenshots/sources.png" alt="Dango Sources page showing connected data sources with sync status" width="800">
+
+*Data Sources page — monitor syncs, row counts, and schedule status for all your data sources.*
+
+<img src="https://raw.githubusercontent.com/getdango/dango/main/docs/assets/screenshots/catalog.png" alt="Dango Data Catalog showing columns, lineage, and profiling" width="800">
+
+*Data Catalog — browse tables, explore columns with profiling stats, view data lineage.*
+
+<img src="https://raw.githubusercontent.com/getdango/dango/main/docs/assets/screenshots/models.png" alt="Dango dbt Models page" width="800">
+
+*dbt Models — view model status, run transformations, and track test results.*
+
 ## Architecture
 
 ```

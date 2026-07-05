@@ -494,7 +494,6 @@ def _ts() -> str:
 def _phase_to_event(phase: str) -> str:
     """Map status file phase to a WebSocket event name."""
     mapping = {
-        "lock_waiting": "sync_queued",
         "data_load": "sync_progress",
         "data_load_complete": "data_load_complete",
         "dbt_started": "dbt_run_all_started",
