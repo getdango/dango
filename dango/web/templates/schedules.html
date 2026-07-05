@@ -114,7 +114,9 @@
                                                               :class="statusBadge(run.status)"
                                                               x-text="run.status"></span>
                                                     </td>
-                                                    <td class="px-3 py-2 text-xs text-red-600 max-w-xs truncate" x-text="run.error_message || ''"></td>
+                                                    <td class="px-3 py-2 text-xs text-red-600 max-w-xs">
+                                                        <pre class="log-message text-red-700" x-text="run.error || ''"></pre>
+                                                    </td>
                                                     <td class="px-3 py-2 text-right">
                                                         <template x-if="run.status === 'failed' && isEditorPlus">
                                                             <button @click="openTriggerModal(sched)"
