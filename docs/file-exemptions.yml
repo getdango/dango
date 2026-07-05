@@ -285,9 +285,15 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/sync_process.py
-    lines: 649
+    lines: 667
     category: exempt
-    reason: "Subprocess launch + polling + crash handling for process-isolated syncs. Unified logging added crash handlers (_handle_crash, _read_log_tail, _cleanup_sync_log) that write to activity log and sync history on subprocess failures."
+    reason: "Subprocess launch + polling + crash handling for process-isolated syncs. Unified logging added crash handlers (_handle_crash, _read_log_tail, _cleanup_sync_log) that write to activity log and sync history on subprocess failures. BUG-S3-6: per-source sync history on poll timeout (~15 lines)."
+    review_by: "v1.1"
+
+  - file: dango/platform/scheduling/sync_trigger.py
+    lines: 501
+    category: exempt
+    reason: "BUG-S3-6: Added per-source sync history writes on lock timeout and general exception (~30 lines). Previously under 500 lines."
     review_by: "v1.1"
 
   - file: dango/platform/scheduling/jobs.py
