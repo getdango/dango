@@ -8,12 +8,6 @@
  */
 
 // HTML entity escaping for safe innerHTML usage
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
 function formatSourceType(type) {
     const names = {
         'csv': 'CSV',
@@ -1495,18 +1489,6 @@ function addLogEntry(level, message, source = 'system') {
     }
 
     renderActivityLog();
-}
-
-function formatSource(source) {
-    if (!source) return escapeHtml('system');
-    if (source.includes('+ ')) {
-        const parts = source.split('+ ').map(s => s.trim().replace(/\+$/, ''));
-        const unique = [...new Set(parts)];
-        return '<ul class="list-disc list-inside text-xs">' +
-            unique.map(s => `<li>${escapeHtml(s)}</li>`).join('') +
-            '</ul>';
-    }
-    return escapeHtml(source);
 }
 
 function renderActivityLog() {

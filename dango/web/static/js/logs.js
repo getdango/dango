@@ -4,12 +4,6 @@
  * Handles log viewing, filtering, sorting, and pagination
  */
 
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
 // Global state
 let ws = null;
 let reconnectInterval = null;
@@ -359,18 +353,6 @@ function sortLogsArray() {
 // ============================================================================
 // Rendering
 // ============================================================================
-
-function formatSource(source) {
-    if (!source) return escapeHtml('system');
-    if (source.includes('+ ')) {
-        const parts = source.split('+ ').map(s => s.trim().replace(/\+$/, ''));
-        const unique = [...new Set(parts)];
-        return '<ul class="list-disc list-inside text-xs">' +
-            unique.map(s => `<li>${escapeHtml(s)}</li>`).join('') +
-            '</ul>';
-    }
-    return escapeHtml(source);
-}
 
 function renderLogs() {
     const tbody = document.getElementById('logs-table-body');
