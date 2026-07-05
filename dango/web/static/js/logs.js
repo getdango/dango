@@ -400,7 +400,7 @@ function renderLogs() {
         const levelBadge = getLevelBadge(log.level);
         // Keep original formatting - preserve newlines and spacing
         const message = escapeHtml(log.message || '');
-        const source = formatSource(log.source || 'system');
+        const source = formatSource(log.source);
 
         return `
             <tr class="hover:bg-gray-50">

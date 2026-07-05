@@ -1520,7 +1520,7 @@ function renderActivityLog() {
 
     logContainer.innerHTML = activityLog.map(entry => {
         const levelBadge = getLevelBadge(entry.level);
-        const sourceDisplay = formatSource(entry.source || 'system');
+        const sourceDisplay = formatSource(entry.source);
         // Keep original formatting - don't trim whitespace, preserve newlines
         const formattedMessage = escapeHtml(entry.message || '');
 
