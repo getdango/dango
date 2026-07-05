@@ -5,7 +5,7 @@ Unit tests for dango/platform/cloud/backup.py.
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -459,3 +459,71 @@ class TestRotateLocalBackups:
         deleted = rotate_local_backups(ssh, keep=5)
 
         assert deleted == 0
+
+
+@pytest.mark.unit
+class TestBackupFilesConstant:
+    def test_activity_log_in_backup_files(self):
+        """activity.jsonl is in BACKUP_FILES."""
+        from dango.platform.cloud.backup import BACKUP_FILES
+
+        assert ".dango/logs/activity.jsonl" in BACKUP_FILES
+
+    def test_secrets_not_in_backup_files(self):
+        """.env and .dlt/secrets.toml are NOT in BACKUP_FILES."""
+        from dango.platform.cloud.backup import BACKUP_FILES
+
+        assert ".dlt/secrets.toml" not in BACKUP_FILES
+        assert ".env" not in BACKUP_FILES
+
+
+@pytest.mark.unit
+class TestCreateBackupSecretsFlag:
+    @patch("dango.platform.cloud.backup.time.strftime", return_value="20260224-143000")
+    @patch("dango.platform.cloud.backup._create_archive")
+    def test_excludes_secrets_by_default(self, mock_create_archive, mock_strftime):
+        """create_backup() calls _create_archive with include_secrets=False by default."""
+        from dango.platform.cloud.backup import create_backup
+
+        ssh = make_ssh_mock_configurable(
+            exec_results={
+                "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
+                "test -f": ("", "", 0),
+                "docker volume inspect": ("/var/lib/docker/vol/_data", "", 0),
+                "ls -1t": ("", "", 0),
+            }
+        )
+        mock_create_archive.return_value = ("/path/archive.tar.gz", MagicMock())
+
+        create_backup(ssh, backup_type="pre-deploy")
+
+        assert mock_create_archive.call_args[1]["include_secrets"] is False
+
+    @patch("dango.platform.cloud.backup.time.strftime", return_value="20260224-143000")
+    @patch("dango.platform.cloud.backup._create_archive")
+    def test_includes_secrets_when_flagged(self, mock_create_archive, mock_strftime):
+        """create_backup() calls _create_archive with include_secrets=True."""
+        from dango.platform.cloud.backup import create_backup
+
+        ssh = make_ssh_mock_configurable(
+            exec_results={
+                "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
+                "test -f": ("", "", 0),
+                "docker volume inspect": ("/var/lib/docker/vol/_data", "", 0),
+                "ls -1t": ("", "", 0),
+            }
+        )
+        mock_create_archive.return_value = ("/path/archive.tar.gz", MagicMock())
+
+        create_backup(ssh, backup_type="pre-deploy", include_secrets=True)
+
+        assert mock_create_archive.call_args[1]["include_secrets"] is True
+
+
+@pytest.mark.unit
+class TestRotateLocalBackupsDefault:
+    def test_default_keep_is_1(self):
+        """rotate_local_backups() default keep parameter is 1."""
+        from dango.platform.cloud.backup import MAX_LOCAL_BACKUPS
+
+        assert MAX_LOCAL_BACKUPS == 1

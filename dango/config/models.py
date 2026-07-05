@@ -555,6 +555,22 @@ class SpacesConfig(BaseModel):
     )
 
 
+class SpacesRetentionConfig(BaseModel):
+    """Backup retention policy for Spaces (daily/weekly/monthly tiers)."""
+
+    daily: int = 7
+    weekly: int = 4
+    monthly: int = 0
+
+
+class BackupConfig(BaseModel):
+    """Backup configuration stored under the ``backup:`` key in cloud.yml."""
+
+    include_secrets: bool = False
+    on_server_retention: int = 1
+    spaces_retention: SpacesRetentionConfig = Field(default_factory=SpacesRetentionConfig)
+
+
 class DbtOverrides(BaseModel):
     """Cloud-specific dbt configuration overrides."""
 
@@ -593,6 +609,7 @@ class CloudConfig(BaseModel):
     dbt_overrides: DbtOverrides | None = Field(
         default=None, description="Cloud dbt configuration overrides"
     )
+    backup: BackupConfig | None = Field(default=None, description="Backup retention configuration")
     deploy_branch: str = Field(
         default="main",
         description="Expected git branch for deployments (guard rail check)",

@@ -165,7 +165,9 @@ def _make_spaces_client(spaces_config: dict[str, Any]) -> Any:
     return SpacesClient(bucket=spaces_config["bucket"], region=spaces_config["region"])
 
 
-def _create_local_archive(backup_type: str) -> tuple[Path, dict[str, Any], list[str]]:
+def _create_local_archive(
+    backup_type: str, *, include_secrets: bool = False
+) -> tuple[Path, dict[str, Any], list[str]]:
     """Create a tar.gz backup archive. Stops/restarts services via try/finally."""
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     archive_name = f"backup-{timestamp}"
@@ -183,7 +185,13 @@ def _create_local_archive(backup_type: str) -> tuple[Path, dict[str, Any], list[
 
         from dango.platform.cloud.backup import BACKUP_DIRS, BACKUP_FILES
 
-        for fpath in BACKUP_FILES:
+        # Build runtime file list — secrets excluded by default
+        file_list = list(BACKUP_FILES)
+        if include_secrets:
+            file_list.append(".dlt/secrets.toml")
+            file_list.append(".env")
+
+        for fpath in file_list:
             src = PROJECT_DIR / fpath
             if src.exists():
                 dest = staging / fpath
@@ -283,8 +291,68 @@ def _load_spaces_config() -> dict[str, Any]:
     }
 
 
-def _apply_retention(spaces_config: dict[str, Any]) -> int:
-    """Apply retention: keep 7 daily + 4 weekly backups. Returns number deleted."""
+def _load_backup_config() -> dict[str, Any]:
+    """Load backup config from cloud.yml. Returns defaults if not configured."""
+    cloud_yml = PROJECT_DIR / ".dango" / "cloud.yml"
+    if not cloud_yml.exists():
+        return {}
+    try:
+        import yaml
+    except ImportError:
+        return {}
+    data: dict[str, Any] = yaml.safe_load(cloud_yml.read_text()) or {}
+    return data.get("backup") or {}
+
+
+def _warn_spaces_reuse(
+    spaces_config: dict[str, Any],
+    daily_ret: int,
+    weekly_ret: int,
+    monthly_ret: int,
+) -> None:
+    """Log a warning if this is the first run and existing backups are found in Spaces."""
+    # Only warn on first run (no prior health file or no last_success)
+    if HEALTH_FILE.exists():
+        try:
+            existing = json.loads(HEALTH_FILE.read_text())
+            if existing.get("last_success"):
+                return  # Not first run
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    try:
+        client = _make_spaces_client(spaces_config)
+        objects = client.list_objects(prefix=SPACES_PREFIX)
+        archives = [o for o in objects if o.get("Key", "").endswith(".tar.gz")]
+        if archives:
+            approx_kept = daily_ret + weekly_ret + monthly_ret
+            _logger.warning(
+                "spaces_reuse_detected",
+                existing_count=len(archives),
+                daily_retention=daily_ret,
+                weekly_retention=weekly_ret,
+                monthly_retention=monthly_ret,
+                approx_kept=approx_kept,
+                message=(
+                    f"Found {len(archives)} existing backups in Spaces bucket "
+                    f"from a previous deployment. "
+                    f"Current retention ({daily_ret} daily + {weekly_ret} weekly"
+                    + (f" + {monthly_ret} monthly" if monthly_ret else "")
+                    + f") will keep ~{approx_kept} backups. "
+                    f"Older backups will be deleted over time."
+                ),
+            )
+    except Exception:
+        pass  # Best-effort warning — never fail backup for this
+
+
+def _apply_retention(
+    spaces_config: dict[str, Any],
+    daily_retention: int = 7,
+    weekly_retention: int = 4,
+    monthly_retention: int = 0,
+) -> int:
+    """Apply GFS retention policy. Returns number deleted."""
     client = _make_spaces_client(spaces_config)
     objects = client.list_objects(prefix=SPACES_PREFIX)
     archives = [o for o in objects if o.get("Key", "").endswith(".tar.gz")]
@@ -305,16 +373,24 @@ def _apply_retention(spaces_config: dict[str, Any]) -> int:
 
     keep_keys: set[str] = set()
     for dt, obj in dated:
-        if (now - dt).days < DAILY_RETENTION:
+        if (now - dt).days < daily_retention:
             keep_keys.add(obj["Key"])
 
     weekly: dict[tuple[int, int], str] = {}
     for dt, obj in dated:
-        if (now - dt).days >= DAILY_RETENTION:
+        if (now - dt).days >= daily_retention:
             iso_year, iso_week, _ = dt.isocalendar()
             weekly[(iso_year, iso_week)] = obj["Key"]
-    for wk in sorted(weekly.keys(), reverse=True)[:WEEKLY_RETENTION]:
+    for wk in sorted(weekly.keys(), reverse=True)[:weekly_retention]:
         keep_keys.add(weekly[wk])
+
+    if monthly_retention > 0:
+        monthly: dict[tuple[int, int], str] = {}
+        for dt, obj in dated:
+            if obj["Key"] not in keep_keys:
+                monthly[(dt.year, dt.month)] = obj["Key"]
+        for mo in sorted(monthly.keys(), reverse=True)[:monthly_retention]:
+            keep_keys.add(monthly[mo])
 
     deleted = 0
     for _dt, obj in dated:
@@ -361,8 +437,18 @@ def run_scheduled_backup() -> ScheduledBackupResult:
     result = ScheduledBackupResult()
     lock_fd = None
     try:
+        # Load backup config (defaults if not configured)
+        backup_cfg = _load_backup_config()
+        include_secrets = bool(backup_cfg.get("include_secrets", False))
+        spaces_retention = backup_cfg.get("spaces_retention", {})
+        daily_ret = int(spaces_retention.get("daily", DAILY_RETENTION))
+        weekly_ret = int(spaces_retention.get("weekly", WEEKLY_RETENTION))
+        monthly_ret = int(spaces_retention.get("monthly", 0))
+
         lock_fd = _acquire_backup_lock()
-        archive_path, _manifest, archive_warnings = _create_local_archive(backup_type="scheduled")
+        archive_path, _manifest, archive_warnings = _create_local_archive(
+            backup_type="scheduled", include_secrets=include_secrets
+        )
         result.archive_path = str(archive_path)
         result.warnings.extend(archive_warnings)
 
@@ -374,14 +460,27 @@ def run_scheduled_backup() -> ScheduledBackupResult:
             result.duration_seconds = round(time.monotonic() - start_time, 1)
             return result
 
+        # Spaces reuse warning on first run
+        _warn_spaces_reuse(spaces_config, daily_ret, weekly_ret, monthly_ret)
+
         key = _upload_to_spaces(archive_path, spaces_config)
         result.spaces_key = key
         local_size = archive_path.stat().st_size
         if not _verify_upload(spaces_config, key, local_size):
             result.warnings.append("Upload verification failed — size mismatch")
-        deleted = _apply_retention(spaces_config)
+        deleted = _apply_retention(
+            spaces_config,
+            daily_retention=daily_ret,
+            weekly_retention=weekly_ret,
+            monthly_retention=monthly_ret,
+        )
         if deleted > 0:
             result.warnings.append(f"Retention: deleted {deleted} old backup(s)")
+
+        # Clean up local archive after successful Spaces upload
+        archive_path.unlink(missing_ok=True)
+        (BACKUP_DIR / f"{archive_path.stem}.json").unlink(missing_ok=True)
+
         _write_health_status(success=True)
     except Exception as exc:
         result.error = str(exc)
