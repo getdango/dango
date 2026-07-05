@@ -396,3 +396,239 @@ class TestRunLocal:
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error msg")
         with pytest.raises(CloudProvisioningError, match="test_step"):
             _run_local("bad command", step="test_step")
+
+
+# ---------------------------------------------------------------------------
+# 10. Monthly retention tier
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestMonthlyRetention:
+    def _make_archive(self, dt):
+        """Create a mock Spaces object for the given datetime."""
+        ts = dt.strftime("%Y%m%d-%H%M%S")
+        return {"Key": f"backups/backup-{ts}.tar.gz", "Size": 1024}
+
+    @patch("dango.platform.cloud.spaces.SpacesClient")
+    def test_monthly_zero_skips_monthly_tier(self, mock_spaces_cls):
+        """monthly_retention=0 deletes more than monthly=2 (tier is skipped)."""
+        from dango.platform.cloud.scheduled_backup import _apply_retention
+
+        now = datetime.now(tz=timezone.utc)
+        # 60 days of archives spanning ~2 months
+        archives = [self._make_archive(now - timedelta(days=i)) for i in range(60)]
+
+        mock_client = MagicMock()
+        mock_spaces_cls.return_value = mock_client
+        mock_client.list_objects.return_value = archives
+
+        deleted_zero = _apply_retention(
+            {"bucket": "test", "region": "nyc3"},
+            daily_retention=7,
+            weekly_retention=4,
+            monthly_retention=0,
+        )
+
+        # New mock for second call
+        mock_client2 = MagicMock()
+        mock_spaces_cls.return_value = mock_client2
+        mock_client2.list_objects.return_value = archives
+
+        deleted_two = _apply_retention(
+            {"bucket": "test", "region": "nyc3"},
+            daily_retention=7,
+            weekly_retention=4,
+            monthly_retention=2,
+        )
+
+        # monthly=2 keeps more → fewer deletions
+        assert deleted_zero > deleted_two, (
+            f"monthly=0 deleted {deleted_zero}, monthly=2 deleted {deleted_two}"
+        )
+
+    @patch("dango.platform.cloud.spaces.SpacesClient")
+    def test_monthly_enabled_keeps_per_month(self, mock_spaces_cls):
+        """monthly_retention=3 keeps one backup per month after weekly boundary."""
+        from dango.platform.cloud.scheduled_backup import _apply_retention
+
+        now = datetime.now(tz=timezone.utc)
+        # Create backups spanning ~90 days to cover multiple months
+        archives = [self._make_archive(now - timedelta(days=i)) for i in range(90)]
+
+        mock_client = MagicMock()
+        mock_spaces_cls.return_value = mock_client
+        mock_client.list_objects.return_value = archives
+
+        deleted = _apply_retention(
+            {"bucket": "test", "region": "nyc3"},
+            daily_retention=7,
+            weekly_retention=4,
+            monthly_retention=3,
+        )
+
+        # Some deletions should occur, but monthly tier preserves older backups
+        assert deleted >= 0
+        # With 90 days of archives, we expect significant cleanup
+        # 7 daily + 4 weekly + 3 monthly ≈ 14 kept, rest deleted
+        assert deleted > 0
+
+
+# ---------------------------------------------------------------------------
+# 11. Local archive cleanup after Spaces upload
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestArchiveCleanup:
+    @patch("dango.platform.cloud.scheduled_backup._load_backup_config")
+    @patch("dango.platform.cloud.scheduled_backup._load_spaces_config")
+    @patch("dango.platform.cloud.scheduled_backup._create_local_archive")
+    @patch("dango.platform.cloud.scheduled_backup._upload_to_spaces")
+    @patch("dango.platform.cloud.scheduled_backup._verify_upload")
+    @patch("dango.platform.cloud.scheduled_backup._apply_retention")
+    @patch("dango.platform.cloud.scheduled_backup._acquire_backup_lock")
+    @patch("dango.platform.cloud.scheduled_backup._write_health_status")
+    @patch("dango.platform.cloud.scheduled_backup._warn_spaces_reuse")
+    @patch("dango.platform.cloud.scheduled_backup.fcntl.flock")
+    def test_local_archive_deleted_after_spaces_upload(
+        self,
+        mock_flock,
+        mock_warn,
+        mock_health,
+        mock_lock,
+        mock_retention,
+        mock_verify,
+        mock_upload,
+        mock_archive,
+        mock_spaces,
+        mock_backup_cfg,
+        tmp_path,
+    ):
+        """archive_path.unlink() is called after successful Spaces upload."""
+        from dango.platform.cloud.scheduled_backup import run_scheduled_backup
+
+        mock_backup_cfg.return_value = {}
+        mock_spaces.return_value = {"bucket": "test", "region": "nyc3"}
+        mock_lock.return_value = MagicMock()
+        mock_verify.return_value = True
+        mock_retention.return_value = 0
+
+        archive_path = tmp_path / "backup-20260224-143000.tar.gz"
+        archive_path.write_text("test")
+        (tmp_path / "backup-20260224-143000.json").write_text("{}")
+
+        mock_archive.return_value = (archive_path, {}, [])
+        mock_upload.return_value = "backups/backup-20260224-143000.tar.gz"
+
+        with patch(
+            "dango.platform.cloud.scheduled_backup.BACKUP_DIR",
+            tmp_path,
+        ):
+            run_scheduled_backup()
+
+        assert not archive_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# 12. Secrets exclusion in local archive
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSecretsExclusion:
+    def test_no_secrets_in_archive_when_excluded(self, tmp_path):
+        """_create_local_archive excludes .env and secrets.toml when include_secrets=False."""
+        from dango.platform.cloud.scheduled_backup import _create_local_archive
+
+        # Set up project dir with all BACKUP_FILES present (including secrets)
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True)
+        (project_dir / ".dango").mkdir(parents=True, exist_ok=True)
+        (project_dir / ".dango" / "logs").mkdir(parents=True, exist_ok=True)
+        (project_dir / ".dlt").mkdir(parents=True, exist_ok=True)
+        (project_dir / "dbt").mkdir(parents=True, exist_ok=True)
+
+        # Create BACKUP_FILES (without secrets — they're in the constant now)
+        from dango.platform.cloud.backup import BACKUP_FILES
+
+        for fpath in BACKUP_FILES:
+            full = project_dir / fpath
+            full.parent.mkdir(parents=True, exist_ok=True)
+            full.write_text("test")
+
+        # Create secrets files separately (to verify they're excluded)
+        (project_dir / ".dlt" / "secrets.toml").write_text("secret")
+        (project_dir / ".env").write_text("SECRET_KEY=test")
+
+        archive_dir = tmp_path / "backups"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+
+        with (
+            patch("dango.platform.cloud.scheduled_backup.PROJECT_DIR", project_dir),
+            patch("dango.platform.cloud.scheduled_backup.BACKUP_DIR", archive_dir),
+            patch("dango.platform.cloud.scheduled_backup._stop_services"),
+            patch("dango.platform.cloud.scheduled_backup._start_services"),
+            patch(
+                "dango.platform.cloud.scheduled_backup._checkpoint_databases",
+                return_value=[],
+            ),
+            patch(
+                "dango.platform.cloud.scheduled_backup._get_metabase_volume_path",
+                return_value=None,
+            ),
+        ):
+            archive_path, _manifest, _warnings = _create_local_archive(
+                "test", include_secrets=False
+            )
+
+        # Verify secrets are NOT in the archive manifest
+        manifest_files = [f["path"] for f in _manifest["files"]]
+        assert ".dlt/secrets.toml" not in manifest_files
+        assert ".env" not in manifest_files
+        # Verify activity.jsonl IS in the archive
+        assert ".dango/logs/activity.jsonl" in manifest_files
+
+    def test_secrets_in_archive_when_included(self, tmp_path):
+        """_create_local_archive includes .env and secrets.toml when include_secrets=True."""
+        from dango.platform.cloud.scheduled_backup import _create_local_archive
+
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(parents=True)
+        (project_dir / ".dango" / "logs").mkdir(parents=True, exist_ok=True)
+        (project_dir / ".dlt").mkdir(parents=True, exist_ok=True)
+        (project_dir / "dbt").mkdir(parents=True, exist_ok=True)
+
+        from dango.platform.cloud.backup import BACKUP_FILES
+
+        for fpath in BACKUP_FILES:
+            full = project_dir / fpath
+            full.parent.mkdir(parents=True, exist_ok=True)
+            full.write_text("test")
+
+        (project_dir / ".dlt" / "secrets.toml").write_text("secret")
+        (project_dir / ".env").write_text("SECRET_KEY=test")
+
+        archive_dir = tmp_path / "backups"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+
+        with (
+            patch("dango.platform.cloud.scheduled_backup.PROJECT_DIR", project_dir),
+            patch("dango.platform.cloud.scheduled_backup.BACKUP_DIR", archive_dir),
+            patch("dango.platform.cloud.scheduled_backup._stop_services"),
+            patch("dango.platform.cloud.scheduled_backup._start_services"),
+            patch(
+                "dango.platform.cloud.scheduled_backup._checkpoint_databases",
+                return_value=[],
+            ),
+            patch(
+                "dango.platform.cloud.scheduled_backup._get_metabase_volume_path",
+                return_value=None,
+            ),
+        ):
+            archive_path, _manifest, _warnings = _create_local_archive("test", include_secrets=True)
+
+        # Verify secrets ARE in the archive manifest
+        manifest_files = [f["path"] for f in _manifest["files"]]
+        assert ".dlt/secrets.toml" in manifest_files
+        assert ".env" in manifest_files

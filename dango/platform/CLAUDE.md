@@ -95,7 +95,7 @@ platform/
 | `cloud/server_setup.py` | SSH-based server setup orchestration (16 steps + optional UFW for BYOS) + install source detection | `setup_server` (`setup_ufw`, `install_source` params), `SetupResult`, `resolve_install_source` |
 | `cloud/server_status.py` | Server resource metrics, service status, PyPI version check | `ServerStatus`, `ServiceInfo`, `collect_server_status`, `check_latest_pypi_version`, `get_local_resource_usage` |
 | `cloud/domain.py` | DNS check, domain set/remove for HTTPS via Caddy | `check_dns`, `set_domain`, `remove_domain` |
-| `cloud/backup.py` | SSH-based backup and rollback | `create_backup`, `rollback`, `list_local_backups`, `rotate_local_backups`, `BackupManifest`, `BackupResult`, `RestoreResult` |
+| `cloud/backup.py` | SSH-based backup and rollback | `create_backup`, `rollback`, `list_local_backups`, `rotate_local_backups`, `BackupManifest`, `BackupResult`, `RestoreResult`, `BACKUP_FILES`, `BACKUP_DIRS`, `SECRET_FILES` |
 | `cloud/file_sync.py` | Project file sync (SFTP + rsync) with change detection | `sync_project_files`, `SyncResult` |
 | `cloud/deployer.py` | Push deployment workflow with deploy lock | `push_deploy`, `DeployLock`, `DeployResult` |
 | `cloud/deploy_journal.py` | Append-only JSONL deployment history | `DeploymentRecord`, `write_local_journal`, `write_remote_journal`, `read_local_journal`, `read_remote_journal`, `get_latest_deployment` |
@@ -171,7 +171,6 @@ from dango.platform.cloud import migrate_server, MigrateResult
 # Upgrade (TASK-106)
 from dango.platform.cloud import upgrade_dango, UpgradeResult, validate_version_string
 from dango.platform.cloud.upgrade import check_versions
-```
 
 # Sync subprocess (R10-N)
 from dango.platform.sync_process import launch_sync_subprocess, poll_sync_status
@@ -238,6 +237,7 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 - **`common/startup.py` raises, never displays** — no `console`, `click`, or `rich` imports. Callers (CLI, cloud serve) handle all user-facing output. Exception: `setup_metabase_if_needed()` swallows setup errors into the return dict rather than raising (callers decide severity).
 - **Shims for backwards compatibility** — existing code that imports from `dango.platform.watcher_lifecycle` continues to work without changes.
 - **`cloud/backup.py` is evolving beyond pure backup** — it also provides `stop_services()`, `start_services()`, and `verify_health()`, used by resize, migrate, and deployer as service lifecycle utilities. If more lifecycle functions accumulate, consider extracting a `service_lifecycle.py` module.
+- **Backup retention is configurable via `cloud.yml`** — `BackupConfig` (in `dango/config/models.py`) controls on-server retention count and Spaces GFS tiers. `create_backup()` accepts `on_server_retention` and `include_secrets` params (defaults: 1 and False). `_apply_retention()` in scheduled_backup.py accepts `daily_retention`, `weekly_retention`, `monthly_retention` (defaults: 7, 4, 0).
 
 ## Development Patterns
 

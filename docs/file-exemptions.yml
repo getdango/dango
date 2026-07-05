@@ -493,6 +493,18 @@ exemptions:
     reason: "Marimo lifecycle tests. FUP-15 added _is_marimo_responding mocks for while True loop."
     review_by: "v1.1"
 
+  - file: tests/unit/test_backup.py
+    lines: 529
+    category: exempt
+    reason: "S3-1 added 4 tests for BackupConfig constants, secrets exclusion/inclusion, and rotate_local_backups default."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_scheduled_backup.py
+    lines: 629
+    category: exempt
+    reason: "S3-1 added 5 tests for monthly retention tier, archive cleanup, and secrets exclusion/inclusion in local archive."
+    review_by: "v1.1"
+
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:
   - file: dango/ingestion/dlt_sources/mongodb/helpers.py
