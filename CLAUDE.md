@@ -76,30 +76,30 @@ dango/                          # Python package source
 │   ├── main.py                 # Slim entry point (~125 lines) — registers commands
 │   ├── commands/               # Command modules (extracted from main.py by TASK-005)
 │   │   ├── __init__.py         # Package marker
-│   │   ├── auth.py             # auth group (13 subcommands, 660 lines)
+│   │   ├── auth.py             # auth group (13 subcommands, 666 lines)
 │   │   ├── cleanup.py          # cleanup old logs, dbt artifacts, Python cache
-│   │   ├── oauth.py            # oauth group + 10 subcommands (813 lines)
+│   │   ├── oauth.py            # oauth group + 10 subcommands (842 lines)
 │   │   ├── config_cmd.py       # config group (validate/show/do-token)
 │   │   ├── dashboard.py        # dashboard group (provision)
 │   │   ├── data.py             # db group (status/clean) + validate
 │   │   ├── metabase_cmd.py     # metabase group (save/load/refresh)
 │   │   ├── model.py            # model group (add/remove)
-│   │   ├── platform.py         # start/stop/status + port helpers (1075 lines)
+│   │   ├── platform.py         # start/stop/status + port helpers (1136 lines)
 │   │   ├── project.py          # init/rename/info
-│   │   ├── source.py           # source group (add/list/remove/edit) + sync (913 lines)
+│   │   ├── source.py           # source group (add/list/remove/edit) + sync (924 lines)
 │   │   ├── transform.py        # run/docs/generate
 │   │   ├── upgrade.py          # local Dango upgrade via pip + migrations
 │   │   ├── web.py              # web dev server
 │   │   ├── serve.py            # serve production foreground server
 │   │   ├── deploy.py           # deploy group (wizard default, --byos, destroy)
-│   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (898 lines)
+│   │   ├── deploy_wizard.py    # Interactive deploy wizard + BYOS (923 lines)
 │   │   ├── deploy_provision.py # Provisioning orchestration + BYOS (1000 lines)
 │   │   ├── dev.py              # dev group (default run + clean) — branch-based dbt dev
 │   │   ├── migrate.py          # migrate group (status, run)
 │   │   ├── remote.py           # remote group + push/rollback/firewall/domain (702 lines)
 │   │   ├── remote_env.py       # remote env subgroup (set/get/list/delete)
 │   │   ├── remote_ops.py       # remote upgrade/resize/migrate
-│   │   ├── remote_backup.py    # remote backup subgroup (518 lines)
+│   │   ├── remote_backup.py    # remote backup subgroup (521 lines)
 │   │   ├── remote_auth.py      # remote auth subgroup (add-user/list-users/remove-user/reset-password)
 │   │   ├── remote_repair.py    # remote repair/reset-metabase
 │   │   ├── remote_mgmt.py      # remote status/logs/ssh/query/history
@@ -142,15 +142,15 @@ dango/                          # Python package source
 │   ├── __init__.py             # Re-exports public API
 │   ├── models.py               # Pydantic V2 response models
 │   ├── schema_drift.py         # Schema drift detection engine (654 lines)
-│   ├── pii_detector.py         # PII scanning engine (623 lines)
+│   ├── pii_detector.py         # PII scanning engine (626 lines)
 │   └── pii_overrides.py        # PII override CRUD
 │
 ├── notebooks/                  # Level 1 — Marimo notebook management
 │   ├── __init__.py             # Re-exports public symbols
-│   ├── manager.py              # Marimo process lifecycle (330 lines)
+│   ├── manager.py              # Marimo process lifecycle (353 lines)
 │   ├── locking.py              # File-level notebook locking (285 lines)
 │   ├── snapshot.py             # DuckDB snapshot management
-│   ├── proxy.py                # HTTP + WebSocket reverse proxy (186 lines)
+│   ├── proxy.py                # HTTP + WebSocket reverse proxy (195 lines)
 │   └── templates/              # Marimo starter templates (explore, quality, blank)
 │
 ├── analysis/                   # Level 1 — Metric monitoring + comparison engine
@@ -164,16 +164,16 @@ dango/                          # Python package source
 │   └── formatter.py            # Result categorization + display formatting
 │
 ├── web/                        # Level 2 — FastAPI web server
-│   ├── app.py                  # Entry point (~514 lines) — routers, middleware, admin bootstrap
+│   ├── app.py                  # Entry point (~580 lines) — routers, middleware, admin bootstrap
 │   ├── models.py               # Pydantic request/response DTOs (incl. auth DTOs)
-│   ├── helpers.py              # Shared helpers: DuckDB queries, config, logging (893 lines)
+│   ├── helpers.py              # Shared helpers: DuckDB queries, config, logging (990 lines)
 │   ├── middleware/             # Request middleware
 │   │   ├── auth.py             # Session/API key auth + CSRF check (~324 lines)
 │   │   └── rate_limit.py       # Rate limiting (~235 lines)
 │   ├── routes/                 # Route modules
 │   │   ├── __init__.py         # Package marker
-│   │   ├── auth.py             # Login/logout, OAuth, invite, API keys (~901 lines)
-│   │   ├── auth_2fa.py         # TOTP 2FA endpoints (~340 lines)
+│   │   ├── auth.py             # Login/logout, OAuth, invite, API keys (902 lines)
+│   │   ├── auth_2fa.py         # TOTP 2FA endpoints (~382 lines)
 │   │   ├── users.py            # Admin user CRUD (540 lines)
 │   │   ├── health.py           # /api/status, /api/watcher/status, /api/health/platform
 │   │   ├── config.py           # /api/config, /api/metabase-config
@@ -181,13 +181,13 @@ dango/                          # Python package source
 │   │   ├── sync.py             # /api/sources/{name}/sync + run_sync_task()
 │   │   ├── logs.py             # /api/logs, /api/sources/{name}/logs
 │   │   ├── dbt.py              # /api/dbt/models, /api/dbt/models/{name}/run + dbt docs proxy
-│   │   ├── upload.py           # CSV upload/list/delete (713 lines)
+│   │   ├── upload.py           # CSV upload/list/delete (771 lines)
 │   │   ├── websocket.py        # ConnectionManager, ws_manager, /ws
 │   │   ├── ui.py               # /, /health, /logs, /login, /account, /admin/users
 │   │   ├── metabase_proxy.py   # Metabase reverse proxy + SSO session
 │   │   ├── secrets.py          # Secrets + OAuth credential management (admin-only)
 │   │   ├── oauth_connect.py    # Web-based OAuth connect/callback
-│   │   ├── catalog.py          # Data catalog: columns, profiling, lineage, impact, models, search (1351 lines)
+│   │   ├── catalog.py          # Data catalog: columns, profiling, lineage, impact, models, search (1350 lines)
 │   │   ├── governance.py       # Schema drift + PII results API
 │   │   ├── monitoring.py       # Monitor results, run trigger, history
 │   │   ├── notebooks.py        # Notebook management API + page route
@@ -201,13 +201,13 @@ dango/                          # Python package source
 │   │   ├── secrets.html        # Secrets management page
 │   │   ├── schedules.html      # Schedule management page
 │   │   ├── notebooks.html      # Notebook management page
-│   │   ├── catalog.html        # Data catalog page (929 lines)
+│   │   ├── catalog.html        # Data catalog page (1029 lines)
 │   │   └── monitoring.html     # Monitoring page (unused — retained for future use)
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
-│   ├── metabase.py             # Metabase API (1152 lines)
-│   └── dashboard_manager.py    # Dashboard export/import (1115 lines)
+│   ├── metabase.py             # Metabase API (1251 lines)
+│   └── dashboard_manager.py    # Dashboard export/import (1117 lines)
 │
 ├── platform/                   # Level 2 — Docker, network, file watcher, scheduling
 │   ├── __main__.py             # Platform CLI entry point
@@ -224,7 +224,7 @@ dango/                          # Python package source
 │   │   ├── scheduler.py        # SchedulerService (lifecycle, events, cancellation)
 │   │   ├── resilience.py       # Retry, timeout, cancellation
 │   │   ├── history.py          # Execution history tracking
-│   │   ├── jobs.py             # Module-level job functions (1034 lines)
+│   │   ├── jobs.py             # Module-level job functions (1055 lines)
 │   │   └── sync_trigger.py     # Server-side manual sync runner
 │   ├── notifications/          # Webhook notifications (TASK-043+)
 │   │   ├── webhook.py          # Event types, config, async sender
@@ -241,9 +241,9 @@ dango/                          # Python package source
 │   │   ├── domain.py           # DNS check, domain set/remove
 │   │   ├── backup.py           # Backup + rollback + service lifecycle
 │   │   ├── file_sync.py        # Project file sync (SFTP + rsync)
-│   │   ├── deployer.py         # Push deploy workflow + deploy lock (613 lines)
+│   │   ├── deployer.py         # Push deploy workflow + deploy lock (643 lines)
 │   │   ├── deploy_journal.py   # Append-only JSONL deployment history
-│   │   ├── scheduled_backup.py # Server-side scheduled backup (508 lines)
+│   │   ├── scheduled_backup.py # Server-side scheduled backup (606 lines)
 │   │   ├── resize.py           # In-place droplet resize
 │   │   ├── migrate.py          # Server migration via Spaces
 │   │   ├── upgrade.py          # Remote Dango version upgrade
@@ -255,7 +255,7 @@ dango/                          # Python package source
 │   └── watcher_runner.py       # → local/watcher_runner.py
 │
 ├── ingestion/                  # Level 1 — Data loading
-│   ├── dlt_runner.py           # ⚠ 2579 lines — orchestrates full sync pipeline
+│   ├── dlt_runner.py           # ⚠ 2885 lines — orchestrates full sync pipeline
 │   ├── csv_loader.py           # Multi-format file loading with dedup (922 lines)
 │   ├── sources/
 │   │   └── registry.py         # Source metadata (33 source types)
@@ -263,11 +263,11 @@ dango/                          # Python package source
 │
 ├── transformation/             # Level 1 — dbt model generation & execution
 │   ├── __init__.py             # run_dbt_models(), generate_dbt_docs()
-│   └── generator.py            # DbtModelGenerator (626 lines)
+│   └── generator.py            # DbtModelGenerator (706 lines)
 │
 ├── oauth/                      # Level 1 — OAuth flows
 │   ├── __init__.py             # OAuthManager
-│   ├── providers.py            # Google, Facebook providers (670 lines)
+│   ├── providers.py            # Google, Facebook providers (748 lines)
 │   ├── storage.py              # Credential CRUD in .dlt/secrets.toml
 │   ├── router.py               # FastAPI OAuth callback endpoints
 │   ├── validation.py           # Live token validation + refresh checking
@@ -292,7 +292,7 @@ dango/                          # Python package source
 │   ├── data_validation.py      # Data validation utilities
 │   ├── env_file.py             # .env file parsing and serialization
 │   ├── dango_db.py             # SQLite context manager for .dango/dango.db + schema init
-│   ├── post_sync.py            # Post-sync hook dispatcher (~804 lines)
+│   ├── post_sync.py            # Post-sync hook dispatcher (~815 lines)
 │   └── git_info.py             # Git repository info + deployment guardrails
 │
 ├── migrations/                 # Level 0 — Database migration framework
@@ -338,51 +338,51 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 
 | File | Lines | Refactoring Task |
 |------|-------|-----------------|
-| `ingestion/dlt_runner.py` | 2579 | — (exempt, too risky) |
-| `ingestion/sources/registry.py` | 2035 | — (metadata-only) |
-| `cli/source_wizard.py` | 2311 | — |
-| `visualization/metabase.py` | 1152 | — |
-| `cli/init.py` | 1399 | — |
-| `visualization/dashboard_manager.py` | 1115 | — |
-| `cli/commands/platform.py` | 1075 | — (extracted from main.py by TASK-005) |
+| `ingestion/dlt_runner.py` | 2885 | — (exempt, too risky) |
+| `ingestion/sources/registry.py` | 2340 | — (metadata-only) |
+| `cli/source_wizard.py` | 2525 | — |
+| `visualization/metabase.py` | 1251 | — |
+| `cli/init.py` | 1496 | — |
+| `visualization/dashboard_manager.py` | 1117 | — |
+| `cli/commands/platform.py` | 1136 | — (extracted from main.py by TASK-005) |
 | `web/routes/auth.py` | 902 | — (split evaluated in DOC-025: exempt, security-critical) |
-| `cli/commands/oauth.py` | 813 | — (renamed from auth.py by TASK-093) |
-| `web/app.py` | 514 | — (background Metabase sync in v1.0.1) |
-| `web/helpers.py` | 893 | — (extracted from app.py by TASK-085) |
+| `cli/commands/oauth.py` | 842 | — (renamed from auth.py by TASK-093) |
+| `web/app.py` | 580 | — (background Metabase sync in v1.0.1) |
+| `web/helpers.py` | 990 | — (extracted from app.py by TASK-085) |
 | `ingestion/csv_loader.py` | 922 | — |
-| `platform/sync_process.py` | 603 | — (subprocess launch + crash handling) |
-| `platform/scheduling/jobs.py` | 1034 | — (module-level job functions) |
+| `platform/sync_process.py` | 649 | — (subprocess launch + crash handling) |
+| `platform/scheduling/jobs.py` | 1055 | — (module-level job functions) |
 | `utils/db_health.py` | 654 | — (R5-N5: unified orphan detection from cli/db_helpers.py) |
-| `utils/post_sync.py` | 804 | — (post-sync hooks + sync notification) |
+| `utils/post_sync.py` | 815 | — (post-sync hooks + sync notification) |
 | `config/schedules.py` | 506 | — (R2-D13b: trigger comparison in reload) |
-| `web/routes/schedules.py` | 608 | — (schedule read-only, history, trigger, notifications) |
-| `web/routes/notebooks.py` | 574 | — (notebook management API + heartbeat lock expiry + WS notify) |
-| `web/routes/upload.py` | 713 | — (extracted from app.py by TASK-085) |
-| `oauth/providers.py` | 670 | — |
+| `web/routes/schedules.py` | 617 | — (schedule read-only, history, trigger, notifications) |
+| `web/routes/notebooks.py` | 573 | — (notebook management API + heartbeat lock expiry + WS notify) |
+| `web/routes/upload.py` | 771 | — (extracted from app.py by TASK-085) |
+| `oauth/providers.py` | 748 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
-| `cli/commands/source.py` | 913 | — (extracted from main.py by TASK-005) |
+| `cli/commands/source.py` | 924 | — (extracted from main.py by TASK-005) |
 | `cli/commands/remote.py` | 702 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 608 | — (remote status/logs/ssh/query + deployment history) |
-| `platform/cloud/deployer.py` | 613 | — (push deploy workflow + deploy lock + journal) |
-| `cli/validate.py` | 698 | — |
-| `config/models.py` | 620 | — (Pydantic config models) |
+| `platform/cloud/deployer.py` | 643 | — (push deploy workflow + deploy lock + journal) |
+| `cli/validate.py` | 787 | — |
+| `config/models.py` | 639 | — (Pydantic config models) |
 | `cli/commands/deploy.py` | 767 | — (deploy group with DO + BYOS routing, destroy command) |
-| `cli/commands/deploy_wizard.py` | 898 | — (interactive deploy wizard + BYOS) |
-| `transformation/generator.py` | 626 | — |
-| `web/routes/catalog.py` | 1351 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
+| `cli/commands/deploy_wizard.py` | 923 | — (interactive deploy wizard + BYOS) |
+| `transformation/generator.py` | 706 | — |
+| `web/routes/catalog.py` | 1350 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
 | `cli/commands/deploy_provision.py` | 1000 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
-| `platform/cloud/server_setup.py` | 767 | — (server setup + install source detection) |
+| `platform/cloud/server_setup.py` | 743 | — (server setup + install source detection) |
 | `cli/commands/auth.py` | 666 | — (13 auth subcommands) |
 | `auth/database.py` | 531 | — (SQLite CRUD) |
 | `web/routes/users.py` | 540 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 524 | — |
-| `cli/commands/schedule.py` | 776 | — (schedule wizard + time customization) |
+| `cli/commands/schedule.py` | 914 | — (schedule wizard + time customization) |
 | `cli/model_wizard.py` | 507 | — |
-| `cli/commands/remote_backup.py` | 518 | — (R2-D10: --from-local flag) |
-| `platform/cloud/scheduled_backup.py` | 508 | — (server-side scheduled backup) |
+| `cli/commands/remote_backup.py` | 521 | — (R2-D10: --from-local flag) |
+| `platform/cloud/scheduled_backup.py` | 606 | — (server-side scheduled backup) |
 | `governance/schema_drift.py` | 654 | — (R9-D: breaking drift protection + accept flow) |
-| `governance/pii_detector.py` | 623 | — (BUG-027/BUG-133/BUG-139/BUG-185: spaCy fallback + PERSON threshold + override application + structured data heuristic) |
+| `governance/pii_detector.py` | 626 | — (BUG-027/BUG-133/BUG-139/BUG-185: spaCy fallback + PERSON threshold + override application + structured data heuristic) |
 
 ## Module Documentation Index
 
