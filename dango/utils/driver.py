@@ -15,12 +15,12 @@ DRIVER_VERSION_FILE = ".driver-version"
 
 # Rule: Python DuckDB major.minor MUST match driver's bundled DuckDB major.minor.
 # DuckDB 1.5.x read-only mode CANNOT read files created by 1.4.x.
-# Current alignment: Python DuckDB 1.5.x, driver 1.5.1.0, Metabase v0.59.1
+# Current alignment: Python DuckDB 1.5.x, driver 1.5.3.0, Metabase v0.59.1
 #
 # When upgrading: check https://github.com/motherduckdb/metabase_duckdb_driver/releases
 # for the driver that targets your Metabase version. The driver's bundled DuckDB must
 # share the same major.minor as the Python DuckDB version.
-METABASE_DUCKDB_DRIVER_VERSION = "1.5.1.0"
+METABASE_DUCKDB_DRIVER_VERSION = "1.5.3.0"
 
 METABASE_DUCKDB_DRIVER_URL = (
     "https://github.com/motherduckdb/metabase_duckdb_driver/"

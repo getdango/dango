@@ -7,10 +7,10 @@ the tested stack and upgrade process.
 
 | Component | Tested Version | Allowed Range | Source of Truth |
 |-----------|---------------|---------------|-----------------|
-| DuckDB (Python) | 1.5.2 | >=1.5.0,<1.6 | `pyproject.toml` |
-| Metabase JDBC Driver | 1.5.1.0 | pinned | `dango/utils/driver.py` |
+| DuckDB (Python) | 1.5.4 | >=1.5.0,<1.6 | `pyproject.toml` |
+| Metabase JDBC Driver | 1.5.3.0 | pinned | `dango/utils/driver.py` |
 | Metabase | v0.59.1 | pinned | `dango/templates/Dockerfile.metabase` |
-| dbt-core | 1.10.20 | ~=1.10.0 | `pyproject.toml` |
+| dbt-core | 1.10.22 | ~=1.10.0 | `pyproject.toml` |
 | dbt-duckdb | 1.10.1 | >=1.10.0,<1.11 | `pyproject.toml` |
 | dlt | 1.24.0 | ~=1.24.0 | `pyproject.toml` |
 
