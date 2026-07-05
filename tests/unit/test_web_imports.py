@@ -132,10 +132,12 @@ class TestWebImports:
 
     def test_app_has_routes_registered(self):
         """App instance has all routers included (routes are registered)."""
+        # Collect all route paths
+        from fastapi.routing import iter_route_contexts
+
         from dango.web.app import app
 
-        # Collect all route paths
-        route_paths = [route.path for route in app.routes]
+        route_paths = [ctx.route.path for ctx in iter_route_contexts(app.routes)]
 
         # Verify key endpoints exist
         expected_paths = [

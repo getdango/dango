@@ -598,7 +598,7 @@ Latest 2 versions of:
 | Component | Version | Notes |
 |-----------|---------|-------|
 | DuckDB | {self._get_duckdb_version()} | Embedded analytical database |
-| dbt-core | 1.10.20 | Data transformation framework |
+| dbt-core | 1.10.22 | Data transformation framework |
 | dlt | 1.24.0 | Data ingestion toolkit |
 | Metabase | v0.59.1 | Business intelligence / dashboards |
 
