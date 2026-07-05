@@ -173,7 +173,7 @@ class TestRunScheduledSync:
         assert call_kwargs["sources"] == ["src1"]
         assert call_kwargs["skip_dbt"] is True
         assert call_kwargs["source_label"] == "scheduler"
-        assert call_kwargs["max_lock_wait"] == 60
+        assert call_kwargs["max_lock_wait"] == 300
 
     def test_broadcasts_sync_started_and_completed(self, tmp_path):
         config = _make_config_with_sources("src1")

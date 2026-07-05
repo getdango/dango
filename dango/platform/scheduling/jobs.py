@@ -495,7 +495,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
                 full_refresh=full_refresh,
                 skip_dbt=True,
                 source_label="scheduler",
-                max_lock_wait=60,
+                max_lock_wait=300,
             )
 
             success, _result = poll_sync_status_blocking(
