@@ -11,7 +11,7 @@ Data governance module: schema drift detection and PII scanning. Monitors DuckDB
 | `__init__.py` | Re-exports public API | `AcceptDriftResponse`, `DriftEvent`, `DriftResponse`, `PiiFinding`, `PiiOverride`, `PiiOverridesResponse`, `PiiResponse`, `SourceAttention`, `accept_drift`, `detect_drift_for_sources`, `detect_table_drift`, `get_drift_history`, `get_sources_needing_attention`, `scan_sources_for_pii`, `scan_table_for_pii`, `get_pii_findings`, `get_pii_overrides`, `set_pii_override`, `delete_pii_override` |
 | `models.py` (~107 lines) | Pydantic V2 response models | `DriftEvent`, `DriftResponse`, `SourceAttention`, `AcceptDriftResponse`, `PiiFinding`, `PiiResponse`, `PiiOverride`, `PiiOverridesResponse` |
 | `schema_drift.py` (~654 lines) | Schema drift detection + breaking drift protection | `detect_drift_for_sources()`, `detect_table_drift()`, `get_drift_history()`, `accept_drift()`, `get_sources_needing_attention()`, `_send_drift_webhook()` |
-| `pii_detector.py` (~614 lines) | PII scanning engine (Presidio + spaCy) | `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()`, `_send_pii_webhook()`, `_register_intl_phone_recognizer()` |
+| `pii_detector.py` (~626 lines) | PII scanning engine (Presidio + spaCy) | `scan_sources_for_pii()`, `scan_table_for_pii()`, `get_pii_findings()`, `_send_pii_webhook()`, `_register_intl_phone_recognizer()` |
 | `pii_overrides.py` (~296 lines) | PII override CRUD (YAML-based, `.dango/pii-overrides.yml`) | `get_overrides_for_table()`, `get_pii_overrides()`, `set_pii_override()`, `delete_pii_override()` |
 
 ## Common Tasks
