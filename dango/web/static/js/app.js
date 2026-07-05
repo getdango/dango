@@ -1497,6 +1497,18 @@ function addLogEntry(level, message, source = 'system') {
     renderActivityLog();
 }
 
+function formatSource(source) {
+    if (!source) return escapeHtml('system');
+    if (source.includes('+ ')) {
+        const parts = source.split('+ ').map(s => s.trim().replace(/\+$/, ''));
+        const unique = [...new Set(parts)];
+        return '<ul class="list-disc list-inside text-xs">' +
+            unique.map(s => `<li>${escapeHtml(s)}</li>`).join('') +
+            '</ul>';
+    }
+    return escapeHtml(source);
+}
+
 function renderActivityLog() {
     const logContainer = document.getElementById('activity-log');
     if (!logContainer) return;
@@ -1508,14 +1520,14 @@ function renderActivityLog() {
 
     logContainer.innerHTML = activityLog.map(entry => {
         const levelBadge = getLevelBadge(entry.level);
-        const sourceDisplay = escapeHtml(entry.source || 'system');
+        const sourceDisplay = formatSource(entry.source || 'system');
         // Keep original formatting - don't trim whitespace, preserve newlines
         const formattedMessage = escapeHtml(entry.message || '');
 
         return `
             <tr class="hover:bg-gray-50 transition-colors duration-150">
                 <td class="px-4 py-3 whitespace-nowrap">${levelBadge}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600">${sourceDisplay}</td>
+                <td class="px-4 py-3 text-sm text-gray-600">${sourceDisplay}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500">${escapeHtml(entry.timestamp)}</td>
                 <td class="px-4 py-3 text-sm text-gray-900"><pre class="log-message">${formattedMessage}</pre></td>
             </tr>

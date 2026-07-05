@@ -360,6 +360,18 @@ function sortLogsArray() {
 // Rendering
 // ============================================================================
 
+function formatSource(source) {
+    if (!source) return escapeHtml('system');
+    if (source.includes('+ ')) {
+        const parts = source.split('+ ').map(s => s.trim().replace(/\+$/, ''));
+        const unique = [...new Set(parts)];
+        return '<ul class="list-disc list-inside text-xs">' +
+            unique.map(s => `<li>${escapeHtml(s)}</li>`).join('') +
+            '</ul>';
+    }
+    return escapeHtml(source);
+}
+
 function renderLogs() {
     const tbody = document.getElementById('logs-table-body');
     const loadingEl = document.getElementById('logs-loading');
@@ -388,7 +400,7 @@ function renderLogs() {
         const levelBadge = getLevelBadge(log.level);
         // Keep original formatting - preserve newlines and spacing
         const message = escapeHtml(log.message || '');
-        const source = escapeHtml(log.source || 'system');
+        const source = formatSource(log.source || 'system');
 
         return `
             <tr class="hover:bg-gray-50">
@@ -398,7 +410,7 @@ function renderLogs() {
                 <td class="px-6 py-4 whitespace-nowrap">
                     ${levelBadge}
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                <td class="px-6 py-4 text-sm text-gray-600">
                     ${source}
                 </td>
                 <td class="px-6 py-4 text-sm text-gray-900"><pre class="log-message">${message}</pre></td>
