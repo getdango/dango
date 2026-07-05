@@ -147,10 +147,10 @@ dango/                          # Python package source
 │
 ├── notebooks/                  # Level 1 — Marimo notebook management
 │   ├── __init__.py             # Re-exports public symbols
-│   ├── manager.py              # Marimo process lifecycle (330 lines)
+│   ├── manager.py              # Marimo process lifecycle (353 lines)
 │   ├── locking.py              # File-level notebook locking (285 lines)
 │   ├── snapshot.py             # DuckDB snapshot management
-│   ├── proxy.py                # HTTP + WebSocket reverse proxy (186 lines)
+│   ├── proxy.py                # HTTP + WebSocket reverse proxy (195 lines)
 │   └── templates/              # Marimo starter templates (explore, quality, blank)
 │
 ├── analysis/                   # Level 1 — Metric monitoring + comparison engine
@@ -172,8 +172,8 @@ dango/                          # Python package source
 │   │   └── rate_limit.py       # Rate limiting (~235 lines)
 │   ├── routes/                 # Route modules
 │   │   ├── __init__.py         # Package marker
-│   │   ├── auth.py             # Login/logout, OAuth, invite, API keys (~902 lines)
-│   │   ├── auth_2fa.py         # TOTP 2FA endpoints (~340 lines)
+│   │   ├── auth.py             # Login/logout, OAuth, invite, API keys (902 lines)
+│   │   ├── auth_2fa.py         # TOTP 2FA endpoints (~382 lines)
 │   │   ├── users.py            # Admin user CRUD (540 lines)
 │   │   ├── health.py           # /api/status, /api/watcher/status, /api/health/platform
 │   │   ├── config.py           # /api/config, /api/metabase-config
@@ -201,7 +201,7 @@ dango/                          # Python package source
 │   │   ├── secrets.html        # Secrets management page
 │   │   ├── schedules.html      # Schedule management page
 │   │   ├── notebooks.html      # Notebook management page
-│   │   ├── catalog.html        # Data catalog page (929 lines)
+│   │   ├── catalog.html        # Data catalog page (1029 lines)
 │   │   └── monitoring.html     # Monitoring page (unused — retained for future use)
 │   └── static/                 # Frontend HTML/CSS/JS
 │
