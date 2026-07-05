@@ -325,6 +325,25 @@ def poll_sync_status_blocking(
         if elapsed >= max_poll_time:
             process.terminate()
             error_msg = f"Sync timed out after {int(elapsed)}s"
+
+            from dango.utils.sync_history import save_sync_history_entry
+
+            for src in source_list:
+                try:
+                    save_sync_history_entry(
+                        project_root,
+                        src,
+                        {
+                            "timestamp": _ts(),
+                            "status": "failed",
+                            "duration_seconds": int(elapsed),
+                            "rows_processed": 0,
+                            "error_message": error_msg,
+                        },
+                    )
+                except Exception:
+                    logger.debug("sync_history_timeout_write_failed", source=src, exc_info=True)
+
             if broadcast_fn is not None:
                 broadcast_fn(
                     {

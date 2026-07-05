@@ -204,6 +204,22 @@ def run_manual_sync(
     except DbtLockError as exc:
         error_msg = f"Lock unavailable: {exc}"
         record_failure(db_path, record_id, error_msg)
+
+        from dango.utils.sync_history import save_sync_history_entry
+
+        for name in sources:
+            save_sync_history_entry(
+                project_root,
+                name,
+                {
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                    "status": "failed",
+                    "duration_seconds": 0,
+                    "rows_processed": 0,
+                    "error_message": error_msg,
+                },
+            )
+
         duration = round(time.time() - start_time, 1)
         _progress("failed", error_msg, error=error_msg)
         return {
@@ -345,6 +361,22 @@ def run_manual_sync(
         logger.warning("manual_sync_failed", error=str(exc), exc_info=True)
         error_msg = str(exc)
         record_failure(db_path, record_id, error_msg)
+
+        from dango.utils.sync_history import save_sync_history_entry
+
+        for name in sources:
+            save_sync_history_entry(
+                project_root,
+                name,
+                {
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                    "status": "failed",
+                    "duration_seconds": 0,
+                    "rows_processed": 0,
+                    "error_message": error_msg,
+                },
+            )
+
         duration = round(time.time() - start_time, 1)
         _progress("failed", f"Sync failed: {error_msg}", error=error_msg)
         return {
