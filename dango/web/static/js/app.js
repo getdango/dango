@@ -8,12 +8,6 @@
  */
 
 // HTML entity escaping for safe innerHTML usage
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
 function formatSourceType(type) {
     const names = {
         'csv': 'CSV',
@@ -1508,14 +1502,14 @@ function renderActivityLog() {
 
     logContainer.innerHTML = activityLog.map(entry => {
         const levelBadge = getLevelBadge(entry.level);
-        const sourceDisplay = escapeHtml(entry.source || 'system');
+        const sourceDisplay = formatSource(entry.source);
         // Keep original formatting - don't trim whitespace, preserve newlines
         const formattedMessage = escapeHtml(entry.message || '');
 
         return `
             <tr class="hover:bg-gray-50 transition-colors duration-150">
                 <td class="px-4 py-3 whitespace-nowrap">${levelBadge}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600">${sourceDisplay}</td>
+                <td class="px-4 py-3 text-sm text-gray-600">${sourceDisplay}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500">${escapeHtml(entry.timestamp)}</td>
                 <td class="px-4 py-3 text-sm text-gray-900"><pre class="log-message">${formattedMessage}</pre></td>
             </tr>

@@ -1,6 +1,35 @@
 // Shared Dango frontend utilities. Loaded in base.html before page scripts.
 
 /**
+ * Escape HTML special characters to prevent XSS.
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+/**
+ * Format a source field for display. Coalesced dbt sources (containing '+ ')
+ * are split into a bullet list; single sources pass through escapeHtml().
+ * @param {string|null} source
+ * @returns {string} HTML string
+ */
+function formatSource(source) {
+    if (!source) return escapeHtml('system');
+    if (source.includes('+ ')) {
+        const parts = source.split('+ ').map(s => s.trim().replace(/\+$/, ''));
+        const unique = [...new Set(parts)];
+        return '<ul class="list-disc list-inside text-xs">' +
+            unique.map(s => `<li>${escapeHtml(s)}</li>`).join('') +
+            '</ul>';
+    }
+    return escapeHtml(source);
+}
+
+/**
  * Format an ISO timestamp for display.
  * Thresholds: <60s "just now", <1h "X min ago", <24h "Xh ago",
  * <7d "Mon 15:39", >=7d "Jun 16" (with year if not current).

@@ -4,12 +4,6 @@
  * Handles log viewing, filtering, sorting, and pagination
  */
 
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
 // Global state
 let ws = null;
 let reconnectInterval = null;
@@ -388,7 +382,7 @@ function renderLogs() {
         const levelBadge = getLevelBadge(log.level);
         // Keep original formatting - preserve newlines and spacing
         const message = escapeHtml(log.message || '');
-        const source = escapeHtml(log.source || 'system');
+        const source = formatSource(log.source);
 
         return `
             <tr class="hover:bg-gray-50">
@@ -398,7 +392,7 @@ function renderLogs() {
                 <td class="px-6 py-4 whitespace-nowrap">
                     ${levelBadge}
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                <td class="px-6 py-4 text-sm text-gray-600">
                     ${source}
                 </td>
                 <td class="px-6 py-4 text-sm text-gray-900"><pre class="log-message">${message}</pre></td>
