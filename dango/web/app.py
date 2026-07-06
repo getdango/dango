@@ -201,6 +201,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.debug("stale_sync_status_cleanup_failed", exc_info=True)
 
+    # Scheduled cleanup runs daily via APScheduler (_setup_sync_log_cleanup).
+    # This startup cleanup catches logs from before server restart.
     # Clean old sync log files (>7 days)
     try:
         import time as _time

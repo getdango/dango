@@ -44,6 +44,8 @@ within SemVer constraints.
 1. Check the [Metabase DuckDB driver releases](https://github.com/motherduckdb/metabase_duckdb_driver/releases)
    for the driver version matching your target Metabase.
 2. Identify the DuckDB major.minor bundled in that driver.
+   (The driver's bundled DuckDB version must be checked from the driver
+   release notes — it does not always match the Python DuckDB package version.)
 3. Update **all three** together:
    - `pyproject.toml`: `duckdb>=X.Y.0,<X.(Y+1)`
    - `dango/utils/driver.py`: `METABASE_DUCKDB_DRIVER_VERSION`

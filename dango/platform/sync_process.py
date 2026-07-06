@@ -229,7 +229,8 @@ async def poll_sync_status(
                         "source": source_name,
                         "message": error_msg,
                         "timestamp": _ts(),
-                    }
+                    },
+                    log=False,
                 )
                 # Timeout is not a crash — don't call _handle_crash (the caller
                 # has its own timeout handling). Just keep the log for diagnostics.
@@ -270,7 +271,8 @@ async def poll_sync_status(
                         "source": source_name,
                         "message": f"Sync in progress ({elapsed_int}s elapsed)",
                         "timestamp": _ts(),
-                    }
+                    },
+                    log=False,
                 )
                 last_heartbeat = now
 
@@ -288,7 +290,8 @@ async def poll_sync_status(
                         "source": source_name,
                         "message": error_msg,
                         "timestamp": _ts(),
-                    }
+                    },
+                    log=False,
                 )
                 return False, {"error": error_msg, "phase": "failed"}
     finally:
@@ -511,7 +514,19 @@ def _ts() -> str:
 
 
 def _phase_to_event(phase: str) -> str:
-    """Map status file phase to a WebSocket event name."""
+    """Map status file phase to a WebSocket event name.
+
+    Consumers (grep for these to find UI code that handles each event):
+      sync_progress       → app.js:414, schedules.html:484
+      data_load_complete  → app.js:418
+      dbt_run_all_started → app.js:503, schedules.html:484
+      dbt_run_all_completed → app.js:542
+      dbt_run_all_failed  → app.js:595
+      post_sync_started   → app.js:565
+      post_sync_completed → app.js:571
+      sync_completed      → app.js:422, schedules.html:494
+      sync_failed         → app.js:463, schedules.html:494
+    """
     mapping = {
         "data_load": "sync_progress",
         "data_load_complete": "data_load_complete",

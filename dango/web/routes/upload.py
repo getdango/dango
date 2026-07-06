@@ -628,7 +628,8 @@ async def run_dbt_after_delete(source_name: str):
                 "source": f"dbt (triggered by {source_name} delete)",
                 "message": error_msg,
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-            }
+            },
+            log=False,
         )
         append_log_entry(
             {
@@ -661,7 +662,8 @@ async def run_dbt_after_delete(source_name: str):
                 "source": f"dbt (triggered by {source_name} delete)",
                 "message": "Updating models after file deletion",
                 "timestamp": sync_timestamp,
-            }
+            },
+            log=False,
         )
 
         # Run dbt for this source and downstream models
@@ -695,7 +697,8 @@ async def run_dbt_after_delete(source_name: str):
                     "source": f"dbt (triggered by {source_name} delete)",
                     "message": "Models updated after file deletion",
                     "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                }
+                },
+                log=False,
             )
 
             # Save sync history with success
@@ -726,7 +729,8 @@ async def run_dbt_after_delete(source_name: str):
                     "source": f"dbt (triggered by {source_name} delete)",
                     "message": "dbt run failed",
                     "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                }
+                },
+                log=False,
             )
 
             # Save sync history with failure
