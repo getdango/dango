@@ -964,6 +964,7 @@ class DltPipelineRunner:
 
         # Always capture pre-refresh row count for empty replace protection
         pre_refresh_rows = self._get_source_total_rows(source_name)
+        pre_table_counts = self._get_source_table_rows(source_name)
 
         # Full refresh: drop pipeline state only (NOT schema)
         # dlt with write_disposition="replace" handles table replacement automatically.
@@ -1007,6 +1008,42 @@ class DltPipelineRunner:
                     "rows_loaded": 0,
                     "uses_replace_mode": uses_replace_mode,
                 }
+
+            # Per-table empty replace protection: detect if any individual table
+            # would be truncated (some tables populated, others empty)
+            if (
+                pre_table_counts is not None
+                and (full_refresh or uses_replace_mode)
+                and not allow_empty_replace
+            ):
+                post_table_counts = self._get_source_table_rows(source_name)
+                if post_table_counts is not None:
+                    truncated_tables: list[tuple[str, int]] = []
+                    for table_name, pre_count in pre_table_counts.items():
+                        if pre_count > 0:
+                            post_count = post_table_counts.get(table_name, 0)
+                            if post_count == 0:
+                                truncated_tables.append((table_name, pre_count))
+                    if truncated_tables:
+                        self._restore_dlt_state(state_backup)
+                        table_details = "\n  - ".join(
+                            f"{name}: {count:,} rows → 0 rows (table would be lost)"
+                            for name, count in truncated_tables
+                        )
+                        error_msg = (
+                            f"Sync would truncate {len(truncated_tables)} table(s) with "
+                            f"existing data:\n  - {table_details}\n"
+                            f"To force sync with empty data, use: "
+                            f"dango sync {source_name} --allow-empty-replace"
+                        )
+                        console.print(f"  [red]❌ {error_msg}[/red]")
+                        return {
+                            "status": "failed",
+                            "source": source_name,
+                            "error": error_msg,
+                            "rows_loaded": rows_loaded,
+                            "uses_replace_mode": uses_replace_mode,
+                        }
 
             # Check for data loss on full refresh
             if full_refresh and pre_refresh_rows is not None and rows_loaded < pre_refresh_rows:
@@ -1281,6 +1318,7 @@ class DltPipelineRunner:
 
         # Always capture pre-refresh row count for empty replace protection
         pre_refresh_rows = self._get_source_total_rows(source_name)
+        pre_table_counts = self._get_source_table_rows(source_name)
 
         # Full refresh: drop pipeline state only (NOT schema)
         # dlt with write_disposition="replace" handles table replacement automatically.
@@ -1324,6 +1362,42 @@ class DltPipelineRunner:
                     "rows_loaded": 0,
                     "uses_replace_mode": uses_replace_mode,
                 }
+
+            # Per-table empty replace protection: detect if any individual table
+            # would be truncated (some tables populated, others empty)
+            if (
+                pre_table_counts is not None
+                and (full_refresh or uses_replace_mode)
+                and not allow_empty_replace
+            ):
+                post_table_counts = self._get_source_table_rows(source_name)
+                if post_table_counts is not None:
+                    truncated_tables: list[tuple[str, int]] = []
+                    for table_name, pre_count in pre_table_counts.items():
+                        if pre_count > 0:
+                            post_count = post_table_counts.get(table_name, 0)
+                            if post_count == 0:
+                                truncated_tables.append((table_name, pre_count))
+                    if truncated_tables:
+                        self._restore_dlt_state(state_backup)
+                        table_details = "\n  - ".join(
+                            f"{name}: {count:,} rows → 0 rows (table would be lost)"
+                            for name, count in truncated_tables
+                        )
+                        error_msg = (
+                            f"Sync would truncate {len(truncated_tables)} table(s) with "
+                            f"existing data:\n  - {table_details}\n"
+                            f"To force sync with empty data, use: "
+                            f"dango sync {source_name} --allow-empty-replace"
+                        )
+                        console.print(f"  [red]❌ {error_msg}[/red]")
+                        return {
+                            "status": "failed",
+                            "source": source_name,
+                            "error": error_msg,
+                            "rows_loaded": rows_loaded,
+                            "uses_replace_mode": uses_replace_mode,
+                        }
 
             # Check for row count anomalies
             total_row_count = self._get_source_total_rows(source_name)
@@ -1957,8 +2031,12 @@ class DltPipelineRunner:
         mins = minutes % 60
         return f"{hours}h {mins}m"
 
-    def _get_source_total_rows(self, source_name: str) -> int | None:
-        """Get total row count across all tables in a source's raw schema."""
+    def _get_source_table_rows(self, source_name: str) -> dict[str, int] | None:
+        """Get per-table row counts for a source's raw schema.
+
+        Returns dict of {table_name: row_count}, or None on error.
+        Excludes dlt internal tables (_dlt_*).
+        """
         import duckdb
 
         schema = f"raw_{source_name}"
@@ -1970,18 +2048,25 @@ class DltPipelineRunner:
                     "WHERE table_schema = ? AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'",
                     [schema],
                 ).fetchall()
-                total = 0
+                table_counts: dict[str, int] = {}
                 for (table_name,) in tables:
                     result = conn.execute(
                         f'SELECT COUNT(*) FROM "{schema}"."{table_name}"'
                     ).fetchone()
                     if result:
-                        total += result[0]
-                return total
+                        table_counts[table_name] = result[0]
+                return table_counts
             finally:
                 conn.close()
         except Exception:
             return None
+
+    def _get_source_total_rows(self, source_name: str) -> int | None:
+        """Get total row count across all tables in a source's raw schema."""
+        table_counts = self._get_source_table_rows(source_name)
+        if table_counts is None:
+            return None
+        return sum(table_counts.values()) if table_counts else 0
 
     def _get_csv_table_rows(self, source_name: str) -> int | None:
         """Get row count for a CSV/local_files source's single table."""

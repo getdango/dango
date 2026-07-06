@@ -1212,3 +1212,285 @@ class TestDropSchemaRemoval:
         assert "DROP SCHEMA" not in source, (
             f"{method_name} still contains DROP SCHEMA — must be removed"
         )
+
+
+# ============================================================================
+# Per-Table Empty Replace Protection (Tests 32-37)
+# ============================================================================
+
+
+@pytest.mark.unit
+class TestPerTableProtection:
+    """Per-table empty replace protection for multi-resource dlt sources.
+
+    Catches the gap where source-level totals pass (some tables populated)
+    but individual tables would be silently truncated.
+    """
+
+    def test_partial_empty_fails(self, tmp_path):
+        """Test 32: Some tables populated, one returns 0 rows → fail with details."""
+        runner = _make_runner(tmp_path)
+
+        pre_table = {"table_a": 1000, "table_b": 500, "table_c": 300}
+        post_table = {"table_a": 1200, "table_b": 600, "table_c": 0}
+
+        with (
+            patch.object(
+                runner,
+                "_get_source_total_rows",
+                side_effect=[sum(pre_table.values()), sum(post_table.values())],
+            ),
+            patch.object(runner, "_get_source_table_rows", side_effect=[pre_table, post_table]),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_restore_dlt_state") as mock_restore,
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 1800}),
+            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(1800)),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "failed"
+        assert "table_c" in result["error"]
+        assert "300 rows" in result["error"]
+        assert "would be lost" in result["error"]
+        assert "--allow-empty-replace" in result["error"]
+        mock_restore.assert_called_once()
+
+    def test_all_populated_succeeds(self, tmp_path):
+        """Test 33: All tables populated → success."""
+        runner = _make_runner(tmp_path)
+
+        pre_table = {"table_a": 1000, "table_b": 500}
+        post_table = {"table_a": 1200, "table_b": 600}
+
+        with (
+            patch.object(
+                runner,
+                "_get_source_total_rows",
+                side_effect=[sum(pre_table.values()), sum(post_table.values())],
+            ),
+            patch.object(runner, "_get_source_table_rows", side_effect=[pre_table, post_table]),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 1800}),
+            patch.object(runner, "_check_row_count_anomaly", return_value=None),
+            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(1800)),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "success"
+
+    def test_new_table_zero_succeeds(self, tmp_path):
+        """Test 34: New table appears with 0 rows (not previously tracked) → success."""
+        runner = _make_runner(tmp_path)
+
+        pre_table = {"table_a": 1000}
+        post_table = {"table_a": 1200, "table_b": 0}
+
+        with (
+            patch.object(
+                runner,
+                "_get_source_total_rows",
+                side_effect=[sum(pre_table.values()), sum(post_table.values())],
+            ),
+            patch.object(runner, "_get_source_table_rows", side_effect=[pre_table, post_table]),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 1200}),
+            patch.object(runner, "_check_row_count_anomaly", return_value=None),
+            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(1200)),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "success"
+
+    def test_first_sync_none_pre_counts_succeeds(self, tmp_path):
+        """Test 35: First sync with None pre_table_counts → success (per-table skipped)."""
+        runner = _make_runner(tmp_path)
+
+        post_table = {"table_a": 0, "table_b": 0}
+
+        with (
+            patch.object(runner, "_get_source_total_rows", side_effect=[0, 0]),
+            patch.object(runner, "_get_source_table_rows", side_effect=[None, post_table]),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
+            patch.object(runner, "_check_row_count_anomaly", return_value=None),
+            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "success"
+
+    def test_allow_empty_replace_bypasses_per_table(self, tmp_path):
+        """Test 36: allow_empty_replace=True bypasses per-table check."""
+        runner = _make_runner(tmp_path)
+
+        pre_table = {"table_a": 1000, "table_b": 500}
+        post_table = {"table_a": 1200, "table_b": 0}
+
+        with (
+            patch.object(
+                runner,
+                "_get_source_total_rows",
+                side_effect=[sum(pre_table.values()), sum(post_table.values())],
+            ),
+            patch.object(runner, "_get_source_table_rows", side_effect=[pre_table, post_table]),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_restore_dlt_state") as mock_restore,
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 1200}),
+            patch.object(runner, "_check_row_count_anomaly", return_value=None),
+            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(1200)),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+                allow_empty_replace=True,
+            )
+
+        assert result["status"] == "success"
+        mock_restore.assert_not_called()
+
+    def test_source_level_check_catches_all_empty(self, tmp_path):
+        """Test 37: Source-level check fires first when ALL tables empty (rows_loaded=0)."""
+        runner = _make_runner(tmp_path)
+
+        pre_table = {"table_a": 1000}
+
+        with (
+            patch.object(runner, "_get_source_total_rows", return_value=sum(pre_table.values())),
+            patch.object(runner, "_get_source_table_rows", return_value=pre_table),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_restore_dlt_state") as mock_restore,
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
+            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "failed"
+        assert "existing 1,000 rows preserved" in result["error"]
+        mock_restore.assert_called_once()
