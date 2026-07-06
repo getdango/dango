@@ -451,3 +451,180 @@ class TestRollbackCommand:
         assert result.exit_code == 0
         assert "complete" in result.output.lower()
         ssh.disconnect.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 8. backup download --from-server
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestBackupDownloadFromServer:
+    def test_downloads_via_ssh_and_sftp(self, tmp_path):
+        """--from-server creates backup on server, downloads via SFTP."""
+        import json
+
+        from dango.platform.cloud.ssh import CommandResult
+
+        ssh = _make_ssh_mock()
+        create_output = json.dumps(
+            {
+                "path": "/srv/dango/backups/deploy/backup-20260224-143000.tar.gz",
+                "warnings": [],
+            }
+        )
+        ssh.exec_command.side_effect = [
+            CommandResult(stdout=create_output, stderr="", exit_code=0),
+            CommandResult(
+                stdout="/dev/vda1 25000 15000 8000 40% /srv/dango\n",
+                stderr="",
+                exit_code=0,
+            ),
+        ]
+        ssh.download_file = MagicMock()
+
+        # Create output path so stat() succeeds after mock download
+        output_path = tmp_path / "latest.tar.gz"
+        output_path.write_text("fake-backup-data")
+
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=_make_loader()):
+                with patch(_PATCH_SSH_MANAGER, return_value=ssh):
+                    result = _run(
+                        ["backup", "download", "--from-server", "-o", str(output_path)],
+                        tmp_path,
+                    )
+
+        assert result.exit_code == 0
+        assert "Downloaded" in result.output
+        ssh.download_file.assert_called_once()
+        ssh.disconnect.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 9. backup verify-metabase
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestBackupVerifyMetabase:
+    def test_h2_files_found_in_archive(self, tmp_path):
+        """verify-metabase reports PASS when both H2 files exist in archive."""
+        import io
+        import tarfile
+
+        # Create a .tar.gz with metabase/ directory
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+            mv_info = tarfile.TarInfo(name="metabase/metabase.db.mv.db")
+            mv_info.size = 1024
+            tf.addfile(mv_info, io.BytesIO(b"x" * 1024))
+            trace_info = tarfile.TarInfo(name="metabase/metabase.db.trace.db")
+            trace_info.size = 512
+            tf.addfile(trace_info, io.BytesIO(b"y" * 512))
+        archive_data = buf.getvalue()
+
+        mock_client = MagicMock()
+        mock_client.download.return_value = archive_data
+
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=_make_loader()):
+                with patch(
+                    "dango.platform.cloud.spaces.SpacesClient",
+                    return_value=mock_client,
+                ):
+                    result = _run(
+                        ["backup", "verify-metabase", "backup-20260224-143000.tar.gz"],
+                        tmp_path,
+                    )
+
+        assert result.exit_code == 0
+        assert "PASS" in result.output
+
+    def test_h2_missing_in_archive(self, tmp_path):
+        """verify-metabase reports FAIL when no H2 files in archive."""
+        import io
+        import tarfile
+
+        # Create a .tar.gz without metabase/ directory
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+            info = tarfile.TarInfo(name="data/warehouse.duckdb")
+            info.size = 100
+            tf.addfile(info, io.BytesIO(b"z" * 100))
+        archive_data = buf.getvalue()
+
+        mock_client = MagicMock()
+        mock_client.download.return_value = archive_data
+
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=_make_loader()):
+                with patch(
+                    "dango.platform.cloud.spaces.SpacesClient",
+                    return_value=mock_client,
+                ):
+                    result = _run(
+                        ["backup", "verify-metabase", "backup-20260224-143000.tar.gz"],
+                        tmp_path,
+                    )
+
+        assert result.exit_code == 0
+        assert "FAIL" in result.output
+
+    def test_live_check_success(self, tmp_path):
+        """verify-metabase (no arg) checks live /api/health and reports PASS."""
+        from dango.platform.cloud.ssh import CommandResult
+
+        ssh = _make_ssh_mock()
+        ssh.exec_command.return_value = CommandResult(
+            stdout='{"status":"ok"}', stderr="", exit_code=0
+        )
+
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=_make_loader()):
+                with patch(_PATCH_SSH_MANAGER, return_value=ssh):
+                    result = _run(["backup", "verify-metabase"], tmp_path)
+
+        assert result.exit_code == 0
+        assert "PASS" in result.output
+        ssh.disconnect.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 10. backup config
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestBackupConfig:
+    def test_shows_retention_from_cloud_yml(self, tmp_path):
+        """backup config shows retention settings from cloud.yml BackupConfig."""
+        from dango.config.models import BackupConfig, SpacesRetentionConfig
+
+        cfg = _make_cloud_config()
+        cfg.backup = BackupConfig(
+            include_secrets=True,
+            on_server_retention=3,
+            spaces_retention=SpacesRetentionConfig(daily=14, weekly=8, monthly=3),
+        )
+
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=_make_loader(cfg)):
+                result = _run(["backup", "config"], tmp_path)
+
+        assert result.exit_code == 0
+        assert "14" in result.output
+        assert "8" in result.output
+        assert "3" in result.output
+
+    def test_shows_defaults_when_backup_not_configured(self, tmp_path):
+        """backup config shows defaults when backup: key is not in cloud.yml."""
+        cfg = _make_cloud_config()
+        cfg.backup = None
+
+        with patch(_PATCH_REQUIRE_CTX, return_value=tmp_path):
+            with patch(_PATCH_LOADER, return_value=_make_loader(cfg)):
+                result = _run(["backup", "config"], tmp_path)
+
+        assert result.exit_code == 0
+        assert "default" in result.output.lower()
