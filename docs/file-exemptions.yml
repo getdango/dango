@@ -438,6 +438,18 @@ exemptions:
     reason: "TEST-030+R10-D2: 7 test classes covering page, list, create, delete, lock, heartbeat, release, force-release (incl. WebSocket broadcast), copy."
     review_by: "v1.1"
 
+  - file: dango/web/routes/scripts.py
+    lines: 673
+    category: exempt
+    reason: "S3-SCRIPTS-A: New router with script discovery, subprocess execution, cancel support, JSONL history, WebSocket broadcasts, and log viewer. Single router file for script management."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_scripts_api.py
+    lines: 690
+    category: exempt
+    reason: "S3-SCRIPTS-A: 6 test classes (26 tests) covering list, run, cancel, history, log page, and navbar."
+    review_by: "v1.1"
+
   - file: dango/governance/schema_drift.py
     lines: 654
     category: exempt
