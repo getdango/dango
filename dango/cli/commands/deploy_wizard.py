@@ -62,6 +62,7 @@ class WizardConfig:
     # Backup credentials (only set if enable_backups is True)
     spaces_access_key: str | None = None
     spaces_secret_key: str | None = None
+    spaces_bucket_name: str | None = None  # Existing bucket to reuse, None = create new
 
 
 @dataclass
@@ -400,11 +401,13 @@ def _step_oauth() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _step_backups() -> tuple[bool, str | None, str | None]:
+def _step_backups(
+    project_root: Path, region: str
+) -> tuple[bool, str | None, str | None, str | None]:
     """Step 7: Enable automated backups?
 
     Returns:
-        Tuple of (enable_backups, access_key, secret_key).
+        Tuple of (enable_backups, access_key, secret_key, bucket_name).
     """
     console.print("\n[bold]Step 7: Automated Backups[/bold]")
     console.print("  Daily backups at 2:00 AM UTC to DigitalOcean Spaces ($5/mo for 250GB).")
@@ -415,7 +418,7 @@ def _step_backups() -> tuple[bool, str | None, str | None]:
 
     enable = _safe_confirm("  Enable automated backups?", default=True)
     if not enable:
-        return False, None, None
+        return False, None, None, None
 
     # Offer to enter keys now or skip
     import inquirer
@@ -438,7 +441,7 @@ def _step_backups() -> tuple[bool, str | None, str | None]:
     if not answers or answers["backup_action"].startswith("Skip"):
         console.print("  [yellow]Backups enabled but keys not configured.[/yellow]")
         console.print("  [dim]Run 'dango remote backup enable' later to add Spaces keys.[/dim]")
-        return True, None, None
+        return True, None, None, None
 
     console.print(
         "\n  Create Spaces access keys at: "
@@ -469,7 +472,103 @@ def _step_backups() -> tuple[bool, str | None, str | None]:
             "Backups may fail if keys are incorrect."
         )
 
-    return True, access_key, secret_key
+    # Discover existing dango backup buckets for reuse
+    bucket_name = _discover_existing_buckets(access_key, secret_key, project_root, region)
+
+    return True, access_key, secret_key, bucket_name
+
+
+def _discover_existing_buckets(
+    access_key: str,
+    secret_key: str,
+    project_root: Path,
+    region: str,
+) -> str | None:
+    """Offer to reuse an existing dango backup bucket.
+
+    Returns the bucket name if the user selects an existing one, or None
+    to create a new bucket.
+    """
+    import inquirer
+    from inquirer import themes
+
+    from dango.platform.cloud.spaces import SpacesClient
+
+    try:
+        discovery_client = SpacesClient(
+            bucket="",
+            region=region,
+            access_key=access_key,
+            secret_key=secret_key,
+        )
+        all_buckets = discovery_client.list_buckets()
+    except Exception:
+        console.print(
+            "  [dim]Could not enumerate existing Spaces buckets. "
+            "A new bucket will be created.[/dim]"
+        )
+        return None
+
+    # Filter to dango backup buckets
+    dango_buckets = [b for b in all_buckets if b["Name"].startswith("dango-backup-")]
+    if not dango_buckets:
+        return None
+
+    # Sort by creation date, newest first
+    dango_buckets.sort(key=lambda b: str(b["CreationDate"]), reverse=True)
+
+    # Build choice list with backup counts
+    choices: list[str] = []
+    for bucket in dango_buckets:
+        try:
+            count_client = SpacesClient(
+                bucket=bucket["Name"],
+                region=region,
+                access_key=access_key,
+                secret_key=secret_key,
+            )
+            objects = count_client.list_objects(prefix="backups/")
+            archives = [o for o in objects if o.get("Key", "").endswith(".tar.gz")]
+            count = len(archives)
+            total_size_mb = sum(o.get("Size", 0) for o in archives) // (1024 * 1024)
+            created_str = str(bucket["CreationDate"])[:10]
+            label = (
+                f"{bucket['Name']} ({count} backup{'s' if count != 1 else ''}, "
+                f"{total_size_mb} MB, created {created_str})"
+            )
+        except Exception:
+            label = f"{bucket['Name']} (could not enumerate)"
+        choices.append(label)
+
+    new_bucket_name = f"dango-backup-{project_root.name}-{region}"
+    choices.append(f"Create new bucket \u2192 {new_bucket_name}")
+
+    bucket_answers = inquirer.prompt(
+        [
+            inquirer.List(
+                "bucket_choice",
+                message="Select a Spaces bucket to use for backups",
+                choices=choices,
+                carousel=True,
+            )
+        ],
+        theme=themes.GreenPassion(),
+    )
+    if not bucket_answers:
+        raise click.Abort()
+
+    selected: str = bucket_answers["bucket_choice"]
+    if selected.startswith("Create new bucket"):
+        return None
+
+    # Extract bucket name from the label (format: "name (X backups...)")
+    selected_name = selected.split(" (")[0]
+    console.print(f"  [yellow]Using existing bucket '{selected_name}'.[/yellow]")
+    console.print(
+        "  [dim]Note: Existing backups in this bucket will be subject "
+        "to the current retention policy.[/dim]"
+    )
+    return selected_name
 
 
 # ---------------------------------------------------------------------------
@@ -568,7 +667,9 @@ def run_wizard(project_root: Path) -> WizardConfig:
     skip_oauth = _step_oauth()
 
     # Step 7: Backups
-    enable_backups, spaces_access_key, spaces_secret_key = _step_backups()
+    enable_backups, spaces_access_key, spaces_secret_key, spaces_bucket_name = _step_backups(
+        project_root, region
+    )
 
     # Step 8: Cost summary + confirm
     monthly_cost = _step_cost_summary(region, size_slug, enable_backups)
@@ -586,6 +687,7 @@ def run_wizard(project_root: Path) -> WizardConfig:
         push_secrets=push_secrets,
         spaces_access_key=spaces_access_key,
         spaces_secret_key=spaces_secret_key,
+        spaces_bucket_name=spaces_bucket_name,
     )
 
 
