@@ -412,7 +412,7 @@ Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 
 ## Development Setup
 
-**Prerequisites:** Python >=3.10,<3.13 (macOS: use `python3.11` — system `python3` is 3.9), Docker
+**Prerequisites:** Python >=3.10,<3.14 (macOS: use `python3.11` — system `python3` is 3.9), Docker
 
 ```bash
 # First time setup
