@@ -284,7 +284,7 @@ class TestDestroyResourceDeletion:
 @patch.dict(os.environ, {"DIGITALOCEAN_TOKEN": "test-token"})
 class TestDestroyWithSpaces:
     def test_deletes_spaces_bucket(self, tmp_path):
-        """Destroy empties and deletes the Spaces bucket."""
+        """--delete-spaces empties and deletes the Spaces bucket."""
         cloud_yml = tmp_path / ".dango" / "cloud.yml"
         cloud_yml.parent.mkdir(parents=True, exist_ok=True)
         cloud_yml.touch()
@@ -306,13 +306,34 @@ class TestDestroyWithSpaces:
             ]
             mock_spaces_cls.return_value = mock_spaces
 
-            _run(["destroy", "--force"], tmp_path)
+            _run(["destroy", "--force", "--delete-spaces"], tmp_path)
 
         assert mock_spaces.delete.call_count == 2
         mock_spaces.delete_bucket.assert_called_once()
 
-    def test_keep_spaces_skips_bucket_deletion(self, tmp_path):
-        """--keep-spaces prevents bucket deletion."""
+    def test_keeps_spaces_by_default(self, tmp_path):
+        """Spaces is kept by default when no --delete-spaces flag."""
+        cloud_yml = tmp_path / ".dango" / "cloud.yml"
+        cloud_yml.parent.mkdir(parents=True, exist_ok=True)
+        cloud_yml.touch()
+        cloud_cfg = _make_cloud_config(spaces=_make_spaces_config())
+        mock_loader = _make_loader(cloud_cfg=cloud_cfg)
+
+        with (
+            patch(_PATCH_REQUIRE_CTX, return_value=tmp_path),
+            patch(_PATCH_LOADER, return_value=mock_loader),
+            patch(_PATCH_DO_CLIENT) as mock_client_cls,
+            patch(_PATCH_SPACES) as mock_spaces_cls,
+        ):
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+
+            _run(["destroy", "--force"], tmp_path)
+
+        mock_spaces_cls.assert_not_called()
+
+    def test_keep_spaces_backward_compat(self, tmp_path):
+        """--keep-spaces (deprecated) still works — Spaces is kept."""
         cloud_yml = tmp_path / ".dango" / "cloud.yml"
         cloud_yml.parent.mkdir(parents=True, exist_ok=True)
         cloud_yml.touch()
