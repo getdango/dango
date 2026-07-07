@@ -62,6 +62,34 @@ def cleanup_old_archives(log_dir: Path, pattern: str, max_age_days: int = 90) ->
         _logger.warning("archive_cleanup_failed", log_dir=str(log_dir), exc_info=True)
 
 
+def cleanup_old_sync_logs(project_root_str: str, max_age_days: int = 7) -> None:
+    """Delete sync_*.log files older than *max_age_days* days.
+
+    APScheduler job function — must be module-level and pickle-safe.
+    Never raises."""
+    try:
+        _cleanup_old_sync_logs_impl(Path(project_root_str), max_age_days)
+    except Exception:
+        _logger.warning("sync_log_cleanup_failed", project_root=project_root_str, exc_info=True)
+
+
+def _cleanup_old_sync_logs_impl(project_root: Path, max_age_days: int) -> None:
+    """Core sync log cleanup logic — may raise."""
+    logs_dir = project_root / ".dango" / "logs"
+    if not logs_dir.exists():
+        return
+
+    cutoff_ts = datetime.now(timezone.utc).timestamp() - (max_age_days * 86_400)
+
+    for log_file in logs_dir.glob("sync_*.log"):
+        try:
+            if log_file.stat().st_mtime < cutoff_ts:
+                log_file.unlink(missing_ok=True)
+                _logger.info("sync_log_deleted", path=str(log_file))
+        except OSError:
+            pass
+
+
 def get_log_disk_usage(log_dir: Path) -> dict[str, Any]:
     """Return per-file sizes and total disk usage for a log directory.
 

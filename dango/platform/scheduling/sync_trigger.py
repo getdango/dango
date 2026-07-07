@@ -86,6 +86,29 @@ def _write_status(state_dir: Path, sync_id: str | None = None, **fields: Any) ->
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _write_failed_sync_history(project_root: Path, sources: list[str], error_msg: str) -> None:
+    """Write a failed sync history entry for each source."""
+    from dango.utils.sync_history import save_sync_history_entry
+
+    for name in sources:
+        save_sync_history_entry(
+            project_root,
+            name,
+            {
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "status": "failed",
+                "duration_seconds": 0,
+                "rows_processed": 0,
+                "error_message": error_msg,
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
 # Main sync function
 # ---------------------------------------------------------------------------
 
@@ -163,21 +186,7 @@ def run_manual_sync(
                 validate_before_sync(src.type.value, project_root)
     except (OAuthTokenExpiredError, OAuthTokenRevokedError) as oauth_err:
         error_msg = f"OAuth validation failed: {oauth_err.user_message}"
-        # Record in per-source sync history so health page sees it
-        from dango.utils.sync_history import save_sync_history_entry
-
-        for name in sources:
-            save_sync_history_entry(
-                project_root,
-                name,
-                {
-                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                    "status": "failed",
-                    "duration_seconds": 0,
-                    "rows_processed": 0,
-                    "error_message": error_msg,
-                },
-            )
+        _write_failed_sync_history(project_root, sources, error_msg)
         record_failure(db_path, record_id, error_msg)
         duration = round(time.time() - start_time, 1)
         _progress("failed", error_msg, error=error_msg)
@@ -204,21 +213,7 @@ def run_manual_sync(
     except DbtLockError as exc:
         error_msg = f"Lock unavailable: {exc}"
         record_failure(db_path, record_id, error_msg)
-
-        from dango.utils.sync_history import save_sync_history_entry
-
-        for name in sources:
-            save_sync_history_entry(
-                project_root,
-                name,
-                {
-                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                    "status": "failed",
-                    "duration_seconds": 0,
-                    "rows_processed": 0,
-                    "error_message": error_msg,
-                },
-            )
+        _write_failed_sync_history(project_root, sources, error_msg)
 
         duration = round(time.time() - start_time, 1)
         _progress("failed", error_msg, error=error_msg)
@@ -249,21 +244,7 @@ def run_manual_sync(
         if not resolved:
             msg = f"No valid sources found for: {', '.join(sources)}"
             logger.warning("manual_sync_no_sources", source_names=sources)
-            # Record failure in sync history so UI shows "failed" not "never synced"
-            from dango.utils.sync_history import save_sync_history_entry
-
-            for name in sources:
-                save_sync_history_entry(
-                    project_root,
-                    name,
-                    {
-                        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                        "status": "failed",
-                        "duration_seconds": 0,
-                        "rows_processed": 0,
-                        "error_message": msg,
-                    },
-                )
+            _write_failed_sync_history(project_root, sources, msg)
             record_failure(db_path, record_id, msg)
             duration = round(time.time() - start_time, 1)
             _progress("failed", msg, error=msg)
@@ -361,21 +342,7 @@ def run_manual_sync(
         logger.warning("manual_sync_failed", error=str(exc), exc_info=True)
         error_msg = str(exc)
         record_failure(db_path, record_id, error_msg)
-
-        from dango.utils.sync_history import save_sync_history_entry
-
-        for name in sources:
-            save_sync_history_entry(
-                project_root,
-                name,
-                {
-                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                    "status": "failed",
-                    "duration_seconds": 0,
-                    "rows_processed": 0,
-                    "error_message": error_msg,
-                },
-            )
+        _write_failed_sync_history(project_root, sources, error_msg)
 
         duration = round(time.time() - start_time, 1)
         _progress("failed", f"Sync failed: {error_msg}", error=error_msg)

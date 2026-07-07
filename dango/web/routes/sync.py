@@ -205,7 +205,8 @@ async def run_sync_task(
                 "source": source_name,
                 "message": f"Sync failed: {error_message}",
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-            }
+            },
+            log=False,
         )
 
         # Cleanup status file even on exception
