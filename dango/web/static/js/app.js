@@ -41,6 +41,16 @@ let activeFileOperations = new Map();
 let syncTimers = new Map();
 let syncResults = new Map();  // Stores sync_completed data for in-place updates
 
+// Sort/filter state for Sources table (persisted in localStorage)
+let sourceSortColumn = localStorage.getItem('dango-sources-sort-column') || null;
+let sourceSortDirection = localStorage.getItem('dango-sources-sort-direction') || null;
+let sourceFilterText = localStorage.getItem('dango-sources-filter') || '';
+
+// Sort/filter state for Models table (persisted in localStorage)
+let modelSortColumn = localStorage.getItem('dango-models-sort-column') || null;
+let modelSortDirection = localStorage.getItem('dango-models-sort-direction') || null;
+let modelFilterText = localStorage.getItem('dango-models-filter') || '';
+
 /**
  * Format a file size in bytes to a human-readable string (B/KB/MB/GB).
  * @param {number} bytes - Size in bytes
@@ -190,11 +200,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Sources page or legacy dashboard with tabs
     if (hasSources) {
         loadSources();
+        initSourcesSortHeaders();
+        initSourcesFilter();
     }
 
     // Models page or legacy dashboard with tabs
     if (hasModels) {
         loadDbtModels();
+        initModelsSortHeaders();
+        initModelsFilter();
     }
 
     // Activity log (dashboard overview)
@@ -1143,6 +1157,108 @@ function showSourcesLoading() {
     `;
 }
 
+// ============================================================================
+// Sources Table Sort & Filter
+// ============================================================================
+
+function applySourcesSort(srcs) {
+    if (!sourceSortColumn || !sourceSortDirection || sourceSortDirection === 'none') return srcs;
+    const sortable = {
+        'name': 'name',
+        'type': 'type',
+        'rows': 'row_count',
+        'last-sync': 'last_sync',
+    };
+    if (sourceSortColumn === 'status') {
+        const dir = sourceSortDirection === 'desc' ? -1 : 1;
+        return [...srcs].sort((a, b) => {
+            const va = sourceStatusOrder(a), vb = sourceStatusOrder(b);
+            return (va - vb) * dir;
+        });
+    }
+    const accessor = sortable[sourceSortColumn];
+    return accessor ? sortByProp(srcs, accessor, sourceSortDirection) : srcs;
+}
+
+function sourceStatusOrder(src) {
+    if (activeSyncs.has(src.name)) return 0;
+    if (postSyncSources.has(src.name)) return 1;
+    const order = { 'synced': 10, 'partial': 20, 'empty': 30, 'not_synced': 40, 'failed': 50, 'never_synced': 60 };
+    return order[src.freshness?.status] != null ? order[src.freshness.status] : 99;
+}
+
+function applySourcesFilter(srcs) {
+    if (!sourceFilterText) return srcs;
+    return filterByText(srcs, sourceFilterText, ['name', 'type']);
+}
+
+function updateSourcesSortArrows() {
+    const table = document.querySelector('#sources-table-body')?.closest('table');
+    if (!table) return;
+    table.querySelectorAll('thead th[data-sort-key]').forEach((th) => {
+        const colKey = th.dataset.sortKey;
+        // Remove any existing arrow
+        th.innerHTML = th.innerHTML.replace(/[▲▼]/g, '').trim();
+        if (colKey === sourceSortColumn && sourceSortDirection && sourceSortDirection !== 'none') {
+            th.innerHTML += sourceSortDirection === 'asc' ? ' ▲' : ' ▼';
+        }
+    });
+}
+
+function initSourcesSortHeaders() {
+    const table = document.querySelector('#sources-table-body')?.closest('table');
+    if (!table) return;
+    const thead = table.querySelector('thead');
+    if (!thead || thead.dataset.sortInit) return;
+    thead.dataset.sortInit = '1';
+
+    thead.addEventListener('click', (e) => {
+        const th = e.target.closest('th[data-sort-key]');
+        if (!th) return;
+        const colKey = th.dataset.sortKey;
+
+        if (sourceSortColumn === colKey) {
+            if (sourceSortDirection === 'asc') sourceSortDirection = 'desc';
+            else if (sourceSortDirection === 'desc') { sourceSortDirection = null; sourceSortColumn = null; }
+            else { sourceSortColumn = colKey; sourceSortDirection = 'asc'; }
+        } else {
+            sourceSortColumn = colKey;
+            sourceSortDirection = 'asc';
+        }
+        localStorage.setItem('dango-sources-sort-column', sourceSortColumn || '');
+        localStorage.setItem('dango-sources-sort-direction', sourceSortDirection || '');
+        renderSourcesTable();
+    });
+}
+
+function initSourcesFilter() {
+    const input = document.getElementById('sources-filter-input');
+    if (!input) return;
+    const clearBtn = document.getElementById('sources-filter-clear');
+
+    input.value = sourceFilterText || '';
+    if (clearBtn) {
+        clearBtn.classList.toggle('hidden', !sourceFilterText);
+    }
+
+    input.addEventListener('input', () => {
+        sourceFilterText = input.value;
+        localStorage.setItem('dango-sources-filter', sourceFilterText);
+        if (clearBtn) clearBtn.classList.toggle('hidden', !sourceFilterText);
+        renderSourcesTable();
+    });
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            input.value = '';
+            sourceFilterText = '';
+            localStorage.setItem('dango-sources-filter', '');
+            clearBtn.classList.add('hidden');
+            renderSourcesTable();
+        });
+    }
+}
+
 function renderSourcesTable() {
     console.log('🎨 [renderSourcesTable] Called with sources:', sources.length, 'activeSyncs:', activeSyncs.size);
     const tbody = document.getElementById('sources-table-body');
@@ -1169,7 +1285,23 @@ function renderSourcesTable() {
 
     const canSync = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
 
-    tbody.innerHTML = sources.map(source => {
+    // Apply sort and filter
+    const sorted = applySourcesSort(sources);
+    const filtered = applySourcesFilter(sorted);
+
+    if (filtered.length === 0 && sourceFilterText) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="px-6 py-8 text-center text-gray-500">
+                    <p>No sources match "<span class="font-medium">${escapeHtml(sourceFilterText)}</span>"</p>
+                </td>
+            </tr>
+        `;
+        updateSourcesSortArrows();
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(source => {
         const isSyncing = activeSyncs.has(source.name);
         const hasFileOps = activeFileOperations.has(source.name);
         const isPostSync = postSyncSources.has(source.name);
@@ -1279,6 +1411,7 @@ function renderSourcesTable() {
         </tr>
         `;
     }).join('');
+    updateSourcesSortArrows();
 }
 
 function getStatusBadge(status) {
@@ -2312,6 +2445,106 @@ async function loadDbtModels(retryCount = 0) {
     }
 }
 
+// ============================================================================
+// Models Table Sort & Filter
+// ============================================================================
+
+function applyModelsSort(models) {
+    if (!modelSortColumn || !modelSortDirection || modelSortDirection === 'none') return models;
+    const sortable = {
+        'name': 'name',
+        'schema': 'schema',
+        'materialization': 'materialization',
+        'rows': 'row_count',
+    };
+    if (modelSortColumn === 'status') {
+        const dir = modelSortDirection === 'desc' ? -1 : 1;
+        return [...models].sort((a, b) => {
+            const va = modelStatusOrder(a), vb = modelStatusOrder(b);
+            return (va - vb) * dir;
+        });
+    }
+    const accessor = sortable[modelSortColumn];
+    return accessor ? sortByProp(models, accessor, modelSortDirection) : models;
+}
+
+function modelStatusOrder(model) {
+    if (runningModels.has(model.name) || dbtRunStartTime !== null) return 0;
+    const order = { 'success': 10, 'stale': 20, 'error': 30, 'skipped': 40 };
+    return order[model.status] != null ? order[model.status] : 99;
+}
+
+function applyModelsFilter(models) {
+    if (!modelFilterText) return models;
+    return filterByText(models, modelFilterText, ['name', 'schema', 'materialization']);
+}
+
+function updateModelsSortArrows() {
+    const table = document.querySelector('#dbt-models-table-body')?.closest('table');
+    if (!table) return;
+    table.querySelectorAll('thead th[data-sort-key]').forEach((th) => {
+        const colKey = th.dataset.sortKey;
+        th.innerHTML = th.innerHTML.replace(/[▲▼]/g, '').trim();
+        if (colKey === modelSortColumn && modelSortDirection && modelSortDirection !== 'none') {
+            th.innerHTML += modelSortDirection === 'asc' ? ' ▲' : ' ▼';
+        }
+    });
+}
+
+function initModelsSortHeaders() {
+    const table = document.querySelector('#dbt-models-table-body')?.closest('table');
+    if (!table) return;
+    const thead = table.querySelector('thead');
+    if (!thead || thead.dataset.sortInit) return;
+    thead.dataset.sortInit = '1';
+
+    thead.addEventListener('click', (e) => {
+        const th = e.target.closest('th[data-sort-key]');
+        if (!th) return;
+        const colKey = th.dataset.sortKey;
+
+        if (modelSortColumn === colKey) {
+            if (modelSortDirection === 'asc') modelSortDirection = 'desc';
+            else if (modelSortDirection === 'desc') { modelSortDirection = null; modelSortColumn = null; }
+            else { modelSortColumn = colKey; modelSortDirection = 'asc'; }
+        } else {
+            modelSortColumn = colKey;
+            modelSortDirection = 'asc';
+        }
+        localStorage.setItem('dango-models-sort-column', modelSortColumn || '');
+        localStorage.setItem('dango-models-sort-direction', modelSortDirection || '');
+        renderDbtModelsTable();
+    });
+}
+
+function initModelsFilter() {
+    const input = document.getElementById('models-filter-input');
+    if (!input) return;
+    const clearBtn = document.getElementById('models-filter-clear');
+
+    input.value = modelFilterText || '';
+    if (clearBtn) {
+        clearBtn.classList.toggle('hidden', !modelFilterText);
+    }
+
+    input.addEventListener('input', () => {
+        modelFilterText = input.value;
+        localStorage.setItem('dango-models-filter', modelFilterText);
+        if (clearBtn) clearBtn.classList.toggle('hidden', !modelFilterText);
+        renderDbtModelsTable();
+    });
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            input.value = '';
+            modelFilterText = '';
+            localStorage.setItem('dango-models-filter', '');
+            clearBtn.classList.add('hidden');
+            renderDbtModelsTable();
+        });
+    }
+}
+
 function renderDbtModelsTable() {
     const tbody = document.getElementById('dbt-models-table-body');
     if (!tbody) return;
@@ -2343,7 +2576,23 @@ function renderDbtModelsTable() {
 
     const canRun = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
 
-    tbody.innerHTML = dbtModels.map(model => {
+    // Apply sort and filter
+    const sorted = applyModelsSort(dbtModels);
+    const filtered = applyModelsFilter(sorted);
+
+    if (filtered.length === 0 && modelFilterText) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="px-6 py-8 text-center text-gray-500">
+                    <p>No models match "<span class="font-medium">${escapeHtml(modelFilterText)}</span>"</p>
+                </td>
+            </tr>
+        `;
+        updateModelsSortArrows();
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(model => {
         // Disable ALL buttons if ANY model is running (prevents concurrent runs and DuckDB locking)
         const anyModelRunning = runningModels.size > 0 || dbtRunStartTime !== null;
         const buttonDisabled = anyModelRunning ? 'disabled' : '';
@@ -2428,10 +2677,10 @@ function renderDbtModelsTable() {
         return `
             <tr class="hover:bg-gray-50 transition-colors duration-150">
                 <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm font-medium text-gray-900">${model.name}</div>
+                    <div class="text-sm font-medium text-gray-900">${escapeHtml(model.name)}</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    ${model.schema || '-'}
+                    ${escapeHtml(model.schema || '-')}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     <span class="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
@@ -2460,6 +2709,7 @@ function renderDbtModelsTable() {
             </tr>
         `;
     }).join('');
+    updateModelsSortArrows();
 }
 
 async function runDbtModel(modelName, cascade) {
