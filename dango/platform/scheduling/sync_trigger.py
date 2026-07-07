@@ -80,7 +80,7 @@ def _write_status(state_dir: Path, sync_id: str | None = None, **fields: Any) ->
         tmp_f.close()
         try:
             os.unlink(tmp_f.name)
-        except OSError:  # noqa: BLE001
+        except OSError:
             pass
         raise
 
@@ -150,7 +150,6 @@ def run_manual_sync(
     """
     from dango.config.helpers import load_config
     from dango.ingestion import run_sync
-    from dango.utils import DbtLock, DbtLockError
 
     state_dir = project_root / ".dango" / "state"
     db_path = get_scheduler_db_path(project_root)
@@ -200,31 +199,12 @@ def run_manual_sync(
         # Non-OAuth errors during validation: continue (benefit of the doubt)
         logger.warning("pre_sync_validation_error", error=str(e), exc_info=True)
 
-    # --- Lock acquisition ---
-    _progress("lock_waiting", "Waiting for lock")
-    lock = None
-    try:
-        lock = DbtLock(
-            project_root=project_root,
-            source=source_label,
-            operation=f"sync:{','.join(sources)}",
-        )
-        lock.acquire(timeout=max_lock_wait or 300)
-    except DbtLockError as exc:
-        error_msg = f"Lock unavailable: {exc}"
-        record_failure(db_path, record_id, error_msg)
-        _write_failed_sync_history(project_root, sources, error_msg)
-
-        duration = round(time.time() - start_time, 1)
-        _progress("failed", error_msg, error=error_msg)
-        return {
-            "record_id": record_id,
-            "status": "failed",
-            "duration_seconds": duration,
-            "error": error_msg,
-        }
-
     # --- Stop Metabase on cloud to prevent DuckDB lock conflicts ---
+
+    # Note: DbtLock is no longer acquired here. It is now acquired inside
+    # dlt_runner.py around pipeline.load() and dbt transforms only, rather
+    # than across the entire sync (extract + normalize + load + dbt).
+    # This allows concurrent extracts while serializing only the write phases.
     from dango.platform.common.metabase_lifecycle import stop_metabase_for_writes
 
     _metabase_should_stop = os.environ.get("DANGO_CLOUD_MODE") == "true"
@@ -285,6 +265,7 @@ def run_manual_sync(
             skip_dbt=skip_dbt,
             progress_callback=_sync_progress_cb,
             allow_empty_replace=allow_empty_replace,
+            max_lock_wait=max_lock_wait or 300,
         )
 
         # Extract rows loaded from sync result
@@ -353,11 +334,6 @@ def run_manual_sync(
             "error": error_msg,
         }
     finally:
-        if lock is not None:
-            try:
-                lock.release()
-            except Exception:  # noqa: BLE001
-                pass
         # --- Restart Metabase on cloud ---
         if _metabase_was_stopped:
             from dango.platform.common.metabase_lifecycle import start_metabase_after_writes
@@ -388,7 +364,7 @@ def _trigger_metabase_schema_scan(project_root: Path) -> None:
             resp = requests.get(f"{metabase_url}/api/health", timeout=3)
             if resp.status_code == 200:
                 break
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         time.sleep(5)
     else:
