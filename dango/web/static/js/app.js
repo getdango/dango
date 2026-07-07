@@ -1197,10 +1197,17 @@ function updateSourcesSortArrows() {
     if (!table) return;
     table.querySelectorAll('thead th[data-sort-key]').forEach((th) => {
         const colKey = th.dataset.sortKey;
-        // Remove any existing arrow
-        th.innerHTML = th.innerHTML.replace(/[▲▼]/g, '').trim();
+        // Use a dedicated span for the arrow to avoid mutating label text
+        let arrow = th.querySelector('.sort-arrow');
+        if (!arrow) {
+            arrow = document.createElement('span');
+            arrow.className = 'sort-arrow';
+            th.appendChild(arrow);
+        }
         if (colKey === sourceSortColumn && sourceSortDirection && sourceSortDirection !== 'none') {
-            th.innerHTML += sourceSortDirection === 'asc' ? ' ▲' : ' ▼';
+            arrow.textContent = sourceSortDirection === 'asc' ? ' ▲' : ' ▼';
+        } else {
+            arrow.textContent = '';
         }
     });
 }
@@ -2484,9 +2491,17 @@ function updateModelsSortArrows() {
     if (!table) return;
     table.querySelectorAll('thead th[data-sort-key]').forEach((th) => {
         const colKey = th.dataset.sortKey;
-        th.innerHTML = th.innerHTML.replace(/[▲▼]/g, '').trim();
+        // Use a dedicated span for the arrow to avoid mutating label text
+        let arrow = th.querySelector('.sort-arrow');
+        if (!arrow) {
+            arrow = document.createElement('span');
+            arrow.className = 'sort-arrow';
+            th.appendChild(arrow);
+        }
         if (colKey === modelSortColumn && modelSortDirection && modelSortDirection !== 'none') {
-            th.innerHTML += modelSortDirection === 'asc' ? ' ▲' : ' ▼';
+            arrow.textContent = modelSortDirection === 'asc' ? ' ▲' : ' ▼';
+        } else {
+            arrow.textContent = '';
         }
     });
 }

@@ -168,8 +168,13 @@
                         </tr>
                     </tbody>
                 </template>
-                <tbody x-show="sortedSchedules.length === 0" x-cloak>
+                <tbody x-show="schedules.length === 0" x-cloak>
                     <tr><td colspan="8" class="px-6 py-8 text-center text-sm text-gray-500">No schedules configured.</td></tr>
+                </tbody>
+                <tbody x-show="schedules.length > 0 && sortedSchedules.length === 0" x-cloak>
+                    <tr><td colspan="8" class="px-6 py-8 text-center text-sm text-gray-500">
+                        No schedules match "<span class="font-medium" x-text="filterText"></span>"
+                    </td></tr>
                 </tbody>
             </table>
         </div>
