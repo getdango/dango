@@ -86,7 +86,7 @@ def _write_status(state_dir: Path, sync_id: str | None = None, **fields: Any) ->
 
 
 # ---------------------------------------------------------------------------
-# Main sync function
+# Helpers
 # ---------------------------------------------------------------------------
 
 
@@ -106,6 +106,11 @@ def _write_failed_sync_history(project_root: Path, sources: list[str], error_msg
                 "error_message": error_msg,
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Main sync function
+# ---------------------------------------------------------------------------
 
 
 def run_manual_sync(
