@@ -25,7 +25,7 @@ class TestScheduleType:
     def test_enum_count(self):
         from dango.config.schedules import ScheduleType
 
-        assert len(ScheduleType) == 3
+        assert len(ScheduleType) == 4
 
 
 @pytest.mark.unit

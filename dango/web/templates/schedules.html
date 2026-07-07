@@ -47,11 +47,16 @@
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
-                                      :class="sched.type.startsWith('sync') ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'"
+                                      :class="sched.type.startsWith('sync') ? 'bg-blue-100 text-blue-800' : sched.type === 'dbt' ? 'bg-purple-100 text-purple-800' : sched.type === 'script' ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-800'"
                                       x-text="sched.type"></span>
                             </td>
                             <td class="px-6 py-4 text-sm text-gray-500 hidden md:table-cell">
-                                <span x-text="sched.sources.sort().join(' • ')"></span>
+                                <template x-if="sched.type === 'script'">
+                                    <span class="font-mono text-xs" x-text="sched.script_path"></span>
+                                </template>
+                                <template x-if="sched.type !== 'script'">
+                                    <span x-text="sched.sources.sort().join(' • ')"></span>
+                                </template>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
                                 x-text="humanCron(sched.cron)"></td>
@@ -480,24 +485,36 @@ function schedulesPage() {
         handleWsMessage(data) {
             const ev = data.event;
             const source = data.source;
+            const schedule = data.schedule;
 
-            if (ev === 'sync_started' || ev === 'dbt_started') {
+            if (ev === 'sync_started' || ev === 'dbt_started' || ev === 'script_started') {
                 const updated = {...this.runningJobs};
                 for (const sched of this.schedules) {
-                    const match = ev === 'sync_started'
-                        ? sched.sources.includes(source)
-                        : sched.type === 'dbt';
+                    let match = false;
+                    if (ev === 'sync_started') {
+                        match = sched.sources.includes(source);
+                    } else if (ev === 'dbt_started') {
+                        match = sched.type === 'dbt';
+                    } else if (ev === 'script_started') {
+                        match = sched.type === 'script' && sched.name === schedule;
+                    }
                     if (match) updated[sched.name] = true;
                 }
                 this.runningJobs = updated;
             }
             if (ev === 'sync_completed' || ev === 'sync_failed' ||
-                ev === 'dbt_completed' || ev === 'dbt_failed') {
+                ev === 'dbt_completed' || ev === 'dbt_failed' ||
+                ev === 'script_completed' || ev === 'script_failed') {
                 const updated = {...this.runningJobs};
                 for (const sched of this.schedules) {
-                    const match = ev.startsWith('sync_')
-                        ? sched.sources.includes(source)
-                        : sched.type === 'dbt';
+                    let match = false;
+                    if (ev.startsWith('sync_')) {
+                        match = sched.sources.includes(source);
+                    } else if (ev.startsWith('dbt_')) {
+                        match = sched.type === 'dbt';
+                    } else if (ev.startsWith('script_')) {
+                        match = sched.type === 'script' && sched.name === schedule;
+                    }
                     if (match) delete updated[sched.name];
                 }
                 this.runningJobs = updated;

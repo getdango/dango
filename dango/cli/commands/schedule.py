@@ -44,6 +44,7 @@ _TYPE_CHOICES = [
     ("Sync & Transform (recommended)", "sync"),
     ("Sync only (no transform)", "sync_only"),
     ("Transform only (dbt)", "dbt"),
+    ("Script (custom Python)", "script"),
 ]
 
 _DAY_CHOICES = [
@@ -450,7 +451,12 @@ def schedule_list(ctx: click.Context) -> None:
     for sched in schedules:
         sources = sched.get("sources", [])
         enabled = sched.get("enabled", True)
-        sources_str = ", ".join(sources) if sources else "—"
+        if sources:
+            sources_str = ", ".join(sources)
+        elif sched.get("type") == "script":
+            sources_str = sched.get("script_path", "—")
+        else:
+            sources_str = "—"
         table.add_row(
             sched.get("name", "?"),
             sched.get("type", "sync"),
@@ -488,6 +494,10 @@ def _show_schedule_detail(project_root: Path, schedules: list[dict[str, Any]], n
         console.print(f"  Sources:  {', '.join(sched['sources'])}")
     if sched.get("dbt_command"):
         console.print(f"  dbt cmd:  {sched['dbt_command']}")
+    if sched.get("script_path"):
+        console.print(f"  Script:   {sched['script_path']}")
+    if sched.get("timeout_minutes") is not None:
+        console.print(f"  Timeout:  {sched['timeout_minutes']} min")
     if sched.get("notify_on"):
         console.print(f"  Notify:   {', '.join(sched['notify_on'])}")
 
@@ -691,9 +701,11 @@ def schedule_add(ctx: click.Context) -> None:
         return
     sched_type: str = dict(_TYPE_CHOICES)[answers["type"]]
 
-    # 3a. Sources (sync only) / 3b. dbt command
+    # 3a. Sources (sync only) / 3b. dbt command / 3c. script path
     sources: list[str] = []
     dbt_command: str | None = None
+    script_path: str | None = None
+    timeout_minutes: int = 30
     if sched_type in ("sync", "sync_only"):
         try:
             from dango.config.loader import ConfigLoader
@@ -727,6 +739,54 @@ def schedule_add(ctx: click.Context) -> None:
         if not sources:
             console.print("[red]Error:[/red] Sync schedules require at least one source.")
             return
+    elif sched_type == "script":
+        # Discover .py files in scripts/ directory
+        scripts_dir = project_root / "scripts"
+        script_choices: list[tuple[str, str]] = []
+        if scripts_dir.exists():
+            for py_file in sorted(scripts_dir.rglob("*.py")):
+                if py_file.name == "__init__.py":
+                    continue
+                if py_file.name.startswith(".") or py_file.name.startswith("_"):
+                    continue
+                if any(part.startswith("_") for part in py_file.parts[:-1]):
+                    continue
+                rel = str(py_file.relative_to(scripts_dir))
+                script_choices.append((rel, rel))
+
+        if not script_choices:
+            console.print(
+                "[red]No Python scripts found in scripts/ directory.[/red] Add a .py file first."
+            )
+            return
+
+        answers = inquirer.prompt(
+            [
+                inquirer.List(
+                    "script_path",
+                    message="Select a script to run",
+                    choices=[label for label, _ in script_choices],
+                )
+            ]
+        )
+        if answers is None:
+            return
+        script_path = answers["script_path"]
+
+        # Timeout prompt
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "timeout_minutes",
+                    message="Timeout (minutes)",
+                    default="30",
+                    validate=lambda _, x: x.isdigit() and int(x) > 0,
+                )
+            ]
+        )
+        if answers is None:
+            return
+        timeout_minutes = int(answers["timeout_minutes"])
     else:
         answers = inquirer.prompt(
             [
@@ -818,6 +878,9 @@ def schedule_add(ctx: click.Context) -> None:
         entry["sources"] = sources
     if dbt_command:
         entry["dbt_command"] = dbt_command
+    if sched_type == "script":
+        entry["script_path"] = script_path
+        entry["timeout_minutes"] = timeout_minutes
     if notify_on:
         entry["notify_on"] = notify_on
 
@@ -828,6 +891,9 @@ def schedule_add(ctx: click.Context) -> None:
         console.print(f"  Sources: {', '.join(sources)}")
     if dbt_command:
         console.print(f"  dbt cmd: {dbt_command}")
+    if sched_type == "script":
+        console.print(f"  Script:  {script_path}")
+        console.print(f"  Timeout: {timeout_minutes} min")
     console.print(f"  Timezone: {timezone_str}")
     if notify_on:
         console.print(f"  Notify on: {', '.join(notify_on)}")
