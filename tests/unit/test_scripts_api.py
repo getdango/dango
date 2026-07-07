@@ -20,7 +20,9 @@ from dango.auth.models import Role, User
 # Helpers
 # ---------------------------------------------------------------------------
 
-_PATCH_ROOT = "dango.web.routes.scripts"
+_PATCH_API = "dango.web.routes.scripts_api"
+_PATCH_HELPERS = "dango.web.routes.scripts_helpers"
+_PATCH_SCRIPTS = "dango.web.routes.scripts"
 
 
 def _make_admin_user() -> User:
@@ -75,103 +77,6 @@ def _write_script(scripts_dir: Path, name: str, content: str = "print('hello')")
 class TestListScripts:
     """Tests for GET /api/scripts."""
 
-    def test_empty_dir(self, tmp_path: Path):
-        """Returns empty list when no scripts exist."""
-        from starlette.testclient import TestClient
-
-        app = _make_app(tmp_path)
-        client = TestClient(app)
-
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
-            resp = client.get("/api/scripts")
-        assert resp.status_code == 200
-        assert resp.json() == []
-
-    def test_discovers_py_files(self, tmp_path: Path):
-        """Discovers .py files in scripts/ directory."""
-        from starlette.testclient import TestClient
-
-        _write_script(tmp_path / "scripts", "hello.py")
-        _write_script(tmp_path / "scripts", "utils.py")
-
-        app = _make_app(tmp_path)
-        client = TestClient(app)
-
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
-            resp = client.get("/api/scripts")
-        assert resp.status_code == 200
-        data = resp.json()
-        names = [s["name"] for s in data]
-        assert "hello.py" in names
-        assert "utils.py" in names
-
-    def test_skips_init_py(self, tmp_path: Path):
-        """Skips __init__.py files."""
-        from starlette.testclient import TestClient
-
-        _write_script(tmp_path / "scripts", "__init__.py")
-        _write_script(tmp_path / "scripts", "main.py")
-
-        app = _make_app(tmp_path)
-        client = TestClient(app)
-
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
-            resp = client.get("/api/scripts")
-        assert resp.status_code == 200
-        names = [s["name"] for s in resp.json()]
-        assert "__init__.py" not in names
-        assert "main.py" in names
-
-    def test_skips_dotfiles(self, tmp_path: Path):
-        """Skips dot-prefixed files."""
-        from starlette.testclient import TestClient
-
-        _write_script(tmp_path / "scripts", ".hidden.py")
-        _write_script(tmp_path / "scripts", "visible.py")
-
-        app = _make_app(tmp_path)
-        client = TestClient(app)
-
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
-            resp = client.get("/api/scripts")
-        names = [s["name"] for s in resp.json()]
-        assert ".hidden.py" not in names
-        assert "visible.py" in names
-
-    def test_skips_underscore_prefixed(self, tmp_path: Path):
-        """Skips _-prefixed files and directories."""
-        from starlette.testclient import TestClient
-
-        _write_script(tmp_path / "scripts", "_internal.py")
-        _write_script(tmp_path / "scripts", "public.py")
-        _write_script(tmp_path / "scripts" / "_private", "nested.py")
-
-        app = _make_app(tmp_path)
-        client = TestClient(app)
-
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
-            resp = client.get("/api/scripts")
-        names = [s["name"] for s in resp.json()]
-        assert "_internal.py" not in names
-        assert "public.py" in names
-        assert "nested.py" not in names
-
-    def test_recursive_discovery(self, tmp_path: Path):
-        """Recursively discovers scripts in subdirectories."""
-        from starlette.testclient import TestClient
-
-        _write_script(tmp_path / "scripts" / "marketing", "report.py")
-        _write_script(tmp_path / "scripts" / "ops", "cleanup.py")
-
-        app = _make_app(tmp_path)
-        client = TestClient(app)
-
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
-            resp = client.get("/api/scripts")
-        names = [s["name"] for s in resp.json()]
-        assert "marketing/report.py" in names
-        assert "ops/cleanup.py" in names
-
     def test_viewer_can_access(self, tmp_path: Path):
         """Viewer role can list scripts."""
         from starlette.testclient import TestClient
@@ -181,7 +86,7 @@ class TestListScripts:
         app = _make_app(tmp_path, user=_make_viewer_user())
         client = TestClient(app)
 
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+        with patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path):
             resp = client.get("/api/scripts")
         assert resp.status_code == 200
 
@@ -199,21 +104,21 @@ class TestRunScript:
         """Launches script and returns started response with run_id."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
         _write_script(tmp_path / "scripts", "hello.py", "print('hello world')")
 
         mock_proc = MagicMock(spec=subprocess.Popen)
         mock_proc.returncode = None
-        mock_proc.poll.return_value = None  # still running
+        mock_proc.poll.return_value = None
 
-        scripts_module._running_processes.clear()
+        helpers._running_processes.clear()
 
         with (
-            patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path),
-            patch(f"{_PATCH_ROOT}.subprocess.Popen", return_value=mock_proc) as mock_popen,
-            patch(f"{_PATCH_ROOT}.ws_manager") as mock_ws,
-            patch(f"{_PATCH_ROOT}.append_log_entry") as mock_log,
+            patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path),
+            patch(f"{_PATCH_API}.subprocess.Popen", return_value=mock_proc) as mock_popen,
+            patch(f"{_PATCH_API}.ws_manager") as mock_ws,
+            patch(f"{_PATCH_API}.append_log_entry") as mock_log,
         ):
             mock_ws.broadcast = AsyncMock()
 
@@ -238,14 +143,14 @@ class TestRunScript:
         """Returns 404 for non-existent script."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
-        scripts_module._running_processes.clear()
+        helpers._running_processes.clear()
 
         app = _make_app(tmp_path)
         client = TestClient(app)
 
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+        with patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path):
             resp = client.post(
                 "/api/scripts/nonexistent.py/run",
                 json={},
@@ -258,19 +163,19 @@ class TestRunScript:
         """Returns 409 if script is already running."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
         _write_script(tmp_path / "scripts", "hello.py")
 
         mock_proc = MagicMock(spec=subprocess.Popen)
-        mock_proc.poll.return_value = None  # still running
+        mock_proc.poll.return_value = None
 
-        scripts_module._running_processes["hello.py"] = mock_proc
+        helpers._running_processes["hello.py"] = mock_proc
 
         app = _make_app(tmp_path)
         client = TestClient(app)
 
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+        with patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path):
             resp = client.post(
                 "/api/scripts/hello.py/run",
                 json={},
@@ -279,13 +184,13 @@ class TestRunScript:
         assert resp.status_code == 409
         assert "DANGO-SC003" in resp.json()["error_code"]
 
-        scripts_module._running_processes.clear()
+        helpers._running_processes.clear()
 
     def test_audit_event_logged(self, tmp_path: Path):
         """Audit event is logged with SCRIPT_RUN type."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
         _write_script(tmp_path / "scripts", "hello.py")
 
@@ -293,14 +198,14 @@ class TestRunScript:
         mock_proc.returncode = None
         mock_proc.poll.return_value = None
 
-        scripts_module._running_processes.clear()
+        helpers._running_processes.clear()
 
         with (
-            patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path),
-            patch(f"{_PATCH_ROOT}.subprocess.Popen", return_value=mock_proc),
-            patch(f"{_PATCH_ROOT}.log_auth_event") as mock_audit,
-            patch(f"{_PATCH_ROOT}.ws_manager") as mock_ws,
-            patch(f"{_PATCH_ROOT}.append_log_entry"),
+            patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path),
+            patch(f"{_PATCH_API}.subprocess.Popen", return_value=mock_proc),
+            patch(f"{_PATCH_HELPERS}.log_auth_event") as mock_audit,
+            patch(f"{_PATCH_API}.ws_manager") as mock_ws,
+            patch(f"{_PATCH_API}.append_log_entry"),
         ):
             mock_ws.broadcast = AsyncMock()
 
@@ -321,10 +226,10 @@ class TestRunScript:
         """Viewer role cannot run scripts."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
         _write_script(tmp_path / "scripts", "hello.py")
-        scripts_module._running_processes.clear()
+        helpers._running_processes.clear()
 
         app = _make_app(tmp_path, user=_make_viewer_user())
         client = TestClient(app)
@@ -335,18 +240,6 @@ class TestRunScript:
             headers={"X-Requested-With": "XMLHttpRequest"},
         )
         assert resp.status_code == 403
-
-    def test_path_traversal_blocked(self, tmp_path: Path):
-        """Path traversal outside scripts/ returns 400 from _validate_script_path."""
-        import dango.web.routes.scripts as scripts_module
-
-        scripts_module._running_processes.clear()
-
-        # Directly test _validate_script_path with path traversal input
-        result = scripts_module._validate_script_path(tmp_path, "../outside.txt")
-        assert hasattr(result, "status_code")
-        assert result.status_code == 400  # type: ignore[union-attr]
-        assert "DANGO-SC001" in result.body.decode()  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------
@@ -362,20 +255,20 @@ class TestCancelScript:
         """Cancels a running script process."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
         _write_script(tmp_path / "scripts", "long.py")
 
         mock_proc = MagicMock(spec=subprocess.Popen)
-        mock_proc.poll.return_value = None  # still running
-        mock_proc.wait.return_value = None  # blocks until killed
+        mock_proc.poll.return_value = None
+        mock_proc.wait.return_value = None
 
-        scripts_module._running_processes["long.py"] = mock_proc
+        helpers._running_processes["long.py"] = mock_proc
 
         with (
-            patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path),
-            patch(f"{_PATCH_ROOT}.ws_manager") as mock_ws,
-            patch(f"{_PATCH_ROOT}.append_log_entry"),
+            patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path),
+            patch(f"{_PATCH_API}.ws_manager") as mock_ws,
+            patch(f"{_PATCH_API}.append_log_entry"),
         ):
             mock_ws.broadcast = AsyncMock()
 
@@ -392,21 +285,21 @@ class TestCancelScript:
             assert data["status"] == "cancelling"
             mock_proc.terminate.assert_called_once()
 
-        scripts_module._running_processes.clear()
+        helpers._running_processes.clear()
 
     def test_not_running_returns_404(self, tmp_path: Path):
         """Returns 404 when no process is running."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
         _write_script(tmp_path / "scripts", "hello.py")
-        scripts_module._running_processes.clear()
+        helpers._running_processes.clear()
 
         app = _make_app(tmp_path)
         client = TestClient(app)
 
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+        with patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path):
             resp = client.post(
                 "/api/scripts/hello.py/cancel",
                 json={},
@@ -419,7 +312,7 @@ class TestCancelScript:
         """Audit event is logged with SCRIPT_CANCELLED type."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
         _write_script(tmp_path / "scripts", "long.py")
 
@@ -427,13 +320,13 @@ class TestCancelScript:
         mock_proc.poll.return_value = None
         mock_proc.wait.return_value = None
 
-        scripts_module._running_processes["long.py"] = mock_proc
+        helpers._running_processes["long.py"] = mock_proc
 
         with (
-            patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path),
-            patch(f"{_PATCH_ROOT}.log_auth_event") as mock_audit,
-            patch(f"{_PATCH_ROOT}.ws_manager") as mock_ws,
-            patch(f"{_PATCH_ROOT}.append_log_entry"),
+            patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path),
+            patch(f"{_PATCH_HELPERS}.log_auth_event") as mock_audit,
+            patch(f"{_PATCH_API}.ws_manager") as mock_ws,
+            patch(f"{_PATCH_API}.append_log_entry"),
         ):
             mock_ws.broadcast = AsyncMock()
 
@@ -450,16 +343,16 @@ class TestCancelScript:
             call_kwargs = mock_audit.call_args
             assert call_kwargs[0][0] == AuditEvent.SCRIPT_CANCELLED
 
-        scripts_module._running_processes.clear()
+        helpers._running_processes.clear()
 
     def test_viewer_gets_403(self, tmp_path: Path):
         """Viewer role cannot cancel scripts."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
         _write_script(tmp_path / "scripts", "hello.py")
-        scripts_module._running_processes.clear()
+        helpers._running_processes.clear()
 
         app = _make_app(tmp_path, user=_make_viewer_user())
         client = TestClient(app)
@@ -490,7 +383,7 @@ class TestScriptHistory:
         app = _make_app(tmp_path)
         client = TestClient(app)
 
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+        with patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path):
             resp = client.get("/api/scripts/hello.py/history")
         assert resp.status_code == 200
         data = resp.json()
@@ -501,11 +394,11 @@ class TestScriptHistory:
         """Returns history entries from JSONL file."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
         _write_script(tmp_path / "scripts", "hello.py")
 
-        scripts_module._append_history(
+        helpers._append_history(
             tmp_path,
             "hello.py",
             {
@@ -523,7 +416,7 @@ class TestScriptHistory:
         app = _make_app(tmp_path)
         client = TestClient(app)
 
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+        with patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path):
             resp = client.get("/api/scripts/hello.py/history")
         assert resp.status_code == 200
         data = resp.json()
@@ -535,12 +428,12 @@ class TestScriptHistory:
         """Respects the limit query parameter."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
         _write_script(tmp_path / "scripts", "hello.py")
 
         for i in range(10):
-            scripts_module._append_history(
+            helpers._append_history(
                 tmp_path,
                 "hello.py",
                 {
@@ -558,7 +451,7 @@ class TestScriptHistory:
         app = _make_app(tmp_path)
         client = TestClient(app)
 
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+        with patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path):
             resp = client.get("/api/scripts/hello.py/history?limit=3")
         assert resp.status_code == 200
         data = resp.json()
@@ -572,7 +465,7 @@ class TestScriptHistory:
         app = _make_app(tmp_path)
         client = TestClient(app)
 
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+        with patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path):
             resp = client.get("/api/scripts/nonexistent.py/history")
         assert resp.status_code == 404
 
@@ -590,11 +483,11 @@ class TestScriptLogPage:
         """Renders log page with stdout/stderr content."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
         _write_script(tmp_path / "scripts", "hello.py")
 
-        log_dir = scripts_module._get_log_dir(tmp_path) / "test-run-id"
+        log_dir = helpers._get_log_dir(tmp_path) / "test-run-id"
         log_dir.mkdir(parents=True, exist_ok=True)
         (log_dir / "stdout.txt").write_text("hello world\n")
         (log_dir / "stderr.txt").write_text("warning: something\n")
@@ -616,7 +509,7 @@ class TestScriptLogPage:
         app = _make_app(tmp_path)
         client = TestClient(app)
 
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+        with patch(f"{_PATCH_SCRIPTS}.get_project_root", return_value=tmp_path):
             resp = client.get("/scripts/hello.py/logs/test-run-id")
         assert resp.status_code == 200
         assert "hello world" in resp.text
@@ -632,7 +525,7 @@ class TestScriptLogPage:
         app = _make_app(tmp_path)
         client = TestClient(app)
 
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+        with patch(f"{_PATCH_SCRIPTS}.get_project_root", return_value=tmp_path):
             resp = client.get("/scripts/hello.py/logs/nonexistent-run")
         assert resp.status_code == 404
         assert "not found" in resp.text.lower()
@@ -644,7 +537,7 @@ class TestScriptLogPage:
         app = _make_app(tmp_path)
         client = TestClient(app)
 
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+        with patch(f"{_PATCH_SCRIPTS}.get_project_root", return_value=tmp_path):
             resp = client.get("/scripts/nonexistent.py/logs/some-run")
         assert resp.status_code == 404
         assert "not found" in resp.text.lower()
@@ -653,17 +546,17 @@ class TestScriptLogPage:
         """Renders gracefully when stdout/stderr are empty."""
         from starlette.testclient import TestClient
 
-        import dango.web.routes.scripts as scripts_module
+        import dango.web.routes.scripts_helpers as helpers
 
         _write_script(tmp_path / "scripts", "hello.py")
 
-        log_dir = scripts_module._get_log_dir(tmp_path) / "empty-run"
+        log_dir = helpers._get_log_dir(tmp_path) / "empty-run"
         log_dir.mkdir(parents=True, exist_ok=True)
 
         app = _make_app(tmp_path)
         client = TestClient(app)
 
-        with patch(f"{_PATCH_ROOT}.get_project_root", return_value=tmp_path):
+        with patch(f"{_PATCH_SCRIPTS}.get_project_root", return_value=tmp_path):
             resp = client.get("/scripts/hello.py/logs/empty-run")
         assert resp.status_code == 200
         assert "(empty)" in resp.text

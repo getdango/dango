@@ -441,19 +441,7 @@ exemptions:
   - file: tests/unit/test_remote_backup_cli.py
     lines: 630
     category: exempt
-    reason: "Pre-existing on v1.0.s3. S3-SCRIPTS-A addendum."
-    review_by: "v1.1"
-
-  - file: dango/web/routes/scripts.py
-    lines: 673
-    category: exempt
-    reason: "S3-SCRIPTS-A: New router with script discovery, subprocess execution, cancel support, JSONL history, WebSocket broadcasts, and log viewer. Single router file for script management."
-    review_by: "v1.1"
-
-  - file: tests/unit/test_scripts_api.py
-    lines: 690
-    category: exempt
-    reason: "S3-SCRIPTS-A: 6 test classes (26 tests) covering list, run, cancel, history, log page, and navbar."
+    reason: "Pre-existing on v1.0.s3."
     review_by: "v1.1"
 
   - file: dango/governance/schema_drift.py
