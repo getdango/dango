@@ -518,6 +518,7 @@ def _discover_existing_buckets(
     dango_buckets.sort(key=lambda b: str(b["CreationDate"]), reverse=True)
 
     # Build choice list with backup counts
+    region_suffix = f"-{region}"
     choices: list[str] = []
     for bucket in dango_buckets:
         try:
@@ -536,6 +537,9 @@ def _discover_existing_buckets(
                 f"{bucket['Name']} ({count} backup{'s' if count != 1 else ''}, "
                 f"{total_size_mb} MB, created {created_str})"
             )
+            # Warn if the bucket region doesn't match the deployment region
+            if not bucket["Name"].endswith(region_suffix):
+                label += " [dim](different region)[/dim]"
         except Exception:
             label = f"{bucket['Name']} (could not enumerate)"
         choices.append(label)
@@ -568,6 +572,11 @@ def _discover_existing_buckets(
         "  [dim]Note: Existing backups in this bucket will be subject "
         "to the current retention policy.[/dim]"
     )
+    if not selected_name.endswith(region_suffix):
+        console.print(
+            f"  [yellow]Warning:[/yellow] This bucket appears to be in a different "
+            f"region than '{region}'. Backups may fail if the region is incorrect."
+        )
     return selected_name
 
 

@@ -489,7 +489,7 @@ def _print_post_restore_credential_guidance() -> None:
     console.print(
         "  [bold]dango remote env set KEY VALUE[/bold]  (for server environment variables)"
     )
-    console.print("  [bold]dango remote backup download[/bold]     (save a local copy)")
+    console.print("  [bold]dango remote backup download --from-server[/bold]  (save a local copy)")
 
 
 # ---------------------------------------------------------------------------
