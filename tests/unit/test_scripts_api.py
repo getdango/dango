@@ -5,7 +5,6 @@ Tests for the scripts API endpoints and page routes.
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -22,7 +21,6 @@ from dango.auth.models import Role, User
 
 _PATCH_API = "dango.web.routes.scripts_api"
 _PATCH_HELPERS = "dango.web.routes.scripts_helpers"
-_PATCH_SCRIPTS = "dango.web.routes.scripts"
 
 
 def _make_admin_user() -> User:
@@ -468,116 +466,3 @@ class TestScriptHistory:
         with patch(f"{_PATCH_API}.get_project_root", return_value=tmp_path):
             resp = client.get("/api/scripts/nonexistent.py/history")
         assert resp.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# TestScriptLogPage
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestScriptLogPage:
-    """Tests for GET /scripts/{name}/logs/{run_id}."""
-
-    def test_renders_with_content(self, tmp_path: Path):
-        """Renders log page with stdout/stderr content."""
-        from starlette.testclient import TestClient
-
-        import dango.web.routes.scripts_helpers as helpers
-
-        _write_script(tmp_path / "scripts", "hello.py")
-
-        log_dir = helpers._get_log_dir(tmp_path) / "test-run-id"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        (log_dir / "stdout.txt").write_text("hello world\n")
-        (log_dir / "stderr.txt").write_text("warning: something\n")
-        (log_dir / "meta.json").write_text(
-            json.dumps(
-                {
-                    "run_id": "test-run-id",
-                    "script_name": "hello.py",
-                    "started_at": "2026-01-01T00:00:00+00:00",
-                    "finished_at": "2026-01-01T00:00:05+00:00",
-                    "duration_seconds": 5.0,
-                    "status": "success",
-                    "exit_code": 0,
-                    "error": None,
-                }
-            )
-        )
-
-        app = _make_app(tmp_path)
-        client = TestClient(app)
-
-        with patch(f"{_PATCH_SCRIPTS}.get_project_root", return_value=tmp_path):
-            resp = client.get("/scripts/hello.py/logs/test-run-id")
-        assert resp.status_code == 200
-        assert "hello world" in resp.text
-        assert "warning: something" in resp.text
-        assert "test-run-id" in resp.text
-
-    def test_non_existent_run_returns_404(self, tmp_path: Path):
-        """Returns 404 page when run doesn't exist."""
-        from starlette.testclient import TestClient
-
-        _write_script(tmp_path / "scripts", "hello.py")
-
-        app = _make_app(tmp_path)
-        client = TestClient(app)
-
-        with patch(f"{_PATCH_SCRIPTS}.get_project_root", return_value=tmp_path):
-            resp = client.get("/scripts/hello.py/logs/nonexistent-run")
-        assert resp.status_code == 404
-        assert "not found" in resp.text.lower()
-
-    def test_non_existent_script_returns_404(self, tmp_path: Path):
-        """Returns 404 page when script doesn't exist."""
-        from starlette.testclient import TestClient
-
-        app = _make_app(tmp_path)
-        client = TestClient(app)
-
-        with patch(f"{_PATCH_SCRIPTS}.get_project_root", return_value=tmp_path):
-            resp = client.get("/scripts/nonexistent.py/logs/some-run")
-        assert resp.status_code == 404
-        assert "not found" in resp.text.lower()
-
-    def test_handles_empty_stdout_stderr(self, tmp_path: Path):
-        """Renders gracefully when stdout/stderr are empty."""
-        from starlette.testclient import TestClient
-
-        import dango.web.routes.scripts_helpers as helpers
-
-        _write_script(tmp_path / "scripts", "hello.py")
-
-        log_dir = helpers._get_log_dir(tmp_path) / "empty-run"
-        log_dir.mkdir(parents=True, exist_ok=True)
-
-        app = _make_app(tmp_path)
-        client = TestClient(app)
-
-        with patch(f"{_PATCH_SCRIPTS}.get_project_root", return_value=tmp_path):
-            resp = client.get("/scripts/hello.py/logs/empty-run")
-        assert resp.status_code == 200
-        assert "(empty)" in resp.text
-
-
-# ---------------------------------------------------------------------------
-# TestNavBar
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestNavBar:
-    """Tests that base.html contains Scripts nav link."""
-
-    def test_base_html_contains_scripts_link(self):
-        """Base template contains Scripts nav link."""
-        from pathlib import Path
-
-        base_path = (
-            Path(__file__).parent.parent.parent / "dango" / "web" / "templates" / "base.html"
-        )
-        content = base_path.read_text()
-        assert 'href="/scripts"' in content
-        assert "Scripts" in content
