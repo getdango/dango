@@ -55,6 +55,8 @@ class AuditEvent(str, Enum):
     SECRET_DELETED     = "secret_deleted"
     OAUTH_SOURCE_CONNECTED    = "oauth_source_connected"
     OAUTH_SOURCE_DISCONNECTED = "oauth_source_disconnected"
+    SCRIPT_RUN                = "script_run"
+    SCRIPT_CANCELLED          = "script_cancelled"
     SCHEDULE_CREATED          = "schedule_created"
     SCHEDULE_UPDATED          = "schedule_updated"
     SCHEDULE_DELETED          = "schedule_deleted"
