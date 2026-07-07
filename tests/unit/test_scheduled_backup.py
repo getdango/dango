@@ -110,6 +110,29 @@ class TestRetentionPolicy:
         # With 20 archives, ~7 daily + ~4 weekly kept = ~11 kept, ~9 deleted
         assert deleted > 0
 
+    @patch("dango.platform.cloud.spaces.SpacesClient")
+    @patch("dango.platform.cloud.scheduled_backup._logger.warning")
+    def test_never_delete_all_when_all_tiers_zero(self, mock_warning, mock_spaces_cls):
+        """daily=0, weekly=0, monthly=0 → keep_keys empty, 0 deleted, warning logged."""
+        from dango.platform.cloud.scheduled_backup import _apply_retention
+
+        now = datetime.now(tz=timezone.utc)
+        archives = [self._make_archive(now - timedelta(days=i)) for i in range(5)]
+
+        mock_client = MagicMock()
+        mock_spaces_cls.return_value = mock_client
+        mock_client.list_objects.return_value = archives
+
+        deleted = _apply_retention(
+            {"bucket": "test", "region": "nyc3"},
+            daily_retention=0,
+            weekly_retention=0,
+            monthly_retention=0,
+        )
+
+        assert deleted == 0
+        mock_warning.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # 3. Health status
@@ -632,3 +655,37 @@ class TestSecretsExclusion:
         manifest_files = [f["path"] for f in _manifest["files"]]
         assert ".dlt/secrets.toml" in manifest_files
         assert ".env" in manifest_files
+
+
+# ---------------------------------------------------------------------------
+# 13. Spaces reuse marker
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSpacesReuseMarker:
+    def test_marker_file_written_after_check_spaces_reuse(self, tmp_path):
+        """_check_spaces_reuse writes the .dango-backup-initialized marker file."""
+        import json
+
+        from dango.platform.cloud.scheduled_backup import (
+            _check_spaces_reuse,
+        )
+
+        marker_file = tmp_path / ".dango-backup-initialized"
+
+        with (
+            patch("dango.platform.cloud.scheduled_backup.MARKER_FILE", marker_file),
+            patch("dango.platform.cloud.scheduled_backup._warn_spaces_reuse"),
+        ):
+            _check_spaces_reuse(
+                {"bucket": "test", "region": "nyc3"},
+                daily_ret=7,
+                weekly_ret=4,
+                monthly_ret=0,
+            )
+
+        assert marker_file.exists()
+        data = json.loads(marker_file.read_text())
+        assert data["initialized"] is True
+        assert "timestamp" in data

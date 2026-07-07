@@ -539,6 +539,7 @@ from dango.web.routes.notebooks import router as notebooks_router  # noqa: E402
 from dango.web.routes.oauth_connect import router as oauth_connect_router  # noqa: E402
 from dango.web.routes.query import router as query_router  # noqa: E402
 from dango.web.routes.schedules import router as schedules_router  # noqa: E402
+from dango.web.routes.scripts import router as scripts_router  # noqa: E402
 from dango.web.routes.secrets import router as secrets_router  # noqa: E402
 from dango.web.routes.sources import router as sources_router  # noqa: E402
 from dango.web.routes.sync import router as sync_router  # noqa: E402
@@ -568,6 +569,7 @@ app.include_router(query_router)
 app.include_router(monitoring_router)
 app.include_router(ai_router)
 app.include_router(notebooks_router)
+app.include_router(scripts_router)
 app.include_router(websocket_router)
 app.include_router(ui_router)
 

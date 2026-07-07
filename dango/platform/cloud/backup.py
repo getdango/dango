@@ -124,10 +124,13 @@ def _notify(callback: Callable[[str, str], None] | None, step: str, status: str)
 
 
 def _check_disk_space(ssh: SSHManager, required_mb: int = 500) -> None:
-    """Raise ``CloudProvisioningError`` if <*required_mb* MB free on /srv."""
+    """Raise ``CloudProvisioningError`` if <*required_mb* MB free on /srv.
+
+    Also logs a warning if disk usage exceeds 50%.
+    """
     stdout = _run_checked(ssh, "df -m /srv/dango | tail -1", step="check_disk_space")
     parts = stdout.split()
-    if len(parts) >= 4:
+    if len(parts) >= 5:
         try:
             available = int(parts[3])
         except ValueError:
@@ -137,6 +140,20 @@ def _check_disk_space(ssh: SSHManager, required_mb: int = 500) -> None:
                 f"Insufficient disk space: {available} MB available, "
                 f"need at least {required_mb} MB for backup"
             )
+        # Warn if disk usage exceeds 50% (column 5 is usage percentage)
+        try:
+            usage_pct_str = parts[4].rstrip("%")
+            usage_pct = int(usage_pct_str)
+            if usage_pct > 50:
+                total_mb = int(parts[1]) if len(parts) >= 2 else 0
+                _logger.warning(
+                    "high_disk_usage",
+                    usage_pct=usage_pct,
+                    available_mb=available,
+                    total_mb=total_mb,
+                )
+        except (ValueError, IndexError):
+            pass  # Best-effort — silently skip if df format unexpected
 
 
 def stop_services(ssh: SSHManager) -> None:
@@ -455,6 +472,25 @@ def restore_from_archive(
     if manifest_result.success and manifest_result.stdout.strip():
         _notify(on_progress, "read_manifest", "done")
 
+    # Pre-restore safety backup — covers all three restore paths
+    # (rollback(), _backup_restore_from_local(), and migrate.py all flow
+    # through restore_from_archive).  on_server_retention=999 is an
+    # intentionally large value to prevent rotation from deleting this
+    # safety backup before the restore completes.
+    _notify(on_progress, "pre_restore_backup", "running")
+    try:
+        safety = create_backup(
+            ssh,
+            backup_type="pre-restore",
+            restart_services=False,
+            on_server_retention=999,
+        )
+        warnings.append(f"Pre-restore safety backup created: {safety.archive_path}")
+    except Exception as exc:
+        warnings.append(f"Pre-restore safety backup skipped (continuing): {exc}")
+        _logger.warning("pre_restore_backup_failed", error=str(exc))
+    _notify(on_progress, "pre_restore_backup", "done")
+
     _notify(on_progress, "stop_services", "running")
     stop_services(ssh)
     _notify(on_progress, "stop_services", "done")
@@ -536,8 +572,12 @@ def rotate_local_backups(ssh: SSHManager, keep: int = MAX_LOCAL_BACKUPS) -> int:
     archives = [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
     if len(archives) <= keep:
         return 0
+    to_delete = archives[keep:]
+    if to_delete and len(to_delete) == len(archives):
+        _logger.warning("skip_rotate_last_backup", keep=keep, archive_count=len(archives))
+        return 0
     deleted = 0
-    for archive in archives[keep:]:
+    for archive in to_delete:
         ssh.exec_command(
             f"rm -f {archive} {archive.replace('.tar.gz', '.json')}"
         )  # cleanup: silent OK

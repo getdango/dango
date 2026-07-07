@@ -27,6 +27,7 @@ PROJECT_DIR = Path("/srv/dango/project")
 BACKUP_DIR = Path("/srv/dango/backups/deploy")
 HEALTH_FILE = Path("/srv/dango/backups/.backup_health.json")
 LOCK_FILE = Path("/srv/dango/backups/.backup.lock")
+MARKER_FILE = Path("/srv/dango/backups/.dango-backup-initialized")
 VENV_PYTHON = "/srv/dango/venv/bin/python"
 SPACES_PREFIX = "backups/"
 DAILY_RETENTION = 7
@@ -345,6 +346,32 @@ def _warn_spaces_reuse(
         pass  # Best-effort warning — never fail backup for this
 
 
+def _check_spaces_reuse(
+    spaces_config: dict[str, Any],
+    daily_ret: int,
+    weekly_ret: int,
+    monthly_ret: int,
+) -> None:
+    """Check for existing Spaces backups and write marker file on first run.
+
+    Calls :func:`_warn_spaces_reuse` and then writes a marker file so the
+    warning is only shown once per deployment.
+    """
+    _warn_spaces_reuse(spaces_config, daily_ret, weekly_ret, monthly_ret)
+    try:
+        MARKER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        MARKER_FILE.write_text(
+            json.dumps(
+                {
+                    "initialized": True,
+                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                }
+            )
+        )
+    except OSError:
+        pass  # Best-effort — never fail backup for marker file write
+
+
 def _apply_retention(
     spaces_config: dict[str, Any],
     daily_retention: int = 7,
@@ -390,6 +417,17 @@ def _apply_retention(
                 monthly[(dt.year, dt.month)] = obj["Key"]
         for mo in sorted(monthly.keys(), reverse=True)[:monthly_retention]:
             keep_keys.add(monthly[mo])
+
+    if not keep_keys and dated:
+        _logger.warning(
+            "retention_skip_all",
+            daily=daily_retention,
+            weekly=weekly_retention,
+            monthly=monthly_retention,
+            archive_count=len(dated),
+            message="Retention would delete all archives — skipping",
+        )
+        return 0
 
     deleted = 0
     for _dt, obj in dated:
@@ -459,8 +497,8 @@ def run_scheduled_backup() -> ScheduledBackupResult:
             result.duration_seconds = round(time.monotonic() - start_time, 1)
             return result
 
-        # Spaces reuse warning on first run
-        _warn_spaces_reuse(spaces_config, daily_ret, weekly_ret, monthly_ret)
+        # Spaces reuse warning + marker file on first run
+        _check_spaces_reuse(spaces_config, daily_ret, weekly_ret, monthly_ret)
 
         key = _upload_to_spaces(archive_path, spaces_config)
         result.spaces_key = key

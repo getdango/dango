@@ -731,7 +731,7 @@ Check `pyproject.toml` dependencies before writing utility code. PyYAML, httpx, 
 
 ## 13. Compatibility Notes
 
-Dango supports Python >=3.10,<3.13. These patterns address cross-version compatibility:
+Dango supports Python >=3.10,<3.14. These patterns address cross-version compatibility:
 
 **`datetime.fromisoformat()` timezone parsing:** Python 3.10 cannot parse timezone suffixes (`+00:00`, `Z`) — this was fixed in 3.11. Strip the suffix before parsing:
 

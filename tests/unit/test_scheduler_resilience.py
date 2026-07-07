@@ -444,23 +444,23 @@ class TestRaiseInThread:
     """Test _raise_in_thread() ctypes injection."""
 
     def test_raises_in_target_thread(self):
+        import time
+
         from dango.platform.scheduling.resilience import _raise_in_thread
 
         caught = threading.Event()
 
         def target():
             try:
-                # Loop to give the async exception a chance to fire
+                # time.sleep(0) yields the GIL — Python 3.13 can starve
+                # async exception delivery otherwise on some platforms
                 while not caught.is_set():
-                    pass  # Python bytecode — exception can be injected
+                    time.sleep(0)
             except JobTimeoutError:
                 caught.set()
 
         t = threading.Thread(target=target)
         t.start()
-        # Small delay to let the thread start
-        import time
-
         time.sleep(0.01)
 
         _raise_in_thread(t.ident, JobTimeoutError)
