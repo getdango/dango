@@ -7,7 +7,7 @@ name = "getdango"
 version = "1.0.5"
 description = "Open source data platform built with production-grade tools - dlt, dbt, DuckDB, and Metabase"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.14"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Dango Team"}
@@ -22,6 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Database",
     "Topic :: Scientific/Engineering :: Information Analysis",
 ]
@@ -134,7 +135,7 @@ dango = [
 
 [tool.black]
 line-length = 100
-target-version = ["py310", "py311", "py312"]
+target-version = ["py310", "py311", "py312", "py313"]
 
 [tool.ruff]
 line-length = 100

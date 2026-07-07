@@ -6,7 +6,7 @@ Thanks for your interest in contributing to Dango! This guide will help you get 
 
 ### Prerequisites
 
-- **Python 3.10-3.12** (3.11 recommended)
+- **Python 3.10-3.13** (3.11 recommended)
 - **Docker Desktop** (for Metabase)
 - **Git**
 
