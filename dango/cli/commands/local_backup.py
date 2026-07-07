@@ -54,8 +54,10 @@ def _extract_archive(archive_path: Path, project_root: Path) -> None:
     """Extract backup archive, mapping server paths to local project paths.
 
     Metabase H2 files (metabase/) are skipped — they are Docker volume paths
-    not relevant locally.
+    not relevant locally.  Paths that escape *project_root* are silently
+    skipped to prevent path-traversal attacks.
     """
+    resolved_root = project_root.resolve()
     with tarfile.open(archive_path, mode="r:gz") as tf:
         for member in tf.getmembers():
             # Skip Metabase H2 files (Docker volume data)
@@ -70,7 +72,10 @@ def _extract_archive(archive_path: Path, project_root: Path) -> None:
                 rel_path = parts[1] if len(parts) > 1 else member.name
             else:
                 rel_path = member.name
-            dest = project_root / rel_path
+            dest = (project_root / rel_path).resolve()
+            # Defend against path traversal (absolute paths, .. components)
+            if not str(dest).startswith(str(resolved_root) + "/") and dest != resolved_root:
+                continue
             if member.isdir():
                 dest.mkdir(parents=True, exist_ok=True)
             elif member.isfile() or member.issym():

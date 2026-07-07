@@ -356,7 +356,7 @@ def backup_download(
 
     if not name:
         console.print("[red]Error:[/red] NAME is required unless --from-server is used.")
-        raise SystemExit(1)
+        raise SystemExit(1) from None
 
     cloud_cfg, client = _load_spaces_client_or_fail(ctx)
 
@@ -404,7 +404,7 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
                 "from dango.platform.cloud.scheduled_backup import _create_local_archive; "
                 "import json; "
                 "path, manifest, warnings = _create_local_archive('on-demand'); "
-                "print(json.dumps({'path': str(path), 'warnings': warnings}))\"",
+                "print('__BACKUP_RESULT__' + json.dumps({'path': str(path), 'warnings': warnings}))\"",
                 timeout=600,
             )
 
@@ -415,9 +415,16 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
             )
             raise SystemExit(1)
 
-        try:
-            info = json.loads(create_result.stdout.strip().splitlines()[-1])
-        except (json.JSONDecodeError, IndexError):
+        # Parse sentinel-delimited JSON from server output
+        info = None
+        for line in create_result.stdout.strip().splitlines():
+            if line.startswith("__BACKUP_RESULT__"):
+                try:
+                    info = json.loads(line[len("__BACKUP_RESULT__") :])
+                except json.JSONDecodeError:
+                    pass
+                break
+        if info is None:
             console.print("[red]Error:[/red] Could not parse backup path from server response.")
             raise SystemExit(1) from None
 
@@ -635,8 +642,8 @@ def backup_verify_metabase(ctx: click.Context, source: str | None) -> None:
 
 def _verify_metabase_archive(ctx: click.Context, source: str) -> None:
     """Verify Metabase H2 files exist in a Spaces backup archive."""
+    import io
     import tarfile
-    import tempfile
 
     from rich.status import Status
 
@@ -650,43 +657,34 @@ def _verify_metabase_archive(ctx: click.Context, source: str) -> None:
         console.print(f"[red]Error:[/red] Could not download from Spaces: {exc}")
         raise click.Abort() from exc
 
-    # Save to temp file for tarfile inspection
-    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-        tmp.write(data)
-        tmp_path = Path(tmp.name)
+    # Inspect tar members in memory — getmembers() only reads the index,
+    # not file contents, so this doesn't decompress the full archive.
+    has_mv = False
+    has_trace = False
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
+        for member in tf.getmembers():
+            if member.name.endswith("metabase/metabase.db.mv.db") and member.size > 0:
+                has_mv = True
+            if member.name.endswith("metabase/metabase.db.trace.db") and member.size > 0:
+                has_trace = True
 
-    try:
-        has_mv = False
-        has_trace = False
-        with tarfile.open(tmp_path, mode="r:gz") as tf:
-            for member in tf.getmembers():
-                if member.name.endswith("metabase/metabase.db.mv.db") and member.size > 0:
-                    has_mv = True
-                if member.name.endswith("metabase/metabase.db.trace.db") and member.size > 0:
-                    has_trace = True
-
-        if has_mv and has_trace:
-            console.print(
-                "[green]PASS[/green]: Archive contains Metabase H2 database files "
-                "(metabase.db.mv.db + metabase.db.trace.db)."
-            )
-        elif has_mv:
-            console.print(
-                "[yellow]PARTIAL[/yellow]: Archive contains metabase.db.mv.db "
-                "but is missing metabase.db.trace.db."
-            )
-        elif has_trace:
-            console.print(
-                "[yellow]PARTIAL[/yellow]: Archive contains metabase.db.trace.db "
-                "but is missing metabase.db.mv.db."
-            )
-        else:
-            console.print("[red]FAIL[/red]: Archive does not contain Metabase H2 database files.")
-    finally:
-        try:
-            tmp_path.unlink()
-        except OSError:
-            pass
+    if has_mv and has_trace:
+        console.print(
+            "[green]PASS[/green]: Archive contains Metabase H2 database files "
+            "(metabase.db.mv.db + metabase.db.trace.db)."
+        )
+    elif has_mv:
+        console.print(
+            "[yellow]PARTIAL[/yellow]: Archive contains metabase.db.mv.db "
+            "but is missing metabase.db.trace.db."
+        )
+    elif has_trace:
+        console.print(
+            "[yellow]PARTIAL[/yellow]: Archive contains metabase.db.trace.db "
+            "but is missing metabase.db.mv.db."
+        )
+    else:
+        console.print("[red]FAIL[/red]: Archive does not contain Metabase H2 database files.")
 
 
 def _verify_metabase_live(ctx: click.Context) -> None:

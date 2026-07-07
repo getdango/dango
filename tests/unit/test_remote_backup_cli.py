@@ -474,7 +474,7 @@ class TestBackupDownloadFromServer:
             }
         )
         ssh.exec_command.side_effect = [
-            CommandResult(stdout=create_output, stderr="", exit_code=0),
+            CommandResult(stdout="__BACKUP_RESULT__" + create_output, stderr="", exit_code=0),
             CommandResult(
                 stdout="/dev/vda1 25000 15000 8000 40% /srv/dango\n",
                 stderr="",
