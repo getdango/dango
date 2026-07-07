@@ -122,6 +122,14 @@ class ScheduleConfig(BaseModel):
             raise ValueError(msg)
         return resolved
 
+    @field_validator("timeout_minutes")
+    @classmethod
+    def _validate_timeout_minutes(cls, v: int | None) -> int | None:
+        if v is not None and v <= 0:
+            msg = f"timeout_minutes must be positive. Got: {v!r}"
+            raise ValueError(msg)
+        return v
+
     @field_validator("notify_on")
     @classmethod
     def _validate_notify_on(cls, v: list[str]) -> list[str]:

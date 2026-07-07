@@ -428,7 +428,7 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
 
         job_id = f"schedule:{schedule_name}"
         timeout = kwargs.pop("_timeout_minutes", None)
-        cfg = ResilienceConfig(timeout_minutes=timeout or 60)
+        cfg = ResilienceConfig(timeout_minutes=timeout if timeout is not None else 60)
 
         return run_with_resilience(
             _run_scheduled_sync_impl,
@@ -850,7 +850,7 @@ def run_scheduled_dbt(
 
         job_id = f"schedule:{schedule_name}"
         timeout = kwargs.pop("_timeout_minutes", None)
-        cfg = ResilienceConfig(timeout_minutes=timeout or 60)
+        cfg = ResilienceConfig(timeout_minutes=timeout if timeout is not None else 60)
 
         return run_with_resilience(
             _run_scheduled_dbt_impl,
