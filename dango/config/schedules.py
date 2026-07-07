@@ -559,8 +559,8 @@ def reload_schedules(
         elif sched.type == ScheduleType.SCRIPT:
             _install_script_dependencies(project_root)
             error = _validate_script_path_for_schedule(
-                sched.script_path,
-                project_root,  # type: ignore[arg-type]
+                sched.script_path,  # type: ignore[arg-type]
+                project_root,
             )
             if error:
                 logger.warning(

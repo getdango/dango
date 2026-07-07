@@ -1068,12 +1068,11 @@ def _write_script_logs(
 ) -> None:
     """Write script stdout, stderr, and metadata to log files. Never raises."""
     import json as _json
-    from datetime import datetime as _dt
-    from datetime import timezone as _tz
+    from datetime import datetime, timezone
 
     try:
         safe_name = script_path.replace("/", "__").replace("\\", "__")
-        ts = _dt.now(tz=_tz).strftime("%Y%m%dT%H%M%S")
+        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S")
         log_dir = project_root / ".dango" / "logs" / "scripts" / f"{safe_name}_{ts}"
         log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1091,7 +1090,7 @@ def _write_script_logs(
         meta: dict[str, Any] = {
             "script_name": script_path,
             "schedule_name": schedule_name,
-            "finished_at": _dt.now(tz=_tz).isoformat(),
+            "finished_at": datetime.now(tz=timezone.utc).isoformat(),
             "duration_seconds": round(duration_seconds, 1),
             "exit_code": exit_code if exit_code is not None else -1,
             "status": status,
