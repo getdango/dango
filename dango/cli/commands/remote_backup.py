@@ -321,7 +321,7 @@ def backup_disable(ctx: click.Context) -> None:
 
 
 @backup_group.command("download")
-@click.argument("name")
+@click.argument("name", required=False)
 @click.option(
     "-o",
     "--output",
@@ -329,17 +329,34 @@ def backup_disable(ctx: click.Context) -> None:
     type=click.Path(),
     help="Local path to save the backup. Defaults to current directory.",
 )
+@click.option(
+    "--from-server",
+    is_flag=True,
+    help="Download the latest backup directly from the server via SSH instead of Spaces.",
+)
 @click.pass_context
-def backup_download(ctx: click.Context, name: str, output: str | None) -> None:
-    """Download a backup archive from Spaces.
+def backup_download(
+    ctx: click.Context, name: str | None, output: str | None, from_server: bool
+) -> None:
+    """Download a backup archive from Spaces or directly from the server.
 
     NAME is the backup filename (e.g. ``backup-20260224-143000.tar.gz``).
+    Required unless ``--from-server`` is used.
 
     Examples:
       dango remote backup download backup-20260224-143000.tar.gz
       dango remote backup download backup-20260224-143000.tar.gz -o ./my-backup.tar.gz
+      dango remote backup download --from-server -o ./latest-backup.tar.gz
     """
     from rich.status import Status
+
+    if from_server:
+        _backup_download_from_server(ctx, output)
+        return
+
+    if not name:
+        console.print("[red]Error:[/red] NAME is required unless --from-server is used.")
+        raise SystemExit(1) from None
 
     cloud_cfg, client = _load_spaces_client_or_fail(ctx)
 
@@ -370,6 +387,84 @@ def backup_download(ctx: click.Context, name: str, output: str | None) -> None:
         )
         console.print(f"[red]Error:[/red]\n{msg}")
         raise SystemExit(1) from exc
+
+
+def _backup_download_from_server(ctx: click.Context, output: str | None) -> None:
+    """Create a backup on the server and download it via SFTP."""
+    import json
+
+    from rich.status import Status
+
+    cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
+
+    try:
+        with Status("[bold blue]Creating backup on server...", console=console):
+            create_result = ssh.exec_command(
+                f'{VENV_PYTHON} -c "'
+                "from dango.platform.cloud.scheduled_backup import _create_local_archive; "
+                "import json; "
+                "path, manifest, warnings = _create_local_archive('on-demand'); "
+                "print('__BACKUP_RESULT__' + json.dumps({'path': str(path), 'warnings': warnings}))\"",
+                timeout=600,
+            )
+
+        if not create_result.success:
+            console.print(
+                f"[red]Error:[/red] Failed to create backup on server:\n"
+                f"{create_result.stderr.strip() or create_result.stdout.strip()}"
+            )
+            raise SystemExit(1)
+
+        # Parse sentinel-delimited JSON from server output
+        info = None
+        for line in create_result.stdout.strip().splitlines():
+            if line.startswith("__BACKUP_RESULT__"):
+                try:
+                    info = json.loads(line[len("__BACKUP_RESULT__") :])
+                except json.JSONDecodeError:
+                    pass
+                break
+        if info is None:
+            console.print("[red]Error:[/red] Could not parse backup path from server response.")
+            raise SystemExit(1) from None
+
+        archive_path = info["path"]
+        archive_name = archive_path.rsplit("/", 1)[-1]
+        local_name = output or archive_name
+        local_path = Path(local_name)
+
+        # Warn if server disk >50%
+        disk_result = ssh.exec_command("df -m /srv/dango | tail -1")
+        if disk_result.success:
+            parts = disk_result.stdout.split()
+            if len(parts) >= 5:
+                try:
+                    usage_pct = int(parts[4].rstrip("%"))
+                    if usage_pct > 50:
+                        console.print(
+                            f"[yellow]Warning:[/yellow] Server disk is {usage_pct}% full."
+                        )
+                except (ValueError, IndexError):
+                    pass
+
+        with Status(f"[bold blue]Downloading {archive_name}...", console=console):
+            ssh.download_file(archive_path, local_path)
+
+        size_mb = local_path.stat().st_size / (1024 * 1024)
+        console.print(
+            f"[green]Downloaded.[/green] Saved to [bold]{local_path}[/bold] ({size_mb:.1f} MB)"
+        )
+
+        # Show warnings
+        for w in info.get("warnings", []):
+            console.print(f"  [yellow]Warning:[/yellow] {w}")
+    except SystemExit:
+        raise
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(1) from exc
+    finally:
+        ssh.disconnect()
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +610,156 @@ def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> No
         except Exception:  # noqa: BLE001
             pass
         ssh.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# backup verify-metabase
+# ---------------------------------------------------------------------------
+
+
+@backup_group.command("verify-metabase")
+@click.argument("source", required=False)
+@click.pass_context
+def backup_verify_metabase(ctx: click.Context, source: str | None) -> None:
+    """Verify Metabase backup integrity in a Spaces archive or on the live server.
+
+    With SOURCE: downloads the archive from Spaces and checks for Metabase
+    H2 database files without full extraction.
+
+    Without SOURCE: checks the live Metabase /api/health endpoint via SSH.
+
+    Examples:
+      dango remote backup verify-metabase backup-20260224-143000.tar.gz
+      dango remote backup verify-metabase
+    """
+    if source:
+        # Offline mode: download archive from Spaces, check members
+        _verify_metabase_archive(ctx, source)
+    else:
+        # Live mode: SSH to server, check /api/health
+        _verify_metabase_live(ctx)
+
+
+def _verify_metabase_archive(ctx: click.Context, source: str) -> None:
+    """Verify Metabase H2 files exist in a Spaces backup archive."""
+    import io
+    import tarfile
+
+    from rich.status import Status
+
+    cloud_cfg, client = _load_spaces_client_or_fail(ctx)
+    key = f"backups/{source}"
+
+    try:
+        with Status(f"[bold blue]Checking {source} for Metabase data...", console=console):
+            data = client.download(key)
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] Could not download from Spaces: {exc}")
+        raise click.Abort() from exc
+
+    # Inspect tar members in memory — getmembers() only reads the index,
+    # not file contents, so this doesn't decompress the full archive.
+    has_mv = False
+    has_trace = False
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
+        for member in tf.getmembers():
+            if member.name.endswith("metabase/metabase.db.mv.db") and member.size > 0:
+                has_mv = True
+            if member.name.endswith("metabase/metabase.db.trace.db") and member.size > 0:
+                has_trace = True
+
+    if has_mv and has_trace:
+        console.print(
+            "[green]PASS[/green]: Archive contains Metabase H2 database files "
+            "(metabase.db.mv.db + metabase.db.trace.db)."
+        )
+    elif has_mv:
+        console.print(
+            "[yellow]PARTIAL[/yellow]: Archive contains metabase.db.mv.db "
+            "but is missing metabase.db.trace.db."
+        )
+    elif has_trace:
+        console.print(
+            "[yellow]PARTIAL[/yellow]: Archive contains metabase.db.trace.db "
+            "but is missing metabase.db.mv.db."
+        )
+    else:
+        console.print("[red]FAIL[/red]: Archive does not contain Metabase H2 database files.")
+
+
+def _verify_metabase_live(ctx: click.Context) -> None:
+    """Check Metabase health endpoint via SSH."""
+    from rich.status import Status
+
+    cloud_cfg, ssh = _load_cloud_config_with_ssh_or_fail(ctx)
+
+    try:
+        with Status("[bold blue]Checking live Metabase health...", console=console):
+            result = ssh.exec_command("curl -sf http://localhost:8800/api/health", timeout=15)
+
+        if result.success:
+            console.print("[green]PASS[/green]: Metabase is responding on /api/health.")
+        else:
+            console.print(
+                "[red]FAIL[/red]: Metabase is not responding. "
+                "Check 'dango remote status' for more details."
+            )
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] Could not reach server: {exc}")
+        raise click.Abort() from exc
+    finally:
+        ssh.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# backup config
+# ---------------------------------------------------------------------------
+
+
+@backup_group.command("config")
+@click.pass_context
+def backup_config(ctx: click.Context) -> None:
+    """Display the current backup configuration from cloud.yml.
+
+    Shows Spaces bucket, retention settings, and secrets inclusion status.
+    If the ``backup:`` key is not configured, shows defaults.
+
+    Example:
+      dango remote backup config
+    """
+    from dango.cli.utils import require_project_context
+    from dango.config.loader import ConfigLoader
+
+    project_root = require_project_context(ctx)
+    loader = ConfigLoader(project_root)
+    cloud_cfg = loader.load_cloud_config()
+
+    if cloud_cfg is None:
+        console.print("[red]Error:[/red] No cloud configuration found.")
+        raise click.Abort()
+
+    spaces_bucket = cloud_cfg.spaces.bucket if cloud_cfg.spaces else "Not configured"
+
+    console.print("[bold]Backup Configuration[/bold]")
+    console.print(f"  Spaces bucket:     {spaces_bucket}")
+
+    if cloud_cfg.backup is None:
+        console.print("  [dim](backup: key not set — using defaults)[/dim]")
+        console.print("  Include secrets:   No (default)")
+        console.print("  On-server retention: 1 (default)")
+        console.print("  Spaces retention:")
+        console.print("    Daily:   7 (default)")
+        console.print("    Weekly:  4 (default)")
+        console.print("    Monthly: 0 (default)")
+    else:
+        include = "Yes" if cloud_cfg.backup.include_secrets else "No"
+        console.print(f"  Include secrets:   {include}")
+        console.print(f"  On-server retention: {cloud_cfg.backup.on_server_retention}")
+        console.print("  Spaces retention:")
+        sr = cloud_cfg.backup.spaces_retention
+        console.print(f"    Daily:   {sr.daily}")
+        console.print(f"    Weekly:  {sr.weekly}")
+        console.print(f"    Monthly: {sr.monthly}")
 
 
 #: Path to venv Python on the remote server.

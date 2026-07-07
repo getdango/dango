@@ -1,6 +1,6 @@
 """scripts/check_python_compat.py
 
-Check that all installed packages support Python 3.10, 3.11, and 3.12.
+Check that all installed packages support Python 3.10, 3.11, 3.12, and 3.13.
 Uses package metadata (Requires-Python) to verify compatibility without
 needing multiple Python interpreters installed.
 
@@ -22,7 +22,7 @@ from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
 # Python versions that getdango must support (see pyproject.toml requires-python)
-REQUIRED_VERSIONS = [Version("3.10.0"), Version("3.11.0"), Version("3.12.0")]
+REQUIRED_VERSIONS = [Version("3.10.0"), Version("3.11.0"), Version("3.12.0"), Version("3.13.0")]
 
 # Packages to skip (not real PyPI packages)
 SKIP_PACKAGES = {"getdango", "en-core-web-sm", "en-core-web-lg"}
@@ -111,7 +111,7 @@ def main() -> int:
             print(f"  {name}=={version} (requires {spec}) — drops Python {unsupported}")
         return 1
 
-    print("\nOK: All direct dependencies support Python 3.10, 3.11, and 3.12")
+    print("\nOK: All direct dependencies support Python 3.10, 3.11, 3.12, and 3.13")
     return 0
 
 
