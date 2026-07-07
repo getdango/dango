@@ -18,6 +18,7 @@ from dango.cli.commands.data import db, validate
 from dango.cli.commands.deploy import deploy
 from dango.cli.commands.dev import dev
 from dango.cli.commands.governance import governance
+from dango.cli.commands.local_backup import backup_group as local_backup_group
 from dango.cli.commands.metabase_cmd import metabase
 from dango.cli.commands.migrate import migrate
 from dango.cli.commands.model import model
@@ -118,6 +119,7 @@ cli.add_command(dev)
 cli.add_command(governance)
 cli.add_command(monitor)
 cli.add_command(snapshot)
+cli.add_command(local_backup_group)
 
 
 def main() -> None:
