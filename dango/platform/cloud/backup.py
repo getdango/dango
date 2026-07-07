@@ -152,7 +152,7 @@ def _check_disk_space(ssh: SSHManager, required_mb: int = 500) -> None:
                     available_mb=available,
                     total_mb=total_mb,
                 )
-        except (ValueError, IndexError):
+        except (ValueError, IndexError):  # noqa: BLE001
             pass  # Best-effort — silently skip if df format unexpected
 
 

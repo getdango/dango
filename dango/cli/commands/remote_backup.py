@@ -421,7 +421,7 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
             if line.startswith("__BACKUP_RESULT__"):
                 try:
                     info = json.loads(line[len("__BACKUP_RESULT__") :])
-                except json.JSONDecodeError:
+                except json.JSONDecodeError:  # noqa: BLE001
                     pass
                 break
         if info is None:
@@ -444,7 +444,7 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
                         console.print(
                             f"[yellow]Warning:[/yellow] Server disk is {usage_pct}% full."
                         )
-                except (ValueError, IndexError):
+                except (ValueError, IndexError):  # noqa: BLE001
                     pass
 
         with Status(f"[bold blue]Downloading {archive_name}...", console=console):

@@ -157,7 +157,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
                 if source_names:
                     console.print(f"[dim]Available sources: {', '.join(source_names)}[/dim]")
                 return
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass  # Fall through to editor
 
     import os
@@ -185,7 +185,7 @@ def source_edit(ctx: click.Context, name: str | None) -> None:
                         console.print(yaml.dump({"sources": [src]}, default_flow_style=False))
                         console.print(f"[dim]File: {sources_file}[/dim]")
                         return
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
         console.print("[yellow]No changes made.[/yellow]")
         console.print(f"[dim]Edit manually: {sources_file}[/dim]")
@@ -333,7 +333,7 @@ def source_list(ctx: click.Context, enabled_only: bool) -> None:
                                     total += cnt[0]
                             if total > 0:
                                 row_counts[src.name] = total
-                        except Exception:
+                        except Exception:  # noqa: BLE001
                             pass
                 finally:
                     conn.close()
@@ -915,7 +915,7 @@ def sync(
         if lock is not None and lock._acquired:
             try:
                 lock.release()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
         # Restart Metabase on cloud
         if _metabase_was_stopped:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import time
+from pathlib import Path
 
 import pytest
 from pwdlib.exceptions import UnknownHashError
@@ -24,6 +25,7 @@ from dango.auth.security import (
     hash_password,
     hash_recovery_code,
     hash_token,
+    set_password,
     verify_password,
 )
 
@@ -309,3 +311,81 @@ class TestCommonPasswordsList:
     def test_well_known_passwords_present(self) -> None:
         for pwd in ("password", "123456", "qwerty", "admin", "letmein"):
             assert pwd in _COMMON_PASSWORDS, f"Missing well-known password: {pwd}"
+
+
+# ---------------------------------------------------------------------------
+# set_password() tests
+# ---------------------------------------------------------------------------
+
+
+def _make_auth_db(tmp_path: Path) -> Path:
+    """Initialize a fresh auth database via migration runner."""
+    from dango.migrations.runner import MigrationRunner
+
+    db_path = tmp_path / "auth.db"
+    migrations_dir = Path(__file__).resolve().parents[2] / "dango" / "migrations" / "auth"
+    runner = MigrationRunner(db_path=db_path, db_name="auth", migrations_dir=migrations_dir)
+    runner.apply_pending()
+    return db_path
+
+
+class TestSetPassword:
+    """Tests for set_password()."""
+
+    def test_updates_hash_and_clears_flag(self, tmp_path: Path) -> None:
+        """set_password() hashes the password, updates DB, returns updated user."""
+        from dango.auth.database import create_user
+        from dango.auth.models import Role, User
+        from dango.auth.security import verify_password
+
+        db_path = _make_auth_db(tmp_path)
+        user = User(email="test@example.com", role=Role.EDITOR, must_change_password=True)
+        create_user(db_path, user)
+
+        result = set_password("test@example.com", "newpassword123", db_path)
+
+        assert result.email == "test@example.com"
+        assert verify_password("newpassword123", result.password_hash)
+        assert result.must_change_password is False
+        assert result.password_changed_at is not None
+
+    def test_must_change_flag_true(self, tmp_path: Path) -> None:
+        """set_password(must_change_password=True) sets the flag."""
+        from dango.auth.database import create_user
+        from dango.auth.models import Role, User
+
+        db_path = _make_auth_db(tmp_path)
+        user = User(email="test@example.com", role=Role.EDITOR, must_change_password=False)
+        create_user(db_path, user)
+
+        result = set_password(
+            "test@example.com", "anotherpass1", db_path, must_change_password=True
+        )
+
+        assert result.must_change_password is True
+
+    def test_user_not_found_raises(self, tmp_path: Path) -> None:
+        """set_password() raises UserNotFoundError when user doesn't exist."""
+        from dango.exceptions import UserNotFoundError
+
+        db_path = _make_auth_db(tmp_path)
+
+        with pytest.raises(UserNotFoundError):
+            set_password("nonexistent@example.com", "password123", db_path)
+
+    def test_password_changed_at_is_set(self, tmp_path: Path) -> None:
+        """set_password() always sets password_changed_at to current time."""
+        from datetime import datetime, timezone
+
+        from dango.auth.database import create_user
+        from dango.auth.models import Role, User
+
+        db_path = _make_auth_db(tmp_path)
+        user = User(email="test@example.com", role=Role.EDITOR)
+        create_user(db_path, user)
+
+        before = datetime.now(timezone.utc)
+        result = set_password("test@example.com", "newpassword123", db_path)
+
+        assert result.password_changed_at is not None
+        assert result.password_changed_at >= before

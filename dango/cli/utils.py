@@ -172,7 +172,7 @@ def get_git_branch(project_root: Path | None = None) -> str | None:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     return None

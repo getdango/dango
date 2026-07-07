@@ -274,7 +274,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
         if lock is not None:
             try:
                 lock.release()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
 

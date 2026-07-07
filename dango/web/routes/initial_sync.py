@@ -156,7 +156,7 @@ def _validate_deploy_token(token: str) -> bool:
     # One-time use — delete after validation
     try:
         token_path.unlink()
-    except OSError:
+    except OSError:  # noqa: BLE001
         pass
     return True
 

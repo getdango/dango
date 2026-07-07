@@ -540,7 +540,7 @@ async def delete_csv_file(
                 try:
                     conn.close()
                     logger.info("DB connection closed")
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
         # Delete file from filesystem
@@ -771,5 +771,5 @@ async def run_dbt_after_delete(source_name: str):
         if lock is not None:
             try:
                 lock.release()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass

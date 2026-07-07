@@ -41,6 +41,7 @@ from dango.auth.security import (
     check_password_strength,
     hash_password,
     hash_token,
+    set_password,
     verify_password,
 )
 from dango.auth.sessions import (
@@ -434,16 +435,7 @@ async def change_password(request: Request) -> JSONResponse:
         )
 
     # Update password, clear must_change_password, and record change timestamp
-    new_hash = hash_password(data.new_password)
-    update_user(
-        db_path,
-        user.id,
-        UserUpdate(
-            password_hash=new_hash,
-            must_change_password=False,
-            password_changed_at=datetime.now(timezone.utc),
-        ),
-    )
+    set_password(user.email, data.new_password, db_path)
 
     # Invalidate all sessions, then create a fresh one
     invalidate_all_sessions(db_path, user.id)
@@ -655,15 +647,13 @@ async def accept_invite(request: Request) -> JSONResponse:
         )
 
     # Set password and clear invite fields
+    set_password(user.email, data.password, db_path)
     update_user(
         db_path,
         user.id,
         UserUpdate(
-            password_hash=hash_password(data.password),
             invite_token_hash=None,
             invite_expires_at=None,
-            must_change_password=False,
-            password_changed_at=datetime.now(timezone.utc),
         ),
     )
 

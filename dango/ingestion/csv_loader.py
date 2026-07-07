@@ -385,7 +385,7 @@ class CSVLoader:
             # Clean up view if it exists
             try:
                 conn.execute(f"DROP VIEW IF EXISTS {temp_view}")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
             raise Exception(f"Failed to read file schema from {filepath}: {e}") from e
 
@@ -431,7 +431,7 @@ class CSVLoader:
         except Exception:
             try:
                 conn.execute(f"DROP VIEW IF EXISTS {temp_view}")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
             return {}
 

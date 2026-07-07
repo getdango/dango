@@ -1194,7 +1194,7 @@ class DltPipelineRunner:
                     doc = tomlkit.parse(config_toml_path.read_text())
                     source_section = doc.get("sources", {}).get(source_type.value, {})
                     config_toml_keys = set(source_section.keys())
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass  # If we can't read config.toml, fall back to defaults
 
             for key, value in default_config.items():
@@ -1661,7 +1661,7 @@ class DltPipelineRunner:
                     try:
                         days = int(dv.replace("daysAgo", ""))
                         resolved_config[dk] = (date.today() - timedelta(days=days)).isoformat()
-                    except ValueError:
+                    except ValueError:  # noqa: BLE001
                         pass  # Leave as-is if not parseable
 
         # Convert date strings to pendulum DateTime for sources that expect it
@@ -1681,7 +1681,7 @@ class DltPipelineRunner:
                     except Exception:
                         try:
                             resolved_config[date_key] = datetime.fromisoformat(date_val)
-                        except ValueError:
+                        except ValueError:  # noqa: BLE001
                             pass  # Leave as string — dlt may handle it
 
         # Override dates if provided
@@ -2730,7 +2730,7 @@ def run_sync(
                     console.print(f"[dim]🧹 Cleaned up {len(dropped)} staging schema(s)[/dim]")
             finally:
                 conn.close()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass  # Don't fail sync for cleanup errors
 
     # Initialize transform tracking (used in summary dict below)

@@ -135,7 +135,7 @@ def _read_dbt_test_results(project_root: Path) -> list[DbtTestResult]:
                     raw = r.get("status", "")
                     result_status[uid] = "pass" if raw == "success" else raw
                     result_time[uid] = r.get("execution_time", 0.0)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     tests: list[DbtTestResult] = []

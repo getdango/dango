@@ -372,7 +372,7 @@ def provision_droplet(
         # Best-effort cleanup — swallow delete errors, re-raise original
         try:
             client.delete_droplet(droplet_id)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         raise
 

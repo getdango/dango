@@ -85,7 +85,7 @@ def cleanup_sync_status(project_root: Path, sync_id: str | None = None) -> None:
         path = get_sync_status_path(project_root, sync_id)
         try:
             path.unlink(missing_ok=True)
-        except OSError:
+        except OSError:  # noqa: BLE001
             pass
 
 

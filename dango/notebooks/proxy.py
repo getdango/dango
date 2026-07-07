@@ -164,7 +164,7 @@ async def proxy_websocket_to_marimo(
                     while True:
                         data = await websocket.receive_text()
                         await marimo_ws.send(data)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
             async def marimo_to_client() -> None:
@@ -175,7 +175,7 @@ async def proxy_websocket_to_marimo(
                             await websocket.send_text(message)
                         else:
                             await websocket.send_bytes(message)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
             tasks = [
@@ -191,5 +191,5 @@ async def proxy_websocket_to_marimo(
     finally:
         try:
             await websocket.close()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass

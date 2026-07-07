@@ -147,7 +147,7 @@ def _get_local_timezone() -> str:
             iana = link.split("zoneinfo/")[-1]
             if iana:
                 return iana
-    except (OSError, ValueError):
+    except (OSError, ValueError):  # noqa: BLE001
         pass
 
     # Method 1.5: Windows — try tzlocal (IANA names), then time.tzname
@@ -158,7 +158,7 @@ def _get_local_timezone() -> str:
             tz_name = get_localzone_name()
             if tz_name:
                 return tz_name
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         try:
             import time as _time
@@ -166,7 +166,7 @@ def _get_local_timezone() -> str:
             tz_name = _time.tzname[0]
             if tz_name:
                 return tz_name
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     # Method 2: tzinfo.key (Python 3.12+)
@@ -176,7 +176,7 @@ def _get_local_timezone() -> str:
         tz = datetime.now(timezone.utc).astimezone().tzinfo
         if tz is not None and hasattr(tz, "key"):
             return str(tz.key)
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     return "UTC"

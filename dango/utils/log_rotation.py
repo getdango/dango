@@ -86,7 +86,7 @@ def _cleanup_old_sync_logs_impl(project_root: Path, max_age_days: int) -> None:
             if log_file.stat().st_mtime < cutoff_ts:
                 log_file.unlink(missing_ok=True)
                 _logger.info("sync_log_deleted", path=str(log_file))
-        except OSError:
+        except OSError:  # noqa: BLE001
             pass
 
 

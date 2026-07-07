@@ -247,9 +247,8 @@ def auth_list_users(ctx: click.Context) -> None:
 def auth_reset_password(ctx: click.Context, email: str) -> None:
     """Generate a new temporary password for a user."""
     from dango.auth.admin import format_credentials_panel
-    from dango.auth.database import get_user_by_email, invalidate_all_user_sessions, update_user
-    from dango.auth.models import UserUpdate
-    from dango.auth.security import generate_temp_password, hash_password
+    from dango.auth.database import get_user_by_email, invalidate_all_user_sessions
+    from dango.auth.security import generate_temp_password, set_password
     from dango.cli.utils import print_error
 
     try:
@@ -260,15 +259,7 @@ def auth_reset_password(ctx: click.Context, email: str) -> None:
             raise click.Abort()
 
         password = generate_temp_password()
-        update_user(
-            db_path,
-            user.id,
-            UserUpdate(
-                password_hash=hash_password(password),
-                must_change_password=True,
-                password_changed_at=datetime.now(timezone.utc),
-            ),
-        )
+        set_password(user.email, password, db_path, must_change_password=True)
         invalidate_all_user_sessions(db_path, user.id)
         console.print(format_credentials_panel(user.email, password, title="Password reset"))
         from dango.auth.audit import AuditEvent, log_auth_event

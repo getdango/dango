@@ -170,7 +170,7 @@ def ensure_duckdb_driver(project_root: Path) -> None:
                 try:
                     if driver_path.exists():
                         driver_path.unlink()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
     raise RuntimeError(

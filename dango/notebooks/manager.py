@@ -213,7 +213,7 @@ def stop_marimo(project_root: Path) -> bool:
 
     try:
         pid_file.unlink()
-    except OSError:
+    except OSError:  # noqa: BLE001
         pass
 
     if success:
@@ -259,7 +259,7 @@ def get_marimo_status(project_root: Path) -> dict[str, bool | int | Path | None]
                     status["port"] = config.platform.marimo_port
                 except Exception:
                     status["port"] = 7805
-        except (ValueError, OSError):
+        except (ValueError, OSError):  # noqa: BLE001
             pass
 
     return status
@@ -298,7 +298,7 @@ async def _broadcast_idle_warning(remaining_seconds: int) -> None:
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
             }
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass  # web server may not be running for CLI-launched notebooks
 
 

@@ -154,7 +154,7 @@ def _get_metabase_volume_path() -> str | None:
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired:  # noqa: BLE001
         pass
     return None
 
@@ -317,7 +317,7 @@ def _warn_spaces_reuse(
             existing = json.loads(HEALTH_FILE.read_text())
             if existing.get("last_success"):
                 return  # Not first run
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError):  # noqa: BLE001
             pass
 
     try:
@@ -342,7 +342,7 @@ def _warn_spaces_reuse(
                     f"Older backups will be deleted over time."
                 ),
             )
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass  # Best-effort warning — never fail backup for this
 
 
@@ -368,7 +368,7 @@ def _check_spaces_reuse(
                 }
             )
         )
-    except OSError:
+    except OSError:  # noqa: BLE001
         pass  # Best-effort — never fail backup for marker file write
 
 
@@ -448,7 +448,7 @@ def _write_health_status(success: bool, error: str | None = None) -> None:
     if HEALTH_FILE.exists():
         try:
             existing = json.loads(HEALTH_FILE.read_text())
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError):  # noqa: BLE001
             pass
     now_iso = datetime.now(tz=timezone.utc).isoformat()
     if success:
@@ -527,7 +527,7 @@ def run_scheduled_backup() -> ScheduledBackupResult:
             try:
                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
                 lock_fd.close()
-            except OSError:
+            except OSError:  # noqa: BLE001
                 pass
     result.duration_seconds = round(time.monotonic() - start_time, 1)
     return result
