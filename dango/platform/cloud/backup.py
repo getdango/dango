@@ -473,6 +473,10 @@ def restore_from_archive(
         _notify(on_progress, "read_manifest", "done")
 
     # Pre-restore safety backup — covers all three restore paths
+    # (rollback(), _backup_restore_from_local(), and migrate.py all flow
+    # through restore_from_archive).  on_server_retention=999 is an
+    # intentionally large value to prevent rotation from deleting this
+    # safety backup before the restore completes.
     _notify(on_progress, "pre_restore_backup", "running")
     try:
         safety = create_backup(
