@@ -438,6 +438,12 @@ exemptions:
     reason: "TEST-030+R10-D2: 7 test classes covering page, list, create, delete, lock, heartbeat, release, force-release (incl. WebSocket broadcast), copy."
     review_by: "v1.1"
 
+  - file: tests/unit/test_remote_backup_cli.py
+    lines: 630
+    category: exempt
+    reason: "Pre-existing on v1.0.s3. S3-SCRIPTS-A addendum."
+    review_by: "v1.1"
+
   - file: dango/web/routes/scripts.py
     lines: 673
     category: exempt
