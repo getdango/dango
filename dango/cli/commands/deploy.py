@@ -272,6 +272,7 @@ def _handle_do_deploy_with_config(
         admin_password=result.admin_password,
         warnings=result.warnings,
         domain=config.domain,
+        backup_enabled=config.enable_backups,
     )
 
 
@@ -284,6 +285,7 @@ def _print_byos_success(result: Any, config: Any) -> None:
         admin_password=result.admin_password,
         warnings=result.warnings,
         domain=config.domain,
+        backup_enabled=False,
     )
 
 
@@ -295,6 +297,7 @@ def _print_deploy_success(
     admin_password: str = "",
     warnings: list[str],
     domain: str | None = None,
+    backup_enabled: bool = False,
 ) -> None:
     """Print deployment success output (shared by DO and BYOS paths)."""
     console.print("\n[bold green]Deployment complete![/bold green]")
@@ -306,6 +309,11 @@ def _print_deploy_success(
         console.print("  [dim]Save this password — it will not be shown again.[/dim]")
     if domain:
         console.print(f"\n  [bold]DNS setup:[/bold] Point an A record for {domain} to {ip}")
+    if backup_enabled:
+        console.print(
+            "\n  [bold]Backups:[/bold] Enabled (daily at 02:00 UTC to Spaces). "
+            "Run [bold]dango remote backup download[/bold] to save a local copy."
+        )
     if warnings:
         for w in warnings:
             console.print(f"  [yellow]Warning:[/yellow] {w}")
@@ -368,40 +376,56 @@ def _compute_ssh_fingerprint(public_key_path: Path) -> str | None:
 
 @deploy.command("destroy")
 @click.option("--force", is_flag=True, help="Skip confirmation and backup prompts.")
-@click.option("--keep-spaces", is_flag=True, help="Keep the Spaces bucket and its contents.")
+@click.option(
+    "--delete-spaces",
+    is_flag=True,
+    help="Also delete the Spaces bucket and all its contents.",
+)
+@click.option(
+    "--keep-spaces",
+    is_flag=True,
+    hidden=True,
+    help="Deprecated. Spaces are preserved by default now.",
+)
 @click.option("--keep-ssh-key", is_flag=True, help="Keep the SSH key on DigitalOcean.")
 @click.pass_context
 def deploy_destroy(
     ctx: click.Context,
     force: bool,
+    delete_spaces: bool,
     keep_spaces: bool,
     keep_ssh_key: bool,
 ) -> None:
     """Tear down all cloud infrastructure for this project.
 
-    For DigitalOcean: deletes the Droplet, firewall, SSH key (from DO), and Spaces bucket.
+    For DigitalOcean: deletes the Droplet, firewall, SSH key (from DO),
+    and optionally the Spaces bucket.  Spaces buckets are preserved by
+    default — use ``--delete-spaces`` to remove them.
+
     For BYOS: optionally stops remote services and removes local cloud.yml.
     Local SSH keys and project files are never deleted.
 
-    Use --force to skip confirmation prompts.  Use --keep-spaces or
-    --keep-ssh-key to preserve specific resources.
+    Use --force to skip confirmation prompts.
 
     Examples:
       dango deploy destroy
       dango deploy destroy --force
-      dango deploy destroy --keep-spaces --keep-ssh-key
+      dango deploy destroy --delete-spaces
     """
     cloud_cfg, project_root = _load_deploy_config(ctx)
 
+    # --delete-spaces takes precedence; --keep-spaces is a no-op (keep is default)
+    should_delete_spaces = delete_spaces
+
     if cloud_cfg.provider == "byos":
-        if keep_spaces or keep_ssh_key:
+        if keep_spaces or delete_spaces:
             console.print(
-                "[yellow]Note:[/yellow] --keep-spaces and --keep-ssh-key are "
+                "[yellow]Note:[/yellow] --keep-spaces and --delete-spaces are "
                 "DigitalOcean-only options and have no effect for BYOS deployments."
             )
         _destroy_byos(cloud_cfg, project_root, force)
     else:
-        _destroy_do(cloud_cfg, project_root, force, keep_spaces, keep_ssh_key)
+        _destroy_do(cloud_cfg, project_root, force, should_delete_spaces, keep_ssh_key)
 
 
 def _destroy_byos(cloud_cfg: Any, project_root: Path, force: bool) -> None:
@@ -523,7 +547,7 @@ def _destroy_do(
     cloud_cfg: Any,
     project_root: Path,
     force: bool,
-    keep_spaces: bool,
+    delete_spaces: bool,
     keep_ssh_key: bool,
 ) -> None:
     """Tear down a DigitalOcean deployment (delete cloud resources)."""
@@ -541,8 +565,13 @@ def _destroy_do(
     summary_lines.append(f"  SSH key (DO): will {ssh_action}")
 
     if cloud_cfg.spaces:
-        spaces_action = "keep" if keep_spaces else "delete (all contents + bucket)"
-        summary_lines.append(f"  Spaces bucket: {cloud_cfg.spaces.bucket} — will {spaces_action}")
+        if delete_spaces:
+            spaces_action = "DELETED (all contents + bucket)"
+        else:
+            spaces_action = "KEPT (use --delete-spaces to remove)"
+        summary_lines.append(
+            f"  Spaces bucket: {cloud_cfg.spaces.bucket} — will be {spaces_action}"
+        )
 
     console.print(
         Panel(
@@ -612,8 +641,8 @@ def _destroy_do(
     if not keep_ssh_key:
         _delete_ssh_key(client, cloud_cfg, project_root, errors)
 
-    # 4. Delete Spaces bucket
-    if cloud_cfg.spaces and not keep_spaces:
+    # 4. Delete Spaces bucket (only with explicit --delete-spaces)
+    if cloud_cfg.spaces and delete_spaces:
         _delete_spaces_bucket(cloud_cfg, errors)
 
     # --- Clean local config ---
@@ -624,6 +653,14 @@ def _destroy_do(
             console.print("[green]Removed[/green] .dango/cloud.yml")
         except OSError as exc:
             errors.append(f"Config cleanup: {exc}")
+
+    # --- Show Spaces reuse note if bucket was kept ---
+    if cloud_cfg.spaces and not delete_spaces:
+        console.print(
+            f"\n[dim]Spaces bucket '{cloud_cfg.spaces.bucket}' was preserved.[/dim] "
+            "[dim]Re-deploying with the same project name and region will reuse "
+            "this bucket and its backups.[/dim]"
+        )
 
     # --- Report results ---
     key_path = _resolve_key_path(cloud_cfg, project_root)
@@ -646,9 +683,37 @@ def _resolve_key_path(cloud_cfg: Any, project_root: Path) -> Path:
 
 
 def _offer_backup_download(cloud_cfg: Any, project_root: Path) -> None:
-    """Offer to download the latest backup before destroying."""
+    """Offer to download the latest backup before destroying.
+
+    Checks both on-server backups (via SSH) and Spaces backups (via the
+    Spaces API).  Shows the latest from each location so the user can
+    make an informed decision.
+    """
     from dango.platform.cloud.ssh import SSHManager
 
+    # --- Check Spaces for available backups (best-effort) ---
+    spaces_latest: str | None = None
+    spaces_count: int = 0
+    if cloud_cfg.spaces:
+        try:
+            from dango.platform.cloud.spaces import SpacesClient
+
+            spaces_client = SpacesClient(
+                bucket=cloud_cfg.spaces.bucket,
+                region=cloud_cfg.spaces.region or cloud_cfg.region,
+                access_key_env=cloud_cfg.spaces.access_key_env,
+                secret_key_env=cloud_cfg.spaces.secret_key_env,
+            )
+            objects = spaces_client.list_objects(prefix="backups/")
+            archives = [o for o in objects if o.get("Key", "").endswith(".tar.gz")]
+            if archives:
+                archives.sort(key=lambda x: x["Key"], reverse=True)
+                spaces_count = len(archives)
+                spaces_latest = archives[0]["Key"].rsplit("/", 1)[-1]
+        except Exception:  # noqa: BLE001
+            pass  # Best-effort — silently skip if Spaces is unreachable
+
+    # --- Check on-server backups via SSH ---
     key_path = _resolve_key_path(cloud_cfg, project_root)
     if not key_path.exists():
         return
@@ -658,42 +723,111 @@ def _offer_backup_download(cloud_cfg: Any, project_root: Path) -> None:
         known_hosts_path=key_path.parent / "known_hosts",
     )
 
+    server_latest: str | None = None
+
     try:
         ssh.connect(cloud_cfg.droplet_ip)
     except Exception:  # noqa: BLE001
+        # If we have Spaces backups but can't reach the server, still offer Spaces download
+        if spaces_latest:
+            if not _prompt_download_spaces(cloud_cfg, project_root, spaces_latest, spaces_count):
+                return
+            console.print(
+                "[yellow]Warning:[/yellow] Could not connect to server to check "
+                "for backups, but Spaces backups are available."
+            )
+            return
         console.print("[yellow]Warning:[/yellow] Could not connect to server to check for backups.")
         return
 
     try:
         result = ssh.exec_command("ls -t /srv/dango/backups/deploy/ 2>/dev/null | head -1")
-        if not result.success or not result.stdout.strip():
+        if result.success and result.stdout.strip():
+            candidate = result.stdout.strip()
+            if not ("/" in candidate or "\\" in candidate) and candidate:
+                server_latest = candidate
+
+        # No backups anywhere
+        if not server_latest and not spaces_latest:
             console.print(
-                "[yellow]Warning:[/yellow] No backups found on server. "
+                "[yellow]Warning:[/yellow] No backups found on server or in Spaces. "
                 "Consider backing up your data before proceeding."
             )
             return
 
-        latest_backup = result.stdout.strip()
-        if "/" in latest_backup or "\\" in latest_backup or not latest_backup:
-            console.print(
-                "[yellow]Warning:[/yellow] Unexpected backup filename — skipping download."
-            )
-            return
+        # Build prompt with info from both sources
+        server_info = f"server: {server_latest}" if server_latest else "no server backups"
+        spaces_info = ""
+        if spaces_latest:
+            label = "backup" if spaces_count == 1 else "backups"
+            spaces_info = f"Spaces: {spaces_latest} ({spaces_count} {label})"
+
+        hint_parts = [server_info]
+        if spaces_info:
+            hint_parts.append(spaces_info)
+        hint = ", ".join(hint_parts)
+
         _dl_answer = click.prompt(
-            f"Download latest backup ({latest_backup}) before destroying? (yes/no)",
+            f"Download latest backup before destroying? ({hint}) (yes/no)",
             default="no",
             show_default=True,
         )
-        if str(_dl_answer).lower().strip() in ("yes", "y"):
-            remote_path = f"/srv/dango/backups/deploy/{latest_backup}"
-            local_path = project_root / f"dango-backup-{latest_backup}"
+        if str(_dl_answer).lower().strip() not in ("yes", "y"):
+            return
+
+        # Prefer server backup for download (already have SSH connection)
+        if server_latest:
+            remote_path = f"/srv/dango/backups/deploy/{server_latest}"
+            local_path = project_root / f"dango-backup-{server_latest}"
             try:
                 ssh.download_file(remote_path, local_path)
                 console.print(f"[green]Downloaded[/green] backup to {local_path}")
             except Exception as exc:
                 console.print(f"[yellow]Warning:[/yellow] Failed to download backup: {exc}")
+        elif spaces_latest:
+            _download_from_spaces(cloud_cfg, project_root, spaces_latest)
     finally:
         ssh.disconnect()
+
+
+def _prompt_download_spaces(
+    cloud_cfg: Any,
+    project_root: Path,
+    spaces_latest: str,
+    spaces_count: int,
+) -> bool:
+    """Prompt to download a Spaces backup. Returns True if download attempted."""
+    label = "backup" if spaces_count == 1 else "backups"
+    _dl_answer = click.prompt(
+        f"Download latest Spaces backup ({spaces_latest}, {spaces_count} {label}) "
+        "before destroying? (yes/no)",
+        default="no",
+        show_default=True,
+    )
+    if str(_dl_answer).lower().strip() in ("yes", "y"):
+        _download_from_spaces(cloud_cfg, project_root, spaces_latest)
+        return True
+    return False
+
+
+def _download_from_spaces(cloud_cfg: Any, project_root: Path, backup_name: str) -> None:
+    """Download a backup from Spaces to the local project root."""
+    try:
+        from dango.platform.cloud.spaces import SpacesClient
+
+        client = SpacesClient(
+            bucket=cloud_cfg.spaces.bucket,
+            region=cloud_cfg.spaces.region or cloud_cfg.region,
+            access_key_env=cloud_cfg.spaces.access_key_env,
+            secret_key_env=cloud_cfg.spaces.secret_key_env,
+        )
+        key = f"backups/{backup_name}"
+        data = client.download(key)
+        local_path = project_root / f"dango-backup-{backup_name}"
+        local_path.write_bytes(data)
+        console.print(f"[green]Downloaded[/green] backup to {local_path}")
+    except Exception as exc:
+        console.print(f"[yellow]Warning:[/yellow] Failed to download Spaces backup: {exc}")
 
 
 def _delete_ssh_key(
