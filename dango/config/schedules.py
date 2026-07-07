@@ -470,6 +470,7 @@ def reload_schedules(
                 "sources": list(sched.sources),
                 "project_root": str(project_root),
                 "skip_dbt": sched.type == ScheduleType.SYNC_ONLY,
+                "_timeout_minutes": sched.timeout_minutes,
             }
         else:
             func = run_scheduled_dbt
@@ -477,6 +478,7 @@ def reload_schedules(
                 "schedule_name": sched.name,
                 "dbt_command": sched.dbt_command,
                 "project_root": str(project_root),
+                "_timeout_minutes": sched.timeout_minutes,
             }
 
         if job_id in existing_ids:
