@@ -370,6 +370,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `cli/commands/deploy_wizard.py` | 923 | — (interactive deploy wizard + BYOS) |
 | `transformation/generator.py` | 706 | — |
 | `web/routes/catalog.py` | 1350 | — (data catalog: columns, profiling, lineage, impact, models, search, raw table discovery, per-source stats) |
+| `web/templates/catalog.html` | 1029 | — (Alpine.js data catalog page) |
 | `cli/commands/deploy_provision.py` | 1000 | — (provisioning orchestration + BYOS) |
 | `platform/cloud/digitalocean.py` | 547 | — (DO REST API v2 client) |
 | `platform/cloud/server_setup.py` | 743 | — (server setup + install source detection) |
@@ -412,7 +413,7 @@ Module CLAUDE.md files provide per-module navigation, public API, and patterns.
 
 ## Development Setup
 
-**Prerequisites:** Python >=3.10,<3.13 (macOS: use `python3.11` — system `python3` is 3.9), Docker
+**Prerequisites:** Python >=3.10,<3.14 (macOS: use `python3.11` — system `python3` is 3.9), Docker
 
 ```bash
 # First time setup

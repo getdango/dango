@@ -142,6 +142,7 @@ class SchedulerService:
 
         self._setup_history_cleanup()
         self._setup_login_attempts_cleanup()
+        self._setup_sync_log_cleanup()
         self._log_startup_summary()
         self._check_dual_scheduler()
 
@@ -427,6 +428,25 @@ class SchedulerService:
             )
         except Exception:  # noqa: BLE001
             logger.debug("login_attempts_cleanup_setup_failed", exc_info=True)
+
+    def _setup_sync_log_cleanup(self) -> None:
+        """Run initial cleanup and register daily sync log cleanup job."""
+        try:
+            from dango.utils.log_rotation import cleanup_old_sync_logs
+
+            # Run initial cleanup at startup
+            cleanup_old_sync_logs(str(self._project_root))
+
+            self._scheduler.add_job(
+                cleanup_old_sync_logs,
+                "interval",
+                hours=24,
+                args=[str(self._project_root)],
+                id="dango-internal:sync-log-cleanup",
+                replace_existing=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("sync_log_cleanup_setup_failed", exc_info=True)
 
     def _log_missed_recovery(self) -> None:
         """Log count of missed jobs that will be recovered on startup."""

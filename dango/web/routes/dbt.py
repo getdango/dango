@@ -78,7 +78,8 @@ async def run_dbt_model(
             "source": f"dbt:{model_name}",
             "message": f"Running dbt model: {model_name}",
             "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-        }
+        },
+        log=False,
     )
 
     # Run in background
@@ -118,7 +119,8 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                 "source": f"dbt:{model_name}",
                 "message": str(e).split("\n")[0],  # First line of error message
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-            }
+            },
+            log=False,
         )
         from dango.utils.activity_log import log_activity
 
@@ -200,7 +202,8 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                     "source": f"dbt:{model_name}",
                     "message": f"Model '{model_name}' ran successfully in {duration:.1f}s",
                     "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                }
+                },
+                log=False,
             )
 
             # CRITICAL: Refresh Metabase connection to see new/updated tables
@@ -233,7 +236,8 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                     "source": f"dbt:{model_name}",
                     "message": f"Model '{model_name}' failed: {error_msg[:200]}",
                     "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                }
+                },
+                log=False,
             )
 
     except subprocess.TimeoutExpired:
@@ -249,7 +253,8 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                 "source": f"dbt:{model_name}",
                 "message": f"Model '{model_name}' timed out after 5 minutes",
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-            }
+            },
+            log=False,
         )
     except Exception as e:
         log_activity(
@@ -262,7 +267,8 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                 "source": f"dbt:{model_name}",
                 "message": f"Model '{model_name}' failed: {str(e)}",
                 "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-            }
+            },
+            log=False,
         )
     finally:
         if lock is not None:
