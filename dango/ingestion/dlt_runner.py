@@ -1365,6 +1365,7 @@ class DltPipelineRunner:
 
             # Per-table empty replace protection: detect if any individual table
             # would be truncated (some tables populated, others empty)
+            post_table_counts = None
             if (
                 pre_table_counts is not None
                 and (full_refresh or uses_replace_mode)
@@ -1400,7 +1401,10 @@ class DltPipelineRunner:
                         }
 
             # Check for row count anomalies
-            total_row_count = self._get_source_total_rows(source_name)
+            if post_table_counts is not None:
+                total_row_count = sum(post_table_counts.values()) if post_table_counts else 0
+            else:
+                total_row_count = self._get_source_total_rows(source_name)
             if total_row_count is not None:
                 stats["total_row_count"] = total_row_count
             anomaly = self._check_row_count_anomaly(source_name, total_rows=total_row_count)

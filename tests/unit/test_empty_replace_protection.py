@@ -1494,3 +1494,47 @@ class TestPerTableProtection:
         assert result["status"] == "failed"
         assert "existing 1,000 rows preserved" in result["error"]
         mock_restore.assert_called_once()
+
+    def test_native_source_per_table_protection(self, tmp_path):
+        """Test 38: _run_dlt_native_source per-table check catches partial empty."""
+        runner = _make_runner(tmp_path)
+
+        pre_table = {"table_a": 1000, "table_b": 500}
+        post_table = {"table_a": 1200, "table_b": 0}
+
+        with (
+            patch.object(
+                runner,
+                "_get_source_total_rows",
+                side_effect=[sum(pre_table.values()), sum(post_table.values())],
+            ),
+            patch.object(runner, "_get_source_table_rows", side_effect=[pre_table, post_table]),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_restore_dlt_state") as mock_restore,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 1200}),
+            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(1200)),
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("dango.ingestion.dlt_runner.importlib") as mock_importlib,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_module = MagicMock()
+            mock_module.test_func = MagicMock(return_value=MagicMock())
+            mock_importlib.import_module.return_value = mock_module
+
+            mock_pipeline = MagicMock()
+            mock_dlt.pipeline.return_value = mock_pipeline
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+
+            result = runner._run_dlt_native_source(
+                _make_dlt_native_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "failed"
+        assert "table_b" in result["error"]
+        assert "500 rows" in result["error"]
+        assert "would be lost" in result["error"]
+        assert "--allow-empty-replace" in result["error"]
+        mock_restore.assert_called_once()
