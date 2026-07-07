@@ -81,7 +81,8 @@ def _extract_archive(archive_path: Path, project_root: Path) -> None:
             elif member.isfile() or member.issym():
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 # Extract to file
-                with tf.extractfile(member) as src_f:
+                src_f = tf.extractfile(member)
+                if src_f is not None:
                     dest.write_bytes(src_f.read())
 
 
