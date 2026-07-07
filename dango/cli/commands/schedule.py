@@ -740,19 +740,11 @@ def schedule_add(ctx: click.Context) -> None:
             console.print("[red]Error:[/red] Sync schedules require at least one source.")
             return
     elif sched_type == "script":
-        # Discover .py files in scripts/ directory
-        scripts_dir = project_root / "scripts"
-        script_choices: list[tuple[str, str]] = []
-        if scripts_dir.exists():
-            for py_file in sorted(scripts_dir.rglob("*.py")):
-                if py_file.name == "__init__.py":
-                    continue
-                if py_file.name.startswith(".") or py_file.name.startswith("_"):
-                    continue
-                if any(part.startswith("_") for part in py_file.parts[:-1]):
-                    continue
-                rel = str(py_file.relative_to(scripts_dir))
-                script_choices.append((rel, rel))
+        # Discover .py files in scripts/ directory (reuses shared discovery)
+        from dango.web.routes.scripts_helpers import _discover_scripts
+
+        scripts = _discover_scripts(project_root)
+        script_choices: list[tuple[str, str]] = [(s["name"], s["path"]) for s in scripts]
 
         if not script_choices:
             console.print(

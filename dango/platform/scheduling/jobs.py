@@ -1056,6 +1056,51 @@ def run_scheduled_dbt(
         lock.release()
 
 
+def _write_script_logs(
+    project_root: Path,
+    script_path: str,
+    schedule_name: str,
+    stdout: str | None,
+    stderr: str | None,
+    exit_code: int | None,
+    duration_seconds: float,
+    status: str,
+) -> None:
+    """Write script stdout, stderr, and metadata to log files. Never raises."""
+    import json as _json
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    try:
+        safe_name = script_path.replace("/", "__").replace("\\", "__")
+        ts = _dt.now(tz=_tz).strftime("%Y%m%dT%H%M%S")
+        log_dir = project_root / ".dango" / "logs" / "scripts" / f"{safe_name}_{ts}"
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        _MAX = 1_048_576  # 1 MB
+        stdout_str = stdout or ""
+        stderr_str = stderr or ""
+        if len(stdout_str) > _MAX:
+            stdout_str = stdout_str[:_MAX] + "\n\n[TRUNCATED at 1MB]"
+        if len(stderr_str) > _MAX:
+            stderr_str = stderr_str[:_MAX] + "\n\n[TRUNCATED at 1MB]"
+
+        (log_dir / "stdout.txt").write_text(stdout_str, encoding="utf-8", errors="replace")
+        (log_dir / "stderr.txt").write_text(stderr_str, encoding="utf-8", errors="replace")
+
+        meta: dict[str, Any] = {
+            "script_name": script_path,
+            "schedule_name": schedule_name,
+            "finished_at": _dt.now(tz=_tz).isoformat(),
+            "duration_seconds": round(duration_seconds, 1),
+            "exit_code": exit_code if exit_code is not None else -1,
+            "status": status,
+        }
+        (log_dir / "meta.json").write_text(_json.dumps(meta))
+    except Exception:  # noqa: BLE001
+        logger.debug("script_log_write_failed", script=script_path, exc_info=True)
+
+
 def run_scheduled_script(
     schedule_name: str,
     script_path: str | None = None,
@@ -1232,6 +1277,16 @@ def run_scheduled_script(
                 stdout, stderr = proc.communicate()
 
             elapsed = time.monotonic() - t0
+            _write_script_logs(
+                project_root,
+                script_path,
+                schedule_name,
+                stdout,
+                stderr,
+                proc.returncode,
+                elapsed,
+                "timeout",
+            )
             log_activity(project_root, "error", script_label, "Scheduled script timed out")
             _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
             _log_execution_event(
@@ -1261,6 +1316,17 @@ def run_scheduled_script(
 
         elapsed = time.monotonic() - t0
         exit_code = proc.returncode if proc.returncode is not None else -1
+
+        _write_script_logs(
+            project_root,
+            script_path,
+            schedule_name,
+            stdout,
+            stderr,
+            exit_code,
+            elapsed,
+            "success" if exit_code == 0 else "failed",
+        )
 
         if exit_code == 0:
             log_activity(
