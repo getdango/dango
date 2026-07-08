@@ -12,7 +12,7 @@ the tested stack and upgrade process.
 | Metabase | v0.59.1 | pinned | `dango/templates/Dockerfile.metabase` |
 | dbt-core | 1.10.22 | ~=1.10.0 | `pyproject.toml` |
 | dbt-duckdb | 1.10.1 | >=1.10.0,<1.11 | `pyproject.toml` |
-| dlt | 1.24.0 | ~=1.24.0 | `pyproject.toml` |
+| dlt | 1.28.1 | ~=1.28.0 | `pyproject.toml` |
 
 Tested versions are recorded in `constraints.txt` for reproducible installs.
 
