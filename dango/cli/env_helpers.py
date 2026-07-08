@@ -103,7 +103,7 @@ def create_env_template(
             try:
                 if temp_file.exists():
                     temp_file.unlink()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
             raise Exception(f"Failed to update .env file: {e}") from e
 

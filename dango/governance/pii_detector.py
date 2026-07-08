@@ -119,7 +119,7 @@ def _get_analyzer() -> Any | None:
             finally:
                 try:
                     os.unlink(whl_path)
-                except OSError:
+                except OSError:  # noqa: BLE001
                     pass
         except Exception:
             _analyzer_init_failed = True

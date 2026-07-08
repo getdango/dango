@@ -668,7 +668,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                     "[dim]🔑 Forgot password? Run 'dango auth reset-password <email>'[/dim]"
                 )
                 console.print()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass  # auth module may not be initialized yet
 
         console.print("[dim]Run 'dango stop' to shut down services.[/dim]")
@@ -703,7 +703,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                     if response.status_code == 200:
                         fastapi_ready = True
                         console.print("[dim]  ✓ Web UI ready[/dim]")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
             try:
@@ -712,7 +712,7 @@ def start(ctx: click.Context, yes: bool) -> None:
                     if metabase_response.status_code == 200:
                         metabase_ready = True
                         console.print("[dim]  ✓ Metabase ready[/dim]")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
             if fastapi_ready and metabase_ready:

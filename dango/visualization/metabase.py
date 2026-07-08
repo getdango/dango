@@ -795,7 +795,7 @@ def setup_metabase(
                             f"  ℹ DuckDB connection already exists (ID: {existing_db_id}), will update it"
                         )
                         break
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass  # If check fails, proceed with creation
 
         # Add or update DuckDB connection
@@ -848,7 +848,7 @@ def setup_metabase(
                         json={"is_sample": False, "is_full_sync": True},
                         timeout=10,
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass  # Not critical
 
                 # NOTE: hide_internal_tables disabled - it breaks Metabase schema navigation
@@ -911,9 +911,9 @@ def setup_metabase(
                                 if hide_response.status_code == 200:
                                     summary["h2_hidden"] = True
                                     print(f"  ✓ Hidden H2 sample database (ID: {db_id})")
-                        except Exception:
+                        except Exception:  # noqa: BLE001
                             pass
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass  # Not critical
 
         # Remove example dashboards and collections
@@ -969,7 +969,7 @@ def setup_metabase(
                 if coll_response.status_code == 200:
                     collections_created.append(collection_name)
                     print(f"  ✓ Created '{collection_name}' collection")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass  # Not critical
 
         summary["collections_created"] = collections_created
@@ -1240,7 +1240,7 @@ def refresh_metabase_connection(
                 response = session.get(f"{metabase_url}/api/health", timeout=1)
                 if response.status_code == 200:
                     return (True, None)
-            except requests.exceptions.RequestException:
+            except requests.exceptions.RequestException:  # noqa: BLE001
                 pass
             time.sleep(1)
 

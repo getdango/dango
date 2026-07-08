@@ -156,7 +156,7 @@ def _validate_deploy_token(token: str) -> bool:
     # One-time use — delete after validation
     try:
         token_path.unlink()
-    except OSError:
+    except OSError:  # noqa: BLE001
         pass
     return True
 
@@ -270,20 +270,17 @@ async def _run_initial_sync(project_root: Path, sources: list[dict[str, str]]) -
 
 
 async def _sync_single_source(project_root: Path, source_name: str) -> None:
-    """Sync a single source using the existing run_sync pipeline."""
+    """Sync a single source using the existing run_sync pipeline.
+
+    DbtLock is handled inside dlt_runner.py around pipeline.load() and dbt
+    transforms only, not across the entire sync.
+    """
     from dango.config.helpers import load_config
     from dango.ingestion import run_sync
     from dango.platform.common.metabase_lifecycle import stop_metabase_for_writes
-    from dango.utils import DbtLock
 
     _metabase_was_stopped = stop_metabase_for_writes(project_root)
 
-    lock = DbtLock(
-        project_root=project_root,
-        source="initial-sync",
-        operation=f"sync {source_name}",
-    )
-    lock.acquire()
     try:
         config = load_config(project_root)
         source_config = config.sources.get_source(source_name)
@@ -295,7 +292,6 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
         if failed:
             raise RuntimeError(failed[0].get("error", "Sync failed"))
     finally:
-        lock.release()
         if _metabase_was_stopped:
             from dango.platform.common.metabase_lifecycle import start_metabase_after_writes
 

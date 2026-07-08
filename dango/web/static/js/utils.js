@@ -30,6 +30,63 @@ function formatSource(source) {
 }
 
 /**
+ * Resolve a dot-delimited property path on an object.
+ * Used by sortByProp and filterByText to access nested fields.
+ * @param {Object} obj
+ * @param {string} path - e.g., "freshness.status"
+ * @returns {*} The resolved value, or undefined if any segment is null/undefined
+ */
+function resolveNested(obj, path) {
+    if (!obj || !path) return undefined;
+    return path.split('.').reduce((o, k) => (o != null ? o[k] : undefined), obj);
+}
+
+/**
+ * Sort an array of objects by a property path or computed accessor.
+ * Missing values sort last. Case-insensitive string comparison.
+ * @param {Array} arr
+ * @param {string|Function} accessor - Property path string or function(item) => value
+ * @param {string} dir - "asc" or "desc"
+ * @returns {Array} New sorted array (does not mutate input)
+ */
+function sortByProp(arr, accessor, dir) {
+    if (!dir || dir === 'none' || !accessor) return [...arr];
+    const copy = [...arr];
+    const desc = dir === 'desc' ? -1 : 1;
+    const get = typeof accessor === 'function' ? accessor : (item) => resolveNested(item, accessor);
+    copy.sort((a, b) => {
+        const va = get(a);
+        const vb = get(b);
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        if (typeof va === 'number' && typeof vb === 'number') {
+            return (va - vb) * desc;
+        }
+        return String(va).toLowerCase().localeCompare(String(vb).toLowerCase()) * desc;
+    });
+    return copy;
+}
+
+/**
+ * Filter an array of objects by case-insensitive substring match across named fields.
+ * @param {Array} arr
+ * @param {string} query - Filter text
+ * @param {Array<string>} fields - Property paths to search
+ * @returns {Array} Filtered copy (returns original if query is empty/whitespace)
+ */
+function filterByText(arr, query, fields) {
+    if (!query || !query.trim()) return [...arr];
+    const q = query.trim().toLowerCase();
+    return arr.filter(item =>
+        fields.some(field => {
+            const val = resolveNested(item, field);
+            return val != null && String(val).toLowerCase().includes(q);
+        })
+    );
+}
+
+/**
  * Format an ISO timestamp for display.
  * Thresholds: <60s "just now", <1h "X min ago", <24h "Xh ago",
  * <7d "Mon 15:39", >=7d "Jun 16" (with year if not current).

@@ -324,7 +324,7 @@ def _dir_size_bytes(path: Path) -> int:
                     total += f.stat().st_size
                 except OSError:
                     continue
-    except OSError:
+    except OSError:  # noqa: BLE001
         pass
     return total
 

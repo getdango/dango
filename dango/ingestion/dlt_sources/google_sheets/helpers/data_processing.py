@@ -198,7 +198,7 @@ def get_data_types(data_row_metadata: List[DictStrAny]) -> List[TDataType]:
                     data_types[idx] = "timestamp"
                 elif data_type == "DATE":
                     data_types[idx] = "date"
-            except KeyError:
+            except KeyError:  # noqa: BLE001
                 pass
         return data_types
     except IndexError:

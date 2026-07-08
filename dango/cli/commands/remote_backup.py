@@ -421,7 +421,7 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
             if line.startswith("__BACKUP_RESULT__"):
                 try:
                     info = json.loads(line[len("__BACKUP_RESULT__") :])
-                except json.JSONDecodeError:
+                except json.JSONDecodeError:  # noqa: BLE001
                     pass
                 break
         if info is None:
@@ -444,7 +444,7 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
                         console.print(
                             f"[yellow]Warning:[/yellow] Server disk is {usage_pct}% full."
                         )
-                except (ValueError, IndexError):
+                except (ValueError, IndexError):  # noqa: BLE001
                     pass
 
         with Status(f"[bold blue]Downloading {archive_name}...", console=console):
@@ -465,6 +465,31 @@ def _backup_download_from_server(ctx: click.Context, output: str | None) -> None
         raise SystemExit(1) from exc
     finally:
         ssh.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# Post-restore credential guidance
+# ---------------------------------------------------------------------------
+
+
+def _print_post_restore_credential_guidance() -> None:
+    """Print guidance about re-configuring credentials after restore.
+
+    Secrets (.env, .dlt/secrets.toml) are deliberately excluded from
+    backup archives for security, so they must be reconfigured after
+    every restore.
+    """
+    console.print()
+    console.print(
+        "[yellow]Note:[/yellow] Credentials (.env, .dlt/secrets.toml) were excluded "
+        "from the backup for security."
+    )
+    console.print("To reconnect your data sources:")
+    console.print("  [bold]dango oauth setup[/bold]              (for OAuth sources)")
+    console.print(
+        "  [bold]dango remote env set KEY VALUE[/bold]  (for server environment variables)"
+    )
+    console.print("  [bold]dango remote backup download --from-server[/bold]  (save a local copy)")
 
 
 # ---------------------------------------------------------------------------
@@ -531,6 +556,7 @@ def backup_restore(ctx: click.Context, source: str, yes: bool, from_local: bool)
 
         if result.success:
             console.print(f"[green]Restore complete.[/green] Restored from: {source}")
+            _print_post_restore_credential_guidance()
         else:
             msg = format_structured_error(
                 what_failed=f"Restore failed from backup '{source}'",
@@ -591,6 +617,7 @@ def _backup_restore_from_local(ctx: click.Context, source: str, yes: bool) -> No
 
         if result.health_check_passed:
             console.print(f"[green]Restore complete.[/green] Restored from: {local_path.name}")
+            _print_post_restore_credential_guidance()
         else:
             console.print(
                 f"[yellow]Restore finished[/yellow] from {local_path.name}, "
