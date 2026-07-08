@@ -245,7 +245,7 @@ def validate_data_completeness(
 
                 if last_load and last_load[0]:
                     result["last_loaded"] = str(last_load[0])
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
             # Determine health score

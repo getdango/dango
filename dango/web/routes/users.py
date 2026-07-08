@@ -30,7 +30,12 @@ from dango.auth.database import (
 )
 from dango.auth.models import Role, User, UserResponse, UserUpdate
 from dango.auth.permissions import require_permission
-from dango.auth.security import generate_invite_token, generate_temp_password, hash_password
+from dango.auth.security import (
+    generate_invite_token,
+    generate_temp_password,
+    hash_password,
+    set_password,
+)
 from dango.exceptions import UserExistsError
 from dango.logging import get_logger
 from dango.web.models import ChangeRoleRequest, CreateUserRequest, DeleteUserConfirmation
@@ -315,18 +320,8 @@ async def admin_reset_password(
     if target is None:
         return JSONResponse(status_code=404, content={"message": "User not found"})
 
-    from datetime import datetime, timezone
-
     password = generate_temp_password()
-    updated = update_user(
-        db_path,
-        user_id,
-        UserUpdate(
-            password_hash=hash_password(password),
-            must_change_password=True,
-            password_changed_at=datetime.now(timezone.utc),
-        ),
-    )
+    updated = set_password(target.email, password, db_path, must_change_password=True)
     invalidate_all_user_sessions(db_path, user_id)
     log_auth_event(
         AuditEvent.PASSWORD_RESET,

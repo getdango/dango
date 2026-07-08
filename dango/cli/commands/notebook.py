@@ -50,7 +50,7 @@ def notebook(ctx: click.Context) -> None:
             rows = conn.execute("SELECT name, created_by FROM notebook_metadata").fetchall()
             for row in rows:
                 authors[row["name"]] = row["created_by"]
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass  # DB not initialized yet — show "--" for all
 
     for f in sorted(notebooks_dir.glob("*.py")):
@@ -183,7 +183,7 @@ def notebook_open(ctx: click.Context, name: str) -> None:
             try:
                 snapshot_path = create_snapshot(project_root, "cli")
                 console.print(f"[green]✓[/green] Created DuckDB snapshot at {snapshot_path.name}")
-            except FileNotFoundError:
+            except FileNotFoundError:  # noqa: BLE001
                 pass  # no warehouse yet — notebooks will use default path
 
             console.print("[cyan]Starting Marimo server...[/cyan]")
@@ -200,7 +200,7 @@ def notebook_open(ctx: click.Context, name: str) -> None:
 
         console.print("\n[dim]Press Ctrl+C to release lock and exit.[/dim]")
         stop_event.wait()
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # noqa: BLE001
         pass
     finally:
         stop_event.set()

@@ -215,7 +215,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     try:
                         if path.stat().st_mtime < cutoff:
                             path.unlink(missing_ok=True)
-                    except OSError:
+                    except OSError:  # noqa: BLE001
                         pass
     except Exception:
         logger.debug("old_sync_log_cleanup_failed", exc_info=True)
@@ -250,7 +250,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         mb_task.cancel()
         try:
             await mb_task
-        except asyncio.CancelledError:
+        except asyncio.CancelledError:  # noqa: BLE001
             pass
 
     sync_task = getattr(app.state, "sync_watcher_task", None)
@@ -258,7 +258,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         sync_task.cancel()
         try:
             await sync_task
-        except asyncio.CancelledError:
+        except asyncio.CancelledError:  # noqa: BLE001
             pass
 
     sched = getattr(app.state, "scheduler", None)
@@ -279,14 +279,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         from dango.web.helpers import close_health_check_client
 
         close_health_check_client()
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     try:
         from dango.utils.activity_log import log_activity
 
         log_activity(project_root, "info", "system", "Dango server shutting down")
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     logger.info("api_shutting_down")
@@ -398,7 +398,7 @@ def _get_cors_origins(project_root: Path | None) -> list[str]:
         origin = get_cloud_origin(root)
         if origin is not None:
             return [origin]
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
     return ["*"]
 

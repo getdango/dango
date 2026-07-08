@@ -138,7 +138,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
         if lock is not None and lock._acquired:
             try:
                 lock.release()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
         # Restart Metabase on cloud
         if _metabase_was_stopped:

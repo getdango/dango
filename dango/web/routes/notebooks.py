@@ -389,7 +389,7 @@ async def lock_notebook(
         snapshot_path = None
         try:
             snapshot_path = await asyncio.to_thread(create_snapshot, project_root, user.email)
-        except FileNotFoundError:
+        except FileNotFoundError:  # noqa: BLE001
             pass  # no warehouse yet
 
         try:

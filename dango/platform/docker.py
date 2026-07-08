@@ -118,7 +118,7 @@ class DockerManager:
             )
             if result.returncode == 0:
                 return ["docker", "compose"]
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, FileNotFoundError):  # noqa: BLE001
             pass
 
         # Fall back to docker-compose (v1)
@@ -294,7 +294,7 @@ class DockerManager:
                     "[yellow]⚠[/yellow]  Other Dango containers still running. "
                     "Run [cyan]dango stop --all[/cyan] to stop them."
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass  # Best-effort, never block stop
 
     def stop_all_dango_containers(self, all_projects: bool = False) -> bool:

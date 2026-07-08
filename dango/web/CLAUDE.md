@@ -101,6 +101,51 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 - **Alpine.js object reactivity:** Proxy doesn't track `delete obj[key]` or direct property mutation. Must use object spread reassignment (`this.obj = {...updated}`) for reactive updates. Arrays with `.push()`/`.splice()` work fine; objects do not.
 - **`routes/sync.py` uses subprocess model (R10-N):** Syncs run in a subprocess via `sync_process.py` — the web server process never holds the DuckDB write lock. `run_sync_task()` launches subprocess + polls status file.
 
+## Sort/Filter Patterns
+
+All data tables support column sorting and text filtering, with state persisted to localStorage.
+
+### Architecture
+
+**Vanilla JS (Sources, Models pages):**
+- Sort/filter state in global variables: `sourceSortColumn`, `sourceSortDirection`, `sourceFilterText` (model equivalents with `model*` prefix)
+- `applySourcesSort()` / `applyModelsSort()` sort before render; computed columns (Status) use numeric order functions
+- `applySourcesFilter()` / `applyModelsFilter()` filter by case-insensitive substring match
+- Column headers get `data-sort-key` attributes; event delegation on `<thead>` handles clicks (cycle asc→desc→unsorted)
+- `updateSourcesSortArrows()` / `updateModelsSortArrows()` refresh ▲/▼ indicators after each render
+- Filter input + clear button are outside `overflow-x-auto` for horizontal scroll visibility
+- See `app.js`: `renderSourcesTable()`, `renderDbtModelsTable()`
+
+**Alpine.js (Schedules, Catalog, Scripts pages):**
+- Sort/filter state as reactive properties on the component object
+- Sorted/filtered data via computed getter (e.g., `sortedSchedules`, `sortedFilteredItems`, `sortedScripts`)
+- localStorage read on init, written via `$watch` (filter) or in `toggleSort()` method (sort)
+- Template `x-for` iterates the computed getter, not the raw data array
+- Column header `@click` handlers call `toggleSort(col)` with `x-if` for arrow rendering
+
+### localStorage Keys
+
+| Page | Sort Column | Sort Direction | Filter |
+|------|------------|---------------|--------|
+| Sources | `dango-sources-sort-column` | `dango-sources-sort-direction` | `dango-sources-filter` |
+| Models | `dango-models-sort-column` | `dango-models-sort-direction` | `dango-models-filter` |
+| Schedules | `dango-schedules-sort-column` | `dango-schedules-sort-direction` | `dango-schedules-filter` |
+| Catalog | `dango-catalog-sort-column` | `dango-catalog-sort-direction` | (not filtered) |
+| Scripts | `dango-scripts-sort-column` | `dango-scripts-sort-direction` | `dango-scripts-filter` |
+
+### Sort Behavior
+- Click cycles: asc → desc → unsorted (preserves API order)
+- Missing (null/undefined) values always sort last
+- String comparison is case-insensitive (`localeCompare`); numeric values compare as numbers
+- Computed columns (Status) use a numeric order function (0=active, 10=success, 20=failed, etc.)
+- Sort arrows (▲/▼) appear on the active sort column only
+
+### Filter Behavior
+- Case-insensitive substring match across relevant text fields (name, type for sources; name, schema, materialization for models; name, type, cron for schedules; name for scripts)
+- Clear button visible only when filter text is present
+- Filter input placed outside `overflow-x-auto` container
+- Empty filter shows all items; filtered-empty state shows "No X match 'query'" message
+
 ## Adding a New Page
 
 1. **Create a template** in `templates/` extending `base.html`:

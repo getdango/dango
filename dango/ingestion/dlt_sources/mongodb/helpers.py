@@ -147,7 +147,7 @@ class CollectionLoader:
                 try:
                     # ensure primary_key isn't excluded
                     projection_dict.pop(self.incremental.primary_key)  # type: ignore
-                except KeyError:
+                except KeyError:  # noqa: BLE001
                     pass  # primary_key was properly not included in exclusion projection
                 else:
                     dlt.common.logger.warn(

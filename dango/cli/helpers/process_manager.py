@@ -68,7 +68,7 @@ def remove_pid_file(project_root: Path) -> None:
     try:
         if pid_file.exists():
             pid_file.unlink()
-    except OSError:
+    except OSError:  # noqa: BLE001
         pass
 
 
@@ -367,7 +367,7 @@ def get_fastapi_status(project_root: Path) -> dict:
 
         config = ConfigLoader(project_root).load_config()
         port = config.platform.port
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     status: dict = {"running": False, "pid": None, "port": port, "url": None, "log_file": log_file}

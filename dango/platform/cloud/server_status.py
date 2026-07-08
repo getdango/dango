@@ -136,7 +136,7 @@ def _get_cpu_usage(ssh: Any) -> float | None:
             if part.strip().endswith("id"):
                 idle = float(part.strip().split()[0])
                 return round(100.0 - idle, 1)
-    except (ValueError, IndexError):
+    except (ValueError, IndexError):  # noqa: BLE001
         pass
     return None
 
@@ -158,7 +158,7 @@ def _get_ram(ssh: Any, field_name: str) -> int | None:
                     return int(parts[1])
                 if field_name == "used":
                     return int(parts[2])
-    except (ValueError, IndexError):
+    except (ValueError, IndexError):  # noqa: BLE001
         pass
     return None
 
@@ -180,7 +180,7 @@ def _get_disk(ssh: Any, field_name: str) -> int | None:
             idx = {"total": 1, "used": 2, "available": 3}.get(field_name)
             if idx is not None:
                 return int(parts[idx].rstrip("M"))
-    except (ValueError, IndexError):
+    except (ValueError, IndexError):  # noqa: BLE001
         pass
     return None
 
@@ -335,7 +335,7 @@ def get_local_resource_usage() -> dict[str, Any]:
         result["disk_total_mb"] = usage.total // (1024 * 1024)
         result["disk_used_mb"] = usage.used // (1024 * 1024)
         result["disk_free_mb"] = usage.free // (1024 * 1024)
-    except OSError:
+    except OSError:  # noqa: BLE001
         pass
 
     # RAM — Linux only (/proc/meminfo)
@@ -352,7 +352,7 @@ def get_local_resource_usage() -> dict[str, Any]:
             if total_kb:
                 result["ram_total_mb"] = total_kb // 1024
                 result["ram_used_mb"] = (total_kb - available_kb) // 1024
-    except (OSError, ValueError):
+    except (OSError, ValueError):  # noqa: BLE001
         pass
 
     # CPU — Linux only (/proc/loadavg, 1-min load average normalized by CPU count)
@@ -364,7 +364,7 @@ def get_local_resource_usage() -> dict[str, Any]:
         cpu_count = os.cpu_count() or 1
         # Normalize load average to percentage (capped at 100%)
         result["cpu_usage_pct"] = round(min(100.0, 100.0 * load_1min / cpu_count), 1)
-    except (OSError, ValueError, IndexError):
+    except (OSError, ValueError, IndexError):  # noqa: BLE001
         pass
 
     return result

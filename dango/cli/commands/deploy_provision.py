@@ -796,7 +796,7 @@ def _setup_backups(
     )
     from dango.platform.cloud.spaces import SpacesClient
 
-    bucket_name = f"dango-backup-{project_root.name}-{config.region}"
+    bucket_name = config.spaces_bucket_name or f"dango-backup-{project_root.name}-{config.region}"
     spaces = SpacesClient(
         bucket=bucket_name,
         region=config.region,
@@ -806,8 +806,11 @@ def _setup_backups(
     tracker.spaces_client = spaces
     tracker.spaces_bucket = bucket_name
 
-    # Create bucket (idempotent)
-    spaces.create_bucket()
+    # Create bucket (idempotent) — skip if reusing an existing bucket
+    if not config.spaces_bucket_name:
+        spaces.create_bucket()
+    else:
+        console.print(f"  [dim]Using existing bucket '{bucket_name}'.[/dim]")
 
     # Write Spaces credentials to remote .env
     env_lines = (

@@ -206,5 +206,5 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         try:
             conn.execute(stmt)
             conn.commit()
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError:  # noqa: BLE001
             pass  # Column already exists

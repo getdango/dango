@@ -184,7 +184,7 @@ async def get_platform_health() -> dict[str, Any]:
                 warnings.append(
                     f"Orphaned tables found ({', '.join(orphan_names[:3])}) \u2014 run `dango db clean`"
                 )
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass  # Non-critical check
 
     if failed_dbt:
