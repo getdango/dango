@@ -27,6 +27,7 @@ from dango.platform.scheduling.history import (
 from dango.platform.scheduling.jobs import (
     configure_jobs,
     run_scheduled_dbt,
+    run_scheduled_script,
     run_scheduled_sync,
 )
 from dango.platform.scheduling.resilience import (
@@ -59,6 +60,7 @@ __all__ = [
     "record_start",
     "record_timeout",
     "run_scheduled_dbt",
+    "run_scheduled_script",
     "run_scheduled_sync",
     "run_with_resilience",
 ]

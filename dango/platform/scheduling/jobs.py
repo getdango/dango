@@ -10,6 +10,7 @@ Public API:
     configure_jobs(loop, scheduler)  -- set event loop + scheduler service
     run_scheduled_sync(...)          -- sync one or more data sources on schedule
     run_scheduled_dbt(...)           -- run dbt models on schedule
+    run_scheduled_script(...)        -- run a Python script in a subprocess on schedule
 """
 
 from __future__ import annotations
@@ -1053,3 +1054,444 @@ def run_scheduled_dbt(
         )
     finally:
         lock.release()
+
+
+def _write_script_logs(
+    project_root: Path,
+    script_path: str,
+    schedule_name: str,
+    stdout: str | None,
+    stderr: str | None,
+    exit_code: int | None,
+    duration_seconds: float,
+    status: str,
+) -> None:
+    """Write script stdout, stderr, and metadata to log files. Never raises."""
+    import json as _json
+    from datetime import datetime, timezone
+
+    try:
+        safe_name = script_path.replace("/", "__").replace("\\", "__")
+        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S")
+        log_dir = project_root / ".dango" / "logs" / "scripts" / f"{safe_name}_{ts}"
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        _MAX = 1_048_576  # 1 MB
+        stdout_str = stdout or ""
+        stderr_str = stderr or ""
+        if len(stdout_str) > _MAX:
+            stdout_str = stdout_str[:_MAX] + "\n\n[TRUNCATED at 1MB]"
+        if len(stderr_str) > _MAX:
+            stderr_str = stderr_str[:_MAX] + "\n\n[TRUNCATED at 1MB]"
+
+        (log_dir / "stdout.txt").write_text(stdout_str, encoding="utf-8", errors="replace")
+        (log_dir / "stderr.txt").write_text(stderr_str, encoding="utf-8", errors="replace")
+
+        meta: dict[str, Any] = {
+            "script_name": script_path,
+            "schedule_name": schedule_name,
+            "finished_at": datetime.now(tz=timezone.utc).isoformat(),
+            "duration_seconds": round(duration_seconds, 1),
+            "exit_code": exit_code if exit_code is not None else -1,
+            "status": status,
+        }
+        (log_dir / "meta.json").write_text(_json.dumps(meta))
+    except Exception:  # noqa: BLE001
+        logger.debug("script_log_write_failed", script=script_path, exc_info=True)
+
+
+def run_scheduled_script(
+    schedule_name: str,
+    script_path: str | None = None,
+    **kwargs: Any,
+) -> None:
+    """Run a scheduled Python script in a subprocess.
+
+    Called by APScheduler from a thread-pool executor.  Launches the script
+    via ``sys.executable`` with ``DANGO_PROJECT_ROOT`` env var set, captures
+    stdout/stderr, and records execution history + broadcasts.
+
+    Args:
+        schedule_name: Human-readable schedule identifier.
+        script_path: Relative path to script in ``scripts/`` directory.
+        **kwargs: Must include ``project_root`` (str).
+    """
+    import os
+    import subprocess
+
+    project_root = Path(kwargs.get("project_root", "."))
+    t0 = time.monotonic()
+
+    from dango.exceptions import JobCancelledError, JobTimeoutError
+    from dango.platform.notifications.webhook import (
+        EventType,
+        WebhookSender,
+        load_notification_config,
+    )
+    from dango.utils.activity_log import log_activity
+
+    sender = WebhookSender(load_notification_config(project_root))
+    script_label = f"script:{script_path or schedule_name}"
+    timeout_minutes = int(kwargs.get("timeout_minutes", 30))
+
+    record_id: int | None = None
+
+    try:
+        # Resolve and validate script path
+        scripts_dir = (project_root / "scripts").resolve()
+        if not script_path:
+            elapsed = time.monotonic() - t0
+            logger.warning(
+                "script_path_missing",
+                schedule=schedule_name,
+            )
+            _log_execution_event(
+                schedule_name=schedule_name,
+                job_type="script",
+                status="failed",
+                duration_seconds=elapsed,
+                error="No script_path configured",
+            )
+            _broadcast(
+                {
+                    "event": "script_failed",
+                    "schedule": schedule_name,
+                    "error": "No script_path configured",
+                    "timestamp": _ts(),
+                }
+            )
+            return
+
+        script_full = (scripts_dir / script_path).resolve()
+
+        # Belt-and-suspenders path traversal check
+        if not str(script_full).startswith(str(scripts_dir)):
+            elapsed = time.monotonic() - t0
+            logger.warning(
+                "script_path_invalid",
+                schedule=schedule_name,
+                path=script_path,
+            )
+            log_activity(
+                project_root,
+                "error",
+                script_label,
+                f"Invalid script path: {script_path}",
+            )
+            _log_execution_event(
+                schedule_name=schedule_name,
+                job_type="script",
+                status="failed",
+                duration_seconds=elapsed,
+                error=f"Invalid script path: {script_path}",
+            )
+            _broadcast(
+                {
+                    "event": "script_failed",
+                    "schedule": schedule_name,
+                    "script_path": script_path,
+                    "error": f"Invalid script path: {script_path}",
+                    "timestamp": _ts(),
+                }
+            )
+            return
+
+        if not script_full.exists():
+            elapsed = time.monotonic() - t0
+            logger.warning(
+                "script_not_found",
+                schedule=schedule_name,
+                path=script_path,
+            )
+            log_activity(
+                project_root,
+                "error",
+                script_label,
+                f"Script not found: {script_path}",
+            )
+            _log_execution_event(
+                schedule_name=schedule_name,
+                job_type="script",
+                status="failed",
+                duration_seconds=elapsed,
+                error=f"Script not found: {script_path}",
+            )
+            _broadcast(
+                {
+                    "event": "script_failed",
+                    "schedule": schedule_name,
+                    "script_path": script_path,
+                    "error": f"Script not found: {script_path}",
+                    "timestamp": _ts(),
+                }
+            )
+            return
+
+        record_id = _try_record_start(project_root, schedule_name, source_names=None)
+
+        log_activity(
+            project_root,
+            "info",
+            script_label,
+            f"Scheduled script starting ({schedule_name})",
+        )
+
+        _broadcast(
+            {
+                "event": "script_started",
+                "schedule": schedule_name,
+                "script_path": script_path,
+                "timestamp": _ts(),
+            }
+        )
+
+        # Check cancellation before launching subprocess
+        job_id = f"schedule:{schedule_name}"
+        if _scheduler_service is not None and _scheduler_service.is_cancelled(job_id):
+            raise JobCancelledError(f"Script cancelled before launch for {schedule_name}")
+
+        # Launch subprocess
+        env = os.environ.copy()
+        env["DANGO_PROJECT_ROOT"] = str(project_root)
+
+        _script_timeout = max(timeout_minutes * 60, 60)  # minimum 60s
+
+        proc = subprocess.Popen(
+            [sys.executable, str(script_full)],
+            cwd=str(project_root),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        try:
+            stdout, stderr = proc.communicate(timeout=_script_timeout)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout, stderr = proc.communicate()
+
+            elapsed = time.monotonic() - t0
+            _write_script_logs(
+                project_root,
+                script_path,
+                schedule_name,
+                stdout,
+                stderr,
+                proc.returncode,
+                elapsed,
+                "timeout",
+            )
+            log_activity(project_root, "error", script_label, "Scheduled script timed out")
+            _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
+            _log_execution_event(
+                schedule_name=schedule_name,
+                job_type="script",
+                status="timeout",
+                duration_seconds=elapsed,
+                error="Script timed out",
+            )
+            _broadcast(
+                {
+                    "event": "script_failed",
+                    "schedule": schedule_name,
+                    "script_path": script_path,
+                    "error": "Script timed out",
+                    "timestamp": _ts(),
+                }
+            )
+            _notify(
+                sender,
+                event_type=EventType.SYNC_FAILED,
+                schedule_name=schedule_name,
+                error="Script timed out",
+                duration_seconds=round(elapsed, 2),
+            )
+            return
+
+        elapsed = time.monotonic() - t0
+        exit_code = proc.returncode if proc.returncode is not None else -1
+
+        _write_script_logs(
+            project_root,
+            script_path,
+            schedule_name,
+            stdout,
+            stderr,
+            exit_code,
+            elapsed,
+            "success" if exit_code == 0 else "failed",
+        )
+
+        if exit_code == 0:
+            log_activity(
+                project_root,
+                "success",
+                script_label,
+                f"Scheduled script completed ({round(elapsed, 1)}s)",
+            )
+            _try_finish_record(project_root, schedule_name, record_id, "record_completion")
+            _log_execution_event(
+                schedule_name=schedule_name,
+                job_type="script",
+                status="completed",
+                duration_seconds=elapsed,
+            )
+            _broadcast(
+                {
+                    "event": "script_completed",
+                    "schedule": schedule_name,
+                    "script_path": script_path,
+                    "duration_seconds": round(elapsed, 2),
+                    "timestamp": _ts(),
+                }
+            )
+            _notify(
+                sender,
+                event_type=EventType.SYNC_COMPLETED,
+                schedule_name=schedule_name,
+                duration_seconds=round(elapsed, 2),
+                dashboard_url=_build_dashboard_url(project_root),
+            )
+        else:
+            error_msg = stderr.strip() if stderr and stderr.strip() else f"Exit code: {exit_code}"
+            log_activity(
+                project_root,
+                "error",
+                script_label,
+                f"Scheduled script failed: {error_msg}",
+            )
+            _try_finish_record(
+                project_root,
+                schedule_name,
+                record_id,
+                "record_failure",
+                error=error_msg,
+            )
+            _log_execution_event(
+                schedule_name=schedule_name,
+                job_type="script",
+                status="failed",
+                duration_seconds=elapsed,
+                error=error_msg,
+            )
+            _broadcast(
+                {
+                    "event": "script_failed",
+                    "schedule": schedule_name,
+                    "script_path": script_path,
+                    "error": error_msg,
+                    "timestamp": _ts(),
+                }
+            )
+            _notify(
+                sender,
+                event_type=EventType.SYNC_FAILED,
+                schedule_name=schedule_name,
+                error=error_msg,
+                duration_seconds=round(elapsed, 2),
+            )
+
+    except JobTimeoutError:
+        elapsed = time.monotonic() - t0
+        log_activity(project_root, "error", script_label, "Scheduled script timed out")
+        _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
+        _log_execution_event(
+            schedule_name=schedule_name,
+            job_type="script",
+            status="timeout",
+            duration_seconds=elapsed,
+            error="Job timed out",
+        )
+        _broadcast(
+            {
+                "event": "script_failed",
+                "schedule": schedule_name,
+                "error": "Job timed out",
+                "timestamp": _ts(),
+            }
+        )
+        _notify(
+            sender,
+            event_type=EventType.SYNC_FAILED,
+            schedule_name=schedule_name,
+            error="Job timed out",
+            duration_seconds=elapsed,
+        )
+
+    except JobCancelledError:
+        elapsed = time.monotonic() - t0
+        log_activity(project_root, "warning", script_label, "Scheduled script cancelled")
+        _try_finish_record(project_root, schedule_name, record_id, "record_cancellation")
+        _log_execution_event(
+            schedule_name=schedule_name,
+            job_type="script",
+            status="cancelled",
+            duration_seconds=elapsed,
+            error="Job cancelled",
+        )
+        _broadcast(
+            {
+                "event": "script_failed",
+                "schedule": schedule_name,
+                "error": "Job cancelled",
+                "timestamp": _ts(),
+            }
+        )
+        _notify(
+            sender,
+            event_type=EventType.SYNC_FAILED,
+            schedule_name=schedule_name,
+            error="Job cancelled",
+            duration_seconds=elapsed,
+        )
+
+    except Exception as exc:  # noqa: BLE001
+        elapsed = time.monotonic() - t0
+        error_msg = str(exc)
+        log_activity(
+            project_root,
+            "error",
+            script_label,
+            f"Scheduled script failed: {error_msg}",
+        )
+        logger.error(
+            "scheduled_script_failed",
+            schedule=schedule_name,
+            script_path=script_path,
+            error=error_msg,
+            exc_info=True,
+        )
+        _try_finish_record(
+            project_root,
+            schedule_name,
+            record_id,
+            "record_failure",
+            error=error_msg,
+        )
+        _log_execution_event(
+            schedule_name=schedule_name,
+            job_type="script",
+            status="failed",
+            duration_seconds=elapsed,
+            error=error_msg,
+        )
+        _broadcast(
+            {
+                "event": "script_failed",
+                "schedule": schedule_name,
+                "error": error_msg,
+                "timestamp": _ts(),
+            }
+        )
+        _notify(
+            sender,
+            event_type=EventType.SYNC_FAILED,
+            schedule_name=schedule_name,
+            error=error_msg,
+            duration_seconds=elapsed,
+        )
