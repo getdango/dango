@@ -128,6 +128,14 @@ class ScheduleConfig(BaseModel):
             raise ValueError(msg)
         return resolved
 
+    @field_validator("timeout_minutes")
+    @classmethod
+    def _validate_timeout_minutes(cls, v: int | None) -> int | None:
+        if v is not None and v <= 0:
+            msg = f"timeout_minutes must be positive. Got: {v!r}"
+            raise ValueError(msg)
+        return v
+
     @field_validator("notify_on")
     @classmethod
     def _validate_notify_on(cls, v: list[str]) -> list[str]:
@@ -555,6 +563,7 @@ def reload_schedules(
                 "sources": list(sched.sources),
                 "project_root": str(project_root),
                 "skip_dbt": sched.type == ScheduleType.SYNC_ONLY,
+                "_timeout_minutes": sched.timeout_minutes,
             }
         elif sched.type == ScheduleType.SCRIPT:
             _install_script_dependencies(project_root)
@@ -581,6 +590,7 @@ def reload_schedules(
                 "schedule_name": sched.name,
                 "dbt_command": sched.dbt_command,
                 "project_root": str(project_root),
+                "_timeout_minutes": sched.timeout_minutes,
             }
 
         if job_id in existing_ids:

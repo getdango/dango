@@ -412,9 +412,9 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
 def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) -> None:
     """Run a scheduled data sync for the given sources.
 
-    Called by APScheduler from a thread-pool executor.  Launches each source
-    sync in a subprocess (via ``sync_process.launch_sync_subprocess``),
-    keeping the DbtLock out of the web server process.
+    Called by APScheduler from a thread-pool executor.  When the scheduler
+    service is available, delegates to ``run_with_resilience`` for retry,
+    timeout, and cancellation support.
 
     Sources are synced individually with cancellation checks between each source.
     dbt is coalesced after all sources complete.
@@ -423,6 +423,31 @@ def run_scheduled_sync(schedule_name: str, sources: list[str], **kwargs: Any) ->
         schedule_name: Human-readable schedule identifier.
         sources: List of source names to sync.
         **kwargs: Must include ``project_root`` (str).
+    """
+    if _scheduler_service is not None:
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
+
+        job_id = f"schedule:{schedule_name}"
+        timeout = kwargs.pop("_timeout_minutes", None)
+        cfg = ResilienceConfig(timeout_minutes=timeout if timeout is not None else 60)
+
+        run_with_resilience(
+            _run_scheduled_sync_impl,
+            schedule_name,
+            sources,
+            scheduler_service=_scheduler_service,
+            job_id=job_id,
+            resilience=cfg,
+            **kwargs,
+        )
+        return
+
+    return _run_scheduled_sync_impl(schedule_name, sources, **kwargs)
+
+
+def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: Any) -> None:
+    """Implementation of ``run_scheduled_sync`` — extracted so the resilience
+    wrapper can re-invoke on retry without re-entering the outer dispatch.
     """
     project_root = Path(kwargs.get("project_root", "."))
     full_refresh = bool(kwargs.get("full_refresh", False))
@@ -813,14 +838,43 @@ def run_scheduled_dbt(
 ) -> None:
     """Run a scheduled dbt transformation.
 
-    Called by APScheduler from a thread-pool executor.  Wraps
-    ``run_dbt_models()`` with DbtLock serialization, WebSocket
-    broadcasting, webhook notifications, and execution history recording.
+    Called by APScheduler from a thread-pool executor.  When the scheduler
+    service is available, delegates to ``run_with_resilience`` for retry,
+    timeout, and cancellation support.
 
     Args:
         schedule_name: Human-readable schedule identifier.
         dbt_command: dbt selection criteria.  ``None`` runs all models.
         **kwargs: Must include ``project_root`` (str).
+    """
+    if _scheduler_service is not None:
+        from dango.platform.scheduling.resilience import ResilienceConfig, run_with_resilience
+
+        job_id = f"schedule:{schedule_name}"
+        timeout = kwargs.pop("_timeout_minutes", None)
+        cfg = ResilienceConfig(timeout_minutes=timeout if timeout is not None else 60)
+
+        run_with_resilience(
+            _run_scheduled_dbt_impl,
+            schedule_name,
+            dbt_command,
+            scheduler_service=_scheduler_service,
+            job_id=job_id,
+            resilience=cfg,
+            **kwargs,
+        )
+        return
+
+    return _run_scheduled_dbt_impl(schedule_name, dbt_command, **kwargs)
+
+
+def _run_scheduled_dbt_impl(
+    schedule_name: str,
+    dbt_command: str | None = None,
+    **kwargs: Any,
+) -> None:
+    """Implementation of ``run_scheduled_dbt`` — extracted so the resilience
+    wrapper can re-invoke on retry without re-entering the outer dispatch.
     """
     project_root = Path(kwargs.get("project_root", "."))
     t0 = time.monotonic()
