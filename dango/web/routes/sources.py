@@ -125,7 +125,7 @@ async def get_sources() -> list[SourceStatus]:
             if status.name in attention_map:
                 status.needs_attention = True
                 status.attention_reason = attention_map[status.name]
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass  # Non-critical enrichment
 
     # Sort sources alphabetically by name for consistent ordering

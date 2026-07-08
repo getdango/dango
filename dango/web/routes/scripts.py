@@ -103,7 +103,7 @@ async def script_log_page(
     if meta_path.exists():
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError):  # noqa: BLE001
             pass
 
     return _render_template(

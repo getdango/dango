@@ -141,7 +141,7 @@ class DbtLock:
                     lock_info.get("operation", "unknown"),
                 )
                 return True
-            except OSError:
+            except OSError:  # noqa: BLE001
                 pass
 
         return False
@@ -224,7 +224,7 @@ class DbtLock:
                     # Windows: use msvcrt
                     try:
                         msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-                    except OSError:
+                    except OSError:  # noqa: BLE001
                         pass  # Lock may already be released
                 else:
                     # Unix: use fcntl
@@ -240,7 +240,7 @@ class DbtLock:
                 self.lock_info_path.unlink()
 
             self._acquired = False
-        except OSError:
+        except OSError:  # noqa: BLE001
             pass
 
     def __enter__(self) -> DbtLock:

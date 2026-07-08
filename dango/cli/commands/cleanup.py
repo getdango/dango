@@ -346,7 +346,7 @@ def cleanup(ctx: click.Context, dry_run: bool, yes: bool, logs_only: bool, docke
                     )
                     if result.returncode == 0:
                         removed += 1
-                except (FileNotFoundError, subprocess.TimeoutExpired):
+                except (FileNotFoundError, subprocess.TimeoutExpired):  # noqa: BLE001
                     pass
             if removed:
                 console.print(f"[green]\u2713[/green] Removed {removed} dangling Docker volume(s)")

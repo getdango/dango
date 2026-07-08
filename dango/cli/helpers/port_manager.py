@@ -43,7 +43,7 @@ def get_process_using_port(port: int) -> int | None:
             laddr = conn.laddr
             if hasattr(laddr, "port") and laddr.port == port and conn.status == "LISTEN":  # type: ignore[union-attr]
                 return int(conn.pid) if conn.pid is not None else None
-    except (psutil.AccessDenied, AttributeError):
+    except (psutil.AccessDenied, AttributeError):  # noqa: BLE001
         pass
 
     return None

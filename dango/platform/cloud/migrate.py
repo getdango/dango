@@ -432,7 +432,7 @@ def migrate_server(
         if new_droplet_id is not None:
             try:
                 client.delete_droplet(new_droplet_id)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
         if new_ssh is not None:
             try:
@@ -444,7 +444,7 @@ def migrate_server(
     if new_ssh is not None:
         try:
             new_ssh.disconnect()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     return MigrateResult(

@@ -80,7 +80,7 @@ def _write_status(state_dir: Path, sync_id: str | None = None, **fields: Any) ->
         tmp_f.close()
         try:
             os.unlink(tmp_f.name)
-        except OSError:
+        except OSError:  # noqa: BLE001
             pass
         raise
 
@@ -356,7 +356,7 @@ def run_manual_sync(
         if lock is not None:
             try:
                 lock.release()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
         # --- Restart Metabase on cloud ---
         if _metabase_was_stopped:
@@ -388,7 +388,7 @@ def _trigger_metabase_schema_scan(project_root: Path) -> None:
             resp = requests.get(f"{metabase_url}/api/health", timeout=3)
             if resp.status_code == 200:
                 break
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         time.sleep(5)
     else:

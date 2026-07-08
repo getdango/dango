@@ -691,7 +691,7 @@ class ProjectValidator:
                         )
                         break  # One match per file is enough
 
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, FileNotFoundError):  # noqa: BLE001
             pass  # git not installed or timed out — skip silently
 
     def _create_summary(self) -> dict[str, Any]:

@@ -300,12 +300,12 @@ class OAuthManager:
             finally:
                 try:
                     server.server_close()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
                 if server_thread is not None:
                     try:
                         server_thread.join(timeout=5)
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         pass
 
             answers = inquirer.prompt(

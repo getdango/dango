@@ -70,7 +70,7 @@ def kill_process(pid: int, timeout: int = 10) -> bool:
         for child in children:
             try:
                 child.terminate()
-            except psutil.NoSuchProcess:
+            except psutil.NoSuchProcess:  # noqa: BLE001
                 pass
 
         # Wait for processes to exit
@@ -80,7 +80,7 @@ def kill_process(pid: int, timeout: int = 10) -> bool:
             # Process didn't exit gracefully, force kill
             try:
                 proc.kill()
-            except psutil.NoSuchProcess:
+            except psutil.NoSuchProcess:  # noqa: BLE001
                 pass
 
             for child in alive:

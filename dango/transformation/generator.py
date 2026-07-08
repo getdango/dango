@@ -236,7 +236,7 @@ class DbtModelGenerator:
                 queries = source_dict.get("queries", [])
                 if isinstance(queries, list) and queries:
                     return [q.get("resource_name") for q in queries if q.get("resource_name")]
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
         return []

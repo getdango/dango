@@ -540,6 +540,29 @@ def push_deploy(
                     logger.info("requirements_installed", path="requirements.txt")
                 _notify(on_progress, "install_deps", "done")
 
+            # Step 5c: Install script dependencies (if scripts/requirements.txt exists)
+            script_req_check = ssh.exec_command(
+                f"test -f {REMOTE_PROJECT_DIR}/scripts/requirements.txt && echo exists"
+            )
+            if script_req_check.stdout.strip() == "exists":
+                _notify(on_progress, "install_script_deps", "running")
+                script_pip_result = ssh.exec_command(
+                    f"sudo -u dango {VENV_BIN}/pip install "
+                    f"-r {REMOTE_PROJECT_DIR}/scripts/requirements.txt",
+                    timeout=300,
+                )
+                if script_pip_result.exit_code != 0:
+                    warnings.append(
+                        "pip install -r scripts/requirements.txt failed: "
+                        f"{script_pip_result.stderr.strip()}"
+                    )
+                else:
+                    logger.info(
+                        "script_requirements_installed",
+                        path="scripts/requirements.txt",
+                    )
+                _notify(on_progress, "install_script_deps", "done")
+
             # Step 6: Validate sources
             _notify(on_progress, "validate_sources", "running")
             source_errors = _validate_remote_sources(ssh)
