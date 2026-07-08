@@ -174,6 +174,7 @@ class DltPipelineRunner:
         timeout_minutes: int = 60,
         limit: int | None = None,
         allow_empty_replace: bool = False,
+        max_lock_wait: int = 300,
     ) -> dict[str, Any]:
         """
         Run data pipeline for any source type
@@ -360,6 +361,7 @@ class DltPipelineRunner:
                         full_refresh,
                         limit=limit,
                         allow_empty_replace=allow_empty_replace,
+                        max_lock_wait=max_lock_wait,
                     )
                 except SyncTimeoutError as e:
                     error_message = str(e)
@@ -405,6 +407,7 @@ class DltPipelineRunner:
                         full_refresh,
                         limit=limit,
                         allow_empty_replace=allow_empty_replace,
+                        max_lock_wait=max_lock_wait,
                     )
                 except SyncTimeoutError as e:
                     error_message = str(e)
@@ -857,6 +860,7 @@ class DltPipelineRunner:
         full_refresh: bool = False,
         limit: int | None = None,
         allow_empty_replace: bool = False,
+        max_lock_wait: int = 300,
     ) -> dict[str, Any]:
         """
         Run dlt native source (registry bypass for advanced users)
@@ -977,8 +981,16 @@ class DltPipelineRunner:
                 console.print(f"  ⚠️  Could not drop pipeline: {e}")
 
         try:
-            # Run pipeline with retry logic
-            load_info = self._run_with_retry(pipeline, source, max_retries=3)
+            # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
+            self._run_extract_with_retry(pipeline, source, max_retries=3)
+
+            # Phase 2: Normalize (in-memory, NO LOCK)
+            console.print("  ⏳ Normalizing data...")
+            pipeline.normalize()
+
+            # Phase 3: Load (DuckDB write, UNDER LOCK)
+            console.print("  ⏳ Loading data to DuckDB...")
+            load_info = self._load_with_lock(pipeline, source_name, max_lock_wait)
 
             # Extract load statistics
             stats = self._extract_load_stats(load_info)
@@ -1135,6 +1147,7 @@ class DltPipelineRunner:
         full_refresh: bool = False,
         limit: int | None = None,
         allow_empty_replace: bool = False,
+        max_lock_wait: int = 300,
     ) -> dict[str, Any]:
         """
         Run dlt pipeline for any verified source (generic implementation)
@@ -1331,8 +1344,16 @@ class DltPipelineRunner:
                 console.print(f"  ⚠️  Could not drop pipeline: {e}")
 
         try:
-            # Run pipeline with retry logic
-            load_info = self._run_with_retry(pipeline, source, max_retries=3)
+            # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
+            self._run_extract_with_retry(pipeline, source, max_retries=3)
+
+            # Phase 2: Normalize (in-memory, NO LOCK)
+            console.print("  ⏳ Normalizing data...")
+            pipeline.normalize()
+
+            # Phase 3: Load (DuckDB write, UNDER LOCK)
+            console.print("  ⏳ Loading data to DuckDB...")
+            load_info = self._load_with_lock(pipeline, source_name, max_lock_wait)
 
             # Extract load statistics
             stats = self._extract_load_stats(load_info)
@@ -1510,7 +1531,10 @@ class DltPipelineRunner:
                     )
                     try:
                         partial_source = source.with_resources(*remaining)
-                        load_info = self._run_with_retry(pipeline, partial_source, max_retries=1)
+                        # Split phases: extract, normalize, lock+load
+                        pipeline.extract(partial_source)
+                        pipeline.normalize()
+                        load_info = self._load_with_lock(pipeline, source_name, max_lock_wait)
                         stats = self._extract_load_stats(load_info)
                         self._cleanup_state_backup(state_backup)
                         console.print(
@@ -2331,19 +2355,39 @@ Troubleshooting steps:
 Need help? Visit: https://github.com/getdango/dango/issues
 """
 
-    def _run_with_retry(
-        self, pipeline: dlt.Pipeline, source: Any, max_retries: int = 3
+    def _load_with_lock(
+        self, pipeline: dlt.Pipeline, source_name: str, max_lock_wait: int = 300
     ) -> LoadInfo:
+        """Load data under DbtLock to serialize DuckDB writes.
+
+        The lock is acquired only for the DuckDB write phase (pipeline.load()).
+        Extraction (API calls) and normalization run outside the lock so
+        long-running API syncs don't block other syncs from writing.
         """
-        Run pipeline with exponential backoff retry logic
+        from dango.utils.dbt_lock import DbtLock as _DbtLock
+
+        lock = _DbtLock(self.project_root, source="sync", operation=f"load:{source_name}")
+        try:
+            lock.acquire(timeout=max_lock_wait)
+            console.print("  [dim]🔒 Lock acquired for write phase[/dim]")
+            return pipeline.load()
+        finally:
+            lock.release()
+            console.print("  [dim]🔓 Lock released[/dim]")
+
+    def _run_extract_with_retry(
+        self, pipeline: dlt.Pipeline, source: Any, max_retries: int = 3
+    ) -> None:
+        """
+        Extract data with exponential backoff retry logic.
+
+        Only covers the extract phase (API calls). Normalize and load are
+        handled separately so the DbtLock can be scoped to load only.
 
         Args:
             pipeline: dlt pipeline object
             source: dlt source object
             max_retries: Maximum number of retry attempts
-
-        Returns:
-            LoadInfo from successful run
 
         Raises:
             Exception: If all retries fail
@@ -2352,7 +2396,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
 
         for attempt in range(1, max_retries + 1):
             try:
-                console.print(f"  ⏳ Running pipeline... (attempt {attempt}/{max_retries})")
+                console.print(f"  ⏳ Extracting data... (attempt {attempt}/{max_retries})")
                 # Suppress dlt paginator warnings that confuse users
                 # (e.g. "Fallback paginator used: SinglePagePaginator")
                 import warnings
@@ -2363,8 +2407,8 @@ Need help? Visit: https://github.com/getdango/dango/issues
                         message=r".*[Pp]aginator.*",
                         category=UserWarning,
                     )
-                    load_info = pipeline.run(source)
-                return load_info
+                    pipeline.extract(source)
+                return
 
             except Exception as e:
                 last_exception = e
@@ -2613,6 +2657,7 @@ def run_sync(
     limit: int | None = None,
     skip_dbt: bool = False,
     allow_schema_changes: bool = False,
+    max_lock_wait: int = 300,
     *,
     skip_sync_notification: bool = False,
     progress_callback: Callable[[str, str], None] | None = None,
@@ -2661,6 +2706,7 @@ def run_sync(
             full_refresh,
             limit=limit,
             allow_empty_replace=allow_empty_replace,
+            max_lock_wait=max_lock_wait,
         )
         results.append(result)
 
@@ -2839,7 +2885,15 @@ def run_sync(
                 console.print(
                     f"[dim]Targeting models for sources: {', '.join(success_sources)}[/dim]"
                 )
-                dbt_success, dbt_output = run_dbt_models(project_root, select=select_criteria)
+                # Acquire lock for dbt writes to DuckDB
+                from dango.utils.dbt_lock import DbtLock as _DbtLock
+
+                _dbt_lock = _DbtLock(project_root, source="sync", operation="dbt run")
+                try:
+                    _dbt_lock.acquire(timeout=max_lock_wait)
+                    dbt_success, dbt_output = run_dbt_models(project_root, select=select_criteria)
+                finally:
+                    _dbt_lock.release()
             else:
                 # All sources failed — skip dbt (no new data to transform)
                 console.print("[dim]No sources synced successfully — skipping dbt.[/dim]")

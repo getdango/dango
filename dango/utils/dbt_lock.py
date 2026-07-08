@@ -261,7 +261,10 @@ class DbtLock:
 
 @contextmanager
 def dbt_lock(
-    project_root: Path, source: str = "unknown", operation: str = "dbt operation"
+    project_root: Path,
+    source: str = "unknown",
+    operation: str = "dbt operation",
+    timeout: float = 300,
 ) -> Generator[DbtLock, None, None]:
     """
     Context manager for dbt lock.
@@ -273,7 +276,7 @@ def dbt_lock(
     """
     lock = DbtLock(project_root, source=source, operation=operation)
     try:
-        lock.acquire()
+        lock.acquire(timeout=timeout)
         yield lock
     finally:
         lock.release()
