@@ -155,7 +155,7 @@ def regenerate_dbt_profiles(
         data: dict[str, Any] = yaml.safe_load(result.stdout)
         if isinstance(data, dict) and "name" in data:
             project_name = str(data["name"])
-    except yaml.YAMLError:
+    except yaml.YAMLError:  # noqa: BLE001
         pass  # Fall back to default name
 
     # Determine specs from tier or defaults
@@ -172,12 +172,12 @@ def regenerate_dbt_profiles(
             if part.endswith("vcpu"):
                 try:
                     vcpus = int(part[:-4])
-                except ValueError:
+                except ValueError:  # noqa: BLE001
                     pass
             elif part.endswith("gb"):
                 try:
                     ram_gb = int(part[:-2])
-                except ValueError:
+                except ValueError:  # noqa: BLE001
                     pass
 
     content = generate_dbt_profiles_yml(project_name, vcpus, ram_gb, dbt_overrides)
@@ -306,7 +306,7 @@ def resize_droplet(
         # Best effort: try to power on if we failed after power off
         try:
             client.power_on(droplet_id)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         raise
 

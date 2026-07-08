@@ -148,7 +148,7 @@ class ConfigLoader:
             try:
                 if temp_path.exists():
                     temp_path.unlink()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
             raise ConfigError(f"Error writing {file_path}: {e}") from e
 

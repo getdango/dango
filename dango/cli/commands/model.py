@@ -145,7 +145,7 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
                 ).fetchone()
                 table_exists = (result[0] > 0) if result else False
                 conn.close()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
         # Check for downstream dependencies
@@ -163,7 +163,7 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
                                 or f'ref("{model_name}")' in content
                             ):
                                 downstream_models.append(f"{layer_to_check}.{sql_file.stem}")
-                        except Exception:
+                        except Exception:  # noqa: BLE001
                             pass
 
         # Check monitors.yml for references
@@ -176,7 +176,7 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
                 # source_table is "layer.table_name", check if model_name matches
                 if m.source_table.endswith(f".{model_name}"):
                     monitor_refs.append(m.name)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
         # Dry run: show what would be removed and exit
@@ -268,7 +268,7 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
                         console.print(
                             f"[green]✓[/green] Removed from {schema_path.relative_to(project_root)}"
                         )
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass  # Non-critical — don't block removal
 
         # Remove monitor references from monitors.yml
@@ -288,7 +288,7 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
                     console.print(
                         f"[green]✓[/green] Removed {removed_count} monitor(s) from monitors.yml"
                     )
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass  # Non-critical
 
         # Handle table deletion if it exists
@@ -327,7 +327,7 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
 
                 if sync_metabase_schema(project_root):
                     console.print("[green]✓[/green] Metabase schema refreshed")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass  # Non-critical — Metabase may not be running
 
         console.print()

@@ -152,5 +152,5 @@ def _save_persistent_status(project_root: Path, status: dict[str, dict[str, Any]
     try:
         with open(status_path, "w") as f:
             json.dump(status, f, indent=2)
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass

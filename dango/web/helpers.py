@@ -781,7 +781,7 @@ async def get_platform_health_data():
                                 "last_error": most_recent.get("error_message", "Unknown error"),
                             }
                         )
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
     # Check execution_history for schedule-level failures (M3)
@@ -828,9 +828,9 @@ async def get_platform_health_data():
                                         }
                                     )
                                     already_failed_sources.add(src)
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         pass
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass  # Don't break health page if scheduler.db is unavailable
 
     # Check for failed dbt runs

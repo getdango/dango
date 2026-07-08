@@ -67,7 +67,7 @@ def dashboard_provision(ctx: click.Context, url: str, username: str | None, pass
                     admins = [u for u in users if u.role == Role.ADMIN]
                     if admins and admins[0].email != "admin@localhost":
                         username = admins[0].email
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
         if not username:
             username = "admin@example.com"
