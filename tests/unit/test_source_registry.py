@@ -33,12 +33,17 @@ class TestSourceCapabilities:
             )
 
     def test_capabilities_values_are_bool(self) -> None:
-        """All capability values must be booleans."""
+        """All capability values must be booleans, except 'incremental' which may be
+        None to indicate 'derive at runtime' (e.g., dlt_native sources)."""
         for source_type, metadata in SOURCE_REGISTRY.items():
             for key, value in metadata["capabilities"].items():
-                assert isinstance(value, bool), (
-                    f"{source_type}.capabilities.{key} is {type(value).__name__}, expected bool"
+                assert isinstance(value, (bool, type(None))), (
+                    f"{source_type}.capabilities.{key} is {type(value).__name__}, expected bool or None"
                 )
+                if key != "incremental":
+                    assert isinstance(value, bool), (
+                        f"{source_type}.capabilities.{key} is {type(value).__name__}, expected bool"
+                    )
 
     def test_get_source_capabilities_known_source(self) -> None:
         """get_source_capabilities returns correct dict for a known source."""
