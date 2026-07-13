@@ -70,10 +70,15 @@ async def _start_marimo_background(project_root: Path, user_email: str) -> None:
         snapshot_path = await asyncio.to_thread(create_snapshot, project_root, user_email)
     except FileNotFoundError:  # noqa: BLE001
         pass  # no warehouse yet
+    except Exception:
+        logger.warning("Snapshot creation failed", exc_info=True)
+        return
     try:
         await asyncio.to_thread(start_marimo, project_root, snapshot_path=snapshot_path)
     except RuntimeError:
         pass  # already running (race condition)
+    except Exception:
+        logger.warning("Marimo startup failed", exc_info=True)
 
 
 def _audit(
