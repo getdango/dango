@@ -65,9 +65,11 @@ config/
 
 ### File size
 
-- **Soft limit:** 500 lines per file.
-- **When to split:** A file exceeds 500 lines, or contains 3+ unrelated responsibilities.
+- **Hard limit:** 500 lines per file. Split before reaching it.
+- **When to split:** A file approaches 500 lines, or contains 3+ unrelated responsibilities.
 - **How to split:** Extract related functions/classes into a new file within the same module. Update `__init__.py` exports.
+- **Exemption process:** Valid reasons — cyclic imports, inseparable logic, shared module-level state, pure data files. Invalid reasons — "too much work," "will refactor later." All new exemptions require maintainer approval.
+- **Pre-existing exemptions:** Files in `docs/file-exemptions.yml` are grandfathered and will be split in v1.1.
 
 ### `__init__.py` pattern
 
@@ -699,9 +701,9 @@ Any time a file is moved or renamed, immediately check:
 
 ### File size conventions
 
-See [§2 File size](#file-size) for the 500-line soft limit and when to split. Additional workflow rules:
+See [§2 File size](#file-size) for the 500-line hard limit and when to split. Additional workflow rules:
 
-- If a new or modified file exceeds 500 lines, add it to `docs/file-exemptions.yml`.
+- **No new exemptions.** New files must not exceed 500 lines. Pre-existing exempted files (listed in `docs/file-exemptions.yml`) will be split in v1.1.
 - **Target ~430 lines pre-format** — ruff format expands code by 10-15%.
 - **Incremental commits for large restructurings:** Tasks touching 10+ files should be split into 2-3 logical commits (e.g., "move files", "add new code", "update tests").
 

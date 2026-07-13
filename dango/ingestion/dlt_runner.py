@@ -2363,17 +2363,30 @@ Need help? Visit: https://github.com/getdango/dango/issues
         The lock is acquired only for the DuckDB write phase (pipeline.load()).
         Extraction (API calls) and normalization run outside the lock so
         long-running API syncs don't block other syncs from writing.
+
+        Metabase is stopped before the write phase and restarted after to
+        prevent DuckDB lock conflicts on cloud deployments. On non-cloud,
+        ``stop_metabase_for_writes`` returns immediately (no-op).
         """
+        from dango.platform.common.metabase_lifecycle import (
+            start_metabase_after_writes,
+            stop_metabase_for_writes,
+        )
         from dango.utils.dbt_lock import DbtLock as _DbtLock
 
-        lock = _DbtLock(self.project_root, source="sync", operation=f"load:{source_name}")
+        _metabase_was_stopped = stop_metabase_for_writes(self.project_root)
         try:
-            lock.acquire(timeout=max_lock_wait)
-            console.print("  [dim]🔒 Lock acquired for write phase[/dim]")
-            return pipeline.load()
+            lock = _DbtLock(self.project_root, source="sync", operation=f"load:{source_name}")
+            try:
+                lock.acquire(timeout=max_lock_wait)
+                console.print("  [dim]🔒 Lock acquired for write phase[/dim]")
+                return pipeline.load()
+            finally:
+                lock.release()
+                console.print("  [dim]🔓 Lock released[/dim]")
         finally:
-            lock.release()
-            console.print("  [dim]🔓 Lock released[/dim]")
+            if _metabase_was_stopped:
+                start_metabase_after_writes(self.project_root)
 
     def _run_extract_with_retry(
         self, pipeline: dlt.Pipeline, source: Any, max_retries: int = 3
@@ -2886,14 +2899,25 @@ def run_sync(
                     f"[dim]Targeting models for sources: {', '.join(success_sources)}[/dim]"
                 )
                 # Acquire lock for dbt writes to DuckDB
+                from dango.platform.common.metabase_lifecycle import (
+                    start_metabase_after_writes,
+                    stop_metabase_for_writes,
+                )
                 from dango.utils.dbt_lock import DbtLock as _DbtLock
 
-                _dbt_lock = _DbtLock(project_root, source="sync", operation="dbt run")
+                _metabase_was_stopped = stop_metabase_for_writes(project_root)
                 try:
-                    _dbt_lock.acquire(timeout=max_lock_wait)
-                    dbt_success, dbt_output = run_dbt_models(project_root, select=select_criteria)
+                    _dbt_lock = _DbtLock(project_root, source="sync", operation="dbt run")
+                    try:
+                        _dbt_lock.acquire(timeout=max_lock_wait)
+                        dbt_success, dbt_output = run_dbt_models(
+                            project_root, select=select_criteria
+                        )
+                    finally:
+                        _dbt_lock.release()
                 finally:
-                    _dbt_lock.release()
+                    if _metabase_was_stopped:
+                        start_metabase_after_writes(project_root)
             else:
                 # All sources failed — skip dbt (no new data to transform)
                 console.print("[dim]No sources synced successfully — skipping dbt.[/dim]")
