@@ -53,19 +53,52 @@ def is_cloud_deployment(project_root: Path) -> bool:
 
 
 def load_sources_config() -> list[dict[str, Any]]:
-    """Load sources configuration from .dango/sources.yml."""
+    """Load sources configuration from .dango/sources.yml.
+
+    Auto-discovered custom sources from custom_sources/ are merged in
+    if not already present in sources.yml.
+    """
     sources_file = get_project_root() / ".dango" / "sources.yml"
 
-    if not sources_file.exists():
-        return []
+    sources: list[dict[str, Any]] = []
+    if sources_file.exists():
+        try:
+            with open(sources_file, encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+                sources = config.get("sources", [])
+        except Exception as e:
+            logger.error(f"Error loading sources config: {e}")
+            return []
 
+    # Merge auto-discovered custom sources not already in YAML
     try:
-        with open(sources_file, encoding="utf-8") as f:
-            config = yaml.safe_load(f) or {}
-            return config.get("sources", [])
-    except Exception as e:
-        logger.error(f"Error loading sources config: {e}")
-        return []
+        from dango.ingestion.sources.custom_discovery import discover_custom_sources
+
+        project_root = get_project_root()
+        custom_sources_dir = project_root / "custom_sources"
+        if custom_sources_dir.exists():
+            discovered = discover_custom_sources(custom_sources_dir)
+            existing_names = {s.get("name", "") for s in sources}
+            for name, d in discovered.items():
+                if name not in existing_names:
+                    sources.append(
+                        {
+                            "name": name,
+                            "type": "dlt_native",
+                            "enabled": True,
+                            "dlt_native": {
+                                "source_module": d.module_name,
+                                "source_function": d.function_name,
+                                "function_kwargs": d.parameters,
+                            },
+                            "description": d.docstring or "",
+                            "tags": [],
+                        }
+                    )
+    except Exception:
+        pass  # Non-critical; discovery failures must not break source listing
+
+    return sources
 
 
 def get_duckdb_path() -> Path:
@@ -960,9 +993,30 @@ async def get_source_status_data(source: dict) -> SourceStatus:
         source_wd = source.get("write_disposition")
         if source_wd is None and meta:
             source_wd = (meta.get("default_config") or {}).get("write_disposition")
-        if source_wd == "replace":
+
+        # For dlt_native: check auto-discovered write_disposition from Python source
+        discovered_is_replace: bool | None = None
+        if source_type == "dlt_native" and source_wd is None:
+            try:
+                from dango.ingestion.sources.custom_discovery import (
+                    get_discovered_source,
+                )
+
+                project_root = get_project_root()
+                custom_sources_dir = project_root / "custom_sources"
+                if custom_sources_dir.exists():
+                    discovered = get_discovered_source(custom_sources_dir, source_name)
+                    if discovered is not None:
+                        discovered_is_replace = discovered.is_replace_mode
+            except Exception:
+                pass
+
+        if source_wd == "replace" or discovered_is_replace is True:
             sync_mode = "full_refresh"
         elif supports_incremental:
+            sync_mode = "incremental"
+        elif source_type == "dlt_native":
+            # Default for never-synced custom sources: incremental
             sync_mode = "incremental"
         else:
             sync_mode = "full_refresh"

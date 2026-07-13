@@ -339,11 +339,13 @@ class DltNativeConfig(BaseModel):
                 endpoint: "https://api.example.com"
     """
 
-    source_module: str = Field(
-        description="Python module name (from custom_sources/ directory or dlt package name)"
+    source_module: str | None = Field(
+        default=None,
+        description="Python module name (auto-discovered from custom_sources/ if not specified)",
     )
-    source_function: str = Field(
-        description="Function name to call for source (e.g., 'google_ads', 'my_custom_source')"
+    source_function: str | None = Field(
+        default=None,
+        description="Function name to call (auto-discovered from custom_sources/ if not specified)",
     )
     function_kwargs: dict[str, Any] = Field(
         default_factory=dict, description="Keyword arguments to pass to source function"
