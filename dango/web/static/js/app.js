@@ -2410,7 +2410,7 @@ function renderSourceHistory(history) {
                 <tr class="bg-red-50">
                     <td colspan="4" class="px-4 py-2 text-sm text-red-700">
                         <strong>Error:</strong>
-                        <pre class="log-message mt-1">${entry.error_message}</pre>
+                        <pre class="log-message mt-1">${escapeHtml(entry.error_message)}</pre>
                     </td>
                 </tr>
             `;

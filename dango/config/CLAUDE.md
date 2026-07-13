@@ -55,6 +55,10 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 
 - **`validate_schedules()` mixed return type:** Returns a tuple of `(errors, warnings)` where both are `list[str]`. Callers filter by string content to distinguish severity — there's no structured severity field. Structured return type deferred to Phase 8.
 - **Dual cron preset drift:** `config/schedules.py` and `cli/commands/schedule.py` both define human-readable cron preset maps. Must stay in sync — see [`cli/CLAUDE.md`](../cli/CLAUDE.md) key conventions.
+- **DANGO_CLOUD_MODE:** Two helpers answer different questions:
+  - `is_running_on_cloud()` (`config/helpers.py`) — checks only the `DANGO_CLOUD_MODE` env var. Returns `True` when running on the cloud server. Use for lightweight checks where importing config modules is acceptable.
+  - `is_cloud_deployment()` (`web/helpers.py`) — checks env var OR `cloud.yml` existence. Use for web context where the project root is available and the question is "is this project deployed to the cloud?"
+  - Raw `os.environ.get("DANGO_CLOUD_MODE")` is intentional in subprocess entry points (`sync_trigger.py`, `metabase_lifecycle.py`) where importing config modules adds unnecessary overhead. These run in process-isolated contexts where the env var is the explicit signal from the parent process.
 
 ## Don't Modify
 
