@@ -40,7 +40,6 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
     from ..utils import require_project_context
 
     lock = None
-    _metabase_was_stopped = False
     try:
         project_root = require_project_context(ctx)
         dbt_dir = project_root / "dbt"
@@ -72,13 +71,27 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
 
         console.print(f"[dim]Running: {' '.join(cmd)}[/dim]\n")
 
-        # Stop Metabase on cloud to prevent DuckDB lock conflicts
-        from dango.platform.common.metabase_lifecycle import stop_metabase_for_writes
+        # Stop Metabase on cloud to prevent DuckDB lock conflicts during dbt writes
+        from dango.platform.common.metabase_lifecycle import (
+            start_metabase_after_writes,
+            stop_metabase_for_writes,
+        )
 
         _metabase_was_stopped = stop_metabase_for_writes(project_root)
+        try:
+            # Run dbt command from dbt directory for correct path resolution
+            result = subprocess.run(cmd, cwd=str(dbt_dir))
+        finally:
+            if _metabase_was_stopped:
+                start_metabase_after_writes(project_root)
 
-        # Run dbt command from dbt directory for correct path resolution
-        result = subprocess.run(cmd, cwd=str(dbt_dir))
+        # Release lock after dbt write completes — subsequent operations
+        # (update_model_status, update_model_schemas) don't touch DuckDB.
+        if lock is not None and lock._acquired:
+            try:
+                lock.release()
+            except Exception:  # noqa: BLE001
+                pass
 
         if result.returncode != 0:
             console.print(f"\n[red]dbt build failed with exit code {result.returncode}[/red]")
@@ -104,23 +117,22 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
             update_model_schemas(project_root, models_to_update)
 
         # Refresh Metabase connection to see new/updated tables.
-        # Skip on cloud — Metabase is stopped; the finally block restarts it
-        # and Metabase auto-syncs schema on startup.
-        if not _metabase_was_stopped:
-            console.print("\n[dim]Refreshing Metabase connection...[/dim]")
-            from dango.visualization.metabase import (
-                refresh_metabase_connection,
-                sync_metabase_schema,
-            )
+        # Metabase is restarted after the dbt write phase, so it's available
+        # for refresh on both local and cloud.
+        console.print("\n[dim]Refreshing Metabase connection...[/dim]")
+        from dango.visualization.metabase import (
+            refresh_metabase_connection,
+            sync_metabase_schema,
+        )
 
-            mb_ok, _mb_err = refresh_metabase_connection(project_root)
-            if mb_ok:
-                console.print("[green]✓ Metabase connection refreshed[/green]")
-                # Also sync schema to discover new tables/schemas from dbt run
-                if sync_metabase_schema(project_root):
-                    console.print("[green]✓ Metabase schema synced[/green]")
-            else:
-                console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
+        mb_ok, _mb_err = refresh_metabase_connection(project_root)
+        if mb_ok:
+            console.print("[green]✓ Metabase connection refreshed[/green]")
+            # Also sync schema to discover new tables/schemas from dbt run
+            if sync_metabase_schema(project_root):
+                console.print("[green]✓ Metabase schema synced[/green]")
+        else:
+            console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Cancelled[/yellow]")
@@ -140,11 +152,6 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
                 lock.release()
             except Exception:  # noqa: BLE001
                 pass
-        # Restart Metabase on cloud
-        if _metabase_was_stopped:
-            from dango.platform.common.metabase_lifecycle import start_metabase_after_writes
-
-            start_metabase_after_writes(project_root)
 
 
 @click.command("docs")

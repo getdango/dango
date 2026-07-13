@@ -277,25 +277,16 @@ async def _sync_single_source(project_root: Path, source_name: str) -> None:
     """
     from dango.config.helpers import load_config
     from dango.ingestion import run_sync
-    from dango.platform.common.metabase_lifecycle import stop_metabase_for_writes
 
-    _metabase_was_stopped = stop_metabase_for_writes(project_root)
-
-    try:
-        config = load_config(project_root)
-        source_config = config.sources.get_source(source_name)
-        if source_config is None:
-            raise ValueError(f"Source '{source_name}' not found in config")
-        result = run_sync(project_root=project_root, sources=[source_config])
-        # Check if any sources actually failed
-        failed = result.get("failed_sources", [])
-        if failed:
-            raise RuntimeError(failed[0].get("error", "Sync failed"))
-    finally:
-        if _metabase_was_stopped:
-            from dango.platform.common.metabase_lifecycle import start_metabase_after_writes
-
-            start_metabase_after_writes(project_root)
+    config = load_config(project_root)
+    source_config = config.sources.get_source(source_name)
+    if source_config is None:
+        raise ValueError(f"Source '{source_name}' not found in config")
+    result = run_sync(project_root=project_root, sources=[source_config])
+    # Check if any sources actually failed
+    failed = result.get("failed_sources", [])
+    if failed:
+        raise RuntimeError(failed[0].get("error", "Sync failed"))
 
 
 def _generate_dbt_docs(project_root: Path) -> None:

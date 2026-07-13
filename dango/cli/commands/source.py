@@ -667,7 +667,6 @@ def sync(
     console.print("🍡 [bold]Syncing data...[/bold]")
     console.print()
 
-    _metabase_was_stopped = False
     try:
         # Get project context
         project_root = require_project_context(ctx)
@@ -832,11 +831,6 @@ def sync(
                 console.print(f"\n[red]{oauth_err.user_message}[/red]")
                 raise click.Abort() from oauth_err
 
-        # Stop Metabase on cloud to prevent DuckDB lock conflicts
-        from dango.platform.common.metabase_lifecycle import stop_metabase_for_writes
-
-        _metabase_was_stopped = stop_metabase_for_writes(project_root)
-
         # Run sync
         try:
             summary = run_sync(
@@ -855,9 +849,9 @@ def sync(
             return
 
         # Trigger Metabase schema sync (if Metabase is running).
-        # Skip on cloud — Metabase is stopped; the finally block restarts it
-        # and Metabase auto-syncs schema on startup.
-        if summary["failed_count"] == 0 and not _metabase_was_stopped:
+        # Metabase is restarted by _load_with_lock() after the write phase,
+        # so it is available for schema sync on both local and cloud.
+        if summary["failed_count"] == 0:
             console.print()
             console.print("[dim]Updating Metabase schema...[/dim]")
             from dango.visualization.metabase import sync_metabase_schema
@@ -899,9 +893,3 @@ def sync(
 
             console.print(traceback.format_exc())
         raise click.Abort() from e
-    finally:
-        # Restart Metabase on cloud
-        if _metabase_was_stopped:
-            from dango.platform.common.metabase_lifecycle import start_metabase_after_writes
-
-            start_metabase_after_writes(project_root)
