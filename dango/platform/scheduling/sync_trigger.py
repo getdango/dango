@@ -199,19 +199,6 @@ def run_manual_sync(
         # Non-OAuth errors during validation: continue (benefit of the doubt)
         logger.warning("pre_sync_validation_error", error=str(e), exc_info=True)
 
-    # --- Stop Metabase on cloud to prevent DuckDB lock conflicts ---
-
-    # Note: DbtLock is no longer acquired here. It is now acquired inside
-    # dlt_runner.py around pipeline.load() and dbt transforms only, rather
-    # than across the entire sync (extract + normalize + load + dbt).
-    # This allows concurrent extracts while serializing only the write phases.
-    from dango.platform.common.metabase_lifecycle import stop_metabase_for_writes
-
-    _metabase_should_stop = os.environ.get("DANGO_CLOUD_MODE") == "true"
-    if _metabase_should_stop:
-        _progress("metabase_stop", "Pausing Metabase for sync")
-    _metabase_was_stopped = stop_metabase_for_writes(project_root)
-
     try:
         # Reload config (may have been loaded above for OAuth, but safe to reload)
         config = load_config(project_root)
@@ -333,17 +320,6 @@ def run_manual_sync(
             "duration_seconds": duration,
             "error": error_msg,
         }
-    finally:
-        # --- Restart Metabase on cloud ---
-        if _metabase_was_stopped:
-            from dango.platform.common.metabase_lifecycle import start_metabase_after_writes
-
-            start_metabase_after_writes(project_root)
-            try:
-                # Trigger Metabase schema scan so new tables appear immediately
-                _trigger_metabase_schema_scan(project_root)
-            except Exception:
-                logger.debug("metabase_schema_scan_after_sync_failed", exc_info=True)
 
 
 def _trigger_metabase_schema_scan(project_root: Path) -> None:

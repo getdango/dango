@@ -2363,17 +2363,29 @@ Need help? Visit: https://github.com/getdango/dango/issues
         The lock is acquired only for the DuckDB write phase (pipeline.load()).
         Extraction (API calls) and normalization run outside the lock so
         long-running API syncs don't block other syncs from writing.
+
+        Metabase is stopped before the write phase and restarted after to
+        prevent DuckDB lock conflicts on cloud deployments. On non-cloud,
+        ``stop_metabase_for_writes`` returns immediately (no-op).
         """
+        from dango.platform.common.metabase_lifecycle import (
+            start_metabase_after_writes,
+            stop_metabase_for_writes,
+        )
         from dango.utils.dbt_lock import DbtLock as _DbtLock
 
-        lock = _DbtLock(self.project_root, source="sync", operation=f"load:{source_name}")
+        stop_metabase_for_writes(self.project_root)
         try:
-            lock.acquire(timeout=max_lock_wait)
-            console.print("  [dim]🔒 Lock acquired for write phase[/dim]")
-            return pipeline.load()
+            lock = _DbtLock(self.project_root, source="sync", operation=f"load:{source_name}")
+            try:
+                lock.acquire(timeout=max_lock_wait)
+                console.print("  [dim]🔒 Lock acquired for write phase[/dim]")
+                return pipeline.load()
+            finally:
+                lock.release()
+                console.print("  [dim]🔓 Lock released[/dim]")
         finally:
-            lock.release()
-            console.print("  [dim]🔓 Lock released[/dim]")
+            start_metabase_after_writes(self.project_root)
 
     def _run_extract_with_retry(
         self, pipeline: dlt.Pipeline, source: Any, max_retries: int = 3
