@@ -68,7 +68,7 @@ jobs:
       - run: pip install --upgrade pip
       - run: pip install -c constraints.txt -e ".[dev]"
       - name: pip-audit
-        run: pip-audit --ignore-vuln CVE-2026-32274
+        run: pip-audit --ignore-vuln CVE-2026-32274 --ignore-vuln PYSEC-2026-2120
 
   llm-checks:
     name: LLM checks

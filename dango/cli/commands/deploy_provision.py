@@ -13,6 +13,7 @@ that were created (no orphans).
 from __future__ import annotations
 
 import base64
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +25,18 @@ from dango.exceptions import CloudProvisioningError
 from dango.logging import get_logger
 
 _logger = get_logger(__name__)
+
+
+def _sanitize_name(name: str) -> str:
+    """Sanitize a path name for use in SSH keys, hostnames, and bucket names.
+
+    Replaces non-alphanumeric characters with hyphens, collapses multiple
+    hyphens, and strips leading/trailing hyphens. Returns 'dango-project'
+    if the name is all non-alphanumeric (e.g., CJK-only directory names).
+    """
+    sanitized = re.sub(r"[^a-zA-Z0-9-]", "-", name.lower())
+    sanitized = re.sub(r"-+", "-", sanitized)
+    return sanitized.strip("-") or "dango-project"
 
 
 @dataclass
@@ -142,7 +155,7 @@ def run_provisioning(
 
         # --- Sub-step 2: Upload SSH key to DO ---
         _status("Uploading SSH key to DigitalOcean...")
-        key_name = f"dango-{project_root.name}-{int(time.time())}"
+        key_name = f"dango-{_sanitize_name(project_root.name)}-{int(time.time())}"
         key_data = client.upload_ssh_key(key_name, public_key)
         ssh_key_id: int = key_data["id"]
         tracker.ssh_key_id = ssh_key_id
@@ -151,7 +164,7 @@ def run_provisioning(
         _status("Provisioning droplet (this takes ~60s)...")
         from dango.platform.cloud.provisioning import provision_droplet
 
-        hostname = f"dango-{project_root.name}"[:63]  # DO limit
+        hostname = f"dango-{_sanitize_name(project_root.name)}"[:63]  # DO limit
         droplet = provision_droplet(
             client,
             name=hostname,
@@ -796,7 +809,10 @@ def _setup_backups(
     )
     from dango.platform.cloud.spaces import SpacesClient
 
-    bucket_name = config.spaces_bucket_name or f"dango-backup-{project_root.name}-{config.region}"
+    bucket_name = (
+        config.spaces_bucket_name
+        or f"dango-backup-{_sanitize_name(project_root.name)}-{config.region}"
+    )
     spaces = SpacesClient(
         bucket=bucket_name,
         region=config.region,
