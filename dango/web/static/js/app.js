@@ -1394,26 +1394,26 @@ function renderSourcesTable() {
                     ${source.needs_attention ? '<span class="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Needs Attention</span>' : ''}
                 </div>
             </td>
+            <td class="px-6 py-4 whitespace-nowrap cursor-pointer tooltip" data-col="status" onclick="event.stopPropagation(); openSyncHistory('${source.name}')" data-tooltip="Click to view sync history">
+                ${renderStatusPill(source, isSyncing, hasFileOps)}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" data-col="last-sync">
+                ${formatRelativeTime(source.last_sync)}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                ${actionColumn}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                ${source.has_schedule ? `<span class="tooltip" data-tooltip="${source.schedule_display || ''}">${source.schedule_display || 'Scheduled'}</span>` : '<span class="inline-block w-full text-center text-gray-300">—</span>'}
+            </td>
             <td class="px-6 py-4 whitespace-nowrap">
                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
                     ${formatSourceType(source.type)}
                 </span>
                 <div class="text-xs text-gray-400 mt-0.5">${source.lookback_days ? `Incremental (${source.lookback_days}d lookback)` : source.sync_mode === 'full_refresh' ? 'Full Refresh' : 'Incremental'}</div>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap cursor-pointer tooltip" data-col="status" onclick="event.stopPropagation(); openSyncHistory('${source.name}')" data-tooltip="Click to view sync history">
-                ${renderStatusPill(source, isSyncing, hasFileOps)}
-            </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" data-col="rows">
                 ${renderRowCount(source)}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" data-col="last-sync">
-                ${formatRelativeTime(source.last_sync)}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                ${source.has_schedule ? `<span class="tooltip" data-tooltip="${source.schedule_display || ''}">${source.schedule_display || 'Scheduled'}</span>` : '<span class="inline-block w-full text-center text-gray-300">—</span>'}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                ${actionColumn}
             </td>
         </tr>
         `;
@@ -2694,17 +2694,6 @@ function renderDbtModelsTable() {
                 <td class="px-6 py-4 whitespace-nowrap">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(model.name)}</div>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    ${escapeHtml(model.schema || '-')}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <span class="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
-                        ${model.materialization || 'view'}
-                    </span>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    ${rowCount}
-                </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     ${statusBadge}
                 </td>
@@ -2720,6 +2709,17 @@ function renderDbtModelsTable() {
                     >
                         📖
                     </a>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    ${escapeHtml(model.schema || '-')}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <span class="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+                        ${model.materialization || 'view'}
+                    </span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    ${rowCount}
                 </td>
             </tr>
         `;
