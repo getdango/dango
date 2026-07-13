@@ -2374,7 +2374,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
         )
         from dango.utils.dbt_lock import DbtLock as _DbtLock
 
-        stop_metabase_for_writes(self.project_root)
+        _metabase_was_stopped = stop_metabase_for_writes(self.project_root)
         try:
             lock = _DbtLock(self.project_root, source="sync", operation=f"load:{source_name}")
             try:
@@ -2385,7 +2385,8 @@ Need help? Visit: https://github.com/getdango/dango/issues
                 lock.release()
                 console.print("  [dim]🔓 Lock released[/dim]")
         finally:
-            start_metabase_after_writes(self.project_root)
+            if _metabase_was_stopped:
+                start_metabase_after_writes(self.project_root)
 
     def _run_extract_with_retry(
         self, pipeline: dlt.Pipeline, source: Any, max_retries: int = 3
@@ -2898,14 +2899,25 @@ def run_sync(
                     f"[dim]Targeting models for sources: {', '.join(success_sources)}[/dim]"
                 )
                 # Acquire lock for dbt writes to DuckDB
+                from dango.platform.common.metabase_lifecycle import (
+                    start_metabase_after_writes,
+                    stop_metabase_for_writes,
+                )
                 from dango.utils.dbt_lock import DbtLock as _DbtLock
 
-                _dbt_lock = _DbtLock(project_root, source="sync", operation="dbt run")
+                _metabase_was_stopped = stop_metabase_for_writes(project_root)
                 try:
-                    _dbt_lock.acquire(timeout=max_lock_wait)
-                    dbt_success, dbt_output = run_dbt_models(project_root, select=select_criteria)
+                    _dbt_lock = _DbtLock(project_root, source="sync", operation="dbt run")
+                    try:
+                        _dbt_lock.acquire(timeout=max_lock_wait)
+                        dbt_success, dbt_output = run_dbt_models(
+                            project_root, select=select_criteria
+                        )
+                    finally:
+                        _dbt_lock.release()
                 finally:
-                    _dbt_lock.release()
+                    if _metabase_was_stopped:
+                        start_metabase_after_writes(project_root)
             else:
                 # All sources failed — skip dbt (no new data to transform)
                 console.print("[dim]No sources synced successfully — skipping dbt.[/dim]")
