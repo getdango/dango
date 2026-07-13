@@ -90,14 +90,14 @@ def _seed_notebook(tmp_path: Path, name: str, created_by: str = "test@test.com")
 
 @pytest.mark.unit
 class TestLockCreatesSnapshot:
-    """Verify lock_notebook() creates a DuckDB snapshot."""
+    """Verify lock_notebook() returns immediately when Marimo is not running."""
 
     @patch(f"{_P}.start_idle_checker")
     @patch(f"{_P}.start_marimo")
     @patch(f"{_P}.get_marimo_status")
     @patch(f"{_P}.create_snapshot")
     @patch(f"{_P}.get_project_root")
-    def test_lock_calls_create_snapshot(
+    def test_lock_returns_starting_when_marimo_not_running(
         self,
         mock_root: MagicMock,
         mock_snapshot: MagicMock,
@@ -106,19 +106,21 @@ class TestLockCreatesSnapshot:
         mock_idle: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """Acquiring a lock should call create_snapshot when Marimo is not running."""
+        """Lock returns immediately with ready=false when Marimo is not running."""
         mock_root.return_value = tmp_path
         snap_path = tmp_path / ".dango" / "snapshots" / "warehouse_test_20260101.duckdb"
         mock_snapshot.return_value = snap_path
-        not_running = {"running": False, "port": None, "pid": None, "log_file": None}
-        running = {"running": True, "port": 7805, "pid": 123, "log_file": None}
-        mock_status.side_effect = [not_running, running]
+        mock_status.return_value = {"running": False, "port": None, "pid": None, "log_file": None}
         _init_db(tmp_path)
         _seed_notebook(tmp_path, "test_nb")
 
         resp = _client(tmp_path).post("/api/notebooks/test_nb/lock", json={})
         assert resp.status_code == 200
-        mock_snapshot.assert_called_once_with(tmp_path, "test@test.com")
+        data = resp.json()
+        assert data["locked"] is True
+        assert data["ready"] is False
+        assert data["status"] == "starting"
+        assert data["marimo_url"] is None
 
     @patch(f"{_P}.start_idle_checker")
     @patch(f"{_P}.start_marimo")
@@ -136,9 +138,7 @@ class TestLockCreatesSnapshot:
     ) -> None:
         """Lock should succeed even if warehouse doesn't exist (no snapshot)."""
         mock_root.return_value = tmp_path
-        not_running = {"running": False, "port": None, "pid": None, "log_file": None}
-        running = {"running": True, "port": 7805, "pid": 123, "log_file": None}
-        mock_status.side_effect = [not_running, running]
+        mock_status.return_value = {"running": False, "port": None, "pid": None, "log_file": None}
         _init_db(tmp_path)
         _seed_notebook(tmp_path, "test_nb")
 
@@ -169,29 +169,28 @@ class TestLockCreatesSnapshot:
         mock_snapshot.assert_not_called()
 
     @patch(f"{_P}.start_idle_checker")
-    @patch(f"{_P}.start_marimo")
+    @patch(f"{_P}.asyncio.create_task")
     @patch(f"{_P}.get_marimo_status")
     @patch(f"{_P}.create_snapshot")
     @patch(f"{_P}.get_project_root")
-    def test_lock_passes_snapshot_to_start_marimo(
+    def test_lock_launches_background_task(
         self,
         mock_root: MagicMock,
         mock_snapshot: MagicMock,
         mock_status: MagicMock,
-        mock_start: MagicMock,
+        mock_create_task: MagicMock,
         mock_idle: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """When Marimo isn't running, start_marimo receives snapshot_path."""
+        """When Marimo isn't running, a background task is launched for startup."""
         mock_root.return_value = tmp_path
         snap_path = tmp_path / ".dango" / "snapshots" / "warehouse_test.duckdb"
         mock_snapshot.return_value = snap_path
-        not_running = {"running": False, "port": None, "pid": None, "log_file": None}
-        running = {"running": True, "port": 7805, "pid": 123, "log_file": None}
-        mock_status.side_effect = [not_running, running]
+        mock_status.return_value = {"running": False, "port": None, "pid": None, "log_file": None}
         _init_db(tmp_path)
         _seed_notebook(tmp_path, "test_nb")
 
         resp = _client(tmp_path).post("/api/notebooks/test_nb/lock", json={})
         assert resp.status_code == 200
-        mock_start.assert_called_once_with(tmp_path, snapshot_path=snap_path)
+        assert resp.json()["ready"] is False
+        mock_create_task.assert_called_once()
