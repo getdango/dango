@@ -37,7 +37,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/remote_auth.py` (~217 lines) | `remote auth` subgroup (add-user, list-users, remove-user, reset-password) | `auth_group` |
 | `commands/remote_mgmt.py` | `remote status`, `remote logs`, `remote ssh`, `remote query`, `remote history` | `remote_status()`, `remote_logs()` |
 | `commands/remote_sync.py` (131 lines) | `remote sync` — trigger data syncs on cloud server via SSH | `remote_sync()` |
-| `commands/schedule.py` (914 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook) | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
+| `commands/schedule.py` (972 lines) | `schedule` group (add, list, remove, status, enable, disable, webhook). Supports SYNC, SYNC_ONLY, DBT, and SCRIPT types. | `schedule`, `schedule_add()`, `schedule_list()`, `schedule_status()`, `schedule_webhook()` |
 | `commands/schedule_webhook.py` (226 lines) | `schedule webhook` subgroup (add, list, remove, test) | `webhook_group` |
 | `commands/governance.py` (220 lines) | `governance` group (accept, drift-report, pii-report, pii-set, pii-list) | `governance`, `accept()`, `drift_report()`, `pii_report()`, `pii_set()`, `pii_list()` |
 | `commands/notebook.py` (~209 lines) | `notebook` group (new, open) | `notebook`, `notebook_new()`, `notebook_open()` |

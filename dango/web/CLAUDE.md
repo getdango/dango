@@ -14,7 +14,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `__init__.py` | Public exports | `app` module |
 | `middleware/auth.py` | Session/API key auth + CSRF check on every request (~324 lines) | `AuthMiddleware`, `is_secure_request()`, `COOKIE_NAME` |
 | `middleware/rate_limit.py` | Rate limiting (login 10/min, API 200/min, localhost exempt, ~235 lines) | `RateLimitMiddleware` |
-| `templates/base.html` | Shared Jinja2 layout: head (compiled Tailwind CSS), header, nav bar (8-item flat: Overview/Sources/Models/Schedules/Catalog/Query/Dashboards/Notebooks + gear dropdown), responsive hamburger menu, footer, script blocks | Blocks: `title`, `subtitle_attrs`, `header_right`, `nav`, `content`, `footer`, `scripts` |
+| `templates/base.html` | Shared Jinja2 layout: head (compiled Tailwind CSS), header, nav bar (9-item flat: Overview/Sources/Models/Schedules/Catalog/Query/Dashboards/Notebooks/Scripts + gear dropdown), responsive hamburger menu, footer, script blocks | Blocks: `title`, `subtitle_attrs`, `header_right`, `nav`, `content`, `footer`, `scripts` |
 | `templates/error.html` | HTML error page (extends `base.html`) — status code, title, message, back/home links | Rendered by `dango_error_handler()` for browser 401/403 requests |
 | `templates/dashboard.html` | Overview page (extends `base.html`) — health widget, service cards, activity log | Loads `app.js` |
 | `templates/sources.html` | Sources page (extends `base.html`) — source table, sync controls, upload/detail modals | Loads `app.js` |
@@ -45,6 +45,9 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
 | `routes/schedules.py` | Schedule list/get, trigger, reload, cancel, history, notification config/test, `/schedules` page (read-only, ~608 lines). Config mutations removed by R10-C (BUG-175) — use CLI instead. | `router` |
 | `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~506 lines) | `router` |
+| `routes/scripts.py` | Script list page and log viewer page routes | `router` |
+| `routes/scripts_api.py` | Script API endpoints: list, run, cancel, history | `router` |
+| `routes/scripts_helpers.py` | Script discovery, path validation, history, audit helpers | `_discover_scripts`, `_validate_script_path`, `_load_history`, `_append_history` |
 | `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact, model list/detail, search (~1338 lines) | `router` |
 | `routes/governance.py` | Schema drift + PII results API (~203 lines) | `router` |
 | `routes/monitoring.py` | Monitor results API (`/api/monitoring`, `/api/monitoring/run`, `/api/monitoring/history`), dbt test results. Page route removed in R12-M2 (test/freshness moved to catalog). Backward-compat `/api/insights*` redirects removed in M2 cloud fix. | `router` |
@@ -53,6 +56,8 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/initial_sync.py` | Initial data sync after first deploy (deploy token auth) | `router` |
 | `templates/schedules.html` | Schedule management page (extends `base.html`) — table, modals, WebSocket | Alpine.js `schedulesPage()` component |
 | `templates/notebooks.html` | Notebook management page (extends `base.html`) — table, create/delete modals, locking | Alpine.js `notebooksPage()` component |
+| `templates/scripts.html` | Script management page (extends `base.html`) — table, run/cancel buttons, log links, WebSocket | Alpine.js `scriptsPage()` component |
+| `templates/script_log.html` | Script run log viewer page (extends `base.html`) — stdout/stderr display with metadata | — |
 | `templates/catalog.html` | Data catalog page (extends `base.html`) — model browser, search, detail view, code view, profiling, lineage (929 lines) | Alpine.js `catalogPage()` component |
 | `templates/monitoring.html` | **Unused** — retained for potential future use. Page route removed in R12-M2 (test/freshness moved to catalog). API endpoints in `routes/monitoring.py` still active. | Alpine.js `monitoringPage()` component |
 | `static/` | CSS and JS assets (`css/tailwind.min.css` (compiled), `css/main.css`, `css/catalog.css`, `css/input.css` (Tailwind source), `js/app.js`, `js/logs.js`, `js/lineage.js`, `js/catalog.js`) | — |
