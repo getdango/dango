@@ -93,7 +93,6 @@ def load_sources_config() -> list[dict[str, Any]]:
                             },
                             "description": d.docstring or "",
                             "tags": [],
-                            "_discovered": True,
                         }
                     )
     except Exception:

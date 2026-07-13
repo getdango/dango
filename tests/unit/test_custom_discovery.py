@@ -127,19 +127,6 @@ def syntax_error_file(tmp_path: Path) -> Path:
     return filepath
 
 
-@pytest.fixture
-def simple_importable_source(tmp_path: Path) -> Path:
-    """A simple source that can be imported without dlt dependencies."""
-    content = '''"""A simple test source."""
-def my_test_source(start_date: str = "2024-01-01", lookback_days: int = 7):
-    """This is a test docstring for discovery."""
-    pass
-'''
-    filepath = tmp_path / "my_test_source.py"
-    filepath.write_text(content)
-    return filepath
-
-
 # ---------------------------------------------------------------------------
 # AST parsing tests
 # ---------------------------------------------------------------------------

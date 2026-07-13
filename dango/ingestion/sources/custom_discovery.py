@@ -154,11 +154,19 @@ def _match_dlt_resource_decorator(decorator: ast.expr) -> dict[str, Any] | None:
     return None
 
 
-def _import_and_inspect(filepath: Path, module_name: str) -> dict[str, Any]:
+def _import_and_inspect(
+    filepath: Path, module_name: str, target_function_name: str
+) -> dict[str, Any]:
     """Import the module and extract function signature + docstring.
 
     Executes the Python file (same as dlt_runner.py does at sync time).
     Falls back gracefully on import errors.
+
+    Args:
+        filepath: Path to the Python file.
+        module_name: Module name for import.
+        target_function_name: Name of the @dlt.source function (from AST phase).
+            Used to find the exact function rather than guessing.
 
     Returns dict with keys: parameters, docstring
     """
@@ -186,53 +194,31 @@ def _import_and_inspect(filepath: Path, module_name: str) -> dict[str, Any]:
             )
             return result
 
-        # Find the @dlt.source decorated function
-        source_func = None
-        for _attr_name in dir(module):
-            obj = getattr(module, _attr_name)
-            if callable(obj) and getattr(obj, "__module__", None) == module_name:
-                # dlt.source-decorated functions retain __wrapped__ or are DltSource
-                # Check if it has the dlt source marker
-                if hasattr(obj, "__name__") and obj.__name__ != module_name:
-                    # The decorated function might be wrapped; try to inspect
-                    try:
-                        sig = inspect.signature(obj)
-                        # Only consider functions with dlt source indicators
-                        func_module = getattr(obj, "__module__", "")
-                        if func_module == module_name:
-                            source_func = obj
-                            break
-                    except (ValueError, TypeError):
-                        continue
+        # Look up the exact function identified by AST parsing
+        source_func = getattr(module, target_function_name, None)
+        if source_func is None or not callable(source_func):
+            logger.debug(
+                "Function %s not found in module %s after import",
+                target_function_name,
+                module_name,
+            )
+            return result
 
-        # If no function found via __module__, try functions defined in the module
-        if source_func is None:
-            for _attr_name in dir(module):
-                obj = getattr(module, _attr_name)
-                if callable(obj) and not _attr_name.startswith("_"):
-                    try:
-                        sig = inspect.signature(obj)
-                        source_func = obj
-                        break
-                    except (ValueError, TypeError):
-                        continue
+        # Extract docstring
+        result["docstring"] = inspect.getdoc(source_func)
 
-        if source_func is not None:
-            # Extract docstring
-            result["docstring"] = inspect.getdoc(source_func)
-
-            # Extract parameter defaults
-            try:
-                sig = inspect.signature(source_func)
-                for param_name, param in sig.parameters.items():
-                    if param.default is not inspect.Parameter.empty:
-                        result["parameters"][param_name] = param.default
-            except (ValueError, TypeError):
-                logger.debug(
-                    "Could not inspect signature for %s.%s",
-                    module_name,
-                    source_func.__name__,
-                )
+        # Extract parameter defaults
+        try:
+            sig = inspect.signature(source_func)
+            for param_name, param in sig.parameters.items():
+                if param.default is not inspect.Parameter.empty:
+                    result["parameters"][param_name] = param.default
+        except (ValueError, TypeError):
+            logger.debug(
+                "Could not inspect signature for %s.%s",
+                module_name,
+                target_function_name,
+            )
 
     finally:
         # Clean up sys.path
@@ -296,7 +282,7 @@ def discover_custom_sources(
             continue
 
         # Phase 2: Import + inspect for signature and docstring
-        import_data = _import_and_inspect(filepath, module_name)
+        import_data = _import_and_inspect(filepath, module_name, function_name)
 
         canonical_name = source_name or function_name
 
@@ -320,18 +306,23 @@ def discover_custom_sources(
 def get_discovered_source(
     custom_sources_dir: Path,
     source_name: str,
+    discovered: dict[str, DiscoveredCustomSource] | None = None,
 ) -> DiscoveredCustomSource | None:
     """Look up a single discovered custom source by name.
 
     Args:
         custom_sources_dir: Path to the custom_sources/ directory.
         source_name: Canonical source name to look up.
+        discovered: Optional pre-computed discovery result. If provided,
+            avoids re-scanning the directory. Useful when calling in a loop.
 
     Returns:
         DiscoveredCustomSource if found, None otherwise.
     """
-    discovered = discover_custom_sources(custom_sources_dir)
-    return discovered.get(source_name)
+    if discovered is not None:
+        return discovered.get(source_name)
+    all_discovered = discover_custom_sources(custom_sources_dir)
+    return all_discovered.get(source_name)
 
 
 def clear_discovery_cache() -> None:
