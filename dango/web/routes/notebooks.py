@@ -30,7 +30,7 @@ from dango.notebooks.locking import (
     refresh_lock,
     release_lock,
 )
-from dango.notebooks.manager import get_marimo_status, start_idle_checker, start_marimo
+from dango.notebooks.manager import get_marimo_status, start_idle_checker, start_marimo, stop_marimo
 from dango.notebooks.snapshot import create_snapshot
 from dango.utils.dango_db import connect
 from dango.validation import validate_identifier
@@ -57,6 +57,23 @@ def _validate_name(name: str) -> str | JSONResponse:
                 "message": "Invalid notebook name. Use only letters, numbers, and underscores.",
             },
         )
+
+
+async def _start_marimo_background(project_root: Path, user_email: str) -> None:
+    """Create snapshot and start Marimo in the background (non-blocking).
+
+    Launched via ``asyncio.create_task()`` so the lock endpoint can return
+    immediately while the snapshot copy and Marimo startup complete.
+    """
+    snapshot_path = None
+    try:
+        snapshot_path = await asyncio.to_thread(create_snapshot, project_root, user_email)
+    except FileNotFoundError:  # noqa: BLE001
+        pass  # no warehouse yet
+    try:
+        await asyncio.to_thread(start_marimo, project_root, snapshot_path=snapshot_path)
+    except RuntimeError:
+        pass  # already running (race condition)
 
 
 def _audit(
@@ -385,22 +402,15 @@ async def lock_notebook(
     status = await asyncio.to_thread(get_marimo_status, project_root)
     already_running = status["running"]
     if not already_running:
-        # Create DuckDB snapshot so notebooks use a read-only copy
-        snapshot_path = None
-        try:
-            snapshot_path = await asyncio.to_thread(create_snapshot, project_root, user.email)
-        except FileNotFoundError:  # noqa: BLE001
-            pass  # no warehouse yet
+        # Launch snapshot creation + Marimo startup as a background task
+        # so the API returns immediately (non-blocking).
+        asyncio.create_task(_start_marimo_background(project_root, user.email))
+        start_idle_checker(project_root)
+        return JSONResponse(
+            content={"locked": True, "ready": False, "status": "starting", "marimo_url": None}
+        )
 
-        try:
-            await asyncio.to_thread(start_marimo, project_root, snapshot_path=snapshot_path)
-            status = await asyncio.to_thread(get_marimo_status, project_root)
-        except RuntimeError:
-            # Already running (race condition) — get status again
-            status = await asyncio.to_thread(get_marimo_status, project_root)
-            already_running = True
-    else:
-        logger.debug("Marimo already running — skipping snapshot creation")
+    logger.debug("Marimo already running — skipping snapshot creation")
 
     port = status.get("port") or _DEFAULT_MARIMO_PORT  # type: ignore[assignment]
 
@@ -416,8 +426,77 @@ async def lock_notebook(
 
     start_idle_checker(project_root)
 
+    return JSONResponse(content={"locked": True, "marimo_url": marimo_url, "ready": True})
+
+
+@router.get("/api/notebooks/status")
+async def notebook_status(
+    request: Request,
+    file: str | None = None,
+) -> JSONResponse:
+    """Poll notebook server readiness. Used by frontend after non-blocking open."""
+    project_root = get_project_root()
+    status = await asyncio.to_thread(get_marimo_status, project_root)
+    if not status["running"]:
+        return JSONResponse(content={"ready": False, "marimo_url": None})
+
+    port = status.get("port") or _DEFAULT_MARIMO_PORT  # type: ignore[assignment]
+    from dango.config.helpers import is_running_on_cloud
+
+    if is_running_on_cloud():
+        base = "/notebooks/marimo/"
+        marimo_url = f"{base}?file={file}" if file else base
+    else:
+        marimo_url = (
+            f"http://localhost:{port}/?file={file}" if file else f"http://localhost:{port}/"
+        )
+
+    return JSONResponse(content={"ready": True, "marimo_url": marimo_url})
+
+
+@router.post("/api/notebooks/marimo/restart")
+async def restart_marimo(
+    request: Request,
+    user: User = Depends(require_permission("notebooks.manage")),
+) -> JSONResponse:
+    """Admin/editor: restart Marimo server, releasing all locks.
+
+    Returns the list of affected lock holders so the frontend can warn users.
+    The next notebook open will create a fresh DuckDB snapshot.
+    """
+    project_root = get_project_root()
+
+    # Collect active (non-expired) lock holders for the warning
+    active_locks: list[dict[str, str]] = []
+    with connect(project_root) as conn:
+        conn.execute("DELETE FROM notebook_locks WHERE expires_at < datetime('now')")
+        rows = conn.execute("SELECT notebook_id, locked_by FROM notebook_locks").fetchall()
+        active_locks = [{"notebook": r["notebook_id"], "user": r["locked_by"]} for r in rows]
+
+    # Stop Marimo
+    stop_marimo(project_root)
+
+    # Release all locks (inlined from manager._release_all_locks to avoid
+    # importing a private function across modules)
+    with connect(project_root) as conn:
+        conn.execute("DELETE FROM notebook_locks")
+        conn.commit()
+
+    # Audit
+    log_auth_event(
+        AuditEvent.NOTEBOOK_MARIMO_RESTARTED,
+        user_id=user.id,
+        email=user.email,
+        ip=request.client.host if request.client else None,
+        details={"active_locks": len(active_locks)},
+    )
+
     return JSONResponse(
-        content={"locked": True, "marimo_url": marimo_url, "ready": already_running}
+        content={
+            "restarted": True,
+            "affected_users": active_locks,
+            "message": "Marimo restarted. Next notebook open will create a fresh snapshot.",
+        }
     )
 
 

@@ -8,20 +8,28 @@
         <!-- Header -->
         <div class="flex items-center justify-between mb-6">
             <h2 class="text-xl font-bold text-gray-900">Notebooks</h2>
-            <template x-if="canExecute">
-                <div class="relative">
-                    <button @click="showCreateDropdown = !showCreateDropdown"
-                            class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors">
-                        New Notebook
+            <div class="flex items-center space-x-3">
+                <template x-if="canManage">
+                    <button @click="checkRestartImpact()"
+                            class="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 text-sm font-medium transition-colors">
+                        Restart Server
                     </button>
-                    <div x-show="showCreateDropdown" @click.away="showCreateDropdown = false" x-cloak
-                         class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50">
-                        <button @click="createNotebook('blank')" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Blank</button>
-                        <button @click="createNotebook('explore')" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Data Exploration</button>
-                        <button @click="createNotebook('quality')" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Data Quality</button>
+                </template>
+                <template x-if="canExecute">
+                    <div class="relative">
+                        <button @click="showCreateDropdown = !showCreateDropdown"
+                                class="px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 text-sm font-medium transition-colors">
+                            New Notebook
+                        </button>
+                        <div x-show="showCreateDropdown" @click.away="showCreateDropdown = false" x-cloak
+                             class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50">
+                            <button @click="createNotebook('blank')" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Blank</button>
+                            <button @click="createNotebook('explore')" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Data Exploration</button>
+                            <button @click="createNotebook('quality')" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Data Quality</button>
+                        </div>
                     </div>
-                </div>
-            </template>
+                </template>
+            </div>
         </div>
 
         <!-- Error banner -->
@@ -173,6 +181,38 @@
                 </div>
             </div>
         </div>
+
+        <!-- Restart Marimo Confirmation Modal -->
+        <div x-show="showRestartModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75" @click="showRestartModal = false"></div>
+                <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative z-10">
+                    <h3 class="text-lg font-medium text-yellow-600 mb-2">Restart Notebook Server</h3>
+                    <p class="text-sm text-gray-500 mb-4">
+                        This will stop the Marimo server and release all notebook locks.
+                        <span x-show="restartAffectedCount > 0" class="font-medium text-yellow-700">
+                            <span x-text="restartAffectedCount"></span> active notebook lock(s) will be released.
+                        </span>
+                        <span x-show="restartAffectedCount === 0" class="text-gray-400">
+                            No active notebook locks.
+                        </span>
+                    </p>
+                    <p class="text-sm text-gray-500 mb-4">
+                        The next notebook opened will get a fresh snapshot of your data.
+                        Users currently editing notebooks will lose their locks.
+                    </p>
+                    <div class="flex justify-end space-x-3">
+                        <button @click="showRestartModal = false"
+                                class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                        <button @click="restartMarimo()" :disabled="restartLoading"
+                                class="px-4 py-2 text-sm text-white bg-yellow-600 rounded-md hover:bg-yellow-700 disabled:opacity-50">
+                            <span x-show="!restartLoading">Restart Server</span>
+                            <span x-show="restartLoading" x-cloak>Restarting...</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </main>
 {% endblock %}
@@ -210,6 +250,11 @@ function notebooksPage() {
         // Lock revocation
         lockRevoked: false,
         revokedNotebook: '',
+
+        // Marimo restart
+        showRestartModal: false,
+        restartLoading: false,
+        restartAffectedCount: 0,
 
         async init() {
             await this.loadNotebooks();
@@ -270,31 +315,44 @@ function notebooksPage() {
 
                 // Navigate to Marimo
                 if (nbWindow) {
-                    const url = data.marimo_url;
                     if (data.ready) {
                         // Marimo was already running — navigate immediately
-                        nbWindow.location.href = url;
+                        nbWindow.location.href = data.marimo_url;
+                        setTimeout(() => { if (infoEl) infoEl.classList.add('hidden'); }, 8000);
                     } else {
-                        // New Marimo just started — poll until ready
+                        // Marimo starting in background — poll /api/notebooks/status
+                        const startTime = Date.now();
+                        const updateInfo = () => {
+                            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                            if (infoEl) {
+                                infoEl.textContent = `Starting notebook server... (${elapsed}s elapsed)`;
+                                infoEl.classList.remove('hidden');
+                            }
+                        };
+                        updateInfo();
                         const poll = async () => {
-                            for (let i = 0; i < 60; i++) {
+                            for (let i = 0; i < 120; i++) {  // 4 min timeout for large snapshots
+                                await new Promise(r => setTimeout(r, 2000));
+                                updateInfo();
                                 try {
-                                    const r = await fetch(url);
-                                    if (r.ok || r.status === 200) {
-                                        nbWindow.location.href = url;
+                                    const r = await fetch(`/api/notebooks/status?file=${nb.name}.py`);
+                                    const s = await r.json();
+                                    if (s.ready) {
+                                        nbWindow.location.href = s.marimo_url;
+                                        if (infoEl) infoEl.classList.add('hidden');
                                         return;
                                     }
-                                } catch { /* not ready yet */ }
-                                await new Promise(r => setTimeout(r, 1000));
+                                } catch { /* not ready */ }
                             }
-                            nbWindow.location.href = url; // try anyway after 60s
+                            // After 4 min, fall back to proxy URL
+                            nbWindow.location.href = `/notebooks/marimo/?file=${nb.name}.py`;
+                            if (infoEl) infoEl.classList.add('hidden');
                         };
                         poll();
                     }
                 }
                 this.activeNotebook = nb.name;
                 this.startHeartbeat(nb.name);
-                setTimeout(() => { if (infoEl) infoEl.classList.add('hidden'); }, 8000);
                 await this.loadNotebooks();
             } catch (e) {
                 if (nbWindow) nbWindow.close();
@@ -402,6 +460,34 @@ function notebooksPage() {
                 setTimeout(() => this.success = '', 3000);
                 await this.loadNotebooks();
             } catch (e) { this.error = 'Failed to force unlock'; }
+        },
+
+        async checkRestartImpact() {
+            try {
+                const res = await fetch('/api/notebooks', { headers });
+                const data = await res.json();
+                this.restartAffectedCount = data.filter(n => n.lock).length;
+            } catch { this.restartAffectedCount = 0; }
+            this.showRestartModal = true;
+        },
+
+        async restartMarimo() {
+            this.restartLoading = true;
+            try {
+                const res = await fetch('/api/notebooks/marimo/restart', { method: 'POST', headers });
+                const data = await res.json();
+                if (res.ok) {
+                    this.showRestartModal = false;
+                    this.success = data.message;
+                    setTimeout(() => this.success = '', 5000);
+                    this.activeNotebook = null;
+                    this.stopHeartbeat();
+                    await this.loadNotebooks();
+                } else {
+                    this.error = data.message || 'Failed to restart server';
+                }
+            } catch (e) { this.error = 'Failed to restart server'; }
+            this.restartLoading = false;
         },
 
         timeAgo(iso) {
