@@ -991,15 +991,28 @@ class DltPipelineRunner:
         pre_refresh_rows = self._get_source_total_rows(source_name)
         pre_table_counts = self._get_source_table_rows(source_name)
 
-        # Full refresh: drop pipeline state only (NOT schema)
-        # dlt with write_disposition="replace" handles table replacement automatically.
-        # Removing pre-load schema drop preserves data when 0 rows are returned.
+        # Full refresh: for merge/append sources, drop schema + state to force a
+        # true reload. Replace sources skip the schema drop since they overwrite
+        # tables on every run (preserving schema protects against 0-row results).
         if full_refresh:
-            console.print("  🔄 Full refresh: dropping pipeline state")
+            if not uses_replace_mode:
+                console.print("  🔄 Full refresh: dropping data and pipeline state")
+                try:
+                    import duckdb
+
+                    db = duckdb.connect(str(self.duckdb_path))
+                    try:
+                        db.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
+                    finally:
+                        db.close()
+                except Exception as e:
+                    console.print(f"  ⚠️  Could not drop schema: {e}")
+            else:
+                console.print("  🔄 Full refresh: dropping pipeline state")
             try:
                 pipeline.drop()
             except Exception as e:
-                console.print(f"  ⚠️  Could not drop pipeline: {e}")
+                console.print(f"  ⚠️  Could not drop pipeline state: {e}")
 
         try:
             # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
@@ -1355,15 +1368,28 @@ class DltPipelineRunner:
         pre_refresh_rows = self._get_source_total_rows(source_name)
         pre_table_counts = self._get_source_table_rows(source_name)
 
-        # Full refresh: drop pipeline state only (NOT schema)
-        # dlt with write_disposition="replace" handles table replacement automatically.
-        # Removing pre-load schema drop preserves data when 0 rows are returned.
+        # Full refresh: for merge/append sources, drop schema + state to force a
+        # true reload. Replace sources skip the schema drop since they overwrite
+        # tables on every run (preserving schema protects against 0-row results).
         if full_refresh:
-            console.print("  🔄 Full refresh: dropping pipeline state")
+            if not uses_replace_mode:
+                console.print("  🔄 Full refresh: dropping data and pipeline state")
+                try:
+                    import duckdb
+
+                    db = duckdb.connect(str(self.duckdb_path))
+                    try:
+                        db.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
+                    finally:
+                        db.close()
+                except Exception as e:
+                    console.print(f"  ⚠️  Could not drop schema: {e}")
+            else:
+                console.print("  🔄 Full refresh: dropping pipeline state")
             try:
                 pipeline.drop()
             except Exception as e:
-                console.print(f"  ⚠️  Could not drop pipeline: {e}")
+                console.print(f"  ⚠️  Could not drop pipeline state: {e}")
 
         try:
             # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)

@@ -798,14 +798,113 @@ class TestSchemaInteraction:
         assert result["status"] == "success"
         assert result["rows_loaded"] == 1200
 
-    def test_no_pre_schema_drop_in_source_code(self):
-        """Test 18: DROP SCHEMA CASCADE removed from _run_dlt_source."""
+    def test_drop_schema_present_and_conditional(self):
+        """Test 18: DROP SCHEMA present in _run_dlt_source, guarded by uses_replace_mode."""
         source = inspect.getsource(
             __import__(
                 "dango.ingestion.dlt_runner", fromlist=["DltPipelineRunner"]
             ).DltPipelineRunner._run_dlt_source
         )
-        assert "DROP SCHEMA" not in source
+        assert "DROP SCHEMA" in source
+        assert "if not uses_replace_mode:" in source
+
+    def test_merge_source_full_refresh_drops_schema(self, tmp_path):
+        """Merge source full refresh calls duckdb to drop schema."""
+        runner = _make_runner(tmp_path)
+        runner.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
+        runner.duckdb_path.touch()
+
+        with (
+            patch.object(runner, "_get_source_total_rows", return_value=1000),
+            patch.object(runner, "_get_source_table_rows", return_value={"t1": 1000}),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=False),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(
+                runner,
+                "_extract_load_stats",
+                return_value={"rows_loaded": 1200, "loaded_tables": ["t1"]},
+            ),
+            patch.object(runner, "_check_row_count_anomaly", return_value=None),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info()),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+            patch("duckdb.connect") as mock_connect,
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+            mock_db = MagicMock()
+            mock_connect.return_value = mock_db
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "success"
+        mock_connect.assert_called_once_with(str(runner.duckdb_path))
+        mock_db.execute.assert_called_once()
+        call_args = mock_db.execute.call_args[0][0]
+        assert "DROP SCHEMA" in call_args
+        assert "raw_test" in call_args
+        assert "CASCADE" in call_args
+        mock_db.close.assert_called_once()
+
+    def test_replace_source_full_refresh_skips_schema_drop(self, tmp_path):
+        """Replace source full refresh does NOT call duckdb to drop schema."""
+        runner = _make_runner(tmp_path)
+
+        with (
+            patch.object(runner, "_get_source_total_rows", return_value=1000),
+            patch.object(runner, "_get_source_table_rows", return_value={"t1": 1000}),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(
+                runner,
+                "_extract_load_stats",
+                return_value={"rows_loaded": 1200, "loaded_tables": ["t1"]},
+            ),
+            patch.object(runner, "_check_row_count_anomaly", return_value=None),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info()),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+            patch("duckdb.connect") as mock_connect,
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "success"
+        mock_connect.assert_not_called()
 
 
 # ============================================================================
@@ -1200,17 +1299,20 @@ class TestParameterThreading:
 
 
 @pytest.mark.unit
-class TestDropSchemaRemoval:
-    """Verify DROP SCHEMA CASCADE has been removed from both dlt methods."""
+class TestDropSchemaPresent:
+    """Verify DROP SCHEMA CASCADE is present (guarded by uses_replace_mode) in both dlt methods."""
 
     @pytest.mark.parametrize("method_name", ["_run_dlt_source", "_run_dlt_native_source"])
-    def test_no_drop_schema_cascade(self, method_name):
-        """DROP SCHEMA CASCADE must not appear in dlt sync methods."""
+    def test_drop_schema_cascade_present_and_conditional(self, method_name):
+        """DROP SCHEMA CASCADE must be present, guarded by not uses_replace_mode."""
         from dango.ingestion.dlt_runner import DltPipelineRunner
 
         source = inspect.getsource(getattr(DltPipelineRunner, method_name))
-        assert "DROP SCHEMA" not in source, (
-            f"{method_name} still contains DROP SCHEMA — must be removed"
+        assert "DROP SCHEMA" in source, (
+            f"{method_name} missing DROP SCHEMA — must be present for merge/append full refresh"
+        )
+        assert "if not uses_replace_mode:" in source, (
+            f"{method_name} DROP SCHEMA must be guarded by uses_replace_mode check"
         )
 
 
