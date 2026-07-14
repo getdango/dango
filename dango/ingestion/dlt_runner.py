@@ -884,6 +884,27 @@ class DltPipelineRunner:
         config = source_config.dlt_native
         source_name = source_config.name
 
+        # Auto-discover module/function from custom_sources/ if not specified
+        if not config.source_module or not config.source_function:
+            from dango.ingestion.sources.custom_discovery import discover_custom_sources
+
+            custom_sources_dir = self.project_root / "custom_sources"
+            if custom_sources_dir.exists():
+                discovered = discover_custom_sources(custom_sources_dir)
+                discovered_source = discovered.get(source_name)
+                if discovered_source:
+                    if not config.source_module:
+                        config.source_module = discovered_source.module_name
+                    if not config.source_function:
+                        config.source_function = discovered_source.function_name
+            if not config.source_module or not config.source_function:
+                raise ValueError(
+                    f"Could not determine source module/function for '{source_name}'.\n"
+                    f"  - No source_module/source_function in sources.yml\n"
+                    f"  - No matching @dlt.source function found in custom_sources/\n"
+                    f"  - Specify source_module and source_function in sources.yml"
+                )
+
         console.print(
             f"  📦 Loading dlt native source: {config.source_module}.{config.source_function}"
         )
@@ -1085,6 +1106,7 @@ class DltPipelineRunner:
                 "status": "success",
                 "source": source_name,
                 "rows_loaded": rows_loaded,
+                "uses_replace_mode": uses_replace_mode,
                 **stats,
             }
             if getattr(self, "_current_oauth_warning", None):

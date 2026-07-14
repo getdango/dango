@@ -197,7 +197,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            "incremental": False,
+            "incremental": None,  # Derived at runtime from actual source (AST + sync history)
             "custom_queries": True,
         },
     },
