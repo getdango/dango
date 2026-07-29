@@ -22,3 +22,5 @@ gitpython>=3.1.50       # CVE-2026-42215, CVE-2026-42284, CVE-2026-44244, GHSA-m
 pyasn1>=0.6.3           # CVE-2026-30922
 pygments>=2.20.0        # CVE-2026-4539
 urllib3>=2.7.0           # CVE-2026-44431, CVE-2026-44432
+# pymdown-extensions CVE-2026-61632 cannot be fixed without updating marimo
+# (marimo requires pymdown-extensions<11)

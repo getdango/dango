@@ -96,13 +96,15 @@ Create a Python file with `@dlt.source` and `@dlt.resource` decorators:
 # my_source.py
 import dlt
 
+
 @dlt.source
 def my_api_source(api_key=dlt.secrets.value):
     @dlt.resource(write_disposition="merge", primary_key="id")
     def items():
         # Your API logic here
-        response = requests.get("https://api.example.com/items",
-                                headers={"Authorization": f"Bearer {api_key}"})
+        response = requests.get(
+            "https://api.example.com/items", headers={"Authorization": f"Bearer {api_key}"}
+        )
         yield response.json()
 
     return items
