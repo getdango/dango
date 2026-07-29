@@ -141,9 +141,11 @@ class ConfigLoader:
     PROJECT_FILE = "project.yml"
     SOURCES_FILE = "sources.yml"
 
+
 # Enum (dango/config/models.py)
 class DeduplicationStrategy(str, Enum):
     """Data deduplication strategies"""
+
     NONE = "none"
     LATEST_ONLY = "latest_only"
     APPEND_ONLY = "append_only"
@@ -249,7 +251,7 @@ except Exception as e:
 ```python
 from dango.validation import validate_source_name, validate_date_string
 
-validate_source_name(name)       # raises InvalidSourceNameError
+validate_source_name(name)  # raises InvalidSourceNameError
 validate_date_string("2024-01-15")  # raises InvalidDateFormatError
 ```
 
@@ -294,6 +296,7 @@ logger.error("sync_failed", source="stripe", error=str(e), retry_in=60)
 
 ```python
 from rich.console import Console
+
 console = Console()
 console.print("[green]Sync complete![/green]")
 ```
@@ -306,6 +309,7 @@ Call `configure_logging()` once at each entry point (CLI, web server) before any
 
 ```python
 from dango.logging import configure_logging
+
 configure_logging()  # uses DANGO_LOG_LEVEL env var or defaults to INFO
 ```
 
@@ -489,19 +493,19 @@ Type hints are enforced by mypy with `disallow_untyped_defs = true` — see `pyp
 
 ```python
 # Function signatures (dango/config/loader.py)
-def find_project_root(self, start_path: Optional[Path] = None) -> Optional[Path]:
-    ...
+def find_project_root(self, start_path: Optional[Path] = None) -> Optional[Path]: ...
 
-def validate_config(self) -> tuple[bool, list[str]]:
-    ...
+
+def validate_config(self) -> tuple[bool, list[str]]: ...
+
 
 # Pydantic fields with descriptions (dango/config/models.py)
 class ProjectContext(BaseModel):
     """Project-level context and metadata"""
+
     name: str
     organization: Optional[str] = Field(
-        None,
-        description="Organization name (used in Metabase, Web UI, etc.)"
+        None, description="Organization name (used in Metabase, Web UI, etc.)"
     )
     purpose: str = Field(description="Why this project exists, what it's used for")
     stakeholders: list[Stakeholder] = Field(default_factory=list)
@@ -611,12 +615,12 @@ Use `require_permission()` as a FastAPI `Depends()` parameter. It returns the au
 ```python
 from dango.auth.permissions import require_permission
 
+
 @router.get("/api/admin/users")
 async def list_users(
     request: Request,
     user: User = Depends(require_permission("users.view")),
-) -> JSONResponse:
-    ...
+) -> JSONResponse: ...
 ```
 
 ### Cookie security flags
