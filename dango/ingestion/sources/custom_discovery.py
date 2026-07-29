@@ -187,7 +187,11 @@ def _import_and_inspect(
                 logger.warning("Could not create module spec for %s", module_name)
                 return result
             module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            sys.modules[module_name] = module
+            try:
+                spec.loader.exec_module(module)
+            finally:
+                sys.modules.pop(module_name, None)
         except Exception:
             logger.warning(
                 "Could not import %s for metadata extraction", module_name, exc_info=True
