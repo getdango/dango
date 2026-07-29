@@ -959,6 +959,8 @@ async def get_source_status_data(source: dict) -> SourceStatus:
 
     capabilities = get_source_capabilities(source_type)
     supports_incremental = capabilities.get("incremental", True) if capabilities else True
+    if supports_incremental is None:
+        supports_incremental = True
     supports_date_range = capabilities.get("date_range", False) if capabilities else False
 
     # Derive sync mode from actual sync history, then fall back to registry.
