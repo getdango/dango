@@ -37,11 +37,13 @@ migrations/
 
 Create initial auth tables.
 """
+
 from __future__ import annotations
 import sqlite3
 
-VERSION = 1              # Must match NNN in filename
+VERSION = 1  # Must match NNN in filename
 DESCRIPTION = "Create initial auth tables"
+
 
 def upgrade(conn: sqlite3.Connection) -> None:
     """Apply this migration. Do not call conn.commit()."""
