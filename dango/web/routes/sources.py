@@ -180,6 +180,8 @@ async def get_source_details(source_name: str) -> dict[str, object]:
 
     capabilities = get_source_capabilities(source_config.get("type", ""))
     supports_incremental = capabilities.get("incremental", True) if capabilities else True
+    if supports_incremental is None:
+        supports_incremental = True
 
     sync_mode_from_history: str | None = None
     for entry in history:
