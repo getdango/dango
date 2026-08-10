@@ -2463,6 +2463,7 @@ function applyModelsSort(models) {
         'schema': 'schema',
         'materialization': 'materialization',
         'rows': 'row_count',
+        'last_run': 'last_run',
     };
     if (modelSortColumn === 'status') {
         const dir = modelSortDirection === 'desc' ? -1 : 1;
@@ -2704,6 +2705,7 @@ function renderDbtModelsTable() {
                     ${actionButtons}
                     <a
                         href="/catalog?model=${encodeURIComponent(model.name)}"
+                        target="_blank" rel="noopener noreferrer"
                         class="text-blue-600 hover:text-blue-900 tooltip"
                         data-tooltip="View documentation"
                     >
@@ -2765,7 +2767,7 @@ function updateDbtModelStatus(modelName, running) {
         // Update status badge in the same row
         const row = btn.closest('tr');
         if (row) {
-            const statusCell = row.querySelector('td:nth-child(5)'); // 5th column is status
+            const statusCell = row.querySelector('td:nth-child(2)'); // 2nd column is status
             if (statusCell && running) {
                 // Show running badge with pulsing dot
                 statusCell.innerHTML = '<span class="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800"><span class="inline-block animate-pulse mr-1">●</span>Running</span>';
