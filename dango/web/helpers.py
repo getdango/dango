@@ -905,6 +905,46 @@ async def get_platform_health_data():
     }
 
 
+def _get_staleness_threshold_hours(source_name: str) -> float | None:
+    """Return the staleness threshold in hours for a scheduled source.
+
+    Returns 2x the minimum cron interval across all enabled schedules that
+    include this source. Returns None if the source is not scheduled or all
+    its schedules are manual-only (no cron).
+    """
+    from dango.config.schedules import _get_cron_interval_seconds, load_schedules_config
+
+    try:
+        config = load_schedules_config(get_project_root())
+    except Exception:
+        return None
+
+    intervals: list[float] = []
+    for schedule in config.schedules:
+        if not schedule.enabled:
+            continue
+        if source_name not in schedule.sources:
+            continue
+        if not schedule.cron:
+            # Manual-only trigger — skip
+            continue
+        try:
+            interval = _get_cron_interval_seconds(schedule.cron)
+        except Exception:
+            interval = None
+        if interval is not None:
+            intervals.append(interval)
+        else:
+            # Complex/unresolvable cron — fall back to 24h
+            intervals.append(24 * 3600)
+
+    if not intervals:
+        return None
+
+    # 2x the minimum interval
+    return (min(intervals) / 3600) * 2
+
+
 async def get_source_status_data(source: dict) -> SourceStatus:
     """Get status data for a single source (runs blocking operations in thread pool)."""
     source_name = source.get("name", "unknown")
@@ -953,6 +993,20 @@ async def get_source_status_data(source: dict) -> SourceStatus:
     else:
         # Edge case
         status = "not_synced"
+
+    # Check staleness for successfully synced sources that have schedules
+    if status == "synced":
+        hours_since = freshness.get("hours_since_sync")
+        if hours_since is not None:
+            threshold_hours = _get_staleness_threshold_hours(source_name)
+            if threshold_hours is not None and hours_since > threshold_hours:
+                logger.info(
+                    "source_marked_stale",
+                    source=source_name,
+                    hours_since_sync=hours_since,
+                    threshold_hours=threshold_hours,
+                )
+                status = "stale"
 
     # Look up source capabilities from registry
     from dango.ingestion.sources.registry import get_source_capabilities
