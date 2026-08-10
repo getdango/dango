@@ -33,6 +33,17 @@
                 <span x-text="view === 'lineage' ? 'Table View' : 'Lineage'"></span>
             </button>
         </div>
+        <!-- Source filter indicator -->
+        <div x-show="sourceFilter" x-cloak
+             class="px-4 py-2 bg-blue-50 border border-blue-100 rounded-lg mb-4 flex items-center justify-between">
+            <span class="text-sm text-blue-700">
+                Showing tables from source: <strong x-text="sourceFilter"></strong>
+            </span>
+            <button @click="sourceFilter = null; activeTab = 'all'; if (!_skipPush) updateUrl(false)"
+                    class="text-xs text-blue-500 hover:text-blue-700 font-medium">
+                Show all
+            </button>
+        </div>
         <div x-show="loading" x-cloak class="flex items-center justify-center py-12">
             <div class="text-gray-400 text-sm">Loading catalog...</div>
         </div>
@@ -97,7 +108,7 @@
             <div class="catalog-tabs">
                 <template x-for="tab in tabs" :key="tab.key">
                     <button class="catalog-tab" :class="activeTab === tab.key ? 'active' : ''"
-                            @click="activeTab = tab.key; if (!_skipPush) updateUrl(false)" x-text="tab.label + ' (' + tabCount(tab.key) + ')'"></button>
+                            @click="sourceFilter = null; activeTab = tab.key; if (!_skipPush) updateUrl(false)" x-text="tab.label + ' (' + tabCount(tab.key) + ')'"></button>
                 </template>
             </div>
             <!-- Search results or filtered list -->
@@ -148,13 +159,6 @@
             </template>
             <template x-if="searchResults === null">
                 <div>
-                    <template x-if="sourceFilter">
-                        <div class="mb-3 flex items-center gap-2 text-sm text-gray-600">
-                            Showing tables from source: <span class="font-medium" x-text="sourceFilter"></span>
-                            <button @click="sourceFilter = null; activeTab = 'all'; if (!_skipPush) updateUrl(false)"
-                                class="ml-2 text-indigo-600 hover:underline text-xs">Show all</button>
-                        </div>
-                    </template>
                     <template x-if="filteredItems.length === 0 && !loading">
                         <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
                             <template x-if="allModels.length === 0 && allSources.length === 0">
@@ -717,6 +721,8 @@ function catalogPage() {
             } else if (source) {
                 this.activeTab = 'source';
                 this.sourceFilter = source;
+                this.view = 'list';
+                this.selectedModel = null;
             } else if (view === 'lineage') {
                 const focus = params.get('focus');
                 const focusSource = params.get('focus_source');
@@ -812,7 +818,7 @@ function catalogPage() {
 
         async openModel(name) {
             this.view = 'detail'; this.detailLoading = true; this.selectedModel = null;
-            this.detailTab = 'columns'; this.error = null;
+            this.detailTab = 'columns'; this.error = null; this.sourceFilter = null;
             try {
                 const res = await fetch('/api/catalog/models/' + encodeURIComponent(name));
                 if (res.ok) {
@@ -983,6 +989,7 @@ function catalogPage() {
             if (this.view === 'lineage') {
                 this.goToList();
             } else {
+                this.sourceFilter = null;
                 this.view = 'lineage'; this.selectedNode = null;
                 this.lineageFocusName = null; this.lineageFocusSourceName = null;
                 this.impactHighlighted = false; this.impactCount = 0;
