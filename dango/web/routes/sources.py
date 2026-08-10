@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 
 from dango.validation import validate_source_name
 from dango.web.helpers import (
+    build_staleness_thresholds,
     get_source_freshness,
     get_source_row_count,
     get_source_status_data,
@@ -102,8 +103,14 @@ async def get_sources() -> list[SourceStatus]:
     # Load sources config in thread pool
     sources_config = await asyncio.to_thread(load_sources_config)
 
+    # Pre-compute staleness thresholds once (avoids re-loading schedules.yml per source)
+    staleness_thresholds = await asyncio.to_thread(build_staleness_thresholds)
+
     # Process all sources concurrently
-    tasks = [get_source_status_data(source) for source in sources_config]
+    tasks = [
+        get_source_status_data(source, staleness_thresholds=staleness_thresholds)
+        for source in sources_config
+    ]
     source_statuses = await asyncio.gather(*tasks)
 
     # Enrich with schedule info

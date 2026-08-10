@@ -297,7 +297,7 @@ def validate_schedules(
         for sched in schedules:
             if sched.type not in (ScheduleType.SYNC, ScheduleType.SYNC_ONLY):
                 continue
-            interval = _get_cron_interval_seconds(sched.cron)
+            interval = get_cron_interval_seconds(sched.cron)
             for src in sched.sources:
                 avg = average_durations.get(src)
                 if avg is not None and interval < avg * 0.8:
@@ -312,7 +312,7 @@ def validate_schedules(
     return errors, warnings
 
 
-def _get_cron_interval_seconds(cron_expr: str, sample_count: int = 5) -> float:
+def get_cron_interval_seconds(cron_expr: str, sample_count: int = 5) -> float:
     """Return the minimum interval between consecutive cron runs in seconds.
 
     Samples ``sample_count`` consecutive intervals and returns the smallest one.
