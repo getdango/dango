@@ -337,16 +337,16 @@ class TestHelpers:
 
     def test_get_cron_interval_uniform(self):
         """Uniform cron (every hour) returns 3600s."""
-        from dango.config.schedules import _get_cron_interval_seconds
+        from dango.config.schedules import get_cron_interval_seconds
 
-        interval = _get_cron_interval_seconds("0 * * * *")
+        interval = get_cron_interval_seconds("0 * * * *")
         assert interval == 3600.0
 
     def test_get_cron_interval_non_uniform(self):
         """Non-uniform cron (6am and 6pm) returns the min gap (12h)."""
-        from dango.config.schedules import _get_cron_interval_seconds
+        from dango.config.schedules import get_cron_interval_seconds
 
-        interval = _get_cron_interval_seconds("0 6,18 * * *")
+        interval = get_cron_interval_seconds("0 6,18 * * *")
         assert interval == 12 * 3600.0
 
     def test_detect_overlaps_identical_crons(self):
