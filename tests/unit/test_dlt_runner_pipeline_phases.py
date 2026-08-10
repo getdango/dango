@@ -30,6 +30,7 @@ def _make_mock_pipeline():
     p = MagicMock(spec=dlt.Pipeline)
     p.extract.return_value = None
     p.normalize.return_value = None
+    p.dataset_name = "raw_test_source"
     load_info = MagicMock()
     load_info.load_id = "test-load-id"
     load_info.metrics = {}

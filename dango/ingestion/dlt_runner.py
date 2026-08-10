@@ -988,8 +988,12 @@ class DltPipelineRunner:
         state_backup = self._backup_dlt_state(pipeline_name)
 
         # Always capture pre-refresh row count for empty replace protection
-        pre_refresh_rows = self._get_source_total_rows(source_name)
-        pre_table_counts = self._get_source_table_rows(source_name)
+        pre_refresh_rows = self._get_source_total_rows(
+            source_name, schema_name=pipeline.dataset_name
+        )
+        pre_table_counts = self._get_source_table_rows(
+            source_name, schema_name=pipeline.dataset_name
+        )
 
         # Full refresh: for merge/append sources, drop schema + state to force a
         # true reload. Replace sources skip the schema drop since they overwrite
@@ -1062,7 +1066,9 @@ class DltPipelineRunner:
                 and (full_refresh or uses_replace_mode)
                 and not allow_empty_replace
             ):
-                post_table_counts = self._get_source_table_rows(source_name)
+                post_table_counts = self._get_source_table_rows(
+                    source_name, schema_name=pipeline.dataset_name
+                )
                 if post_table_counts is not None:
                     truncated_tables: list[tuple[str, int]] = []
                     for table_name, pre_count in pre_table_counts.items():
@@ -1365,8 +1371,12 @@ class DltPipelineRunner:
         state_backup = self._backup_dlt_state(source_name)
 
         # Always capture pre-refresh row count for empty replace protection
-        pre_refresh_rows = self._get_source_total_rows(source_name)
-        pre_table_counts = self._get_source_table_rows(source_name)
+        pre_refresh_rows = self._get_source_total_rows(
+            source_name, schema_name=pipeline.dataset_name
+        )
+        pre_table_counts = self._get_source_table_rows(
+            source_name, schema_name=pipeline.dataset_name
+        )
 
         # Full refresh: for merge/append sources, drop schema + state to force a
         # true reload. Replace sources skip the schema drop since they overwrite
@@ -1440,7 +1450,9 @@ class DltPipelineRunner:
                 and (full_refresh or uses_replace_mode)
                 and not allow_empty_replace
             ):
-                post_table_counts = self._get_source_table_rows(source_name)
+                post_table_counts = self._get_source_table_rows(
+                    source_name, schema_name=pipeline.dataset_name
+                )
                 if post_table_counts is not None:
                     truncated_tables: list[tuple[str, int]] = []
                     for table_name, pre_count in pre_table_counts.items():
@@ -1473,7 +1485,9 @@ class DltPipelineRunner:
             if post_table_counts is not None:
                 total_row_count = sum(post_table_counts.values()) if post_table_counts else 0
             else:
-                total_row_count = self._get_source_total_rows(source_name)
+                total_row_count = self._get_source_total_rows(
+                    source_name, schema_name=pipeline.dataset_name
+                )
             if total_row_count is not None:
                 stats["total_row_count"] = total_row_count
             anomaly = self._check_row_count_anomaly(source_name, total_rows=total_row_count)
@@ -2107,7 +2121,9 @@ class DltPipelineRunner:
         mins = minutes % 60
         return f"{hours}h {mins}m"
 
-    def _get_source_table_rows(self, source_name: str) -> dict[str, int] | None:
+    def _get_source_table_rows(
+        self, source_name: str, schema_name: str | None = None
+    ) -> dict[str, int] | None:
         """Get per-table row counts for a source's raw schema.
 
         Returns dict of {table_name: row_count}, or None on error.
@@ -2115,7 +2131,7 @@ class DltPipelineRunner:
         """
         import duckdb
 
-        schema = f"raw_{source_name}"
+        schema = schema_name or f"raw_{source_name}"
         try:
             conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
             try:
@@ -2137,9 +2153,11 @@ class DltPipelineRunner:
         except Exception:
             return None
 
-    def _get_source_total_rows(self, source_name: str) -> int | None:
+    def _get_source_total_rows(
+        self, source_name: str, schema_name: str | None = None
+    ) -> int | None:
         """Get total row count across all tables in a source's raw schema."""
-        table_counts = self._get_source_table_rows(source_name)
+        table_counts = self._get_source_table_rows(source_name, schema_name=schema_name)
         if table_counts is None:
             return None
         return sum(table_counts.values()) if table_counts else 0
