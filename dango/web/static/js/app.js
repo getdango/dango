@@ -1183,7 +1183,9 @@ function applySourcesSort(srcs) {
 function sourceStatusOrder(src) {
     if (activeSyncs.has(src.name)) return 0;
     if (postSyncSources.has(src.name)) return 1;
-    const order = { 'synced': 10, 'partial': 20, 'empty': 30, 'not_synced': 40, 'failed': 50, 'never_synced': 60 };
+    const order = { 'synced': 10, 'stale': 15, 'partial': 20, 'empty': 30, 'not_synced': 40, 'failed': 50, 'never_synced': 60 };
+    // Check src.status first (backend-computed staleness overrides freshness.status)
+    if (order[src.status] != null) return order[src.status];
     return order[src.freshness?.status] != null ? order[src.freshness.status] : 99;
 }
 
@@ -1430,6 +1432,7 @@ function getStatusBadge(status) {
         'empty': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Empty</span>',
         'not_synced': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">Not Synced</span>',
         'failed': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">Failed</span>',
+        'stale': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">⚠ Stale</span>',
     };
 
     return badges[status] || badges['not_synced'];
@@ -1487,6 +1490,11 @@ function renderStatusPill(source, isSyncing, hasFileOps) {
 
     if (hasFileOps) {
         return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800 animate-pulse">⚙️ Processing...</span>';
+    }
+
+    // Check source.status for backend-computed staleness
+    if (source.status === 'stale') {
+        return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">⚠ Stale</span>';
     }
 
     // Use freshness data if available

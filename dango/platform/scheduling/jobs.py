@@ -713,6 +713,7 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
                     "event": "sync_completed",
                     "schedule": schedule_name,
                     "sources": source_names,
+                    "source": source_names[0] if len(source_names) == 1 else schedule_name,
                     "duration_seconds": round(elapsed, 2),
                     "timestamp": _ts(),
                 }
