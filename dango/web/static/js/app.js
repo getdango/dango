@@ -2703,7 +2703,7 @@ function renderDbtModelsTable() {
                 <td class="px-6 py-4 whitespace-nowrap">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(model.name)}</div>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap">
+                <td class="px-6 py-4 whitespace-nowrap" data-column="status">
                     ${statusBadge}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
@@ -2775,7 +2775,7 @@ function updateDbtModelStatus(modelName, running) {
         // Update status badge in the same row
         const row = btn.closest('tr');
         if (row) {
-            const statusCell = row.querySelector('td:nth-child(2)'); // 2nd column is status
+            const statusCell = row.querySelector('td[data-column="status"]');
             if (statusCell && running) {
                 // Show running badge with pulsing dot
                 statusCell.innerHTML = '<span class="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800"><span class="inline-block animate-pulse mr-1">●</span>Running</span>';
