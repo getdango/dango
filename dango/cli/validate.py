@@ -4,6 +4,7 @@ Validates Dango project configuration and resources.
 """
 
 import importlib.util
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -68,6 +69,7 @@ class ProjectValidator:
         self._check_source_connectivity()
         self._check_env_vars()
         self._check_dbt_setup()
+        self._check_model_sql_portability()
         self._check_database()
         self._check_dependencies()
         self._check_permissions()
@@ -518,6 +520,48 @@ class ProjectValidator:
                     "dbt: Model validation", "warn", f"Could not validate models: {str(e)[:100]}"
                 )
             )
+
+    def _check_model_sql_portability(self):
+        """Warn on hardcoded DuckDB read_* calls / absolute paths in model SQL.
+
+        Absolute paths and DuckDB ``read_csv_auto``/``read_parquet``/etc. calls
+        break when models run in Metabase (Docker) or on a cloud server. Suggest
+        the portable dbt seed pattern (``dango seed add`` + ``{{ ref() }}``) instead.
+
+        Emits warning-only results (non-fatal): each offending file yields one warn.
+        """
+        models_dir = self.project_root / "dbt" / "models"
+        if not models_dir.exists():
+            return
+
+        read_fn_re = re.compile(r"\bread_(csv_auto|parquet|json_auto|csv)\s*\(")
+        abs_path_re = re.compile(r"~/|/(?:Users|home|srv)/|[A-Za-z]:\\|['\"]/")
+
+        for sql_file in sorted(models_dir.rglob("*.sql")):
+            try:
+                content = sql_file.read_text(encoding="utf-8")
+            except Exception:  # noqa: BLE001
+                continue
+
+            offending_lines: list[int] = []
+            for lineno, raw_line in enumerate(content.splitlines(), 1):
+                # Strip `--` line comments so the wizard's own guidance text
+                # (which documents the seed pattern) is not flagged.
+                code = raw_line.split("--", 1)[0]
+                if read_fn_re.search(code) or abs_path_re.search(code):
+                    offending_lines.append(lineno)
+
+            if offending_lines:
+                rel_path = sql_file.relative_to(self.project_root)
+                lines_str = ", ".join(str(n) for n in offending_lines[:5])
+                self.results.append(
+                    ValidationResult(
+                        "dbt: Model SQL portability",
+                        "warn",
+                        f"{rel_path} (line(s) {lines_str}) uses read_csv_auto/absolute path. "
+                        "Use 'dango seed add <file>' and {{ ref('seed_name') }} instead.",
+                    )
+                )
 
     def _check_database(self):
         """Check if DuckDB database exists and is accessible"""

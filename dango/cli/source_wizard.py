@@ -220,6 +220,29 @@ class SourceWizard:
 
             # Step 6b: Create directory if this is a file-based source
             if source_type in ("csv", "local_files") and "directory" in params:
+                raw_directory = params["directory"]
+                raw_path = Path(raw_directory)
+
+                # Warn + relativize absolute directory paths (they break on other machines/cloud)
+                if raw_path.is_absolute():
+                    try:
+                        rel_path = raw_path.relative_to(self.project_root)
+                    except ValueError:
+                        rel_path = None
+
+                    if rel_path is not None:
+                        console.print(
+                            f"[yellow]⚠️  '{raw_directory}' is an absolute path. "
+                            f"Using relative path '{rel_path}' instead — portable across machines/cloud.[/yellow]"
+                        )
+                        params["directory"] = str(rel_path)
+                    else:
+                        console.print(
+                            f"[yellow]⚠️  '{raw_directory}' is an absolute path outside the project. "
+                            "Consider a path relative to the project root (e.g. data/uploads/...) "
+                            "so it works on other machines and in the cloud.[/yellow]"
+                        )
+
                 directory_path = self.project_root / params["directory"]
                 if not directory_path.exists():
                     directory_path.mkdir(parents=True, exist_ok=True)
