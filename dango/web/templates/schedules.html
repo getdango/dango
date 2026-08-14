@@ -28,7 +28,7 @@
             </svg>
             <input type="text" x-model="filterText" placeholder="Filter by name, type, or cron..."
                    class="w-full px-3 py-2 border text-sm border-gray-300 rounded-md">
-            <button x-show="filterText" @click="filterText = ''"
+            <button :class="{ 'invisible': !filterText }" @click="filterText = ''"
                     class="text-xs text-gray-400 hover:text-gray-600">Clear</button>
         </div>
         <div class="bg-white shadow rounded-b-lg overflow-x-auto mb-6">
