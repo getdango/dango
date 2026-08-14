@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,7 @@ from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.logging import get_logger
 from dango.utils.dango_db import connect
-from dango.utils.post_sync import profile_table
+from dango.utils.post_sync import _run_profiling, profile_table
 from dango.validation import validate_identifier, validate_source_name
 from dango.web.helpers import get_dbt_manifest, get_project_root
 
@@ -82,7 +83,8 @@ def _get_cached_stats(
     with connect(project_root) as conn:
         rows = conn.execute(
             "SELECT column_name, stat_type, stat_value "
-            "FROM profiling_stats WHERE source = ? AND table_name = ?",
+            "FROM profiling_stats WHERE source = ? AND table_name = ? "
+            "AND column_name != '__row_count__'",
             (source, table),
         ).fetchall()
     for row in rows:
@@ -117,6 +119,30 @@ def _get_profiled_at(
         result: str = row[0]
         return result
     return None
+
+
+def _get_cached_row_counts(project_root: Path) -> dict[tuple[str, str], int]:
+    """Read all cached table-level row counts from SQLite.
+
+    Args:
+        project_root: Dango project root.
+
+    Returns:
+        Mapping of ``{(source, table_name): row_count}`` for every table that
+        has a cached ``__row_count__`` synthetic stat row.
+    """
+    result: dict[tuple[str, str], int] = {}
+    with connect(project_root) as conn:
+        rows = conn.execute(
+            "SELECT source, table_name, stat_value FROM profiling_stats "
+            "WHERE column_name = '__row_count__' AND stat_type = 'value'"
+        ).fetchall()
+    for row in rows:
+        try:
+            result[(row[0], row[1])] = int(row[2])
+        except (TypeError, ValueError):
+            continue
+    return result
 
 
 def _get_row_count(db_path: Path, source: str, table: str) -> int:
@@ -326,6 +352,34 @@ def _classify_model_type(node: dict[str, Any]) -> str:
     return "intermediate"
 
 
+def _model_profiling_key(node: dict[str, Any], kind: str) -> tuple[str, str] | None:
+    """Return the ``(source, table_name)`` SQLite key used by the profiling write path.
+
+    Mirrors :func:`dango.utils.post_sync.profile_table` callers so cached stats
+    and row counts can be read back for any model type:
+    - sources and staging models are keyed by the raw source name,
+    - intermediate/marts models are keyed by their dbt schema.
+
+    Args:
+        node: A manifest model or source node dict.
+        kind: ``"model"`` or ``"source"``.
+
+    Returns:
+        ``(source, table_name)`` tuple or ``None`` if no key applies.
+    """
+    table = node.get("alias") or node.get("name", "")
+    if not table:
+        return None
+    if kind == "source":
+        source = node.get("source_name", "")
+        return (source, table) if source else None
+    schema = node.get("schema", "")
+    if schema == "staging":
+        m = re.match(r"^stg_(.+?)__", table)
+        return (m.group(1), table) if m else None
+    return (schema, table) if schema else None
+
+
 def _get_model_column_schema(
     db_path: Path,
     schema: str,
@@ -382,6 +436,7 @@ def _build_catalog_models(
 
     project_root = get_project_root()
     model_statuses = get_model_statuses(project_root)
+    cached_row_counts = _get_cached_row_counts(project_root)
 
     models: list[dict[str, Any]] = []
     for uid, node in manifest.get("nodes", {}).items():
@@ -395,6 +450,8 @@ def _build_catalog_models(
         tests_failing = sum(1 for t in tests if t["status"] in ("fail", "error"))
 
         status_info = model_statuses.get(uid, {})
+        key = _model_profiling_key(node, "model")
+        row_count = cached_row_counts.get(key) if key else None
 
         models.append(
             {
@@ -413,6 +470,7 @@ def _build_catalog_models(
                 "tags": node.get("tags", []),
                 "last_run": status_info.get("last_run"),
                 "status": status_info.get("status"),
+                "row_count": row_count,
             }
         )
 
@@ -848,6 +906,42 @@ async def refresh_table_profile(
     }
 
 
+@router.post("/api/catalog/profile-all")
+async def profile_all_models(
+    user: User = Depends(require_permission("governance.view")),  # noqa: ARG001
+) -> dict[str, Any]:
+    """Re-profile all raw tables, staging models, and dbt models.
+
+    Populates row counts and column stats in the profiling cache without
+    requiring a sync — covers projects set up via data import and syncs where
+    every source failed.
+
+    Args:
+        user: Authenticated user with ``governance.view`` permission.
+
+    Returns:
+        Dict with the profiling status and the discovered source names.
+    """
+    project_root = get_project_root()
+    db_path = project_root / "data" / "warehouse.duckdb"
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail="No warehouse database found. Sync data first.")
+
+    raw_tables = await asyncio.to_thread(_get_raw_tables_from_duckdb, db_path)
+    source_names = sorted({rt["source_name"] for rt in raw_tables})
+    if not source_names:
+        raise HTTPException(status_code=404, detail="No tables found to profile.")
+
+    try:
+        await asyncio.to_thread(_run_profiling, project_root, source_names)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Profiling failed: {type(exc).__name__}"
+        ) from exc
+
+    return {"status": "ok", "sources": source_names}
+
+
 # ---------------------------------------------------------------------------
 # Catalog model endpoints
 # ---------------------------------------------------------------------------
@@ -1030,19 +1124,13 @@ async def get_catalog_model(
     if db_path.exists() and schema and table:
         db_columns = await asyncio.to_thread(_get_model_column_schema, db_path, schema, table)
 
-    # Get profiled_at — for source tables use source_name, for models derive from name
-    source_name = ""
-    if kind == "source":
-        source_name = target_node.get("source_name", "")
-    else:
-        # Derive source from staging model name: stg_{source}__{table}
-        import re
-
-        m = re.match(r"^stg_(.+?)__", table)
-        if m:
-            source_name = m.group(1)
-    if source_name:
-        profiled_at = await asyncio.to_thread(_get_profiled_at, project_root, source_name, table)
+    # Get profiled_at from the profiling cache, keyed identically to the write path
+    cache_key = _model_profiling_key(target_node, kind)
+    if cache_key:
+        cache_source, cache_table = cache_key
+        profiled_at = await asyncio.to_thread(
+            _get_profiled_at, project_root, cache_source, cache_table
+        )
 
     result = _build_model_detail(
         manifest, run_results, target_uid, target_node, kind, db_columns, profiled_at
@@ -1067,8 +1155,11 @@ async def get_catalog_model(
             result["row_count"] = row_count
 
     # Inject cached profiling stats for any table with profiling data
-    if source_name and result.get("columns"):
-        cached_stats = await asyncio.to_thread(_get_cached_stats, project_root, source_name, table)
+    if cache_key and result.get("columns"):
+        cache_source, cache_table = cache_key
+        cached_stats = await asyncio.to_thread(
+            _get_cached_stats, project_root, cache_source, cache_table
+        )
         if cached_stats:
             for col in result["columns"]:
                 col["stats"] = cached_stats.get(col["name"])
