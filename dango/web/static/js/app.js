@@ -2764,6 +2764,7 @@ async function runDbtModel(modelName, cascade) {
         addLogEntry('error', `Failed to run: ${error.message}`, `dbt:${modelName}`);
         // Revert optimistic update
         updateDbtModelStatus(modelName, false);
+        renderDbtModelsTable();
     }
 }
 
@@ -2791,7 +2792,6 @@ function updateDbtModelStatus(modelName, running) {
         runningModels.add(modelName);
     } else {
         runningModels.delete(modelName);
-        renderDbtModelsTable();
     }
 }
 
