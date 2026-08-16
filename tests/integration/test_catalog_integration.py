@@ -143,6 +143,10 @@ class TestProfileTableIntegration:
         assert "id" in stat_map
         assert stat_map["id"]["null_count"] == "0"
 
+        # Table-level row count is stored as a synthetic __row_count__ stat
+        assert "__row_count__" in stat_map
+        assert stat_map["__row_count__"]["value"] == "5"
+
     def test_zero_row_table(self, tmp_path: Path) -> None:
         """Zero-row table is handled gracefully."""
         _clear_schema_cache()
