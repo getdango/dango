@@ -42,13 +42,13 @@ let syncTimers = new Map();
 let syncResults = new Map();  // Stores sync_completed data for in-place updates
 
 // Sort/filter state for Sources table (persisted in localStorage)
-let sourceSortColumn = localStorage.getItem('dango-sources-sort-column') || null;
-let sourceSortDirection = localStorage.getItem('dango-sources-sort-direction') || null;
+let sourceSortColumn = localStorage.getItem('dango-sources-sort-column') || 'name';
+let sourceSortDirection = localStorage.getItem('dango-sources-sort-direction') || 'asc';
 let sourceFilterText = localStorage.getItem('dango-sources-filter') || '';
 
 // Sort/filter state for Models table (persisted in localStorage)
-let modelSortColumn = localStorage.getItem('dango-models-sort-column') || null;
-let modelSortDirection = localStorage.getItem('dango-models-sort-direction') || null;
+let modelSortColumn = localStorage.getItem('dango-models-sort-column') || 'name';
+let modelSortDirection = localStorage.getItem('dango-models-sort-direction') || 'asc';
 let modelFilterText = localStorage.getItem('dango-models-filter') || '';
 
 /**
@@ -1191,7 +1191,7 @@ function sourceStatusOrder(src) {
 
 function applySourcesFilter(srcs) {
     if (!sourceFilterText) return srcs;
-    return filterByText(srcs, sourceFilterText, ['name', 'type']);
+    return filterByText(srcs, sourceFilterText, ['name', 'type', 'type_display']);
 }
 
 function updateSourcesSortArrows() {
@@ -1228,7 +1228,7 @@ function initSourcesSortHeaders() {
 
         if (sourceSortColumn === colKey) {
             if (sourceSortDirection === 'asc') sourceSortDirection = 'desc';
-            else if (sourceSortDirection === 'desc') { sourceSortDirection = null; sourceSortColumn = null; }
+            else if (sourceSortDirection === 'desc') { sourceSortColumn = 'name'; sourceSortDirection = 'asc'; }
             else { sourceSortColumn = colKey; sourceSortDirection = 'asc'; }
         } else {
             sourceSortColumn = colKey;
@@ -1247,13 +1247,13 @@ function initSourcesFilter() {
 
     input.value = sourceFilterText || '';
     if (clearBtn) {
-        clearBtn.classList.toggle('hidden', !sourceFilterText);
+        clearBtn.classList.toggle('invisible', !sourceFilterText);
     }
 
     input.addEventListener('input', () => {
         sourceFilterText = input.value;
         localStorage.setItem('dango-sources-filter', sourceFilterText);
-        if (clearBtn) clearBtn.classList.toggle('hidden', !sourceFilterText);
+        if (clearBtn) clearBtn.classList.toggle('invisible', !sourceFilterText);
         renderSourcesTable();
     });
 
@@ -1262,7 +1262,7 @@ function initSourcesFilter() {
             input.value = '';
             sourceFilterText = '';
             localStorage.setItem('dango-sources-filter', '');
-            clearBtn.classList.add('hidden');
+            clearBtn.classList.add('invisible');
             renderSourcesTable();
         });
     }
@@ -1293,6 +1293,8 @@ function renderSourcesTable() {
     }
 
     const canSync = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
+
+    sources.forEach(s => { s.type_display = formatSourceType(s.type); });
 
     // Apply sort and filter
     const sorted = applySourcesSort(sources);
@@ -2529,7 +2531,7 @@ function initModelsSortHeaders() {
 
         if (modelSortColumn === colKey) {
             if (modelSortDirection === 'asc') modelSortDirection = 'desc';
-            else if (modelSortDirection === 'desc') { modelSortDirection = null; modelSortColumn = null; }
+            else if (modelSortDirection === 'desc') { modelSortColumn = 'name'; modelSortDirection = 'asc'; }
             else { modelSortColumn = colKey; modelSortDirection = 'asc'; }
         } else {
             modelSortColumn = colKey;
@@ -2548,13 +2550,13 @@ function initModelsFilter() {
 
     input.value = modelFilterText || '';
     if (clearBtn) {
-        clearBtn.classList.toggle('hidden', !modelFilterText);
+        clearBtn.classList.toggle('invisible', !modelFilterText);
     }
 
     input.addEventListener('input', () => {
         modelFilterText = input.value;
         localStorage.setItem('dango-models-filter', modelFilterText);
-        if (clearBtn) clearBtn.classList.toggle('hidden', !modelFilterText);
+        if (clearBtn) clearBtn.classList.toggle('invisible', !modelFilterText);
         renderDbtModelsTable();
     });
 
@@ -2563,7 +2565,7 @@ function initModelsFilter() {
             input.value = '';
             modelFilterText = '';
             localStorage.setItem('dango-models-filter', '');
-            clearBtn.classList.add('hidden');
+            clearBtn.classList.add('invisible');
             renderDbtModelsTable();
         });
     }
@@ -2762,6 +2764,7 @@ async function runDbtModel(modelName, cascade) {
         addLogEntry('error', `Failed to run: ${error.message}`, `dbt:${modelName}`);
         // Revert optimistic update
         updateDbtModelStatus(modelName, false);
+        renderDbtModelsTable();
     }
 }
 

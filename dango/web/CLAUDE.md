@@ -105,6 +105,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 - **`load_sources_config()` patching:** `load_sources_config()` in `helpers.py` internally calls `get_project_root()`. Patching `get_project_root` at the route module level doesn't reach the call inside `load_sources_config()`. Patch `load_sources_config` directly at the route module level instead.
 - **Alpine.js object reactivity:** Proxy doesn't track `delete obj[key]` or direct property mutation. Must use object spread reassignment (`this.obj = {...updated}`) for reactive updates. Arrays with `.push()`/`.splice()` work fine; objects do not.
 - **`routes/sync.py` uses subprocess model (R10-N):** Syncs run in a subprocess via `sync_process.py` — the web server process never holds the DuckDB write lock. `run_sync_task()` launches subprocess + polls status file.
+- **Target table cells via `data-column` attributes, not `nth-child()`.** Positional selectors silently break when column order changes. See `renderDbtModelsTable()` / `updateDbtModelStatus()` in app.js. (The Sources table uses the equivalent `data-col` attribute.)
 
 ## Sort/Filter Patterns
 
@@ -116,7 +117,7 @@ All data tables support column sorting and text filtering, with state persisted 
 - Sort/filter state in global variables: `sourceSortColumn`, `sourceSortDirection`, `sourceFilterText` (model equivalents with `model*` prefix)
 - `applySourcesSort()` / `applyModelsSort()` sort before render; computed columns (Status) use numeric order functions
 - `applySourcesFilter()` / `applyModelsFilter()` filter by case-insensitive substring match
-- Column headers get `data-sort-key` attributes; event delegation on `<thead>` handles clicks (cycle asc→desc→unsorted)
+- Column headers get `data-sort-key` attributes; event delegation on `<thead>` handles clicks (cycle asc→desc→name-ascending)
 - `updateSourcesSortArrows()` / `updateModelsSortArrows()` refresh ▲/▼ indicators after each render
 - Filter input + clear button are outside `overflow-x-auto` for horizontal scroll visibility
 - See `app.js`: `renderSourcesTable()`, `renderDbtModelsTable()`
@@ -139,7 +140,7 @@ All data tables support column sorting and text filtering, with state persisted 
 | Scripts | `dango-scripts-sort-column` | `dango-scripts-sort-direction` | `dango-scripts-filter` |
 
 ### Sort Behavior
-- Click cycles: asc → desc → unsorted (preserves API order)
+- Default sort is name ascending on first load (no saved preference). Click cycles: asc → desc → name-ascending (third click returns to name ascending).
 - Missing (null/undefined) values always sort last
 - String comparison is case-insensitive (`localeCompare`); numeric values compare as numbers
 - Computed columns (Status) use a numeric order function (0=active, 10=success, 20=failed, etc.)

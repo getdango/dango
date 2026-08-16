@@ -584,8 +584,8 @@ function catalogPage() {
         // handling to prevent feedback loops (restoreFromUrl → openModel → updateUrl).
         _skipPush: false,
         // Sort state
-        sortColumn: localStorage.getItem('dango-catalog-sort-column') || null,
-        sortDirection: localStorage.getItem('dango-catalog-sort-direction') || null,
+        sortColumn: localStorage.getItem('dango-catalog-sort-column') || 'name',
+        sortDirection: localStorage.getItem('dango-catalog-sort-direction') || 'asc',
         // Tab config
         tabs: [
             { key: 'all', label: 'All' },
@@ -799,7 +799,7 @@ function catalogPage() {
         toggleCatalogSort(col) {
             if (this.sortColumn === col) {
                 if (this.sortDirection === 'asc') this.sortDirection = 'desc';
-                else if (this.sortDirection === 'desc') { this.sortDirection = null; this.sortColumn = null; }
+                else if (this.sortDirection === 'desc') { this.sortColumn = 'name'; this.sortDirection = 'asc'; }
                 else this.sortDirection = 'asc';
             } else {
                 this.sortColumn = col;

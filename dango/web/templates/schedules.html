@@ -28,7 +28,7 @@
             </svg>
             <input type="text" x-model="filterText" placeholder="Filter by name, type, or cron..."
                    class="w-full px-3 py-2 border text-sm border-gray-300 rounded-md">
-            <button x-show="filterText" @click="filterText = ''"
+            <button :class="{ 'invisible': !filterText }" @click="filterText = ''"
                     class="text-xs text-gray-400 hover:text-gray-600">Clear</button>
         </div>
         <div class="bg-white shadow rounded-b-lg overflow-x-auto mb-6">
@@ -320,8 +320,8 @@ function schedulesPage() {
         pollInterval: null,
 
         // Sort/filter state
-        sortColumn: localStorage.getItem('dango-schedules-sort-column') || null,
-        sortDirection: localStorage.getItem('dango-schedules-sort-direction') || null,
+        sortColumn: localStorage.getItem('dango-schedules-sort-column') || 'name',
+        sortDirection: localStorage.getItem('dango-schedules-sort-direction') || 'asc',
         filterText: localStorage.getItem('dango-schedules-filter') || '',
 
         async init() {
@@ -386,7 +386,7 @@ function schedulesPage() {
         toggleSort(col) {
             if (this.sortColumn === col) {
                 if (this.sortDirection === 'asc') this.sortDirection = 'desc';
-                else if (this.sortDirection === 'desc') { this.sortDirection = null; this.sortColumn = null; }
+                else if (this.sortDirection === 'desc') { this.sortColumn = 'name'; this.sortDirection = 'asc'; }
                 else this.sortDirection = 'asc';
             } else {
                 this.sortColumn = col;
