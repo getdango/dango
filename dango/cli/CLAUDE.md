@@ -24,6 +24,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/config_cmd.py` (240 lines) | `config` group (`validate`, `show`, `do-token`) | `config` |
 | `commands/metabase_cmd.py` (412 lines) | `metabase` group (`save`, `load`, `refresh`) | `metabase` |
 | `commands/model.py` (258 lines) | `model` group (`add`, `remove`) | `model` |
+| `commands/seed.py` (160 lines) | `seed` group (`add`, `list`) — dbt seed CSV management | `seed` |
 | `commands/dashboard.py` (153 lines) | `dashboard` group (`provision`) | `dashboard` |
 | `commands/remote.py` (702 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
@@ -91,6 +92,8 @@ dango (top-level group)
 │   │   facebook_ads, google_sheets, google_analytics, google_ads
 ├── model (group)               ← commands/model.py
 │   ├── add, remove
+├── seed (group)                ← commands/seed.py
+│   ├── add, list
 ├── dashboard (group)           ← commands/dashboard.py
 │   ├── provision
 ├── migrate (group)             ← commands/migrate.py
