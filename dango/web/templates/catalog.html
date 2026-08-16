@@ -52,6 +52,11 @@
         <div x-show="!loading && view === 'list'">
             <div class="flex items-center justify-between mb-2">
                 <h2 class="text-xl font-bold text-gray-900">Data Catalog</h2>
+                <button @click="profileAll()" :disabled="profileAllLoading"
+                        class="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium transition-colors disabled:opacity-50">
+                    <span x-show="!profileAllLoading">Refresh counts</span>
+                    <span x-show="profileAllLoading" x-cloak>Profiling...</span>
+                </button>
             </div>
             <!-- Summary cards -->
             <template x-if="overview">
@@ -183,6 +188,7 @@
                                                 class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700">
                                                 Type<template x-if="sortColumn === 'type'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
                                             </th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Rows</th>
                                             <th @click="toggleCatalogSort('description')"
                                                 class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden sm:table-cell">
                                                 Description<template x-if="sortColumn === 'description'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
@@ -214,6 +220,8 @@
                                                 <td class="px-6 py-4 whitespace-nowrap">
                                                     <span class="model-badge" :class="'model-badge-' + item.type" x-text="item.type"></span>
                                                 </td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
+                                                    x-text="item.row_count != null ? item.row_count.toLocaleString() : '--'"></td>
                                                 <td class="px-6 py-4 hidden sm:table-cell">
                                                     <div class="desc-truncate text-sm text-gray-500" :title="item.description" x-text="item.description || '--'"></div>
                                                 </td>
@@ -571,13 +579,13 @@ function catalogPage() {
         // Governance state
         piiFindings: [], driftEvents: [], piiOverrides: [],
         // Shared state
-        loading: true, profilingLoading: false, error: null, hasLineage: false, showAllSources: false,
+        loading: true, profilingLoading: false, profileAllLoading: false, error: null, hasLineage: false, showAllSources: false,
         // Guard flag: suppresses pushState during URL restoration and popstate
         // handling to prevent feedback loops (restoreFromUrl → openModel → updateUrl).
         _skipPush: false,
         // Sort state
-        sortColumn: localStorage.getItem('dango-catalog-sort-column') || null,
-        sortDirection: localStorage.getItem('dango-catalog-sort-direction') || null,
+        sortColumn: localStorage.getItem('dango-catalog-sort-column') || 'name',
+        sortDirection: localStorage.getItem('dango-catalog-sort-direction') || 'asc',
         // Tab config
         tabs: [
             { key: 'all', label: 'All' },
@@ -791,7 +799,7 @@ function catalogPage() {
         toggleCatalogSort(col) {
             if (this.sortColumn === col) {
                 if (this.sortDirection === 'asc') this.sortDirection = 'desc';
-                else if (this.sortDirection === 'desc') { this.sortDirection = null; this.sortColumn = null; }
+                else if (this.sortDirection === 'desc') { this.sortColumn = 'name'; this.sortDirection = 'asc'; }
                 else this.sortDirection = 'asc';
             } else {
                 this.sortColumn = col;
@@ -935,6 +943,29 @@ function catalogPage() {
                 }
             } catch (e) { this.error = 'Failed to refresh profile.'; }
             finally { this.profilingLoading = false; }
+        },
+
+        async profileAll() {
+            this.profileAllLoading = true; this.error = null;
+            try {
+                const res = await fetch('/api/catalog/profile-all', {
+                    method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                if (res.ok) {
+                    // Reload the model list to pick up the fresh row counts
+                    const modelsRes = await fetch('/api/catalog/models');
+                    if (modelsRes.ok) {
+                        const data = await modelsRes.json();
+                        this.allModels = data.models || [];
+                        this.allSources = data.sources || [];
+                        this.overview = data.overview || null;
+                    }
+                } else {
+                    const data = await res.json().catch(() => null);
+                    this.error = data?.detail || 'Failed to refresh counts.';
+                }
+            } catch (e) { this.error = 'Failed to refresh counts.'; }
+            finally { this.profileAllLoading = false; }
         },
 
         viewInLineage(name, sourceName) {

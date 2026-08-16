@@ -117,7 +117,7 @@ All data tables support column sorting and text filtering, with state persisted 
 - Sort/filter state in global variables: `sourceSortColumn`, `sourceSortDirection`, `sourceFilterText` (model equivalents with `model*` prefix)
 - `applySourcesSort()` / `applyModelsSort()` sort before render; computed columns (Status) use numeric order functions
 - `applySourcesFilter()` / `applyModelsFilter()` filter by case-insensitive substring match
-- Column headers get `data-sort-key` attributes; event delegation on `<thead>` handles clicks (cycle asc→desc→unsorted)
+- Column headers get `data-sort-key` attributes; event delegation on `<thead>` handles clicks (cycle asc→desc→name-ascending)
 - `updateSourcesSortArrows()` / `updateModelsSortArrows()` refresh ▲/▼ indicators after each render
 - Filter input + clear button are outside `overflow-x-auto` for horizontal scroll visibility
 - See `app.js`: `renderSourcesTable()`, `renderDbtModelsTable()`

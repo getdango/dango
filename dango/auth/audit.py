@@ -79,6 +79,7 @@ class AuditEvent(str, Enum):
     QUERY_EXECUTED              = "query_executed"
     CSV_UPLOADED                = "csv_uploaded"
     CSV_DELETED                 = "csv_deleted"
+    CATALOG_PROFILE_TRIGGERED   = "catalog_profile_triggered"
     # fmt: on
 
 

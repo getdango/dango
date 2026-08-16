@@ -30,6 +30,7 @@ class TestCliCommandRegistration:
             project,  # noqa: F401
             schedule,  # noqa: F401
             schedule_webhook,  # noqa: F401
+            seed,  # noqa: F401
             source,  # noqa: F401
             transform,  # noqa: F401
             upgrade,  # noqa: F401
@@ -64,6 +65,7 @@ class TestCliCommandRegistration:
             "rename",
             "run",
             "schedule",
+            "seed",
             "serve",
             "source",
             "start",
@@ -149,6 +151,14 @@ class TestCliCommandRegistration:
         assert result.exit_code == 0
         assert "add" in result.output
         assert "remove" in result.output
+
+    def test_seed_subcommands(self) -> None:
+        """Seed group has add and list subcommands."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["seed", "--help"])
+        assert result.exit_code == 0
+        assert "add" in result.output
+        assert "list" in result.output
 
     def test_metabase_subcommands(self) -> None:
         """Metabase group has save, load, refresh subcommands."""
