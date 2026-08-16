@@ -28,6 +28,7 @@ from dango.cli.commands.platform import start, status, stop
 from dango.cli.commands.project import info, init, rename
 from dango.cli.commands.remote import remote
 from dango.cli.commands.schedule import schedule
+from dango.cli.commands.seed import seed
 from dango.cli.commands.serve import serve
 from dango.cli.commands.snapshot import snapshot
 from dango.cli.commands.source import source, sync
@@ -108,6 +109,7 @@ cli.add_command(db)
 cli.add_command(auth)
 cli.add_command(oauth)
 cli.add_command(model)
+cli.add_command(seed)
 cli.add_command(dashboard)
 cli.add_command(metabase)
 cli.add_command(migrate)

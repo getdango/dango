@@ -407,6 +407,14 @@ class ModelWizard:
         lines.append("--")
         lines.append("--    These are final business tables for reporting/dashboards.")
         lines.append("--")
+        lines.append("-- 4. EXTERNAL CSV DATA (dbt seeds)")
+        lines.append("--    {# {{ ref('seed_name') }} #}")
+        lines.append("--    1. Add the file:   dango seed add path/to/data.csv")
+        lines.append("--    2. Reference it:   {# {{ ref('data') }} #}")
+        lines.append(
+            "--    (Do NOT use read_csv_auto('/absolute/path') — it breaks on other machines/cloud.)"
+        )
+        lines.append("--")
         lines.append("-- " + "=" * 76)
         lines.append("-- COMMON PATTERNS")
         lines.append("-- " + "=" * 76)
