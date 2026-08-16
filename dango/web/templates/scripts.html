@@ -174,8 +174,8 @@ function scriptsPage() {
         reconnectInterval: null,
 
         // Sort/filter state
-        sortColumn: localStorage.getItem('dango-scripts-sort-column') || null,
-        sortDirection: localStorage.getItem('dango-scripts-sort-direction') || null,
+        sortColumn: localStorage.getItem('dango-scripts-sort-column') || 'name',
+        sortDirection: localStorage.getItem('dango-scripts-sort-direction') || 'asc',
         filterText: localStorage.getItem('dango-scripts-filter') || '',
 
         async init() {
@@ -232,7 +232,7 @@ function scriptsPage() {
         toggleScriptSort(col) {
             if (this.sortColumn === col) {
                 if (this.sortDirection === 'asc') this.sortDirection = 'desc';
-                else if (this.sortDirection === 'desc') { this.sortDirection = null; this.sortColumn = null; }
+                else if (this.sortDirection === 'desc') { this.sortColumn = 'name'; this.sortDirection = 'asc'; }
                 else this.sortDirection = 'asc';
             } else {
                 this.sortColumn = col;
