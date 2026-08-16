@@ -11,3 +11,4 @@ css: css-install
 # Production build (minified, commit the output)
 css-build: css-install
 	npx tailwindcss -i dango/web/static/css/input.css -o dango/web/static/css/tailwind.min.css --minify
+	printf '\n' >> dango/web/static/css/tailwind.min.css
