@@ -227,6 +227,29 @@ class TestProfileTable:
 
     @patch("dango.utils.post_sync.connect")
     @patch("duckdb.connect")
+    def test_row_count_cached(self, mock_dc, mock_sc, tmp_path):
+        """Table-level row count is stored as a synthetic __row_count__ stat."""
+        _make_warehouse(tmp_path)
+        mock_dc.return_value = _mock_duckdb(
+            [("id", "INTEGER", "NO")],
+            10,
+            {"id": (0, 10, "1", "10", "5.5")},
+            {"id": [("1",)]},
+        )
+        sqlite_conn = _mock_sqlite(mock_sc)
+        profile_table(tmp_path, "shopify", "orders")
+        row_count_inserts = [
+            c.args[1]
+            for c in sqlite_conn.execute.call_args_list
+            if "INSERT" in str(c) and "__row_count__" in str(c)
+        ]
+        assert len(row_count_inserts) == 1
+        # Params tuple: (source, table_name, column_name, stat_type, stat_value, updated_at)
+        assert row_count_inserts[0][2] == "__row_count__"
+        assert row_count_inserts[0][4] == "10"
+
+    @patch("dango.utils.post_sync.connect")
+    @patch("duckdb.connect")
     def test_per_column_error_isolation(self, mock_dc, mock_sc, tmp_path):
         """One column failing does not block profiling of other columns."""
         _make_warehouse(tmp_path)
