@@ -56,6 +56,13 @@ def seed_add(ctx: click.Context, path: str, model_name: str | None) -> None:
     try:
         project_root = require_project_context(ctx)
         src = Path(path)
+
+        if src.suffix.lower() != ".csv":
+            console.print(
+                f"[red]Error:[/red] '{src.name}' is not a CSV file. dbt seeds must be CSV files."
+            )
+            raise click.Abort()
+
         seed_name = src.stem
 
         if not _VALID_DBT_IDENTIFIER_RE.match(seed_name):
@@ -84,7 +91,7 @@ def seed_add(ctx: click.Context, path: str, model_name: str | None) -> None:
         shutil.copy2(src, dest)
 
         console.print(f"[green]✓[/green] Copied [bold]{src.name}[/bold] → dbt/seeds/")
-        console.print(f"Reference in a model: {{{{ ref('{seed_name}') }}}}")
+        console.print(f"Reference in a model: {{{{ ref('{seed_name}') }}}}", highlight=False)
 
         if model_name:
             staging_dir = project_root / "dbt" / "models" / "staging"
@@ -144,7 +151,7 @@ def seed_list(ctx: click.Context) -> None:
 
         console.print("[bold]dbt seeds:[/bold]")
         for f in csv_files:
-            console.print(f"  {f.name}  →  {{{{ ref('{f.stem}') }}}}")
+            console.print(f"  {f.name}  →  {{{{ ref('{f.stem}') }}}}", highlight=False)
 
     except click.Abort:
         raise

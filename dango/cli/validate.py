@@ -534,7 +534,9 @@ class ProjectValidator:
         if not models_dir.exists():
             return
 
-        read_fn_re = re.compile(r"\bread_(csv_auto|parquet|json_auto|csv)\s*\(")
+        read_fn_re = re.compile(
+            r"\bread_(csv_auto|csv|parquet|json_auto|json|ndjson_auto|ndjson)\s*\("
+        )
         abs_path_re = re.compile(r"~/|/(?:Users|home|srv)/|[A-Za-z]:\\|['\"]/")
 
         for sql_file in sorted(models_dir.rglob("*.sql")):
