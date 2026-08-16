@@ -15,6 +15,7 @@ from typing import Any
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
 from dango.auth.permissions import require_permission
 from dango.logging import get_logger
@@ -487,6 +488,9 @@ def _build_catalog_models(
         tests_warning = sum(1 for t in tests if t["status"] == "warn")
         tests_failing = sum(1 for t in tests if t["status"] in ("fail", "error"))
 
+        key = _model_profiling_key(src, "source")
+        row_count = cached_row_counts.get(key) if key else None
+
         sources.append(
             {
                 "unique_id": uid,
@@ -501,6 +505,7 @@ def _build_catalog_models(
                 "tests_failing": tests_failing,
                 "columns_total": len(columns),
                 "columns_documented": cols_documented,
+                "row_count": row_count,
             }
         )
 
@@ -908,7 +913,7 @@ async def refresh_table_profile(
 
 @router.post("/api/catalog/profile-all")
 async def profile_all_models(
-    user: User = Depends(require_permission("governance.view")),  # noqa: ARG001
+    user: User = Depends(require_permission("dbt.run")),  # noqa: ARG001
 ) -> dict[str, Any]:
     """Re-profile all raw tables, staging models, and dbt models.
 
@@ -917,7 +922,7 @@ async def profile_all_models(
     every source failed.
 
     Args:
-        user: Authenticated user with ``governance.view`` permission.
+        user: Authenticated user with ``dbt.run`` permission.
 
     Returns:
         Dict with the profiling status and the discovered source names.
@@ -938,6 +943,13 @@ async def profile_all_models(
         raise HTTPException(
             status_code=500, detail=f"Profiling failed: {type(exc).__name__}"
         ) from exc
+
+    log_auth_event(
+        AuditEvent.CATALOG_PROFILE_TRIGGERED,
+        user_id=user.id,
+        email=user.email,
+        details={"sources": source_names},
+    )
 
     return {"status": "ok", "sources": source_names}
 
