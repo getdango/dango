@@ -204,14 +204,15 @@ class TestBuildStalenessThresholds:
 class TestGetSourceStatusDataStaleness:
     """Tests for get_source_status_data() with stale sources (QG-005)."""
 
-    def test_staleness_branch_no_logger_crash(self):
-        import asyncio
-
+    def test_staleness_branch_no_logger_crash(self, caplog):
         """When source is stale, logger.info is called without stdlib TypeError.
 
         Before fix, this would crash with:
         TypeError: Logger._log() got an unexpected keyword argument 'source'
         """
+        import asyncio
+        import logging
+
         source = {
             "name": "my_source",
             "type": "google_ads",
@@ -220,6 +221,7 @@ class TestGetSourceStatusDataStaleness:
 
         # Mock all the helpers called by get_source_status_data()
         with (
+            caplog.at_level(logging.INFO, logger="dango.web.helpers"),
             patch(
                 "dango.web.helpers.get_source_tables_info",
                 return_value={"total_rows": 100, "has_multiple_tables": False, "tables": []},
@@ -254,3 +256,8 @@ class TestGetSourceStatusDataStaleness:
 
             # Should return stale status without crashing
             assert result.status == "stale"
+            # Verify log message was written correctly
+            assert "source_marked_stale" in caplog.text
+            assert "my_source" in caplog.text
+            assert "50.0h" in caplog.text  # hours_since formatted to 1 decimal
+            assert "24.0h" in caplog.text  # threshold formatted to 1 decimal
