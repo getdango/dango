@@ -28,7 +28,13 @@ else:
 
 class DbtLock:
     """
-    File-based lock for dbt operations.
+    File-based lock for dbt operations using fcntl.flock() on Unix.
+
+    **Design note:** flock() locks inodes, not file paths. Stale locks are
+    auto-released by the kernel when the holding process exits. Lock files are
+    never unlinked — this prevents a race condition where unlink() + open("w")
+    creates a new inode, allowing multiple processes to hold "the lock" on
+    different inodes simultaneously (see S3-QG-I).
 
     Usage:
         with DbtLock(project_root, source="cli", operation="dbt run"):
@@ -181,7 +187,15 @@ class DbtLock:
                 raise DbtLockError(message, lock_info=lock_info) from None
 
     def release(self) -> None:
-        """Release the lock."""
+        """Release the lock.
+
+        Note: Lock files are intentionally NOT deleted. Deleting the file after
+        acquiring the lock creates a race condition (S3-QG-I): if the file is
+        unlinked while a process holds the lock, the next open() creates a new
+        inode, allowing multiple processes to hold "the lock" on different
+        inodes. The kernel auto-releases flock when the fd is closed or the
+        process exits, so deletion is unnecessary and harmful.
+        """
         if not self._acquired:
             return
 
