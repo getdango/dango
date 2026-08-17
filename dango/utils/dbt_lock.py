@@ -15,8 +15,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import IO, Any
 
-import psutil
-
 from dango.exceptions import DbtLockError
 
 logger = logging.getLogger(__name__)
@@ -72,14 +70,6 @@ class DbtLock:
         self._lock_file: IO[str] | None = None
         self._acquired = False
 
-    def _is_process_running(self, pid: int) -> bool:
-        """Check if a process with the given PID is running."""
-        try:
-            process = psutil.Process(pid)
-            return bool(process.is_running())
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            return False
-
     def _read_lock_info(self) -> dict[str, Any] | None:
         """Read lock information from the lock info file."""
         if not self.lock_info_path.exists():
@@ -115,35 +105,13 @@ class DbtLock:
 
     def _cleanup_stale_lock(self) -> bool:
         """
-        Clean up stale lock if the holding process no longer exists.
+        No-op: stale locks clean themselves up via kernel flock auto-release.
 
-        Returns:
-            True if a stale lock was cleaned up, False otherwise
+        Kept for API compatibility with acquire() call site.
+        Returns False always (no cleanup performed).
 
         See also: startup.cleanup_stale_dbt_lock() for the proactive startup variant.
         """
-        lock_info = self._read_lock_info()
-        if not lock_info:
-            return False
-
-        pid = lock_info.get("pid")
-        if pid and not self._is_process_running(pid):
-            # Process is dead, clean up the lock
-            try:
-                if self.lock_file_path.exists():
-                    self.lock_file_path.unlink()
-                if self.lock_info_path.exists():
-                    self.lock_info_path.unlink()
-                logger.warning(
-                    "Removed stale dbt lock (PID %d: %s — %s)",
-                    pid,
-                    lock_info.get("source", "unknown"),
-                    lock_info.get("operation", "unknown"),
-                )
-                return True
-            except OSError:  # noqa: BLE001
-                pass
-
         return False
 
     def acquire(self, timeout: float = 300) -> bool:
@@ -232,12 +200,6 @@ class DbtLock:
 
                 self._lock_file.close()
                 self._lock_file = None
-
-            # Clean up lock files
-            if self.lock_file_path.exists():
-                self.lock_file_path.unlink()
-            if self.lock_info_path.exists():
-                self.lock_info_path.unlink()
 
             self._acquired = False
         except OSError:  # noqa: BLE001
