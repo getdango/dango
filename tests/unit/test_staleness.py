@@ -199,3 +199,58 @@ class TestBuildStalenessThresholds:
 
             result = build_staleness_thresholds()
             assert "src_b" not in result  # not in any schedule
+
+
+class TestGetSourceStatusDataStaleness:
+    """Tests for get_source_status_data() with stale sources (QG-005)."""
+
+    def test_staleness_branch_no_logger_crash(self):
+        import asyncio
+
+        """When source is stale, logger.info is called without stdlib TypeError.
+
+        Before fix, this would crash with:
+        TypeError: Logger._log() got an unexpected keyword argument 'source'
+        """
+        source = {
+            "name": "my_source",
+            "type": "google_ads",
+            "enabled": True,
+        }
+
+        # Mock all the helpers called by get_source_status_data()
+        with (
+            patch(
+                "dango.web.helpers.get_source_tables_info",
+                return_value={"total_rows": 100, "has_multiple_tables": False, "tables": []},
+            ),
+            patch("dango.web.helpers.get_last_sync_time", return_value="2026-08-18T00:00:00"),
+            patch("dango.web.helpers.get_last_sync_status", return_value="success"),
+            patch(
+                "dango.web.helpers.load_sync_history",
+                return_value=[
+                    {
+                        "rows_processed": 100,
+                        "duration_seconds": 5,
+                        "status": "success",
+                        "full_refresh": False,
+                    }
+                ],
+            ),
+            patch("dango.web.helpers.get_source_freshness", return_value={"hours_since_sync": 50}),
+            # Lazy imports from registry
+            patch("dango.ingestion.sources.registry.get_source_capabilities", return_value=None),
+            patch("dango.ingestion.sources.registry.get_source_metadata", return_value=None),
+        ):
+            from dango.web.helpers import get_source_status_data
+
+            # With hours_since_sync=50 and threshold=24, this triggers the staleness branch
+            result = asyncio.run(
+                get_source_status_data(
+                    source,
+                    staleness_thresholds={"my_source": 24.0},
+                )
+            )
+
+            # Should return stale status without crashing
+            assert result.status == "stale"
