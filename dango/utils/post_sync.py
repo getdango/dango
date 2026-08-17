@@ -602,11 +602,11 @@ def _profile_dbt_models(project_root: Path) -> None:
         logger.warning("profiling_dbt_json_error", exc_info=True)
         return
 
-    # Collect unique_ids of successful models
+    # Collect unique_ids of successful models and seeds
     successful_ids = [
         r["unique_id"]
         for r in run_results.get("results", [])
-        if r.get("unique_id", "").startswith("model.") and r.get("status") == "success"
+        if r.get("unique_id", "").startswith(("model.", "seed.")) and r.get("status") == "success"
     ]
 
     nodes = manifest.get("nodes", {})

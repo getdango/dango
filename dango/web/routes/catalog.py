@@ -371,6 +371,9 @@ def _model_profiling_key(node: dict[str, Any], kind: str) -> tuple[str, str] | N
     table = node.get("alias") or node.get("name", "")
     if not table:
         return None
+    if kind == "seed":
+        schema = node.get("schema", "main")
+        return (schema, table) if table else None
     if kind == "source":
         source = node.get("source_name", "")
         return (source, table) if source else None
@@ -475,9 +478,38 @@ def _build_catalog_models(
             }
         )
 
-    # Sort: type order (staging → intermediate → marts), then name
-    type_order = {"staging": 0, "intermediate": 1, "marts": 2}
+    # Sort: type order (staging → intermediate → marts → seed), then name
+    type_order = {"staging": 0, "intermediate": 1, "marts": 2, "seed": 3}
     models.sort(key=lambda m: (type_order.get(m["type"], 1), m["name"].lower()))
+
+    # Seeds — resource_type == "seed" nodes from manifest
+    for uid, node in manifest.get("nodes", {}).items():
+        if node.get("resource_type") != "seed":
+            continue
+        columns = node.get("columns", {})
+        cols_documented = sum(1 for c in columns.values() if c.get("description"))
+        key = _model_profiling_key(node, "seed")
+        row_count = cached_row_counts.get(key) if key else None
+        models.append(
+            {
+                "unique_id": uid,
+                "name": node.get("name", ""),
+                "type": "seed",
+                "schema": node.get("schema", ""),
+                "materialization": "table",
+                "description": node.get("description", ""),
+                "test_count": 0,
+                "tests_passing": 0,
+                "tests_warning": 0,
+                "tests_failing": 0,
+                "columns_total": len(columns),
+                "columns_documented": cols_documented,
+                "tags": node.get("tags", []),
+                "last_run": None,
+                "status": None,
+                "row_count": row_count,
+            }
+        )
 
     sources: list[dict[str, Any]] = []
     for uid, src in manifest.get("sources", {}).items():
