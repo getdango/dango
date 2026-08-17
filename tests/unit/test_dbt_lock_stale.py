@@ -7,7 +7,6 @@ import importlib
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -55,8 +54,7 @@ class TestCleanupStaleDbtLock:
 
     def test_lock_from_running_pid_preserved(self, tmp_path: Path) -> None:
         _write_stale_lock(tmp_path, pid=12345)
-        with patch("psutil.pid_exists", return_value=True):
-            result = cleanup_stale_dbt_lock(tmp_path)
+        result = cleanup_stale_dbt_lock(tmp_path)
         assert result is False
         assert (tmp_path / ".dango" / "state" / "dbt.lock").exists()
         assert (tmp_path / ".dango" / "state" / "dbt.lock.json").exists()
