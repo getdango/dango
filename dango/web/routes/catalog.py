@@ -359,11 +359,12 @@ def _model_profiling_key(node: dict[str, Any], kind: str) -> tuple[str, str] | N
     Mirrors :func:`dango.utils.post_sync.profile_table` callers so cached stats
     and row counts can be read back for any model type:
     - sources and staging models are keyed by the raw source name,
-    - intermediate/marts models are keyed by their dbt schema.
+    - intermediate/marts models are keyed by their dbt schema,
+    - seeds are keyed by their dbt schema (always "main" by default).
 
     Args:
-        node: A manifest model or source node dict.
-        kind: ``"model"`` or ``"source"``.
+        node: A manifest model, source, or seed node dict.
+        kind: ``"model"``, ``"source"``, or ``"seed"``.
 
     Returns:
         ``(source, table_name)`` tuple or ``None`` if no key applies.
@@ -478,7 +479,9 @@ def _build_catalog_models(
             }
         )
 
-    # Seeds — resource_type == "seed" nodes from manifest
+    # Seeds — resource_type == "seed" nodes from manifest.
+    # Note: seeds don't have dbt tests (test_count=0, always) or status tracking.
+    # Row counts are populated from profiling cache if available.
     for uid, node in manifest.get("nodes", {}).items():
         if node.get("resource_type") != "seed":
             continue
@@ -494,14 +497,14 @@ def _build_catalog_models(
                 "schema": node.get("schema", ""),
                 "materialization": "table",
                 "description": node.get("description", ""),
-                "test_count": 0,
+                "test_count": 0,  # Seeds don't have dbt tests
                 "tests_passing": 0,
                 "tests_warning": 0,
                 "tests_failing": 0,
                 "columns_total": len(columns),
                 "columns_documented": cols_documented,
                 "tags": node.get("tags", []),
-                "last_run": None,
+                "last_run": None,  # Seeds don't have execution status
                 "status": None,
                 "row_count": row_count,
             }

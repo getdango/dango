@@ -248,6 +248,80 @@ class TestListCatalogModels:
     @patch("dango.web.routes.catalog.get_project_root")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_seeds_appear_in_models_list(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        mock_get_root: MagicMock,
+        mock_helpers_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Seeds appear in models list with type='seed' and zero tests."""
+        client, _ = _setup_client(tmp_path)
+        mock_get_root.return_value = tmp_path
+        mock_helpers_root.return_value = tmp_path
+
+        manifest = _make_manifest(
+            models={
+                "model.proj.fct_revenue": {
+                    "name": "fct_revenue",
+                    "schema": "marts",
+                },
+            },
+        )
+        # Manually add seed nodes (not models)
+        manifest["nodes"]["seed.proj.sti_constituents"] = {
+            "resource_type": "seed",
+            "name": "sti_constituents",
+            "schema": "main",
+            "description": "Stock ticker constituents",
+            "columns": {
+                "ticker": {"description": "Ticker symbol"},
+            },
+            "tags": [],
+        }
+        manifest["nodes"]["seed.proj.geo_targets"] = {
+            "resource_type": "seed",
+            "name": "geo_targets",
+            "schema": "main",
+            "description": "",
+            "columns": {},
+            "tags": ["data"],
+        }
+        mock_manifest.return_value = manifest
+        mock_run_results.return_value = None
+
+        resp = client.get("/api/catalog/models")
+        data = resp.json()
+
+        # Check seeds are included
+        assert len(data["models"]) == 3  # 1 model + 2 seeds
+        seed_map = {m["name"]: m for m in data["models"] if m["type"] == "seed"}
+        assert len(seed_map) == 2
+        assert "sti_constituents" in seed_map
+        assert "geo_targets" in seed_map
+
+        # Check seed properties
+        sti_seed = seed_map["sti_constituents"]
+        assert sti_seed["schema"] == "main"
+        assert sti_seed["materialization"] == "table"
+        assert sti_seed["test_count"] == 0
+        assert sti_seed["tests_passing"] == 0
+        assert sti_seed["columns_total"] == 1
+        assert sti_seed["columns_documented"] == 1
+        assert sti_seed["last_run"] is None
+        assert sti_seed["status"] is None
+
+        # Check seed with no columns/description
+        geo_seed = seed_map["geo_targets"]
+        assert geo_seed["columns_total"] == 0
+        assert geo_seed["columns_documented"] == 0
+        assert geo_seed["tags"] == ["data"]
+
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_test_counts_from_run_results(
         self,
         mock_manifest: MagicMock,
@@ -1312,6 +1386,22 @@ class TestModelProfilingKey:
             ({"name": "orders", "source_name": "shop"}, "source", ("shop", "orders")),
             # source without a source_name has no key
             ({"name": "orders", "source_name": ""}, "source", None),
+            # seeds are keyed by their schema (default "main")
+            ({"name": "sti_constituents", "schema": "main"}, "seed", ("main", "sti_constituents")),
+            # seed with explicit schema
+            (
+                {"name": "clr_constituents", "schema": "custom_schema"},
+                "seed",
+                ("custom_schema", "clr_constituents"),
+            ),
+            # seed without schema defaults to "main"
+            ({"name": "geo_targets"}, "seed", ("main", "geo_targets")),
+            # seed with alias is preferred over name
+            (
+                {"name": "foo", "alias": "sti_constituents", "schema": "main"},
+                "seed",
+                ("main", "sti_constituents"),
+            ),
         ],
     )
     def test_key(
