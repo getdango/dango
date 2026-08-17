@@ -478,10 +478,6 @@ def _build_catalog_models(
             }
         )
 
-    # Sort: type order (staging → intermediate → marts → seed), then name
-    type_order = {"staging": 0, "intermediate": 1, "marts": 2, "seed": 3}
-    models.sort(key=lambda m: (type_order.get(m["type"], 1), m["name"].lower()))
-
     # Seeds — resource_type == "seed" nodes from manifest
     for uid, node in manifest.get("nodes", {}).items():
         if node.get("resource_type") != "seed":
@@ -510,6 +506,10 @@ def _build_catalog_models(
                 "row_count": row_count,
             }
         )
+
+    # Sort: type order (staging → intermediate → marts → seed), then name
+    type_order = {"staging": 0, "intermediate": 1, "marts": 2, "seed": 3}
+    models.sort(key=lambda m: (type_order.get(m["type"], 1), m["name"].lower()))
 
     sources: list[dict[str, Any]] = []
     for uid, src in manifest.get("sources", {}).items():
