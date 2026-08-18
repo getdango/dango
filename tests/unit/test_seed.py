@@ -60,22 +60,30 @@ class TestSeedAdd:
             assert result.exit_code != 0
             assert not (project_root / "dbt" / "seeds" / "bad name.csv").exists()
 
-    def test_scaffolds_model_stub(self):
+    def test_sets_seeds_schema_in_dbt_project(self):
         runner = CliRunner()
         with runner.isolated_filesystem() as td:
             project_root = Path(td)
-            src = project_root / "source.csv"
-            src.write_text("id\n1\n")
+            src = project_root / "ref_data.csv"
+            src.write_text("id,name\n1,Alice\n")
+            # Create a minimal dbt_project.yml that seed_add will update
+            dbt_dir = project_root / "dbt"
+            dbt_dir.mkdir()
+            dbt_project = dbt_dir / "dbt_project.yml"
+            dbt_project.write_text(
+                "name: myproject\nseeds:\n  myproject:\n    +quote_columns: false\n"
+            )
 
             with patch("dango.cli.utils.find_project_root", return_value=project_root):
                 from dango.cli.commands.seed import seed
 
-                result = runner.invoke(seed, ["add", str(src), "--model", "int_test"])
+                result = runner.invoke(seed, ["add", str(src)])
 
             assert result.exit_code == 0
-            model = project_root / "dbt" / "models" / "staging" / "int_test.sql"
-            assert model.exists()
-            assert "{{ ref('source') }}" in model.read_text()
+            import yaml
+
+            data = yaml.safe_load(dbt_project.read_text())
+            assert data["seeds"]["myproject"]["+schema"] == "seeds"
 
 
 @pytest.mark.unit
