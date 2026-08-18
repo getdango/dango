@@ -1081,6 +1081,7 @@ models:
 seeds:
   {dbt_project_name}:
     +quote_columns: false
+    +schema: seeds
 
 # Documentation
 docs-paths: ["docs"]

@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 
 import click
+import yaml
 
 from dango.cli import console
 
@@ -36,20 +37,17 @@ def seed(ctx: click.Context) -> None:
 
 @seed.command("add")
 @click.argument("path", type=click.Path(exists=True, dir_okay=False))
-@click.option(
-    "--model",
-    "model_name",
-    default=None,
-    help="Scaffold a staging model stub referencing this seed",
-)
 @click.pass_context
-def seed_add(ctx: click.Context, path: str, model_name: str | None) -> None:
+def seed_add(ctx: click.Context, path: str) -> None:
     """
     Copy a CSV file into dbt/seeds/ and report its ref() name.
 
-    Examples:
+    Seeds are reference data (lookup tables, mappings). Reference them
+    directly in mart or intermediate models via {{ ref('seed_name') }}.
+    Do NOT create staging wrappers for seeds — they are not source data.
+
+    Example:
       dango seed add path/to/data.csv
-      dango seed add path/to/data.csv --model int_test
     """
     from ..utils import require_project_context
 
@@ -73,16 +71,55 @@ def seed_add(ctx: click.Context, path: str, model_name: str | None) -> None:
             )
             raise click.Abort()
 
-        if model_name and not _VALID_DBT_IDENTIFIER_RE.match(model_name):
-            console.print(
-                f"[red]Error:[/red] '{model_name}' is not a valid dbt model name. "
-                "Use only letters, digits, and underscores (no spaces or dashes)."
-            )
-            raise click.Abort()
-
         seeds_dir = project_root / "dbt" / "seeds"
         seeds_dir.mkdir(parents=True, exist_ok=True)
         dest = seeds_dir / src.name
+
+        dbt_project_path = project_root / "dbt" / "dbt_project.yml"
+        schema_configured = False
+
+        if dbt_project_path.exists():
+            try:
+                with open(dbt_project_path, encoding="utf-8") as f:
+                    dbt_data = yaml.safe_load(f) or {}
+
+                project_name = dbt_data.get("name", "")
+
+                if not project_name:
+                    console.print(
+                        "[yellow]⚠[/yellow] dbt_project.yml has no 'name' key. "
+                        "Seed will be added, but schema config skipped."
+                    )
+                else:
+                    seeds_cfg = dbt_data.setdefault("seeds", {})
+                    if not isinstance(seeds_cfg, dict):
+                        console.print(
+                            "[yellow]⚠[/yellow] dbt_project.yml 'seeds' config is malformed (not a dict). "
+                            "Seed will be added, but schema config skipped. "
+                            f"Please fix 'seeds' in {dbt_project_path}."
+                        )
+                    else:
+                        proj_seeds = seeds_cfg.setdefault(project_name, {})
+                        if proj_seeds.get("+schema") != "seeds":
+                            proj_seeds["+schema"] = "seeds"
+                            with open(dbt_project_path, "w", encoding="utf-8") as f:
+                                yaml.safe_dump(
+                                    dbt_data, f, default_flow_style=False, allow_unicode=True
+                                )
+                            schema_configured = True
+                        else:
+                            schema_configured = True
+            except yaml.YAMLError as e:
+                console.print(
+                    f"[yellow]⚠[/yellow] Failed to parse dbt_project.yml: {e}. "
+                    "Seed will be added, but schema config skipped."
+                )
+        else:
+            console.print(
+                "[yellow]⚠[/yellow] dbt_project.yml not found. "
+                "Seed will be added, but schema config skipped. "
+                "Run 'dango init' to create project config."
+            )
 
         if dest.exists():
             console.print(
@@ -91,25 +128,13 @@ def seed_add(ctx: click.Context, path: str, model_name: str | None) -> None:
         shutil.copy2(src, dest)
 
         console.print(f"[green]✓[/green] Copied [bold]{src.name}[/bold] → dbt/seeds/")
+        if schema_configured:
+            console.print("[green]✓[/green] Schema configured: seeds → seeds schema")
         console.print(f"Reference in a model: {{{{ ref('{seed_name}') }}}}", highlight=False)
-
-        if model_name:
-            staging_dir = project_root / "dbt" / "models" / "staging"
-            model_dest = staging_dir / f"{model_name}.sql"
-            if model_dest.exists():
-                console.print(
-                    f"[yellow]⚠[/yellow] Model 'dbt/models/staging/{model_name}.sql' already exists (skipping)"
-                )
-            else:
-                staging_dir.mkdir(parents=True, exist_ok=True)
-                model_sql = (
-                    "{{ config(materialized='table', schema='staging') }}\n\n"
-                    f"SELECT *\nFROM {{{{ ref('{seed_name}') }}}}\n"
-                )
-                model_dest.write_text(model_sql, encoding="utf-8")
-                console.print(
-                    f"[green]✓[/green] Scaffolded model: dbt/models/staging/{model_name}.sql"
-                )
+        console.print(
+            "[dim]Tip: Reference seeds directly in mart/intermediate models. "
+            "Do NOT create staging wrappers for seeds.[/dim]"
+        )
 
     except click.Abort:
         raise
