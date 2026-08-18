@@ -32,6 +32,8 @@ __all__ = [
     "ScheduleConfig",
     "ScheduleType",
     "SchedulesConfig",
+    "_install_script_dependencies",
+    "_validate_script_path_for_schedule",
     "get_schedule_job_id",
     "load_schedules_config",
     "log_startup_checks",
@@ -79,6 +81,7 @@ class ScheduleType(str, Enum):
     SYNC = "sync"
     SYNC_ONLY = "sync_only"
     DBT = "dbt"
+    SCRIPT = "script"
 
 
 class ScheduleConfig(BaseModel):
@@ -97,6 +100,9 @@ class ScheduleConfig(BaseModel):
     timeout_minutes: int | None = None
     notify_on: list[str] = []
     dbt_command: str | None = None
+    script_path: str | None = None
+    run_on: str = "both"  # reserved, not used in v1
+    script_args: str | None = None  # reserved, not used in v1
 
     @field_validator("name")
     @classmethod
@@ -122,6 +128,14 @@ class ScheduleConfig(BaseModel):
             raise ValueError(msg)
         return resolved
 
+    @field_validator("timeout_minutes")
+    @classmethod
+    def _validate_timeout_minutes(cls, v: int | None) -> int | None:
+        if v is not None and v <= 0:
+            msg = f"timeout_minutes must be positive. Got: {v!r}"
+            raise ValueError(msg)
+        return v
+
     @field_validator("notify_on")
     @classmethod
     def _validate_notify_on(cls, v: list[str]) -> list[str]:
@@ -142,6 +156,16 @@ class ScheduleConfig(BaseModel):
         if self.type == ScheduleType.DBT and not self.dbt_command:
             msg = "dbt schedules must specify a dbt_command"
             raise ValueError(msg)
+        if self.type == ScheduleType.SCRIPT:
+            if not self.script_path:
+                msg = "Script schedules must specify a script_path"
+                raise ValueError(msg)
+            if self.sources:
+                msg = "Script schedules must not specify sources"
+                raise ValueError(msg)
+            if self.dbt_command:
+                msg = "Script schedules must not specify a dbt_command"
+                raise ValueError(msg)
         return self
 
     def get_notify_on_dict(self) -> dict[str, bool] | None:
@@ -262,6 +286,8 @@ def validate_schedules(
 
     # 2. Unknown sources
     for sched in schedules:
+        if sched.type == ScheduleType.SCRIPT:
+            continue
         for src in sched.sources:
             if src not in source_names:
                 errors.append(f"Schedule {sched.name!r} references unknown source: {src!r}")
@@ -271,7 +297,7 @@ def validate_schedules(
         for sched in schedules:
             if sched.type not in (ScheduleType.SYNC, ScheduleType.SYNC_ONLY):
                 continue
-            interval = _get_cron_interval_seconds(sched.cron)
+            interval = get_cron_interval_seconds(sched.cron)
             for src in sched.sources:
                 avg = average_durations.get(src)
                 if avg is not None and interval < avg * 0.8:
@@ -286,7 +312,7 @@ def validate_schedules(
     return errors, warnings
 
 
-def _get_cron_interval_seconds(cron_expr: str, sample_count: int = 5) -> float:
+def get_cron_interval_seconds(cron_expr: str, sample_count: int = 5) -> float:
     """Return the minimum interval between consecutive cron runs in seconds.
 
     Samples ``sample_count`` consecutive intervals and returns the smallest one.
@@ -400,6 +426,69 @@ def log_startup_checks(
 
 
 # ---------------------------------------------------------------------------
+# Script support helpers
+# ---------------------------------------------------------------------------
+
+
+def _install_script_dependencies(project_root: Path) -> None:
+    """Install script dependencies from ``scripts/requirements.txt`` if it exists.
+
+    Uses ``pip install`` via subprocess. Never raises — warns on failure.
+    """
+    import subprocess
+    import sys
+
+    req_file = project_root / "scripts" / "requirements.txt"
+    if not req_file.exists():
+        return
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "script_deps_install_failed",
+                stderr=result.stderr.strip(),
+            )
+    except subprocess.TimeoutExpired:
+        logger.warning("script_deps_install_timed_out")
+    except Exception:  # noqa: BLE001
+        logger.debug("script_deps_install_error", exc_info=True)
+
+
+def _validate_script_path_for_schedule(script_path: str, project_root: Path) -> str | None:
+    """Validate a script path at schedule activation time.
+
+    Checks path traversal, file existence, and ``ast.parse()`` syntax.
+
+    Returns an error message string on failure, or ``None`` on success.
+    """
+    import ast
+
+    scripts_dir = (project_root / "scripts").resolve()
+    script_full = (scripts_dir / script_path).resolve()
+
+    # Prevent path traversal — path must be inside scripts/
+    if not str(script_full).startswith(str(scripts_dir)):
+        return f"Script path {script_path!r} escapes scripts/ directory"
+
+    if not script_full.exists() or not script_full.is_file():
+        return f"Script {script_path!r} not found in scripts/"
+
+    # Syntax validation (does not execute code)
+    try:
+        source = script_full.read_text(encoding="utf-8")
+        ast.parse(source)
+    except SyntaxError as e:
+        return f"Script {script_path!r} has syntax error: {e}"
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Reload
 # ---------------------------------------------------------------------------
 
@@ -417,7 +506,11 @@ def reload_schedules(
     """
     from apscheduler.triggers.cron import CronTrigger
 
-    from dango.platform.scheduling.jobs import run_scheduled_dbt, run_scheduled_sync
+    from dango.platform.scheduling.jobs import (
+        run_scheduled_dbt,
+        run_scheduled_script,
+        run_scheduled_sync,
+    )
 
     # Collect current schedule jobs
     existing_jobs: dict[str, Any] = {}
@@ -470,6 +563,26 @@ def reload_schedules(
                 "sources": list(sched.sources),
                 "project_root": str(project_root),
                 "skip_dbt": sched.type == ScheduleType.SYNC_ONLY,
+                "_timeout_minutes": sched.timeout_minutes,
+            }
+        elif sched.type == ScheduleType.SCRIPT:
+            _install_script_dependencies(project_root)
+            error = _validate_script_path_for_schedule(
+                sched.script_path,  # type: ignore[arg-type]
+                project_root,
+            )
+            if error:
+                logger.warning(
+                    "script_schedule_validation_failed",
+                    schedule=sched.name,
+                    error=error,
+                )
+                continue
+            func = run_scheduled_script
+            func_kwargs = {
+                "schedule_name": sched.name,
+                "script_path": sched.script_path,
+                "project_root": str(project_root),
             }
         else:
             func = run_scheduled_dbt
@@ -477,6 +590,7 @@ def reload_schedules(
                 "schedule_name": sched.name,
                 "dbt_command": sched.dbt_command,
                 "project_root": str(project_root),
+                "_timeout_minutes": sched.timeout_minutes,
             }
 
         if job_id in existing_ids:

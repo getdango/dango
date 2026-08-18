@@ -111,9 +111,11 @@ class TestRouteRegistration:
 
     def test_phase7_routes_registered(self) -> None:
         """All Phase 7 API route paths are present in the app."""
+        from fastapi.routing import iter_route_contexts
+
         from dango.web.app import app
 
-        paths = {getattr(route, "path", None) for route in app.routes}
+        paths = {getattr(ctx.route, "path", None) for ctx in iter_route_contexts(app.routes)}
 
         expected = [
             "/api/catalog/{source}/{table}/columns",

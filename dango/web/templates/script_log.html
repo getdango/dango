@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Script Log - {{ script_name }} - Dango{% endblock %}
+
+{% block content %}
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <!-- Back link -->
+    <div class="mb-4">
+        <a href="/scripts" class="text-sm text-blue-600 hover:text-blue-800">&larr; Back to Scripts</a>
+    </div>
+
+    {% if error %}
+    <div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+        <p class="text-sm text-red-700">{{ error }}</p>
+    </div>
+    {% else %}
+
+    <!-- Header -->
+    <div class="mb-6">
+        <h2 class="text-xl font-bold text-gray-900">{{ script_name }}</h2>
+        <div class="flex flex-wrap items-center gap-2 mt-2 text-sm text-gray-500">
+            <span>Run: <code class="bg-gray-100 px-1 rounded text-xs">{{ run_id }}</code></span>
+            {% if meta.started_at %}
+            <span class="text-gray-300">|</span>
+            <span>Started: {{ meta.started_at }}</span>
+            {% endif %}
+            {% if meta.finished_at %}
+            <span class="text-gray-300">|</span>
+            <span>Duration: {{ "%.1f"|format(meta.duration_seconds) }}s</span>
+            {% endif %}
+            {% if meta.status %}
+            <span class="text-gray-300">|</span>
+            {% set badge_class = {
+                'success': 'bg-green-100 text-green-800',
+                'completed': 'bg-green-100 text-green-800',
+                'failed': 'bg-red-100 text-red-800',
+                'running': 'bg-blue-100 text-blue-800',
+                'cancelled': 'bg-yellow-100 text-yellow-800',
+                'timeout': 'bg-gray-100 text-gray-800',
+            } %}
+            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {{ badge_class.get(meta.status, 'bg-gray-100 text-gray-800') }}">{{ meta.status }}</span>
+            {% endif %}
+            {% if meta.exit_code is not none %}
+            <span class="text-gray-300">|</span>
+            <span>Exit code: {{ meta.exit_code }}</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="mb-4">
+        <a href="/api/scripts/{{ script_name | urlencode }}/history" class="text-sm text-blue-600 hover:text-blue-800">View History</a>
+    </div>
+
+    <!-- STDOUT -->
+    <div class="mb-6">
+        <h3 class="text-sm font-medium text-gray-700 mb-2">STDOUT</h3>
+        {% if stdout %}
+        <pre class="bg-gray-900 text-gray-100 p-4 rounded-md overflow-x-auto text-xs font-mono whitespace-pre-wrap">{{ stdout }}</pre>
+        {% else %}
+        <p class="text-sm text-gray-400 italic p-4 bg-gray-50 rounded-md">(empty)</p>
+        {% endif %}
+    </div>
+
+    <!-- STDERR -->
+    <div class="mb-6">
+        <h3 class="text-sm font-medium text-gray-700 mb-2">STDERR</h3>
+        {% if stderr %}
+        <pre class="bg-red-50 text-red-900 p-4 rounded-md overflow-x-auto text-xs font-mono whitespace-pre-wrap border border-red-200">{{ stderr }}</pre>
+        {% else %}
+        <p class="text-sm text-gray-400 italic p-4 bg-gray-50 rounded-md">(empty)</p>
+        {% endif %}
+    </div>
+
+    {% endif %}
+</main>
+{% endblock %}

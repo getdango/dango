@@ -16,9 +16,14 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pwdlib import PasswordHash
 from pwdlib.hashers.bcrypt import BcryptHasher
+
+if TYPE_CHECKING:
+    from dango.auth.models import User
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -186,6 +191,61 @@ def hash_password(password: str) -> str:
         Bcrypt hash string (``$2b$12$...``).
     """
     return _hasher.hash(password)
+
+
+def set_password(
+    email: str,
+    new_password: str,
+    db_path: Path,
+    *,
+    must_change_password: bool = False,
+) -> User:
+    """Set a user's password and update related fields.
+
+    Consolidates bcrypt hashing + database write + password_changed_at
+    timestamp + must_change_password flag management. All password-setting
+    paths that operate on existing users should use this function.
+
+    Args:
+        email: User's email address.
+        new_password: New password in plain text (will be bcrypt-hashed).
+        db_path: Path to the SQLite auth database.
+        must_change_password: If ``True``, user must change password on
+            next login. Default ``False`` (used by self-serve change and
+            invite acceptance; admin reset passes ``True``).
+
+    Returns:
+        The updated ``User`` object (re-fetched from the database).
+
+    Raises:
+        UserNotFoundError: If no user exists with the given email.
+    """
+    from datetime import datetime, timezone
+
+    from dango.auth.database import get_user_by_email, get_user_by_id, update_user
+    from dango.auth.models import UserUpdate
+    from dango.exceptions import UserNotFoundError
+
+    user = get_user_by_email(db_path, email)
+    if user is None:
+        raise UserNotFoundError(
+            f"No user found with email: {email}",
+            context={"email": email},
+        )
+
+    update_user(
+        db_path,
+        user.id,
+        UserUpdate(
+            password_hash=hash_password(new_password),
+            must_change_password=must_change_password,
+            password_changed_at=datetime.now(timezone.utc),
+        ),
+    )
+
+    updated = get_user_by_id(db_path, user.id)
+    assert updated is not None  # We just confirmed it exists
+    return updated
 
 
 def verify_password(password: str, password_hash: str) -> bool:

@@ -763,7 +763,6 @@ class TestPhaseToEvent:
         """Existing phase mappings are not affected."""
         from dango.platform.sync_process import _phase_to_event
 
-        assert _phase_to_event("lock_waiting") == "sync_queued"
         assert _phase_to_event("data_load_complete") == "data_load_complete"
         assert _phase_to_event("dbt_started") == "dbt_run_all_started"
         assert _phase_to_event("dbt_complete") == "dbt_run_all_completed"
@@ -771,10 +770,11 @@ class TestPhaseToEvent:
         assert _phase_to_event("failed") == "sync_failed"
 
     def test_unknown_phase_defaults_to_sync_progress(self):
-        """Unknown phases (including removed 'starting') fall back to sync_progress."""
+        """Unknown phases (including removed 'starting' and 'lock_waiting') fall back to sync_progress."""
         from dango.platform.sync_process import _phase_to_event
 
         assert _phase_to_event("starting") == "sync_progress"
+        assert _phase_to_event("lock_waiting") == "sync_progress"
         assert _phase_to_event("nonexistent_phase") == "sync_progress"
 
 

@@ -201,6 +201,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.debug("stale_sync_status_cleanup_failed", exc_info=True)
 
+    # Scheduled cleanup runs daily via APScheduler (_setup_sync_log_cleanup).
+    # This startup cleanup catches logs from before server restart.
     # Clean old sync log files (>7 days)
     try:
         import time as _time
@@ -213,7 +215,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     try:
                         if path.stat().st_mtime < cutoff:
                             path.unlink(missing_ok=True)
-                    except OSError:
+                    except OSError:  # noqa: BLE001
                         pass
     except Exception:
         logger.debug("old_sync_log_cleanup_failed", exc_info=True)
@@ -248,7 +250,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         mb_task.cancel()
         try:
             await mb_task
-        except asyncio.CancelledError:
+        except asyncio.CancelledError:  # noqa: BLE001
             pass
 
     sync_task = getattr(app.state, "sync_watcher_task", None)
@@ -256,7 +258,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         sync_task.cancel()
         try:
             await sync_task
-        except asyncio.CancelledError:
+        except asyncio.CancelledError:  # noqa: BLE001
             pass
 
     sched = getattr(app.state, "scheduler", None)
@@ -277,14 +279,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         from dango.web.helpers import close_health_check_client
 
         close_health_check_client()
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     try:
         from dango.utils.activity_log import log_activity
 
         log_activity(project_root, "info", "system", "Dango server shutting down")
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     logger.info("api_shutting_down")
@@ -396,7 +398,7 @@ def _get_cors_origins(project_root: Path | None) -> list[str]:
         origin = get_cloud_origin(root)
         if origin is not None:
             return [origin]
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
     return ["*"]
 
@@ -537,6 +539,7 @@ from dango.web.routes.notebooks import router as notebooks_router  # noqa: E402
 from dango.web.routes.oauth_connect import router as oauth_connect_router  # noqa: E402
 from dango.web.routes.query import router as query_router  # noqa: E402
 from dango.web.routes.schedules import router as schedules_router  # noqa: E402
+from dango.web.routes.scripts import router as scripts_router  # noqa: E402
 from dango.web.routes.secrets import router as secrets_router  # noqa: E402
 from dango.web.routes.sources import router as sources_router  # noqa: E402
 from dango.web.routes.sync import router as sync_router  # noqa: E402
@@ -566,6 +569,7 @@ app.include_router(query_router)
 app.include_router(monitoring_router)
 app.include_router(ai_router)
 app.include_router(notebooks_router)
+app.include_router(scripts_router)
 app.include_router(websocket_router)
 app.include_router(ui_router)
 

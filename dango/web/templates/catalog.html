@@ -33,6 +33,17 @@
                 <span x-text="view === 'lineage' ? 'Table View' : 'Lineage'"></span>
             </button>
         </div>
+        <!-- Source filter indicator -->
+        <div x-show="sourceFilter" x-cloak
+             class="px-4 py-2 bg-blue-50 border border-blue-100 rounded-lg mb-4 flex items-center justify-between">
+            <span class="text-sm text-blue-700">
+                Showing tables from source: <strong x-text="sourceFilter"></strong>
+            </span>
+            <button @click="sourceFilter = null; activeTab = 'all'; if (!_skipPush) updateUrl(false)"
+                    class="text-xs text-blue-500 hover:text-blue-700 font-medium">
+                Show all
+            </button>
+        </div>
         <div x-show="loading" x-cloak class="flex items-center justify-center py-12">
             <div class="text-gray-400 text-sm">Loading catalog...</div>
         </div>
@@ -41,6 +52,11 @@
         <div x-show="!loading && view === 'list'">
             <div class="flex items-center justify-between mb-2">
                 <h2 class="text-xl font-bold text-gray-900">Data Catalog</h2>
+                <button @click="profileAll()" :disabled="profileAllLoading"
+                        class="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium transition-colors disabled:opacity-50">
+                    <span x-show="!profileAllLoading">Refresh counts</span>
+                    <span x-show="profileAllLoading" x-cloak>Profiling...</span>
+                </button>
             </div>
             <!-- Summary cards -->
             <template x-if="overview">
@@ -97,7 +113,7 @@
             <div class="catalog-tabs">
                 <template x-for="tab in tabs" :key="tab.key">
                     <button class="catalog-tab" :class="activeTab === tab.key ? 'active' : ''"
-                            @click="activeTab = tab.key; if (!_skipPush) updateUrl(false)" x-text="tab.label + ' (' + tabCount(tab.key) + ')'"></button>
+                            @click="sourceFilter = null; activeTab = tab.key; if (!_skipPush) updateUrl(false)" x-text="tab.label + ' (' + tabCount(tab.key) + ')'"></button>
                 </template>
             </div>
             <!-- Search results or filtered list -->
@@ -148,13 +164,6 @@
             </template>
             <template x-if="searchResults === null">
                 <div>
-                    <template x-if="sourceFilter">
-                        <div class="mb-3 flex items-center gap-2 text-sm text-gray-600">
-                            Showing tables from source: <span class="font-medium" x-text="sourceFilter"></span>
-                            <button @click="sourceFilter = null; activeTab = 'all'; if (!_skipPush) updateUrl(false)"
-                                class="ml-2 text-indigo-600 hover:underline text-xs">Show all</button>
-                        </div>
-                    </template>
                     <template x-if="filteredItems.length === 0 && !loading">
                         <div class="bg-white shadow rounded-lg p-8 text-center text-gray-500">
                             <template x-if="allModels.length === 0 && allSources.length === 0">
@@ -171,17 +180,39 @@
                                 <table class="min-w-full divide-y divide-gray-200">
                                     <thead class="bg-gray-50">
                                         <tr>
-                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Description</th>
-                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Tests</th>
-                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Last Updated</th>
-                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Documented</th>
-                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Tags</th>
+                                            <th @click="toggleCatalogSort('name')"
+                                                class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700">
+                                                Name<template x-if="sortColumn === 'name'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                            </th>
+                                            <th @click="toggleCatalogSort('type')"
+                                                class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700">
+                                                Type<template x-if="sortColumn === 'type'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                            </th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Rows</th>
+                                            <th @click="toggleCatalogSort('description')"
+                                                class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden sm:table-cell">
+                                                Description<template x-if="sortColumn === 'description'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                            </th>
+                                            <th @click="toggleCatalogSort('tests')"
+                                                class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden md:table-cell">
+                                                Tests<template x-if="sortColumn === 'tests'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                            </th>
+                                            <th @click="toggleCatalogSort('last_updated')"
+                                                class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden md:table-cell">
+                                                Last Updated<template x-if="sortColumn === 'last_updated'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                            </th>
+                                            <th @click="toggleCatalogSort('documented')"
+                                                class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden md:table-cell">
+                                                Documented<template x-if="sortColumn === 'documented'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                            </th>
+                                            <th @click="toggleCatalogSort('tags')"
+                                                class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden lg:table-cell">
+                                                Tags<template x-if="sortColumn === 'tags'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                            </th>
                                         </tr>
                                     </thead>
                                     <tbody class="bg-white divide-y divide-gray-200">
-                                        <template x-for="item in filteredItems" :key="item.unique_id">
+                                        <template x-for="item in sortedFilteredItems" :key="item.unique_id">
                                             <tr class="hover:bg-gray-50 cursor-pointer" @click="openModel(item.name)">
                                                 <td class="px-6 py-4 whitespace-nowrap">
                                                     <a :href="'/catalog?model=' + encodeURIComponent(item.name)" @click.prevent class="text-sm font-medium text-blue-600 hover:text-blue-800" x-text="item.schema ? item.schema + '.' + item.name : item.name"></a>
@@ -189,6 +220,8 @@
                                                 <td class="px-6 py-4 whitespace-nowrap">
                                                     <span class="model-badge" :class="'model-badge-' + item.type" x-text="item.type"></span>
                                                 </td>
+                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
+                                                    x-text="item.row_count != null ? item.row_count.toLocaleString() : '--'"></td>
                                                 <td class="px-6 py-4 hidden sm:table-cell">
                                                     <div class="desc-truncate text-sm text-gray-500" :title="item.description" x-text="item.description || '--'"></div>
                                                 </td>
@@ -546,10 +579,13 @@ function catalogPage() {
         // Governance state
         piiFindings: [], driftEvents: [], piiOverrides: [],
         // Shared state
-        loading: true, profilingLoading: false, error: null, hasLineage: false, showAllSources: false,
+        loading: true, profilingLoading: false, profileAllLoading: false, error: null, hasLineage: false, showAllSources: false,
         // Guard flag: suppresses pushState during URL restoration and popstate
         // handling to prevent feedback loops (restoreFromUrl → openModel → updateUrl).
         _skipPush: false,
+        // Sort state
+        sortColumn: localStorage.getItem('dango-catalog-sort-column') || 'name',
+        sortDirection: localStorage.getItem('dango-catalog-sort-direction') || 'asc',
         // Tab config
         tabs: [
             { key: 'all', label: 'All' },
@@ -557,6 +593,7 @@ function catalogPage() {
             { key: 'staging', label: 'Staging' },
             { key: 'intermediate', label: 'Intermediate' },
             { key: 'marts', label: 'Marts' },
+            { key: 'seed', label: 'Seeds' },
         ],
 
         metabaseDatabaseId: null,
@@ -693,6 +730,8 @@ function catalogPage() {
             } else if (source) {
                 this.activeTab = 'source';
                 this.sourceFilter = source;
+                this.view = 'list';
+                this.selectedModel = null;
             } else if (view === 'lineage') {
                 const focus = params.get('focus');
                 const focusSource = params.get('focus_source');
@@ -725,6 +764,52 @@ function catalogPage() {
             return items.filter(i => i.type === this.activeTab);
         },
 
+        get sortedFilteredItems() {
+            let items = this.filteredItems;
+            if (this.sortColumn && this.sortDirection && this.sortDirection !== 'none') {
+                const dir = this.sortDirection === 'desc' ? -1 : 1;
+                const col = this.sortColumn;
+                items = [...items].sort((a, b) => {
+                    const va = this._resolveCatalogField(a, col);
+                    const vb = this._resolveCatalogField(b, col);
+                    if (va == null && vb == null) return 0;
+                    if (va == null) return 1;
+                    if (vb == null) return -1;
+                    const cmp = typeof va === 'number'
+                        ? va - vb
+                        : String(va).toLowerCase().localeCompare(String(vb).toLowerCase());
+                    return cmp * dir;
+                });
+            }
+            return items;
+        },
+
+        _resolveCatalogField(item, col) {
+            switch (col) {
+                case 'name': return item.schema ? item.schema + '.' + item.name : item.name;
+                case 'type': return item.type;
+                case 'description': return item.description || '';
+                case 'tests': return item.test_count ?? 0;
+                case 'last_updated': return item.last_run || null;
+                case 'documented': return item.columns_total > 0 ? item.columns_documented / item.columns_total : 0;
+                case 'tags': return (item.tags && item.tags.length > 0) ? item.tags[0] : '';
+                default: return undefined;
+            }
+        },
+
+        toggleCatalogSort(col) {
+            if (this.sortColumn === col) {
+                if (this.sortDirection === 'asc') this.sortDirection = 'desc';
+                else if (this.sortDirection === 'desc') { this.sortColumn = 'name'; this.sortDirection = 'asc'; }
+                else this.sortDirection = 'asc';
+            } else {
+                this.sortColumn = col;
+                this.sortDirection = 'asc';
+            }
+            localStorage.setItem('dango-catalog-sort-column', this.sortColumn || '');
+            localStorage.setItem('dango-catalog-sort-direction', this.sortDirection || '');
+        },
+
         tabCount(key) {
             if (key === 'all') return this.allModels.length + this.allSources.length;
             if (key === 'source') return this.allSources.length;
@@ -742,7 +827,7 @@ function catalogPage() {
 
         async openModel(name) {
             this.view = 'detail'; this.detailLoading = true; this.selectedModel = null;
-            this.detailTab = 'columns'; this.error = null;
+            this.detailTab = 'columns'; this.error = null; this.sourceFilter = null;
             try {
                 const res = await fetch('/api/catalog/models/' + encodeURIComponent(name));
                 if (res.ok) {
@@ -861,6 +946,29 @@ function catalogPage() {
             finally { this.profilingLoading = false; }
         },
 
+        async profileAll() {
+            this.profileAllLoading = true; this.error = null;
+            try {
+                const res = await fetch('/api/catalog/profile-all', {
+                    method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                if (res.ok) {
+                    // Reload the model list to pick up the fresh row counts
+                    const modelsRes = await fetch('/api/catalog/models');
+                    if (modelsRes.ok) {
+                        const data = await modelsRes.json();
+                        this.allModels = data.models || [];
+                        this.allSources = data.sources || [];
+                        this.overview = data.overview || null;
+                    }
+                } else {
+                    const data = await res.json().catch(() => null);
+                    this.error = data?.detail || 'Failed to refresh counts.';
+                }
+            } catch (e) { this.error = 'Failed to refresh counts.'; }
+            finally { this.profileAllLoading = false; }
+        },
+
         viewInLineage(name, sourceName) {
             this.view = 'lineage'; this.impactHighlighted = false; this.impactCount = 0;
             this.lineageFocusName = name; this.lineageFocusSourceName = sourceName || null;
@@ -913,6 +1021,7 @@ function catalogPage() {
             if (this.view === 'lineage') {
                 this.goToList();
             } else {
+                this.sourceFilter = null;
                 this.view = 'lineage'; this.selectedNode = null;
                 this.lineageFocusName = null; this.lineageFocusSourceName = null;
                 this.impactHighlighted = false; this.impactCount = 0;

@@ -197,7 +197,7 @@ SOURCE_REGISTRY: dict[str, dict[str, Any]] = {
         "capabilities": {
             "performance_metrics": False,
             "date_range": False,
-            "incremental": False,
+            "incremental": None,  # Derived at runtime from actual source (AST + sync history)
             "custom_queries": True,
         },
     },
@@ -2337,4 +2337,7 @@ def get_source_capabilities(source_type: str) -> dict[str, bool] | None:
     metadata = SOURCE_REGISTRY.get(source_type)
     if metadata is None:
         return None
-    return cast(dict[str, bool] | None, metadata.get("capabilities"))
+    caps = metadata.get("capabilities")
+    if caps:
+        caps = {k: v if v is not None else True for k, v in caps.items()}
+    return cast(dict[str, bool] | None, caps)

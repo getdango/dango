@@ -50,7 +50,7 @@ def _run_git(args: list[str], cwd: Path) -> str | None:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-    except (subprocess.TimeoutExpired, OSError):
+    except (subprocess.TimeoutExpired, OSError):  # noqa: BLE001
         pass
     return None
 

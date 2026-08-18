@@ -6,7 +6,6 @@ Tests for the server-side manual sync runner (TASK-040c + R10-N subprocess).
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -47,7 +46,6 @@ class TestRunManualSync:
 
     @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=1)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
@@ -58,7 +56,6 @@ class TestRunManualSync:
         mock_db_path,
         mock_start,
         mock_complete,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
@@ -72,18 +69,16 @@ class TestRunManualSync:
         assert result["status"] == "success"
         assert result["record_id"] == 1
         assert "duration_seconds" in result
-        mock_lock_cls.return_value.acquire.assert_called_once_with(timeout=300)
-        mock_lock_cls.return_value.release.assert_called_once()
         mock_sync.assert_called_once()
         mock_complete.assert_called_once()
-        # Verify progress_callback is passed to run_sync
+        # Verify max_lock_wait is passed to run_sync (default 300)
         call_kwargs = mock_sync.call_args[1]
+        assert call_kwargs.get("max_lock_wait") == 300
         assert "progress_callback" in call_kwargs
         assert callable(call_kwargs["progress_callback"])
 
     @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=2)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
@@ -94,7 +89,6 @@ class TestRunManualSync:
         mock_db_path,
         mock_start,
         mock_complete,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
@@ -109,38 +103,8 @@ class TestRunManualSync:
         call_kwargs = mock_sync.call_args[1]
         assert call_kwargs["start_date"] is not None
 
-    @patch(f"{_PATCH_UTILS}.DbtLock")
-    @patch(f"{_PATCH_HISTORY}.record_failure")
-    @patch(f"{_PATCH_HISTORY}.record_start", return_value=3)
-    @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
-    @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_OAUTH}.validate_before_sync")
-    def test_lock_failure(
-        self,
-        mock_oauth,
-        mock_config,
-        mock_db_path,
-        mock_start,
-        mock_failure,
-        mock_lock_cls,
-        tmp_path,
-    ):
-        from dango.exceptions import DbtLockError
-        from dango.platform.scheduling.sync_trigger import run_manual_sync
-
-        mock_config.return_value = _make_config(["src1"])
-        mock_lock_cls.return_value.acquire.side_effect = DbtLockError("lock held")
-
-        result = run_manual_sync(tmp_path, sources=["src1"])
-
-        assert result["status"] == "failed"
-        assert "Lock unavailable" in result["error"]
-        mock_failure.assert_called_once()
-        mock_lock_cls.return_value.acquire.assert_called_once_with(timeout=300)
-
     @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_failure")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=4)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
@@ -151,7 +115,6 @@ class TestRunManualSync:
         mock_db_path,
         mock_start,
         mock_failure,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
@@ -169,7 +132,6 @@ class TestRunManualSync:
 
     @patch(f"{_PATCH_INGESTION}.run_sync", side_effect=RuntimeError("DuckDB crash"))
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_failure")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=5)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
@@ -180,7 +142,6 @@ class TestRunManualSync:
         mock_db_path,
         mock_start,
         mock_failure,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
@@ -194,11 +155,9 @@ class TestRunManualSync:
         assert result["status"] == "failed"
         assert "DuckDB crash" in result["error"]
         mock_failure.assert_called_once()
-        mock_lock_cls.return_value.release.assert_called_once()
 
     @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=6)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
@@ -209,7 +168,6 @@ class TestRunManualSync:
         mock_db_path,
         mock_start,
         mock_complete,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
@@ -229,7 +187,6 @@ class TestRunManualSync:
 
     @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=7)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
@@ -240,7 +197,6 @@ class TestRunManualSync:
         mock_db_path,
         mock_start,
         mock_complete,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
@@ -322,7 +278,6 @@ class TestRunManualSync:
         return_value={"results": [{"rows_loaded": 100}], "failed_count": 0},
     )
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
     @patch(f"{_PATCH_OAUTH}.validate_before_sync")
@@ -331,7 +286,6 @@ class TestRunManualSync:
         mock_oauth,
         mock_db_path,
         mock_complete,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
@@ -353,7 +307,6 @@ class TestRunManualSync:
         return_value={"results": [{"rows_loaded": 150}], "failed_count": 0},
     )
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=9)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
@@ -364,7 +317,6 @@ class TestRunManualSync:
         mock_db_path,
         mock_start,
         mock_complete,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
@@ -381,58 +333,54 @@ class TestRunManualSync:
 
     @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=10)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
     @patch(f"{_PATCH_OAUTH}.validate_before_sync")
-    def test_acquire_passes_timeout(
+    def test_max_lock_wait_passed_to_run_sync(
         self,
         mock_oauth,
         mock_db_path,
         mock_start,
         mock_complete,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
     ):
-        """Lock acquire() should pass max_lock_wait as timeout."""
+        """max_lock_wait should be passed to run_sync()."""
         from dango.platform.scheduling.sync_trigger import run_manual_sync
 
         mock_config.return_value = _make_config(["src1"])
 
         result = run_manual_sync(tmp_path, sources=["src1"], max_lock_wait=30)
 
-        mock_lock_cls.return_value.acquire.assert_called_once_with(timeout=30)
+        assert mock_sync.call_args[1].get("max_lock_wait") == 30
         assert result["status"] == "success"
 
     @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=11)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
     @patch(f"{_PATCH_OAUTH}.validate_before_sync")
-    def test_default_timeout_is_300(
+    def test_default_max_lock_wait_is_300(
         self,
         mock_oauth,
         mock_db_path,
         mock_start,
         mock_complete,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
     ):
-        """Without max_lock_wait, should use 300s default timeout."""
+        """Without max_lock_wait, run_sync() should receive default 300."""
         from dango.platform.scheduling.sync_trigger import run_manual_sync
 
         mock_config.return_value = _make_config(["src1"])
 
         result = run_manual_sync(tmp_path, sources=["src1"])
 
-        mock_lock_cls.return_value.acquire.assert_called_once_with(timeout=300)
+        assert mock_sync.call_args[1].get("max_lock_wait") == 300
         assert result["status"] == "success"
 
 
@@ -445,7 +393,6 @@ class TestDataLoadedStatus:
         return_value={"results": [{"rows_loaded": 5}], "failed_count": 0},
     )
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=20)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
@@ -456,7 +403,6 @@ class TestDataLoadedStatus:
         mock_db_path,
         mock_start,
         mock_complete,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
@@ -475,7 +421,6 @@ class TestDataLoadedStatus:
         return_value={"results": [{"rows_loaded": 5}], "failed_count": 0},
     )
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=21)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
@@ -486,7 +431,6 @@ class TestDataLoadedStatus:
         mock_db_path,
         mock_start,
         mock_complete,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
@@ -520,7 +464,6 @@ class TestValidationErrorLogging:
 
     @patch(f"{_PATCH_INGESTION}.run_sync", return_value={"results": [], "failed_count": 0})
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=30)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
@@ -529,7 +472,6 @@ class TestValidationErrorLogging:
         mock_db_path,
         mock_start,
         mock_complete,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
@@ -606,7 +548,6 @@ class TestWriteStatus:
                 return_value={"results": [{"rows_loaded": 42}], "failed_count": 0},
             ),
             patch(f"{_PATCH_CONFIG}.load_config", return_value=config),
-            patch(f"{_PATCH_UTILS}.DbtLock"),
             patch(f"{_PATCH_HISTORY}.record_completion"),
             patch(f"{_PATCH_HISTORY}.record_start", return_value=1),
             patch(f"{_PATCH_HISTORY}.get_scheduler_db_path"),
@@ -674,7 +615,6 @@ class TestDbtFailureHandling:
     """Tests for BUG-230: dbt failure should record failure, not completion."""
 
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_failure")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=20)
@@ -687,7 +627,6 @@ class TestDbtFailureHandling:
         mock_start,
         mock_complete,
         mock_failure,
-        mock_lock_cls,
         mock_config,
         tmp_path,
     ):
@@ -713,7 +652,6 @@ class TestDbtFailureHandling:
         mock_complete.assert_not_called()
 
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_failure")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=21)
@@ -726,7 +664,6 @@ class TestDbtFailureHandling:
         mock_start,
         mock_complete,
         mock_failure,
-        mock_lock_cls,
         mock_config,
         tmp_path,
     ):
@@ -759,7 +696,6 @@ class TestDbtFailureHandling:
         return_value={"results": [{"rows_loaded": 75}], "failed_count": 0},
     )
     @patch(f"{_PATCH_CONFIG}.load_config")
-    @patch(f"{_PATCH_UTILS}.DbtLock")
     @patch(f"{_PATCH_HISTORY}.record_completion")
     @patch(f"{_PATCH_HISTORY}.record_start", return_value=22)
     @patch(f"{_PATCH_HISTORY}.get_scheduler_db_path")
@@ -770,7 +706,6 @@ class TestDbtFailureHandling:
         mock_db_path,
         mock_start,
         mock_complete,
-        mock_lock_cls,
         mock_config,
         mock_sync,
         tmp_path,
@@ -788,85 +723,3 @@ class TestDbtFailureHandling:
         data = json.loads(status_file.read_text())
         assert data["phase"] == "completed"
         assert "dbt_error" not in data
-
-
-# ---------------------------------------------------------------------------
-# _trigger_metabase_schema_scan tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestTriggerMetabaseSchemaSync:
-    """Tests for _trigger_metabase_schema_scan."""
-
-    def test_skips_when_no_metabase_yml(self, tmp_path: Path) -> None:
-        from dango.platform.scheduling.sync_trigger import (
-            _trigger_metabase_schema_scan,
-        )
-
-        _trigger_metabase_schema_scan(tmp_path)
-        # No exception — gracefully skips
-
-    def test_skips_when_health_timeout(self, tmp_path: Path) -> None:
-        from dango.platform.scheduling.sync_trigger import (
-            _trigger_metabase_schema_scan,
-        )
-
-        mb_yml = tmp_path / ".dango" / "metabase.yml"
-        mb_yml.parent.mkdir(parents=True, exist_ok=True)
-        mb_yml.write_text("admin:\n  email: a@b.com\n  password: pw\ndatabase:\n  id: 1\n")
-
-        mock_requests = MagicMock()
-        mock_requests.get.side_effect = Exception("connection refused")
-        with patch.dict("sys.modules", {"requests": mock_requests}):
-            _trigger_metabase_schema_scan(tmp_path)
-            # Skips after health timeout — no schema sync attempted
-
-    def test_skips_when_missing_credentials(self, tmp_path: Path) -> None:
-        from dango.platform.scheduling.sync_trigger import (
-            _trigger_metabase_schema_scan,
-        )
-
-        mb_yml = tmp_path / ".dango" / "metabase.yml"
-        mb_yml.parent.mkdir(parents=True, exist_ok=True)
-        mb_yml.write_text("admin:\n  email: a@b.com\n")  # no password, no database_id
-
-        health_resp = MagicMock()
-        health_resp.status_code = 200
-
-        mock_requests = MagicMock()
-        mock_requests.get.return_value = health_resp
-        with patch.dict("sys.modules", {"requests": mock_requests}):
-            _trigger_metabase_schema_scan(tmp_path)
-            # No login attempt — missing credentials
-            mock_requests.post.assert_not_called()
-
-    def test_triggers_schema_sync_on_success(self, tmp_path: Path) -> None:
-        from dango.platform.scheduling.sync_trigger import (
-            _trigger_metabase_schema_scan,
-        )
-
-        mb_yml = tmp_path / ".dango" / "metabase.yml"
-        mb_yml.parent.mkdir(parents=True, exist_ok=True)
-        mb_yml.write_text("admin:\n  email: a@b.com\n  password: pw\ndatabase:\n  id: 2\n")
-
-        health_resp = MagicMock()
-        health_resp.status_code = 200
-        login_resp = MagicMock()
-        login_resp.status_code = 200
-        login_resp.json.return_value = {"id": "session123"}
-        sync_resp = MagicMock()
-        sync_resp.status_code = 200
-
-        mock_requests = MagicMock()
-        mock_requests.get.return_value = health_resp
-        mock_requests.post.side_effect = [login_resp, sync_resp]
-        with patch.dict("sys.modules", {"requests": mock_requests}):
-            _trigger_metabase_schema_scan(tmp_path)
-
-            # Verify schema sync was called
-            calls = mock_requests.post.call_args_list
-            assert len(calls) == 2
-            assert "/api/session" in calls[0].args[0]
-            assert "/api/database/2/sync_schema" in calls[1].args[0]
-            assert calls[1].kwargs["headers"]["X-Metabase-Session"] == "session123"

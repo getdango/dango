@@ -85,7 +85,7 @@ def cleanup_sync_status(project_root: Path, sync_id: str | None = None) -> None:
         path = get_sync_status_path(project_root, sync_id)
         try:
             path.unlink(missing_ok=True)
-        except OSError:
+        except OSError:  # noqa: BLE001
             pass
 
 
@@ -229,7 +229,8 @@ async def poll_sync_status(
                         "source": source_name,
                         "message": error_msg,
                         "timestamp": _ts(),
-                    }
+                    },
+                    log=False,
                 )
                 # Timeout is not a crash — don't call _handle_crash (the caller
                 # has its own timeout handling). Just keep the log for diagnostics.
@@ -270,7 +271,8 @@ async def poll_sync_status(
                         "source": source_name,
                         "message": f"Sync in progress ({elapsed_int}s elapsed)",
                         "timestamp": _ts(),
-                    }
+                    },
+                    log=False,
                 )
                 last_heartbeat = now
 
@@ -288,7 +290,8 @@ async def poll_sync_status(
                         "source": source_name,
                         "message": error_msg,
                         "timestamp": _ts(),
-                    }
+                    },
+                    log=False,
                 )
                 return False, {"error": error_msg, "phase": "failed"}
     finally:
@@ -325,6 +328,25 @@ def poll_sync_status_blocking(
         if elapsed >= max_poll_time:
             process.terminate()
             error_msg = f"Sync timed out after {int(elapsed)}s"
+
+            from dango.utils.sync_history import save_sync_history_entry
+
+            for src in source_list:
+                try:
+                    save_sync_history_entry(
+                        project_root,
+                        src,
+                        {
+                            "timestamp": _ts(),
+                            "status": "failed",
+                            "duration_seconds": int(elapsed),
+                            "rows_processed": 0,
+                            "error_message": error_msg,
+                        },
+                    )
+                except Exception:
+                    logger.debug("sync_history_timeout_write_failed", source=src, exc_info=True)
+
             if broadcast_fn is not None:
                 broadcast_fn(
                     {
@@ -492,9 +514,20 @@ def _ts() -> str:
 
 
 def _phase_to_event(phase: str) -> str:
-    """Map status file phase to a WebSocket event name."""
+    """Map status file phase to a WebSocket event name.
+
+    Consumers (grep for these to find UI code that handles each event):
+      sync_progress       → app.js:414, schedules.html:484
+      data_load_complete  → app.js:418
+      dbt_run_all_started → app.js:503, schedules.html:484
+      dbt_run_all_completed → app.js:542
+      dbt_run_all_failed  → app.js:595
+      post_sync_started   → app.js:565
+      post_sync_completed → app.js:571
+      sync_completed      → app.js:422, schedules.html:494
+      sync_failed         → app.js:463, schedules.html:494
+    """
     mapping = {
-        "lock_waiting": "sync_queued",
         "data_load": "sync_progress",
         "data_load_complete": "data_load_complete",
         "dbt_started": "dbt_run_all_started",

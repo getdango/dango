@@ -122,7 +122,7 @@ class TestCoreProtection:
             patch.object(runner, "_check_oauth_token_expiry", return_value=None),
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -163,7 +163,7 @@ class TestCoreProtection:
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
             patch.object(runner, "_check_row_count_anomaly", return_value=None),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -200,7 +200,7 @@ class TestCoreProtection:
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 6000}),
             patch.object(runner, "_check_row_count_anomaly", return_value=None),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(6000)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(6000)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -238,7 +238,7 @@ class TestCoreProtection:
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 100}),
             patch.object(runner, "_check_row_count_anomaly", return_value=None),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(100)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(100)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -276,7 +276,7 @@ class TestCoreProtection:
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
             patch.object(runner, "_check_row_count_anomaly", return_value=None),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -325,7 +325,7 @@ class TestIncrementalMerge:
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
             patch.object(runner, "_check_row_count_anomaly", return_value=None),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -363,7 +363,7 @@ class TestIncrementalMerge:
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
             patch.object(runner, "_check_row_count_anomaly", return_value=None),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -400,7 +400,7 @@ class TestIncrementalMerge:
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 50}),
             patch.object(runner, "_check_row_count_anomaly", return_value=None),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(50)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(50)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -447,7 +447,7 @@ class TestSourceTypeCoverage:
             patch.object(runner, "_check_oauth_token_expiry", return_value=None),
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -479,7 +479,7 @@ class TestSourceTypeCoverage:
             patch.object(runner, "_restore_dlt_state") as mock_restore,
             patch.object(runner, "_detect_write_disposition", return_value=True),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("dango.ingestion.dlt_runner.importlib") as mock_importlib,
             patch("os.getcwd", return_value="/tmp"),
@@ -512,7 +512,7 @@ class TestSourceTypeCoverage:
             patch.object(runner, "_restore_dlt_state") as mock_restore,
             patch.object(runner, "_detect_write_disposition", return_value=True),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("dango.ingestion.dlt_runner.importlib") as mock_importlib,
             patch("os.getcwd", return_value="/tmp"),
@@ -670,7 +670,7 @@ class TestPipelineState:
             patch.object(runner, "_check_oauth_token_expiry", return_value=None),
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -718,7 +718,7 @@ class TestPipelineState:
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", side_effect=mock_extract_stats),
             patch.object(runner, "_check_row_count_anomaly", return_value=None),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info()),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info()),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -776,7 +776,7 @@ class TestSchemaInteraction:
                 return_value={"rows_loaded": 1200, "loaded_tables": ["t1", "t2"]},
             ),
             patch.object(runner, "_check_row_count_anomaly", return_value=None),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info()),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info()),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -798,14 +798,113 @@ class TestSchemaInteraction:
         assert result["status"] == "success"
         assert result["rows_loaded"] == 1200
 
-    def test_no_pre_schema_drop_in_source_code(self):
-        """Test 18: DROP SCHEMA CASCADE removed from _run_dlt_source."""
+    def test_drop_schema_present_and_conditional(self):
+        """Test 18: DROP SCHEMA present in _run_dlt_source, guarded by uses_replace_mode."""
         source = inspect.getsource(
             __import__(
                 "dango.ingestion.dlt_runner", fromlist=["DltPipelineRunner"]
             ).DltPipelineRunner._run_dlt_source
         )
-        assert "DROP SCHEMA" not in source
+        assert "DROP SCHEMA" in source
+        assert "if not uses_replace_mode:" in source
+
+    def test_merge_source_full_refresh_drops_schema(self, tmp_path):
+        """Merge source full refresh calls duckdb to drop schema."""
+        runner = _make_runner(tmp_path)
+        runner.duckdb_path.parent.mkdir(parents=True, exist_ok=True)
+        runner.duckdb_path.touch()
+
+        with (
+            patch.object(runner, "_get_source_total_rows", return_value=1000),
+            patch.object(runner, "_get_source_table_rows", return_value={"t1": 1000}),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=False),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(
+                runner,
+                "_extract_load_stats",
+                return_value={"rows_loaded": 1200, "loaded_tables": ["t1"]},
+            ),
+            patch.object(runner, "_check_row_count_anomaly", return_value=None),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info()),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+            patch("duckdb.connect") as mock_connect,
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+            mock_db = MagicMock()
+            mock_connect.return_value = mock_db
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "success"
+        mock_connect.assert_called_once_with(str(runner.duckdb_path))
+        mock_db.execute.assert_called_once()
+        call_args = mock_db.execute.call_args[0][0]
+        assert "DROP SCHEMA" in call_args
+        assert "raw_test" in call_args
+        assert "CASCADE" in call_args
+        mock_db.close.assert_called_once()
+
+    def test_replace_source_full_refresh_skips_schema_drop(self, tmp_path):
+        """Replace source full refresh does NOT call duckdb to drop schema."""
+        runner = _make_runner(tmp_path)
+
+        with (
+            patch.object(runner, "_get_source_total_rows", return_value=1000),
+            patch.object(runner, "_get_source_table_rows", return_value={"t1": 1000}),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(
+                runner,
+                "_extract_load_stats",
+                return_value={"rows_loaded": 1200, "loaded_tables": ["t1"]},
+            ),
+            patch.object(runner, "_check_row_count_anomaly", return_value=None),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info()),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+            patch("duckdb.connect") as mock_connect,
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "success"
+        mock_connect.assert_not_called()
 
 
 # ============================================================================
@@ -949,7 +1048,7 @@ class TestErrorMessageAndStatus:
             patch.object(runner, "_check_oauth_token_expiry", return_value=None),
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -985,7 +1084,7 @@ class TestErrorMessageAndStatus:
             patch.object(runner, "_check_oauth_token_expiry", return_value=None),
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -1058,7 +1157,7 @@ class TestEdgeCases:
             patch.object(runner, "_check_oauth_token_expiry", return_value=None),
             patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
             patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
-            patch.object(runner, "_run_with_retry", return_value=_mock_load_info(0)),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
             patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
             patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
             patch("os.getcwd", return_value="/tmp"),
@@ -1110,7 +1209,7 @@ class TestEdgeCases:
                     return_value={"rows_loaded": rows_loaded},
                 ),
                 patch.object(runner, "_check_row_count_anomaly", return_value=None),
-                patch.object(runner, "_run_with_retry", return_value=_mock_load_info()),
+                patch.object(runner, "_load_with_lock", return_value=_mock_load_info()),
                 patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
                 patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
                 patch("os.getcwd", return_value="/tmp"),
@@ -1200,15 +1299,344 @@ class TestParameterThreading:
 
 
 @pytest.mark.unit
-class TestDropSchemaRemoval:
-    """Verify DROP SCHEMA CASCADE has been removed from both dlt methods."""
+class TestDropSchemaPresent:
+    """Verify DROP SCHEMA CASCADE is present (guarded by uses_replace_mode) in both dlt methods."""
 
     @pytest.mark.parametrize("method_name", ["_run_dlt_source", "_run_dlt_native_source"])
-    def test_no_drop_schema_cascade(self, method_name):
-        """DROP SCHEMA CASCADE must not appear in dlt sync methods."""
+    def test_drop_schema_cascade_present_and_conditional(self, method_name):
+        """DROP SCHEMA CASCADE must be present, guarded by not uses_replace_mode."""
         from dango.ingestion.dlt_runner import DltPipelineRunner
 
         source = inspect.getsource(getattr(DltPipelineRunner, method_name))
-        assert "DROP SCHEMA" not in source, (
-            f"{method_name} still contains DROP SCHEMA — must be removed"
+        assert "DROP SCHEMA" in source, (
+            f"{method_name} missing DROP SCHEMA — must be present for merge/append full refresh"
         )
+        assert "if not uses_replace_mode:" in source, (
+            f"{method_name} DROP SCHEMA must be guarded by uses_replace_mode check"
+        )
+
+
+# ============================================================================
+# Per-Table Empty Replace Protection (Tests 32-37)
+# ============================================================================
+
+
+@pytest.mark.unit
+class TestPerTableProtection:
+    """Per-table empty replace protection for multi-resource dlt sources.
+
+    Catches the gap where source-level totals pass (some tables populated)
+    but individual tables would be silently truncated.
+    """
+
+    def test_partial_empty_fails(self, tmp_path):
+        """Test 32: Some tables populated, one returns 0 rows → fail with details."""
+        runner = _make_runner(tmp_path)
+
+        pre_table = {"table_a": 1000, "table_b": 500, "table_c": 300}
+        post_table = {"table_a": 1200, "table_b": 600, "table_c": 0}
+
+        with (
+            patch.object(
+                runner,
+                "_get_source_total_rows",
+                side_effect=[sum(pre_table.values()), sum(post_table.values())],
+            ),
+            patch.object(runner, "_get_source_table_rows", side_effect=[pre_table, post_table]),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_restore_dlt_state") as mock_restore,
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 1800}),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(1800)),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "failed"
+        assert "table_c" in result["error"]
+        assert "300 rows" in result["error"]
+        assert "would be lost" in result["error"]
+        assert "--allow-empty-replace" in result["error"]
+        mock_restore.assert_called_once()
+
+    def test_all_populated_succeeds(self, tmp_path):
+        """Test 33: All tables populated → success."""
+        runner = _make_runner(tmp_path)
+
+        pre_table = {"table_a": 1000, "table_b": 500}
+        post_table = {"table_a": 1200, "table_b": 600}
+
+        with (
+            patch.object(
+                runner,
+                "_get_source_total_rows",
+                side_effect=[sum(pre_table.values()), sum(post_table.values())],
+            ),
+            patch.object(runner, "_get_source_table_rows", side_effect=[pre_table, post_table]),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 1800}),
+            patch.object(runner, "_check_row_count_anomaly", return_value=None),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(1800)),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "success"
+
+    def test_new_table_zero_succeeds(self, tmp_path):
+        """Test 34: New table appears with 0 rows (not previously tracked) → success."""
+        runner = _make_runner(tmp_path)
+
+        pre_table = {"table_a": 1000}
+        post_table = {"table_a": 1200, "table_b": 0}
+
+        with (
+            patch.object(
+                runner,
+                "_get_source_total_rows",
+                side_effect=[sum(pre_table.values()), sum(post_table.values())],
+            ),
+            patch.object(runner, "_get_source_table_rows", side_effect=[pre_table, post_table]),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 1200}),
+            patch.object(runner, "_check_row_count_anomaly", return_value=None),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(1200)),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "success"
+
+    def test_first_sync_none_pre_counts_succeeds(self, tmp_path):
+        """Test 35: First sync with None pre_table_counts → success (per-table skipped)."""
+        runner = _make_runner(tmp_path)
+
+        post_table = {"table_a": 0, "table_b": 0}
+
+        with (
+            patch.object(runner, "_get_source_total_rows", side_effect=[0, 0]),
+            patch.object(runner, "_get_source_table_rows", side_effect=[None, post_table]),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
+            patch.object(runner, "_check_row_count_anomaly", return_value=None),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "success"
+
+    def test_allow_empty_replace_bypasses_per_table(self, tmp_path):
+        """Test 36: allow_empty_replace=True bypasses per-table check."""
+        runner = _make_runner(tmp_path)
+
+        pre_table = {"table_a": 1000, "table_b": 500}
+        post_table = {"table_a": 1200, "table_b": 0}
+
+        with (
+            patch.object(
+                runner,
+                "_get_source_total_rows",
+                side_effect=[sum(pre_table.values()), sum(post_table.values())],
+            ),
+            patch.object(runner, "_get_source_table_rows", side_effect=[pre_table, post_table]),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_cleanup_state_backup"),
+            patch.object(runner, "_restore_dlt_state") as mock_restore,
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 1200}),
+            patch.object(runner, "_check_row_count_anomaly", return_value=None),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(1200)),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+                allow_empty_replace=True,
+            )
+
+        assert result["status"] == "success"
+        mock_restore.assert_not_called()
+
+    def test_source_level_check_catches_all_empty(self, tmp_path):
+        """Test 37: Source-level check fires first when ALL tables empty (rows_loaded=0)."""
+        runner = _make_runner(tmp_path)
+
+        pre_table = {"table_a": 1000}
+
+        with (
+            patch.object(runner, "_get_source_total_rows", return_value=sum(pre_table.values())),
+            patch.object(runner, "_get_source_table_rows", return_value=pre_table),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_restore_dlt_state") as mock_restore,
+            patch.object(runner, "_build_source_config", return_value={}),
+            patch.object(runner, "_load_dlt_source") as mock_source,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_get_dataset_name", return_value="raw_test"),
+            patch.object(runner, "_check_oauth_token_expiry", return_value=None),
+            patch.object(runner, "_inject_oauth_credentials", side_effect=lambda t, k: k),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 0}),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(0)),
+            patch("dango.ingestion.dlt_runner.get_source_metadata") as mock_meta,
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_meta.return_value = {
+                "dlt_package": "test",
+                "dlt_function": "test_func",
+            }
+            mock_dlt.pipeline.return_value = MagicMock()
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+            mock_source.return_value = MagicMock()
+
+            result = runner._run_dlt_source(
+                _make_source_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "failed"
+        assert "existing 1,000 rows preserved" in result["error"]
+        mock_restore.assert_called_once()
+
+    def test_native_source_per_table_protection(self, tmp_path):
+        """Test 38: _run_dlt_native_source per-table check catches partial empty."""
+        runner = _make_runner(tmp_path)
+
+        pre_table = {"table_a": 1000, "table_b": 500}
+        post_table = {"table_a": 1200, "table_b": 0}
+
+        with (
+            patch.object(
+                runner,
+                "_get_source_total_rows",
+                side_effect=[sum(pre_table.values()), sum(post_table.values())],
+            ),
+            patch.object(runner, "_get_source_table_rows", side_effect=[pre_table, post_table]),
+            patch.object(runner, "_backup_dlt_state", return_value=Path("/tmp/backup")),
+            patch.object(runner, "_restore_dlt_state") as mock_restore,
+            patch.object(runner, "_detect_write_disposition", return_value=True),
+            patch.object(runner, "_extract_load_stats", return_value={"rows_loaded": 1200}),
+            patch.object(runner, "_load_with_lock", return_value=_mock_load_info(1200)),
+            patch("dango.ingestion.dlt_runner.dlt") as mock_dlt,
+            patch("dango.ingestion.dlt_runner.importlib") as mock_importlib,
+            patch("os.getcwd", return_value="/tmp"),
+            patch("os.chdir"),
+        ):
+            mock_module = MagicMock()
+            mock_module.test_func = MagicMock(return_value=MagicMock())
+            mock_importlib.import_module.return_value = mock_module
+
+            mock_pipeline = MagicMock()
+            mock_dlt.pipeline.return_value = mock_pipeline
+            mock_dlt.destinations.duckdb.return_value = MagicMock()
+
+            result = runner._run_dlt_native_source(
+                _make_dlt_native_config(),
+                full_refresh=True,
+            )
+
+        assert result["status"] == "failed"
+        assert "table_b" in result["error"]
+        assert "500 rows" in result["error"]
+        assert "would be lost" in result["error"]
+        assert "--allow-empty-replace" in result["error"]
+        mock_restore.assert_called_once()

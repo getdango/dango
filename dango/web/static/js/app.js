@@ -8,12 +8,6 @@
  */
 
 // HTML entity escaping for safe innerHTML usage
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
 function formatSourceType(type) {
     const names = {
         'csv': 'CSV',
@@ -46,6 +40,16 @@ let activeFileOperations = new Map();
 // Track elapsed time intervals for active syncs: Map<sourceName, intervalId>
 let syncTimers = new Map();
 let syncResults = new Map();  // Stores sync_completed data for in-place updates
+
+// Sort/filter state for Sources table (persisted in localStorage)
+let sourceSortColumn = localStorage.getItem('dango-sources-sort-column') || 'name';
+let sourceSortDirection = localStorage.getItem('dango-sources-sort-direction') || 'asc';
+let sourceFilterText = localStorage.getItem('dango-sources-filter') || '';
+
+// Sort/filter state for Models table (persisted in localStorage)
+let modelSortColumn = localStorage.getItem('dango-models-sort-column') || 'name';
+let modelSortDirection = localStorage.getItem('dango-models-sort-direction') || 'asc';
+let modelFilterText = localStorage.getItem('dango-models-filter') || '';
 
 /**
  * Format a file size in bytes to a human-readable string (B/KB/MB/GB).
@@ -196,11 +200,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Sources page or legacy dashboard with tabs
     if (hasSources) {
         loadSources();
+        initSourcesSortHeaders();
+        initSourcesFilter();
     }
 
     // Models page or legacy dashboard with tabs
     if (hasModels) {
         loadDbtModels();
+        initModelsSortHeaders();
+        initModelsFilter();
     }
 
     // Activity log (dashboard overview)
@@ -1149,6 +1157,117 @@ function showSourcesLoading() {
     `;
 }
 
+// ============================================================================
+// Sources Table Sort & Filter
+// ============================================================================
+
+function applySourcesSort(srcs) {
+    if (!sourceSortColumn || !sourceSortDirection || sourceSortDirection === 'none') return srcs;
+    const sortable = {
+        'name': 'name',
+        'type': 'type',
+        'rows': 'row_count',
+        'last-sync': 'last_sync',
+    };
+    if (sourceSortColumn === 'status') {
+        const dir = sourceSortDirection === 'desc' ? -1 : 1;
+        return [...srcs].sort((a, b) => {
+            const va = sourceStatusOrder(a), vb = sourceStatusOrder(b);
+            return (va - vb) * dir;
+        });
+    }
+    const accessor = sortable[sourceSortColumn];
+    return accessor ? sortByProp(srcs, accessor, sourceSortDirection) : srcs;
+}
+
+function sourceStatusOrder(src) {
+    if (activeSyncs.has(src.name)) return 0;
+    if (postSyncSources.has(src.name)) return 1;
+    const order = { 'synced': 10, 'stale': 15, 'partial': 20, 'empty': 30, 'not_synced': 40, 'failed': 50, 'never_synced': 60 };
+    // Check src.status first (backend-computed staleness overrides freshness.status)
+    if (order[src.status] != null) return order[src.status];
+    return order[src.freshness?.status] != null ? order[src.freshness.status] : 99;
+}
+
+function applySourcesFilter(srcs) {
+    if (!sourceFilterText) return srcs;
+    return filterByText(srcs, sourceFilterText, ['name', 'type', 'type_display']);
+}
+
+function updateSourcesSortArrows() {
+    const table = document.querySelector('#sources-table-body')?.closest('table');
+    if (!table) return;
+    table.querySelectorAll('thead th[data-sort-key]').forEach((th) => {
+        const colKey = th.dataset.sortKey;
+        // Use a dedicated span for the arrow to avoid mutating label text
+        let arrow = th.querySelector('.sort-arrow');
+        if (!arrow) {
+            arrow = document.createElement('span');
+            arrow.className = 'sort-arrow';
+            th.appendChild(arrow);
+        }
+        if (colKey === sourceSortColumn && sourceSortDirection && sourceSortDirection !== 'none') {
+            arrow.textContent = sourceSortDirection === 'asc' ? ' ▲' : ' ▼';
+        } else {
+            arrow.textContent = '';
+        }
+    });
+}
+
+function initSourcesSortHeaders() {
+    const table = document.querySelector('#sources-table-body')?.closest('table');
+    if (!table) return;
+    const thead = table.querySelector('thead');
+    if (!thead || thead.dataset.sortInit) return;
+    thead.dataset.sortInit = '1';
+
+    thead.addEventListener('click', (e) => {
+        const th = e.target.closest('th[data-sort-key]');
+        if (!th) return;
+        const colKey = th.dataset.sortKey;
+
+        if (sourceSortColumn === colKey) {
+            if (sourceSortDirection === 'asc') sourceSortDirection = 'desc';
+            else if (sourceSortDirection === 'desc') { sourceSortColumn = 'name'; sourceSortDirection = 'asc'; }
+            else { sourceSortColumn = colKey; sourceSortDirection = 'asc'; }
+        } else {
+            sourceSortColumn = colKey;
+            sourceSortDirection = 'asc';
+        }
+        localStorage.setItem('dango-sources-sort-column', sourceSortColumn || '');
+        localStorage.setItem('dango-sources-sort-direction', sourceSortDirection || '');
+        renderSourcesTable();
+    });
+}
+
+function initSourcesFilter() {
+    const input = document.getElementById('sources-filter-input');
+    if (!input) return;
+    const clearBtn = document.getElementById('sources-filter-clear');
+
+    input.value = sourceFilterText || '';
+    if (clearBtn) {
+        clearBtn.classList.toggle('invisible', !sourceFilterText);
+    }
+
+    input.addEventListener('input', () => {
+        sourceFilterText = input.value;
+        localStorage.setItem('dango-sources-filter', sourceFilterText);
+        if (clearBtn) clearBtn.classList.toggle('invisible', !sourceFilterText);
+        renderSourcesTable();
+    });
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            input.value = '';
+            sourceFilterText = '';
+            localStorage.setItem('dango-sources-filter', '');
+            clearBtn.classList.add('invisible');
+            renderSourcesTable();
+        });
+    }
+}
+
 function renderSourcesTable() {
     console.log('🎨 [renderSourcesTable] Called with sources:', sources.length, 'activeSyncs:', activeSyncs.size);
     const tbody = document.getElementById('sources-table-body');
@@ -1175,7 +1294,25 @@ function renderSourcesTable() {
 
     const canSync = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
 
-    tbody.innerHTML = sources.map(source => {
+    sources.forEach(s => { s.type_display = formatSourceType(s.type); });
+
+    // Apply sort and filter
+    const sorted = applySourcesSort(sources);
+    const filtered = applySourcesFilter(sorted);
+
+    if (filtered.length === 0 && sourceFilterText) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="px-6 py-8 text-center text-gray-500">
+                    <p>No sources match "<span class="font-medium">${escapeHtml(sourceFilterText)}</span>"</p>
+                </td>
+            </tr>
+        `;
+        updateSourcesSortArrows();
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(source => {
         const isSyncing = activeSyncs.has(source.name);
         const hasFileOps = activeFileOperations.has(source.name);
         const isPostSync = postSyncSources.has(source.name);
@@ -1255,36 +1392,37 @@ function renderSourcesTable() {
 
         return `
         <tr id="source-${source.name}" class="hover:bg-gray-50 transition-colors duration-150">
-            <td class="px-6 py-4 whitespace-nowrap cursor-pointer tooltip" onclick="${rowClickHandler}" data-tooltip="${rowClickHelp}">
+            <td class="px-6 py-4 whitespace-nowrap text-left text-sm font-medium">
+                ${actionColumn}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-left cursor-pointer tooltip" onclick="${rowClickHandler}" data-tooltip="${rowClickHelp}">
                 <div class="flex items-center">
                     <div class="text-sm font-medium text-gray-900">${escapeHtml(source.name)}</div>
                     ${source.needs_attention ? '<span class="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Needs Attention</span>' : ''}
                 </div>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap">
+            <td class="px-6 py-4 whitespace-nowrap text-left cursor-pointer tooltip" data-col="status" onclick="event.stopPropagation(); openSyncHistory('${source.name}')" data-tooltip="Click to view sync history">
+                ${renderStatusPill(source, isSyncing, hasFileOps)}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-left text-sm text-gray-500" data-col="last-sync">
+                ${formatRelativeTime(source.last_sync)}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-left text-sm text-gray-400">
+                ${source.has_schedule ? `<span class="tooltip" data-tooltip="${source.schedule_display || ''}">${source.schedule_display || 'Scheduled'}</span>` : '<span class="inline-block w-full text-center text-gray-300">—</span>'}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-left">
                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
                     ${formatSourceType(source.type)}
                 </span>
                 <div class="text-xs text-gray-400 mt-0.5">${source.lookback_days ? `Incremental (${source.lookback_days}d lookback)` : source.sync_mode === 'full_refresh' ? 'Full Refresh' : 'Incremental'}</div>
             </td>
-            <td class="px-6 py-4 whitespace-nowrap cursor-pointer tooltip" data-col="status" onclick="event.stopPropagation(); openSyncHistory('${source.name}')" data-tooltip="Click to view sync history">
-                ${renderStatusPill(source, isSyncing, hasFileOps)}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" data-col="rows">
+            <td class="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500" data-col="rows">
                 ${renderRowCount(source)}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500" data-col="last-sync">
-                ${formatRelativeTime(source.last_sync)}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                ${source.has_schedule ? `<span class="tooltip" data-tooltip="${source.schedule_display || ''}">${source.schedule_display || 'Scheduled'}</span>` : '<span class="inline-block w-full text-center text-gray-300">—</span>'}
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                ${actionColumn}
             </td>
         </tr>
         `;
     }).join('');
+    updateSourcesSortArrows();
 }
 
 function getStatusBadge(status) {
@@ -1296,6 +1434,7 @@ function getStatusBadge(status) {
         'empty': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Empty</span>',
         'not_synced': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">Not Synced</span>',
         'failed': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">Failed</span>',
+        'stale': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">⚠ Stale</span>',
     };
 
     return badges[status] || badges['not_synced'];
@@ -1353,6 +1492,11 @@ function renderStatusPill(source, isSyncing, hasFileOps) {
 
     if (hasFileOps) {
         return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800 animate-pulse">⚙️ Processing...</span>';
+    }
+
+    // Check source.status for backend-computed staleness
+    if (source.status === 'stale') {
+        return '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">⚠ Stale</span>';
     }
 
     // Use freshness data if available
@@ -1508,14 +1652,14 @@ function renderActivityLog() {
 
     logContainer.innerHTML = activityLog.map(entry => {
         const levelBadge = getLevelBadge(entry.level);
-        const sourceDisplay = escapeHtml(entry.source || 'system');
+        const sourceDisplay = formatSource(entry.source);
         // Keep original formatting - don't trim whitespace, preserve newlines
         const formattedMessage = escapeHtml(entry.message || '');
 
         return `
             <tr class="hover:bg-gray-50 transition-colors duration-150">
                 <td class="px-4 py-3 whitespace-nowrap">${levelBadge}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600">${sourceDisplay}</td>
+                <td class="px-4 py-3 text-sm text-gray-600">${sourceDisplay}</td>
                 <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500">${escapeHtml(entry.timestamp)}</td>
                 <td class="px-4 py-3 text-sm text-gray-900"><pre class="log-message">${formattedMessage}</pre></td>
             </tr>
@@ -2276,7 +2420,7 @@ function renderSourceHistory(history) {
                 <tr class="bg-red-50">
                     <td colspan="4" class="px-4 py-2 text-sm text-red-700">
                         <strong>Error:</strong>
-                        <pre class="log-message mt-1">${entry.error_message}</pre>
+                        <pre class="log-message mt-1">${escapeHtml(entry.error_message)}</pre>
                     </td>
                 </tr>
             `;
@@ -2318,6 +2462,115 @@ async function loadDbtModels(retryCount = 0) {
     }
 }
 
+// ============================================================================
+// Models Table Sort & Filter
+// ============================================================================
+
+function applyModelsSort(models) {
+    if (!modelSortColumn || !modelSortDirection || modelSortDirection === 'none') return models;
+    const sortable = {
+        'name': 'name',
+        'schema': 'schema',
+        'materialization': 'materialization',
+        'rows': 'row_count',
+        'last_run': 'last_run',
+    };
+    if (modelSortColumn === 'status') {
+        const dir = modelSortDirection === 'desc' ? -1 : 1;
+        return [...models].sort((a, b) => {
+            const va = modelStatusOrder(a), vb = modelStatusOrder(b);
+            return (va - vb) * dir;
+        });
+    }
+    const accessor = sortable[modelSortColumn];
+    return accessor ? sortByProp(models, accessor, modelSortDirection) : models;
+}
+
+function modelStatusOrder(model) {
+    if (runningModels.has(model.name) || dbtRunStartTime !== null) return 0;
+    const order = { 'success': 10, 'stale': 20, 'error': 30, 'skipped': 40 };
+    return order[model.status] != null ? order[model.status] : 99;
+}
+
+function applyModelsFilter(models) {
+    if (!modelFilterText) return models;
+    return filterByText(models, modelFilterText, ['name', 'schema', 'materialization']);
+}
+
+function updateModelsSortArrows() {
+    const table = document.querySelector('#dbt-models-table-body')?.closest('table');
+    if (!table) return;
+    table.querySelectorAll('thead th[data-sort-key]').forEach((th) => {
+        const colKey = th.dataset.sortKey;
+        // Use a dedicated span for the arrow to avoid mutating label text
+        let arrow = th.querySelector('.sort-arrow');
+        if (!arrow) {
+            arrow = document.createElement('span');
+            arrow.className = 'sort-arrow';
+            th.appendChild(arrow);
+        }
+        if (colKey === modelSortColumn && modelSortDirection && modelSortDirection !== 'none') {
+            arrow.textContent = modelSortDirection === 'asc' ? ' ▲' : ' ▼';
+        } else {
+            arrow.textContent = '';
+        }
+    });
+}
+
+function initModelsSortHeaders() {
+    const table = document.querySelector('#dbt-models-table-body')?.closest('table');
+    if (!table) return;
+    const thead = table.querySelector('thead');
+    if (!thead || thead.dataset.sortInit) return;
+    thead.dataset.sortInit = '1';
+
+    thead.addEventListener('click', (e) => {
+        const th = e.target.closest('th[data-sort-key]');
+        if (!th) return;
+        const colKey = th.dataset.sortKey;
+
+        if (modelSortColumn === colKey) {
+            if (modelSortDirection === 'asc') modelSortDirection = 'desc';
+            else if (modelSortDirection === 'desc') { modelSortColumn = 'name'; modelSortDirection = 'asc'; }
+            else { modelSortColumn = colKey; modelSortDirection = 'asc'; }
+        } else {
+            modelSortColumn = colKey;
+            modelSortDirection = 'asc';
+        }
+        localStorage.setItem('dango-models-sort-column', modelSortColumn || '');
+        localStorage.setItem('dango-models-sort-direction', modelSortDirection || '');
+        renderDbtModelsTable();
+    });
+}
+
+function initModelsFilter() {
+    const input = document.getElementById('models-filter-input');
+    if (!input) return;
+    const clearBtn = document.getElementById('models-filter-clear');
+
+    input.value = modelFilterText || '';
+    if (clearBtn) {
+        clearBtn.classList.toggle('invisible', !modelFilterText);
+    }
+
+    input.addEventListener('input', () => {
+        modelFilterText = input.value;
+        localStorage.setItem('dango-models-filter', modelFilterText);
+        if (clearBtn) clearBtn.classList.toggle('invisible', !modelFilterText);
+        renderDbtModelsTable();
+    });
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            input.value = '';
+            modelFilterText = '';
+            localStorage.setItem('dango-models-filter', '');
+            clearBtn.classList.add('invisible');
+            renderDbtModelsTable();
+        });
+    }
+}
+
 function renderDbtModelsTable() {
     const tbody = document.getElementById('dbt-models-table-body');
     if (!tbody) return;
@@ -2349,7 +2602,23 @@ function renderDbtModelsTable() {
 
     const canRun = window.DANGO_USER_ROLE === 'admin' || window.DANGO_USER_ROLE === 'editor';
 
-    tbody.innerHTML = dbtModels.map(model => {
+    // Apply sort and filter
+    const sorted = applyModelsSort(dbtModels);
+    const filtered = applyModelsFilter(sorted);
+
+    if (filtered.length === 0 && modelFilterText) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="px-6 py-8 text-center text-gray-500">
+                    <p>No models match "<span class="font-medium">${escapeHtml(modelFilterText)}</span>"</p>
+                </td>
+            </tr>
+        `;
+        updateModelsSortArrows();
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(model => {
         // Disable ALL buttons if ANY model is running (prevents concurrent runs and DuckDB locking)
         const anyModelRunning = runningModels.size > 0 || dbtRunStartTime !== null;
         const buttonDisabled = anyModelRunning ? 'disabled' : '';
@@ -2434,20 +2703,9 @@ function renderDbtModelsTable() {
         return `
             <tr class="hover:bg-gray-50 transition-colors duration-150">
                 <td class="px-6 py-4 whitespace-nowrap">
-                    <div class="text-sm font-medium text-gray-900">${model.name}</div>
+                    <div class="text-sm font-medium text-gray-900">${escapeHtml(model.name)}</div>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    ${model.schema || '-'}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <span class="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
-                        ${model.materialization || 'view'}
-                    </span>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    ${rowCount}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap">
+                <td class="px-6 py-4 whitespace-nowrap" data-column="status">
                     ${statusBadge}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
@@ -2457,15 +2715,28 @@ function renderDbtModelsTable() {
                     ${actionButtons}
                     <a
                         href="/catalog?model=${encodeURIComponent(model.name)}"
+                        target="_blank" rel="noopener noreferrer"
                         class="text-blue-600 hover:text-blue-900 tooltip"
                         data-tooltip="View documentation"
                     >
                         📖
                     </a>
                 </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    ${escapeHtml(model.schema || '-')}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <span class="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+                        ${model.materialization || 'view'}
+                    </span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    ${rowCount}
+                </td>
             </tr>
         `;
     }).join('');
+    updateModelsSortArrows();
 }
 
 async function runDbtModel(modelName, cascade) {
@@ -2493,6 +2764,7 @@ async function runDbtModel(modelName, cascade) {
         addLogEntry('error', `Failed to run: ${error.message}`, `dbt:${modelName}`);
         // Revert optimistic update
         updateDbtModelStatus(modelName, false);
+        renderDbtModelsTable();
     }
 }
 
@@ -2506,7 +2778,7 @@ function updateDbtModelStatus(modelName, running) {
         // Update status badge in the same row
         const row = btn.closest('tr');
         if (row) {
-            const statusCell = row.querySelector('td:nth-child(5)'); // 5th column is status
+            const statusCell = row.querySelector('td[data-column="status"]');
             if (statusCell && running) {
                 // Show running badge with pulsing dot
                 statusCell.innerHTML = '<span class="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800"><span class="inline-block animate-pulse mr-1">●</span>Running</span>';

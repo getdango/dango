@@ -23,6 +23,7 @@ from dango.auth.permissions import require_permission
 from dango.config.schedules import (
     ScheduleConfig,
     SchedulesConfig,
+    ScheduleType,
     get_schedule_job_id,
     load_schedules_config,
     reload_schedules,
@@ -303,13 +304,14 @@ async def list_schedules(
             "type": sched.type.value,
             "cron": sched.cron,
             "sources": list(sched.sources),
+            "script_path": sched.script_path,
             "enabled": sched.enabled,
             "next_run_time": next_runs.get(job_id),
             "last_run": last_run,
         }
         # Add per-source error details for failed runs
         entry["source_errors"] = None
-        if last_run and last_run.get("status") == "failed":
+        if last_run and last_run.get("status") == "failed" and sched.type != ScheduleType.SCRIPT:
             entry["source_errors"] = await asyncio.to_thread(
                 _get_source_errors, list(sched.sources), last_run.get("started_at")
             )
@@ -497,6 +499,7 @@ async def trigger_schedule(
     from dango.config.schedules import ScheduleType
     from dango.platform.scheduling.jobs import (
         run_scheduled_dbt,
+        run_scheduled_script,
         run_scheduled_sync,
     )
 
@@ -508,6 +511,13 @@ async def trigger_schedule(
             "sources": list(sched.sources),
             "project_root": str(project_root),
             "skip_dbt": sched.type == ScheduleType.SYNC_ONLY,
+        }
+    elif sched.type == ScheduleType.SCRIPT:
+        func = run_scheduled_script
+        func_kwargs = {
+            "schedule_name": sched.name,
+            "script_path": sched.script_path,
+            "project_root": str(project_root),
         }
     else:
         func = run_scheduled_dbt

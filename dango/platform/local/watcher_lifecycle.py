@@ -170,7 +170,7 @@ def stop_file_watcher(project_root: Path) -> bool:
     # Clean up PID file
     try:
         pid_file.unlink()
-    except OSError:
+    except OSError:  # noqa: BLE001
         pass
 
     if success:
@@ -209,7 +209,7 @@ def get_watcher_status(project_root: Path) -> dict:
             if is_process_running(pid):
                 status["running"] = True
                 status["pid"] = pid
-        except (ValueError, OSError):
+        except (ValueError, OSError):  # noqa: BLE001
             pass
 
     return status

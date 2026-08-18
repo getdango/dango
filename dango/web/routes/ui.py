@@ -250,7 +250,7 @@ async def query_redirect(request: Request) -> HTMLResponse:
                 )
                 encoded = base64.b64encode(query_state.encode()).decode()
                 target_url = f"/metabase/question#{encoded}"
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
     # JavaScript redirect — meta refresh and 302 both strip hash fragments
     return HTMLResponse(
@@ -304,7 +304,7 @@ async def login_page(request: Request) -> Response:
                 user = validate_session(get_auth_db_path(project_root), token)
                 if user is not None:
                     return RedirectResponse(url="/", status_code=302)
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass  # Fall through to login page on any error
     oauth_providers: list[dict[str, str]] = []
     try:
@@ -317,7 +317,7 @@ async def login_page(request: Request) -> Response:
             {"name": p.name, "display_name": p.display_name, "icon_svg": p.icon_svg}
             for p in providers
         ]
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
     return _render_template(
         request,

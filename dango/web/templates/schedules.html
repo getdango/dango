@@ -22,21 +22,48 @@
         </div>
 
         <!-- Scheduled sources table -->
-        <div class="bg-white shadow rounded-lg overflow-x-auto mb-6">
+        <div x-show="schedules.length > 0" class="px-6 py-3 border-b border-gray-200 flex items-center gap-2 bg-white shadow rounded-t-lg">
+            <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <input type="text" x-model="filterText" placeholder="Filter by name, type, or cron..."
+                   class="w-full px-3 py-2 border text-sm border-gray-300 rounded-md">
+            <button :class="{ 'invisible': !filterText }" @click="filterText = ''"
+                    class="text-xs text-gray-400 hover:text-gray-600">Clear</button>
+        </div>
+        <div class="bg-white shadow rounded-b-lg overflow-x-auto mb-6">
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
                     <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                        <th @click="toggleSort('name')"
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700">
+                            Name<template x-if="sortColumn === 'name'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                        </th>
+                        <th @click="toggleSort('type')"
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700">
+                            Type<template x-if="sortColumn === 'type'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                        </th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Sources</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Cron</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">Next Run</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Enabled</th>
+                        <th @click="toggleSort('cron')"
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden sm:table-cell">
+                            Cron<template x-if="sortColumn === 'cron'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                        </th>
+                        <th @click="toggleSort('next_run')"
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden lg:table-cell">
+                            Next Run<template x-if="sortColumn === 'next_run'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                        </th>
+                        <th @click="toggleSort('status')"
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700">
+                            Status<template x-if="sortColumn === 'status'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                        </th>
+                        <th @click="toggleSort('enabled')"
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden sm:table-cell">
+                            Enabled<template x-if="sortColumn === 'enabled'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                        </th>
                         <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
                 </thead>
-                <template x-for="sched in schedules" :key="sched.name">
+                <template x-for="sched in sortedSchedules" :key="sched.name">
                     <tbody class="bg-white border-b border-gray-200">
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap">
@@ -47,19 +74,31 @@
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
-                                      :class="sched.type.startsWith('sync') ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'"
+                                      :class="sched.type.startsWith('sync') ? 'bg-blue-100 text-blue-800' : sched.type === 'dbt' ? 'bg-purple-100 text-purple-800' : sched.type === 'script' ? 'bg-teal-100 text-teal-800' : 'bg-gray-100 text-gray-800'"
                                       x-text="sched.type"></span>
                             </td>
                             <td class="px-6 py-4 text-sm text-gray-500 hidden md:table-cell">
-                                <span x-text="sched.sources.sort().join(' • ')"></span>
+                                <template x-if="sched.type === 'script'">
+                                    <span class="font-mono text-xs" x-text="sched.script_path"></span>
+                                </template>
+                                <template x-if="sched.type !== 'script'">
+                                    <span x-text="sched.sources.sort().join(' • ')"></span>
+                                </template>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
                                 x-text="humanCron(sched.cron)"></td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden lg:table-cell"
                                 x-text="sched.next_run_time ? timeAgo(sched.next_run_time) : '—'"></td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                <template x-if="runningJobs[sched.name]">
-                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 animate-pulse">running</span>
+                                <template x-if="runningJobs[sched.name] && runningJobs[sched.name].status === 'queued'">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                        Queued: <span class="ml-1 font-normal" x-text="runningJobs[sched.name].source"></span>
+                                    </span>
+                                </template>
+                                <template x-if="runningJobs[sched.name] && runningJobs[sched.name].status !== 'queued'">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 animate-pulse">
+                                        Running: <span class="ml-1 font-normal" x-text="runningJobs[sched.name].source"></span>
+                                    </span>
                                 </template>
                                 <template x-if="!runningJobs[sched.name] && sched.last_run">
                                     <span>
@@ -114,7 +153,9 @@
                                                               :class="statusBadge(run.status)"
                                                               x-text="run.status"></span>
                                                     </td>
-                                                    <td class="px-3 py-2 text-xs text-red-600 max-w-xs truncate" x-text="run.error_message || ''"></td>
+                                                    <td class="px-3 py-2 text-xs text-red-600 max-w-xs">
+                                                        <pre class="log-message text-red-700" x-text="run.error || ''"></pre>
+                                                    </td>
                                                     <td class="px-3 py-2 text-right">
                                                         <template x-if="run.status === 'failed' && isEditorPlus">
                                                             <button @click="openTriggerModal(sched)"
@@ -132,6 +173,11 @@
                 </template>
                 <tbody x-show="schedules.length === 0" x-cloak>
                     <tr><td colspan="8" class="px-6 py-8 text-center text-sm text-gray-500">No schedules configured.</td></tr>
+                </tbody>
+                <tbody x-show="schedules.length > 0 && sortedSchedules.length === 0" x-cloak>
+                    <tr><td colspan="8" class="px-6 py-8 text-center text-sm text-gray-500">
+                        No schedules match "<span class="font-medium" x-text="filterText"></span>"
+                    </td></tr>
                 </tbody>
             </table>
         </div>
@@ -273,6 +319,11 @@ function schedulesPage() {
         reconnectInterval: null,
         pollInterval: null,
 
+        // Sort/filter state
+        sortColumn: localStorage.getItem('dango-schedules-sort-column') || 'name',
+        sortDirection: localStorage.getItem('dango-schedules-sort-direction') || 'asc',
+        filterText: localStorage.getItem('dango-schedules-filter') || '',
+
         async init() {
             await Promise.all([
                 this.loadSchedules(),
@@ -280,6 +331,69 @@ function schedulesPage() {
                 this.loadNotifConfig()
             ]);
             this.connectWebSocket();
+            this.$watch('filterText', val => {
+                localStorage.setItem('dango-schedules-filter', val || '');
+            });
+        },
+
+        // --- Sort/filter ---
+        get sortedSchedules() {
+            let items = this.filterText
+                ? this.schedules.filter(s => {
+                    const q = this.filterText.toLowerCase();
+                    return (s.name && s.name.toLowerCase().includes(q))
+                        || (s.type && s.type.toLowerCase().includes(q))
+                        || (s.cron && s.cron.toLowerCase().includes(q));
+                  })
+                : [...this.schedules];
+
+            if (this.sortColumn && this.sortDirection && this.sortDirection !== 'none') {
+                const dir = this.sortDirection === 'desc' ? -1 : 1;
+                const col = this.sortColumn;
+                items.sort((a, b) => {
+                    const va = this._resolveScheduleField(a, col);
+                    const vb = this._resolveScheduleField(b, col);
+                    if (va == null && vb == null) return 0;
+                    if (va == null) return 1;
+                    if (vb == null) return -1;
+                    const cmp = typeof va === 'number'
+                        ? va - vb
+                        : String(va).toLowerCase().localeCompare(String(vb).toLowerCase());
+                    return cmp * dir;
+                });
+            }
+            return items;
+        },
+
+        _resolveScheduleField(sched, col) {
+            switch (col) {
+                case 'name': return sched.name;
+                case 'type': return sched.type;
+                case 'cron': return sched.cron;
+                case 'next_run': return sched.next_run_time;
+                case 'status':
+                    if (this.runningJobs[sched.name]) return 0;
+                    if (sched.last_run) {
+                        const order = { 'success': 10, 'completed': 10, 'failed': 20, 'cancelled': 30, 'timeout': 40 };
+                        return order[sched.last_run.status] != null ? order[sched.last_run.status] : 99;
+                    }
+                    return 99;
+                case 'enabled': return sched.enabled ? 1 : 0;
+                default: return undefined;
+            }
+        },
+
+        toggleSort(col) {
+            if (this.sortColumn === col) {
+                if (this.sortDirection === 'asc') this.sortDirection = 'desc';
+                else if (this.sortDirection === 'desc') { this.sortColumn = 'name'; this.sortDirection = 'asc'; }
+                else this.sortDirection = 'asc';
+            } else {
+                this.sortColumn = col;
+                this.sortDirection = 'asc';
+            }
+            localStorage.setItem('dango-schedules-sort-column', this.sortColumn || '');
+            localStorage.setItem('dango-schedules-sort-direction', this.sortDirection || '');
         },
 
         // --- Data loading ---
@@ -478,24 +592,54 @@ function schedulesPage() {
         handleWsMessage(data) {
             const ev = data.event;
             const source = data.source;
+            const schedule = data.schedule;
 
-            if (ev === 'sync_started' || ev === 'dbt_started') {
+            if (ev === 'job_queued') {
                 const updated = {...this.runningJobs};
                 for (const sched of this.schedules) {
-                    const match = ev === 'sync_started'
-                        ? sched.sources.includes(source)
-                        : sched.type === 'dbt';
-                    if (match) updated[sched.name] = true;
+                    if (sched.name === schedule) {
+                        updated[sched.name] = { event: 'queued', source: schedule, status: 'queued' };
+                    }
+                }
+                this.runningJobs = updated;
+            }
+
+            if (ev === 'sync_started' || ev === 'dbt_started' || ev === 'script_started') {
+                const updated = {...this.runningJobs};
+                // Determine display name: prefer source name, fall back to schedule name
+                const displayName = source || (data.sources && data.sources[0]) || schedule || '';
+                for (const sched of this.schedules) {
+                    let match = false;
+                    if (schedule) {
+                        match = sched.name === schedule;
+                    } else if (ev === 'sync_started') {
+                        match = sched.sources.includes(source);
+                    } else if (ev === 'dbt_started') {
+                        match = sched.type === 'dbt';
+                    } else if (ev === 'script_started') {
+                        match = sched.type === 'script';
+                    }
+                    if (match) {
+                        updated[sched.name] = { event: ev, source: displayName, status: 'running' };
+                    }
                 }
                 this.runningJobs = updated;
             }
             if (ev === 'sync_completed' || ev === 'sync_failed' ||
-                ev === 'dbt_completed' || ev === 'dbt_failed') {
+                ev === 'dbt_completed' || ev === 'dbt_failed' ||
+                ev === 'script_completed' || ev === 'script_failed') {
                 const updated = {...this.runningJobs};
                 for (const sched of this.schedules) {
-                    const match = ev.startsWith('sync_')
-                        ? sched.sources.includes(source)
-                        : sched.type === 'dbt';
+                    let match = false;
+                    if (schedule) {
+                        match = sched.name === schedule;
+                    } else if (ev.startsWith('sync_')) {
+                        match = sched.sources.includes(source);
+                    } else if (ev.startsWith('dbt_')) {
+                        match = sched.type === 'dbt';
+                    } else if (ev.startsWith('script_')) {
+                        match = sched.type === 'script';
+                    }
                     if (match) delete updated[sched.name];
                 }
                 this.runningJobs = updated;

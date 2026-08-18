@@ -568,8 +568,8 @@ Version requirements and platform support for this Dango project.
 
 ## Python
 
-- **Required:** Python 3.10, 3.11, or 3.12 (`>=3.10,<3.13`)
-- System Python on macOS is 3.9 — use `python3.11` or `python3.12` explicitly
+- **Required:** Python 3.10, 3.11, 3.12, or 3.13 (`>=3.10,<3.14`)
+- System Python on macOS is 3.9 — use `python3.11`, `python3.12`, or `python3.13` explicitly
 
 ## Operating Systems
 
@@ -598,7 +598,7 @@ Latest 2 versions of:
 | Component | Version | Notes |
 |-----------|---------|-------|
 | DuckDB | {self._get_duckdb_version()} | Embedded analytical database |
-| dbt-core | 1.10.20 | Data transformation framework |
+| dbt-core | 1.10.22 | Data transformation framework |
 | dlt | 1.24.0 | Data ingestion toolkit |
 | Metabase | v0.59.1 | Business intelligence / dashboards |
 
@@ -1081,6 +1081,7 @@ models:
 seeds:
   {dbt_project_name}:
     +quote_columns: false
+    +schema: seeds
 
 # Documentation
 docs-paths: ["docs"]

@@ -55,6 +55,8 @@ class AuditEvent(str, Enum):
     SECRET_DELETED     = "secret_deleted"
     OAUTH_SOURCE_CONNECTED    = "oauth_source_connected"
     OAUTH_SOURCE_DISCONNECTED = "oauth_source_disconnected"
+    SCRIPT_RUN                = "script_run"
+    SCRIPT_CANCELLED          = "script_cancelled"
     SCHEDULE_CREATED          = "schedule_created"
     SCHEDULE_UPDATED          = "schedule_updated"
     SCHEDULE_DELETED          = "schedule_deleted"
@@ -65,6 +67,7 @@ class AuditEvent(str, Enum):
     NOTEBOOK_CREATED          = "notebook_created"
     NOTEBOOK_DELETED          = "notebook_deleted"
     NOTEBOOK_LOCK_FORCE_RELEASED = "notebook_lock_force_released"
+    NOTEBOOK_MARIMO_RESTARTED    = "notebook_marimo_restarted"
     GOVERNANCE_DRIFT_VIEWED      = "governance_drift_viewed"
     GOVERNANCE_PII_VIEWED        = "governance_pii_viewed"
     CATALOG_VIEWED               = "catalog_viewed"
@@ -76,6 +79,7 @@ class AuditEvent(str, Enum):
     QUERY_EXECUTED              = "query_executed"
     CSV_UPLOADED                = "csv_uploaded"
     CSV_DELETED                 = "csv_deleted"
+    CATALOG_PROFILE_TRIGGERED   = "catalog_profile_triggered"
     # fmt: on
 
 

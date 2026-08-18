@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+
+{% block title %}Scripts - Dango{% endblock %}
+
+{% block content %}
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div x-data="scriptsPage()" x-init="init()">
+        <!-- Header -->
+        <div class="mb-6">
+            <h2 class="text-xl font-bold text-gray-900">Scripts</h2>
+            <p class="text-sm text-gray-500 mt-1">Place <code class="bg-gray-100 px-1 rounded">.py</code> files in the <code class="bg-gray-100 px-1 rounded">scripts/</code> directory to run custom Python logic.</p>
+        </div>
+
+        <!-- Error banner -->
+        <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p class="text-sm text-red-700" x-text="error"></p>
+        </div>
+
+        <!-- Success banner -->
+        <div x-show="success" x-cloak class="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+            <p class="text-sm text-green-700" x-text="success"></p>
+        </div>
+
+        <!-- Scripts table -->
+        <div class="px-6 py-3 border-b border-gray-200 flex items-center gap-2 bg-white shadow rounded-t-lg">
+            <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <input type="text" x-model="filterText" placeholder="Filter by name..."
+                   class="w-full px-3 py-2 border text-sm border-gray-300 rounded-md">
+            <button :class="{ 'invisible': !filterText }" @click="filterText = ''"
+                    class="text-xs text-gray-400 hover:text-gray-600">Clear</button>
+        </div>
+        <div class="bg-white shadow rounded-b-lg overflow-x-auto mb-6">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th @click="toggleScriptSort('name')"
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700">
+                            Script<template x-if="sortColumn === 'name'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                        </th>
+                        <th @click="toggleScriptSort('last_run')"
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden sm:table-cell">
+                            Last Run<template x-if="sortColumn === 'last_run'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                        </th>
+                        <th @click="toggleScriptSort('status')"
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700">
+                            Status<template x-if="sortColumn === 'status'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                        </th>
+                        <th @click="toggleScriptSort('schedule')"
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden sm:table-cell">
+                            Schedule<template x-if="sortColumn === 'schedule'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                        </th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <template x-for="script in sortedScripts" :key="script.name">
+                    <tbody class="bg-white border-b border-gray-200">
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <button @click="toggleHistory(script)"
+                                        class="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline">
+                                    <span x-text="script.name"></span>
+                                </button>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell"
+                                x-text="script.last_run ? timeAgo(script.last_run.started_at) : '—'"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                <template x-if="script.running">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 animate-pulse">running</span>
+                                </template>
+                                <template x-if="!script.running && script.last_run">
+                                    <span>
+                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                              :class="statusBadge(script.last_run.status)"
+                                              x-text="script.last_run.status"></span>
+                                        <span class="text-xs text-gray-400 ml-1" x-text="'· ' + timeAgo(script.last_run.started_at)"></span>
+                                    </span>
+                                </template>
+                                <template x-if="!script.running && !script.last_run">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-500">Not yet run</span>
+                                </template>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400 hidden sm:table-cell">—</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
+                                <template x-if="isEditorPlus && !script.running">
+                                    <button @click="runScript(script)"
+                                            class="text-blue-600 hover:text-blue-800 text-xs font-medium">Run Now</button>
+                                </template>
+                                <template x-if="isEditorPlus && script.running">
+                                    <button @click="cancelScript(script)"
+                                            class="text-red-600 hover:text-red-800 text-xs font-medium">Cancel</button>
+                                </template>
+                            </td>
+                        </tr>
+                        <tr x-show="expandedScript === script.name" x-cloak class="bg-gray-50">
+                            <td colspan="5" class="px-6 py-4">
+                                <div class="text-sm font-medium text-gray-700 mb-2">Recent Executions</div>
+                                <template x-if="historyLoading">
+                                    <p class="text-sm text-gray-500">Loading...</p>
+                                </template>
+                                <template x-if="!historyLoading && historyItems.length === 0">
+                                    <p class="text-sm text-gray-500">No execution history.</p>
+                                </template>
+                                <template x-if="!historyLoading && historyItems.length > 0">
+                                    <table class="min-w-full divide-y divide-gray-200">
+                                        <thead>
+                                            <tr>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Started</th>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Duration</th>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">Error</th>
+                                                <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <template x-for="run in historyItems" :key="run.run_id">
+                                                <tr>
+                                                    <td class="px-3 py-2 text-xs text-gray-600" x-text="timeAgo(run.started_at)"></td>
+                                                    <td class="px-3 py-2 text-xs text-gray-600" x-text="run.duration_seconds != null ? formatDuration(run.duration_seconds) : '—'"></td>
+                                                    <td class="px-3 py-2">
+                                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                                                              :class="statusBadge(run.status)"
+                                                              x-text="run.status"></span>
+                                                    </td>
+                                                    <td class="px-3 py-2 text-xs text-red-600 max-w-xs">
+                                                        <pre class="log-message text-red-700" x-text="run.error || ''"></pre>
+                                                    </td>
+                                                    <td class="px-3 py-2 text-right">
+                                                        <a :href="'/scripts/' + encodeURIComponent(script.name) + '/logs/' + run.run_id"
+                                                           class="text-blue-600 hover:text-blue-800 text-xs">View Log</a>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </template>
+                            </td>
+                        </tr>
+                    </tbody>
+                </template>
+                <tbody x-show="scripts.length === 0" x-cloak>
+                    <tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500">No scripts found. Add <code class="bg-gray-100 px-1 rounded">.py</code> files to the <code class="bg-gray-100 px-1 rounded">scripts/</code> directory.</td></tr>
+                </tbody>
+                <tbody x-show="scripts.length > 0 && sortedScripts.length === 0" x-cloak>
+                    <tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500">
+                        No scripts match "<span class="font-medium" x-text="filterText"></span>"
+                    </td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function scriptsPage() {
+    const headers = {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'};
+    const userRole = {{ request.state.user.role.value | tojson }};
+
+    return {
+        scripts: [],
+        error: '', success: '',
+        isEditorPlus: userRole === 'admin' || userRole === 'editor',
+
+        // UI state
+        expandedScript: null,
+        historyItems: [],
+        historyLoading: false,
+
+        // WebSocket
+        ws: null,
+        reconnectInterval: null,
+
+        // Sort/filter state
+        sortColumn: localStorage.getItem('dango-scripts-sort-column') || 'name',
+        sortDirection: localStorage.getItem('dango-scripts-sort-direction') || 'asc',
+        filterText: localStorage.getItem('dango-scripts-filter') || '',
+
+        async init() {
+            await this.loadScripts();
+            this.connectWebSocket();
+            this.$watch('filterText', val => {
+                localStorage.setItem('dango-scripts-filter', val || '');
+            });
+        },
+
+        // --- Sort/filter ---
+        get sortedScripts() {
+            let items = this.filterText
+                ? this.scripts.filter(s => {
+                    const q = this.filterText.toLowerCase();
+                    return (s.name && s.name.toLowerCase().includes(q));
+                  })
+                : [...this.scripts];
+
+            if (this.sortColumn && this.sortDirection && this.sortDirection !== 'none') {
+                const dir = this.sortDirection === 'desc' ? -1 : 1;
+                const col = this.sortColumn;
+                items.sort((a, b) => {
+                    const va = this._resolveScriptField(a, col);
+                    const vb = this._resolveScriptField(b, col);
+                    if (va == null && vb == null) return 0;
+                    if (va == null) return 1;
+                    if (vb == null) return -1;
+                    const cmp = typeof va === 'number'
+                        ? va - vb
+                        : String(va).toLowerCase().localeCompare(String(vb).toLowerCase());
+                    return cmp * dir;
+                });
+            }
+            return items;
+        },
+
+        _resolveScriptField(script, col) {
+            switch (col) {
+                case 'name': return script.name;
+                case 'last_run': return script.last_run?.started_at || null;
+                case 'status':
+                    if (script.running) return 0;
+                    if (script.last_run) {
+                        const order = { 'success': 10, 'completed': 10, 'failed': 20, 'cancelled': 30, 'timeout': 40 };
+                        return order[script.last_run.status] != null ? order[script.last_run.status] : 99;
+                    }
+                    return 99;
+                case 'schedule': return null;
+                default: return undefined;
+            }
+        },
+
+        toggleScriptSort(col) {
+            if (this.sortColumn === col) {
+                if (this.sortDirection === 'asc') this.sortDirection = 'desc';
+                else if (this.sortDirection === 'desc') { this.sortColumn = 'name'; this.sortDirection = 'asc'; }
+                else this.sortDirection = 'asc';
+            } else {
+                this.sortColumn = col;
+                this.sortDirection = 'asc';
+            }
+            localStorage.setItem('dango-scripts-sort-column', this.sortColumn || '');
+            localStorage.setItem('dango-scripts-sort-direction', this.sortDirection || '');
+        },
+
+        // --- Data loading ---
+        async loadScripts() {
+            try {
+                const res = await fetch('/api/scripts', { headers });
+                if (res.ok) this.scripts = await res.json();
+            } catch (e) { this.error = 'Failed to load scripts'; }
+        },
+
+        // --- History ---
+        async toggleHistory(script) {
+            if (this.expandedScript === script.name) {
+                this.expandedScript = null;
+                this.historyItems = [];
+                return;
+            }
+            this.expandedScript = script.name;
+            this.historyLoading = true;
+            this.historyItems = [];
+            try {
+                const res = await fetch(`/api/scripts/${encodeURIComponent(script.name)}/history?limit=30`, { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    this.historyItems = data.items || [];
+                }
+            } catch (e) { /* ignore */ }
+            this.historyLoading = false;
+        },
+
+        // --- Run ---
+        async runScript(script) {
+            this.error = '';
+            try {
+                const res = await fetch(`/api/scripts/${encodeURIComponent(script.name)}/run`, {
+                    method: 'POST', headers, body: JSON.stringify({})
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to run script'; return; }
+                script.running = true;
+                this.success = `Script "${script.name}" started.`;
+                setTimeout(() => this.success = '', 3000);
+            } catch (e) { this.error = 'Failed to run script'; }
+        },
+
+        // --- Cancel ---
+        async cancelScript(script) {
+            this.error = '';
+            try {
+                const res = await fetch(`/api/scripts/${encodeURIComponent(script.name)}/cancel`, {
+                    method: 'POST', headers, body: JSON.stringify({})
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message || 'Failed to cancel script'; return; }
+                this.success = `Cancelling script "${script.name}"...`;
+                setTimeout(() => this.success = '', 3000);
+            } catch (e) { this.error = 'Failed to cancel script'; }
+        },
+
+        // --- JS helpers ---
+        statusBadge(status) {
+            const m = {
+                'success': 'bg-green-100 text-green-800',
+                'completed': 'bg-green-100 text-green-800',
+                'failed': 'bg-red-100 text-red-800',
+                'running': 'bg-blue-100 text-blue-800',
+                'cancelled': 'bg-yellow-100 text-yellow-800',
+                'timeout': 'bg-gray-100 text-gray-800',
+            };
+            return m[status] || 'bg-gray-100 text-gray-800';
+        },
+        timeAgo(iso) {
+            return timeAgoIso(iso);
+        },
+        formatDuration(seconds) {
+            if (seconds == null) return '—';
+            if (seconds < 60) return Math.round(seconds) + 's';
+            const m = Math.floor(seconds / 60);
+            const s = Math.round(seconds % 60);
+            return m + 'm ' + s + 's';
+        },
+
+        // --- WebSocket ---
+        connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            this.ws = new WebSocket(wsUrl);
+
+            this.ws.onopen = () => {
+                if (this.reconnectInterval) {
+                    clearInterval(this.reconnectInterval);
+                    this.reconnectInterval = null;
+                }
+            };
+
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleWsMessage(data);
+                } catch (e) { /* ignore parse errors */ }
+            };
+
+            this.ws.onclose = () => {
+                if (!this.reconnectInterval) {
+                    this.reconnectInterval = setInterval(() => this.connectWebSocket(), 5000);
+                }
+            };
+
+            this.ws.onerror = () => {};
+        },
+        handleWsMessage(data) {
+            const ev = data.event;
+            if (ev === 'script_completed' || ev === 'script_failed' ||
+                ev === 'script_timed_out' || ev === 'script_cancelled') {
+                const scriptName = data.script;
+                // Update running status for matching script
+                for (const script of this.scripts) {
+                    if (script.name === scriptName) {
+                        script.running = false;
+                    }
+                }
+                this.loadScripts();
+                // Refresh history if expanded
+                if (this.expandedScript === scriptName) {
+                    this.toggleHistory({ name: scriptName });
+                }
+            }
+        }
+    }
+}
+</script>
+{% endblock %}

@@ -160,7 +160,7 @@ def serve(ctx: click.Context, host: str, port: int | None, workers: int | None) 
     # 6. Dashboard import (non-critical)
     try:
         import_dashboards(project_root)
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     # H4: Check port availability before starting uvicorn
@@ -211,5 +211,5 @@ def _stop_docker_quiet(project_root: Path) -> None:
         from dango.platform import DockerManager
 
         DockerManager(project_root).stop_services()
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass

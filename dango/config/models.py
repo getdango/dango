@@ -339,11 +339,13 @@ class DltNativeConfig(BaseModel):
                 endpoint: "https://api.example.com"
     """
 
-    source_module: str = Field(
-        description="Python module name (from custom_sources/ directory or dlt package name)"
+    source_module: str | None = Field(
+        default=None,
+        description="Python module name (auto-discovered from custom_sources/ if not specified)",
     )
-    source_function: str = Field(
-        description="Function name to call for source (e.g., 'google_ads', 'my_custom_source')"
+    source_function: str | None = Field(
+        default=None,
+        description="Function name to call (auto-discovered from custom_sources/ if not specified)",
     )
     function_kwargs: dict[str, Any] = Field(
         default_factory=dict, description="Keyword arguments to pass to source function"
@@ -555,6 +557,22 @@ class SpacesConfig(BaseModel):
     )
 
 
+class SpacesRetentionConfig(BaseModel):
+    """Backup retention policy for Spaces (daily/weekly/monthly tiers)."""
+
+    daily: int = Field(default=7, ge=0)
+    weekly: int = Field(default=4, ge=0)
+    monthly: int = Field(default=0, ge=0)
+
+
+class BackupConfig(BaseModel):
+    """Backup configuration stored under the ``backup:`` key in cloud.yml."""
+
+    include_secrets: bool = False
+    on_server_retention: int = Field(default=1, ge=0)
+    spaces_retention: SpacesRetentionConfig = Field(default_factory=SpacesRetentionConfig)
+
+
 class DbtOverrides(BaseModel):
     """Cloud-specific dbt configuration overrides."""
 
@@ -593,6 +611,7 @@ class CloudConfig(BaseModel):
     dbt_overrides: DbtOverrides | None = Field(
         default=None, description="Cloud dbt configuration overrides"
     )
+    backup: BackupConfig | None = Field(default=None, description="Backup retention configuration")
     deploy_branch: str = Field(
         default="main",
         description="Expected git branch for deployments (guard rail check)",

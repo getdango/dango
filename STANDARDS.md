@@ -65,9 +65,11 @@ config/
 
 ### File size
 
-- **Soft limit:** 500 lines per file.
-- **When to split:** A file exceeds 500 lines, or contains 3+ unrelated responsibilities.
+- **Hard limit:** 500 lines per file. Split before reaching it.
+- **When to split:** A file approaches 500 lines, or contains 3+ unrelated responsibilities.
 - **How to split:** Extract related functions/classes into a new file within the same module. Update `__init__.py` exports.
+- **Exemption process:** Valid reasons — cyclic imports, inseparable logic, shared module-level state, pure data files. Invalid reasons — "too much work," "will refactor later." All new exemptions require maintainer approval.
+- **Pre-existing exemptions:** Files in `docs/file-exemptions.yml` are grandfathered and will be split in v1.1.
 
 ### `__init__.py` pattern
 
@@ -139,9 +141,11 @@ class ConfigLoader:
     PROJECT_FILE = "project.yml"
     SOURCES_FILE = "sources.yml"
 
+
 # Enum (dango/config/models.py)
 class DeduplicationStrategy(str, Enum):
     """Data deduplication strategies"""
+
     NONE = "none"
     LATEST_ONLY = "latest_only"
     APPEND_ONLY = "append_only"
@@ -247,7 +251,7 @@ except Exception as e:
 ```python
 from dango.validation import validate_source_name, validate_date_string
 
-validate_source_name(name)       # raises InvalidSourceNameError
+validate_source_name(name)  # raises InvalidSourceNameError
 validate_date_string("2024-01-15")  # raises InvalidDateFormatError
 ```
 
@@ -292,6 +296,7 @@ logger.error("sync_failed", source="stripe", error=str(e), retry_in=60)
 
 ```python
 from rich.console import Console
+
 console = Console()
 console.print("[green]Sync complete![/green]")
 ```
@@ -304,6 +309,7 @@ Call `configure_logging()` once at each entry point (CLI, web server) before any
 
 ```python
 from dango.logging import configure_logging
+
 configure_logging()  # uses DANGO_LOG_LEVEL env var or defaults to INFO
 ```
 
@@ -487,19 +493,19 @@ Type hints are enforced by mypy with `disallow_untyped_defs = true` — see `pyp
 
 ```python
 # Function signatures (dango/config/loader.py)
-def find_project_root(self, start_path: Optional[Path] = None) -> Optional[Path]:
-    ...
+def find_project_root(self, start_path: Optional[Path] = None) -> Optional[Path]: ...
 
-def validate_config(self) -> tuple[bool, list[str]]:
-    ...
+
+def validate_config(self) -> tuple[bool, list[str]]: ...
+
 
 # Pydantic fields with descriptions (dango/config/models.py)
 class ProjectContext(BaseModel):
     """Project-level context and metadata"""
+
     name: str
     organization: Optional[str] = Field(
-        None,
-        description="Organization name (used in Metabase, Web UI, etc.)"
+        None, description="Organization name (used in Metabase, Web UI, etc.)"
     )
     purpose: str = Field(description="Why this project exists, what it's used for")
     stakeholders: list[Stakeholder] = Field(default_factory=list)
@@ -609,12 +615,12 @@ Use `require_permission()` as a FastAPI `Depends()` parameter. It returns the au
 ```python
 from dango.auth.permissions import require_permission
 
+
 @router.get("/api/admin/users")
 async def list_users(
     request: Request,
     user: User = Depends(require_permission("users.view")),
-) -> JSONResponse:
-    ...
+) -> JSONResponse: ...
 ```
 
 ### Cookie security flags
@@ -699,9 +705,9 @@ Any time a file is moved or renamed, immediately check:
 
 ### File size conventions
 
-See [§2 File size](#file-size) for the 500-line soft limit and when to split. Additional workflow rules:
+See [§2 File size](#file-size) for the 500-line hard limit and when to split. Additional workflow rules:
 
-- If a new or modified file exceeds 500 lines, add it to `docs/file-exemptions.yml`.
+- **No new exemptions.** New files must not exceed 500 lines. Pre-existing exempted files (listed in `docs/file-exemptions.yml`) will be split in v1.1.
 - **Target ~430 lines pre-format** — ruff format expands code by 10-15%.
 - **Incremental commits for large restructurings:** Tasks touching 10+ files should be split into 2-3 logical commits (e.g., "move files", "add new code", "update tests").
 
@@ -731,7 +737,7 @@ Check `pyproject.toml` dependencies before writing utility code. PyYAML, httpx, 
 
 ## 13. Compatibility Notes
 
-Dango supports Python >=3.10,<3.13. These patterns address cross-version compatibility:
+Dango supports Python >=3.10,<3.14. These patterns address cross-version compatibility:
 
 **`datetime.fromisoformat()` timezone parsing:** Python 3.10 cannot parse timezone suffixes (`+00:00`, `Z`) — this was fixed in 3.11. Strip the suffix before parsing:
 

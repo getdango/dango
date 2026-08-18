@@ -357,7 +357,7 @@ def snapshot_run(ctx: click.Context, select: str | None) -> None:
         if lock is not None and lock._acquired:
             try:
                 lock.release()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
 

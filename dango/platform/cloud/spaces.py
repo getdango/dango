@@ -282,6 +282,35 @@ class SpacesClient:
                 return False
             raise self._wrap_client_error(exc, "exists", key) from exc
 
+    def list_buckets(self) -> list[dict[str, Any]]:
+        """List all Spaces buckets accessible with the configured credentials.
+
+        Uses boto3's ``list_buckets()`` which returns all buckets the
+        credentials have access to.  The *bucket* argument passed to the
+        constructor is ignored by this method — ``list_buckets`` is an
+        account-level S3 operation.
+
+        Returns:
+            List of dicts with keys ``Name`` and ``CreationDate``.
+
+        Raises:
+            CloudError: If the API call fails (bad credentials, network, etc.).
+        """
+        client = self._get_client()
+        try:
+            response: dict[str, Any] = client.list_buckets()
+        except Exception as exc:
+            _reraise_if_not_client_error(exc)
+            raise CloudError(
+                f"Failed to list Spaces buckets: {exc}",
+                context={"operation": "list_buckets"},
+            ) from exc
+
+        return [
+            {"Name": b["Name"], "CreationDate": b["CreationDate"]}
+            for b in response.get("Buckets", [])
+        ]
+
 
 # ---------------------------------------------------------------------------
 # Module-level helpers

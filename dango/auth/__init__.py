@@ -96,6 +96,7 @@ from dango.auth.security import (
     hash_password,
     hash_recovery_code,
     hash_token,
+    set_password,
     verify_password,
 )
 from dango.auth.sessions import (
@@ -240,5 +241,6 @@ __all__ = [
     "hash_password",
     "hash_recovery_code",
     "hash_token",
+    "set_password",
     "verify_password",
 ]

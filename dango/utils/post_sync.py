@@ -173,7 +173,7 @@ def profile_table(
         conn.close()
 
     try:
-        _cache_stats(project_root, source, table_name, stats)
+        _cache_stats(project_root, source, table_name, stats, row_count=total_rows)
     except Exception:
         logger.warning(
             "profiling_cache_error",
@@ -269,6 +269,8 @@ def _cache_stats(
     source: str,
     table_name: str,
     stats: dict[str, dict[str, str | None]],
+    *,
+    row_count: int | None = None,
 ) -> None:
     """Write profiling stats to the ``profiling_stats`` table.
 
@@ -280,6 +282,9 @@ def _cache_stats(
         source: Source name.
         table_name: Table name.
         stats: Mapping of ``{column_name: {stat_type: stat_value}}``.
+        row_count: Optional table-level row count.  When provided, stored as a
+            synthetic ``__row_count__`` row so the catalog list can read counts
+            without querying DuckDB.
     """
     now = datetime.now(timezone.utc).isoformat()
 
@@ -292,6 +297,13 @@ def _cache_stats(
                     "VALUES (?, ?, ?, ?, ?, ?)",
                     (source, table_name, col_name, stat_type, stat_value, now),
                 )
+        if row_count is not None:
+            conn.execute(
+                "INSERT OR REPLACE INTO profiling_stats "
+                "(source, table_name, column_name, stat_type, stat_value, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (source, table_name, "__row_count__", "value", str(row_count), now),
+            )
         conn.commit()
 
 
@@ -590,11 +602,11 @@ def _profile_dbt_models(project_root: Path) -> None:
         logger.warning("profiling_dbt_json_error", exc_info=True)
         return
 
-    # Collect unique_ids of successful models
+    # Collect unique_ids of successful models and seeds
     successful_ids = [
         r["unique_id"]
         for r in run_results.get("results", [])
-        if r.get("unique_id", "").startswith("model.") and r.get("status") == "success"
+        if r.get("unique_id", "").startswith(("model.", "seed.")) and r.get("status") == "success"
     ]
 
     nodes = manifest.get("nodes", {})

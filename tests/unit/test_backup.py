@@ -5,7 +5,7 @@ Unit tests for dango/platform/cloud/backup.py.
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -459,3 +459,201 @@ class TestRotateLocalBackups:
         deleted = rotate_local_backups(ssh, keep=5)
 
         assert deleted == 0
+
+
+@pytest.mark.unit
+class TestBackupFilesConstant:
+    def test_activity_log_in_backup_files(self):
+        """activity.jsonl is in BACKUP_FILES."""
+        from dango.platform.cloud.backup import BACKUP_FILES
+
+        assert ".dango/logs/activity.jsonl" in BACKUP_FILES
+
+    def test_secrets_not_in_backup_files(self):
+        """.env and .dlt/secrets.toml are NOT in BACKUP_FILES."""
+        from dango.platform.cloud.backup import BACKUP_FILES
+
+        assert ".dlt/secrets.toml" not in BACKUP_FILES
+        assert ".env" not in BACKUP_FILES
+
+
+@pytest.mark.unit
+class TestCreateBackupSecretsFlag:
+    @patch("dango.platform.cloud.backup.time.strftime", return_value="20260224-143000")
+    @patch("dango.platform.cloud.backup._create_archive")
+    def test_excludes_secrets_by_default(self, mock_create_archive, mock_strftime):
+        """create_backup() calls _create_archive with include_secrets=False by default."""
+        from dango.platform.cloud.backup import create_backup
+
+        ssh = make_ssh_mock_configurable(
+            exec_results={
+                "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
+                "test -f": ("", "", 0),
+                "docker volume inspect": ("/var/lib/docker/vol/_data", "", 0),
+                "ls -1t": ("", "", 0),
+            }
+        )
+        mock_create_archive.return_value = ("/path/archive.tar.gz", MagicMock())
+
+        create_backup(ssh, backup_type="pre-deploy")
+
+        assert mock_create_archive.call_args[1]["include_secrets"] is False
+
+    @patch("dango.platform.cloud.backup.time.strftime", return_value="20260224-143000")
+    @patch("dango.platform.cloud.backup._create_archive")
+    def test_includes_secrets_when_flagged(self, mock_create_archive, mock_strftime):
+        """create_backup() calls _create_archive with include_secrets=True."""
+        from dango.platform.cloud.backup import create_backup
+
+        ssh = make_ssh_mock_configurable(
+            exec_results={
+                "df -m": ("/dev/vda1 25000 5000 20000 20% /srv", "", 0),
+                "test -f": ("", "", 0),
+                "docker volume inspect": ("/var/lib/docker/vol/_data", "", 0),
+                "ls -1t": ("", "", 0),
+            }
+        )
+        mock_create_archive.return_value = ("/path/archive.tar.gz", MagicMock())
+
+        create_backup(ssh, backup_type="pre-deploy", include_secrets=True)
+
+        assert mock_create_archive.call_args[1]["include_secrets"] is True
+
+
+@pytest.mark.unit
+class TestRotateLocalBackupsDefault:
+    def test_default_keep_is_1(self):
+        """rotate_local_backups() default keep parameter is 1."""
+        from dango.platform.cloud.backup import MAX_LOCAL_BACKUPS
+
+        assert MAX_LOCAL_BACKUPS == 1
+
+
+@pytest.mark.unit
+class TestCheckDiskSpaceWarning:
+    @patch("dango.platform.cloud.backup._logger.warning")
+    def test_high_usage_logs_warning(self, mock_warning):
+        """_check_disk_space logs a warning when usage exceeds 50%."""
+        from dango.platform.cloud.backup import _check_disk_space
+
+        ssh = make_ssh_mock_configurable(
+            exec_results={"df -m": ("/dev/vda1 25000 15000 8000 60% /srv/dango", "", 0)}
+        )
+        _check_disk_space(ssh)
+
+        mock_warning.assert_called_once()
+        call_kwargs = mock_warning.call_args[1]
+        assert call_kwargs["usage_pct"] == 60
+
+    @patch("dango.platform.cloud.backup._logger.warning")
+    def test_moderate_usage_no_warning(self, mock_warning):
+        """_check_disk_space does NOT log a warning when usage is 50% or below."""
+        from dango.platform.cloud.backup import _check_disk_space
+
+        ssh = make_ssh_mock_configurable(
+            exec_results={"df -m": ("/dev/vda1 25000 15000 10000 40% /srv/dango", "", 0)}
+        )
+        _check_disk_space(ssh)
+
+        # No high_disk_usage warning — but other warnings might be logged
+        high_disk_calls = [
+            c for c in mock_warning.call_args_list if c[1].get("usage_pct") is not None
+        ]
+        assert len(high_disk_calls) == 0
+
+
+@pytest.mark.unit
+class TestRotateLocalBackupsNeverDeleteLast:
+    def test_keep_zero_single_archive_guarded(self):
+        """keep=0 with one archive — never-delete-last guard prevents deletion."""
+        from dango.platform.cloud.backup import rotate_local_backups
+
+        ssh = make_ssh_mock_configurable(
+            exec_results={
+                "ls -1t": (
+                    "/srv/dango/backups/deploy/backup-20260224-143000.tar.gz\n",
+                    "",
+                    0,
+                )
+            }
+        )
+        deleted = rotate_local_backups(ssh, keep=0)
+        assert deleted == 0
+
+    def test_keep_zero_multiple_archives_guarded(self):
+        """keep=0 with multiple archives — would delete all, guard prevents it."""
+        from dango.platform.cloud.backup import rotate_local_backups
+
+        files = "\n".join(
+            f"/srv/dango/backups/deploy/backup-2026022{i}-020000.tar.gz" for i in range(3)
+        )
+        ssh = make_ssh_mock_configurable(exec_results={"ls -1t": (files, "", 0)})
+        deleted = rotate_local_backups(ssh, keep=0)
+        assert deleted == 0
+
+    def test_keep_one_normal_unchanged(self):
+        """keep=1 with multiple archives — normal deletion (1 kept, rest deleted)."""
+        from dango.platform.cloud.backup import rotate_local_backups
+
+        files = "\n".join(
+            f"/srv/dango/backups/deploy/backup-2026022{i}-020000.tar.gz" for i in range(3)
+        )
+        ssh = make_ssh_mock_configurable(exec_results={"ls -1t": (files, "", 0)})
+        deleted = rotate_local_backups(ssh, keep=1)
+        assert deleted == 2
+
+
+@pytest.mark.unit
+class TestRestoreFromArchiveSafetyBackup:
+    @patch("dango.platform.cloud.backup.create_backup")
+    @patch("dango.platform.cloud.backup._run_checked")
+    def test_safety_backup_created_before_stop_services(self, mock_run_checked, mock_create_backup):
+        """restore_from_archive() creates pre-restore safety backup before stop_services."""
+        from dango.platform.cloud.backup import restore_from_archive
+
+        mock_create_backup.return_value.archive_path = (
+            "/srv/dango/backups/deploy/backup-pre-restore.tar.gz"
+        )
+
+        ssh = make_ssh_mock_configurable(
+            exec_results={
+                "cat": ("{}", "", 0),
+                "docker volume inspect": ("/var/lib/docker/vol/_data", "", 0),
+                "curl": ('{"status":"ok"}', "", 0),
+            }
+        )
+
+        result = restore_from_archive(
+            ssh, "/srv/dango/backups/deploy/backup-20260224-143000.tar.gz"
+        )
+
+        mock_create_backup.assert_called_once()
+        assert mock_create_backup.call_args[1]["backup_type"] == "pre-restore"
+        assert mock_create_backup.call_args[1]["restart_services"] is False
+        assert mock_create_backup.call_args[1]["on_server_retention"] == 999
+        assert any("Pre-restore safety backup created" in w for w in result.warnings)
+
+    @patch("dango.platform.cloud.backup.create_backup")
+    @patch("dango.platform.cloud.backup._run_checked")
+    def test_safety_backup_failure_does_not_block_restore(
+        self, mock_run_checked, mock_create_backup
+    ):
+        """restore_from_archive() continues when safety backup fails."""
+        from dango.platform.cloud.backup import restore_from_archive
+
+        mock_create_backup.side_effect = RuntimeError("Disk full")
+
+        ssh = make_ssh_mock_configurable(
+            exec_results={
+                "cat": ("{}", "", 0),
+                "docker volume inspect": ("/var/lib/docker/vol/_data", "", 0),
+                "curl": ('{"status":"ok"}', "", 0),
+            }
+        )
+
+        result = restore_from_archive(
+            ssh, "/srv/dango/backups/deploy/backup-20260224-143000.tar.gz"
+        )
+
+        assert result.health_check_passed is True
+        assert any("Pre-restore safety backup skipped" in w for w in result.warnings)

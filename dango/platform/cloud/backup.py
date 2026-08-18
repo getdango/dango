@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 PROJECT_DIR = "/srv/dango/project"
 BACKUP_DIR = "/srv/dango/backups/deploy"
 VENV_PYTHON = "/srv/dango/venv/bin/python"
-MAX_LOCAL_BACKUPS = 14
+MAX_LOCAL_BACKUPS = 1
 
 # Must match DockerManager.compose_project_name for /srv/dango/project
 _COMPOSE_PROJECT = get_compose_project_name(PROJECT_DIR)
@@ -35,7 +35,9 @@ _COMPOSE_PROJECT = get_compose_project_name(PROJECT_DIR)
 #: Files to back up, relative to PROJECT_DIR.
 #: NOTE: See also file_sync.py SYNC_CONFIG_FILES/SYNC_DBT_DIRS/SYNC_EXTRA_DIRS
 #: for what gets synced to remote. Backup includes additional server-only files
-#: (.dlt/secrets.toml, .env, dbt/profiles.yml) that are never synced.
+#: (dbt/profiles.yml) that are never synced.
+#: Secrets (.env, .dlt/secrets.toml) are excluded by default; opt in via
+#: ``include_secrets=True`` in cloud.yml backup config or create_backup().
 BACKUP_FILES = [
     "data/warehouse.duckdb",
     ".dango/auth.db",
@@ -44,11 +46,10 @@ BACKUP_FILES = [
     ".dango/cloud.yml",
     ".dango/metabase.yml",
     ".dango/logs/audit.jsonl",
-    ".dlt/secrets.toml",
+    ".dango/logs/activity.jsonl",
     "dbt/profiles.yml",
     "dbt/dbt_project.yml",
     "dbt/packages.yml",
-    ".env",
 ]
 
 #: Directories to back up (recursively), relative to PROJECT_DIR.
@@ -59,6 +60,14 @@ BACKUP_DIRS = [
     "dbt/seeds",
     "custom_sources",
     "data/seeds",
+]
+
+#: Secrets files excluded from backup by default.  Added dynamically when
+#: ``include_secrets=True`` is passed to :func:`create_backup` or set in
+#: the ``backup:`` section of cloud.yml.
+SECRET_FILES = [
+    ".dlt/secrets.toml",
+    ".env",
 ]
 
 
@@ -115,10 +124,13 @@ def _notify(callback: Callable[[str, str], None] | None, step: str, status: str)
 
 
 def _check_disk_space(ssh: SSHManager, required_mb: int = 500) -> None:
-    """Raise ``CloudProvisioningError`` if <*required_mb* MB free on /srv."""
+    """Raise ``CloudProvisioningError`` if <*required_mb* MB free on /srv.
+
+    Also logs a warning if disk usage exceeds 50%.
+    """
     stdout = _run_checked(ssh, "df -m /srv/dango | tail -1", step="check_disk_space")
     parts = stdout.split()
-    if len(parts) >= 4:
+    if len(parts) >= 5:
         try:
             available = int(parts[3])
         except ValueError:
@@ -128,6 +140,20 @@ def _check_disk_space(ssh: SSHManager, required_mb: int = 500) -> None:
                 f"Insufficient disk space: {available} MB available, "
                 f"need at least {required_mb} MB for backup"
             )
+        # Warn if disk usage exceeds 50% (column 5 is usage percentage)
+        try:
+            usage_pct_str = parts[4].rstrip("%")
+            usage_pct = int(usage_pct_str)
+            if usage_pct > 50:
+                total_mb = int(parts[1]) if len(parts) >= 2 else 0
+                _logger.warning(
+                    "high_disk_usage",
+                    usage_pct=usage_pct,
+                    available_mb=available,
+                    total_mb=total_mb,
+                )
+        except (ValueError, IndexError):  # noqa: BLE001
+            pass  # Best-effort — silently skip if df format unexpected
 
 
 def stop_services(ssh: SSHManager) -> None:
@@ -205,6 +231,7 @@ def _create_archive(
     *,
     git_commit: str | None = None,
     git_branch: str | None = None,
+    include_secrets: bool = False,
 ) -> tuple[str, BackupManifest]:
     """Create a tar.gz archive in BACKUP_DIR.  Returns (archive_path, manifest)."""
     archive_name = f"backup-{timestamp}"
@@ -214,9 +241,14 @@ def _create_archive(
     try:
         _run_checked(ssh, f"mkdir -p {BACKUP_DIR} {staging}", step="create_staging")
 
+        # Build runtime file list — secrets excluded by default
+        file_list = list(BACKUP_FILES)
+        if include_secrets:
+            file_list.extend(SECRET_FILES)
+
         # Build copy commands for all files/dirs/metabase
         copy_cmds: list[str] = []
-        for fpath in BACKUP_FILES:
+        for fpath in file_list:
             src = f"{PROJECT_DIR}/{fpath}"
             dest_dir = f"{staging}/{'/'.join(fpath.split('/')[:-1])}" if "/" in fpath else staging
             copy_cmds.append(f"mkdir -p {dest_dir} && cp {src} {dest_dir}/ 2>/dev/null || true")
@@ -301,6 +333,8 @@ def create_backup(
     on_progress: Callable[[str, str], None] | None = None,
     git_commit: str | None = None,
     git_branch: str | None = None,
+    on_server_retention: int = 1,
+    include_secrets: bool = False,
 ) -> BackupResult:
     """Create a backup of all project data on the remote server.
 
@@ -314,6 +348,8 @@ def create_backup(
             Caller is responsible for restarting them.  Useful when the
             caller needs services to stay down (e.g. ``push_deploy``).
         on_progress: Optional ``(step, status)`` callback.
+        on_server_retention: Number of on-server backups to keep (default 1).
+        include_secrets: If True, include .env and .dlt/secrets.toml in backup.
     """
     start_time = time.monotonic()
     warnings: list[str] = []
@@ -349,6 +385,7 @@ def create_backup(
             backup_type,
             git_commit=git_commit,
             git_branch=git_branch,
+            include_secrets=include_secrets,
         )
         _notify(on_progress, "create_archive", "done")
     finally:
@@ -358,7 +395,7 @@ def create_backup(
             _notify(on_progress, "start_services", "done")
 
     _notify(on_progress, "rotate_backups", "running")
-    rotate_local_backups(ssh)
+    rotate_local_backups(ssh, keep=on_server_retention)
     _notify(on_progress, "rotate_backups", "done")
 
     return BackupResult(
@@ -434,6 +471,25 @@ def restore_from_archive(
     manifest_result = ssh.exec_command(f"cat {manifest_path} 2>/dev/null")
     if manifest_result.success and manifest_result.stdout.strip():
         _notify(on_progress, "read_manifest", "done")
+
+    # Pre-restore safety backup — covers all three restore paths
+    # (rollback(), _backup_restore_from_local(), and migrate.py all flow
+    # through restore_from_archive).  on_server_retention=999 is an
+    # intentionally large value to prevent rotation from deleting this
+    # safety backup before the restore completes.
+    _notify(on_progress, "pre_restore_backup", "running")
+    try:
+        safety = create_backup(
+            ssh,
+            backup_type="pre-restore",
+            restart_services=False,
+            on_server_retention=999,
+        )
+        warnings.append(f"Pre-restore safety backup created: {safety.archive_path}")
+    except Exception as exc:
+        warnings.append(f"Pre-restore safety backup skipped (continuing): {exc}")
+        _logger.warning("pre_restore_backup_failed", error=str(exc))
+    _notify(on_progress, "pre_restore_backup", "done")
 
     _notify(on_progress, "stop_services", "running")
     stop_services(ssh)
@@ -516,8 +572,12 @@ def rotate_local_backups(ssh: SSHManager, keep: int = MAX_LOCAL_BACKUPS) -> int:
     archives = [line.strip() for line in result.stdout.strip().splitlines() if line.strip()]
     if len(archives) <= keep:
         return 0
+    to_delete = archives[keep:]
+    if to_delete and len(to_delete) == len(archives):
+        _logger.warning("skip_rotate_last_backup", keep=keep, archive_count=len(archives))
+        return 0
     deleted = 0
-    for archive in archives[keep:]:
+    for archive in to_delete:
         ssh.exec_command(
             f"rm -f {archive} {archive.replace('.tar.gz', '.json')}"
         )  # cleanup: silent OK

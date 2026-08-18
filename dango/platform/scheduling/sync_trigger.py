@@ -86,6 +86,29 @@ def _write_status(state_dir: Path, sync_id: str | None = None, **fields: Any) ->
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _write_failed_sync_history(project_root: Path, sources: list[str], error_msg: str) -> None:
+    """Write a failed sync history entry for each source."""
+    from dango.utils.sync_history import save_sync_history_entry
+
+    for name in sources:
+        save_sync_history_entry(
+            project_root,
+            name,
+            {
+                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "status": "failed",
+                "duration_seconds": 0,
+                "rows_processed": 0,
+                "error_message": error_msg,
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
 # Main sync function
 # ---------------------------------------------------------------------------
 
@@ -127,7 +150,6 @@ def run_manual_sync(
     """
     from dango.config.helpers import load_config
     from dango.ingestion import run_sync
-    from dango.utils import DbtLock, DbtLockError
 
     state_dir = project_root / ".dango" / "state"
     db_path = get_scheduler_db_path(project_root)
@@ -163,21 +185,7 @@ def run_manual_sync(
                 validate_before_sync(src.type.value, project_root)
     except (OAuthTokenExpiredError, OAuthTokenRevokedError) as oauth_err:
         error_msg = f"OAuth validation failed: {oauth_err.user_message}"
-        # Record in per-source sync history so health page sees it
-        from dango.utils.sync_history import save_sync_history_entry
-
-        for name in sources:
-            save_sync_history_entry(
-                project_root,
-                name,
-                {
-                    "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                    "status": "failed",
-                    "duration_seconds": 0,
-                    "rows_processed": 0,
-                    "error_message": error_msg,
-                },
-            )
+        _write_failed_sync_history(project_root, sources, error_msg)
         record_failure(db_path, record_id, error_msg)
         duration = round(time.time() - start_time, 1)
         _progress("failed", error_msg, error=error_msg)
@@ -191,36 +199,6 @@ def run_manual_sync(
         # Non-OAuth errors during validation: continue (benefit of the doubt)
         logger.warning("pre_sync_validation_error", error=str(e), exc_info=True)
 
-    # --- Lock acquisition ---
-    _progress("lock_waiting", "Waiting for lock")
-    lock = None
-    try:
-        lock = DbtLock(
-            project_root=project_root,
-            source=source_label,
-            operation=f"sync:{','.join(sources)}",
-        )
-        lock.acquire(timeout=max_lock_wait or 300)
-    except DbtLockError as exc:
-        error_msg = f"Lock unavailable: {exc}"
-        record_failure(db_path, record_id, error_msg)
-        duration = round(time.time() - start_time, 1)
-        _progress("failed", error_msg, error=error_msg)
-        return {
-            "record_id": record_id,
-            "status": "failed",
-            "duration_seconds": duration,
-            "error": error_msg,
-        }
-
-    # --- Stop Metabase on cloud to prevent DuckDB lock conflicts ---
-    from dango.platform.common.metabase_lifecycle import stop_metabase_for_writes
-
-    _metabase_should_stop = os.environ.get("DANGO_CLOUD_MODE") == "true"
-    if _metabase_should_stop:
-        _progress("metabase_stop", "Pausing Metabase for sync")
-    _metabase_was_stopped = stop_metabase_for_writes(project_root)
-
     try:
         # Reload config (may have been loaded above for OAuth, but safe to reload)
         config = load_config(project_root)
@@ -233,21 +211,7 @@ def run_manual_sync(
         if not resolved:
             msg = f"No valid sources found for: {', '.join(sources)}"
             logger.warning("manual_sync_no_sources", source_names=sources)
-            # Record failure in sync history so UI shows "failed" not "never synced"
-            from dango.utils.sync_history import save_sync_history_entry
-
-            for name in sources:
-                save_sync_history_entry(
-                    project_root,
-                    name,
-                    {
-                        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-                        "status": "failed",
-                        "duration_seconds": 0,
-                        "rows_processed": 0,
-                        "error_message": msg,
-                    },
-                )
+            _write_failed_sync_history(project_root, sources, msg)
             record_failure(db_path, record_id, msg)
             duration = round(time.time() - start_time, 1)
             _progress("failed", msg, error=msg)
@@ -288,6 +252,7 @@ def run_manual_sync(
             skip_dbt=skip_dbt,
             progress_callback=_sync_progress_cb,
             allow_empty_replace=allow_empty_replace,
+            max_lock_wait=max_lock_wait or 300,
         )
 
         # Extract rows loaded from sync result
@@ -345,6 +310,8 @@ def run_manual_sync(
         logger.warning("manual_sync_failed", error=str(exc), exc_info=True)
         error_msg = str(exc)
         record_failure(db_path, record_id, error_msg)
+        _write_failed_sync_history(project_root, sources, error_msg)
+
         duration = round(time.time() - start_time, 1)
         _progress("failed", f"Sync failed: {error_msg}", error=error_msg)
         return {
@@ -353,88 +320,6 @@ def run_manual_sync(
             "duration_seconds": duration,
             "error": error_msg,
         }
-    finally:
-        if lock is not None:
-            try:
-                lock.release()
-            except Exception:
-                pass
-        # --- Restart Metabase on cloud ---
-        if _metabase_was_stopped:
-            from dango.platform.common.metabase_lifecycle import start_metabase_after_writes
-
-            start_metabase_after_writes(project_root)
-            try:
-                # Trigger Metabase schema scan so new tables appear immediately
-                _trigger_metabase_schema_scan(project_root)
-            except Exception:
-                logger.debug("metabase_schema_scan_after_sync_failed", exc_info=True)
-
-
-def _trigger_metabase_schema_scan(project_root: Path) -> None:
-    """Wait for Metabase health, then trigger a schema sync via API.
-
-    Best-effort — failures are logged but do not affect the sync result.
-    """
-    import time
-
-    import requests
-    import yaml
-
-    metabase_url = "http://localhost:3000"
-
-    # Wait for Metabase to become healthy (up to 60 seconds)
-    for _ in range(12):
-        try:
-            resp = requests.get(f"{metabase_url}/api/health", timeout=3)
-            if resp.status_code == 200:
-                break
-        except Exception:
-            pass
-        time.sleep(5)
-    else:
-        logger.debug("metabase_schema_scan_skipped", reason="health_timeout")
-        return
-
-    # Load credentials from metabase.yml
-    mb_yml = project_root / ".dango" / "metabase.yml"
-    if not mb_yml.exists():
-        logger.debug("metabase_schema_scan_skipped", reason="no_metabase_yml")
-        return
-
-    try:
-        with open(mb_yml) as f:
-            creds = yaml.safe_load(f)
-        admin = creds.get("admin", {})
-        email, password = admin.get("email"), admin.get("password")
-        db_id = creds.get("database", {}).get("id")
-        if not email or not password or not db_id:
-            logger.debug("metabase_schema_scan_skipped", reason="missing_credentials")
-            return
-
-        # Login to get session
-        login_resp = requests.post(
-            f"{metabase_url}/api/session",
-            json={"username": email, "password": password},
-            timeout=10,
-        )
-        if login_resp.status_code != 200:
-            logger.debug("metabase_schema_scan_skipped", reason="login_failed")
-            return
-
-        session_id = login_resp.json().get("id")
-        if not session_id:
-            return
-
-        # Trigger schema sync
-        requests.post(
-            f"{metabase_url}/api/database/{db_id}/sync_schema",
-            headers={"X-Metabase-Session": session_id},
-            timeout=10,
-        )
-        logger.debug("metabase_schema_scan_triggered", database_id=db_id)
-    except Exception:
-        logger.debug("metabase_schema_scan_failed", exc_info=True)
 
 
 if __name__ == "__main__":

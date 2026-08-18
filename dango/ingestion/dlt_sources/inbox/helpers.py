@@ -23,7 +23,7 @@ def decode_header_word(v: Any) -> Any:
         return v
     try:
         v = str(make_header(decode_header(v)))
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
     return v

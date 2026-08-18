@@ -174,6 +174,7 @@ class DltPipelineRunner:
         timeout_minutes: int = 60,
         limit: int | None = None,
         allow_empty_replace: bool = False,
+        max_lock_wait: int = 300,
     ) -> dict[str, Any]:
         """
         Run data pipeline for any source type
@@ -360,6 +361,7 @@ class DltPipelineRunner:
                         full_refresh,
                         limit=limit,
                         allow_empty_replace=allow_empty_replace,
+                        max_lock_wait=max_lock_wait,
                     )
                 except SyncTimeoutError as e:
                     error_message = str(e)
@@ -405,6 +407,7 @@ class DltPipelineRunner:
                         full_refresh,
                         limit=limit,
                         allow_empty_replace=allow_empty_replace,
+                        max_lock_wait=max_lock_wait,
                     )
                 except SyncTimeoutError as e:
                     error_message = str(e)
@@ -857,6 +860,7 @@ class DltPipelineRunner:
         full_refresh: bool = False,
         limit: int | None = None,
         allow_empty_replace: bool = False,
+        max_lock_wait: int = 300,
     ) -> dict[str, Any]:
         """
         Run dlt native source (registry bypass for advanced users)
@@ -879,6 +883,27 @@ class DltPipelineRunner:
 
         config = source_config.dlt_native
         source_name = source_config.name
+
+        # Auto-discover module/function from custom_sources/ if not specified
+        if not config.source_module or not config.source_function:
+            from dango.ingestion.sources.custom_discovery import discover_custom_sources
+
+            custom_sources_dir = self.project_root / "custom_sources"
+            if custom_sources_dir.exists():
+                discovered = discover_custom_sources(custom_sources_dir)
+                discovered_source = discovered.get(source_name)
+                if discovered_source:
+                    if not config.source_module:
+                        config.source_module = discovered_source.module_name
+                    if not config.source_function:
+                        config.source_function = discovered_source.function_name
+            if not config.source_module or not config.source_function:
+                raise ValueError(
+                    f"Could not determine source module/function for '{source_name}'.\n"
+                    f"  - No source_module/source_function in sources.yml\n"
+                    f"  - No matching @dlt.source function found in custom_sources/\n"
+                    f"  - Specify source_module and source_function in sources.yml"
+                )
 
         console.print(
             f"  📦 Loading dlt native source: {config.source_module}.{config.source_function}"
@@ -963,21 +988,47 @@ class DltPipelineRunner:
         state_backup = self._backup_dlt_state(pipeline_name)
 
         # Always capture pre-refresh row count for empty replace protection
-        pre_refresh_rows = self._get_source_total_rows(source_name)
+        pre_refresh_rows = self._get_source_total_rows(
+            source_name, schema_name=pipeline.dataset_name
+        )
+        pre_table_counts = self._get_source_table_rows(
+            source_name, schema_name=pipeline.dataset_name
+        )
 
-        # Full refresh: drop pipeline state only (NOT schema)
-        # dlt with write_disposition="replace" handles table replacement automatically.
-        # Removing pre-load schema drop preserves data when 0 rows are returned.
+        # Full refresh: for merge/append sources, drop schema + state to force a
+        # true reload. Replace sources skip the schema drop since they overwrite
+        # tables on every run (preserving schema protects against 0-row results).
         if full_refresh:
-            console.print("  🔄 Full refresh: dropping pipeline state")
+            if not uses_replace_mode:
+                console.print("  🔄 Full refresh: dropping data and pipeline state")
+                try:
+                    import duckdb
+
+                    db = duckdb.connect(str(self.duckdb_path))
+                    try:
+                        db.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
+                    finally:
+                        db.close()
+                except Exception as e:
+                    console.print(f"  ⚠️  Could not drop schema: {e}")
+            else:
+                console.print("  🔄 Full refresh: dropping pipeline state")
             try:
                 pipeline.drop()
             except Exception as e:
-                console.print(f"  ⚠️  Could not drop pipeline: {e}")
+                console.print(f"  ⚠️  Could not drop pipeline state: {e}")
 
         try:
-            # Run pipeline with retry logic
-            load_info = self._run_with_retry(pipeline, source, max_retries=3)
+            # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
+            self._run_extract_with_retry(pipeline, source, max_retries=3)
+
+            # Phase 2: Normalize (in-memory, NO LOCK)
+            console.print("  ⏳ Normalizing data...")
+            pipeline.normalize()
+
+            # Phase 3: Load (DuckDB write, UNDER LOCK)
+            console.print("  ⏳ Loading data to DuckDB...")
+            load_info = self._load_with_lock(pipeline, source_name, max_lock_wait)
 
             # Extract load statistics
             stats = self._extract_load_stats(load_info)
@@ -1008,6 +1059,44 @@ class DltPipelineRunner:
                     "uses_replace_mode": uses_replace_mode,
                 }
 
+            # Per-table empty replace protection: detect if any individual table
+            # would be truncated (some tables populated, others empty)
+            if (
+                pre_table_counts is not None
+                and (full_refresh or uses_replace_mode)
+                and not allow_empty_replace
+            ):
+                post_table_counts = self._get_source_table_rows(
+                    source_name, schema_name=pipeline.dataset_name
+                )
+                if post_table_counts is not None:
+                    truncated_tables: list[tuple[str, int]] = []
+                    for table_name, pre_count in pre_table_counts.items():
+                        if pre_count > 0:
+                            post_count = post_table_counts.get(table_name, 0)
+                            if post_count == 0:
+                                truncated_tables.append((table_name, pre_count))
+                    if truncated_tables:
+                        self._restore_dlt_state(state_backup)
+                        table_details = "\n  - ".join(
+                            f"{name}: {count:,} rows → 0 rows (table would be lost)"
+                            for name, count in truncated_tables
+                        )
+                        error_msg = (
+                            f"Sync would truncate {len(truncated_tables)} table(s) with "
+                            f"existing data:\n  - {table_details}\n"
+                            f"To force sync with empty data, use: "
+                            f"dango sync {source_name} --allow-empty-replace"
+                        )
+                        console.print(f"  [red]❌ {error_msg}[/red]")
+                        return {
+                            "status": "failed",
+                            "source": source_name,
+                            "error": error_msg,
+                            "rows_loaded": rows_loaded,
+                            "uses_replace_mode": uses_replace_mode,
+                        }
+
             # Check for data loss on full refresh
             if full_refresh and pre_refresh_rows is not None and rows_loaded < pre_refresh_rows:
                 console.print(
@@ -1023,6 +1112,7 @@ class DltPipelineRunner:
                 "status": "success",
                 "source": source_name,
                 "rows_loaded": rows_loaded,
+                "uses_replace_mode": uses_replace_mode,
                 **stats,
             }
             if getattr(self, "_current_oauth_warning", None):
@@ -1098,6 +1188,7 @@ class DltPipelineRunner:
         full_refresh: bool = False,
         limit: int | None = None,
         allow_empty_replace: bool = False,
+        max_lock_wait: int = 300,
     ) -> dict[str, Any]:
         """
         Run dlt pipeline for any verified source (generic implementation)
@@ -1157,7 +1248,7 @@ class DltPipelineRunner:
                     doc = tomlkit.parse(config_toml_path.read_text())
                     source_section = doc.get("sources", {}).get(source_type.value, {})
                     config_toml_keys = set(source_section.keys())
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass  # If we can't read config.toml, fall back to defaults
 
             for key, value in default_config.items():
@@ -1280,21 +1371,47 @@ class DltPipelineRunner:
         state_backup = self._backup_dlt_state(source_name)
 
         # Always capture pre-refresh row count for empty replace protection
-        pre_refresh_rows = self._get_source_total_rows(source_name)
+        pre_refresh_rows = self._get_source_total_rows(
+            source_name, schema_name=pipeline.dataset_name
+        )
+        pre_table_counts = self._get_source_table_rows(
+            source_name, schema_name=pipeline.dataset_name
+        )
 
-        # Full refresh: drop pipeline state only (NOT schema)
-        # dlt with write_disposition="replace" handles table replacement automatically.
-        # Removing pre-load schema drop preserves data when 0 rows are returned.
+        # Full refresh: for merge/append sources, drop schema + state to force a
+        # true reload. Replace sources skip the schema drop since they overwrite
+        # tables on every run (preserving schema protects against 0-row results).
         if full_refresh:
-            console.print("  🔄 Full refresh: dropping pipeline state")
+            if not uses_replace_mode:
+                console.print("  🔄 Full refresh: dropping data and pipeline state")
+                try:
+                    import duckdb
+
+                    db = duckdb.connect(str(self.duckdb_path))
+                    try:
+                        db.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
+                    finally:
+                        db.close()
+                except Exception as e:
+                    console.print(f"  ⚠️  Could not drop schema: {e}")
+            else:
+                console.print("  🔄 Full refresh: dropping pipeline state")
             try:
                 pipeline.drop()
             except Exception as e:
-                console.print(f"  ⚠️  Could not drop pipeline: {e}")
+                console.print(f"  ⚠️  Could not drop pipeline state: {e}")
 
         try:
-            # Run pipeline with retry logic
-            load_info = self._run_with_retry(pipeline, source, max_retries=3)
+            # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
+            self._run_extract_with_retry(pipeline, source, max_retries=3)
+
+            # Phase 2: Normalize (in-memory, NO LOCK)
+            console.print("  ⏳ Normalizing data...")
+            pipeline.normalize()
+
+            # Phase 3: Load (DuckDB write, UNDER LOCK)
+            console.print("  ⏳ Loading data to DuckDB...")
+            load_info = self._load_with_lock(pipeline, source_name, max_lock_wait)
 
             # Extract load statistics
             stats = self._extract_load_stats(load_info)
@@ -1325,8 +1442,52 @@ class DltPipelineRunner:
                     "uses_replace_mode": uses_replace_mode,
                 }
 
+            # Per-table empty replace protection: detect if any individual table
+            # would be truncated (some tables populated, others empty)
+            post_table_counts = None
+            if (
+                pre_table_counts is not None
+                and (full_refresh or uses_replace_mode)
+                and not allow_empty_replace
+            ):
+                post_table_counts = self._get_source_table_rows(
+                    source_name, schema_name=pipeline.dataset_name
+                )
+                if post_table_counts is not None:
+                    truncated_tables: list[tuple[str, int]] = []
+                    for table_name, pre_count in pre_table_counts.items():
+                        if pre_count > 0:
+                            post_count = post_table_counts.get(table_name, 0)
+                            if post_count == 0:
+                                truncated_tables.append((table_name, pre_count))
+                    if truncated_tables:
+                        self._restore_dlt_state(state_backup)
+                        table_details = "\n  - ".join(
+                            f"{name}: {count:,} rows → 0 rows (table would be lost)"
+                            for name, count in truncated_tables
+                        )
+                        error_msg = (
+                            f"Sync would truncate {len(truncated_tables)} table(s) with "
+                            f"existing data:\n  - {table_details}\n"
+                            f"To force sync with empty data, use: "
+                            f"dango sync {source_name} --allow-empty-replace"
+                        )
+                        console.print(f"  [red]❌ {error_msg}[/red]")
+                        return {
+                            "status": "failed",
+                            "source": source_name,
+                            "error": error_msg,
+                            "rows_loaded": rows_loaded,
+                            "uses_replace_mode": uses_replace_mode,
+                        }
+
             # Check for row count anomalies
-            total_row_count = self._get_source_total_rows(source_name)
+            if post_table_counts is not None:
+                total_row_count = sum(post_table_counts.values()) if post_table_counts else 0
+            else:
+                total_row_count = self._get_source_total_rows(
+                    source_name, schema_name=pipeline.dataset_name
+                )
             if total_row_count is not None:
                 stats["total_row_count"] = total_row_count
             anomaly = self._check_row_count_anomaly(source_name, total_rows=total_row_count)
@@ -1432,7 +1593,10 @@ class DltPipelineRunner:
                     )
                     try:
                         partial_source = source.with_resources(*remaining)
-                        load_info = self._run_with_retry(pipeline, partial_source, max_retries=1)
+                        # Split phases: extract, normalize, lock+load
+                        pipeline.extract(partial_source)
+                        pipeline.normalize()
+                        load_info = self._load_with_lock(pipeline, source_name, max_lock_wait)
                         stats = self._extract_load_stats(load_info)
                         self._cleanup_state_backup(state_backup)
                         console.print(
@@ -1583,7 +1747,7 @@ class DltPipelineRunner:
                     try:
                         days = int(dv.replace("daysAgo", ""))
                         resolved_config[dk] = (date.today() - timedelta(days=days)).isoformat()
-                    except ValueError:
+                    except ValueError:  # noqa: BLE001
                         pass  # Leave as-is if not parseable
 
         # Convert date strings to pendulum DateTime for sources that expect it
@@ -1603,7 +1767,7 @@ class DltPipelineRunner:
                     except Exception:
                         try:
                             resolved_config[date_key] = datetime.fromisoformat(date_val)
-                        except ValueError:
+                        except ValueError:  # noqa: BLE001
                             pass  # Leave as string — dlt may handle it
 
         # Override dates if provided
@@ -1957,11 +2121,17 @@ class DltPipelineRunner:
         mins = minutes % 60
         return f"{hours}h {mins}m"
 
-    def _get_source_total_rows(self, source_name: str) -> int | None:
-        """Get total row count across all tables in a source's raw schema."""
+    def _get_source_table_rows(
+        self, source_name: str, schema_name: str | None = None
+    ) -> dict[str, int] | None:
+        """Get per-table row counts for a source's raw schema.
+
+        Returns dict of {table_name: row_count}, or None on error.
+        Excludes dlt internal tables (_dlt_*).
+        """
         import duckdb
 
-        schema = f"raw_{source_name}"
+        schema = schema_name or f"raw_{source_name}"
         try:
             conn = duckdb.connect(str(self.duckdb_path), config={"access_mode": "read_only"})
             try:
@@ -1970,18 +2140,27 @@ class DltPipelineRunner:
                     "WHERE table_schema = ? AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'",
                     [schema],
                 ).fetchall()
-                total = 0
+                table_counts: dict[str, int] = {}
                 for (table_name,) in tables:
                     result = conn.execute(
                         f'SELECT COUNT(*) FROM "{schema}"."{table_name}"'
                     ).fetchone()
                     if result:
-                        total += result[0]
-                return total
+                        table_counts[table_name] = result[0]
+                return table_counts
             finally:
                 conn.close()
         except Exception:
             return None
+
+    def _get_source_total_rows(
+        self, source_name: str, schema_name: str | None = None
+    ) -> int | None:
+        """Get total row count across all tables in a source's raw schema."""
+        table_counts = self._get_source_table_rows(source_name, schema_name=schema_name)
+        if table_counts is None:
+            return None
+        return sum(table_counts.values()) if table_counts else 0
 
     def _get_csv_table_rows(self, source_name: str) -> int | None:
         """Get row count for a CSV/local_files source's single table."""
@@ -2242,19 +2421,52 @@ Troubleshooting steps:
 Need help? Visit: https://github.com/getdango/dango/issues
 """
 
-    def _run_with_retry(
-        self, pipeline: dlt.Pipeline, source: Any, max_retries: int = 3
+    def _load_with_lock(
+        self, pipeline: dlt.Pipeline, source_name: str, max_lock_wait: int = 300
     ) -> LoadInfo:
+        """Load data under DbtLock to serialize DuckDB writes.
+
+        The lock is acquired only for the DuckDB write phase (pipeline.load()).
+        Extraction (API calls) and normalization run outside the lock so
+        long-running API syncs don't block other syncs from writing.
+
+        Metabase is stopped before the write phase and restarted after to
+        prevent DuckDB lock conflicts on cloud deployments. On non-cloud,
+        ``stop_metabase_for_writes`` returns immediately (no-op).
         """
-        Run pipeline with exponential backoff retry logic
+        from dango.platform.common.metabase_lifecycle import (
+            start_metabase_after_writes,
+            stop_metabase_for_writes,
+        )
+        from dango.utils.dbt_lock import DbtLock as _DbtLock
+
+        _metabase_was_stopped = stop_metabase_for_writes(self.project_root)
+        try:
+            lock = _DbtLock(self.project_root, source="sync", operation=f"load:{source_name}")
+            try:
+                lock.acquire(timeout=max_lock_wait)
+                console.print("  [dim]🔒 Lock acquired for write phase[/dim]")
+                return pipeline.load()
+            finally:
+                lock.release()
+                console.print("  [dim]🔓 Lock released[/dim]")
+        finally:
+            if _metabase_was_stopped:
+                start_metabase_after_writes(self.project_root)
+
+    def _run_extract_with_retry(
+        self, pipeline: dlt.Pipeline, source: Any, max_retries: int = 3
+    ) -> None:
+        """
+        Extract data with exponential backoff retry logic.
+
+        Only covers the extract phase (API calls). Normalize and load are
+        handled separately so the DbtLock can be scoped to load only.
 
         Args:
             pipeline: dlt pipeline object
             source: dlt source object
             max_retries: Maximum number of retry attempts
-
-        Returns:
-            LoadInfo from successful run
 
         Raises:
             Exception: If all retries fail
@@ -2263,7 +2475,7 @@ Need help? Visit: https://github.com/getdango/dango/issues
 
         for attempt in range(1, max_retries + 1):
             try:
-                console.print(f"  ⏳ Running pipeline... (attempt {attempt}/{max_retries})")
+                console.print(f"  ⏳ Extracting data... (attempt {attempt}/{max_retries})")
                 # Suppress dlt paginator warnings that confuse users
                 # (e.g. "Fallback paginator used: SinglePagePaginator")
                 import warnings
@@ -2274,8 +2486,8 @@ Need help? Visit: https://github.com/getdango/dango/issues
                         message=r".*[Pp]aginator.*",
                         category=UserWarning,
                     )
-                    load_info = pipeline.run(source)
-                return load_info
+                    pipeline.extract(source)
+                return
 
             except Exception as e:
                 last_exception = e
@@ -2524,6 +2736,7 @@ def run_sync(
     limit: int | None = None,
     skip_dbt: bool = False,
     allow_schema_changes: bool = False,
+    max_lock_wait: int = 300,
     *,
     skip_sync_notification: bool = False,
     progress_callback: Callable[[str, str], None] | None = None,
@@ -2572,6 +2785,7 @@ def run_sync(
             full_refresh,
             limit=limit,
             allow_empty_replace=allow_empty_replace,
+            max_lock_wait=max_lock_wait,
         )
         results.append(result)
 
@@ -2641,7 +2855,7 @@ def run_sync(
                     console.print(f"[dim]🧹 Cleaned up {len(dropped)} staging schema(s)[/dim]")
             finally:
                 conn.close()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass  # Don't fail sync for cleanup errors
 
     # Initialize transform tracking (used in summary dict below)
@@ -2750,7 +2964,26 @@ def run_sync(
                 console.print(
                     f"[dim]Targeting models for sources: {', '.join(success_sources)}[/dim]"
                 )
-                dbt_success, dbt_output = run_dbt_models(project_root, select=select_criteria)
+                # Acquire lock for dbt writes to DuckDB
+                from dango.platform.common.metabase_lifecycle import (
+                    start_metabase_after_writes,
+                    stop_metabase_for_writes,
+                )
+                from dango.utils.dbt_lock import DbtLock as _DbtLock
+
+                _metabase_was_stopped = stop_metabase_for_writes(project_root)
+                try:
+                    _dbt_lock = _DbtLock(project_root, source="sync", operation="dbt run")
+                    try:
+                        _dbt_lock.acquire(timeout=max_lock_wait)
+                        dbt_success, dbt_output = run_dbt_models(
+                            project_root, select=select_criteria
+                        )
+                    finally:
+                        _dbt_lock.release()
+                finally:
+                    if _metabase_was_stopped:
+                        start_metabase_after_writes(project_root)
             else:
                 # All sources failed — skip dbt (no new data to transform)
                 console.print("[dim]No sources synced successfully — skipping dbt.[/dim]")

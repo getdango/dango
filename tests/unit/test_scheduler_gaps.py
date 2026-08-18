@@ -259,6 +259,11 @@ class TestCancellationBetweenSources:
         launched_sources: list[str] = []
 
         mock_svc = MagicMock()
+        mock_svc._register_cancel_flag = MagicMock(return_value=threading.Event())
+        mock_svc._clear_cancel_flag = MagicMock()
+        mock_svc._on_retry_callbacks = []
+        mock_svc._on_timeout_callbacks = []
+        mock_svc._on_cancel_callbacks = []
         cancel_count = 0
 
         def track_cancel(job_id):

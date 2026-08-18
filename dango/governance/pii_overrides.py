@@ -96,7 +96,7 @@ def _save_overrides(project_root: Path, overrides: list[dict[str, Any]]) -> None
         # Clean up temp file on failure
         try:
             os.unlink(tmp)
-        except OSError:
+        except OSError:  # noqa: BLE001
             pass
         raise
 

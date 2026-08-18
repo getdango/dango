@@ -76,7 +76,7 @@ class ConnectionManager:
         for connection in disconnected:
             try:
                 self.active_connections.remove(connection)
-            except ValueError:
+            except ValueError:  # noqa: BLE001
                 pass
 
 

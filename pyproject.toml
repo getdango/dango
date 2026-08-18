@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "getdango"
-version = "1.0.5"
+version = "1.0.6"
 description = "Open source data platform built with production-grade tools - dlt, dbt, DuckDB, and Metabase"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.14"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Dango Team"}
@@ -22,6 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Database",
     "Topic :: Scientific/Engineering :: Information Analysis",
 ]
@@ -34,7 +35,7 @@ dependencies = [
     "dbt-duckdb>=1.10.0,<1.11",   # Tier 1 — must match dbt-core
     # ── Tier 2: semi-coupled (patch safe, minor needs testing) ────────────
     "dbt-core~=1.10.0",           # Tier 2 — 1.11 is breaking
-    "dlt[duckdb]~=1.24.0",        # Tier 2 — latest stable
+    "dlt[duckdb]~=1.28.0",        # Tier 2 — latest stable
 
     # Framework and utilities - flexible versions
     "click>=8.1.7",
@@ -49,7 +50,7 @@ dependencies = [
     "httpx>=0.27.0,<1.0",            # httpx 1.0 removes TimeoutException
     "idna>=3.15",                     # CVE fix — transitive via httpx/requests/anyio
     "starlette>=1.0.1",               # PYSEC-2026-161 fixed in 1.0.1
-    "fastapi>=0.136.0,<0.137",        # 0.137 changes app.routes internals
+    "fastapi>=0.136.0",               # unpinned from <0.137 (S3-A tested on 0.138.1)
     "uvicorn[standard]>=0.27.0",
     "python-multipart>=0.0.27",   # CVE-2026-40347, CVE-2026-42561 fixed in 0.0.27
     "websockets>=12.0",
@@ -134,7 +135,7 @@ dango = [
 
 [tool.black]
 line-length = 100
-target-version = ["py310", "py311", "py312"]
+target-version = ["py310", "py311", "py312", "py313"]
 
 [tool.ruff]
 line-length = 100

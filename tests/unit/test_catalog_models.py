@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
+from dango.auth.audit import AuditEvent
 from dango.auth.models import Role, User
 from dango.exceptions import (
     AuthenticationError,
@@ -21,7 +22,7 @@ from dango.exceptions import (
     DangoError,
     ValidationError,
 )
-from dango.web.routes.catalog import router
+from dango.web.routes.catalog import _model_profiling_key, router
 
 # ---------------------------------------------------------------------------
 # Test infrastructure
@@ -242,6 +243,80 @@ class TestListCatalogModels:
         assert model_map["stg_orders"] == "staging"
         assert model_map["dim_customers"] == "marts"
         assert model_map["some_model"] == "intermediate"
+
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_seeds_appear_in_models_list(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        mock_get_root: MagicMock,
+        mock_helpers_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Seeds appear in models list with type='seed' and zero tests."""
+        client, _ = _setup_client(tmp_path)
+        mock_get_root.return_value = tmp_path
+        mock_helpers_root.return_value = tmp_path
+
+        manifest = _make_manifest(
+            models={
+                "model.proj.fct_revenue": {
+                    "name": "fct_revenue",
+                    "schema": "marts",
+                },
+            },
+        )
+        # Manually add seed nodes (not models)
+        manifest["nodes"]["seed.proj.sti_constituents"] = {
+            "resource_type": "seed",
+            "name": "sti_constituents",
+            "schema": "main",
+            "description": "Stock ticker constituents",
+            "columns": {
+                "ticker": {"description": "Ticker symbol"},
+            },
+            "tags": [],
+        }
+        manifest["nodes"]["seed.proj.geo_targets"] = {
+            "resource_type": "seed",
+            "name": "geo_targets",
+            "schema": "main",
+            "description": "",
+            "columns": {},
+            "tags": ["data"],
+        }
+        mock_manifest.return_value = manifest
+        mock_run_results.return_value = None
+
+        resp = client.get("/api/catalog/models")
+        data = resp.json()
+
+        # Check seeds are included
+        assert len(data["models"]) == 3  # 1 model + 2 seeds
+        seed_map = {m["name"]: m for m in data["models"] if m["type"] == "seed"}
+        assert len(seed_map) == 2
+        assert "sti_constituents" in seed_map
+        assert "geo_targets" in seed_map
+
+        # Check seed properties
+        sti_seed = seed_map["sti_constituents"]
+        assert sti_seed["schema"] == "main"
+        assert sti_seed["materialization"] == "table"
+        assert sti_seed["test_count"] == 0
+        assert sti_seed["tests_passing"] == 0
+        assert sti_seed["columns_total"] == 1
+        assert sti_seed["columns_documented"] == 1
+        assert sti_seed["last_run"] is None
+        assert sti_seed["status"] is None
+
+        # Check seed with no columns/description
+        geo_seed = seed_map["geo_targets"]
+        assert geo_seed["columns_total"] == 0
+        assert geo_seed["columns_documented"] == 0
+        assert geo_seed["tags"] == ["data"]
 
     @patch("dango.web.helpers.get_project_root")
     @patch("dango.web.routes.catalog.get_project_root")
@@ -1081,3 +1156,259 @@ class TestSourcesDetail:
         detail_map = {sd["name"]: sd for sd in data["overview"]["sources_detail"]}
         assert detail_map["new_source"]["table_count"] == 0
         assert detail_map["new_source"]["estimated_row_total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# S3-QG: row counts in list + profile-all trigger
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRowCountsAndProfileAll:
+    """Tests for row counts in the list and the profile-all trigger."""
+
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._get_cached_row_counts")
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_model_list_includes_row_count(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        mock_row_counts: MagicMock,
+        mock_get_root: MagicMock,
+        mock_helpers_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """List response includes row_count sourced from the profiling cache."""
+        client, _ = _setup_client(tmp_path)
+        mock_get_root.return_value = tmp_path
+        mock_helpers_root.return_value = tmp_path
+        mock_row_counts.return_value = {("marts", "fct_revenue"): 100}
+        mock_manifest.return_value = _make_manifest(
+            models={
+                "model.proj.stg_orders": {"name": "stg_orders", "schema": "staging"},
+                "model.proj.int_clean": {"name": "int_clean", "schema": "intermediate"},
+                "model.proj.fct_revenue": {"name": "fct_revenue", "schema": "marts"},
+            },
+        )
+        mock_run_results.return_value = None
+
+        resp = client.get("/api/catalog/models")
+
+        assert resp.status_code == 200
+        models = {m["name"]: m for m in resp.json()["models"]}
+        assert models["fct_revenue"]["row_count"] == 100
+        assert models["stg_orders"]["row_count"] is None
+        assert models["int_clean"]["row_count"] is None
+        for m in models.values():
+            assert "row_count" in m
+
+    @patch("dango.web.helpers.get_project_root")
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._get_cached_row_counts")
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_source_list_includes_row_count(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        mock_row_counts: MagicMock,
+        mock_get_root: MagicMock,
+        mock_helpers_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Sources in the list also carry row_count from the profiling cache."""
+        client, _ = _setup_client(tmp_path)
+        mock_get_root.return_value = tmp_path
+        mock_helpers_root.return_value = tmp_path
+        mock_row_counts.return_value = {("shop", "orders"): 50}
+        mock_manifest.return_value = _make_manifest(
+            sources={
+                "source.proj.shop.orders": {
+                    "name": "orders",
+                    "source_name": "shop",
+                    "schema": "raw_shop",
+                },
+            },
+        )
+        mock_run_results.return_value = None
+
+        resp = client.get("/api/catalog/models")
+
+        assert resp.status_code == 200
+        sources = {s["name"]: s for s in resp.json()["sources"]}
+        assert sources["orders"]["row_count"] == 50
+
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._get_cached_stats")
+    @patch("dango.web.routes.catalog._get_profiled_at")
+    @patch("dango.web.routes.catalog._get_model_column_schema")
+    @patch("dango.web.routes.catalog._get_run_results")
+    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    def test_marts_model_reads_cached_stats(
+        self,
+        mock_manifest: MagicMock,
+        mock_run_results: MagicMock,
+        mock_col_schema: MagicMock,
+        mock_profiled: MagicMock,
+        mock_cached_stats: MagicMock,
+        mock_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Marts models read profiling stats keyed by their dbt schema."""
+        client, project_root = _setup_client(tmp_path)
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        (db_dir / "warehouse.duckdb").touch()
+
+        mock_root.return_value = project_root
+        mock_manifest.return_value = _make_manifest(
+            models={
+                "model.proj.fct_revenue": {
+                    "name": "fct_revenue",
+                    "schema": "marts",
+                    "columns": {"id": {"name": "id", "description": ""}},
+                },
+            },
+        )
+        mock_run_results.return_value = None
+        mock_col_schema.return_value = [
+            {"name": "id", "type": "BIGINT", "nullable": False},
+        ]
+        mock_profiled.return_value = "2026-05-01T10:00:00Z"
+        mock_cached_stats.return_value = {"id": {"null_pct": "0", "distinct_count": "42"}}
+
+        resp = client.get("/api/catalog/models/fct_revenue")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        mock_profiled.assert_called_once_with(project_root, "marts", "fct_revenue")
+        mock_cached_stats.assert_called_once_with(project_root, "marts", "fct_revenue")
+        assert data["profiled_at"] == "2026-05-01T10:00:00Z"
+        assert data["columns"][0]["stats"] == {"null_pct": "0", "distinct_count": "42"}
+
+    @patch("dango.web.routes.catalog.log_auth_event")
+    @patch("dango.web.routes.catalog.get_project_root")
+    @patch("dango.web.routes.catalog._run_profiling")
+    @patch("dango.web.routes.catalog._get_raw_tables_from_duckdb")
+    def test_profile_all_endpoint(
+        self,
+        mock_raw_tables: MagicMock,
+        mock_run_profiling: MagicMock,
+        mock_root: MagicMock,
+        mock_log_auth: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """profile-all discovers raw sources, re-profiles, and audits the trigger."""
+        client, project_root = _setup_client(tmp_path)
+        db_dir = tmp_path / "data"
+        db_dir.mkdir()
+        (db_dir / "warehouse.duckdb").touch()
+
+        mock_root.return_value = project_root
+        mock_raw_tables.return_value = [
+            {"schema": "raw_shop", "table": "orders", "source_name": "shop"},
+            {"schema": "raw_shop", "table": "customers", "source_name": "shop"},
+            {"schema": "raw_crm", "table": "contacts", "source_name": "crm"},
+        ]
+
+        resp = client.post("/api/catalog/profile-all")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["sources"] == ["crm", "shop"]
+        mock_run_profiling.assert_called_once_with(project_root, ["crm", "shop"])
+        mock_log_auth.assert_called_once()
+        assert mock_log_auth.call_args[0][0] == AuditEvent.CATALOG_PROFILE_TRIGGERED
+
+    @patch("dango.web.routes.catalog.get_project_root")
+    def test_profile_all_requires_warehouse(
+        self,
+        mock_root: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """profile-all returns 404 when no warehouse database exists."""
+        client, project_root = _setup_client(tmp_path)
+        mock_root.return_value = project_root
+
+        resp = client.post("/api/catalog/profile-all")
+
+        assert resp.status_code == 404
+
+    def test_profile_all_requires_dbt_run_permission(self, tmp_path: Path) -> None:
+        """profile-all requires dbt.run — a viewer gets 403."""
+        client, _ = _setup_client(tmp_path, role=Role.VIEWER)
+
+        resp = client.post("/api/catalog/profile-all")
+
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# S3-QG: profiling cache-key symmetry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestModelProfilingKey:
+    """Tests for _model_profiling_key — mirrors the profiling write path."""
+
+    @pytest.mark.parametrize(
+        ("node", "kind", "expected"),
+        [
+            # marts / intermediate models are keyed by their dbt schema
+            (
+                {"schema": "marts", "name": "fct_revenue", "alias": "fct_revenue"},
+                "model",
+                ("marts", "fct_revenue"),
+            ),
+            (
+                {"schema": "intermediate", "name": "int_clean"},
+                "model",
+                ("intermediate", "int_clean"),
+            ),
+            # staging models with stg_{source}__ prefix are keyed by raw source
+            (
+                {"schema": "staging", "name": "stg_google_ads__campaigns"},
+                "model",
+                ("google_ads", "stg_google_ads__campaigns"),
+            ),
+            # staging model without the __ convention is not profiled by the write path
+            ({"schema": "staging", "name": "stg_orders"}, "model", None),
+            # alias is preferred over name (matches _profile_dbt_models)
+            ({"schema": "marts", "name": "foo", "alias": "fct_bar"}, "model", ("marts", "fct_bar")),
+            # model without a schema has no key
+            ({"schema": "", "name": "orphan"}, "model", None),
+            # sources are keyed by source_name
+            ({"name": "orders", "source_name": "shop"}, "source", ("shop", "orders")),
+            # source without a source_name has no key
+            ({"name": "orders", "source_name": ""}, "source", None),
+            # seeds are keyed by their schema (default "main")
+            ({"name": "sti_constituents", "schema": "main"}, "seed", ("main", "sti_constituents")),
+            # seed with explicit schema
+            (
+                {"name": "clr_constituents", "schema": "custom_schema"},
+                "seed",
+                ("custom_schema", "clr_constituents"),
+            ),
+            # seed without schema defaults to "main"
+            ({"name": "geo_targets"}, "seed", ("main", "geo_targets")),
+            # seed with alias is preferred over name
+            (
+                {"name": "foo", "alias": "sti_constituents", "schema": "main"},
+                "seed",
+                ("main", "sti_constituents"),
+            ),
+        ],
+    )
+    def test_key(
+        self,
+        node: dict[str, Any],
+        kind: str,
+        expected: tuple[str, str] | None,
+    ) -> None:
+        """_model_profiling_key produces the (source, table) write-path key."""
+        assert _model_profiling_key(node, kind) == expected

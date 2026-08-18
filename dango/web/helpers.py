@@ -53,19 +53,52 @@ def is_cloud_deployment(project_root: Path) -> bool:
 
 
 def load_sources_config() -> list[dict[str, Any]]:
-    """Load sources configuration from .dango/sources.yml."""
+    """Load sources configuration from .dango/sources.yml.
+
+    Auto-discovered custom sources from custom_sources/ are merged in
+    if not already present in sources.yml.
+    """
     sources_file = get_project_root() / ".dango" / "sources.yml"
 
-    if not sources_file.exists():
-        return []
+    sources: list[dict[str, Any]] = []
+    if sources_file.exists():
+        try:
+            with open(sources_file, encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+                sources = config.get("sources", [])
+        except Exception as e:
+            logger.error(f"Error loading sources config: {e}")
+            return []
 
+    # Merge auto-discovered custom sources not already in YAML
     try:
-        with open(sources_file, encoding="utf-8") as f:
-            config = yaml.safe_load(f) or {}
-            return config.get("sources", [])
-    except Exception as e:
-        logger.error(f"Error loading sources config: {e}")
-        return []
+        from dango.ingestion.sources.custom_discovery import discover_custom_sources
+
+        project_root = get_project_root()
+        custom_sources_dir = project_root / "custom_sources"
+        if custom_sources_dir.exists():
+            discovered = discover_custom_sources(custom_sources_dir)
+            existing_names = {s.get("name", "") for s in sources}
+            for name, d in discovered.items():
+                if name not in existing_names:
+                    sources.append(
+                        {
+                            "name": name,
+                            "type": "dlt_native",
+                            "enabled": True,
+                            "dlt_native": {
+                                "source_module": d.module_name,
+                                "source_function": d.function_name,
+                                "function_kwargs": d.parameters,
+                            },
+                            "description": d.docstring or "",
+                            "tags": [],
+                        }
+                    )
+    except Exception:
+        pass  # Non-critical; discovery failures must not break source listing
+
+    return sources
 
 
 def get_duckdb_path() -> Path:
@@ -78,7 +111,7 @@ def get_dbt_manifest() -> dict[str, Any] | None:
     try:
         manifest_path = get_project_root() / "dbt" / "target" / "manifest.json"
     except RuntimeError:
-        logger.debug("get_dbt_manifest_skipped", reason="project_root not configured")
+        logger.debug("get_dbt_manifest_skipped: project_root not configured")
         return None
 
     if not manifest_path.exists():
@@ -781,7 +814,7 @@ async def get_platform_health_data():
                                 "last_error": most_recent.get("error_message", "Unknown error"),
                             }
                         )
-                except Exception:
+                except Exception:  # noqa: BLE001
                     pass
 
     # Check execution_history for schedule-level failures (M3)
@@ -828,9 +861,9 @@ async def get_platform_health_data():
                                         }
                                     )
                                     already_failed_sources.add(src)
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         pass
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass  # Don't break health page if scheduler.db is unavailable
 
     # Check for failed dbt runs
@@ -872,8 +905,96 @@ async def get_platform_health_data():
     }
 
 
-async def get_source_status_data(source: dict) -> SourceStatus:
-    """Get status data for a single source (runs blocking operations in thread pool)."""
+def build_staleness_thresholds() -> dict[str, float | None]:
+    """Pre-compute staleness thresholds for all scheduled sources.
+
+    Loads schedules config once and returns a ``{source_name: threshold_hours}``
+    dict. Sources not in any enabled schedule with a cron are excluded from the
+    dict (they are never stale). Callers look up a source and treat a missing
+    key as "not scheduled, never stale."
+
+    Returns:
+        Dict mapping source names to their staleness threshold in hours
+        (2x the minimum cron interval). Sources not in any schedule are omitted.
+    """
+    from dango.config.schedules import get_cron_interval_seconds, load_schedules_config
+
+    try:
+        config = load_schedules_config(get_project_root())
+    except Exception:
+        return {}
+
+    # Collect all cron intervals per source across all enabled schedules
+    source_intervals: dict[str, list[float]] = {}
+    for schedule in config.schedules:
+        if not schedule.enabled or not schedule.cron:
+            continue
+        try:
+            interval = get_cron_interval_seconds(schedule.cron)
+        except Exception:
+            interval = None
+        if interval is None:
+            interval = 24 * 3600  # complex/unresolvable cron fallback
+        for src in schedule.sources:
+            source_intervals.setdefault(src, []).append(interval)
+
+    # 2x the minimum interval per source
+    return {
+        src: (min(intervals) / 3600) * 2 for src, intervals in source_intervals.items() if intervals
+    }
+
+
+def _get_staleness_threshold_hours(source_name: str) -> float | None:
+    """Return the staleness threshold in hours for a scheduled source.
+
+    Returns 2x the minimum cron interval across all enabled schedules that
+    include this source. Returns None if the source is not scheduled or all
+    its schedules are manual-only (no cron).
+    """
+    from dango.config.schedules import get_cron_interval_seconds, load_schedules_config
+
+    try:
+        config = load_schedules_config(get_project_root())
+    except Exception:
+        return None
+
+    intervals: list[float] = []
+    for schedule in config.schedules:
+        if not schedule.enabled:
+            continue
+        if source_name not in schedule.sources:
+            continue
+        if not schedule.cron:
+            # Manual-only trigger — skip
+            continue
+        try:
+            interval = get_cron_interval_seconds(schedule.cron)
+        except Exception:
+            interval = None
+        if interval is not None:
+            intervals.append(interval)
+        else:
+            # Complex/unresolvable cron — fall back to 24h
+            intervals.append(24 * 3600)
+
+    if not intervals:
+        return None
+
+    # 2x the minimum interval
+    return (min(intervals) / 3600) * 2
+
+
+async def get_source_status_data(
+    source: dict, *, staleness_thresholds: dict[str, float | None] | None = None
+) -> SourceStatus:
+    """Get status data for a single source (runs blocking operations in thread pool).
+
+    Args:
+        source: Source configuration dict.
+        staleness_thresholds: Optional pre-computed ``{source_name: threshold_hours}``
+            dict from :func:`build_staleness_thresholds`. When provided, avoids
+            re-loading schedules config per source.
+    """
     source_name = source.get("name", "unknown")
     source_type = source.get("type", "unknown")
     enabled = source.get("enabled", True)
@@ -921,11 +1042,30 @@ async def get_source_status_data(source: dict) -> SourceStatus:
         # Edge case
         status = "not_synced"
 
+    # Check staleness for successfully synced sources that have schedules
+    if status == "synced":
+        hours_since = freshness.get("hours_since_sync")
+        if hours_since is not None:
+            if staleness_thresholds is not None:
+                threshold_hours = staleness_thresholds.get(source_name)
+            else:
+                threshold_hours = _get_staleness_threshold_hours(source_name)
+            if threshold_hours is not None and hours_since > threshold_hours:
+                logger.info(
+                    "source_marked_stale: %s (%.1fh since sync, threshold %.1fh)",
+                    source_name,
+                    hours_since,
+                    threshold_hours,
+                )
+                status = "stale"
+
     # Look up source capabilities from registry
     from dango.ingestion.sources.registry import get_source_capabilities
 
     capabilities = get_source_capabilities(source_type)
     supports_incremental = capabilities.get("incremental", True) if capabilities else True
+    if supports_incremental is None:
+        supports_incremental = True
     supports_date_range = capabilities.get("date_range", False) if capabilities else False
 
     # Derive sync mode from actual sync history, then fall back to registry.
@@ -960,9 +1100,30 @@ async def get_source_status_data(source: dict) -> SourceStatus:
         source_wd = source.get("write_disposition")
         if source_wd is None and meta:
             source_wd = (meta.get("default_config") or {}).get("write_disposition")
-        if source_wd == "replace":
+
+        # For dlt_native: check auto-discovered write_disposition from Python source
+        discovered_is_replace: bool | None = None
+        if source_type == "dlt_native" and source_wd is None:
+            try:
+                from dango.ingestion.sources.custom_discovery import (
+                    get_discovered_source,
+                )
+
+                project_root = get_project_root()
+                custom_sources_dir = project_root / "custom_sources"
+                if custom_sources_dir.exists():
+                    discovered = get_discovered_source(custom_sources_dir, source_name)
+                    if discovered is not None:
+                        discovered_is_replace = discovered.is_replace_mode
+            except Exception:
+                pass
+
+        if source_wd == "replace" or discovered_is_replace is True:
             sync_mode = "full_refresh"
         elif supports_incremental:
+            sync_mode = "incremental"
+        elif source_type == "dlt_native":
+            # Default for never-synced custom sources: incremental
             sync_mode = "incremental"
         else:
             sync_mode = "full_refresh"

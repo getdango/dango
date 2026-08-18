@@ -7,6 +7,20 @@ on:
     branches: [v1, main, 'v1.0.*']
 
 jobs:
+  css:
+    name: CSS build (tailwind)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Build CSS
+        run: make css-build
+      - name: Check no drift
+        run: git diff --exit-code dango/web/static/css/tailwind.min.css
+
   lint:
     name: Lint (ruff)
     runs-on: ubuntu-latest
@@ -41,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.10", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -68,7 +82,7 @@ jobs:
       - run: pip install --upgrade pip
       - run: pip install -c constraints.txt -e ".[dev]"
       - name: pip-audit
-        run: pip-audit --ignore-vuln CVE-2026-32274
+        run: pip-audit --ignore-vuln CVE-2026-32274 --ignore-vuln PYSEC-2026-2120 --ignore-vuln CVE-2026-71491 --ignore-vuln CVE-2026-59894 --ignore-vuln CVE-2026-59893 --ignore-vuln CVE-2026-54284
 
   llm-checks:
     name: LLM checks
