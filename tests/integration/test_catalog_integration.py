@@ -202,6 +202,85 @@ class TestRunProfilingIntegration:
 
 
 @pytest.mark.integration
+class TestSeedProfilingIntegration:
+    """Integration tests for seed profiling via post_sync pipeline."""
+
+    def test_seeds_profiled_by_profile_dbt_models(self, tmp_path: Path) -> None:
+        """Seeds in main schema are profiled by _profile_dbt_models."""
+        _clear_schema_cache()
+        db_path = tmp_path / "data" / "warehouse.duckdb"
+        db_path.parent.mkdir(parents=True)
+
+        # Create seed table in main schema (main schema exists by default)
+        conn = duckdb.connect(str(db_path))
+        conn.execute("""
+            CREATE TABLE main.sti_constituents (
+                ticker VARCHAR,
+                name VARCHAR,
+                sector VARCHAR
+            )
+        """)
+        conn.execute("""
+            INSERT INTO main.sti_constituents VALUES
+            ('DBS', 'DBS Group', 'Financials'),
+            ('UOB', 'UOB Group', 'Financials'),
+            ('OCBC', 'OCBC Bank', 'Financials')
+        """)
+        conn.close()
+
+        # Create manifest with seed node
+        manifest = {
+            "nodes": {
+                "seed.proj.sti_constituents": {
+                    "resource_type": "seed",
+                    "name": "sti_constituents",
+                    "schema": "main",
+                    "description": "Singapore stock constituents",
+                    "columns": {
+                        "ticker": {"description": "Stock ticker"},
+                        "name": {"description": "Company name"},
+                        "sector": {"description": "Sector"},
+                    },
+                    "tags": [],
+                },
+            },
+            "sources": {},
+        }
+        manifest_dir = tmp_path / "dbt" / "target"
+        manifest_dir.mkdir(parents=True)
+        manifest_path = manifest_dir / "manifest.json"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        # Create run_results.json showing seed executed successfully
+        run_results = {
+            "results": [
+                {
+                    "unique_id": "seed.proj.sti_constituents",
+                    "status": "success",
+                }
+            ]
+        }
+        run_results_path = manifest_dir / "run_results.json"
+        run_results_path.write_text(json.dumps(run_results), encoding="utf-8")
+
+        # Import _profile_dbt_models here to test the profiling filter
+        from dango.utils.post_sync import _profile_dbt_models
+
+        _profile_dbt_models(tmp_path)
+
+        # Verify seed was profiled
+        with connect(tmp_path) as conn:
+            row_count_row = conn.execute(
+                "SELECT stat_value FROM profiling_stats "
+                "WHERE source = 'main' AND table_name = 'sti_constituents' "
+                "AND column_name = '__row_count__'"
+            ).fetchone()
+
+        assert row_count_row is not None, "Seed row count should be cached"
+        assert int(row_count_row[0]) == 3
+
+
+@pytest.mark.integration
 class TestProfilingPerformance:
     """Performance test for profiling a larger table."""
 
