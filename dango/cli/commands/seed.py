@@ -75,26 +75,61 @@ def seed_add(ctx: click.Context, path: str) -> None:
         seeds_dir.mkdir(parents=True, exist_ok=True)
         dest = seeds_dir / src.name
 
+        dbt_project_path = project_root / "dbt" / "dbt_project.yml"
+        schema_configured = False
+
+        if dbt_project_path.exists():
+            try:
+                with open(dbt_project_path, encoding="utf-8") as f:
+                    dbt_data = yaml.safe_load(f) or {}
+
+                project_name = dbt_data.get("name", "")
+
+                if not project_name:
+                    console.print(
+                        "[yellow]⚠[/yellow] dbt_project.yml has no 'name' key. "
+                        "Seed will be added, but schema config skipped."
+                    )
+                else:
+                    seeds_cfg = dbt_data.setdefault("seeds", {})
+                    if not isinstance(seeds_cfg, dict):
+                        console.print(
+                            "[yellow]⚠[/yellow] dbt_project.yml 'seeds' config is malformed (not a dict). "
+                            "Seed will be added, but schema config skipped. "
+                            f"Please fix 'seeds' in {dbt_project_path}."
+                        )
+                    else:
+                        proj_seeds = seeds_cfg.setdefault(project_name, {})
+                        if proj_seeds.get("+schema") != "seeds":
+                            proj_seeds["+schema"] = "seeds"
+                            with open(dbt_project_path, "w", encoding="utf-8") as f:
+                                yaml.safe_dump(
+                                    dbt_data, f, default_flow_style=False, allow_unicode=True
+                                )
+                            schema_configured = True
+                        else:
+                            schema_configured = True
+            except yaml.YAMLError as e:
+                console.print(
+                    f"[yellow]⚠[/yellow] Failed to parse dbt_project.yml: {e}. "
+                    "Seed will be added, but schema config skipped."
+                )
+        else:
+            console.print(
+                "[yellow]⚠[/yellow] dbt_project.yml not found. "
+                "Seed will be added, but schema config skipped. "
+                "Run 'dango init' to create project config."
+            )
+
         if dest.exists():
             console.print(
                 f"[yellow]⚠[/yellow] {dest.name} already exists in dbt/seeds/ (overwriting)"
             )
         shutil.copy2(src, dest)
 
-        dbt_project_path = project_root / "dbt" / "dbt_project.yml"
-        if dbt_project_path.exists():
-            with open(dbt_project_path, encoding="utf-8") as f:
-                dbt_data = yaml.safe_load(f) or {}
-            project_name = dbt_data.get("name", "")
-            if project_name:
-                seeds_cfg = dbt_data.setdefault("seeds", {})
-                proj_seeds = seeds_cfg.setdefault(project_name, {})
-                if proj_seeds.get("+schema") != "seeds":
-                    proj_seeds["+schema"] = "seeds"
-                    with open(dbt_project_path, "w", encoding="utf-8") as f:
-                        yaml.safe_dump(dbt_data, f, default_flow_style=False, allow_unicode=True)
-
         console.print(f"[green]✓[/green] Copied [bold]{src.name}[/bold] → dbt/seeds/")
+        if schema_configured:
+            console.print("[green]✓[/green] Schema configured: seeds → seeds schema")
         console.print(f"Reference in a model: {{{{ ref('{seed_name}') }}}}", highlight=False)
         console.print(
             "[dim]Tip: Reference seeds directly in mart/intermediate models. "
