@@ -111,7 +111,7 @@ def get_dbt_manifest() -> dict[str, Any] | None:
     try:
         manifest_path = get_project_root() / "dbt" / "target" / "manifest.json"
     except RuntimeError:
-        logger.debug("get_dbt_manifest_skipped", reason="project_root not configured")
+        logger.debug("get_dbt_manifest_skipped: project_root not configured")
         return None
 
     if not manifest_path.exists():
@@ -1052,10 +1052,10 @@ async def get_source_status_data(
                 threshold_hours = _get_staleness_threshold_hours(source_name)
             if threshold_hours is not None and hours_since > threshold_hours:
                 logger.info(
-                    "source_marked_stale",
-                    source=source_name,
-                    hours_since_sync=hours_since,
-                    threshold_hours=threshold_hours,
+                    "source_marked_stale: %s (%.1fh since sync, threshold %.1fh)",
+                    source_name,
+                    hours_since,
+                    threshold_hours,
                 )
                 status = "stale"
 

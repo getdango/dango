@@ -7,7 +7,6 @@ import importlib
 import json
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -43,11 +42,11 @@ def _write_stale_lock(project_root: Path, pid: int) -> None:
 class TestCleanupStaleDbtLock:
     def test_stale_lock_from_dead_pid_removed(self, tmp_path: Path) -> None:
         _write_stale_lock(tmp_path, pid=99999)
-        with patch("psutil.pid_exists", return_value=False):
-            result = cleanup_stale_dbt_lock(tmp_path)
-        assert result is True
-        assert not (tmp_path / ".dango" / "state" / "dbt.lock").exists()
-        assert not (tmp_path / ".dango" / "state" / "dbt.lock.json").exists()
+        result = cleanup_stale_dbt_lock(tmp_path)
+        assert result is False
+        # Cleanup is now a no-op; stale files persist (auto-released by kernel)
+        assert (tmp_path / ".dango" / "state" / "dbt.lock").exists()
+        assert (tmp_path / ".dango" / "state" / "dbt.lock.json").exists()
 
     def test_no_lock_files_returns_false(self, tmp_path: Path) -> None:
         result = cleanup_stale_dbt_lock(tmp_path)
@@ -55,8 +54,7 @@ class TestCleanupStaleDbtLock:
 
     def test_lock_from_running_pid_preserved(self, tmp_path: Path) -> None:
         _write_stale_lock(tmp_path, pid=12345)
-        with patch("psutil.pid_exists", return_value=True):
-            result = cleanup_stale_dbt_lock(tmp_path)
+        result = cleanup_stale_dbt_lock(tmp_path)
         assert result is False
         assert (tmp_path / ".dango" / "state" / "dbt.lock").exists()
         assert (tmp_path / ".dango" / "state" / "dbt.lock.json").exists()
@@ -73,15 +71,18 @@ class TestCleanupStaleDbtLock:
 @pytest.mark.unit
 class TestDbtLockCleanupStaleIntegration:
     def test_acquire_succeeds_after_stale_lock_cleanup(self, tmp_path: Path) -> None:
-        """DbtLock.acquire() succeeds when stale lock files exist from a dead process."""
+        """DbtLock.acquire() succeeds when stale lock files exist.
+
+        Stale locks are auto-released by the kernel (flock) when the holding
+        process exits. _cleanup_stale_lock() is a no-op; the test verifies that
+        acquire still works in the presence of stale files.
+        """
         _write_stale_lock(tmp_path, pid=99999)
 
-        _mod = sys.modules["dango.utils.dbt_lock"]
-        with patch.object(_mod.DbtLock, "_is_process_running", return_value=False):
-            lock = DbtLock(tmp_path, source="test", operation="test op")
-            acquired = lock.acquire(timeout=0)
-            assert acquired is True
-            lock.release()
+        lock = DbtLock(tmp_path, source="test", operation="test op")
+        acquired = lock.acquire(timeout=0)
+        assert acquired is True
+        lock.release()
 
     def test_acquire_blocked_by_running_pid(self, tmp_path: Path) -> None:
         """DbtLock.acquire() raises DbtLockError when lock is held by running process."""
@@ -157,19 +158,15 @@ class TestDbtLockCleanupLogging:
     def test_cleanup_stale_lock_logs_warning(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """_cleanup_stale_lock() logs a warning when removing stale files."""
+        """_cleanup_stale_lock() is now a no-op and does not log."""
         _write_stale_lock(tmp_path, pid=99999)
 
         _mod = sys.modules["dango.utils.dbt_lock"]
         import logging
 
-        with (
-            caplog.at_level(logging.WARNING, logger="dango.utils.dbt_lock"),
-            patch.object(_mod.DbtLock, "_is_process_running", return_value=False),
-        ):
+        with caplog.at_level(logging.WARNING, logger="dango.utils.dbt_lock"):
             lock = DbtLock(tmp_path, source="test", operation="test op")
             cleaned = lock._cleanup_stale_lock()
 
-        assert cleaned is True
-        assert "Removed stale dbt lock" in caplog.text
-        assert "99999" in caplog.text
+        assert cleaned is False
+        assert "Removed stale dbt lock" not in caplog.text
