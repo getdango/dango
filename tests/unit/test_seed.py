@@ -146,6 +146,27 @@ class TestSeedAdd:
             assert (project_root / "dbt" / "seeds" / "ref_data.csv").exists()
             assert "malformed" in result.output
 
+    def test_warns_when_yaml_invalid(self):
+        runner = CliRunner()
+        with runner.isolated_filesystem() as td:
+            project_root = Path(td)
+            src = project_root / "ref_data.csv"
+            src.write_text("id,name\n1,Alice\n")
+            dbt_dir = project_root / "dbt"
+            dbt_dir.mkdir()
+            dbt_project = dbt_dir / "dbt_project.yml"
+            # Create dbt_project.yml with invalid YAML syntax
+            dbt_project.write_text("name: myproject\n  invalid: [unclosed\n")
+
+            with patch("dango.cli.utils.find_project_root", return_value=project_root):
+                from dango.cli.commands.seed import seed
+
+                result = runner.invoke(seed, ["add", str(src)])
+
+            assert result.exit_code == 0
+            assert (project_root / "dbt" / "seeds" / "ref_data.csv").exists()
+            assert "Failed to parse" in result.output or "schema config skipped" in result.output
+
 
 @pytest.mark.unit
 class TestSeedList:
