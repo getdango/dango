@@ -5,6 +5,56 @@ All notable changes to Dango will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-08-19
+
+### Added
+
+- Script scheduling — cron-based scheduling for Python scripts in `scripts/` via `dango schedule add` (Script type)
+- Scripts tab in web UI — list, run, cancel, and view logs for scripts; Scripts positioned before Schedules in nav
+- dbt seed command — `dango transform seed` runs dbt seeds; seed tables appear in catalog with row counts and profiling
+- Python 3.13 support
+- Schedule-aware staleness detection — sources with a schedule show yellow "Stale" badge when last sync exceeds 2× the schedule interval; unscheduled sources always show "Synced"
+- Per-table empty-replace protection — multi-resource dlt sources block syncs that would truncate individual tables with existing data
+- Source row counts on Sources page
+- Model row counts in catalog list API
+- Seed profiling in catalog alongside dbt models
+- Configurable backup retention, secrets exclusion from backups, and post-restore guidance
+- Backup guards, CLI additions, and download/verify commands
+- Activity log deduplication and sync history gap prevention (history written on lock timeout, exception, and poll timeout)
+- `dlt` upgraded from 1.24.0 to 1.28.1
+
+### Fixed
+
+- Sources page: `dlt_native` sources crash with 500 when `incremental` capability is `null` — now shows correct sync mode label
+- Sources page: `@dlt.source` decorated custom sources crash during import inspection — fixed by registering module in `sys.modules` before `exec_module()`
+- Sources page: custom `dlt_native` sources in `custom_sources/` auto-discovered without manual config
+- Sources page: "Incremental" label derived from actual write_disposition in DuckDB, not registry default
+- Sources page: columns consistently aligned; Sync button repositioned as primary action
+- Sources page: filter input now visible with border and padding; placeholder indicates filter scope
+- Models page: "Run" button overwrote Schema column with "●Running" — fixed by targeting column via `data-column` attribute instead of `nth-child`
+- Models page: "Last Run" column now sortable
+- Schedules page: "Enabled" column now sortable
+- Schedules page: schedule execution history error messages now visible when expanding failed rows
+- Schedules page/Scripts page: filter inputs now visible and functional
+- Catalog: tab navigation frozen when `sourceFilter` active — tab clicks now clear filter and update URL
+- Catalog: 📖 dbt docs link opens in new tab instead of navigating in-place
+- Catalog: default name-ascending sort on initial load
+- Activity log: source column readable for coalesced dbt runs (bullet list instead of comma-joined)
+- Notebooks: startup hang fixed; admin restart shows warning modal; background startup exceptions now logged
+- Scheduled sync toast: "Unknown sync completed" replaced with correct source name
+- DbtLock scope narrowed to write phase only — long-running API extract no longer blocks concurrent syncs
+- DbtLock unlink race condition fixed — lock file no longer deleted while held by another process
+- Metabase kept running during sync extract phase; stop/start narrowed to CLI sync and initial deploy only
+- Scheduled sync lock timeout aligned with direct sync (60s → 300s)
+- `run_with_resilience()` wired into all scheduled sync and dbt jobs (retry, backoff, timeout)
+- Full refresh on merge/append sources: schema dropped before pipeline state for a true reload
+- Double scrollbar on table pages fixed (`overflow-y: clip` on scroll container)
+- Stale Tailwind CSS rebuilt — filter inputs and other utilities now render correctly
+- Default name-ascending sort on Schedules, Scripts, and Catalog pages on first load
+- Empty-replace protection: underscore-prefixed source name schema resolved via `pipeline.dataset_name`
+- stdlib logger kwargs crash on `/api/sources` endpoint fixed
+- DuckDB 1.5.2 → 1.5.4, Metabase JDBC driver 1.5.1.0 → 1.5.3.0, dbt-core 1.10.20 → 1.10.22, FastAPI unpinned
+
 ## [1.0.5] - 2026-06-25
 
 ### Added
