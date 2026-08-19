@@ -338,7 +338,7 @@ class OAuthStorage:
                         credentials=creds,
                         created_at=datetime.fromisoformat(meta["created_at"])
                         if meta.get("created_at")
-                        else datetime.now(),
+                        else datetime.now(tz=timezone.utc),
                         expires_at=datetime.fromisoformat(meta["expires_at"])
                         if meta.get("expires_at")
                         else None,
