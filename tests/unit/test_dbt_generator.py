@@ -198,3 +198,60 @@ class TestSourcesYmlColumnDescriptions:
         assert "description: Charge status:" in result or 'description: "Charge status:' in result
         # Template has source + table descriptions, columns add 2 more (empty one is skipped)
         assert result.count("description:") == 4
+
+    def test_unknown_column_names_trigger_warning(self, tmp_path: Path) -> None:
+        """Registry with unknown column names should warn during enrichment."""
+        import warnings
+
+        from dango.transformation.generator import DbtModelGenerator
+
+        gen = DbtModelGenerator(tmp_path)
+        gen.staging_dir.mkdir(parents=True, exist_ok=True)
+        source = MagicMock()
+        source.name = "test_source"
+
+        # Mock the registry to have descriptions for columns that don't exist
+        mock_registry = {
+            "test_source": {
+                "column_descriptions": {
+                    "orders": {
+                        "id": "Order ID",
+                        "nonexistent_col": "This column doesn't exist",
+                    }
+                }
+            }
+        }
+
+        # Mock the source endpoints and tables
+        gen._get_source_endpoints = MagicMock(return_value=["orders"])
+        gen.get_table_schema = MagicMock(
+            return_value=[
+                {
+                    "name": "id",
+                    "type": "INTEGER",
+                    "nullable": False,
+                    "tests": [],
+                    "description": "",
+                }
+            ]
+        )
+        gen.infer_dedup_strategy = MagicMock(return_value=(None, []))
+        gen.generate_staging_model = MagicMock(return_value="-- model")
+        gen.generate_sources_yml = MagicMock(return_value="version: 2\n")
+        gen.generate_staging_schema_yml = MagicMock(return_value="version: 2\n")
+        gen._enrich_columns_from_profiling = MagicMock()
+
+        # Patch where it's imported from
+        with patch("dango.ingestion.sources.registry.SOURCE_REGISTRY", mock_registry):
+            # Capture warnings
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                gen.generate_all_models(
+                    sources=[source],
+                    skip_customized=False,
+                    generate_schema_yml=True,
+                )
+
+                # Verify warning was raised
+                assert len(w) > 0
+                assert any("nonexistent_col" in str(warning.message) for warning in w)

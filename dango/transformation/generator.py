@@ -638,13 +638,29 @@ class DbtModelGenerator:
                 sources_file = None
                 staging_schema_file = None
                 if generate_schema_yml and tables_for_yml:
-                    # Enrich columns with registry descriptions for sources.yml
+                    # Enrich columns with registry descriptions for sources.yml.
+                    # Registry descriptions take precedence over auto-generated placeholders
+                    # from get_table_schema(). If a column is not in the registry, it gets
+                    # an empty description (which the template skips).
                     from dango.ingestion.sources.registry import SOURCE_REGISTRY  # lazy import
 
                     source_reg = SOURCE_REGISTRY.get(source.name, {})
                     col_descs = source_reg.get("column_descriptions", {})
                     for table_entry in tables_for_yml:
                         table_descs = col_descs.get(table_entry["name"], {})
+                        actual_col_names = {col["name"] for col in table_entry["columns"]}
+                        # Warn if registry describes columns that don't exist in schema
+                        unknown_cols = set(table_descs.keys()) - actual_col_names
+                        if unknown_cols:
+                            import warnings
+
+                            warnings.warn(
+                                f"Source '{source.name}' registry describes columns "
+                                f"that don't exist in table '{table_entry['name']}': "
+                                f"{unknown_cols}. These descriptions will be ignored.",
+                                stacklevel=2,
+                            )
+                        # Enrich actual columns with descriptions from registry
                         for col in table_entry["columns"]:
                             col["description"] = table_descs.get(col["name"], "")
 
