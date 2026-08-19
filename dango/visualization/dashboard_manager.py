@@ -123,6 +123,8 @@ class DashboardManager:
         Returns:
             Parent collection ID or None if no parent (root level)
         """
+        if not location:
+            return None
         parts = [p for p in location.strip("/").split("/") if p]
         if len(parts) < 2:
             return None

@@ -52,6 +52,11 @@ class TestParseParentId:
         """Empty string → None."""
         assert dashboard_manager._parse_parent_id("") is None
 
+    def test_parse_parent_id_null_location(self, dashboard_manager):
+        """None/null location returns None instead of AttributeError."""
+        # If Metabase returns location: null (not absent, but null value)
+        assert dashboard_manager._parse_parent_id(None) is None
+
 
 class TestImportCollections:
     """Tests for _import_collections method."""
