@@ -180,34 +180,34 @@
                                 <table class="min-w-full divide-y divide-gray-200">
                                     <thead class="bg-gray-50">
                                         <tr>
-                                            <th @click="toggleCatalogSort('name')"
+                                            <th @click="toggleSort('name')"
                                                 class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700">
-                                                Name<template x-if="sortColumn === 'name'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                                Name<span x-text="sortArrow('name')"></span>
                                             </th>
-                                            <th @click="toggleCatalogSort('type')"
+                                            <th @click="toggleSort('type')"
                                                 class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700">
-                                                Type<template x-if="sortColumn === 'type'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                                Type<span x-text="sortArrow('type')"></span>
                                             </th>
                                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">Rows</th>
-                                            <th @click="toggleCatalogSort('description')"
+                                            <th @click="toggleSort('description')"
                                                 class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden sm:table-cell">
-                                                Description<template x-if="sortColumn === 'description'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                                Description<span x-text="sortArrow('description')"></span>
                                             </th>
-                                            <th @click="toggleCatalogSort('tests')"
+                                            <th @click="toggleSort('tests')"
                                                 class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden md:table-cell">
-                                                Tests<template x-if="sortColumn === 'tests'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                                Tests<span x-text="sortArrow('tests')"></span>
                                             </th>
-                                            <th @click="toggleCatalogSort('last_updated')"
+                                            <th @click="toggleSort('last_updated')"
                                                 class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden md:table-cell">
-                                                Last Updated<template x-if="sortColumn === 'last_updated'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                                Last Updated<span x-text="sortArrow('last_updated')"></span>
                                             </th>
-                                            <th @click="toggleCatalogSort('documented')"
+                                            <th @click="toggleSort('documented')"
                                                 class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden md:table-cell">
-                                                Documented<template x-if="sortColumn === 'documented'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                                Documented<span x-text="sortArrow('documented')"></span>
                                             </th>
-                                            <th @click="toggleCatalogSort('tags')"
+                                            <th @click="toggleSort('tags')"
                                                 class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden lg:table-cell">
-                                                Tags<template x-if="sortColumn === 'tags'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                                                Tags<span x-text="sortArrow('tags')"></span>
                                             </th>
                                         </tr>
                                     </thead>
@@ -583,9 +583,6 @@ function catalogPage() {
         // Guard flag: suppresses pushState during URL restoration and popstate
         // handling to prevent feedback loops (restoreFromUrl → openModel → updateUrl).
         _skipPush: false,
-        // Sort state
-        sortColumn: localStorage.getItem('dango-catalog-sort-column') || 'name',
-        sortDirection: localStorage.getItem('dango-catalog-sort-direction') || 'asc',
         // Tab config
         tabs: [
             { key: 'all', label: 'All' },
@@ -598,6 +595,14 @@ function catalogPage() {
 
         metabaseDatabaseId: null,
         metabaseTableMap: {},
+
+        // Sort state
+        ...createTableSorter({
+            storageKey: 'dango-catalog-sort',
+            defaultSortField: 'name',
+            defaultSortDir: 'asc',
+            filterFields: [],
+        }),
 
         metabaseQueryUrl() {
             if (!this.selectedModel?.schema || !this.selectedModel?.name || !this.metabaseDatabaseId) return '/metabase/';
@@ -766,9 +771,9 @@ function catalogPage() {
 
         get sortedFilteredItems() {
             let items = this.filteredItems;
-            if (this.sortColumn && this.sortDirection && this.sortDirection !== 'none') {
-                const dir = this.sortDirection === 'desc' ? -1 : 1;
-                const col = this.sortColumn;
+            if (this.sortField && this.sortDir && this.sortDir !== 'none') {
+                const dir = this.sortDir === 'desc' ? -1 : 1;
+                const col = this.sortField;
                 items = [...items].sort((a, b) => {
                     const va = this._resolveCatalogField(a, col);
                     const vb = this._resolveCatalogField(b, col);
@@ -795,19 +800,6 @@ function catalogPage() {
                 case 'tags': return (item.tags && item.tags.length > 0) ? item.tags[0] : '';
                 default: return undefined;
             }
-        },
-
-        toggleCatalogSort(col) {
-            if (this.sortColumn === col) {
-                if (this.sortDirection === 'asc') this.sortDirection = 'desc';
-                else if (this.sortDirection === 'desc') { this.sortColumn = 'name'; this.sortDirection = 'asc'; }
-                else this.sortDirection = 'asc';
-            } else {
-                this.sortColumn = col;
-                this.sortDirection = 'asc';
-            }
-            localStorage.setItem('dango-catalog-sort-column', this.sortColumn || '');
-            localStorage.setItem('dango-catalog-sort-direction', this.sortDirection || '');
         },
 
         tabCount(key) {
