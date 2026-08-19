@@ -565,9 +565,6 @@ def oauth_google_ads(ctx: click.Context) -> None:
     try:
         project_root = require_project_context(ctx)
 
-        if _try_service_account_auth(source_type="google_ads", project_root=project_root):
-            return
-
         oauth_manager = OAuthManager(project_root)
         provider = GoogleOAuthProvider(oauth_manager)
         oauth_name = provider.authenticate(service="google_ads")
