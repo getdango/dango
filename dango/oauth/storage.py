@@ -4,7 +4,7 @@ OAuth Credential Storage.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -45,13 +45,13 @@ class OAuthCredential:
         """Check if credential has expired"""
         if not self.expires_at:
             return False
-        return datetime.now() >= self.expires_at
+        return datetime.now(tz=timezone.utc) >= self.expires_at
 
     def days_until_expiry(self) -> int | None:
         """Get days until expiry, or None if no expiry"""
         if not self.expires_at:
             return None
-        delta = self.expires_at - datetime.now()
+        delta = self.expires_at - datetime.now(tz=timezone.utc)
         return max(0, delta.days)
 
     def is_expiring_soon(self, days: int = 7) -> bool:
@@ -221,16 +221,19 @@ class OAuthStorage:
             if provider == "google_service_account":
                 # Service account: full JSON with private_key, client_email, etc.
                 creds = source_section.get("credentials")
-                if not creds:
+                if creds is None:
                     return None
-                # Ensure it's a dict (service account format)
-                if not isinstance(creds, dict) or "private_key" not in creds:
+                # Ensure it's a dict and has all required service account fields
+                if not isinstance(creds, dict):
+                    return None
+                required_fields = {"type", "project_id", "private_key", "client_email"}
+                if not all(field in creds for field in required_fields):
                     return None
 
             elif source_type in GOOGLE_OAUTH_SOURCES:
                 # Google OAuth: look for nested 'credentials' object
                 creds = source_section.get("credentials")
-                if not creds:
+                if creds is None:
                     return None
             else:
                 # Non-Google: flat parameters are the credentials
@@ -244,21 +247,34 @@ class OAuthStorage:
                 else:
                     return None
 
+            # Parse datetime fields with proper timezone handling
+            try:
+                created_at = (
+                    datetime.fromisoformat(meta["created_at"])
+                    if meta.get("created_at")
+                    else datetime.now(tz=timezone.utc)
+                )
+                expires_at = (
+                    datetime.fromisoformat(meta["expires_at"]) if meta.get("expires_at") else None
+                )
+                last_refreshed = (
+                    datetime.fromisoformat(meta["last_refreshed"])
+                    if meta.get("last_refreshed")
+                    else None
+                )
+            except ValueError as e:
+                console.print(f"[red]✗ Corrupted credential metadata for {source_type}: {e}[/red]")
+                return None
+
             return OAuthCredential(
                 source_type=source_type,
                 provider=meta.get("provider", "unknown"),
                 identifier=meta.get("identifier", ""),
                 account_info=meta.get("account_info", ""),
                 credentials=creds,
-                created_at=datetime.fromisoformat(meta["created_at"])
-                if meta.get("created_at")
-                else datetime.now(),
-                expires_at=datetime.fromisoformat(meta["expires_at"])
-                if meta.get("expires_at")
-                else None,
-                last_refreshed=datetime.fromisoformat(meta["last_refreshed"])
-                if meta.get("last_refreshed")
-                else None,
+                created_at=created_at,
+                expires_at=expires_at,
+                last_refreshed=last_refreshed,
                 metadata=meta.get("metadata"),
             )
 
