@@ -28,6 +28,24 @@ def _try_service_account_auth(source_type: str, project_root: Path) -> bool:
         verify_service_account_key,
     )
 
+    # Check if google-auth is available (required for service account verification)
+    try:
+        import google.auth  # noqa: F401
+    except ImportError:
+        console.print(
+            "[yellow]⚠️  google-auth not installed — service account verification unavailable[/yellow]\n"
+        )
+        return False
+
+    # Service account for google_ads requires additional configuration (dev_token, customer_id)
+    # that's handled separately. For now, only oauth is supported.
+    if source_type == "google_ads":
+        console.print(
+            "[yellow]ℹ️  Service account auth for Google Ads requires additional setup[/yellow]\n"
+            "[yellow]Use OAuth browser flow for now, or authenticate with service account manually[/yellow]\n"
+        )
+        return False
+
     choice = inquirer.select(
         message="Authentication method:",
         choices=[
