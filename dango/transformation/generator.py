@@ -638,35 +638,41 @@ class DbtModelGenerator:
                 sources_file = None
                 staging_schema_file = None
                 if generate_schema_yml and tables_for_yml:
-                    # Enrich columns with registry descriptions for sources.yml.
-                    # Registry descriptions take precedence over auto-generated placeholders
-                    # from get_table_schema(). If a column is not in the registry, it gets
-                    # an empty description (which the template skips).
-                    from dango.ingestion.sources.registry import SOURCE_REGISTRY  # lazy import
-
-                    source_reg = SOURCE_REGISTRY.get(source.name, {})
-                    col_descs = source_reg.get("column_descriptions", {})
-                    for table_entry in tables_for_yml:
-                        table_descs = col_descs.get(table_entry["name"], {})
-                        actual_col_names = {col["name"] for col in table_entry["columns"]}
-                        # Warn if registry describes columns that don't exist in schema
-                        unknown_cols = set(table_descs.keys()) - actual_col_names
-                        if unknown_cols:
-                            import warnings
-
-                            warnings.warn(
-                                f"Source '{source.name}' registry describes columns "
-                                f"that don't exist in table '{table_entry['name']}': "
-                                f"{unknown_cols}. These descriptions will be ignored.",
-                                stacklevel=2,
-                            )
-                        # Enrich actual columns with descriptions from registry
-                        for col in table_entry["columns"]:
-                            col["description"] = table_descs.get(col["name"], "")
-
                     sources_file = self.staging_dir / f"sources_{source.name}.yml"
                     # Only write if file doesn't exist (don't overwrite user customizations)
                     if not sources_file.exists():
+                        # Enrich columns with registry descriptions for sources.yml.
+                        # Registry descriptions take precedence over auto-generated placeholders
+                        # from get_table_schema(). Columns not in registry keep their auto-generated
+                        # description.
+                        # Note: Must use source.type.value (registry key), not source.name.
+                        from dango.ingestion.sources.registry import (
+                            get_source_metadata,  # lazy import
+                        )
+
+                        source_reg = get_source_metadata(source.type.value) or {}
+                        col_descs = source_reg.get("column_descriptions", {})
+                        for table_entry in tables_for_yml:
+                            table_descs = col_descs.get(table_entry["name"], {})
+                            actual_col_names = {col["name"] for col in table_entry["columns"]}
+                            # Warn if registry describes columns that don't exist in schema
+                            unknown_cols = set(table_descs.keys()) - actual_col_names
+                            if unknown_cols:
+                                import warnings
+
+                                warnings.warn(
+                                    f"Source '{source.name}' registry describes columns "
+                                    f"that don't exist in table '{table_entry['name']}': "
+                                    f"{unknown_cols}. These descriptions will be ignored.",
+                                    stacklevel=2,
+                                )
+                            # Enrich actual columns with descriptions from registry.
+                            # Only update if explicitly in registry; preserve auto-generated
+                            # placeholders for columns not listed in registry.
+                            for col in table_entry["columns"]:
+                                if col["name"] in table_descs:
+                                    col["description"] = table_descs[col["name"]]
+
                         sources_yml = self.generate_sources_yml(source, schema_name, tables_for_yml)
                         with open(sources_file, "w") as f:
                             f.write(sources_yml)

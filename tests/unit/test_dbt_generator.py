@@ -199,6 +199,71 @@ class TestSourcesYmlColumnDescriptions:
         # Template has source + table descriptions, columns add 2 more (empty one is skipped)
         assert result.count("description:") == 4
 
+    def test_full_enrichment_integration_stripe(self, tmp_path: Path) -> None:
+        """Integration test: enrichment with real Stripe registry data produces descriptions in output."""
+        from dango.config.models import DataSource, SourceType
+        from dango.ingestion.sources.registry import get_source_metadata
+        from dango.transformation.generator import DbtModelGenerator
+
+        gen = DbtModelGenerator(tmp_path)
+        gen.staging_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create a real DataSource for Stripe
+        source = DataSource(
+            name="payments",
+            type=SourceType.STRIPE,
+        )
+
+        # Create sample tables matching actual Stripe source
+        tables_for_yml = [
+            {
+                "name": "charge",
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": "VARCHAR",
+                        "nullable": False,
+                        "tests": [],
+                        "description": "id column",  # auto-generated placeholder
+                    },
+                    {
+                        "name": "amount",
+                        "type": "INTEGER",
+                        "nullable": True,
+                        "tests": [],
+                        "description": "amount column",  # auto-generated placeholder
+                    },
+                ],
+                "staging_columns": [],
+            }
+        ]
+
+        # Simulate the enrichment that happens in generate_all_models
+        source_reg = get_source_metadata(source.type.value) or {}
+        col_descs = source_reg.get("column_descriptions", {})
+        for table_entry in tables_for_yml:
+            table_descs = col_descs.get(table_entry["name"], {})
+            for col in table_entry["columns"]:
+                if col["name"] in table_descs:
+                    col["description"] = table_descs[col["name"]]
+
+        # Now generate YAML with enriched descriptions
+        result = gen.generate_sources_yml(source, "raw_stripe", tables_for_yml)
+
+        # Verify registry descriptions appear in output (not auto-generated placeholders)
+        assert "Unique identifier for the charge" in result
+        assert "Amount charged in the smallest currency unit" in result
+        # Verify auto-generated placeholders were replaced
+        assert "id column" not in result
+        assert "amount column" not in result
+
+        # Verify valid YAML was generated
+        parsed = yaml.safe_load(result)
+        assert parsed is not None
+        assert parsed["sources"][0]["tables"][0]["columns"][0]["description"] == (
+            "Unique identifier for the charge"
+        )
+
     def test_unknown_column_names_trigger_warning(self, tmp_path: Path) -> None:
         """Registry with unknown column names should warn during enrichment."""
         import warnings
@@ -208,16 +273,16 @@ class TestSourcesYmlColumnDescriptions:
         gen = DbtModelGenerator(tmp_path)
         gen.staging_dir.mkdir(parents=True, exist_ok=True)
         source = MagicMock()
-        source.name = "test_source"
+        source.name = "my_stripe"
+        source.type = MagicMock()
+        source.type.value = "stripe"
 
-        # Mock the registry to have descriptions for columns that don't exist
-        mock_registry = {
-            "test_source": {
-                "column_descriptions": {
-                    "orders": {
-                        "id": "Order ID",
-                        "nonexistent_col": "This column doesn't exist",
-                    }
+        # Mock the registry metadata for stripe source
+        mock_metadata = {
+            "column_descriptions": {
+                "orders": {
+                    "id": "Order ID",
+                    "nonexistent_col": "This column doesn't exist",
                 }
             }
         }
@@ -241,8 +306,11 @@ class TestSourcesYmlColumnDescriptions:
         gen.generate_staging_schema_yml = MagicMock(return_value="version: 2\n")
         gen._enrich_columns_from_profiling = MagicMock()
 
-        # Patch where it's imported from
-        with patch("dango.ingestion.sources.registry.SOURCE_REGISTRY", mock_registry):
+        # Patch get_source_metadata to return our mock metadata
+        with patch(
+            "dango.ingestion.sources.registry.get_source_metadata",
+            return_value=mock_metadata,
+        ):
             # Capture warnings
             with warnings.catch_warnings(record=True) as w:
                 warnings.simplefilter("always")
