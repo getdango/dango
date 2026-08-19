@@ -151,3 +151,41 @@ class TestSourcesYmlProtection:
 
         # stg file should be unchanged
         assert stg_file.read_text() == custom_stg
+
+
+@pytest.mark.unit
+class TestSourcesYmlColumnDescriptions:
+    """Test that generate_sources_yml emits column descriptions when present."""
+
+    def test_sources_yml_includes_column_descriptions(self, tmp_path: Path) -> None:
+        """When columns have descriptions, they appear in the generated sources YAML."""
+        from dango.transformation.generator import DbtModelGenerator
+
+        gen = DbtModelGenerator(tmp_path)
+        source = MagicMock()
+        source.name = "stripe"
+        source.type = MagicMock()
+        source.type.value = "stripe"
+
+        tables = [
+            {
+                "name": "charge",
+                "columns": [
+                    {"name": "id", "tests": [], "description": "Unique identifier for the charge"},
+                    {"name": "amount", "tests": [], "description": ""},
+                    {
+                        "name": "status",
+                        "tests": ["not_null"],
+                        "description": "Charge status: succeeded, pending, or failed",
+                    },
+                ],
+                "staging_columns": [],
+            }
+        ]
+
+        result = gen.generate_sources_yml(source, "raw_stripe", tables)
+
+        assert "description: Unique identifier for the charge" in result
+        assert "description: Charge status:" in result
+        # Template has source + table descriptions, columns add 2 more (empty one is skipped)
+        assert result.count("description:") == 4

@@ -638,6 +638,16 @@ class DbtModelGenerator:
                 sources_file = None
                 staging_schema_file = None
                 if generate_schema_yml and tables_for_yml:
+                    # Enrich columns with registry descriptions for sources.yml
+                    from dango.ingestion.sources.registry import SOURCE_REGISTRY  # lazy import
+
+                    source_reg = SOURCE_REGISTRY.get(source.name, {})
+                    col_descs = source_reg.get("column_descriptions", {})
+                    for table_entry in tables_for_yml:
+                        table_descs = col_descs.get(table_entry["name"], {})
+                        for col in table_entry["columns"]:
+                            col["description"] = table_descs.get(col["name"], "")
+
                     sources_file = self.staging_dir / f"sources_{source.name}.yml"
                     # Only write if file doesn't exist (don't overwrite user customizations)
                     if not sources_file.exists():

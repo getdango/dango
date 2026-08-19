@@ -66,3 +66,21 @@ class TestSourceCapabilities:
         assert caps["date_range"] is False
         assert caps["incremental"] is True
         assert caps["custom_queries"] is False
+
+    def test_column_descriptions_stripe_charges(self) -> None:
+        """Stripe registry entry has column_descriptions for the charge resource with >=5 entries."""
+        stripe = SOURCE_REGISTRY["stripe"]
+        assert "column_descriptions" in stripe
+        charges = stripe["column_descriptions"].get("charge", {})
+        assert len(charges) >= 5, f"Expected >=5 charge descriptions, got {len(charges)}"
+
+    def test_column_descriptions_are_strings(self) -> None:
+        """All column description values in all sources must be non-empty strings."""
+        for source_type, metadata in SOURCE_REGISTRY.items():
+            col_descs = metadata.get("column_descriptions", {})
+            for resource_name, cols in col_descs.items():
+                for col_name, desc in cols.items():
+                    assert isinstance(desc, str) and desc.strip(), (
+                        f"{source_type}.column_descriptions.{resource_name}.{col_name} "
+                        f"must be a non-empty string"
+                    )

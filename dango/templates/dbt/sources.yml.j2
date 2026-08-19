@@ -37,6 +37,9 @@ sources:
         columns:
 {% for column in table.columns %}
           - name: {{ column.name }}
+{% if column.description %}
+            description: {{ column.description }}
+{% endif %}
 {% if column.tests %}
             tests:
 {% for test in column.tests %}
