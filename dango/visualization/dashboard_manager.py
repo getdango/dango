@@ -126,7 +126,10 @@ class DashboardManager:
         parts = [p for p in location.strip("/").split("/") if p]
         if len(parts) < 2:
             return None
-        return int(parts[-2])
+        try:
+            return int(parts[-2])
+        except (ValueError, IndexError):
+            return None
 
     def _import_collections(self, collections: list[dict]) -> dict[int, int]:
         """
@@ -141,6 +144,19 @@ class DashboardManager:
         Returns:
             Mapping of old collection IDs (source) to new IDs (target)
         """
+        # Validate input structure
+        for col in collections:
+            if not isinstance(col.get("id"), int):
+                raise ValueError(f"Collection missing or invalid 'id' (expected int): {col}")
+            if not isinstance(col.get("name"), str):
+                raise ValueError(f"Collection missing or invalid 'name' (expected str): {col}")
+            parent_id = col.get("parent_id")
+            if parent_id is not None and not isinstance(parent_id, int):
+                raise ValueError(
+                    f"Collection '{col['name']}' has invalid 'parent_id' "
+                    f"(expected int or None, got {type(parent_id).__name__}): {col}"
+                )
+
         # BFS topological sort: roots first, then children in wave order
         queue = [c for c in collections if not c.get("parent_id")]
         processed: set[int] = {c["id"] for c in queue}
@@ -173,16 +189,35 @@ class DashboardManager:
                     timeout=10,
                 )
                 if resp.status_code in (200, 201):
-                    id_mapping[old_id] = resp.json()["id"]
+                    new_id = resp.json().get("id")
+                    if new_id is None:
+                        raise ValueError(
+                            f"Metabase API returned {resp.status_code} "
+                            f"but response missing 'id' key: {resp.json()}"
+                        )
+                    id_mapping[old_id] = new_id
                 else:
                     # Fallback: check if collection already exists by name
                     existing = self.get_collection_id(col["name"])
                     if existing:
                         id_mapping[old_id] = existing
+                    else:
+                        # Still add mapping to avoid downstream silent failures
+                        # If parent exists, assign to parent; otherwise assign to root (id 1)
+                        fallback_id = parent_new_id if parent_new_id else 1
+                        id_mapping[old_id] = fallback_id
+                        console.print(
+                            f"[yellow]Warning: Failed to create collection '{col['name']}' "
+                            f"(HTTP {resp.status_code}), assigning to collection {fallback_id}[/yellow]"
+                        )
             except Exception as e:
                 console.print(
                     f"[yellow]Warning: Failed to create collection '{col['name']}': {e}[/yellow]"
                 )
+                # Still add mapping to prevent downstream silent failures
+                # If parent exists, assign to parent; otherwise assign to root (id 1)
+                fallback_id = parent_new_id if parent_new_id else 1
+                id_mapping[old_id] = fallback_id
 
         return id_mapping
 

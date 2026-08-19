@@ -159,3 +159,60 @@ class TestImportCollections:
         # Both should be created (Orphan uses None parent as fallback)
         assert 1 in id_mapping
         assert 2 in id_mapping
+
+    def test_import_collections_missing_id(self, dashboard_manager):
+        """Missing 'id' field raises ValueError."""
+        collections = [{"name": "Test", "parent_id": None}]  # missing 'id'
+        with pytest.raises(ValueError, match="missing or invalid 'id'"):
+            dashboard_manager._import_collections(collections)
+
+    def test_import_collections_missing_name(self, dashboard_manager):
+        """Missing 'name' field raises ValueError."""
+        collections = [{"id": 1, "parent_id": None}]  # missing 'name'
+        with pytest.raises(ValueError, match="missing or invalid 'name'"):
+            dashboard_manager._import_collections(collections)
+
+    def test_import_collections_invalid_parent_id_type(self, dashboard_manager):
+        """Invalid parent_id type (string) raises ValueError."""
+        collections = [{"id": 1, "name": "Test", "parent_id": "5"}]  # string instead of int
+        with pytest.raises(ValueError, match="invalid 'parent_id'"):
+            dashboard_manager._import_collections(collections)
+
+    @patch("dango.visualization.dashboard_manager.requests.post")
+    def test_import_collections_missing_id_in_response(self, mock_post, dashboard_manager):
+        """Missing 'id' in API response logs warning and adds fallback mapping."""
+        mock_post.return_value.status_code = 201
+        mock_post.return_value.json.return_value = {}  # missing 'id' key
+
+        collections = [{"id": 1, "name": "Test", "parent_id": None}]
+        # Should not raise, but return mapping with fallback
+        id_mapping = dashboard_manager._import_collections(collections)
+
+        # Mapping should still contain the collection (with fallback value)
+        assert 1 in id_mapping
+        assert id_mapping[1] == 1  # Fallback to root (parent_id is None)
+
+    @patch("dango.visualization.dashboard_manager.requests.post")
+    def test_import_collections_api_failure_still_adds_mapping(self, mock_post, dashboard_manager):
+        """API failure still adds mapping to prevent downstream silent failures."""
+        mock_post.return_value.status_code = 500  # API error
+
+        with patch.object(
+            dashboard_manager, "get_collection_id", return_value=None
+        ):  # fallback also fails
+            collections = [
+                {"id": 1, "name": "Root", "parent_id": None},
+                {"id": 2, "name": "Child", "parent_id": 1},
+            ]
+            id_mapping = dashboard_manager._import_collections(collections)
+
+            # Both collections should have mappings despite API failure
+            assert 1 in id_mapping  # Root maps to fallback (1)
+            assert 2 in id_mapping  # Child maps to parent (which is 1)
+            # This ensures downstream remapping doesn't silently use wrong IDs
+
+    def test_parse_parent_id_non_numeric(self, dashboard_manager):
+        """Non-numeric parent ID returns None instead of crashing."""
+        # If Metabase returns malformed location with non-numeric parent
+        assert dashboard_manager._parse_parent_id("/admin/5/") is None
+        assert dashboard_manager._parse_parent_id("/invalid/path/") is None
