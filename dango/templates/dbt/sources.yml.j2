@@ -38,7 +38,7 @@ sources:
 {% for column in table.columns %}
           - name: {{ column.name }}
 {% if column.description %}
-            description: "{{ column.description }}"
+            description: {{ column.description | tojson }}
 {% endif %}
 {% if column.tests %}
             tests:
