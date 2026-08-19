@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import duckdb
 import pytest
+import yaml
 
 
 @pytest.mark.unit
@@ -185,7 +186,15 @@ class TestSourcesYmlColumnDescriptions:
 
         result = gen.generate_sources_yml(source, "raw_stripe", tables)
 
-        assert "description: Unique identifier for the charge" in result
-        assert "description: Charge status:" in result
+        # Validate YAML is valid (won't raise exception)
+        parsed = yaml.safe_load(result)
+        assert parsed is not None
+
+        # Validate descriptions appear in output
+        assert (
+            "description: Unique identifier for the charge" in result
+            or 'description: "Unique identifier for the charge"' in result
+        )
+        assert "description: Charge status:" in result or 'description: "Charge status:' in result
         # Template has source + table descriptions, columns add 2 more (empty one is skipped)
         assert result.count("description:") == 4
