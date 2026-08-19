@@ -72,17 +72,19 @@ function createTableSorter(config) {
     if (!stored.sortField) {
         const oldFieldKey = config.storageKey.replace('-sort', '-sort-column');
         const oldDirKey = config.storageKey.replace('-sort', '-sort-direction');
+        const oldFilterKey = config.storageKey.replace('-sort', '-filter');
         const oldField = localStorage.getItem(oldFieldKey);
         const oldDir = localStorage.getItem(oldDirKey);
         if (oldField) {
             stored.sortField = oldField;
             stored.sortDir = oldDir || config.defaultSortDir;
-            // Clean up old keys
-            localStorage.removeItem(oldFieldKey);
-            localStorage.removeItem(oldDirKey);
             // Save in new format
             localStorage.setItem(config.storageKey, JSON.stringify(stored));
         }
+        // Clean up all old keys (sort column, sort direction, filter)
+        localStorage.removeItem(oldFieldKey);
+        localStorage.removeItem(oldDirKey);
+        localStorage.removeItem(oldFilterKey);
     }
 
     return {
