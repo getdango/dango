@@ -3,10 +3,86 @@
 OAuth authentication commands.
 """
 
+from pathlib import Path
+
 import click
 from rich.markup import escape
 
 from dango.cli import console
+
+
+def _try_service_account_auth(source_type: str, project_root: Path) -> bool:
+    """
+    Prompt user for service account authentication.
+
+    Returns:
+        True if service account was configured, False if user chose OAuth (browser flow)
+    """
+    import json
+    from datetime import datetime, timezone
+
+    from InquirerPy import inquirer
+
+    from dango.oauth.storage import OAuthCredential, OAuthStorage
+
+    choice = inquirer.select(
+        message="Authentication method:",
+        choices=[
+            {"name": "OAuth (browser) — recommended for local development", "value": "oauth"},
+            {"name": "Service Account (JSON key file) — recommended for servers", "value": "sa"},
+        ],
+    ).execute()
+
+    if choice == "oauth":
+        return False
+
+    key_path_str = inquirer.text(
+        message="Path to service account JSON key file:",
+        validate=lambda p: Path(p).exists() and Path(p).suffix == ".json",
+        invalid_message="File not found or not a .json file",
+    ).execute()
+
+    key_path = Path(key_path_str).expanduser().resolve()
+
+    try:
+        key_data = json.loads(key_path.read_text())
+    except (json.JSONDecodeError, OSError) as e:
+        console.print(f"\n[red]✗ Failed to read JSON key: {e}[/red]\n")
+        raise click.Abort() from e
+
+    required_fields = {"type", "project_id", "private_key", "client_email"}
+    missing = required_fields - key_data.keys()
+    if missing:
+        console.print(f"\n[red]✗ Invalid service account key — missing fields: {missing}[/red]\n")
+        raise click.Abort()
+
+    if key_data.get("type") != "service_account":
+        console.print(
+            f"\n[red]✗ Expected type 'service_account', got '{key_data.get('type')}'[/red]\n"
+        )
+        raise click.Abort()
+
+    oauth_storage = OAuthStorage(project_root)
+    credential = OAuthCredential(
+        source_type=source_type,
+        provider="google_service_account",
+        identifier=key_data["client_email"],
+        account_info=key_data["client_email"],
+        credentials=key_data,
+        created_at=datetime.now(tz=timezone.utc),
+        metadata={
+            "auth_method": "service_account",
+            "key_path": str(key_path),
+            "project_id": key_data["project_id"],
+            "client_email": key_data["client_email"],
+        },
+    )
+    oauth_storage.save(credential)
+
+    console.print(f"\n[green]✓ Service account configured for {source_type}[/green]")
+    console.print(f"  Account: {key_data['client_email']}")
+    console.print(f"  Project: {key_data['project_id']}\n")
+    return True
 
 
 @click.group()
@@ -379,6 +455,9 @@ def oauth_google_sheets(ctx: click.Context) -> None:
     try:
         project_root = require_project_context(ctx)
 
+        if _try_service_account_auth(source_type="google_sheets", project_root=project_root):
+            return
+
         oauth_manager = OAuthManager(project_root)
         provider = GoogleOAuthProvider(oauth_manager)
         oauth_name = provider.authenticate(service="google_sheets")
@@ -423,6 +502,9 @@ def oauth_google_analytics(ctx: click.Context) -> None:
     try:
         project_root = require_project_context(ctx)
 
+        if _try_service_account_auth(source_type="google_analytics", project_root=project_root):
+            return
+
         oauth_manager = OAuthManager(project_root)
         provider = GoogleOAuthProvider(oauth_manager)
         oauth_name = provider.authenticate(service="google_analytics")
@@ -466,6 +548,9 @@ def oauth_google_ads(ctx: click.Context) -> None:
 
     try:
         project_root = require_project_context(ctx)
+
+        if _try_service_account_auth(source_type="google_ads", project_root=project_root):
+            return
 
         oauth_manager = OAuthManager(project_root)
         provider = GoogleOAuthProvider(oauth_manager)
