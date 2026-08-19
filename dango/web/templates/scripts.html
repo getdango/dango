@@ -35,21 +35,21 @@
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
                     <tr>
-                        <th @click="toggleScriptSort('name')"
+                        <th @click="toggleSort('name')"
                             class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700">
-                            Script<template x-if="sortColumn === 'name'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                            Script<span x-text="sortArrow('name')"></span>
                         </th>
-                        <th @click="toggleScriptSort('last_run')"
+                        <th @click="toggleSort('last_run')"
                             class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden sm:table-cell">
-                            Last Run<template x-if="sortColumn === 'last_run'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                            Last Run<span x-text="sortArrow('last_run')"></span>
                         </th>
-                        <th @click="toggleScriptSort('status')"
+                        <th @click="toggleSort('status')"
                             class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700">
-                            Status<template x-if="sortColumn === 'status'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                            Status<span x-text="sortArrow('status')"></span>
                         </th>
-                        <th @click="toggleScriptSort('schedule')"
+                        <th @click="toggleSort('schedule')"
                             class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 hidden sm:table-cell">
-                            Schedule<template x-if="sortColumn === 'schedule'"><span x-text="sortDirection === 'asc' ? ' ▲' : ' ▼'"></span></template>
+                            Schedule<span x-text="sortArrow('schedule')"></span>
                         </th>
                         <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
@@ -174,30 +174,25 @@ function scriptsPage() {
         reconnectInterval: null,
 
         // Sort/filter state
-        sortColumn: localStorage.getItem('dango-scripts-sort-column') || 'name',
-        sortDirection: localStorage.getItem('dango-scripts-sort-direction') || 'asc',
-        filterText: localStorage.getItem('dango-scripts-filter') || '',
+        ...createTableSorter({
+            storageKey: 'dango-scripts-sort',
+            defaultSortField: 'name',
+            defaultSortDir: 'asc',
+            filterFields: ['name'],
+        }),
 
         async init() {
             await this.loadScripts();
             this.connectWebSocket();
-            this.$watch('filterText', val => {
-                localStorage.setItem('dango-scripts-filter', val || '');
-            });
         },
 
         // --- Sort/filter ---
         get sortedScripts() {
-            let items = this.filterText
-                ? this.scripts.filter(s => {
-                    const q = this.filterText.toLowerCase();
-                    return (s.name && s.name.toLowerCase().includes(q));
-                  })
-                : [...this.scripts];
+            let items = this.scripts.filter(s => this.matchesFilter(s));
 
-            if (this.sortColumn && this.sortDirection && this.sortDirection !== 'none') {
-                const dir = this.sortDirection === 'desc' ? -1 : 1;
-                const col = this.sortColumn;
+            if (this.sortField) {
+                const dir = this.sortDir === 'desc' ? -1 : 1;
+                const col = this.sortField;
                 items.sort((a, b) => {
                     const va = this._resolveScriptField(a, col);
                     const vb = this._resolveScriptField(b, col);
@@ -227,19 +222,6 @@ function scriptsPage() {
                 case 'schedule': return null;
                 default: return undefined;
             }
-        },
-
-        toggleScriptSort(col) {
-            if (this.sortColumn === col) {
-                if (this.sortDirection === 'asc') this.sortDirection = 'desc';
-                else if (this.sortDirection === 'desc') { this.sortColumn = 'name'; this.sortDirection = 'asc'; }
-                else this.sortDirection = 'asc';
-            } else {
-                this.sortColumn = col;
-                this.sortDirection = 'asc';
-            }
-            localStorage.setItem('dango-scripts-sort-column', this.sortColumn || '');
-            localStorage.setItem('dango-scripts-sort-direction', this.sortDirection || '');
         },
 
         // --- Data loading ---

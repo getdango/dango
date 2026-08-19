@@ -52,6 +52,77 @@ let modelSortDirection = localStorage.getItem('dango-models-sort-direction') || 
 let modelFilterText = localStorage.getItem('dango-models-filter') || '';
 
 /**
+ * Shared table sort utility for Alpine.js components. Returns properties
+ * and methods to spread into a component's data object.
+ *
+ * config: {
+ *   storageKey: string,          // localStorage key (single JSON object)
+ *   defaultSortField: string,    // initial sort field
+ *   defaultSortDir: 'asc'|'desc',
+ *   filterFields: string[],      // item fields to match against filterText
+ * }
+ *
+ * Migration: Automatically migrates old two-key format (column + direction)
+ * to new single-key JSON format for seamless upgrades.
+ */
+function createTableSorter(config) {
+    let stored = JSON.parse(localStorage.getItem(config.storageKey) || '{}');
+
+    // Migrate from old two-key format to new single-key format
+    if (!stored.sortField) {
+        const oldFieldKey = config.storageKey.replace('-sort', '-sort-column');
+        const oldDirKey = config.storageKey.replace('-sort', '-sort-direction');
+        const oldFilterKey = config.storageKey.replace('-sort', '-filter');
+        const oldField = localStorage.getItem(oldFieldKey);
+        const oldDir = localStorage.getItem(oldDirKey);
+        if (oldField) {
+            stored.sortField = oldField;
+            stored.sortDir = oldDir || config.defaultSortDir;
+            // Save in new format
+            localStorage.setItem(config.storageKey, JSON.stringify(stored));
+        }
+        // Clean up all old keys (sort column, sort direction, filter)
+        localStorage.removeItem(oldFieldKey);
+        localStorage.removeItem(oldDirKey);
+        localStorage.removeItem(oldFilterKey);
+    }
+
+    return {
+        sortField: stored.sortField ?? config.defaultSortField,
+        sortDir: stored.sortDir ?? config.defaultSortDir,
+        filterText: '',
+
+        toggleSort(field) {
+            if (this.sortField === field) {
+                if (this.sortDir === 'asc') this.sortDir = 'desc';
+                else { this.sortField = config.defaultSortField; this.sortDir = 'asc'; }
+            } else {
+                this.sortField = field;
+                this.sortDir = 'asc';
+            }
+            localStorage.setItem(config.storageKey, JSON.stringify({
+                sortField: this.sortField,
+                sortDir: this.sortDir,
+            }));
+        },
+
+        sortArrow(field) {
+            if (this.sortField !== field) return '';
+            return this.sortDir === 'asc' ? ' ▲' : ' ▼';
+        },
+
+        matchesFilter(item) {
+            if (!this.filterText) return true;
+            const q = this.filterText.toLowerCase();
+            return config.filterFields.some(f => {
+                const val = (item[f] ?? '').toString().toLowerCase();
+                return val.includes(q);
+            });
+        },
+    };
+}
+
+/**
  * Format a file size in bytes to a human-readable string (B/KB/MB/GB).
  * @param {number} bytes - Size in bytes
  * @returns {string} Formatted size string
