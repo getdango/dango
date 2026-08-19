@@ -52,6 +52,68 @@ let modelSortDirection = localStorage.getItem('dango-models-sort-direction') || 
 let modelFilterText = localStorage.getItem('dango-models-filter') || '';
 
 /**
+ * Shared table sort utility for Alpine.js components. Returns properties
+ * and methods to spread into a component's data object.
+ *
+ * config: {
+ *   storageKey: string,          // localStorage key (single JSON object)
+ *   defaultSortField: string,    // initial sort field
+ *   defaultSortDir: 'asc'|'desc',
+ *   filterFields: string[],      // item fields to match against filterText
+ * }
+ */
+function createTableSorter(config) {
+    const stored = JSON.parse(localStorage.getItem(config.storageKey) || '{}');
+    return {
+        sortField: stored.sortField || config.defaultSortField,
+        sortDir: stored.sortDir || config.defaultSortDir,
+        filterText: '',
+
+        toggleSort(field) {
+            if (this.sortField === field) {
+                if (this.sortDir === 'asc') this.sortDir = 'desc';
+                else { this.sortField = config.defaultSortField; this.sortDir = 'asc'; }
+            } else {
+                this.sortField = field;
+                this.sortDir = 'asc';
+            }
+            localStorage.setItem(config.storageKey, JSON.stringify({
+                sortField: this.sortField,
+                sortDir: this.sortDir,
+            }));
+        },
+
+        sortArrow(field) {
+            if (this.sortField !== field) return '';
+            return this.sortDir === 'asc' ? ' ▲' : ' ▼';
+        },
+
+        matchesFilter(item) {
+            if (!this.filterText) return true;
+            const q = this.filterText.toLowerCase();
+            return config.filterFields.some(f => {
+                const val = (item[f] || '').toString().toLowerCase();
+                return val.includes(q);
+            });
+        },
+
+        applySort(items) {
+            return [...items].sort((a, b) => {
+                const av = (a[this.sortField] ?? '');
+                const bv = (b[this.sortField] ?? '');
+                if (av == null && bv == null) return 0;
+                if (av == null) return 1;
+                if (bv == null) return -1;
+                const cmp = typeof av === 'number'
+                    ? av - bv
+                    : String(av).toLowerCase().localeCompare(String(bv).toLowerCase());
+                return this.sortDir === 'asc' ? cmp : -cmp;
+            });
+        },
+    };
+}
+
+/**
  * Format a file size in bytes to a human-readable string (B/KB/MB/GB).
  * @param {number} bytes - Size in bytes
  * @returns {string} Formatted size string
