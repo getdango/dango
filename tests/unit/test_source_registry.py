@@ -66,3 +66,39 @@ class TestSourceCapabilities:
         assert caps["date_range"] is False
         assert caps["incremental"] is True
         assert caps["custom_queries"] is False
+
+    def test_column_descriptions_stripe_charges(self) -> None:
+        """Stripe registry entry has column_descriptions for the charge resource with >=5 entries."""
+        stripe = SOURCE_REGISTRY["stripe"]
+        assert "column_descriptions" in stripe
+        charges = stripe["column_descriptions"].get("charge", {})
+        assert len(charges) >= 5, f"Expected >=5 charge descriptions, got {len(charges)}"
+
+    def test_column_descriptions_are_strings(self) -> None:
+        """All column description values in all sources must be non-empty strings."""
+        for source_type, metadata in SOURCE_REGISTRY.items():
+            col_descs = metadata.get("column_descriptions", {})
+            for resource_name, cols in col_descs.items():
+                for col_name, desc in cols.items():
+                    assert isinstance(desc, str) and desc.strip(), (
+                        f"{source_type}.column_descriptions.{resource_name}.{col_name} "
+                        f"must be a non-empty string"
+                    )
+
+    def test_column_descriptions_yaml_safe(self) -> None:
+        """Column descriptions must be YAML-safe when quoted in dbt sources.yml."""
+        import yaml
+
+        for source_type, metadata in SOURCE_REGISTRY.items():
+            col_descs = metadata.get("column_descriptions", {})
+            for resource_name, cols in col_descs.items():
+                for col_name, desc in cols.items():
+                    # Test that description is valid when quoted in YAML
+                    test_yaml = f'description: "{desc}"'
+                    try:
+                        yaml.safe_load(test_yaml)
+                    except yaml.YAMLError as e:
+                        raise AssertionError(
+                            f"{source_type}.column_descriptions.{resource_name}.{col_name} "
+                            f"contains YAML-unsafe characters: {desc}\nError: {e}"
+                        ) from e
