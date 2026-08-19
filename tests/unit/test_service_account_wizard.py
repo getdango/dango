@@ -19,11 +19,11 @@ class TestServiceAccountWizard:
         """Service account JSON is validated and saved with correct fields"""
         from dango.cli.commands.oauth import _try_service_account_auth
 
-        # Create a valid service account JSON file
+        # Create a valid service account JSON file with properly formatted key
         service_account_key = {
             "type": "service_account",
             "project_id": "test-project-123",
-            "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...",
+            "private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA1234567890\n-----END RSA PRIVATE KEY-----\n",
             "client_email": "test-service@test-project-123.iam.gserviceaccount.com",
             "client_id": "123456789",
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -45,10 +45,14 @@ class TestServiceAccountWizard:
         mock_inquirerpy.inquirer = mock_inquirer
 
         with patch.dict(sys.modules, {"InquirerPy": mock_inquirerpy}):
-            with patch("dango.oauth.storage.OAuthStorage.save", return_value=True):
-                result = _try_service_account_auth(
-                    source_type="google_sheets", project_root=tmp_path
-                )
+            # Mock the verify function to return success (actual verification requires real GCP credentials)
+            with patch(
+                "dango.oauth.service_account.verify_service_account_key", return_value=(True, "")
+            ):
+                with patch("dango.oauth.storage.OAuthStorage.save", return_value=True):
+                    result = _try_service_account_auth(
+                        source_type="google_sheets", project_root=tmp_path
+                    )
 
         assert result is True
 
@@ -111,7 +115,7 @@ class TestServiceAccountWizard:
         wrong_type_key = {
             "type": "authorized_user",
             "project_id": "test-project",
-            "private_key": "key",
+            "private_key": "-----BEGIN RSA PRIVATE KEY-----\nkey\n-----END RSA PRIVATE KEY-----\n",
             "client_email": "test@test.iam.gserviceaccount.com",
         }
         key_file = tmp_path / "wrong_type.json"

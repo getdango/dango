@@ -127,19 +127,30 @@ class OAuthStorage:
 
             # Write credentials in dlt's expected format
             #
-            # dlt sources have two credential patterns:
-            # 1. Google sources use GcpOAuthCredentials - expects nested 'credentials' object
-            # 2. All other sources use flat parameters (dlt.secrets.value for individual params)
-            #
-            # This generalized approach future-proofs all OAuth sources without per-source hardcoding.
+            # dlt sources have three credential patterns:
+            # 1. Google OAuth - expects nested 'credentials' object with client_id/secret/refresh_token
+            # 2. Google Service Account - expects full service account JSON (private_key, etc.)
+            # 3. All other sources - use flat parameters (dlt.secrets.value pattern)
             source_section = secrets["sources"][oauth_cred.source_type]
             creds = oauth_cred.credentials
 
-            # Only Google sources use credentials object (GcpOAuthCredentials pattern)
-            CREDENTIALS_OBJECT_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
+            GOOGLE_OAUTH_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
 
-            if oauth_cred.source_type in CREDENTIALS_OBJECT_SOURCES:
-                # Google: nested credentials object (dlt GcpOAuthCredentials)
+            # Service account credentials: store full key (not extracted fields)
+            if oauth_cred.provider == "google_service_account":
+                # Store entire service account JSON for dlt's GcpServiceAccountCredentials
+                source_section["credentials"] = creds
+                # Google Ads specific sibling fields (per dlt docs)
+                if oauth_cred.source_type == "google_ads":
+                    if creds.get("impersonated_email"):
+                        source_section["impersonated_email"] = creds["impersonated_email"]
+                    if creds.get("dev_token"):
+                        source_section["dev_token"] = creds["dev_token"]
+                    if creds.get("customer_id"):
+                        source_section["customer_id"] = creds["customer_id"]
+
+            elif oauth_cred.source_type in GOOGLE_OAUTH_SOURCES:
+                # Google OAuth: nested credentials object (dlt GcpOAuthCredentials)
                 source_section["credentials"] = {
                     "client_id": creds.get("client_id"),
                     "client_secret": creds.get("client_secret"),
@@ -200,12 +211,24 @@ class OAuthStorage:
             if not source_section:
                 return None
 
-            # Google sources use nested credentials object (GcpOAuthCredentials)
-            # All other sources use flat parameters
-            CREDENTIALS_OBJECT_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
+            # Get metadata first to determine provider type
+            meta = secrets.get("dango", {}).get("oauth", {}).get(source_type, {})
+            provider = meta.get("provider", "unknown")
 
-            if source_type in CREDENTIALS_OBJECT_SOURCES:
-                # Google: look for nested 'credentials' object
+            # Extract credentials based on provider and source type
+            GOOGLE_OAUTH_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
+
+            if provider == "google_service_account":
+                # Service account: full JSON with private_key, client_email, etc.
+                creds = source_section.get("credentials")
+                if not creds:
+                    return None
+                # Ensure it's a dict (service account format)
+                if not isinstance(creds, dict) or "private_key" not in creds:
+                    return None
+
+            elif source_type in GOOGLE_OAUTH_SOURCES:
+                # Google OAuth: look for nested 'credentials' object
                 creds = source_section.get("credentials")
                 if not creds:
                     return None
@@ -220,9 +243,6 @@ class OAuthStorage:
                     creds = source_section
                 else:
                     return None
-
-            # Get metadata if available
-            meta = secrets.get("dango", {}).get("oauth", {}).get(source_type, {})
 
             return OAuthCredential(
                 source_type=source_type,

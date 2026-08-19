@@ -19,11 +19,14 @@ def _try_service_account_auth(source_type: str, project_root: Path) -> bool:
         True if service account was configured, False if user chose OAuth (browser flow)
     """
     import json
-    from datetime import datetime, timezone
 
     from InquirerPy import inquirer
 
-    from dango.oauth.storage import OAuthCredential, OAuthStorage
+    from dango.oauth.service_account import (
+        save_service_account_credential,
+        validate_service_account_json,
+        verify_service_account_key,
+    )
 
     choice = inquirer.select(
         message="Authentication method:",
@@ -44,40 +47,35 @@ def _try_service_account_auth(source_type: str, project_root: Path) -> bool:
 
     key_path = Path(key_path_str).expanduser().resolve()
 
+    # Read and parse JSON
     try:
         key_data = json.loads(key_path.read_text())
-    except (json.JSONDecodeError, OSError) as e:
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
         console.print(f"\n[red]✗ Failed to read JSON key: {e}[/red]\n")
         raise click.Abort() from e
 
-    required_fields = {"type", "project_id", "private_key", "client_email"}
-    missing = required_fields - key_data.keys()
-    if missing:
-        console.print(f"\n[red]✗ Invalid service account key — missing fields: {missing}[/red]\n")
+    # Validate JSON structure
+    is_valid, error_msg = validate_service_account_json(key_data)
+    if not is_valid:
+        console.print(f"\n[red]✗ Invalid service account key: {error_msg}[/red]\n")
         raise click.Abort()
 
-    if key_data.get("type") != "service_account":
+    # Verify key works by attempting authentication
+    console.print("\n[dim]Verifying service account key...[/dim]")
+    is_verified, verify_error = verify_service_account_key(key_data, source_type)
+    if not is_verified:
+        console.print(f"\n[red]✗ Key verification failed: {verify_error}[/red]\n")
         console.print(
-            f"\n[red]✗ Expected type 'service_account', got '{key_data.get('type')}'[/red]\n"
+            "[dim]Make sure the service account has the necessary Google API permissions[/dim]\n"
         )
         raise click.Abort()
 
-    oauth_storage = OAuthStorage(project_root)
-    credential = OAuthCredential(
-        source_type=source_type,
-        provider="google_service_account",
-        identifier=key_data["client_email"],
-        account_info=key_data["client_email"],
-        credentials=key_data,
-        created_at=datetime.now(tz=timezone.utc),
-        metadata={
-            "auth_method": "service_account",
-            "key_path": str(key_path),
-            "project_id": key_data["project_id"],
-            "client_email": key_data["client_email"],
-        },
-    )
-    oauth_storage.save(credential)
+    # Save credential
+    console.print("[dim]Saving credential...[/dim]")
+    success, save_error = save_service_account_credential(key_data, source_type, project_root)
+    if not success:
+        console.print(f"\n[red]✗ Failed to save credential: {save_error}[/red]\n")
+        raise click.Abort()
 
     console.print(f"\n[green]✓ Service account configured for {source_type}[/green]")
     console.print(f"  Account: {key_data['client_email']}")
