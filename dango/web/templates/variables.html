@@ -95,9 +95,7 @@
 
                             <!-- Account Info -->
                             <div x-show="cred.account_info" class="text-xs text-gray-600 mb-2 p-2 bg-gray-50 rounded">
-                                <template x-for="(value, key) in cred.account_info" :key="key">
-                                    <div><strong x-text="key + ':'"></strong> <span x-text="value"></span></div>
-                                </template>
+                                <span x-text="cred.account_info"></span>
                             </div>
 
                             <!-- Expiry Info -->
