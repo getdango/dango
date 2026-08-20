@@ -5,7 +5,7 @@ Factory functions for creating test OAuth credentials.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from dango.oauth.storage import OAuthCredential
@@ -27,7 +27,7 @@ def make_oauth_credential(
             "client_secret": "test-client-secret",
             "refresh_token": "test-refresh-token",
         },
-        "created_at": datetime(2026, 1, 1),
+        "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
         "expires_at": None,
         "last_refreshed": None,
         "metadata": None,
@@ -63,7 +63,7 @@ def make_facebook_credential(**overrides: Any) -> OAuthCredential:
         "credentials": {
             "access_token": "EAABsbCS1IXXZD-long-lived-token",
         },
-        "expires_at": datetime.now() + timedelta(days=55),
+        "expires_at": datetime.now(tz=timezone.utc) + timedelta(days=55),
     }
     defaults.update(overrides)
     return make_oauth_credential(**defaults)

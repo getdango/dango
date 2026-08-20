@@ -234,9 +234,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/model_wizard.py
-    lines: 507
+    lines: 547
     category: exempt
-    reason: "Interactive dbt model creation wizard. Sequential prompting, stable."
+    reason: "Interactive dbt model creation wizard. Sequential prompting, stable. 1.0.7-1: Added table selection + CTE scaffold generation."
     review_by: "v1.1"
 
 # Removed: dango/platform/network.py — now 486 lines, within limit (TASK-088)
@@ -503,6 +503,12 @@ exemptions:
     lines: 629
     category: exempt
     reason: "S3-1 added 5 tests for monthly retention tier, archive cleanup, and secrets exclusion/inclusion in local archive."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_credential_health.py
+    lines: 523
+    category: exempt
+    reason: "1.0.7-6: 14 tests covering credential health checks across all auth types (OAuth, API key, service account, none) with cache scoping and multi-project isolation. Tests also verify exception handling and TOML parsing for service accounts."
     review_by: "v1.1"
 
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)

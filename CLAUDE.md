@@ -379,7 +379,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/routes/users.py` | 540 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 524 | — |
 | `cli/commands/schedule.py` | 914 | — (schedule wizard + time customization) |
-| `cli/model_wizard.py` | 507 | — |
+| `cli/model_wizard.py` | 547 | — |
 | `cli/commands/remote_backup.py` | 521 | — (R2-D10: --from-local flag) |
 | `platform/cloud/scheduled_backup.py` | 606 | — (server-side scheduled backup) |
 | `governance/schema_drift.py` | 654 | — (R9-D: breaking drift protection + accept flow) |
@@ -438,7 +438,9 @@ mypy dango/
 
 ### Git Workflow
 
-All development happens on feature branches off `main`. Never commit directly to `main`.
+**⚠️ Active integration branch: `v1.0.7`** — During the 1.0.7 release cycle all feature branches are created off `v1.0.7` and PRs target `v1.0.7`, NOT `main`. Your session prompt specifies the exact base branch — follow it, not the general pattern below.
+
+All development happens on feature branches. Never commit directly to `main` or the integration branch.
 
 ```bash
 # Start a task

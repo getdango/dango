@@ -21,7 +21,8 @@ File sync scope
 ---------------
 Synced: ``.dango/sources.yml``, ``.dango/schedules.yml``,
 ``dbt/models/``, ``dbt/macros/``, ``dbt/dbt_project.yml``,
-``dbt/packages.yml``, ``metabase/`` (dashboard exports).
+``dbt/packages.yml``, ``metabase/`` (dashboard exports),
+``custom_sources/``, ``scripts/`` (custom Python scripts).
 
 Never synced: ``.env``, ``.dlt/secrets.toml``, ``*.duckdb``,
 ``metabase.db``, ``dbt/profiles.yml``, ``dbt/target/``, ``__pycache__/``,
@@ -86,7 +87,7 @@ SYNC_DBT_DIRS: list[str] = ["dbt/models", "dbt/macros", "dbt/seeds"]
 
 #: Additional directories to sync via rsync (with ``--delete``).
 #: Unlike dbt dirs, these are not part of the change-detection logic.
-SYNC_EXTRA_DIRS: list[str] = ["metabase", "custom_sources"]
+SYNC_EXTRA_DIRS: list[str] = ["metabase", "custom_sources", "scripts"]
 
 
 # ---------------------------------------------------------------------------

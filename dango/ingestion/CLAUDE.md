@@ -19,6 +19,7 @@ for wizard — use dlt_native) and Shopify (`wizard_enabled=False`, see P5-006).
 | `__init__.py` | Public exports | `DltPipelineRunner`, `run_sync`, `CSVLoader`, `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata`, `get_source_capabilities` |
 | `dlt_runner.py` | Generic pipeline runner for all dlt and custom sources | `DltPipelineRunner`, `run_sync` (accepts `progress_callback` for dbt phase reporting; imports `SyncTimeoutError` from `dango.exceptions`) |
 | `csv_loader.py` | Multi-format file loading (CSV, JSON, JSONL, Parquet) with metadata tracking and 4 dedup strategies | `CSVLoader`, `SUPPORTED_READ_FUNCTIONS` (imports `CSVSchemaMismatchError` from `dango.exceptions`) |
+| `credential_health.py` | Cross-references configured sources against available credentials (OAuth tokens, API keys, service accounts) | `run_credential_checks()`, `get_cached_credential_health()` (5-minute in-process cache) |
 | `sources/__init__.py` | Sources subpackage exports | Re-exports `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata`, `get_source_capabilities` |
 | `sources/registry.py` | Central registry of 33 supported data sources with metadata | `SOURCE_REGISTRY`, `CATEGORIES`, `AuthType`, `get_source_metadata`, `get_sources_by_category`, `get_source_capabilities` |
 | `dlt_sources/` | dlt verified source implementations (27 directories, 105+ files) — helper files are custom Dango code | See "Don't Modify" section for guidelines |

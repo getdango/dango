@@ -4,7 +4,7 @@ OAuth Credential Storage.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -45,13 +45,13 @@ class OAuthCredential:
         """Check if credential has expired"""
         if not self.expires_at:
             return False
-        return datetime.now() >= self.expires_at
+        return datetime.now(tz=timezone.utc) >= self.expires_at
 
     def days_until_expiry(self) -> int | None:
         """Get days until expiry, or None if no expiry"""
         if not self.expires_at:
             return None
-        delta = self.expires_at - datetime.now()
+        delta = self.expires_at - datetime.now(tz=timezone.utc)
         return max(0, delta.days)
 
     def is_expiring_soon(self, days: int = 7) -> bool:
@@ -127,19 +127,30 @@ class OAuthStorage:
 
             # Write credentials in dlt's expected format
             #
-            # dlt sources have two credential patterns:
-            # 1. Google sources use GcpOAuthCredentials - expects nested 'credentials' object
-            # 2. All other sources use flat parameters (dlt.secrets.value for individual params)
-            #
-            # This generalized approach future-proofs all OAuth sources without per-source hardcoding.
+            # dlt sources have three credential patterns:
+            # 1. Google OAuth - expects nested 'credentials' object with client_id/secret/refresh_token
+            # 2. Google Service Account - expects full service account JSON (private_key, etc.)
+            # 3. All other sources - use flat parameters (dlt.secrets.value pattern)
             source_section = secrets["sources"][oauth_cred.source_type]
             creds = oauth_cred.credentials
 
-            # Only Google sources use credentials object (GcpOAuthCredentials pattern)
-            CREDENTIALS_OBJECT_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
+            GOOGLE_OAUTH_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
 
-            if oauth_cred.source_type in CREDENTIALS_OBJECT_SOURCES:
-                # Google: nested credentials object (dlt GcpOAuthCredentials)
+            # Service account credentials: store full key (not extracted fields)
+            if oauth_cred.provider == "google_service_account":
+                # Store entire service account JSON for dlt's GcpServiceAccountCredentials
+                source_section["credentials"] = creds
+                # Google Ads specific sibling fields (per dlt docs)
+                if oauth_cred.source_type == "google_ads":
+                    if creds.get("impersonated_email"):
+                        source_section["impersonated_email"] = creds["impersonated_email"]
+                    if creds.get("dev_token"):
+                        source_section["dev_token"] = creds["dev_token"]
+                    if creds.get("customer_id"):
+                        source_section["customer_id"] = creds["customer_id"]
+
+            elif oauth_cred.source_type in GOOGLE_OAUTH_SOURCES:
+                # Google OAuth: nested credentials object (dlt GcpOAuthCredentials)
                 source_section["credentials"] = {
                     "client_id": creds.get("client_id"),
                     "client_secret": creds.get("client_secret"),
@@ -200,14 +211,29 @@ class OAuthStorage:
             if not source_section:
                 return None
 
-            # Google sources use nested credentials object (GcpOAuthCredentials)
-            # All other sources use flat parameters
-            CREDENTIALS_OBJECT_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
+            # Get metadata first to determine provider type
+            meta = secrets.get("dango", {}).get("oauth", {}).get(source_type, {})
+            provider = meta.get("provider", "unknown")
 
-            if source_type in CREDENTIALS_OBJECT_SOURCES:
-                # Google: look for nested 'credentials' object
+            # Extract credentials based on provider and source type
+            GOOGLE_OAUTH_SOURCES = {"google_ads", "google_analytics", "google_sheets"}
+
+            if provider == "google_service_account":
+                # Service account: full JSON with private_key, client_email, etc.
                 creds = source_section.get("credentials")
-                if not creds:
+                if creds is None:
+                    return None
+                # Ensure it's a dict and has all required service account fields
+                if not isinstance(creds, dict):
+                    return None
+                required_fields = {"type", "project_id", "private_key", "client_email"}
+                if not all(field in creds for field in required_fields):
+                    return None
+
+            elif source_type in GOOGLE_OAUTH_SOURCES:
+                # Google OAuth: look for nested 'credentials' object
+                creds = source_section.get("credentials")
+                if creds is None:
                     return None
             else:
                 # Non-Google: flat parameters are the credentials
@@ -221,8 +247,24 @@ class OAuthStorage:
                 else:
                     return None
 
-            # Get metadata if available
-            meta = secrets.get("dango", {}).get("oauth", {}).get(source_type, {})
+            # Parse datetime fields with proper timezone handling
+            try:
+                created_at = (
+                    datetime.fromisoformat(meta["created_at"])
+                    if meta.get("created_at")
+                    else datetime.now(tz=timezone.utc)
+                )
+                expires_at = (
+                    datetime.fromisoformat(meta["expires_at"]) if meta.get("expires_at") else None
+                )
+                last_refreshed = (
+                    datetime.fromisoformat(meta["last_refreshed"])
+                    if meta.get("last_refreshed")
+                    else None
+                )
+            except ValueError as e:
+                console.print(f"[red]✗ Corrupted credential metadata for {source_type}: {e}[/red]")
+                return None
 
             return OAuthCredential(
                 source_type=source_type,
@@ -230,15 +272,9 @@ class OAuthStorage:
                 identifier=meta.get("identifier", ""),
                 account_info=meta.get("account_info", ""),
                 credentials=creds,
-                created_at=datetime.fromisoformat(meta["created_at"])
-                if meta.get("created_at")
-                else datetime.now(),
-                expires_at=datetime.fromisoformat(meta["expires_at"])
-                if meta.get("expires_at")
-                else None,
-                last_refreshed=datetime.fromisoformat(meta["last_refreshed"])
-                if meta.get("last_refreshed")
-                else None,
+                created_at=created_at,
+                expires_at=expires_at,
+                last_refreshed=last_refreshed,
                 metadata=meta.get("metadata"),
             )
 
@@ -302,7 +338,7 @@ class OAuthStorage:
                         credentials=creds,
                         created_at=datetime.fromisoformat(meta["created_at"])
                         if meta.get("created_at")
-                        else datetime.now(),
+                        else datetime.now(tz=timezone.utc),
                         expires_at=datetime.fromisoformat(meta["expires_at"])
                         if meta.get("expires_at")
                         else None,
