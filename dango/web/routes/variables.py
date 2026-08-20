@@ -53,12 +53,13 @@ def _write_env_file(project_root: Path, env_vars: dict[str, str]) -> None:
     os.chmod(str(env_file), 0o600)
 
 
-def _mask_value(value: str) -> str:
+def _mask_value(value: str | None) -> str:
     """Mask a secret value, showing last 4 chars only.
 
     For values <= 4 chars, return fully masked "****".
+    Handles None defensively by returning "****".
     """
-    if len(value) <= 4:
+    if not value or len(value) <= 4:
         return "****"
     return "****" + value[-4:]
 
