@@ -99,6 +99,7 @@
                             {% if request.state.user.role.value == 'admin' %}
                             <a href="/settings/users" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">User Management</a>
                             <a href="/settings/secrets" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Secrets & Credentials</a>
+                            <a href="/settings/variables" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Variables</a>
                             {% endif %}
                             <hr class="my-1">
                             <a href="/logs" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100{% if current_page == 'logs' %} font-semibold{% endif %}">Activity Logs</a>
@@ -150,6 +151,7 @@
                 {% if request.state.user.role.value == 'admin' %}
                 <a href="/settings/users" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">User Management</a>
                 <a href="/settings/secrets" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Secrets & Credentials</a>
+                <a href="/settings/variables" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white">Variables</a>
                 {% endif %}
                 <a href="/logs" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white{% if current_page == 'logs' %} font-semibold{% endif %}">Activity Logs</a>
                 <a href="/health" class="block px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 hover:text-white{% if current_page == 'health' %} font-semibold{% endif %}">Health</a>

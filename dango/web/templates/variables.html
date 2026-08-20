@@ -1,0 +1,386 @@
+{% extends "base.html" %}
+
+{% block title %}Variables - Dango{% endblock %}
+
+{% block content %}
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div x-data="variablesPage()" x-init="init()" class="space-y-8">
+        <!-- Environment Variables Section -->
+        <div class="bg-white rounded-lg shadow">
+            <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-900">Environment Variables</h2>
+                <p class="mt-1 text-sm text-gray-500">Manage environment variables stored in <code class="bg-gray-100 px-2 py-1 rounded text-xs">.env</code></p>
+            </div>
+
+            <div class="px-4 py-5 sm:px-6">
+                <button
+                    @click="showAddModal = true"
+                    class="inline-flex items-center px-4 py-2 bg-dango-600 text-white rounded-md hover:bg-dango-700 focus:outline-none focus:ring-2 focus:ring-dango-500 focus:ring-offset-2"
+                >
+                    <span>+ Add Variable</span>
+                </button>
+            </div>
+
+            <!-- Variables Table -->
+            <div x-show="variables.length > 0" class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Key</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Value</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <template x-for="variable in variables" :key="variable.key">
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900" x-text="variable.key"></td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600" x-text="variable.masked_value"></td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm space-x-3">
+                                    <button
+                                        @click="editVariable(variable)"
+                                        class="text-dango-600 hover:text-dango-800 font-medium"
+                                    >
+                                        Edit
+                                    </button>
+                                    <button
+                                        @click="confirmDelete(variable.key)"
+                                        class="text-red-600 hover:text-red-800 font-medium"
+                                    >
+                                        Delete
+                                    </button>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Empty State -->
+            <div x-show="variables.length === 0" class="px-4 py-8 text-center text-gray-500">
+                <p>No environment variables configured.</p>
+            </div>
+        </div>
+
+        <!-- OAuth Token Status Section -->
+        <div class="bg-white rounded-lg shadow">
+            <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                <h2 class="text-lg font-semibold text-gray-900">OAuth Token Status</h2>
+                <p class="mt-1 text-sm text-gray-500">View the health of your connected OAuth accounts. To add or disconnect accounts, visit the <a href="/settings/secrets" class="text-dango-600 hover:underline">Secrets &amp; Credentials</a> page.</p>
+            </div>
+
+            <div class="px-4 py-5 sm:px-6">
+                <div x-show="oauthCredentials.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <template x-for="cred in oauthCredentials" :key="cred.source_type + '_' + cred.identifier">
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <div class="flex justify-between items-start mb-3">
+                                <div>
+                                    <p class="text-sm font-semibold text-gray-900">
+                                        <span x-text="cred.source_type"></span> — <span x-text="cred.provider"></span>
+                                    </p>
+                                    <p class="text-sm text-gray-600 mt-1" x-text="cred.identifier"></p>
+                                </div>
+                                <span
+                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                                    :class="{
+                                        'bg-green-100 text-green-800': cred.status === 'ok',
+                                        'bg-yellow-100 text-yellow-800': cred.status === 'expiring_soon',
+                                        'bg-red-100 text-red-800': cred.status === 'expired',
+                                        'bg-gray-100 text-gray-800': cred.status === 'unknown'
+                                    }"
+                                >
+                                    <span x-text="getStatusLabel(cred.status)"></span>
+                                </span>
+                            </div>
+
+                            <!-- Account Info -->
+                            <div x-show="cred.account_info" class="text-xs text-gray-600 mb-2 p-2 bg-gray-50 rounded">
+                                <template x-for="(value, key) in cred.account_info" :key="key">
+                                    <div><strong x-text="key + ':'"></strong> <span x-text="value"></span></div>
+                                </template>
+                            </div>
+
+                            <!-- Expiry Info -->
+                            <div x-show="cred.expires_at" class="text-xs text-gray-600">
+                                <p>
+                                    Expires:
+                                    <span x-text="formatExpiryDate(cred.expires_at)"></span>
+                                    <span x-show="cred.days_until_expiry !== null" x-text="'(' + cred.days_until_expiry + ' days)'"></span>
+                                </p>
+                            </div>
+
+                            <div x-show="!cred.expires_at" class="text-xs text-gray-600">
+                                <p>No expiry date</p>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Empty State -->
+                <div x-show="oauthCredentials.length === 0" class="text-center text-gray-500 py-8">
+                    <p>No OAuth connections configured. <a href="/settings/secrets" class="text-dango-600 hover:underline">Connect an account</a>.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div
+        x-show="showAddModal"
+        x-cloak
+        class="fixed inset-0 z-50 overflow-y-auto"
+    >
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div
+                x-show="showAddModal"
+                class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+                @click="showAddModal = false"
+            ></div>
+
+            <div
+                x-show="showAddModal"
+                class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full"
+            >
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+                            <h3 class="text-lg leading-6 font-medium text-gray-900" x-text="editingKey ? 'Edit Variable' : 'Add Variable'"></h3>
+                            <div class="mt-4 space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Key</label>
+                                    <input
+                                        x-model="formKey"
+                                        :disabled="editingKey"
+                                        type="text"
+                                        class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm disabled:bg-gray-100"
+                                        placeholder="VARIABLE_NAME"
+                                    />
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Value</label>
+                                    <input
+                                        x-model="formValue"
+                                        type="password"
+                                        class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm"
+                                        placeholder="••••••••"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                    <button
+                        @click="saveVariable()"
+                        class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-dango-600 text-base font-medium text-white hover:bg-dango-700 focus:outline-none focus:ring-2 focus:ring-dango-500 focus:ring-offset-2 sm:ml-3 sm:w-auto sm:text-sm"
+                    >
+                        Save
+                    </button>
+                    <button
+                        @click="showAddModal = false"
+                        class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-dango-500 focus:ring-offset-2 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirm Modal -->
+    <div
+        x-show="showDeleteModal"
+        x-cloak
+        class="fixed inset-0 z-50 overflow-y-auto"
+    >
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div
+                x-show="showDeleteModal"
+                class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+                @click="showDeleteModal = false"
+            ></div>
+
+            <div
+                x-show="showDeleteModal"
+                class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full"
+            >
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                            <svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4v2m0 0v2M4.5 19h15A2.5 2.5 0 0021 16.5V7.5A2.5 2.5 0 0018.5 5h-15A2.5 2.5 0 003 7.5v9A2.5 2.5 0 004.5 19z"></path>
+                            </svg>
+                        </div>
+                        <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                            <h3 class="text-lg leading-6 font-medium text-gray-900">Delete Variable</h3>
+                            <div class="mt-2">
+                                <p class="text-sm text-gray-500">
+                                    Are you sure you want to delete <code class="bg-gray-100 px-1 py-0.5 rounded text-xs" x-text="deleteKey"></code>?
+                                    This action cannot be undone.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                    <button
+                        @click="performDelete()"
+                        class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 sm:ml-3 sm:w-auto sm:text-sm"
+                    >
+                        Delete
+                    </button>
+                    <button
+                        @click="showDeleteModal = false"
+                        class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-dango-500 focus:ring-offset-2 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function variablesPage() {
+        return {
+            variables: [],
+            oauthCredentials: [],
+            showAddModal: false,
+            showDeleteModal: false,
+            formKey: '',
+            formValue: '',
+            editingKey: null,
+            deleteKey: null,
+
+            async init() {
+                await this.loadVariables();
+                await this.loadOAuthStatus();
+            },
+
+            async loadVariables() {
+                try {
+                    const response = await fetch('/api/variables', {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    this.variables = data.variables || [];
+                } catch (err) {
+                    console.error('Failed to load variables:', err);
+                    alert('Failed to load variables');
+                }
+            },
+
+            async loadOAuthStatus() {
+                try {
+                    const response = await fetch('/api/variables/oauth', {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    this.oauthCredentials = data.oauth_credentials || [];
+                } catch (err) {
+                    console.error('Failed to load OAuth status:', err);
+                }
+            },
+
+            editVariable(variable) {
+                this.editingKey = variable.key;
+                this.formKey = variable.key;
+                this.formValue = '';
+                this.showAddModal = true;
+            },
+
+            async saveVariable() {
+                if (!this.formKey.trim()) {
+                    alert('Key is required');
+                    return;
+                }
+                if (!this.formValue) {
+                    alert('Value is required');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/variables', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify({
+                            key: this.formKey,
+                            value: this.formValue
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        alert(error.message || 'Failed to save variable');
+                        return;
+                    }
+
+                    this.showAddModal = false;
+                    this.formKey = '';
+                    this.formValue = '';
+                    this.editingKey = null;
+                    await this.loadVariables();
+                } catch (err) {
+                    console.error('Failed to save variable:', err);
+                    alert('Failed to save variable');
+                }
+            },
+
+            confirmDelete(key) {
+                this.deleteKey = key;
+                this.showDeleteModal = true;
+            },
+
+            async performDelete() {
+                try {
+                    const response = await fetch(`/api/variables/${encodeURIComponent(this.deleteKey)}`, {
+                        method: 'DELETE',
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        alert(error.message || 'Failed to delete variable');
+                        return;
+                    }
+
+                    this.showDeleteModal = false;
+                    this.deleteKey = null;
+                    await this.loadVariables();
+                } catch (err) {
+                    console.error('Failed to delete variable:', err);
+                    alert('Failed to delete variable');
+                }
+            },
+
+            getStatusLabel(status) {
+                const labels = {
+                    'ok': 'Healthy',
+                    'expiring_soon': 'Expiring Soon',
+                    'expired': 'Expired',
+                    'unknown': 'Unknown'
+                };
+                return labels[status] || status;
+            },
+
+            formatExpiryDate(isoDate) {
+                if (!isoDate) return '';
+                const date = new Date(isoDate);
+                return date.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            }
+        };
+    }
+</script>
+{% endblock %}

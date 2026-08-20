@@ -27,6 +27,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `templates/account.html` | User account settings — change password, sessions, API keys, 2FA | Alpine.js `accountPage()` component |
 | `templates/invite.html` | Invite acceptance page — set password for invited users | — |
 | `templates/secrets.html` | Secrets management page (env vars + OAuth credentials) | — |
+| `templates/variables.html` | Variables management page (env vars masked, OAuth status) | — |
 | `routes/__init__.py` | Package marker | — |
 | `routes/auth.py` | Login/logout, password change, OAuth flows, invite accept, API key CRUD (~901 lines) | `_bridge_metabase_session()`, `_set_session_cookie()` |
 | `routes/auth_2fa.py` | TOTP 2FA setup/verify/disable/recovery (~340 lines) | — |
@@ -42,6 +43,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/ui.py` | `/`, `/sources`, `/models`, `/health`, `/logs`, `/api`, `/api/docs`, `/api/redoc`, `/login`, `/account`, `/admin/users`, `/invite/{token}` | `templates`, `_render_template()` |
 | `routes/metabase_proxy.py` | All Metabase proxy routes + SSO session state | `proxy_to_metabase()`, `get_metabase_session()` |
 | `routes/secrets.py` | Secrets and OAuth credential management (admin-only, .env + .dlt/secrets.toml CRUD) | `router` |
+| `routes/variables.py` | Environment variables and OAuth token status (admin-only, .env CRUD, read-only OAuth status) | `router` |
 | `routes/oauth_connect.py` | Web-based OAuth connect/callback for cloud deployments | `router` |
 | `routes/schedules.py` | Schedule list/get, trigger, reload, cancel, history, notification config/test, `/schedules` page (read-only, ~608 lines). Config mutations removed by R10-C (BUG-175) — use CLI instead. | `router` |
 | `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~506 lines) | `router` |
