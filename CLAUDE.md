@@ -379,7 +379,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/routes/users.py` | 540 | — (admin user CRUD + invite) |
 | `platform/local/watcher.py` | 524 | — |
 | `cli/commands/schedule.py` | 914 | — (schedule wizard + time customization) |
-| `cli/model_wizard.py` | 507 | — |
+| `cli/model_wizard.py` | 547 | — |
 | `cli/commands/remote_backup.py` | 521 | — (R2-D10: --from-local flag) |
 | `platform/cloud/scheduled_backup.py` | 606 | — (server-side scheduled backup) |
 | `governance/schema_drift.py` | 654 | — (R9-D: breaking drift protection + accept flow) |

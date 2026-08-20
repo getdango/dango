@@ -234,9 +234,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/model_wizard.py
-    lines: 507
+    lines: 547
     category: exempt
-    reason: "Interactive dbt model creation wizard. Sequential prompting, stable."
+    reason: "Interactive dbt model creation wizard. Sequential prompting, stable. 1.0.7-1: Added table selection + CTE scaffold generation."
     review_by: "v1.1"
 
 # Removed: dango/platform/network.py — now 486 lines, within limit (TASK-088)
