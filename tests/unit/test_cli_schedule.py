@@ -691,6 +691,114 @@ class TestScheduleAdd:
         # Should exit cleanly without error
         assert result.exit_code == 0
 
+    @patch("dango.cli.commands.schedule.safe_confirm")
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_script_schedule_creates_template_on_confirm(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, mock_confirm: MagicMock, tmp_path: Path
+    ) -> None:
+        """Script schedule with template creation when user confirms."""
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+
+        # User confirms template creation
+        mock_confirm.return_value = True
+        # Prompts: name, type, script_name, timeout, frequency, timezone
+        mock_prompt.side_effect = [
+            {"name": "daily_report"},
+            {"type": "Script (custom Python)"},
+            {"script_name": "daily_report.py"},
+            {"timeout_minutes": "30"},
+            {"frequency": "Daily"},
+            {"hour": "9"},
+            {"minute": "0"},
+            {"timezone": "UTC"},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "added" in plain
+        assert "Created scripts/daily_report.py" in plain
+
+        # Check schedule was created
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        assert len(data["schedules"]) == 1
+        assert data["schedules"][0]["name"] == "daily_report"
+        assert data["schedules"][0]["type"] == "script"
+
+        # Check template file was created
+        script_path = project_root / "scripts" / "daily_report.py"
+        assert script_path.exists()
+        content = script_path.read_text()
+        assert "DANGO_PROJECT_ROOT" in content
+        assert "duckdb.connect" in content
+
+    @patch("dango.cli.commands.schedule.safe_confirm")
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_script_schedule_declines_template(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, mock_confirm: MagicMock, tmp_path: Path
+    ) -> None:
+        """Script schedule creation cancelled when user declines template."""
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+
+        # User declines template creation (safe_confirm returns False)
+        # This means we should get to the safe_confirm after selecting script type
+        mock_confirm.return_value = False
+        # Setup prompts: name, type only (then safe_confirm is called)
+        mock_prompt.side_effect = [
+            {"name": "declined_sched"},
+            {"type": "Script (custom Python)"},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "No Python scripts found" in plain
+        assert result.exit_code == 0
+
+        # No schedule was created
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        assert len(data.get("schedules", [])) == 0
+
+    @patch("inquirer.prompt")
+    @patch("dango.cli.utils.find_project_root")
+    def test_add_script_schedule_with_existing_scripts(
+        self, mock_root: MagicMock, mock_prompt: MagicMock, tmp_path: Path
+    ) -> None:
+        """Script schedule with existing scripts skips template prompt."""
+        project_root = _setup_project(tmp_path)
+        mock_root.return_value = project_root
+        _write_schedules_yaml(project_root, {"schedules": []})
+        (project_root / "scripts").mkdir()
+        (project_root / "scripts" / "report.py").write_text("# existing script")
+
+        # No safe_confirm call — goes straight to script selection
+        # Prompts: name, type, script_path, timeout, frequency, timezone
+        mock_prompt.side_effect = [
+            {"name": "script_sched"},
+            {"type": "Script (custom Python)"},
+            {"script_path": "report.py"},
+            {"timeout_minutes": "30"},
+            {"frequency": "Daily"},
+            {"hour": "9"},
+            {"minute": "0"},
+            {"timezone": "UTC"},
+        ]
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["schedule", "add"])
+        plain = _strip_ansi(result.output)
+        assert "added" in plain
+
+        # Check schedule was created
+        data = yaml.safe_load((project_root / ".dango" / "schedules.yml").read_text())
+        assert data["schedules"][0]["type"] == "script"
+
 
 @pytest.mark.unit
 class TestGetLocalTimezone:
