@@ -46,7 +46,6 @@ def _write_env_file(project_root: Path, env_vars: dict[str, str]) -> None:
     # Create with restrictive permissions to avoid TOCTOU window
     fd = os.open(str(env_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        os.fchmod(fd, 0o600)
         os.write(fd, content.encode("utf-8"))
     finally:
         os.close(fd)
@@ -233,12 +232,11 @@ async def list_oauth_status(
 
 
 @router.get("/settings/variables")
-async def variables_page(request: Request) -> HTMLResponse:
+async def variables_page(
+    request: Request,
+    user: User = Depends(require_permission("config.manage")),
+) -> HTMLResponse:
     """Serve the variables management page (admin-only)."""
-    _user: User = request.state.user  # type: ignore
-    if _user.role.value != "admin":
-        return HTMLResponse(status_code=403, content="Access denied")
-
     from dango.web.routes.ui import _render_template
 
     return _render_template(
