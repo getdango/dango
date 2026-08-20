@@ -33,6 +33,7 @@ from dango.catalog.models import (
     _get_source_summary_stats,
 )
 from dango.catalog.profiling import (
+    _get_cached_row_counts,  # noqa: F401 — needed for test patching
     _get_cached_stats,
     _get_profiled_at,
 )
