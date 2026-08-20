@@ -29,6 +29,7 @@ from dango.exceptions import (
     format_structured_error,
 )
 from dango.oauth.router import OAUTH_PROVIDER_MAP
+from dango.oauth.service_account import validate_google_service_account
 from dango.oauth.storage import OAuthCredential, OAuthStorage
 
 logger = logging.getLogger(__name__)
@@ -369,104 +370,6 @@ def validate_shopify_token(credential: OAuthCredential) -> TokenValidationResult
             message="Could not reach Shopify API (network error)",
             account_info=credential.account_info,
             error_code="network_error",
-        )
-
-
-def validate_google_service_account(credential: OAuthCredential) -> TokenValidationResult:
-    """Validate a Google service account credential.
-
-    Service accounts use JWT signing with private keys. Verification involves
-    attempting to create credentials from the key data and refresh them.
-
-    Args:
-        credential: An OAuthCredential with service account key data.
-
-    Returns:
-        TokenValidationResult with validation outcome.
-    """
-    creds = credential.credentials
-    private_key = creds.get("private_key")
-    client_email = creds.get("client_email")
-    project_id = creds.get("project_id")
-
-    if not private_key or not client_email or not project_id:
-        return TokenValidationResult(
-            source_type=credential.source_type,
-            provider=credential.provider,
-            valid=False,
-            message="Missing service account fields (private_key, client_email, or project_id)",
-            error_code="missing_credentials",
-            account_info=credential.account_info,
-        )
-
-    try:
-        from google.auth.transport.requests import Request
-        from google.oauth2.service_account import Credentials
-    except ImportError:
-        return TokenValidationResult(
-            source_type=credential.source_type,
-            provider=credential.provider,
-            valid=True,
-            message="google-auth not installed (can't verify service account)",
-            error_code="google_auth_missing",
-            account_info=credential.account_info,
-        )
-
-    try:
-        # Create service account credentials from the key data
-        service_creds = Credentials.from_service_account_info(
-            creds,
-            scopes=["https://www.googleapis.com/auth/cloud-platform"],
-        )
-
-        # Attempt to refresh credentials to verify the key is valid
-        request = Request()
-        service_creds.refresh(request)
-
-        return TokenValidationResult(
-            source_type=credential.source_type,
-            provider=credential.provider,
-            valid=True,
-            message="Service account key valid",
-            account_info=client_email,
-        )
-
-    except ValueError as exc:
-        # Invalid key format
-        logger.debug("Service account validation error for %s: %s", credential.source_type, exc)
-        return TokenValidationResult(
-            source_type=credential.source_type,
-            provider=credential.provider,
-            valid=False,
-            message=f"Invalid service account key: {str(exc)}",
-            error_code="invalid_key",
-            account_info=credential.account_info,
-        )
-
-    except (requests.ConnectionError, requests.Timeout) as exc:
-        logger.debug(
-            "Network error validating service account for %s: %s",
-            credential.source_type,
-            exc,
-        )
-        return TokenValidationResult(
-            source_type=credential.source_type,
-            provider=credential.provider,
-            valid=True,
-            message="Could not reach Google API (network error)",
-            error_code="network_error",
-            account_info=credential.account_info,
-        )
-
-    except Exception as exc:
-        logger.debug("Service account validation error for %s: %s", credential.source_type, exc)
-        return TokenValidationResult(
-            source_type=credential.source_type,
-            provider=credential.provider,
-            valid=False,
-            message=f"Service account verification failed: {str(exc)}",
-            error_code="verification_failed",
-            account_info=credential.account_info,
         )
 
 
