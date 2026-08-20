@@ -17,7 +17,11 @@ Standalone data-access layer for the data catalog — column schema, profiling, 
 
 ## Key Conventions
 
-**Private function names (_underscore prefix):** All functions are private. Test code patches them by their names inside `dango.web.routes.catalog`, so they are imported there with `from dango.catalog.X import _name`. This preserves all 176+ existing `@patch("dango.web.routes.catalog._X")` sites without modification. Do not rename these.
+**Private function names (_underscore prefix):** All functions are private. Test code patches them by their names at their call sites:
+- Functions called directly in route handlers: patch at `dango.web.routes.catalog._X` (e.g., `_build_lineage_dag` called via lazy import in route)
+- Functions imported at module level in sub-modules: patch at `dango.catalog.<submodule>._X` (e.g., `_get_cached_row_counts` imported in `models.py`, patched at `dango.catalog.models._get_cached_row_counts`)
+
+Route handlers import all functions with `from dango.catalog.X import _name` to preserve 176+ existing test @patch sites; the import location determines the patch target. Do not rename these.
 
 **FastAPI coupling limitation:** Functions `_build_lineage_dag`, `_build_catalog_models`, and `_get_run_results` internally call `dango.web.helpers.get_project_root()` with no parameters. This reads `app.state.project_root`, populated only by the FastAPI `lifespan()` hook in `dango.web.app`. These functions still require a booted FastAPI app and will raise `RuntimeError` if called from a bare CLI script. Fixing this requires reordering statements inside route handlers (route-logic surgery, not extraction) — out of scope here. **Documented follow-up:** reorder `list_catalog_models` and `get_lineage` handlers to populate `project_root` before calling these functions, then update them to accept `project_root` as a parameter.
 
