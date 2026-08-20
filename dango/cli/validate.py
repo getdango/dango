@@ -70,6 +70,7 @@ class ProjectValidator:
         self._check_env_vars()
         self._check_dbt_setup()
         self._check_model_sql_portability()
+        self._check_script_paths()
         self._check_database()
         self._check_dependencies()
         self._check_permissions()
@@ -564,6 +565,47 @@ class ProjectValidator:
                         "Use 'dango seed add <file>' and {{ ref('seed_name') }} instead.",
                     )
                 )
+
+    def _check_script_paths(self):
+        """Warn if any script hardcodes an absolute path instead of DANGO_PROJECT_ROOT."""
+        scripts_dir = self.project_root / "scripts"
+        if not scripts_dir.exists():
+            return
+
+        bad_patterns = [
+            (re.compile(r"Path\.home\(\)"), "Path.home() — use DANGO_PROJECT_ROOT env var instead"),
+            (
+                re.compile(r"/Users/[A-Za-z]"),
+                "hardcoded /Users/... path — use DANGO_PROJECT_ROOT env var",
+            ),
+            (
+                re.compile(r"/home/[A-Za-z]"),
+                "hardcoded /home/... path — use DANGO_PROJECT_ROOT env var",
+            ),
+            (
+                re.compile(r'Path\(["\'][/~]'),
+                "hardcoded absolute path in Path() — use DANGO_PROJECT_ROOT env var",
+            ),
+        ]
+
+        for script in sorted(scripts_dir.rglob("*.py")):
+            if script.name == "__init__.py" or script.name.startswith((".", "_")):
+                continue
+            try:
+                content = script.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            for pattern, message in bad_patterns:
+                if pattern.search(content):
+                    rel = script.relative_to(scripts_dir)
+                    self.results.append(
+                        ValidationResult(
+                            f"scripts: {rel}",
+                            "warn",
+                            f'{message}. Fix: PROJECT_ROOT = os.environ["DANGO_PROJECT_ROOT"]',
+                        )
+                    )
+                    break
 
     def _check_database(self):
         """Check if DuckDB database exists and is accessible"""
