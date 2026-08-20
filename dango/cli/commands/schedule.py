@@ -37,6 +37,8 @@ _FREQUENCY_CHOICES = [
     ("Every 12 hours", "12h"),
     ("Daily", "daily"),
     ("Weekly", "weekly"),
+    ("Weekdays (Mon–Fri)", "weekdays"),
+    ("Select days...", "selectdays"),
     ("Custom cron", "custom"),
 ]
 
@@ -309,6 +311,88 @@ def _build_cron_interactive(selection: str) -> str | None:
             return None
         minute = int(answers["minute"])
         return f"{minute} {hour} * * *"
+
+    if selection == "weekdays":
+        # Hour → minute (day-of-week fixed to 1-5)
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "hour",
+                    message="Hour (0-23)",
+                    default="6",
+                    validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 23,
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        hour = int(answers["hour"])
+
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "minute",
+                    message="Minute (0-59)",
+                    default="0",
+                    validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 59,
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        minute = int(answers["minute"])
+        return f"{minute} {hour} * * 1-5"
+
+    if selection == "selectdays":
+        # Multi-select days → hour → minute
+        answers = inquirer.prompt(
+            [
+                inquirer.Checkbox(
+                    "days",
+                    message="Select days (SPACE to toggle, ENTER to confirm)",
+                    choices=[label for label, _ in _DAY_CHOICES],
+                    default=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        selected_labels: list[str] = answers["days"]
+        if not selected_labels:
+            console.print("[red]Please select at least one day.[/red]")
+            return None
+        day_map = dict(_DAY_CHOICES)
+        day_nums = sorted(day_map[label] for label in selected_labels)
+        days_csv = ",".join(str(d) for d in day_nums)
+
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "hour",
+                    message="Hour (0-23)",
+                    default="6",
+                    validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 23,
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        hour = int(answers["hour"])
+
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "minute",
+                    message="Minute (0-59)",
+                    default="0",
+                    validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 59,
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        minute = int(answers["minute"])
+        return f"{minute} {hour} * * {days_csv}"
 
     # Hourly intervals: 1h, 2h, 3h, 4h, 6h, 8h, 12h
     interval = int(selection.rstrip("h"))
@@ -1008,6 +1092,24 @@ def schedule_enable(ctx: click.Context, name: str) -> None:
 def schedule_disable(ctx: click.Context, name: str) -> None:
     """Disable an active schedule."""
     _toggle_schedule(ctx, name, enable=False)
+
+
+# ---------------------------------------------------------------------------
+# schedule reload
+# ---------------------------------------------------------------------------
+
+
+@schedule.command("reload")
+@click.pass_context
+def schedule_reload(ctx: click.Context) -> None:
+    """Reload schedules from .dango/schedules.yml into the running scheduler.
+
+    Use after manually editing .dango/schedules.yml to apply changes without restarting dango.
+    """
+    from dango.cli.utils import require_project_context
+
+    project_root = require_project_context(ctx)
+    _try_reload_running_scheduler(project_root)
 
 
 # ---------------------------------------------------------------------------
