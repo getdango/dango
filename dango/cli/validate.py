@@ -575,11 +575,11 @@ class ProjectValidator:
         bad_patterns = [
             (re.compile(r"Path\.home\(\)"), "Path.home() — use DANGO_PROJECT_ROOT env var instead"),
             (
-                re.compile(r"/Users/[A-Za-z]"),
+                re.compile(r"/Users/\S"),
                 "hardcoded /Users/... path — use DANGO_PROJECT_ROOT env var",
             ),
             (
-                re.compile(r"/home/[A-Za-z]"),
+                re.compile(r"/home/\S"),
                 "hardcoded /home/... path — use DANGO_PROJECT_ROOT env var",
             ),
             (

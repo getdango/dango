@@ -107,6 +107,24 @@ class TestScriptPaths:
 
         assert any(r.status == "warn" and "linux.py" in r.name for r in v.results)
 
+    def test_flags_single_letter_username(self, tmp_path):
+        """Script with single-letter username (/Users/a, /home/j) should warn."""
+        v, scripts_dir = self._validator(tmp_path)
+        (scripts_dir / "single.py").write_text("path = '/Users/a/project' # or '/home/j/data'\n")
+
+        v._check_script_paths()
+
+        assert any(r.status == "warn" and "single.py" in r.name for r in v.results)
+
+    def test_flags_numeric_username(self, tmp_path):
+        """Script with numeric username (/Users/123, /home/42) should warn."""
+        v, scripts_dir = self._validator(tmp_path)
+        (scripts_dir / "numeric.py").write_text("path = '/home/123/project/data'\n")
+
+        v._check_script_paths()
+
+        assert any(r.status == "warn" and "numeric.py" in r.name for r in v.results)
+
     def test_flags_path_absolute_call(self, tmp_path):
         """Script with Path('/absolute/path') should warn."""
         v, scripts_dir = self._validator(tmp_path)
