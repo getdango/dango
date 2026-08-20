@@ -3,10 +3,102 @@
 OAuth authentication commands.
 """
 
+from pathlib import Path
+
 import click
 from rich.markup import escape
 
 from dango.cli import console
+
+
+def _try_service_account_auth(source_type: str, project_root: Path) -> bool:
+    """
+    Prompt user for service account authentication.
+
+    Returns:
+        True if service account was configured, False if user chose OAuth (browser flow)
+    """
+    import json
+
+    from InquirerPy import inquirer  # type: ignore[import-not-found]
+
+    from dango.oauth.service_account import (
+        save_service_account_credential,
+        validate_service_account_json,
+        verify_service_account_key,
+    )
+
+    # Check if google-auth is available (required for service account verification)
+    try:
+        import google.auth  # noqa: F401
+    except ImportError:
+        console.print(
+            "[yellow]⚠️  google-auth not installed — service account verification unavailable[/yellow]\n"
+        )
+        return False
+
+    # Service account for google_ads requires additional configuration (dev_token, customer_id)
+    # that's handled separately. For now, only oauth is supported.
+    if source_type == "google_ads":
+        console.print(
+            "[yellow]ℹ️  Service account auth for Google Ads requires additional setup[/yellow]\n"
+            "[yellow]Use OAuth browser flow for now, or authenticate with service account manually[/yellow]\n"
+        )
+        return False
+
+    choice = inquirer.select(
+        message="Authentication method:",
+        choices=[
+            {"name": "OAuth (browser) — recommended for local development", "value": "oauth"},
+            {"name": "Service Account (JSON key file) — recommended for servers", "value": "sa"},
+        ],
+    ).execute()
+
+    if choice == "oauth":
+        return False
+
+    key_path_str = inquirer.text(
+        message="Path to service account JSON key file:",
+        validate=lambda p: Path(p).exists() and Path(p).suffix == ".json",
+        invalid_message="File not found or not a .json file",
+    ).execute()
+
+    key_path = Path(key_path_str).expanduser().resolve()
+
+    # Read and parse JSON
+    try:
+        key_data = json.loads(key_path.read_text())
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
+        console.print(f"\n[red]✗ Failed to read JSON key: {e}[/red]\n")
+        raise click.Abort() from e
+
+    # Validate JSON structure
+    is_valid, error_msg = validate_service_account_json(key_data)
+    if not is_valid:
+        console.print(f"\n[red]✗ Invalid service account key: {error_msg}[/red]\n")
+        raise click.Abort()
+
+    # Verify key works by attempting authentication
+    console.print("\n[dim]Verifying service account key...[/dim]")
+    is_verified, verify_error = verify_service_account_key(key_data, source_type)
+    if not is_verified:
+        console.print(f"\n[red]✗ Key verification failed: {verify_error}[/red]\n")
+        console.print(
+            "[dim]Make sure the service account has the necessary Google API permissions[/dim]\n"
+        )
+        raise click.Abort()
+
+    # Save credential
+    console.print("[dim]Saving credential...[/dim]")
+    success, save_error = save_service_account_credential(key_data, source_type, project_root)
+    if not success:
+        console.print(f"\n[red]✗ Failed to save credential: {save_error}[/red]\n")
+        raise click.Abort()
+
+    console.print(f"\n[green]✓ Service account configured for {source_type}[/green]")
+    console.print(f"  Account: {key_data['client_email']}")
+    console.print(f"  Project: {key_data['project_id']}\n")
+    return True
 
 
 @click.group()
@@ -379,6 +471,9 @@ def oauth_google_sheets(ctx: click.Context) -> None:
     try:
         project_root = require_project_context(ctx)
 
+        if _try_service_account_auth(source_type="google_sheets", project_root=project_root):
+            return
+
         oauth_manager = OAuthManager(project_root)
         provider = GoogleOAuthProvider(oauth_manager)
         oauth_name = provider.authenticate(service="google_sheets")
@@ -422,6 +517,9 @@ def oauth_google_analytics(ctx: click.Context) -> None:
 
     try:
         project_root = require_project_context(ctx)
+
+        if _try_service_account_auth(source_type="google_analytics", project_root=project_root):
+            return
 
         oauth_manager = OAuthManager(project_root)
         provider = GoogleOAuthProvider(oauth_manager)
