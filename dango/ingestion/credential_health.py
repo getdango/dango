@@ -6,12 +6,15 @@ tokens, API-key env vars) and reports missing/expired/expiring issues.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from pathlib import Path
 from typing import Any
 
-_cache: tuple[list[dict[str, Any]], float] | None = None
+logger = logging.getLogger(__name__)
+
+_cache: dict[str, tuple[list[dict[str, Any]], float]] = {}
 _CACHE_TTL = 300  # 5 minutes
 
 
@@ -96,7 +99,13 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
                             "detail": cred.account_info or "",
                         }
                     )
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
+                logger.debug(
+                    "Failed to validate token for %s: %s",
+                    source_type,
+                    e,
+                    exc_info=True,
+                )
                 results.append(
                     {
                         "source": source_name,
@@ -139,18 +148,35 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
             )
 
         elif auth_type == AuthType.SERVICE_ACCOUNT:
-            # Best-effort: can't verify the specific per-source TOML section without
-            # parsing each source's secrets_toml_template. Existence check only.
-            found = secrets_file.exists() and secrets_file.stat().st_size > 0
+            # Check if secrets.toml exists and contains the source-specific section
+            found = False
+            detail = ""
+            if secrets_file.exists() and secrets_file.stat().st_size > 0:
+                try:
+                    import toml
+
+                    secrets = toml.load(secrets_file)
+                    # Service account credentials should be under sources.{source_type}
+                    source_secrets = secrets.get("sources", {}).get(source_type, {})
+                    found = bool(source_secrets)
+                    if not found:
+                        detail = f"No [sources.{source_type}] section in .dlt/secrets.toml"
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(
+                        "Failed to parse secrets.toml for %s: %s",
+                        source_type,
+                        e,
+                    )
+                    detail = "Failed to parse .dlt/secrets.toml"
+            else:
+                detail = "No .dlt/secrets.toml found — add service-account credentials there"
             results.append(
                 {
                     "source": source_name,
                     "type": source_type,
                     "auth_type": "service_account",
                     "status": "ok" if found else "missing",
-                    "detail": ""
-                    if found
-                    else "No .dlt/secrets.toml found — add service-account credentials there",
+                    "detail": detail,
                 }
             )
 
@@ -159,7 +185,7 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
                 {
                     "source": source_name,
                     "type": source_type,
-                    "auth_type": auth_type.value if hasattr(auth_type, "value") else str(auth_type),
+                    "auth_type": auth_type.value,
                     "status": "ok",
                     "detail": "",
                 }
@@ -169,11 +195,15 @@ def run_credential_checks(project_root: Path) -> list[dict[str, Any]]:
 
 
 def get_cached_credential_health(project_root: Path) -> list[dict[str, Any]]:
-    """Return cached results or run a fresh check (5-minute TTL, in-process only)."""
+    """Return cached results or run a fresh check (5-minute TTL, in-process only).
+
+    Cache is scoped per project_root to handle multi-project scenarios.
+    """
     global _cache
+    cache_key = str(project_root.resolve())
     now = time.monotonic()
-    if _cache is not None and (now - _cache[1]) < _CACHE_TTL:
-        return _cache[0]
+    if cache_key in _cache and (now - _cache[cache_key][1]) < _CACHE_TTL:
+        return _cache[cache_key][0]
     results = run_credential_checks(project_root)
-    _cache = (results, now)
+    _cache[cache_key] = (results, now)
     return results

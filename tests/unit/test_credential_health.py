@@ -30,9 +30,9 @@ def reset_cache() -> None:
     """Reset the credential health cache before each test."""
     import dango.ingestion.credential_health as ch
 
-    ch._cache = None
+    ch._cache = {}
     yield
-    ch._cache = None
+    ch._cache = {}
 
 
 def test_no_sources(mock_project_root: Path) -> None:
@@ -316,9 +316,14 @@ def test_service_account_present(mock_project_root: Path) -> None:
         patch("dango.config.helpers.get_config") as mock_get_config,
         patch("dango.ingestion.sources.registry.get_source_metadata") as mock_get_metadata,
     ):
-        # Create secrets.toml file
+        # Create secrets.toml file with source-specific section
         secrets_file = mock_project_root / ".dlt" / "secrets.toml"
-        secrets_file.write_text("[sources]\n")
+        secrets_file.write_text(
+            "[sources.gcs]\n"
+            'type = "service_account"\n'
+            'project_id = "my-project"\n'
+            'private_key_id = "key123"\n'
+        )
 
         # Setup config
         mock_source = Mock()
@@ -385,15 +390,100 @@ def test_cache_returns_stale_results(mock_project_root: Path) -> None:
         assert mock_run.call_count == 1  # No additional call
         assert result1 == result2
 
-        # Simulate cache expiry
+        # Simulate cache expiry by manipulating the timestamp
         import time
 
-        ch._cache = (result1, time.monotonic() - 400)  # Older than 300s TTL
+        cache_key = str(mock_project_root.resolve())
+        ch._cache[cache_key] = (result1, time.monotonic() - 400)  # Older than 300s TTL
 
         # Third call after TTL
         result3 = get_cached_credential_health(mock_project_root)
         assert mock_run.call_count == 2  # Cache expired, new call made
         assert len(result3) == 1
+
+
+def test_cache_scoped_by_project_root(tmp_path: Path) -> None:
+    """Test that cache entries are separate per project_root."""
+
+    # Create two different project roots
+    project1 = tmp_path / "project1"
+    project2 = tmp_path / "project2"
+    project1.mkdir()
+    project2.mkdir()
+    (project1 / ".dlt").mkdir()
+    (project2 / ".dlt").mkdir()
+
+    with patch("dango.ingestion.credential_health.run_credential_checks") as mock_run:
+        # Setup different results for each project
+        def side_effect(root: Path) -> list[dict]:
+            if root == project1:
+                return [
+                    {
+                        "source": "proj1_source",
+                        "type": "csv",
+                        "auth_type": "none",
+                        "status": "ok",
+                        "detail": "",
+                    }
+                ]
+            else:
+                return [
+                    {
+                        "source": "proj2_source",
+                        "type": "csv",
+                        "auth_type": "none",
+                        "status": "ok",
+                        "detail": "",
+                    }
+                ]
+
+        mock_run.side_effect = side_effect
+
+        # Call for project1
+        result1 = get_cached_credential_health(project1)
+        assert result1[0]["source"] == "proj1_source"
+        assert mock_run.call_count == 1
+
+        # Call for project2 - should NOT use project1's cache
+        result2 = get_cached_credential_health(project2)
+        assert result2[0]["source"] == "proj2_source"
+        assert mock_run.call_count == 2  # New call, not cached from project1
+
+        # Call for project1 again - should use cached result
+        result3 = get_cached_credential_health(project1)
+        assert result3[0]["source"] == "proj1_source"
+        assert mock_run.call_count == 2  # No new call
+
+
+def test_service_account_toml_section_missing(mock_project_root: Path) -> None:
+    """Test service account source when secrets.toml exists but lacks source section."""
+    with (
+        patch("dango.config.helpers.get_config") as mock_get_config,
+        patch("dango.ingestion.sources.registry.get_source_metadata") as mock_get_metadata,
+    ):
+        # Create secrets.toml with content but no source-specific section
+        secrets_file = mock_project_root / ".dlt" / "secrets.toml"
+        secrets_file.write_text("[sources]\n")
+
+        # Setup config
+        mock_source = Mock()
+        mock_source.name = "my_gcs"
+        mock_source.type.value = "gcs"
+        mock_config = Mock()
+        mock_config.sources.sources = [mock_source]
+        mock_get_config.return_value = mock_config
+
+        # Setup registry
+        from dango.ingestion.sources.registry import AuthType
+
+        mock_get_metadata.return_value = {"auth_type": AuthType.SERVICE_ACCOUNT}
+
+        results = run_credential_checks(mock_project_root)
+
+        assert len(results) == 1
+        assert results[0]["source"] == "my_gcs"
+        assert results[0]["status"] == "missing"
+        assert "gcs" in results[0]["detail"]
 
 
 def test_validation_exception_handling(mock_project_root: Path) -> None:
