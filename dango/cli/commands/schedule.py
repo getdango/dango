@@ -63,13 +63,17 @@ _SCRIPT_TEMPLATE = '''\
 Dango script — runs as a subprocess (scheduled or via Run Now in the Scripts tab).
 """
 import os
+from pathlib import Path
 
 import duckdb
 
-project_root = os.environ["DANGO_PROJECT_ROOT"]
-db_path = os.path.join(project_root, "data", "warehouse.duckdb")
+# Support both scheduled runs (DANGO_PROJECT_ROOT set) and manual runs
+_env_root = os.environ.get("DANGO_PROJECT_ROOT")
+project_root = Path(_env_root) if _env_root else Path(__file__).resolve().parent.parent
 
-conn = duckdb.connect(db_path, read_only=True)
+db_path = project_root / "data" / "warehouse.duckdb"
+
+conn = duckdb.connect(str(db_path), read_only=True)
 # TODO: add your queries here
 # Example:
 # rows = conn.sql("SELECT * FROM marts.my_table LIMIT 10").fetchall()
