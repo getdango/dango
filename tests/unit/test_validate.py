@@ -60,3 +60,113 @@ class TestModelSqlPortability:
         v._check_model_sql_portability()
 
         assert v.results == []
+
+
+@pytest.mark.unit
+class TestScriptPaths:
+    def _validator(self, tmp_path):
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir(parents=True)
+        return ProjectValidator(tmp_path), scripts_dir
+
+    def test_clean_script_no_warnings(self, tmp_path):
+        """Script using DANGO_PROJECT_ROOT env var should not warn."""
+        v, scripts_dir = self._validator(tmp_path)
+        (scripts_dir / "clean.py").write_text(
+            'import os\nproject_root = os.environ["DANGO_PROJECT_ROOT"]\n'
+        )
+
+        v._check_script_paths()
+
+        assert not any(r.name.startswith("scripts:") for r in v.results)
+
+    def test_flags_path_home(self, tmp_path):
+        """Script using Path.home() should warn."""
+        v, scripts_dir = self._validator(tmp_path)
+        (scripts_dir / "home.py").write_text("from pathlib import Path\ndir = Path.home()\n")
+
+        v._check_script_paths()
+
+        assert any(r.status == "warn" and "home.py" in r.name for r in v.results)
+
+    def test_flags_hardcoded_users_path(self, tmp_path):
+        """Script with hardcoded /Users/... path should warn."""
+        v, scripts_dir = self._validator(tmp_path)
+        (scripts_dir / "local.py").write_text("path = '/Users/aaronteoh/project/data.csv'\n")
+
+        v._check_script_paths()
+
+        assert any(r.status == "warn" and "local.py" in r.name for r in v.results)
+
+    def test_flags_hardcoded_home_path(self, tmp_path):
+        """Script with hardcoded /home/... path should warn."""
+        v, scripts_dir = self._validator(tmp_path)
+        (scripts_dir / "linux.py").write_text("path = '/home/user/project/data.csv'\n")
+
+        v._check_script_paths()
+
+        assert any(r.status == "warn" and "linux.py" in r.name for r in v.results)
+
+    def test_flags_single_letter_username(self, tmp_path):
+        """Script with single-letter username (/Users/a, /home/j) should warn."""
+        v, scripts_dir = self._validator(tmp_path)
+        (scripts_dir / "single.py").write_text("path = '/Users/a/project' # or '/home/j/data'\n")
+
+        v._check_script_paths()
+
+        assert any(r.status == "warn" and "single.py" in r.name for r in v.results)
+
+    def test_flags_numeric_username(self, tmp_path):
+        """Script with numeric username (/Users/123, /home/42) should warn."""
+        v, scripts_dir = self._validator(tmp_path)
+        (scripts_dir / "numeric.py").write_text("path = '/home/123/project/data'\n")
+
+        v._check_script_paths()
+
+        assert any(r.status == "warn" and "numeric.py" in r.name for r in v.results)
+
+    def test_flags_path_absolute_call(self, tmp_path):
+        """Script with Path('/absolute/path') should warn."""
+        v, scripts_dir = self._validator(tmp_path)
+        (scripts_dir / "pathabs.py").write_text(
+            'from pathlib import Path\ndir = Path("/home/data")\n'
+        )
+
+        v._check_script_paths()
+
+        assert any(r.status == "warn" and "pathabs.py" in r.name for r in v.results)
+
+    def test_no_scripts_dir(self, tmp_path):
+        """No scripts/ dir should produce no results."""
+        v = ProjectValidator(tmp_path)
+
+        v._check_script_paths()
+
+        assert not any(r.name.startswith("scripts:") for r in v.results)
+
+    def test_skips_init_file(self, tmp_path):
+        """__init__.py should be skipped."""
+        v, scripts_dir = self._validator(tmp_path)
+        (scripts_dir / "__init__.py").write_text("path = '/Users/foo/bar'\n")
+
+        v._check_script_paths()
+
+        assert not any(r.name.startswith("scripts:") for r in v.results)
+
+    def test_skips_dotfiles(self, tmp_path):
+        """Dotfiles should be skipped."""
+        v, scripts_dir = self._validator(tmp_path)
+        (scripts_dir / ".hidden.py").write_text("path = '/Users/foo/bar'\n")
+
+        v._check_script_paths()
+
+        assert not any(r.name.startswith("scripts:") for r in v.results)
+
+    def test_skips_underscore_prefix(self, tmp_path):
+        """Files starting with _ should be skipped."""
+        v, scripts_dir = self._validator(tmp_path)
+        (scripts_dir / "_private.py").write_text("path = '/Users/foo/bar'\n")
+
+        v._check_script_paths()
+
+        assert not any(r.name.startswith("scripts:") for r in v.results)
