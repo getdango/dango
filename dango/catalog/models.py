@@ -17,7 +17,6 @@ from dango.catalog.manifest import (
 )
 from dango.catalog.profiling import _get_cached_row_counts
 from dango.logging import get_logger
-from dango.utils.dbt_status import get_model_statuses
 
 logger = get_logger(__name__)
 
@@ -84,6 +83,7 @@ def _build_catalog_models(
         Dict with ``models`` and ``sources`` lists.
     """
     from dango.catalog.manifest import _build_test_status_map
+    from dango.utils.dbt_status import get_model_statuses
     from dango.web.helpers import get_project_root
 
     test_map = _build_test_status_map(manifest, run_results)
