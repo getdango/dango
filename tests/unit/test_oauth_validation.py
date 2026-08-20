@@ -5,7 +5,7 @@ Tests for dango/oauth/validation.py — live token validation.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -216,7 +216,7 @@ class TestValidateFacebookToken:
     def test_expired_token(self) -> None:
         """Expired token (stored expiry in past) returns expired result."""
         cred = make_facebook_credential(
-            expires_at=datetime.now() - timedelta(days=1),
+            expires_at=datetime.now(tz=timezone.utc) - timedelta(days=1),
         )
         result = validate_facebook_token(cred)
 
