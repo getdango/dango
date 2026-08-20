@@ -289,6 +289,81 @@ class ModelWizard:
 
         return None
 
+    def _get_available_tables(self, layer_filter: str | None = None) -> list[dict[str, str]]:
+        """Return existing dbt models grouped by layer, for upstream selection.
+
+        Each entry: {"name": "stg_stripe_customers", "layer": "staging", "source": "stripe"}.
+        "source" is only populated for staging tables (derived from the stg_<source>_ prefix).
+        """
+        tables: list[dict[str, str]] = []
+
+        def scan_dir(d: Path, layer: str) -> None:
+            """Scan directory for SQL model files."""
+            if not d.exists():
+                return
+            for f in sorted(d.glob("*.sql")):
+                name = f.stem
+                source = ""
+                if layer == "staging" and name.startswith("stg_"):
+                    parts = name.split("_")
+                    source = parts[1] if len(parts) > 2 else ""
+                tables.append({"name": name, "layer": layer, "source": source})
+
+        if layer_filter is None or layer_filter == "staging":
+            scan_dir(self.models_dir / "staging", "staging")
+        if layer_filter is None or layer_filter == "intermediate":
+            scan_dir(self.models_dir / "intermediate", "intermediate")
+        if layer_filter is None or layer_filter == "marts":
+            scan_dir(self.models_dir / "marts", "marts")
+        return tables
+
+    def _ask_upstream_tables(self, model_layer: str) -> list[str]:
+        """Interactive loop: ask user to pick upstream tables one at a time.
+
+        Returns selected table names in pick order (empty = skip → placeholder SQL).
+        Intermediate models only see staging tables; marts models see all layers.
+        """
+        from rich.prompt import Confirm
+
+        layer_filter = "staging" if model_layer == "intermediate" else None
+        tables = self._get_available_tables(layer_filter=layer_filter)
+        if not tables:
+            return []
+
+        selected: list[str] = []
+
+        while True:
+            remaining = [t for t in tables if t["name"] not in selected]
+            if not remaining:
+                break
+
+            choices = [("(skip — generate placeholder instead)", "__skip__")]
+            for t in remaining:
+                label = t["name"]
+                if t["source"]:
+                    label += f" ({t['layer']}/{t['source']})"
+                else:
+                    label += f" ({t['layer']})"
+                choices.append((label, t["name"]))
+
+            questions = [
+                inquirer.List("table", message="Select an upstream table", choices=choices)
+            ]
+            answers = inquirer.prompt(questions)
+            if not answers:
+                break  # Ctrl-C
+
+            result = answers.get("table")
+            if result == "__skip__":
+                break
+
+            selected.append(result)
+
+            if not Confirm.ask("Add another table?", default=False):
+                break
+
+        return selected
+
     def _create_model_file(
         self, layer: str, name: str, description: str, materialization: str
     ) -> Path | None:
@@ -336,9 +411,16 @@ class ModelWizard:
             )
             return None
 
+        # Ask user to select upstream tables
+        upstream_tables = self._ask_upstream_tables(layer)
+
         # Generate SQL content
         sql_content = self._generate_sql_template(
-            layer=layer, name=name, description=description, materialization=materialization
+            layer=layer,
+            name=name,
+            description=description,
+            materialization=materialization,
+            upstream_tables=upstream_tables,
         )
 
         # Write file
@@ -348,7 +430,12 @@ class ModelWizard:
         return model_path
 
     def _generate_sql_template(
-        self, layer: str, name: str, description: str, materialization: str
+        self,
+        layer: str,
+        name: str,
+        description: str,
+        materialization: str,
+        upstream_tables: list[str] | None = None,
     ) -> str:
         """
         Generate SQL template content with comprehensive documentation
@@ -383,80 +470,26 @@ class ModelWizard:
         lines.append(") }}")
         lines.append("")
 
-        # Comprehensive reference guide
-        lines.append("-- " + "=" * 76)
-        lines.append("-- HOW TO REFERENCE TABLES IN dbt")
-        lines.append("-- " + "=" * 76)
-        lines.append("--")
-        lines.append("-- 1. STAGING MODELS (auto-generated, in staging schema)")
-        lines.append("--    {# {{ ref('stg_source_name') }} #}")
-        lines.append("--    Example: FROM {# {{ ref('stg_stripe_customers') }} #}")
-        lines.append("--")
-        lines.append("--    These are auto-generated from your data sources.")
-        lines.append("--    List available: dango models list")
-        lines.append("--")
-        lines.append("-- 2. INTERMEDIATE MODELS (in intermediate schema)")
-        lines.append("--    {# {{ ref('int_model_name') }} #}")
-        lines.append("--    Example: FROM {# {{ ref('int_customer_orders') }} #}")
-        lines.append("--")
-        lines.append("--    These are building blocks you create for reusable logic.")
-        lines.append("--")
-        lines.append("-- 3. MARTS MODELS (in marts schema, no prefix)")
-        lines.append("--    {# {{ ref('model_name') }} #}")
-        lines.append("--    Example: FROM {# {{ ref('customer_revenue') }} #}")
-        lines.append("--")
-        lines.append("--    These are final business tables for reporting/dashboards.")
-        lines.append("--")
-        lines.append("-- 4. EXTERNAL CSV DATA (dbt seeds)")
-        lines.append("--    {# {{ ref('seed_name') }} #}")
-        lines.append("--    1. Add the file:   dango seed add path/to/data.csv")
-        lines.append("--    2. Reference it:   {# {{ ref('data') }} #}")
-        lines.append(
-            "--    (Do NOT use read_csv_auto('/absolute/path') — it breaks on other machines/cloud.)"
-        )
-        lines.append("--")
-        lines.append("-- " + "=" * 76)
-        lines.append("-- COMMON PATTERNS")
-        lines.append("-- " + "=" * 76)
-        lines.append("--")
-        lines.append("-- PATTERN 1: Simple transformation (intermediate layer)")
-        lines.append("-- SELECT")
-        lines.append("--     customer_id,")
-        lines.append("--     UPPER(customer_name) AS customer_name,")
-        lines.append("--     total_orders")
-        lines.append("-- FROM {# {{ ref('stg_customers') }} #}")
-        lines.append("--")
-        lines.append("-- PATTERN 2: Join multiple tables (intermediate or marts layer)")
-        lines.append("-- SELECT")
-        lines.append("--     c.customer_id,")
-        lines.append("--     c.customer_name,")
-        lines.append("--     COUNT(o.order_id) AS order_count,")
-        lines.append("--     SUM(o.amount) AS total_revenue")
-        lines.append("-- FROM {# {{ ref('stg_customers') }} #} c")
-        lines.append("-- LEFT JOIN {# {{ ref('stg_orders') }} #} o")
-        lines.append("--     ON c.customer_id = o.customer_id")
-        lines.append("-- GROUP BY 1, 2")
-        lines.append("--")
-        lines.append("-- PATTERN 3: Build on intermediate models (marts layer)")
-        lines.append("-- SELECT")
-        lines.append("--     co.customer_id,")
-        lines.append("--     co.customer_name,")
-        lines.append("--     co.order_count,")
-        lines.append("--     cr.total_revenue,")
-        lines.append("--     cr.avg_order_value")
-        lines.append("-- FROM {# {{ ref('int_customer_orders') }} #} co")
-        lines.append("-- LEFT JOIN {# {{ ref('int_customer_revenue') }} #} cr")
-        lines.append("--     ON co.customer_id = cr.customer_id")
-        lines.append("--")
-        lines.append("-- " + "=" * 76)
-        lines.append("-- YOUR SQL STARTS HERE")
-        lines.append("-- " + "=" * 76)
-        lines.append("")
-        lines.append("-- Replace this placeholder query with your actual transformation")
-        lines.append("SELECT 1 as placeholder")
-        lines.append("    -- Example transformations:")
-        lines.append("    -- SELECT * FROM {{ ref('stg_customers') }}")
-        lines.append("    -- SELECT * FROM {{ ref('int_customer_orders') }}")
+        if upstream_tables:
+            lines.append("")
+            for i, table in enumerate(upstream_tables):
+                parts = table.split("_")
+                alias = parts[-1] if len(parts) > 1 else table
+                comma = "," if i < len(upstream_tables) - 1 else ""
+                lines.append(f"WITH {alias} AS (" if i == 0 else f"{alias} AS (")
+                lines.append(f"    SELECT * FROM {{{{ ref('{table}') }}}}")
+                lines.append(f"){comma}")
+            lines.append("")
+            lines.append("SELECT")
+            lines.append("    -- TODO: Define your transformation here")
+            first_alias = upstream_tables[0].split("_")[-1]
+            lines.append(f"    {first_alias}.*")
+            lines.append(f"FROM {first_alias}")
+        else:
+            lines.append("")
+            lines.append("SELECT")
+            lines.append("    -- TODO: Define your transformation here")
+            lines.append("    1 AS placeholder")
 
         return "\n".join(lines) + "\n"
 
