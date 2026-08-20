@@ -49,6 +49,8 @@ def _write_env_file(project_root: Path, env_vars: dict[str, str]) -> None:
         os.write(fd, content.encode("utf-8"))
     finally:
         os.close(fd)
+    # Enforce correct permissions on existing files (os.open mode is ignored for existing files)
+    os.chmod(str(env_file), 0o600)
 
 
 def _mask_value(value: str) -> str:
