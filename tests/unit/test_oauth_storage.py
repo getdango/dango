@@ -12,7 +12,7 @@ Focuses on:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -46,33 +46,47 @@ class TestOAuthCredentialExpiry:
         assert cred.is_expiring_soon() is False
 
     def test_future_expiry_not_expired(self) -> None:
-        cred = make_facebook_credential(expires_at=datetime.now() + timedelta(days=30))
+        cred = make_facebook_credential(
+            expires_at=datetime.now(tz=timezone.utc) + timedelta(days=30)
+        )
         assert cred.is_expired() is False
 
     def test_past_expiry_is_expired(self) -> None:
-        cred = make_facebook_credential(expires_at=datetime.now() - timedelta(hours=1))
+        cred = make_facebook_credential(
+            expires_at=datetime.now(tz=timezone.utc) - timedelta(hours=1)
+        )
         assert cred.is_expired() is True
 
     def test_days_until_expiry_positive(self) -> None:
-        cred = make_facebook_credential(expires_at=datetime.now() + timedelta(days=10))
+        cred = make_facebook_credential(
+            expires_at=datetime.now(tz=timezone.utc) + timedelta(days=10)
+        )
         days = cred.days_until_expiry()
         assert days is not None
         assert days >= 9  # allow for sub-day rounding
 
     def test_days_until_expiry_zero_when_expired(self) -> None:
-        cred = make_facebook_credential(expires_at=datetime.now() - timedelta(days=5))
+        cred = make_facebook_credential(
+            expires_at=datetime.now(tz=timezone.utc) - timedelta(days=5)
+        )
         assert cred.days_until_expiry() == 0
 
     def test_expiring_soon_within_7_days(self) -> None:
-        cred = make_facebook_credential(expires_at=datetime.now() + timedelta(days=3))
+        cred = make_facebook_credential(
+            expires_at=datetime.now(tz=timezone.utc) + timedelta(days=3)
+        )
         assert cred.is_expiring_soon(days=7) is True
 
     def test_not_expiring_soon_beyond_threshold(self) -> None:
-        cred = make_facebook_credential(expires_at=datetime.now() + timedelta(days=30))
+        cred = make_facebook_credential(
+            expires_at=datetime.now(tz=timezone.utc) + timedelta(days=30)
+        )
         assert cred.is_expiring_soon(days=7) is False
 
     def test_expiring_soon_custom_threshold(self) -> None:
-        cred = make_facebook_credential(expires_at=datetime.now() + timedelta(days=25))
+        cred = make_facebook_credential(
+            expires_at=datetime.now(tz=timezone.utc) + timedelta(days=25)
+        )
         assert cred.is_expiring_soon(days=30) is True
         assert cred.is_expiring_soon(days=7) is False
 
