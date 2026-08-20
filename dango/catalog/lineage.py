@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from dango.web.helpers import get_dbt_manifest
+
 
 def _build_lineage_dag() -> dict[str, Any] | None:
     """Build full DAG from dbt manifest (sources + models + edges).
@@ -14,8 +16,6 @@ def _build_lineage_dag() -> dict[str, Any] | None:
     Returns:
         Dict with ``nodes`` and ``edges`` lists, or ``None`` if no manifest.
     """
-    from dango.web.helpers import get_dbt_manifest
-
     manifest = get_dbt_manifest()
     if manifest is None:
         return None
