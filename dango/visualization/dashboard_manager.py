@@ -110,6 +110,119 @@ class DashboardManager:
                 return collection.get("id")
         return None
 
+    def _parse_parent_id(self, location: str) -> int | None:
+        """
+        Parse parent collection ID from Metabase location string.
+
+        Metabase location format is "/parent_id/collection_id/" where collection_id
+        is the own ID and parent_id is the parent's ID. Root collections have location "/1/".
+
+        Args:
+            location: Metabase location string (e.g. "/1/5/" → parent 1)
+
+        Returns:
+            Parent collection ID or None if no parent (root level)
+        """
+        if not location:
+            return None
+        parts = [p for p in location.strip("/").split("/") if p]
+        if len(parts) < 2:
+            return None
+        try:
+            return int(parts[-2])
+        except (ValueError, IndexError):
+            return None
+
+    def _import_collections(self, collections: list[dict]) -> dict[int, int]:
+        """
+        Re-create collection hierarchy on target instance.
+
+        Uses BFS topological sort to process root collections before children,
+        ensuring all parent IDs exist when child collections are created.
+
+        Args:
+            collections: List of collection dicts from YAML with 'id', 'name', 'parent_id'
+
+        Returns:
+            Mapping of old collection IDs (source) to new IDs (target)
+        """
+        # Validate input structure
+        for col in collections:
+            if not isinstance(col.get("id"), int):
+                raise ValueError(f"Collection missing or invalid 'id' (expected int): {col}")
+            if not isinstance(col.get("name"), str):
+                raise ValueError(f"Collection missing or invalid 'name' (expected str): {col}")
+            parent_id = col.get("parent_id")
+            if parent_id is not None and not isinstance(parent_id, int):
+                raise ValueError(
+                    f"Collection '{col['name']}' has invalid 'parent_id' "
+                    f"(expected int or None, got {type(parent_id).__name__}): {col}"
+                )
+
+        # BFS topological sort: roots first, then children in wave order
+        queue = [c for c in collections if not c.get("parent_id")]
+        processed: set[int] = {c["id"] for c in queue}
+        ordered: list[dict] = list(queue)
+        remaining = [c for c in collections if c.get("parent_id")]
+
+        while remaining:
+            ready = [c for c in remaining if c["parent_id"] in processed]
+            if not ready:
+                # broken refs — append as-is and let API handle (fallback to root)
+                ordered.extend(remaining)
+                break
+            for c in ready:
+                ordered.append(c)
+                processed.add(c["id"])
+                remaining.remove(c)
+
+        id_mapping: dict[int, int] = {}
+        for col in ordered:
+            old_id = col["id"]
+            parent_old_id = col.get("parent_id")
+            parent_new_id = id_mapping.get(parent_old_id) if parent_old_id else None
+
+            payload = {"name": col["name"], "parent_id": parent_new_id}
+            try:
+                resp = requests.post(
+                    f"{self.metabase_url}/api/collection",
+                    json=payload,
+                    headers=self._get_headers(),
+                    timeout=10,
+                )
+                if resp.status_code in (200, 201):
+                    new_id = resp.json().get("id")
+                    if new_id is None:
+                        raise ValueError(
+                            f"Metabase API returned {resp.status_code} "
+                            f"but response missing 'id' key: {resp.json()}"
+                        )
+                    id_mapping[old_id] = new_id
+                else:
+                    # Fallback: check if collection already exists by name
+                    existing = self.get_collection_id(col["name"])
+                    if existing:
+                        id_mapping[old_id] = existing
+                    else:
+                        # Still add mapping to avoid downstream silent failures
+                        # If parent exists, assign to parent; otherwise assign to root (id 1)
+                        fallback_id = parent_new_id if parent_new_id else 1
+                        id_mapping[old_id] = fallback_id
+                        console.print(
+                            f"[yellow]Warning: Failed to create collection '{col['name']}' "
+                            f"(HTTP {resp.status_code}), assigning to collection {fallback_id}[/yellow]"
+                        )
+            except Exception as e:
+                console.print(
+                    f"[yellow]Warning: Failed to create collection '{col['name']}': {e}[/yellow]"
+                )
+                # Still add mapping to prevent downstream silent failures
+                # If parent exists, assign to parent; otherwise assign to root (id 1)
+                fallback_id = parent_new_id if parent_new_id else 1
+                id_mapping[old_id] = fallback_id
+
+        return id_mapping
+
     def get_dashboards(self, collection_id: int | None = None) -> list[dict[str, Any]]:
         """
         Get dashboards from Metabase
@@ -793,7 +906,7 @@ class DashboardManager:
                         "id": c.get("id"),
                         "description": c.get("description", ""),
                         "color": c.get("color"),
-                        "parent_id": c.get("location"),
+                        "parent_id": self._parse_parent_id(c.get("location", "/")),
                     }
                     for c in collections_to_export
                 ]
@@ -871,7 +984,18 @@ class DashboardManager:
         backups = {}
         created_items = []  # Track created items for rollback
 
+        # Build collection ID mapping (old instance IDs → new instance IDs)
+        id_mapping: dict[int, int] = {}
         try:
+            if not dry_run:
+                collections_file = metabase_dir / "collections.yml"
+                if collections_file.exists():
+                    with open(collections_file) as f:
+                        collections_data = yaml.safe_load(f) or {}
+                    cols = collections_data.get("collections", [])
+                    if cols:
+                        id_mapping = self._import_collections(cols)
+
             # Import dashboards
             dashboards_dir = metabase_dir / "dashboards"
             if dashboards_dir.exists():
@@ -916,6 +1040,8 @@ class DashboardManager:
                         else:
                             # Actual Metabase API import
                             collection_id = dashboard_data.get("collection_id")
+                            if collection_id is not None:
+                                collection_id = id_mapping.get(collection_id, collection_id)
 
                             dashboard_id = self._create_dashboard_from_yaml(
                                 dashboard_data, collection_id=collection_id, overwrite=overwrite
@@ -987,6 +1113,8 @@ class DashboardManager:
                             else:
                                 # Actual Metabase API import
                                 collection_id = card_data.get("collection_id")
+                                if collection_id is not None:
+                                    collection_id = id_mapping.get(collection_id, collection_id)
 
                                 card_id = self._create_question_from_yaml(
                                     card_data, collection_id=collection_id, overwrite=overwrite
