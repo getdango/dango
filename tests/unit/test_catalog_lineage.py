@@ -148,7 +148,7 @@ def _make_manifest(
 class TestGetLineage:
     """Tests for GET /api/catalog/lineage."""
 
-    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    @patch("dango.web.helpers.get_dbt_manifest")
     def test_full_dag_response_shape(
         self,
         mock_manifest: MagicMock,
@@ -198,7 +198,7 @@ class TestGetLineage:
             "fct_orders",
         }
 
-    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    @patch("dango.web.helpers.get_dbt_manifest")
     def test_reverse_lookup_correct(
         self,
         mock_manifest: MagicMock,
@@ -237,7 +237,7 @@ class TestGetLineage:
         fct_node = next(n for n in data["nodes"] if n["name"] == "fct_orders")
         assert fct_node["depended_on_by"] == []
 
-    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    @patch("dango.web.helpers.get_dbt_manifest")
     def test_test_associations(
         self,
         mock_manifest: MagicMock,
@@ -271,7 +271,7 @@ class TestGetLineage:
             "unique_stg_orders_id",
         }
 
-    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    @patch("dango.web.helpers.get_dbt_manifest")
     def test_documentation_status(
         self,
         mock_manifest: MagicMock,
@@ -311,7 +311,7 @@ class TestGetLineage:
         assert undoc_node["columns_documented"] == 0
         assert undoc_node["columns_total"] == 0
 
-    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    @patch("dango.web.helpers.get_dbt_manifest")
     def test_404_no_manifest(
         self,
         mock_manifest: MagicMock,
@@ -326,7 +326,7 @@ class TestGetLineage:
         assert resp.status_code == 404
         assert "manifest" in resp.json()["detail"].lower()
 
-    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    @patch("dango.web.helpers.get_dbt_manifest")
     def test_sources_included(
         self,
         mock_manifest: MagicMock,
@@ -354,7 +354,7 @@ class TestGetLineage:
         assert source_nodes[0]["name"] == "orders"
         assert source_nodes[0]["materialization"] is None
 
-    @patch("dango.web.routes.catalog.get_dbt_manifest")
+    @patch("dango.web.helpers.get_dbt_manifest")
     def test_source_nodes_include_source_name(
         self,
         mock_manifest: MagicMock,
