@@ -351,6 +351,7 @@ def _build_cron_interactive(selection: str) -> str | None:
                     "days",
                     message="Select days (SPACE to toggle, ENTER to confirm)",
                     choices=[label for label, _ in _DAY_CHOICES],
+                    default=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
                 )
             ]
         )
@@ -1101,7 +1102,10 @@ def schedule_disable(ctx: click.Context, name: str) -> None:
 @schedule.command("reload")
 @click.pass_context
 def schedule_reload(ctx: click.Context) -> None:
-    """Reload schedules into the running scheduler, if one is active."""
+    """Reload schedules from .dango/schedules.yml into the running scheduler.
+
+    Use after manually editing .dango/schedules.yml to apply changes without restarting dango.
+    """
     from dango.cli.utils import require_project_context
 
     project_root = require_project_context(ctx)
