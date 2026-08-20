@@ -213,3 +213,27 @@ def test_alias_derivation_multiple_tables(project_root):
     assert "orders AS (" in sql
     # First one should be first alias reference
     assert "FROM customers" in sql
+
+
+def test_alias_collision_resolution(project_root):
+    """Test that colliding aliases fall back to full table name"""
+    wizard = ModelWizard(project_root)
+
+    # Both tables end with "customers" — would collide
+    sql = wizard._generate_sql_template(
+        layer="intermediate",
+        name="int_test.sql",
+        description="",
+        materialization="table",
+        upstream_tables=["stg_stripe_customers", "stg_hubspot_customers"],
+    )
+
+    # First should use derived alias (customers from stripe)
+    assert "WITH customers AS (" in sql
+    # Second should fall back to full name (collision detected)
+    assert "stg_hubspot_customers AS (" in sql
+    # Both refs should be present
+    assert "{{ ref('stg_stripe_customers') }}" in sql
+    assert "{{ ref('stg_hubspot_customers') }}" in sql
+    # First alias used in final SELECT
+    assert "FROM customers" in sql

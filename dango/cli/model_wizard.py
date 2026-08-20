@@ -472,9 +472,18 @@ class ModelWizard:
 
         if upstream_tables:
             lines.append("")
-            for i, table in enumerate(upstream_tables):
+            # Derive aliases, handling collisions
+            aliases: list[str] = []
+            for table in upstream_tables:
                 parts = table.split("_")
                 alias = parts[-1] if len(parts) > 1 else table
+                # Fall back to full table name if alias already used
+                if alias in aliases:
+                    alias = table
+                aliases.append(alias)
+
+            # Generate CTE block with resolved aliases
+            for i, (table, alias) in enumerate(zip(upstream_tables, aliases, strict=True)):
                 comma = "," if i < len(upstream_tables) - 1 else ""
                 lines.append(f"WITH {alias} AS (" if i == 0 else f"{alias} AS (")
                 lines.append(f"    SELECT * FROM {{{{ ref('{table}') }}}}")
@@ -482,9 +491,8 @@ class ModelWizard:
             lines.append("")
             lines.append("SELECT")
             lines.append("    -- TODO: Define your transformation here")
-            first_alias = upstream_tables[0].split("_")[-1]
-            lines.append(f"    {first_alias}.*")
-            lines.append(f"FROM {first_alias}")
+            lines.append(f"    {aliases[0]}.*")
+            lines.append(f"FROM {aliases[0]}")
         else:
             lines.append("")
             lines.append("SELECT")
