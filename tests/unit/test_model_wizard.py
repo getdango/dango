@@ -237,3 +237,23 @@ def test_alias_collision_resolution(project_root):
     assert "{{ ref('stg_hubspot_customers') }}" in sql
     # First alias used in final SELECT
     assert "FROM customers" in sql
+
+
+def test_alias_double_collision_resolution(project_root):
+    """Test that alias collision is handled even when fallback also collides."""
+    wizard = ModelWizard(project_root)
+
+    sql = wizard._generate_sql_template(
+        layer="intermediate",
+        name="int_test.sql",
+        description="",
+        materialization="table",
+        upstream_tables=["stg_stripe_customers", "customers"],
+    )
+
+    assert "WITH customers AS (" in sql
+    assert "customers_2 AS (" in sql
+    assert "{{ ref('stg_stripe_customers') }}" in sql
+    assert "{{ ref('customers') }}" in sql
+    assert sql.count("WITH customers AS (") == 1
+    assert sql.count("customers_2 AS (") == 1
