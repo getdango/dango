@@ -60,6 +60,8 @@ _SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 _VALID_NOTIFY_ON = frozenset({"failure", "success", "stale"})
 
+_RELOAD_KWARGS_EXCLUDE = frozenset({"_timeout_minutes"})
+
 
 def get_schedule_job_id(schedule_name: str) -> str:
     """Return the APScheduler job ID for a schedule name.
@@ -594,7 +596,7 @@ def reload_schedules(
             }
 
         if job_id in existing_ids:
-            # Check if trigger actually changed before removing.
+            # Check if trigger and kwargs actually changed before removing.
             # Removing and re-adding destroys APScheduler's stored next_run_time,
             # which prevents catch-up of missed jobs on restart.
             existing_job = existing_jobs[job_id]
@@ -602,9 +604,25 @@ def reload_schedules(
             trigger_changed = str(existing_trigger) != str(trigger) or str(
                 getattr(existing_trigger, "timezone", None)
             ) != str(getattr(trigger, "timezone", None))
-            if trigger_changed:
+
+            # Compare func_kwargs, excluding runtime-only keys like _timeout_minutes.
+            # Old persisted jobs won't have _timeout_minutes, so comparing it would
+            # mark every existing job as changed on first reload after this fix ships.
+            existing_kwargs = {
+                k: v
+                for k, v in (getattr(existing_job, "kwargs", None) or {}).items()
+                if k not in _RELOAD_KWARGS_EXCLUDE
+            }
+            new_kwargs = {k: v for k, v in func_kwargs.items() if k not in _RELOAD_KWARGS_EXCLUDE}
+            kwargs_changed = existing_kwargs != new_kwargs
+
+            if trigger_changed or kwargs_changed:
                 scheduler.remove_job(job_id)
                 updated.append(sched.name)
+                # If only kwargs changed (trigger stayed the same), preserve next_run_time.
+                # If trigger also changed, remove it (the old fire time is no longer valid).
+                if kwargs_changed and not trigger_changed:
+                    job_kwargs["next_run_time"] = existing_job.next_run_time
                 scheduler.add_job(func, trigger, kwargs=func_kwargs, **job_kwargs)
             else:
                 unchanged.append(sched.name)

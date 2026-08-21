@@ -130,8 +130,12 @@ class TestReloadSchedules:
         """Create a mock SchedulerService with optional existing jobs.
 
         *existing_jobs* can be a list of job ID strings (trigger defaults
-        to a ``0 6 * * *`` cron) or a list of ``(job_id, cron_expr)``
-        tuples for explicit trigger control.
+        to a ``0 6 * * *`` cron), a list of ``(job_id, cron_expr)``
+        tuples for explicit trigger control, or a list of 3-tuples
+        ``(job_id, cron_expr, job_kwargs)`` for explicit kwargs and next_run_time control.
+
+        job_kwargs: dict with optional "kwargs" (job func kwargs) and "next_run_time"
+        (datetime or None) keys. Defaults to empty kwargs and None next_run_time.
         """
         from apscheduler.triggers.cron import CronTrigger
 
@@ -140,13 +144,20 @@ class TestReloadSchedules:
         if existing_jobs:
             for entry in existing_jobs:
                 if isinstance(entry, tuple):
-                    job_id, cron_expr = entry
+                    if len(entry) == 3:
+                        job_id, cron_expr, job_kwargs_config = entry
+                    else:
+                        job_id, cron_expr = entry
+                        job_kwargs_config = {}
                 else:
                     job_id = entry
                     cron_expr = "0 6 * * *"
+                    job_kwargs_config = {}
                 job = MagicMock()
                 job.id = job_id
                 job.trigger = CronTrigger.from_crontab(cron_expr)
+                job.kwargs = job_kwargs_config.get("kwargs", {})
+                job.next_run_time = job_kwargs_config.get("next_run_time", None)
                 jobs.append(job)
         scheduler.get_jobs.return_value = jobs
         return scheduler
@@ -173,10 +184,20 @@ class TestReloadSchedules:
         scheduler.remove_job.assert_called_once_with("schedule:old_job")
 
     def test_unchanged_trigger_preserves_job(self):
-        """Job with same trigger is left in place (preserves next_run_time)."""
+        """Job with same trigger and kwargs is left in place (preserves next_run_time)."""
         from dango.config.schedules import ScheduleConfig, reload_schedules
 
-        scheduler = self._make_scheduler(existing_jobs=["schedule:my_sync"])
+        matching_kwargs = {
+            "kwargs": {
+                "schedule_name": "my_sync",
+                "sources": ["csv"],
+                "project_root": "/tmp/project",
+                "skip_dbt": False,
+            }
+        }
+        scheduler = self._make_scheduler(
+            existing_jobs=[("schedule:my_sync", "0 6 * * *", matching_kwargs)]
+        )
         scheds = [ScheduleConfig(name="my_sync", cron="0 6 * * *", sources=["csv"])]
 
         result = reload_schedules(scheduler, scheds, Path("/tmp/project"))
@@ -261,3 +282,95 @@ class TestReloadSchedules:
         _, call_kwargs = scheduler.add_job.call_args
         assert call_kwargs["kwargs"]["dbt_command"] == "run --select daily_models"
         assert call_kwargs["id"] == "schedule:nightly_dbt"
+
+    def test_changed_sources_updates_job(self):
+        """Job with different sources is removed and re-added, preserving next_run_time."""
+        from datetime import datetime
+
+        from dango.config.schedules import ScheduleConfig, reload_schedules
+
+        old_next_run = datetime.fromisoformat("2025-01-15T06:00:00")
+        old_kwargs = {
+            "kwargs": {
+                "schedule_name": "my_sync",
+                "sources": ["old_source"],
+                "project_root": "/tmp/project",
+                "skip_dbt": False,
+            },
+            "next_run_time": old_next_run,
+        }
+        scheduler = self._make_scheduler(
+            existing_jobs=[("schedule:my_sync", "0 6 * * *", old_kwargs)]
+        )
+        scheds = [ScheduleConfig(name="my_sync", cron="0 6 * * *", sources=["new_source"])]
+
+        result = reload_schedules(scheduler, scheds, Path("/tmp/project"))
+
+        assert "my_sync" in result.updated
+        scheduler.remove_job.assert_called_once_with("schedule:my_sync")
+        scheduler.add_job.assert_called_once()
+        # Verify that next_run_time is preserved when only kwargs changed
+        _, call_kwargs = scheduler.add_job.call_args
+        assert call_kwargs["next_run_time"] == old_next_run
+
+    def test_timeout_change_only_stays_unchanged(self):
+        """_timeout_minutes changes are ignored (excluded from kwargs comparison)."""
+        from dango.config.schedules import ScheduleConfig, reload_schedules
+
+        old_kwargs = {
+            "kwargs": {
+                "schedule_name": "my_sync",
+                "sources": ["csv"],
+                "project_root": "/tmp/project",
+                "skip_dbt": False,
+                "_timeout_minutes": 30,
+            }
+        }
+        scheduler = self._make_scheduler(
+            existing_jobs=[("schedule:my_sync", "0 6 * * *", old_kwargs)]
+        )
+        scheds = [
+            ScheduleConfig(
+                name="my_sync",
+                cron="0 6 * * *",
+                sources=["csv"],
+                timeout_minutes=60,
+            )
+        ]
+
+        result = reload_schedules(scheduler, scheds, Path("/tmp/project"))
+
+        # _timeout_minutes is excluded from comparison, so job stays unchanged
+        assert "my_sync" in result.unchanged
+        scheduler.remove_job.assert_not_called()
+        scheduler.add_job.assert_not_called()
+
+    def test_kwargs_and_trigger_both_changed_updates_job(self):
+        """When both trigger and kwargs change, next_run_time is NOT preserved."""
+        from datetime import datetime
+
+        from dango.config.schedules import ScheduleConfig, reload_schedules
+
+        old_next_run = datetime.fromisoformat("2025-01-15T06:00:00")
+        old_kwargs = {
+            "kwargs": {
+                "schedule_name": "my_sync",
+                "sources": ["old_source"],
+                "project_root": "/tmp/project",
+                "skip_dbt": False,
+            },
+            "next_run_time": old_next_run,
+        }
+        scheduler = self._make_scheduler(
+            existing_jobs=[("schedule:my_sync", "0 6 * * *", old_kwargs)]
+        )
+        scheds = [ScheduleConfig(name="my_sync", cron="0 12 * * *", sources=["new_source"])]
+
+        result = reload_schedules(scheduler, scheds, Path("/tmp/project"))
+
+        assert "my_sync" in result.updated
+        scheduler.remove_job.assert_called_once_with("schedule:my_sync")
+        scheduler.add_job.assert_called_once()
+        # Verify that next_run_time is NOT preserved when trigger also changed
+        _, call_kwargs = scheduler.add_job.call_args
+        assert "next_run_time" not in call_kwargs
