@@ -217,8 +217,8 @@ def validate_google_service_account(credential: OAuthCredential) -> TokenValidat
         return TokenValidationResult(
             source_type=credential.source_type,
             provider=credential.provider,
-            valid=True,
-            message="google-auth not installed (can't verify service account)",
+            valid=False,
+            message="google-auth not installed. Run: pip install google-auth",
             error_code="google_auth_missing",
             account_info=credential.account_info,
         )
