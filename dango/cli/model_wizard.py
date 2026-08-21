@@ -480,6 +480,12 @@ class ModelWizard:
                 # Fall back to full table name if alias already used
                 if alias in aliases:
                     alias = table
+                # If fallback also collides, add numeric suffix
+                if alias in aliases:
+                    i = 2
+                    while f"{alias}_{i}" in aliases:
+                        i += 1
+                    alias = f"{alias}_{i}"
                 aliases.append(alias)
 
             # Generate CTE block with resolved aliases
