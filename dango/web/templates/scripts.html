@@ -154,6 +154,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ static_url('js/app.js') }}"></script>
 <script>
 function scriptsPage() {
     const headers = {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'};
