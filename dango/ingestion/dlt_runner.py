@@ -18,6 +18,7 @@ from typing import Any
 
 import dlt
 from dlt.common.pipeline import LoadInfo
+from dlt.pipeline.exceptions import PipelineStepFailed
 from dotenv import load_dotenv
 from rich.console import Console
 
@@ -46,6 +47,24 @@ class _PaginatorLogFilter(_logging.Filter):
 
 
 _dlt_logger.addFilter(_PaginatorLogFilter())
+
+# Keywords indicating a DuckDB write-lock conflict (BUG-195). Shared between
+# _analyze_error()'s user-facing message and _load_with_lock()'s retry check
+# so the two stay in sync as DuckDB/dlt error wording changes.
+_DUCKDB_LOCK_KEYWORDS = (
+    "is locked",
+    "could not set lock",
+    "write lock",
+    "file lock",
+    "already open",
+    "another process",
+)
+
+
+def _is_duckdb_lock_error(error: BaseException) -> bool:
+    """True if the error message indicates a DuckDB write-lock conflict."""
+    error_str = str(error).lower()
+    return any(keyword in error_str for keyword in _DUCKDB_LOCK_KEYWORDS)
 
 
 class DltPipelineRunner:
@@ -2340,17 +2359,7 @@ Error details: {str(error)}
 
         # DuckDB lock errors (must be checked before connection — lock messages
         # contain "connection" which would trigger the wrong handler)
-        if any(
-            keyword in error_str
-            for keyword in [
-                "is locked",
-                "could not set lock",
-                "write lock",
-                "file lock",
-                "already open",
-                "another process",
-            ]
-        ):
+        if any(keyword in error_str for keyword in _DUCKDB_LOCK_KEYWORDS):
             return f"""
 DuckDB Lock Error: Database is locked for '{source_name}'
 
@@ -2433,6 +2442,9 @@ Need help? Visit: https://github.com/getdango/dango/issues
         Metabase is stopped before the write phase and restarted after to
         prevent DuckDB lock conflicts on cloud deployments. On non-cloud,
         ``stop_metabase_for_writes`` returns immediately (no-op).
+
+        On local deployments where Metabase holds a continuous DuckDB connection,
+        lock conflicts are retried up to 5 times with 10-second waits before failing.
         """
         from dango.platform.common.metabase_lifecycle import (
             start_metabase_after_writes,
@@ -2446,7 +2458,34 @@ Need help? Visit: https://github.com/getdango/dango/issues
             try:
                 lock.acquire(timeout=max_lock_wait)
                 console.print("  [dim]🔒 Lock acquired for write phase[/dim]")
-                return pipeline.load()
+
+                _LOCK_MAX_RETRIES = 5
+                _LOCK_RETRY_WAIT = 10  # seconds
+                for _attempt in range(_LOCK_MAX_RETRIES):
+                    try:
+                        return pipeline.load()
+                    except PipelineStepFailed as _exc:
+                        # pipeline.load() always wraps step exceptions in
+                        # PipelineStepFailed (see dlt's Pipeline.load()) — the
+                        # underlying DestinationConnectionError never propagates
+                        # directly, so we match on the wrapped message instead.
+                        # Uses the same keyword set as _analyze_error() (BUG-195)
+                        # so both stay in sync on what counts as a lock conflict.
+                        if _attempt >= _LOCK_MAX_RETRIES - 1 or not _is_duckdb_lock_error(_exc):
+                            raise
+                        _logging.getLogger(__name__).warning(
+                            "duckdb_lock_conflict_retry: attempt=%d/%d wait=%ds source=%s",
+                            _attempt + 1,
+                            _LOCK_MAX_RETRIES,
+                            _LOCK_RETRY_WAIT,
+                            source_name,
+                        )
+                        console.print(
+                            f"  [yellow]⚠ DuckDB lock conflict (attempt {_attempt + 1}/"
+                            f"{_LOCK_MAX_RETRIES}), retrying in {_LOCK_RETRY_WAIT}s...[/yellow]"
+                        )
+                        time.sleep(_LOCK_RETRY_WAIT)
+                raise AssertionError("unreachable: loop above always returns or raises")
             finally:
                 lock.release()
                 console.print("  [dim]🔓 Lock released[/dim]")
