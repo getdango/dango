@@ -1120,15 +1120,21 @@ def _write_script_logs(
     exit_code: int | None,
     duration_seconds: float,
     status: str,
+    run_id: str,
+    started_at: datetime,
+    error: str | None = None,
 ) -> None:
     """Write script stdout, stderr, and metadata to log files. Never raises."""
     import json as _json
-    from datetime import datetime, timezone
+    from datetime import datetime as _datetime
+    from datetime import timezone
 
     try:
-        safe_name = script_path.replace("/", "__").replace("\\", "__")
-        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S")
-        log_dir = project_root / ".dango" / "logs" / "scripts" / f"{safe_name}_{ts}"
+        # Log dir keyed by run_id (not script name + timestamp) so it matches
+        # what the web layer's log viewer reads: _get_log_dir()/{run_id}, i.e.
+        # .dango/logs/scripts/runs/{run_id}. Do not import scripts_helpers here
+        # to keep the platform layer independent of the web layer.
+        log_dir = project_root / ".dango" / "logs" / "scripts" / "runs" / run_id
         log_dir.mkdir(parents=True, exist_ok=True)
 
         _MAX = 1_048_576  # 1 MB
@@ -1143,18 +1149,22 @@ def _write_script_logs(
         (log_dir / "stderr.txt").write_text(stderr_str, encoding="utf-8", errors="replace")
 
         meta: dict[str, Any] = {
+            "run_id": run_id,
             "script_name": script_path,
             "schedule_name": schedule_name,
-            "finished_at": datetime.now(tz=timezone.utc).isoformat(),
+            "started_at": started_at.isoformat(),
+            "finished_at": _datetime.now(tz=timezone.utc).isoformat(),
             "duration_seconds": round(duration_seconds, 1),
             "exit_code": exit_code if exit_code is not None else -1,
             "status": status,
+            "error": error,
         }
         (log_dir / "meta.json").write_text(_json.dumps(meta))
 
         # Also append to .jsonl history so the scripts UI can show last_run.
         # Path mirrors _get_history_file() in dango.web.routes.scripts_helpers —
         # do not import from web routes to keep platform layer independent.
+        safe_name = script_path.replace("/", "__").replace("\\", "__")
         history_file = project_root / ".dango" / "logs" / "scripts" / f"{safe_name}.jsonl"
         with open(history_file, "a", encoding="utf-8") as _fh:
             _fh.write(_json.dumps(meta) + "\n")
@@ -1180,9 +1190,12 @@ def run_scheduled_script(
     """
     import os
     import subprocess
+    import uuid
 
     project_root = Path(kwargs.get("project_root", "."))
     t0 = time.monotonic()
+    run_id = str(uuid.uuid4())
+    started_at = datetime.now(tz=timezone.utc)
 
     from dango.exceptions import JobCancelledError, JobTimeoutError
     from dango.platform.notifications.webhook import (
@@ -1347,6 +1360,9 @@ def run_scheduled_script(
                 proc.returncode,
                 elapsed,
                 "timeout",
+                run_id,
+                started_at,
+                error=f"Script timed out after {_script_timeout}s",
             )
             log_activity(project_root, "error", script_label, "Scheduled script timed out")
             _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
@@ -1387,6 +1403,9 @@ def run_scheduled_script(
             exit_code,
             elapsed,
             "success" if exit_code == 0 else "failed",
+            run_id,
+            started_at,
+            error=None if exit_code == 0 else f"Exit code: {exit_code}",
         )
 
         if exit_code == 0:
