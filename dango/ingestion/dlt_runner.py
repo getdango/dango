@@ -18,7 +18,7 @@ from typing import Any
 
 import dlt
 from dlt.common.pipeline import LoadInfo
-from dlt.destinations.exceptions import DestinationConnectionError
+from dlt.pipeline.exceptions import PipelineStepFailed
 from dotenv import load_dotenv
 from rich.console import Console
 
@@ -2453,28 +2453,31 @@ Need help? Visit: https://github.com/getdango/dango/issues
 
                 _LOCK_MAX_RETRIES = 5
                 _LOCK_RETRY_WAIT = 10  # seconds
-                _last_lock_error: Exception | None = None
                 for _attempt in range(_LOCK_MAX_RETRIES):
                     try:
                         return pipeline.load()
-                    except DestinationConnectionError as _exc:
-                        if "Could not set lock" in str(_exc) and _attempt < _LOCK_MAX_RETRIES - 1:
-                            _last_lock_error = _exc
-                            _logging.getLogger(__name__).warning(
-                                "duckdb_lock_conflict_retry: attempt=%d/%d wait=%ds source=%s",
-                                _attempt + 1,
-                                _LOCK_MAX_RETRIES,
-                                _LOCK_RETRY_WAIT,
-                                source_name,
-                            )
-                            console.print(
-                                f"  [yellow]⚠ DuckDB lock conflict (attempt {_attempt + 1}/"
-                                f"{_LOCK_MAX_RETRIES}), retrying in {_LOCK_RETRY_WAIT}s...[/yellow]"
-                            )
-                            time.sleep(_LOCK_RETRY_WAIT)
-                        else:
+                    except PipelineStepFailed as _exc:
+                        # pipeline.load() always wraps step exceptions in
+                        # PipelineStepFailed (see dlt's Pipeline.load()) — the
+                        # underlying DestinationConnectionError never propagates
+                        # directly, so we match on the wrapped message instead.
+                        if _attempt >= _LOCK_MAX_RETRIES - 1 or "Could not set lock" not in str(
+                            _exc
+                        ):
                             raise
-                raise _last_lock_error  # type: ignore[misc]
+                        _logging.getLogger(__name__).warning(
+                            "duckdb_lock_conflict_retry: attempt=%d/%d wait=%ds source=%s",
+                            _attempt + 1,
+                            _LOCK_MAX_RETRIES,
+                            _LOCK_RETRY_WAIT,
+                            source_name,
+                        )
+                        console.print(
+                            f"  [yellow]⚠ DuckDB lock conflict (attempt {_attempt + 1}/"
+                            f"{_LOCK_MAX_RETRIES}), retrying in {_LOCK_RETRY_WAIT}s...[/yellow]"
+                        )
+                        time.sleep(_LOCK_RETRY_WAIT)
+                raise AssertionError("unreachable: loop above always returns or raises")
             finally:
                 lock.release()
                 console.print("  [dim]🔓 Lock released[/dim]")
