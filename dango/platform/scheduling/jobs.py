@@ -1479,8 +1479,27 @@ def run_scheduled_script(
                 duration_seconds=round(elapsed, 2),
             )
 
-    except JobTimeoutError:
+    # Not reachable via SCRIPT schedules today (they aren't wrapped in
+    # run_with_resilience(), unlike run_scheduled_sync/run_scheduled_dbt), so this
+    # branch only fires if a future caller starts injecting JobTimeoutError. Kept
+    # for parity with the sync/dbt handlers so history writing doesn't have to be
+    # re-added later.
+    except JobTimeoutError as exc:
         elapsed = time.monotonic() - t0
+        if script_path:
+            _write_script_logs(
+                project_root,
+                script_path,
+                schedule_name,
+                stdout="",
+                stderr="",
+                exit_code=-1,
+                duration_seconds=elapsed,
+                status="timeout",
+                run_id=run_id,
+                started_at=started_at,
+                error=str(exc) or "Job timed out (APScheduler limit)",
+            )
         log_activity(project_root, "error", script_label, "Scheduled script timed out")
         _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
         _log_execution_event(
@@ -1506,8 +1525,22 @@ def run_scheduled_script(
             duration_seconds=elapsed,
         )
 
-    except JobCancelledError:
+    except JobCancelledError as exc:
         elapsed = time.monotonic() - t0
+        if script_path:
+            _write_script_logs(
+                project_root,
+                script_path,
+                schedule_name,
+                stdout="",
+                stderr="",
+                exit_code=-1,
+                duration_seconds=elapsed,
+                status="cancelled",
+                run_id=run_id,
+                started_at=started_at,
+                error=str(exc) or "Script run was cancelled",
+            )
         log_activity(project_root, "warning", script_label, "Scheduled script cancelled")
         _try_finish_record(project_root, schedule_name, record_id, "record_cancellation")
         _log_execution_event(
@@ -1536,6 +1569,20 @@ def run_scheduled_script(
     except Exception as exc:  # noqa: BLE001
         elapsed = time.monotonic() - t0
         error_msg = str(exc)
+        if script_path:
+            _write_script_logs(
+                project_root,
+                script_path,
+                schedule_name,
+                stdout="",
+                stderr="",
+                exit_code=-1,
+                duration_seconds=elapsed,
+                status="failed",
+                run_id=run_id,
+                started_at=started_at,
+                error=error_msg,
+            )
         log_activity(
             project_root,
             "error",
