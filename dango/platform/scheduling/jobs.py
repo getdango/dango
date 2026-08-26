@@ -1481,6 +1481,20 @@ def run_scheduled_script(
 
     except JobTimeoutError:
         elapsed = time.monotonic() - t0
+        if script_path:
+            _write_script_logs(
+                project_root,
+                script_path,
+                schedule_name,
+                stdout="",
+                stderr="",
+                exit_code=-1,
+                duration_seconds=elapsed,
+                status="timeout",
+                run_id=run_id,
+                started_at=started_at,
+                error="Job timed out (APScheduler limit)",
+            )
         log_activity(project_root, "error", script_label, "Scheduled script timed out")
         _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
         _log_execution_event(
@@ -1508,6 +1522,20 @@ def run_scheduled_script(
 
     except JobCancelledError:
         elapsed = time.monotonic() - t0
+        if script_path:
+            _write_script_logs(
+                project_root,
+                script_path,
+                schedule_name,
+                stdout="",
+                stderr="",
+                exit_code=-1,
+                duration_seconds=elapsed,
+                status="cancelled",
+                run_id=run_id,
+                started_at=started_at,
+                error="Script run was cancelled",
+            )
         log_activity(project_root, "warning", script_label, "Scheduled script cancelled")
         _try_finish_record(project_root, schedule_name, record_id, "record_cancellation")
         _log_execution_event(
@@ -1536,6 +1564,20 @@ def run_scheduled_script(
     except Exception as exc:  # noqa: BLE001
         elapsed = time.monotonic() - t0
         error_msg = str(exc)
+        if script_path:
+            _write_script_logs(
+                project_root,
+                script_path,
+                schedule_name,
+                stdout="",
+                stderr="",
+                exit_code=-1,
+                duration_seconds=elapsed,
+                status="failed",
+                run_id=run_id,
+                started_at=started_at,
+                error=error_msg,
+            )
         log_activity(
             project_root,
             "error",
