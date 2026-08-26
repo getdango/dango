@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import dango
 from dango.auth.audit import AuditEvent, log_auth_event
@@ -38,6 +38,17 @@ def _get_client_ip(request: Request) -> str | None:
     if request.client is not None:
         return request.client.host
     return None
+
+
+def _mask_value(value: str | None) -> str:
+    """Mask a secret value, showing last 4 chars only.
+
+    For values <= 4 chars, return fully masked "****".
+    Handles None defensively by returning "****".
+    """
+    if not value or len(value) <= 4:
+        return "****"
+    return "****" + value[-4:]
 
 
 def read_env_file(project_root: Path) -> dict[str, str]:
@@ -77,7 +88,7 @@ async def list_secrets(
     # Env vars
     env_vars = read_env_file(project_root)
     env_items: list[dict[str, str]] = [
-        {"key": k, "masked_value": "***", "source": "env"} for k in env_vars
+        {"key": k, "masked_value": _mask_value(v), "source": "env"} for k, v in env_vars.items()
     ]
 
     # OAuth credentials
@@ -296,3 +307,16 @@ async def secrets_page(
             "subtitle": "Secrets & Credentials",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /settings/variables — legacy redirect to /settings/secrets
+# ---------------------------------------------------------------------------
+
+
+@router.get("/settings/variables")
+async def variables_redirect(
+    user: User = Depends(require_permission("config.manage")),
+) -> RedirectResponse:
+    """Redirect legacy variables page to secrets page."""
+    return RedirectResponse(url="/settings/secrets", status_code=301)
