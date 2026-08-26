@@ -93,6 +93,38 @@ class TestLoadWithLockRetry:
 
         assert pipeline.load.call_count == 5  # _LOCK_MAX_RETRIES
 
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            "database is locked",
+            "IO Error: database is locked by another process",
+            "Cannot open database: file already open by another connection",
+            "write lock held by another process",
+        ],
+    )
+    def test_retries_on_other_lock_phrasings(self, tmp_path, reason):
+        """Retries on the same lock keywords _analyze_error() recognizes (BUG-195),
+        not just the literal "Could not set lock" phrasing."""
+        runner = _make_runner(tmp_path)
+        pipeline = MagicMock()
+        success_result = MagicMock()
+        pipeline.load.side_effect = [_lock_error(reason=reason), success_result]
+
+        with (
+            patch(
+                "dango.platform.common.metabase_lifecycle.stop_metabase_for_writes",
+                return_value=False,
+            ),
+            patch.object(_dbt_lock_module, "DbtLock") as mock_lock_cls,
+            patch("dango.ingestion.dlt_runner.time.sleep"),
+        ):
+            mock_lock_cls.return_value.acquire.return_value = True
+
+            result = runner._load_with_lock(pipeline, "test_source")
+
+        assert result == success_result
+        assert pipeline.load.call_count == 2
+
     def test_non_lock_error_not_retried(self, tmp_path):
         """PipelineStepFailed without the lock message is raised immediately."""
         runner = _make_runner(tmp_path)

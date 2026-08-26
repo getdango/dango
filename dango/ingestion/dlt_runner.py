@@ -48,6 +48,24 @@ class _PaginatorLogFilter(_logging.Filter):
 
 _dlt_logger.addFilter(_PaginatorLogFilter())
 
+# Keywords indicating a DuckDB write-lock conflict (BUG-195). Shared between
+# _analyze_error()'s user-facing message and _load_with_lock()'s retry check
+# so the two stay in sync as DuckDB/dlt error wording changes.
+_DUCKDB_LOCK_KEYWORDS = (
+    "is locked",
+    "could not set lock",
+    "write lock",
+    "file lock",
+    "already open",
+    "another process",
+)
+
+
+def _is_duckdb_lock_error(error: BaseException) -> bool:
+    """True if the error message indicates a DuckDB write-lock conflict."""
+    error_str = str(error).lower()
+    return any(keyword in error_str for keyword in _DUCKDB_LOCK_KEYWORDS)
+
 
 class DltPipelineRunner:
     """
@@ -2341,17 +2359,7 @@ Error details: {str(error)}
 
         # DuckDB lock errors (must be checked before connection — lock messages
         # contain "connection" which would trigger the wrong handler)
-        if any(
-            keyword in error_str
-            for keyword in [
-                "is locked",
-                "could not set lock",
-                "write lock",
-                "file lock",
-                "already open",
-                "another process",
-            ]
-        ):
+        if any(keyword in error_str for keyword in _DUCKDB_LOCK_KEYWORDS):
             return f"""
 DuckDB Lock Error: Database is locked for '{source_name}'
 
@@ -2461,9 +2469,9 @@ Need help? Visit: https://github.com/getdango/dango/issues
                         # PipelineStepFailed (see dlt's Pipeline.load()) — the
                         # underlying DestinationConnectionError never propagates
                         # directly, so we match on the wrapped message instead.
-                        if _attempt >= _LOCK_MAX_RETRIES - 1 or "Could not set lock" not in str(
-                            _exc
-                        ):
+                        # Uses the same keyword set as _analyze_error() (BUG-195)
+                        # so both stay in sync on what counts as a lock conflict.
+                        if _attempt >= _LOCK_MAX_RETRIES - 1 or not _is_duckdb_lock_error(_exc):
                             raise
                         _logging.getLogger(__name__).warning(
                             "duckdb_lock_conflict_retry: attempt=%d/%d wait=%ds source=%s",
