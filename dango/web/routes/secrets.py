@@ -315,6 +315,8 @@ async def secrets_page(
 
 
 @router.get("/settings/variables")
-async def variables_redirect() -> RedirectResponse:
+async def variables_redirect(
+    user: User = Depends(require_permission("config.manage")),
+) -> RedirectResponse:
     """Redirect legacy variables page to secrets page."""
     return RedirectResponse(url="/settings/secrets", status_code=301)

@@ -257,6 +257,17 @@ class TestSecretsPage:
         assert "text/html" in content_type
 
 
+@pytest.mark.unit
+class TestVariablesRedirect:
+    """Tests for GET /settings/variables — legacy redirect to /settings/secrets."""
+
+    def test_redirects_to_secrets_page(self, setup):
+        client, _tmp = setup
+        resp = client.get("/settings/variables", headers=HEADERS, follow_redirects=False)
+        assert resp.status_code == 301
+        assert resp.headers["location"] == "/settings/secrets"
+
+
 # ---------------------------------------------------------------------------
 # .env file helpers (unit)
 # ---------------------------------------------------------------------------
