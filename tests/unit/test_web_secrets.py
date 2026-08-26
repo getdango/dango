@@ -108,16 +108,14 @@ class TestListSecrets:
 
     def test_list_with_env_vars(self, setup):
         client, tmp_path = setup
-        (tmp_path / ".env").write_text("FOO=bar\nBAZ=qux\n")
+        (tmp_path / ".env").write_text("FOO=bar\nBAZ=quux12345\n")
         resp = client.get("/api/secrets", headers=HEADERS)
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["env_vars"]) == 2
-        keys = [v["key"] for v in data["env_vars"]]
-        assert "FOO" in keys
-        assert "BAZ" in keys
-        for v in data["env_vars"]:
-            assert v["masked_value"] == "***"
+        by_key = {v["key"]: v["masked_value"] for v in data["env_vars"]}
+        assert by_key["FOO"] == "****"
+        assert by_key["BAZ"] == "****2345"
 
 
 @pytest.mark.unit
