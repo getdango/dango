@@ -1126,8 +1126,6 @@ def _write_script_logs(
 ) -> None:
     """Write script stdout, stderr, and metadata to log files. Never raises."""
     import json as _json
-    from datetime import datetime as _datetime
-    from datetime import timezone
 
     try:
         # Log dir keyed by run_id (not script name + timestamp) so it matches
@@ -1153,7 +1151,7 @@ def _write_script_logs(
             "script_name": script_path,
             "schedule_name": schedule_name,
             "started_at": started_at.isoformat(),
-            "finished_at": _datetime.now(tz=timezone.utc).isoformat(),
+            "finished_at": datetime.now(tz=timezone.utc).isoformat(),
             "duration_seconds": round(duration_seconds, 1),
             "exit_code": exit_code if exit_code is not None else -1,
             "status": status,
@@ -1393,6 +1391,11 @@ def run_scheduled_script(
 
         elapsed = time.monotonic() - t0
         exit_code = proc.returncode if proc.returncode is not None else -1
+        error_msg = (
+            None
+            if exit_code == 0
+            else (stderr.strip() if stderr and stderr.strip() else f"Exit code: {exit_code}")
+        )
 
         _write_script_logs(
             project_root,
@@ -1405,7 +1408,7 @@ def run_scheduled_script(
             "success" if exit_code == 0 else "failed",
             run_id,
             started_at,
-            error=None if exit_code == 0 else f"Exit code: {exit_code}",
+            error=error_msg,
         )
 
         if exit_code == 0:
@@ -1439,7 +1442,6 @@ def run_scheduled_script(
                 dashboard_url=_build_dashboard_url(project_root),
             )
         else:
-            error_msg = stderr.strip() if stderr and stderr.strip() else f"Exit code: {exit_code}"
             log_activity(
                 project_root,
                 "error",
