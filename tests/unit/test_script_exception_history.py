@@ -38,11 +38,21 @@ class TestScriptExceptionHistory:
 
     @patch("dango.platform.scheduling.jobs._scheduler_service", None)
     def test_cancelled_run_writes_history(self, tmp_path):
-        """JobCancelledError path writes a 'cancelled' history entry."""
+        """JobCancelledError path writes a 'cancelled' history entry.
+
+        The exception is injected via ``Popen.side_effect`` rather than the
+        actual pre-launch ``is_cancelled()`` check (jobs.py) for test
+        convenience — either way it's uncaught until the ``except
+        JobCancelledError`` handler, so this still exercises the real handler.
+        The message mirrors production's raise site so the assertion checks
+        that the handler preserves the real exception detail, not a
+        hardcoded placeholder.
+        """
         from dango.exceptions import JobCancelledError
         from dango.platform.scheduling.jobs import run_scheduled_script
 
         script_path = self._setup_valid_script(tmp_path)
+        cancel_message = "Script cancelled before launch for test_schedule"
 
         with (
             patch("subprocess.Popen") as mock_popen,
@@ -55,7 +65,7 @@ class TestScriptExceptionHistory:
             patch("dango.platform.notifications.webhook.WebhookSender"),
             patch("dango.platform.notifications.webhook.load_notification_config"),
         ):
-            mock_popen.side_effect = JobCancelledError("cancelled")
+            mock_popen.side_effect = JobCancelledError(cancel_message)
 
             run_scheduled_script(
                 "test_schedule",
@@ -68,7 +78,7 @@ class TestScriptExceptionHistory:
         entry = json.loads(hist.read_text().strip())
         assert entry["status"] == "cancelled"
         assert entry["script_name"] == script_path
-        assert entry["error"] == "Script run was cancelled"
+        assert entry["error"] == cancel_message
         assert entry["exit_code"] == -1
         assert "run_id" in entry
         assert "started_at" in entry
@@ -109,7 +119,16 @@ class TestScriptExceptionHistory:
 
     @patch("dango.platform.scheduling.jobs._scheduler_service", None)
     def test_job_timeout_writes_history(self, tmp_path):
-        """JobTimeoutError path writes a 'timeout' history entry."""
+        """JobTimeoutError handler writes a 'timeout' history entry.
+
+        NOTE: run_scheduled_script is not currently wrapped in
+        run_with_resilience() (unlike run_scheduled_sync/run_scheduled_dbt),
+        so nothing raises JobTimeoutError for SCRIPT schedules in production
+        today — this test validates the handler's own logic in isolation
+        (defensive parity with the sync/dbt handlers), not a reachable
+        production trigger. See the comment above the except block in
+        jobs.py.
+        """
         from dango.exceptions import JobTimeoutError
         from dango.platform.scheduling.jobs import run_scheduled_script
 

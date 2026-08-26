@@ -1479,7 +1479,12 @@ def run_scheduled_script(
                 duration_seconds=round(elapsed, 2),
             )
 
-    except JobTimeoutError:
+    # Not reachable via SCRIPT schedules today (they aren't wrapped in
+    # run_with_resilience(), unlike run_scheduled_sync/run_scheduled_dbt), so this
+    # branch only fires if a future caller starts injecting JobTimeoutError. Kept
+    # for parity with the sync/dbt handlers so history writing doesn't have to be
+    # re-added later.
+    except JobTimeoutError as exc:
         elapsed = time.monotonic() - t0
         if script_path:
             _write_script_logs(
@@ -1493,7 +1498,7 @@ def run_scheduled_script(
                 status="timeout",
                 run_id=run_id,
                 started_at=started_at,
-                error="Job timed out (APScheduler limit)",
+                error=str(exc) or "Job timed out (APScheduler limit)",
             )
         log_activity(project_root, "error", script_label, "Scheduled script timed out")
         _try_finish_record(project_root, schedule_name, record_id, "record_timeout")
@@ -1520,7 +1525,7 @@ def run_scheduled_script(
             duration_seconds=elapsed,
         )
 
-    except JobCancelledError:
+    except JobCancelledError as exc:
         elapsed = time.monotonic() - t0
         if script_path:
             _write_script_logs(
@@ -1534,7 +1539,7 @@ def run_scheduled_script(
                 status="cancelled",
                 run_id=run_id,
                 started_at=started_at,
-                error="Script run was cancelled",
+                error=str(exc) or "Script run was cancelled",
             )
         log_activity(project_root, "warning", script_label, "Scheduled script cancelled")
         _try_finish_record(project_root, schedule_name, record_id, "record_cancellation")
