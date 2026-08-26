@@ -1151,6 +1151,13 @@ def _write_script_logs(
             "status": status,
         }
         (log_dir / "meta.json").write_text(_json.dumps(meta))
+
+        # Also append to .jsonl history so the scripts UI can show last_run.
+        # Path mirrors _get_history_file() in dango.web.routes.scripts_helpers —
+        # do not import from web routes to keep platform layer independent.
+        history_file = project_root / ".dango" / "logs" / "scripts" / f"{safe_name}.jsonl"
+        with open(history_file, "a", encoding="utf-8") as _fh:
+            _fh.write(_json.dumps(meta) + "\n")
     except Exception:  # noqa: BLE001
         logger.debug("script_log_write_failed", script=script_path, exc_info=True)
 
