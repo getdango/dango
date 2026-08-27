@@ -17,6 +17,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/platform.py` (1136 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
 | `commands/auth.py` (666 lines) | `auth` group (13 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, change-role, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_change_role()`, `auth_status()`, etc. |
 | `commands/cleanup.py` (388 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
+| `commands/doctor.py` (65 lines) | `doctor` command — check credential health for all configured sources | `doctor()` |
 | `commands/oauth.py` (842 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
 | `commands/transform.py` (343 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
 | `commands/upgrade.py` (236 lines) | `upgrade` command — local Dango upgrade via pip + migrations | `upgrade()`, `get_latest_version_cached()` |
@@ -50,7 +51,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `init.py` (1496 lines) | Project initialization wizard | `ProjectInitializer` |
 | `wizard.py` (307 lines) | Interactive setup wizards | `ProjectWizard` |
 | `source_wizard.py` (2525 lines) | Source configuration wizard | `add_source()` |
-| `model_wizard.py` (507 lines) | dbt model creation wizard | `add_model()` |
+| `model_wizard.py` (547 lines) | dbt model creation wizard | `add_model()` |
 | **Helpers** | | |
 | `utils.py` (164 lines) | Display helpers + project context | `require_project_context()` |
 | `validate.py` (787 lines) | Project validation logic | `validate_project()` |
@@ -73,6 +74,7 @@ dango (top-level group)
 ├── serve                       ← commands/serve.py
 ├── upgrade                     ← commands/upgrade.py
 ├── cleanup                     ← commands/cleanup.py
+├── doctor                      ← commands/doctor.py
 ├── sync                        ← commands/source.py
 ├── run, docs, generate         ← commands/transform.py
 ├── validate                    ← commands/data.py

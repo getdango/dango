@@ -12,6 +12,7 @@ import pytest
 from dango.platform.cloud.file_sync import (
     REMOTE_PROJECT_DIR,
     SYNC_CONFIG_FILES,
+    SYNC_EXTRA_DIRS,
     SyncResult,
     _build_rsync_ssh_arg,
     _compute_local_hashes,
@@ -87,6 +88,10 @@ class TestSyncConfigFiles:
         assert "docker-compose.yml" in local_paths
         assert "Dockerfile.metabase" in local_paths
         assert "entrypoint.sh" in local_paths
+
+    def test_scripts_in_sync_extra_dirs(self):
+        """scripts/ directory is synced via rsync (1.0.7-11)."""
+        assert "scripts" in SYNC_EXTRA_DIRS
 
 
 @pytest.mark.unit
@@ -374,6 +379,28 @@ class TestSyncProjectFiles:
         assert "--delete" in cmd_list
         assert any("metabase" in str(arg) for arg in cmd_list)
         assert "metabase/" in result.synced_files
+
+    @patch("dango.platform.cloud.file_sync.shutil.which", return_value="/usr/bin/rsync")
+    @patch("dango.platform.cloud.file_sync.subprocess.run")
+    def test_rsync_syncs_scripts_dir(self, mock_run, mock_which, tmp_path):
+        """SYNC_EXTRA_DIRS: scripts/ is rsynced when present."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        ssh = _make_ssh_mock(first_deploy=True)
+        project = _make_project(tmp_path)
+        # Create scripts directory
+        (project / "scripts").mkdir(parents=True)
+        (project / "scripts" / "daily_report.py").write_text("# daily report script")
+
+        result = sync_project_files(ssh, project, remote_host="10.0.0.1")
+
+        # rsync should be called 3 times: models, macros, scripts
+        assert mock_run.call_count == 3
+        last_call = mock_run.call_args_list[-1]
+        cmd_list = last_call[0][0]
+        assert cmd_list[0] == "rsync"
+        assert "--delete" in cmd_list
+        assert any("scripts" in str(arg) for arg in cmd_list)
+        assert "scripts/" in result.synced_files
 
     @patch("dango.platform.cloud.file_sync.shutil.which", return_value=None)
     def test_rsync_not_installed(self, mock_which, tmp_path):

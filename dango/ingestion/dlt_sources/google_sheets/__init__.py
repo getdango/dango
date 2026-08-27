@@ -98,13 +98,20 @@ def google_spreadsheet(
             }
         )
         if values is None or len(values) == 0:
-            logger.warning(f"Range {name} does not contain any data. Skipping.")
             skipped_ranges.append(name)
-            continue
+            raise RuntimeError(
+                f"Range {name!r} returned no data from Google Sheets. "
+                "Existing table data preserved. "
+                "Check that the range is not accidentally cleared. "
+                "Remove the range from your source configuration if it is intentionally empty."
+            )
         if len(values) == 1:
-            logger.warning(f"Range {name} contain only 1 row of data. Skipping.")
             skipped_ranges.append(name)
-            continue
+            raise RuntimeError(
+                f"Range {name!r} contains only a header row and no data rows. "
+                "Existing table data preserved. "
+                "Add data rows to the range or remove it from your source configuration."
+            )
         if len(values[0]) == 0:
             logger.warning(
                 f"First row of range {name} does not contain data. Skipping."

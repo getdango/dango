@@ -29,6 +29,7 @@ from dango.exceptions import (
     format_structured_error,
 )
 from dango.oauth.router import OAUTH_PROVIDER_MAP
+from dango.oauth.service_account import validate_google_service_account
 from dango.oauth.storage import OAuthCredential, OAuthStorage
 
 logger = logging.getLogger(__name__)
@@ -378,6 +379,7 @@ _PROVIDER_VALIDATORS = {
     "facebook": validate_facebook_token,
     "facebook_ads": validate_facebook_token,
     "shopify": validate_shopify_token,
+    "google_service_account": validate_google_service_account,
 }
 
 

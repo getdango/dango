@@ -253,6 +253,26 @@ async def get_platform_health() -> dict[str, Any]:
         logger.warning("Failed to check OAuth token health", exc_info=True)
     result["oauth_health"] = oauth_health
 
+    # Credential health (dango doctor checks)
+    try:
+        from dango.ingestion.credential_health import get_cached_credential_health
+
+        cred_results = get_cached_credential_health(project_root)
+        cred_issues = [r for r in cred_results if r["status"] != "ok"]
+        credential_health: dict[str, Any] = {
+            "status": "ok" if not cred_issues else "warning",
+            "issues": cred_issues,
+            "total_sources": len(cred_results),
+        }
+        if cred_issues:
+            warnings.append(
+                f"{len(cred_issues)} source(s) with credential issues — run `dango doctor`"
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to check credential health", exc_info=True)
+        credential_health = {"status": "unknown", "issues": [], "total_sources": 0}
+    result["credential_health"] = credential_health
+
     if critical_issues:
         result["status"] = "critical"
     elif warnings:

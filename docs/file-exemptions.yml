@@ -141,9 +141,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/commands/schedule.py
-    lines: 914
+    lines: 1045
     category: exempt
-    reason: "R6F: Schedule wizard expanded with time customization (BUG-039), per-schedule status (BUG-041), type labels (BUG-037), auto-select (BUG-038), webhook check (BUG-040). R12-G added wizard name validation loop, checkbox hint. R12-N2 added sync_only option. S3-FUP-A: +138 lines (776→914) from S2/S3 schedule additions. Sequential wizard flow doesn't benefit from splitting."
+    reason: "R6F: Schedule wizard expanded with time customization (BUG-039), per-schedule status (BUG-041), type labels (BUG-037), auto-select (BUG-038), webhook check (BUG-040). R12-G added wizard name validation loop, checkbox hint. R12-N2 added sync_only option. S3-FUP-A: +138 lines (776→914) from S2/S3 schedule additions. 1.0.7-12: Added weekdays + selectdays frequency options + schedule reload command (+131 lines, 914→1045). Sequential wizard flow doesn't benefit from splitting."
     review_by: "v1.1"
 
   - file: dango/config/schedules.py
@@ -234,9 +234,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/model_wizard.py
-    lines: 507
+    lines: 547
     category: exempt
-    reason: "Interactive dbt model creation wizard. Sequential prompting, stable."
+    reason: "Interactive dbt model creation wizard. Sequential prompting, stable. 1.0.7-1: Added table selection + CTE scaffold generation."
     review_by: "v1.1"
 
 # Removed: dango/platform/network.py — now 486 lines, within limit (TASK-088)
@@ -415,9 +415,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: tests/unit/test_cli_schedule.py
-    lines: 692
+    lines: 1025
     category: exempt
-    reason: "TASK-045a: 8 test classes covering schedule help, list, status, remove, enable, disable, add wizard (sync, dbt, custom cron, cancelled). Marginally over limit."
+    reason: "TASK-045a: 8 test classes covering schedule help, list, status, remove, enable, disable, add wizard (sync, dbt, custom cron, cancelled). 1.0.7-12: Added TestScheduleReload (2 tests) + 3 new TestScheduleAdd tests (weekdays, selectdays, selectdays_no_days_selected) (+333 lines, 692→1025). Each test class requires isolated mock setup."
     review_by: "v1.1"
 
   - file: dango/web/routes/notebooks.py
@@ -503,6 +503,12 @@ exemptions:
     lines: 629
     category: exempt
     reason: "S3-1 added 5 tests for monthly retention tier, archive cleanup, and secrets exclusion/inclusion in local archive."
+    review_by: "v1.1"
+
+  - file: tests/unit/test_credential_health.py
+    lines: 523
+    category: exempt
+    reason: "1.0.7-6: 14 tests covering credential health checks across all auth types (OAuth, API key, service account, none) with cache scoping and multi-project isolation. Tests also verify exception handling and TOML parsing for service accounts."
     review_by: "v1.1"
 
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)

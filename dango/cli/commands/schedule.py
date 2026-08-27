@@ -37,6 +37,8 @@ _FREQUENCY_CHOICES = [
     ("Every 12 hours", "12h"),
     ("Daily", "daily"),
     ("Weekly", "weekly"),
+    ("Weekdays (Mon–Fri)", "weekdays"),
+    ("Select days...", "selectdays"),
     ("Custom cron", "custom"),
 ]
 
@@ -56,6 +58,29 @@ _DAY_CHOICES = [
     ("Saturday", 6),
     ("Sunday", 0),
 ]
+
+_SCRIPT_TEMPLATE = '''\
+"""scripts/{script_name}.py
+
+Dango script — runs as a subprocess (scheduled or via Run Now in the Scripts tab).
+"""
+import os
+from pathlib import Path
+
+import duckdb
+
+# Support both scheduled runs (DANGO_PROJECT_ROOT set) and manual runs
+_env_root = os.environ.get("DANGO_PROJECT_ROOT")
+project_root = Path(_env_root) if _env_root else Path(__file__).resolve().parent.parent
+
+db_path = project_root / "data" / "warehouse.duckdb"
+
+conn = duckdb.connect(str(db_path), read_only=True)
+# TODO: add your queries here
+# Example:
+# rows = conn.sql("SELECT * FROM marts.my_table LIMIT 10").fetchall()
+conn.close()
+'''
 
 
 def _load_schedules_yaml(project_root: Path) -> dict[str, Any]:
@@ -286,6 +311,88 @@ def _build_cron_interactive(selection: str) -> str | None:
             return None
         minute = int(answers["minute"])
         return f"{minute} {hour} * * *"
+
+    if selection == "weekdays":
+        # Hour → minute (day-of-week fixed to 1-5)
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "hour",
+                    message="Hour (0-23)",
+                    default="6",
+                    validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 23,
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        hour = int(answers["hour"])
+
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "minute",
+                    message="Minute (0-59)",
+                    default="0",
+                    validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 59,
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        minute = int(answers["minute"])
+        return f"{minute} {hour} * * 1-5"
+
+    if selection == "selectdays":
+        # Multi-select days → hour → minute
+        answers = inquirer.prompt(
+            [
+                inquirer.Checkbox(
+                    "days",
+                    message="Select days (SPACE to toggle, ENTER to confirm)",
+                    choices=[label for label, _ in _DAY_CHOICES],
+                    default=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        selected_labels: list[str] = answers["days"]
+        if not selected_labels:
+            console.print("[red]Please select at least one day.[/red]")
+            return None
+        day_map = dict(_DAY_CHOICES)
+        day_nums = sorted(day_map[label] for label in selected_labels)
+        days_csv = ",".join(str(d) for d in day_nums)
+
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "hour",
+                    message="Hour (0-23)",
+                    default="6",
+                    validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 23,
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        hour = int(answers["hour"])
+
+        answers = inquirer.prompt(
+            [
+                inquirer.Text(
+                    "minute",
+                    message="Minute (0-59)",
+                    default="0",
+                    validate=lambda _, x: x.isdigit() and 0 <= int(x) <= 59,
+                )
+            ]
+        )
+        if answers is None:
+            return None
+        minute = int(answers["minute"])
+        return f"{minute} {hour} * * {days_csv}"
 
     # Hourly intervals: 1h, 2h, 3h, 4h, 6h, 8h, 12h
     interval = int(selection.rstrip("h"))
@@ -747,23 +854,54 @@ def schedule_add(ctx: click.Context) -> None:
         script_choices: list[tuple[str, str]] = [(s["name"], s["path"]) for s in scripts]
 
         if not script_choices:
-            console.print(
-                "[red]No Python scripts found in scripts/ directory.[/red] Add a .py file first."
-            )
-            return
-
-        answers = inquirer.prompt(
-            [
-                inquirer.List(
-                    "script_path",
-                    message="Select a script to run",
-                    choices=[label for label, _ in script_choices],
+            if safe_confirm(
+                "No Python scripts found in scripts/ directory. Create a starter script?",
+                default=True,
+            ):
+                name_answers = inquirer.prompt(
+                    [
+                        inquirer.Text(
+                            "script_name",
+                            message="Script filename",
+                            default="my_report.py",
+                            validate=lambda _, x: (
+                                x.endswith(".py")
+                                and x not in ("__init__.py",)
+                                and not x.startswith((".", "_"))
+                            ),
+                        )
+                    ]
                 )
-            ]
-        )
-        if answers is None:
-            return
-        script_path = answers["script_path"]
+                if name_answers is None:
+                    return
+                script_name = name_answers["script_name"]
+                scripts_dir_path = project_root / "scripts"
+                scripts_dir_path.mkdir(parents=True, exist_ok=True)
+                script_full = scripts_dir_path / script_name
+                if script_full.exists():
+                    console.print(f"[red]scripts/{script_name} already exists.[/red]")
+                    return
+                script_full.write_text(_SCRIPT_TEMPLATE.format(script_name=Path(script_name).stem))
+                console.print(f"[green]✓ Created scripts/{script_name}[/green]")
+                script_path = script_name
+            else:
+                console.print(
+                    "[red]No Python scripts found in scripts/ directory.[/red] Add a .py file first."
+                )
+                return
+        else:
+            answers = inquirer.prompt(
+                [
+                    inquirer.List(
+                        "script_path",
+                        message="Select a script to run",
+                        choices=[label for label, _ in script_choices],
+                    )
+                ]
+            )
+            if answers is None:
+                return
+            script_path = answers["script_path"]
 
         # Timeout prompt
         answers = inquirer.prompt(
@@ -954,6 +1092,24 @@ def schedule_enable(ctx: click.Context, name: str) -> None:
 def schedule_disable(ctx: click.Context, name: str) -> None:
     """Disable an active schedule."""
     _toggle_schedule(ctx, name, enable=False)
+
+
+# ---------------------------------------------------------------------------
+# schedule reload
+# ---------------------------------------------------------------------------
+
+
+@schedule.command("reload")
+@click.pass_context
+def schedule_reload(ctx: click.Context) -> None:
+    """Reload schedules from .dango/schedules.yml into the running scheduler.
+
+    Use after manually editing .dango/schedules.yml to apply changes without restarting dango.
+    """
+    from dango.cli.utils import require_project_context
+
+    project_root = require_project_context(ctx)
+    _try_reload_running_scheduler(project_root)
 
 
 # ---------------------------------------------------------------------------

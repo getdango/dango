@@ -1169,7 +1169,7 @@ class TestRowCountsAndProfileAll:
 
     @patch("dango.web.helpers.get_project_root")
     @patch("dango.web.routes.catalog.get_project_root")
-    @patch("dango.web.routes.catalog._get_cached_row_counts")
+    @patch("dango.catalog.models._get_cached_row_counts")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_model_list_includes_row_count(
@@ -1207,7 +1207,7 @@ class TestRowCountsAndProfileAll:
 
     @patch("dango.web.helpers.get_project_root")
     @patch("dango.web.routes.catalog.get_project_root")
-    @patch("dango.web.routes.catalog._get_cached_row_counts")
+    @patch("dango.catalog.models._get_cached_row_counts")
     @patch("dango.web.routes.catalog._get_run_results")
     @patch("dango.web.routes.catalog.get_dbt_manifest")
     def test_source_list_includes_row_count(

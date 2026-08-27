@@ -5,7 +5,7 @@ Tests for dango/oauth/validation.py — live token validation.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -216,7 +216,7 @@ class TestValidateFacebookToken:
     def test_expired_token(self) -> None:
         """Expired token (stored expiry in past) returns expired result."""
         cred = make_facebook_credential(
-            expires_at=datetime.now() - timedelta(days=1),
+            expires_at=datetime.now(tz=timezone.utc) - timedelta(days=1),
         )
         result = validate_facebook_token(cred)
 
@@ -578,3 +578,63 @@ class TestValidateAllTokens:
 
         results = validate_all_tokens(tmp_path)
         assert results == []
+
+
+@pytest.mark.unit
+class TestValidateGoogleServiceAccount:
+    """Tests for validate_google_service_account() in oauth/service_account.py."""
+
+    def _make_service_account_credential(self):
+        return make_oauth_credential(
+            source_type="google_sheets",
+            provider="google_service_account",
+            identifier="test@test-project.iam.gserviceaccount.com",
+            account_info="test@test-project.iam.gserviceaccount.com",
+            credentials={
+                "type": "service_account",
+                "project_id": "test-project",
+                "private_key_id": "key-id",
+                "private_key": (
+                    "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n"
+                    "-----END RSA PRIVATE KEY-----\n"
+                ),
+                "client_email": "test@test-project.iam.gserviceaccount.com",
+                "client_id": "123456789",
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            },
+        )
+
+    def test_google_auth_missing_returns_invalid(self):
+        from dango.oauth.service_account import validate_google_service_account
+
+        credential = self._make_service_account_credential()
+        with patch.dict(
+            "sys.modules",
+            {
+                "google.auth.transport.requests": None,
+                "google.oauth2.service_account": None,
+            },
+        ):
+            result = validate_google_service_account(credential)
+
+        assert result.valid is False
+        assert result.error_code == "google_auth_missing"
+        assert "google-auth not installed" in result.message
+        assert result.source_type == "google_sheets"
+        assert result.provider == "google_service_account"
+
+    def test_google_auth_missing_message_includes_install_hint(self):
+        from dango.oauth.service_account import validate_google_service_account
+
+        credential = self._make_service_account_credential()
+        with patch.dict(
+            "sys.modules",
+            {
+                "google.auth.transport.requests": None,
+                "google.oauth2.service_account": None,
+            },
+        ):
+            result = validate_google_service_account(credential)
+
+        assert "pip install google-auth" in result.message

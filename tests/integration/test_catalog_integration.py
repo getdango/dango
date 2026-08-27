@@ -379,7 +379,7 @@ class TestLineageIntegration:
         """_build_lineage_dag returns correct nodes + edges from manifest."""
         _create_test_manifest(tmp_path)
         monkeypatch.setattr(
-            "dango.web.routes.catalog.get_dbt_manifest",
+            "dango.web.helpers.get_dbt_manifest",
             lambda: json.loads((tmp_path / "dbt" / "target" / "manifest.json").read_text()),
         )
 
