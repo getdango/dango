@@ -169,6 +169,8 @@ exclude = ["dango/ingestion/dlt_sources/"]
 module = [
     "inquirer",
     "inquirer.*",
+    "InquirerPy",
+    "InquirerPy.*",
     "googleapiclient",
     "googleapiclient.*",
     "boto3",

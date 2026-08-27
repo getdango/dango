@@ -20,7 +20,7 @@ def _try_service_account_auth(source_type: str, project_root: Path) -> bool:
     """
     import json
 
-    from InquirerPy import inquirer  # type: ignore[import-not-found]
+    from InquirerPy import inquirer  # type: ignore[import-untyped]
 
     from dango.oauth.service_account import (
         save_service_account_credential,
