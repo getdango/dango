@@ -36,16 +36,19 @@ For detailed installation instructions, see the [documentation](https://docs.get
 
 - **33 data sources** — Stripe, Google Sheets, Google Analytics, Shopify, PostgreSQL, MySQL, CSV, REST APIs, and more
 - **Auto-generated dbt models** — staging models created automatically when you add a source
-- **Web dashboard** — monitor syncs, browse your data catalog, manage sources
+- **Data catalog** — browse tables, columns, and profiling stats; view dbt lineage and test results
+- **Web dashboard** — monitor syncs, manage sources, and view platform health
 - **Metabase integration** — dashboards and SQL queries, auto-configured and ready to use
+- **Scripts** — schedule custom Python scripts alongside your syncs; runs on a schedule with access to your warehouse
 - **Cloud deployment** — deploy to DigitalOcean or any server with `dango deploy`
 - **Authentication** — admin login, user management, 2FA, API keys
 - **Schema drift detection** — get alerted when source schemas change
 - **PII scanning** — detect personally identifiable information across your tables
 - **Notebooks** — Marimo notebooks connected to your DuckDB warehouse
 - **Monitoring** — metric tracking with trend detection and drill-downs
-- **Scheduled syncs** — cron-based scheduling with retry and timeout handling
+- **Scheduled syncs** — cron-based scheduling with queued execution, retry, and timeout handling
 - **Webhooks** — Slack notifications for sync results and alerts
+- **Local backup** — `dango backup` lists and restores local project backups
 - **File watcher** — auto-sync when CSV files change on disk
 
 ## Screenshots
