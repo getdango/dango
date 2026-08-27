@@ -5,6 +5,40 @@ All notable changes to Dango will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] - 2026-08-27
+
+### Added
+
+- `dango doctor` — credential health check command; shows ✓ OK / ✗ Missing / Expired / Unknown status for all configured sources at a glance
+- Model wizard — interactive upstream table selection with CTE scaffold auto-generation; each selected table becomes a named CTE with `{{ ref(...) }}`
+- Schedule wizard — weekday preset (Mon–Fri pre-selected) in `dango schedule add`; `dango schedule reload` command to apply config changes without restart
+- Service account auth — `dango oauth google_sheets` and `dango oauth google_analytics` now offer a choice between browser OAuth and JSON key file (service account), useful for server deployments
+- Script UI history — scheduled script runs now appear in the Scripts page with timestamp, status, and "View Log" link (previously always showed "not run")
+- Script failure history — cancelled, timed-out, and pre-launch-failed script runs write history entries so failures are visible in the UI
+- Secrets page partial masking — env var values show last 4 characters (`****efgh`) instead of blanket `***`
+- Metabase Collection hierarchy — nested collections are now preserved correctly across `dango metabase save` / `dango metabase load` roundtrips
+- Column descriptions — default descriptions for columns in 7 high-value sources (Google Ads, GA4, Google Sheets, Stripe, HubSpot, Facebook Ads, BigQuery) visible in the catalog
+- Catalog module — catalog data access extracted to `dango/catalog/` for reuse by CLI and future consumers
+- Notebook role access — editor role can now open notebooks not created by them
+- Scripts cloud sync — scripts and `scripts/requirements.txt` synced to remote server on `dango remote push`; invalid script paths rejected with a clear error
+
+### Fixed
+
+- Scripts page: scheduled runs no longer permanently show "not run" — `.jsonl` history file written after every scheduled execution
+- Scripts page: log viewer route (`/scripts/{name}/logs/{run_id}`) no longer 404s on scheduled runs — log files now written to the correct `runs/{run_id}/` path
+- Secrets page: duplicate `/settings/variables` page removed; env vars consolidated into `/settings/secrets`; `/settings/variables` now redirects (301) to `/settings/secrets`
+- DuckDB lock conflicts on local: syncs now retry up to 5 times with 10s backoff when Metabase holds the DuckDB connection (previously failed immediately)
+- Schedule reload: source-list changes are now detected and applied; previously `dango schedule reload` only compared cron triggers, silently ignoring added/removed sources
+- Google Sheets: empty range no longer silently bypasses empty-replace protection — raises a clear error instead of yielding no rows
+- Service account validation: no longer returns `valid=True` when `google-auth` is not installed
+- Model wizard: duplicate CTE alias no longer generated when two upstream table names collide twice (e.g. `stg_stripe_customers` + `stg_hubspot_customers` both mapping to `customers`)
+- Sort/filter UI: broken on Schedules, Scripts, and Catalog pages after JS refactor — missing `app.js` script tag added to all three templates
+- `InquirerPy` added to declared package dependencies — `dango oauth google_sheets` / `dango oauth google_analytics` no longer crash with `No module named 'InquirerPy'` on fresh installs
+
+### Security
+
+- PostCSS updated 8.5.10 → 8.5.26, resolving three Dependabot alerts for path traversal via `sourceMappingURL` in CSS comments (build-time only; not exploitable at runtime)
+
 ## [1.0.6] - 2026-08-19
 
 ### Added
