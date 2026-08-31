@@ -598,9 +598,9 @@ Latest 2 versions of:
 | Component | Version | Notes |
 |-----------|---------|-------|
 | DuckDB | {self._get_duckdb_version()} | Embedded analytical database |
-| dbt-core | 1.10.22 | Data transformation framework |
-| dlt | 1.24.0 | Data ingestion toolkit |
-| Metabase | v0.59.1 | Business intelligence / dashboards |
+| dbt-core | 1.11.14 | Data transformation framework |
+| dlt | 1.28.1 | Data ingestion toolkit |
+| Metabase | v0.62.18 | Business intelligence / dashboards |
 
 ## spaCy (Data Governance)
 
