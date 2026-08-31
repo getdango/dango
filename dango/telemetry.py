@@ -7,11 +7,17 @@ Payload is limited to an anonymous install UUID, Dango version, Python
 version, OS name, and source *type* names (e.g. "postgres", "stripe") —
 never source names, credentials, row counts, schema, or query text.
 
-Fire-and-forget: the network call runs on an un-joined daemon thread with
-a 2s socket timeout, silent on ALL failure (network, disk, permission,
-whatever) — telemetry must never raise, never block, and never slow down
-or break any CLI command. Failed or unfinished pings are never queued for
-retry; a dropped ping is just dropped.
+Best-effort with a bounded wait: the network call runs on a daemon
+thread, joined with a timeout of `_TIMEOUT_SECONDS`, so `dango init`
+waits at most that long for the ping to actually land before moving on
+— a short-lived CLI process exits so quickly that an un-joined thread
+essentially never gets scheduled before interpreter shutdown kills it
+(verified empirically: without a join, the ping never completes on a
+normal `dango init` exit). Silent on ALL failure (network, disk,
+permission, whatever) — telemetry must never raise or break any CLI
+command, and never waits longer than the timeout regardless of what's
+slow (DNS, connect, read, anything). Failed or unfinished pings are
+never queued for retry; a dropped ping is just dropped.
 
 Identity is machine-level (``~/.dango/telemetry.json``), not project-scoped,
 so one consultant with five client projects on one laptop counts as one
@@ -201,16 +207,20 @@ def set_telemetry_enabled(enabled: bool) -> None:
 
 
 def ping(event: str, source_types: list[str] | None = None) -> None:
-    """Fire an anonymous telemetry ping. Never raises, never blocks the caller.
+    """Fire an anonymous telemetry ping. Never raises, waits at most `_TIMEOUT_SECONDS`.
 
     A no-op when telemetry is disabled (see `is_telemetry_enabled`). The
-    actual network call runs on a daemon thread that is never joined, so
-    this function returns immediately regardless of network conditions —
-    true fire-and-forget, not just a bounded-timeout blocking call. All
-    failures — DNS, timeout, TLS, a non-2xx response, anything — are
-    swallowed silently inside that thread and never queued for retry. On a
-    process that exits immediately afterward, the ping may not finish
-    sending; that data loss is an accepted trade-off of never blocking.
+    actual network call runs on a daemon thread, joined with a timeout —
+    a short-lived CLI process exits so quickly that an un-joined
+    background thread essentially never gets a chance to run before
+    interpreter shutdown kills it (verified empirically), so a bounded
+    wait here is what actually gives the ping a real chance to land, not
+    just a theoretical one. Never waits longer than the timeout even if
+    the thread is still running (DNS hang, slow network, anything) — it
+    is abandoned as a daemon thread at that point, and the caller
+    proceeds immediately. All failures — DNS, timeout, TLS, a non-2xx
+    response, anything — are swallowed silently inside that thread and
+    never queued for retry.
 
     Args:
         event: The event name, e.g. ``"install"``.
@@ -223,6 +233,7 @@ def ping(event: str, source_types: list[str] | None = None) -> None:
 
     thread = threading.Thread(target=_send_ping, args=(event, source_types), daemon=True)
     thread.start()
+    thread.join(timeout=_TIMEOUT_SECONDS)
 
 
 def _send_ping(event: str, source_types: list[str] | None) -> None:
@@ -239,7 +250,11 @@ def _send_ping(event: str, source_types: list[str] | None) -> None:
             "os": platform.system(),
             "python_version": platform.python_version(),
             "source_types": sorted(set(source_types or [])),
-            "is_ci": False,
+            # No is_ci field: ping() already refuses to run at all when
+            # is_ci() is true, so every payload that actually reaches here
+            # would always carry the same fixed False — sending it would
+            # imply per-ping variability that can never exist client-side.
+            # The Worker's schema defaults this column to 0 when absent.
         }
         body = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(

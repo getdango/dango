@@ -190,7 +190,7 @@ class TestSetTelemetryEnabled:
 
 @pytest.mark.unit
 class TestPing:
-    """Tests for telemetry.ping() — spawns a daemon thread, never blocks the caller."""
+    """Tests for telemetry.ping() — spawns a daemon thread, joined with a bounded timeout."""
 
     def test_noop_when_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """ping() never spawns a thread when telemetry is disabled."""
@@ -199,8 +199,14 @@ class TestPing:
             telemetry.ping("install")
         mock_thread.assert_not_called()
 
-    def test_spawns_daemon_thread_targeting_send_ping(self) -> None:
-        """ping() delegates the real work to a daemon thread running _send_ping."""
+    def test_spawns_daemon_thread_and_joins_with_timeout(self) -> None:
+        """ping() delegates to a daemon thread running _send_ping, then joins it with a timeout.
+
+        Regression test: an un-joined daemon thread was verified
+        empirically to essentially never run at all before a real
+        `dango init` process exits — join() is what actually gives the
+        ping a chance to land.
+        """
         telemetry.set_telemetry_enabled(True)
         with patch("dango.telemetry.threading.Thread") as mock_thread_cls:
             telemetry.ping("install", source_types=["csv"])
@@ -209,19 +215,36 @@ class TestPing:
             target=telemetry._send_ping, args=("install", ["csv"]), daemon=True
         )
         mock_thread_cls.return_value.start.assert_called_once()
+        mock_thread_cls.return_value.join.assert_called_once_with(
+            timeout=telemetry._TIMEOUT_SECONDS
+        )
 
-    def test_never_blocks_even_on_a_slow_send(self) -> None:
-        """ping() returns almost immediately regardless of how long the network call takes.
+    def test_returns_promptly_when_send_finishes_fast(self) -> None:
+        """A fast _send_ping doesn't force ping() to wait out the full timeout.
 
-        Regression test for the original synchronous urlopen() call, which
-        could block `dango init` for up to the full socket timeout.
+        Uses a real (unmocked) thread so the timing is genuine.
         """
         telemetry.set_telemetry_enabled(True)
-        with patch("dango.telemetry._send_ping", side_effect=lambda *a: time.sleep(1)):
+        with patch("dango.telemetry._send_ping", side_effect=lambda *a: time.sleep(0.05)):
             start = time.monotonic()
             telemetry.ping("install")
             elapsed = time.monotonic() - start
         assert elapsed < 0.5
+
+    def test_caps_wait_at_timeout_when_send_is_slow(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """ping() never waits longer than _TIMEOUT_SECONDS even if the send hangs.
+
+        Without this cap, a hung network call would make `dango init`
+        hang indefinitely; without any join at all (the prior bug), the
+        ping essentially never runs before the process exits.
+        """
+        monkeypatch.setattr(telemetry, "_TIMEOUT_SECONDS", 0.2)
+        telemetry.set_telemetry_enabled(True)
+        with patch("dango.telemetry._send_ping", side_effect=lambda *a: time.sleep(2)):
+            start = time.monotonic()
+            telemetry.ping("install")
+            elapsed = time.monotonic() - start
+        assert 0.15 < elapsed < 1.0
 
     def test_send_ping_silent_on_network_failure(self) -> None:
         """A network failure inside _send_ping never propagates."""
@@ -229,7 +252,13 @@ class TestPing:
             telemetry._send_ping("install", None)  # must not raise
 
     def test_send_ping_payload_shape(self) -> None:
-        """The outgoing payload has exactly the fields the deployed Worker expects."""
+        """The outgoing payload matches the deployed Worker's schema.
+
+        No is_ci field: ping() already refuses to run at all when is_ci()
+        is true, so the field could never carry any information other
+        than a constant False — the Worker's schema defaults it to 0
+        when absent, so omitting it entirely is correct, not a bug.
+        """
         mock_response = Mock()
         with patch("urllib.request.urlopen", return_value=mock_response) as mock_urlopen:
             telemetry._send_ping("install", ["postgres", "stripe"])
@@ -244,11 +273,9 @@ class TestPing:
             "os",
             "python_version",
             "source_types",
-            "is_ci",
         }
         assert body["event"] == "install"
         assert body["source_types"] == ["postgres", "stripe"]
-        assert body["is_ci"] is False
         assert request.full_url == telemetry.TELEMETRY_ENDPOINT
         # Cloudflare's bot-fight mode on this endpoint blocks requests with
         # no User-Agent (urllib sends none by default) — regression test

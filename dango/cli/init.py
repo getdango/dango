@@ -10,7 +10,7 @@ from rich.panel import Panel
 
 from dango.config import ConfigLoader, DangoConfig, ProjectContext, SourcesConfig
 
-from .utils import print_error, print_success, safe_confirm
+from .utils import print_error, print_success
 from .wizard import ProjectWizard
 
 console = Console()
@@ -1499,24 +1499,14 @@ on-run-end:
         ``~/.dango/config.yml``) — in all of those cases the user is
         never prompted at all.
 
-        Also a no-op, without persisting anything, when stdin is not a
-        usable TTY: ``safe_confirm()`` would fall back to its default
-        answer without ever displaying the prompt, and persisting that
-        unseen fallback would permanently lock the machine into a
-        consent decision the user never actually saw or made. This
-        includes the case where fd 0 is closed entirely (e.g. a
-        daemonized invocation) rather than merely redirected — CPython
-        sets ``sys.stdin`` to ``None`` in that case, so ``.isatty()``
-        can't even be called; that failure is treated the same as "not
-        a TTY" rather than being allowed to crash `dango init` right
-        after it has already printed its success panel.
+        Also a no-op, without persisting anything, when no real answer
+        can be obtained at all — see `_ask_telemetry_consent` for what
+        that covers and why `safe_confirm()` isn't used here.
 
         Args:
             config: The project's freshly created configuration, used to
                 read configured source *type* names for the install ping.
         """
-        import sys
-
         from dango.telemetry import (
             has_recorded_consent,
             is_ci,
@@ -1527,23 +1517,59 @@ on-run-end:
 
         if is_ci() or has_recorded_consent() or not is_telemetry_enabled():
             return
-        try:
-            is_interactive = sys.stdin is not None and sys.stdin.isatty()
-        except Exception:
-            is_interactive = False
-        if not is_interactive:
-            return
 
         console.print()
-        consent = safe_confirm(
-            "Help improve Dango by sending anonymous usage data "
-            "(no source names, credentials, or data — just install count)?",
-            default=False,
-        )
+        consent = _ask_telemetry_consent()
+        if consent is None:
+            return
         set_telemetry_enabled(consent)
         if consent:
             source_types = [s.type.value for s in config.sources.get_enabled_sources()]
             ping("install", source_types=source_types)
+
+
+def _ask_telemetry_consent() -> bool | None:
+    """Ask the telemetry yes/no question directly, not via `safe_confirm()`.
+
+    Returns the user's real answer, or ``None`` if no real answer could
+    be obtained at all — closed stdin, genuine EOF, or any other failure
+    reading input (e.g. ``sys.stdin`` being ``None`` because fd 0 is
+    closed entirely, as in a daemonized invocation). ``None`` is
+    deliberately distinct from ``False``: the caller persists a real
+    "no" forever, but must never persist an unseen non-answer as if it
+    were one — that would silently and permanently lock the machine
+    into opt-out.
+
+    Deliberately does not pre-check ``sys.stdin.isatty()`` the way an
+    earlier version of this function did: that gate also silently
+    discarded a real answer piped into stdin (e.g. ``echo yes | dango
+    init``), since piped input is never a TTY even when it has genuine
+    data to read. `click.prompt()` only raises on true EOF — when
+    there is really nothing left to read — so relying on that directly
+    (via a broad ``except``, since a closed ``sys.stdin`` raises
+    something other than the ``EOFError``/``click.Abort`` that
+    `safe_confirm()` itself catches) is what actually distinguishes
+    "no real answer" from "a real answer that happens to arrive
+    non-interactively".
+
+    Returns:
+        True or False for a real answer, None if none could be obtained.
+    """
+    import click
+
+    text = (
+        "Help improve Dango by sending anonymous usage data "
+        "(no source names, credentials, or data — just install count)?"
+    )
+    while True:
+        try:
+            result = click.prompt(f"{text} (yes/no)", default="no", show_default=True)
+        except Exception:
+            return None
+        normalised = str(result).lower().strip()
+        if normalised in ("yes", "y", "no", "n"):
+            return normalised in ("yes", "y")
+        click.echo("Please answer yes or no.")
 
 
 def init_project(project_dir: Path, skip_wizard: bool = False, force: bool = False):
