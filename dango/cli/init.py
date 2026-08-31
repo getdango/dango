@@ -599,7 +599,7 @@ Latest 2 versions of:
 |-----------|---------|-------|
 | DuckDB | {self._get_duckdb_version()} | Embedded analytical database |
 | dbt-core | 1.11.14 | Data transformation framework |
-| dlt | 1.24.0 | Data ingestion toolkit |
+| dlt | 1.28.1 | Data ingestion toolkit |
 | Metabase | v0.62.18 | Business intelligence / dashboards |
 
 ## spaCy (Data Governance)
