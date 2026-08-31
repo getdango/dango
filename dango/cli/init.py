@@ -10,7 +10,7 @@ from rich.panel import Panel
 
 from dango.config import ConfigLoader, DangoConfig, ProjectContext, SourcesConfig
 
-from .utils import print_error, print_success
+from .utils import print_error, print_success, safe_confirm
 from .wizard import ProjectWizard
 
 console = Console()
@@ -138,6 +138,12 @@ class ProjectInitializer:
 
         # Print success message
         self._print_success_message(warnings=warnings, failures=failures, auth_success=auth_success)
+
+        # First-run anonymous telemetry consent (install ping only — no
+        # heartbeat). Skipped for --skip-wizard blank-project creation,
+        # CI environments, and any prior opt-out or stored answer.
+        if not failures and not skip_wizard:
+            self._prompt_telemetry_consent(config)
 
         # Exit with error if critical failures
         if failures:
@@ -1482,6 +1488,41 @@ on-run-end:
             )
 
         console.print()
+
+    def _prompt_telemetry_consent(self, config: DangoConfig) -> None:
+        """Ask for anonymous telemetry consent on first `dango init` run.
+
+        No-op when telemetry is already ruled out by CI detection, a
+        prior stored answer, or an opt-out (``DO_NOT_TRACK``,
+        ``DANGO_TELEMETRY``, or ``telemetry: false`` in
+        ``~/.dango/config.yml``) — in all of those cases the user is
+        never prompted at all.
+
+        Args:
+            config: The project's freshly created configuration, used to
+                read configured source *type* names for the install ping.
+        """
+        from dango.telemetry import (
+            has_recorded_consent,
+            is_ci,
+            is_telemetry_enabled,
+            ping,
+            set_telemetry_enabled,
+        )
+
+        if is_ci() or has_recorded_consent() or not is_telemetry_enabled():
+            return
+
+        console.print()
+        consent = safe_confirm(
+            "Help improve Dango by sending anonymous usage data "
+            "(no source names, credentials, or data — just install count)?",
+            default=False,
+        )
+        set_telemetry_enabled(consent)
+        if consent:
+            source_types = [s.type.value for s in config.sources.sources]
+            ping("install", source_types=source_types)
 
 
 def init_project(project_dir: Path, skip_wizard: bool = False, force: bool = False):
