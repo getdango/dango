@@ -32,7 +32,14 @@ functional:
     reason: "dbt package installation (dbt deps)"
     controllable: false
   - host: pypi.org
-    reason: "dango upgrade command"
+    reason: "dango upgrade command (cli/commands/upgrade.py) — pip resolves package metadata here"
+    controllable: false
+  - host: files.pythonhosted.org
+    reason: >
+      dango upgrade command — pip's actual wheel/sdist download target. pypi.org
+      only resolves metadata; the package file itself is served from this
+      separate PyPI CDN host, same redirect-style pattern as the GitHub Releases
+      entries below.
     controllable: false
   - host: registry-1.docker.io
     reason: "Metabase Docker image pull on first start"

@@ -66,7 +66,13 @@ jobs:
       - name: pytest
         env:
           DANGO_LOG_LEVEL: ERROR
-        run: pytest --tb=short -q
+        # -m "not egress": the egress-marked test needs the spaCy PII model
+        # pre-installed to stay hermetic (see the egress job's dedicated
+        # pre-install step below) — this matrix doesn't have that step, so
+        # running it here would add a live GitHub Releases download
+        # dependency to these required checks for no benefit; the egress
+        # job already covers it.
+        run: pytest --tb=short -q -m "not egress"
 
   security:
     name: Security (pip-audit)

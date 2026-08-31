@@ -231,6 +231,7 @@ markers = [
     "unit: Unit tests (no external services or network — tmp_path filesystem operations are allowed)",
     "integration: Integration tests (may use temp dirs, real files, DuckDB)",
     "cloud: Cloud integration tests (requires DIGITALOCEAN_TOKEN, on-demand CI)",
+    "egress: Live network-detection tests requiring the spaCy PII model pre-installed (see the egress job in .github/workflows/ci.yml) — excluded from the general test matrix, which doesn't pre-install it",
 ]
 addopts = "--strict-markers"
 log_file = "tests/pytest.log"

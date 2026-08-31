@@ -120,8 +120,10 @@ def test_dbt_send_anonymous_usage_stats_envvar_name() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.egress
 def test_dango_init_source_sync_only_contacts_allowlisted_hosts(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Runs a real dango init (--skip-wizard) -> CSV source -> sync workflow
     with DNS resolution blocked for any host outside docs/network-egress.yml.
@@ -130,10 +132,20 @@ def test_dango_init_source_sync_only_contacts_allowlisted_hosts(
 
     Scope: catches egress from Dango's own Python process only.
     - dbt runs as a real subprocess during dango init (`dbt docs generate`,
-      cli/init.py:1153-1225) and inside run_sync when skip_dbt=False — its
-      own DNS/socket calls happen in a separate process and are invisible to
-      this monkeypatch. skip_dbt=True below avoids also running it during
-      sync, since running it here adds latency for zero detection coverage.
+      cli/init.py:1153-1225, unconditional — dbt docs generation is treated
+      as CRITICAL and rolls back init on failure) and inside run_sync when
+      skip_dbt=False — its own DNS/socket calls happen in a separate process
+      and are invisible to this monkeypatch. skip_dbt=True below avoids also
+      running it during sync, since running it here adds latency for zero
+      detection coverage. dbt-core's anonymous usage stats are on by default
+      (dbt/tracking.py) and, being a real subprocess call this monkeypatch
+      can't see, would otherwise fire a real ping to
+      fishtownanalytics.sinter-collect.com on every run of this test via the
+      init step above — DBT_SEND_ANONYMOUS_USAGE_STATS/DO_NOT_TRACK below
+      disable that. This is an env var, not subprocess network interception
+      (still out of scope) — it doesn't let this test see dbt's egress, it
+      just stops the init step from producing an actual telemetry send as an
+      unintended side effect of writing a telemetry-detection test.
     - dlt itself runs in-process (imported directly in dlt_runner.py, not
       subprocess'd) — it IS covered by this test, unlike dbt.
     - `dango start`/`dango serve` are excluded entirely: they require a
@@ -142,6 +154,15 @@ def test_dango_init_source_sync_only_contacts_allowlisted_hosts(
       flaky for no additional Python-process detection coverage — their
       egress (Metabase container, localhost health polling) is separately
       documented/functional.
+
+    Marked `egress` (in addition to `unit`) and excluded from the general
+    `test` CI job matrix (`-m "not egress"`, .github/workflows/ci.yml) — that
+    job's 3-way Python-version matrix doesn't run the `egress` job's spaCy
+    pre-install step, so without this exclusion the test would fall through
+    to governance/pii_detector.py's live model-download path three times per
+    CI run, adding real network dependency to the *required* Test (Python
+    3.10)/(3.12) checks for no detection benefit (the dedicated `egress` job
+    already covers this test hermetically).
     """
     from dango.cli.init import init_project
     from dango.config.models import SourceType
@@ -151,6 +172,9 @@ def test_dango_init_source_sync_only_contacts_allowlisted_hosts(
         make_csv_source_config,
         make_data_source,
     )
+
+    monkeypatch.setenv("DBT_SEND_ANONYMOUS_USAGE_STATS", "false")
+    monkeypatch.setenv("DO_NOT_TRACK", "1")
 
     # Pre-seed the Metabase DuckDB driver so init's download step
     # (cli/init.py:_setup_metabase, utils/driver.py:driver_needs_update) is a
