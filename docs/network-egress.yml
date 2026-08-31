@@ -1,0 +1,58 @@
+# Dango network egress — all outbound connections made by the stack.
+# Telemetry: controllable via `dango telemetry off --all`
+# Functional: required for operation, disclosed but not toggleable
+# Verified against installed packages (dbt-core, dlt, marimo source) 2026-08-31.
+# Metabase's own telemetry endpoint is NOT independently source-verified in this
+# session (Metabase is a Java process, not inspectable from this Python venv) —
+# confirm against Metabase's own telemetry docs before relying on it publicly.
+
+telemetry:
+  - host: telemetry.getdango.dev
+    provider: dango
+    control: "dango telemetry off --provider dango"
+    sends: "anonymous UUID, version, OS, source type names, weekly heartbeat"
+  - host: fishtownanalytics.sinter-collect.com
+    provider: dbt-core
+    control: "DBT_SEND_ANONYMOUS_USAGE_STATS=false or DO_NOT_TRACK=1"
+    sends: "OS, Python version, invocation success/duration, hashed model content (Snowplow)"
+  - host: telemetry.scalevector.ai
+    provider: dlt
+    control: "dlthub_telemetry=false in .dlt/config.toml, or dlt --disable-telemetry"
+    sends: "command names, hashed pipeline/dataset names, execution times, OS"
+  - host: metabase.com
+    provider: metabase
+    control: "dango telemetry off --provider metabase (sets allow_tracking=false via API)"
+    sends: "anonymous usage statistics"
+
+functional:
+  - host: extensions.duckdb.org
+    reason: "DuckDB autoloads extensions on demand"
+    controllable: false
+  - host: hub.getdbt.com
+    reason: "dbt package installation (dbt deps)"
+    controllable: false
+  - host: pypi.org
+    reason: "dango upgrade command"
+    controllable: false
+  - host: registry-1.docker.io
+    reason: "Metabase Docker image pull on first start"
+    controllable: false
+  - host: github.com
+    reason: >
+      Two separate download paths: (1) spaCy PII model wheel on first Presidio use
+      (governance/pii_detector.py, github.com/explosion/spacy-models), (2) Metabase
+      DuckDB driver on `dango init` if not cached (utils/driver.py,
+      github.com/motherduckdb/metabase_duckdb_driver)
+    controllable: false
+  - host: objects.githubusercontent.com
+    reason: "GitHub Releases asset CDN — both github.com download paths above redirect here"
+    controllable: false
+
+notes:
+  - "dbt and dlt telemetry env vars/config are read by their own subprocesses/library
+     calls, not a separate Dango network layer. dango telemetry off --all (Session D)
+     writes these through to each tool's real config."
+  - "Marimo update check host (marimo.io/api/oss/latest-version) is not listed above
+     because it is never contacted in a Dango deployment: Dango always passes
+     --skip-update-check to every Marimo process (dango/notebooks/manager.py:141),
+     verified against marimo's installed source (_cli/cli.py:583, _cli/upgrade.py)."

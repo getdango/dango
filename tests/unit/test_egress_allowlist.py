@@ -1,0 +1,190 @@
+"""tests/unit/test_egress_allowlist.py
+
+CI gate for LAUNCH-READINESS.md §A5: detects hosts Dango's own Python process
+contacts that aren't documented in docs/network-egress.yml.
+"""
+
+from __future__ import annotations
+
+import inspect
+import socket
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+EGRESS_DOC = REPO_ROOT / "docs" / "network-egress.yml"
+
+ALWAYS_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _load_egress_doc() -> dict[str, Any]:
+    return yaml.safe_load(EGRESS_DOC.read_text())
+
+
+def _documented_hosts() -> set[str]:
+    data = _load_egress_doc()
+    hosts = {entry["host"] for entry in data.get("telemetry", [])}
+    hosts |= {entry["host"] for entry in data.get("functional", [])}
+    return hosts
+
+
+class _AllowlistGuard:
+    """Monkeypatches socket.getaddrinfo to block DNS resolution of any hostname
+    not in *allowed_hosts*, and records what it blocked.
+
+    getaddrinfo (not socket.connect) is the patch point: it still has the
+    original hostname string before resolution to an IP. requests, urllib3,
+    urllib.request, and httpx all route through it for hostname lookups.
+
+    Blocked hosts are recorded on self.blocked_hosts rather than relied upon
+    via a raised exception reaching the test: dango/utils/post_sync.py's
+    dispatch_post_sync_hooks (lines 378-387) wraps each hook in a bare
+    ``except Exception`` and only logs a hook name, so an exception raised
+    from inside a hook (e.g. the PII-scan hook attempting a blocked host)
+    never propagates to the caller. Asserting on self.blocked_hosts after
+    the `with` block survives that swallowing.
+
+    Caveat: a C extension doing its own libc DNS resolution (bypassing
+    Python's socket module) would not be caught. Not a concern for the
+    workflow this test drives — no DuckDB extensions (e.g. httpfs) load.
+    """
+
+    def __init__(self, allowed_hosts: set[str]) -> None:
+        self.allowed_hosts = allowed_hosts | ALWAYS_ALLOWED_HOSTS
+        self.blocked_hosts: set[str] = set()
+        self._original = socket.getaddrinfo
+
+    def __enter__(self) -> _AllowlistGuard:
+        socket.getaddrinfo = self._patched  # type: ignore[assignment]
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        socket.getaddrinfo = self._original  # type: ignore[assignment]
+
+    def _patched(self, host: str | None, *args: Any, **kwargs: Any) -> Any:
+        if host is not None and host not in self.allowed_hosts:
+            self.blocked_hosts.add(host)
+            raise socket.gaierror(socket.EAI_NONAME, f"blocked by egress allowlist test: {host!r}")
+        return self._original(host, *args, **kwargs)
+
+
+@pytest.mark.unit
+def test_network_egress_yml_exists() -> None:
+    assert EGRESS_DOC.exists(), "docs/network-egress.yml not found"
+    data = _load_egress_doc()
+    assert "telemetry" in data
+    assert "functional" in data
+
+
+@pytest.mark.unit
+def test_network_egress_yml_has_all_known_providers() -> None:
+    data = _load_egress_doc()
+    providers = {entry["provider"] for entry in data["telemetry"]}
+    assert providers == {"dango", "dbt-core", "dlt", "metabase"}
+
+
+@pytest.mark.unit
+def test_dlt_runtime_configuration_has_telemetry_field() -> None:
+    """Real introspection against the installed dlt version, not a hardcoded
+    string comparison. Catches a silent rename of the field
+    docs/network-egress.yml claims controls dlt's telemetry (this is exactly
+    the risk LAUNCH-READINESS.md §A2 calls out: "If dlt renames
+    dlthub_telemetry... a silent failure means you are telling users
+    something false")."""
+    from dlt.common.configuration.specs.runtime_configuration import (
+        RuntimeConfiguration,
+    )
+
+    fields = RuntimeConfiguration.__dataclass_fields__
+    assert "dlthub_telemetry" in fields, (
+        "dlt renamed its telemetry opt-out field — update "
+        "docs/network-egress.yml and the write-through in the telemetry command"
+    )
+
+
+@pytest.mark.unit
+def test_dbt_send_anonymous_usage_stats_envvar_name() -> None:
+    """Real check against the installed dbt-core source, not memory. Catches
+    a silent rename of the env var docs/network-egress.yml documents as
+    dbt's telemetry opt-out control."""
+    from dbt.cli import params as dbt_params
+
+    source = inspect.getsource(dbt_params)
+    assert "DBT_SEND_ANONYMOUS_USAGE_STATS" in source, (
+        "dbt-core's telemetry opt-out env var name changed — update "
+        "docs/network-egress.yml and the write-through in the telemetry command"
+    )
+
+
+@pytest.mark.unit
+def test_dango_init_source_sync_only_contacts_allowlisted_hosts(
+    tmp_path: Path,
+) -> None:
+    """Runs a real dango init (--skip-wizard) -> CSV source -> sync workflow
+    with DNS resolution blocked for any host outside docs/network-egress.yml.
+    This is detection, not documentation: it fails if an undisclosed host is
+    contacted, it does not just check the doc is self-consistent.
+
+    Scope: catches egress from Dango's own Python process only.
+    - dbt runs as a real subprocess during dango init (`dbt docs generate`,
+      cli/init.py:1153-1225) and inside run_sync when skip_dbt=False — its
+      own DNS/socket calls happen in a separate process and are invisible to
+      this monkeypatch. skip_dbt=True below avoids also running it during
+      sync, since running it here adds latency for zero detection coverage.
+    - dlt itself runs in-process (imported directly in dlt_runner.py, not
+      subprocess'd) — it IS covered by this test, unlike dbt.
+    - `dango start`/`dango serve` are excluded entirely: they require a
+      running Docker daemon to launch Metabase (cli/commands/platform.py:
+      464-495), which would make this job slow and Docker-availability
+      flaky for no additional Python-process detection coverage — their
+      egress (Metabase container, localhost health polling) is separately
+      documented/functional.
+    """
+    from dango.cli.init import init_project
+    from dango.config.models import SourceType
+    from dango.ingestion import run_sync
+    from dango.utils.driver import METABASE_DUCKDB_DRIVER_VERSION
+    from tests.factories.config_factories import (
+        make_csv_source_config,
+        make_data_source,
+    )
+
+    # Pre-seed the Metabase DuckDB driver so init's download step
+    # (cli/init.py:_setup_metabase, utils/driver.py:driver_needs_update) is a
+    # no-op. This test asserts against *undocumented* hosts; it does not
+    # verify the documented github.com download path is reachable —
+    # depending on live GitHub Releases availability would make an
+    # informational CI job flaky for zero detection benefit.
+    plugins_dir = tmp_path / "metabase-plugins"
+    plugins_dir.mkdir(parents=True, exist_ok=True)
+    (plugins_dir / "duckdb.metabase-driver.jar").write_bytes(b"test-driver-stub")
+    (plugins_dir / ".driver-version").write_text(METABASE_DUCKDB_DRIVER_VERSION + "\n")
+
+    allowed = _documented_hosts()
+    guard = _AllowlistGuard(allowed)
+
+    with guard:
+        init_project(tmp_path, skip_wizard=True)
+
+        data_dir = tmp_path / "data" / "test_csv"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        (data_dir / "test.csv").write_text("id,value\n1,a\n2,b\n")
+
+        source = make_data_source(
+            SourceType.CSV,
+            name="test_csv",
+            csv=make_csv_source_config(directory=str(data_dir)),
+        )
+
+        result = run_sync(tmp_path, [source], skip_dbt=True)
+
+    assert guard.blocked_hosts == set(), (
+        f"Undocumented host(s) contacted during dango init/source/sync: "
+        f"{guard.blocked_hosts}. If this is expected, add it to "
+        f"docs/network-egress.yml (telemetry or functional section) with an "
+        f"honest reason. Do not loosen this test to make it pass."
+    )
+    assert result["failed_sources"] == [], f"sync failed: {result['failed_sources']}"
