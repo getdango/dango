@@ -7,10 +7,11 @@ Payload is limited to an anonymous install UUID, Dango version, Python
 version, OS name, and source *type* names (e.g. "postgres", "stripe") —
 never source names, credentials, row counts, schema, or query text.
 
-Fire-and-forget: 2s timeout, silent on ALL failure (network, disk,
-permission, whatever) — telemetry must never raise, never block, and
-never slow down or break any CLI command. Failed pings are never queued
-for retry; a dropped ping is just dropped.
+Fire-and-forget: the network call runs on an un-joined daemon thread with
+a 2s socket timeout, silent on ALL failure (network, disk, permission,
+whatever) — telemetry must never raise, never block, and never slow down
+or break any CLI command. Failed or unfinished pings are never queued for
+retry; a dropped ping is just dropped.
 
 Identity is machine-level (``~/.dango/telemetry.json``), not project-scoped,
 so one consultant with five client projects on one laptop counts as one
@@ -22,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import threading
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -45,6 +47,12 @@ _CI_ENV_VARS = (
     "CODEBUILD_BUILD_ID",
 )
 
+# Matches the community DO_NOT_TRACK convention (consoledonottrack.com) and
+# dbt-core's own DO_NOT_TRACK check (dbt/cli/flags.py) — the exact tool this
+# module's opt-out is meant to be consistent with.
+_TRUTHY_ENV_VALUES = ("1", "t", "true", "y", "yes")
+_FALSY_ENV_VALUES = ("0", "f", "false", "n", "no")
+
 
 def is_ci() -> bool:
     """Detect whether the process is running inside a known CI environment.
@@ -53,27 +61,36 @@ def is_ci() -> bool:
     (``LAUNCH-READINESS.md`` §A1c), so pings must never fire from CI
     regardless of any stored consent.
 
+    A variable set to an explicit falsy value (e.g. ``CI=false``, as some
+    nested build tools set) is not treated as CI, even though it is
+    "present" — only bare presence with a non-falsy value counts.
+
     Returns:
-        True if any recognized CI environment variable is set.
+        True if any recognized CI environment variable indicates CI.
     """
-    return any(os.environ.get(var) for var in _CI_ENV_VARS)
+    for var in _CI_ENV_VARS:
+        value = os.environ.get(var)
+        if value and value.strip().lower() not in _FALSY_ENV_VALUES:
+            return True
+    return False
 
 
 def is_telemetry_enabled() -> bool:
     """Check whether telemetry is enabled, honouring every opt-out signal.
 
     Any one of the following disables telemetry, checked in this order:
-    ``DO_NOT_TRACK=1``, ``DANGO_TELEMETRY=0``, running in CI, ``telemetry:
-    false`` in ``~/.dango/config.yml``, or a previously stored "no" answer
-    in ``~/.dango/telemetry.json``. A missing or corrupt config/identity
-    file is treated as "no opt-out recorded" rather than raising.
+    ``DO_NOT_TRACK`` set to a truthy value, ``DANGO_TELEMETRY`` set to a
+    falsy value, running in CI, ``telemetry: false`` in
+    ``~/.dango/config.yml``, or a previously stored "no" answer in
+    ``~/.dango/telemetry.json``. A missing or corrupt config/identity file
+    is treated as "no opt-out recorded" rather than raising.
 
     Returns:
         True if telemetry may be sent, False if any opt-out applies.
     """
-    if os.environ.get("DO_NOT_TRACK") == "1":
+    if os.environ.get("DO_NOT_TRACK", "").strip().lower() in _TRUTHY_ENV_VALUES:
         return False
-    if os.environ.get("DANGO_TELEMETRY") == "0":
+    if os.environ.get("DANGO_TELEMETRY", "").strip().lower() in _FALSY_ENV_VALUES:
         return False
     if is_ci():
         return False
@@ -184,11 +201,16 @@ def set_telemetry_enabled(enabled: bool) -> None:
 
 
 def ping(event: str, source_types: list[str] | None = None) -> None:
-    """Fire an anonymous telemetry ping. Never raises, never blocks > 2s.
+    """Fire an anonymous telemetry ping. Never raises, never blocks the caller.
 
-    A no-op when telemetry is disabled (see `is_telemetry_enabled`). All
+    A no-op when telemetry is disabled (see `is_telemetry_enabled`). The
+    actual network call runs on a daemon thread that is never joined, so
+    this function returns immediately regardless of network conditions —
+    true fire-and-forget, not just a bounded-timeout blocking call. All
     failures — DNS, timeout, TLS, a non-2xx response, anything — are
-    swallowed silently and never queued for retry.
+    swallowed silently inside that thread and never queued for retry. On a
+    process that exits immediately afterward, the ping may not finish
+    sending; that data loss is an accepted trade-off of never blocking.
 
     Args:
         event: The event name, e.g. ``"install"``.
@@ -199,6 +221,12 @@ def ping(event: str, source_types: list[str] | None = None) -> None:
     if not is_telemetry_enabled():
         return
 
+    thread = threading.Thread(target=_send_ping, args=(event, source_types), daemon=True)
+    thread.start()
+
+
+def _send_ping(event: str, source_types: list[str] | None) -> None:
+    """Build and POST the ping payload. Runs on a background thread; never raises."""
     try:
         import urllib.request
 

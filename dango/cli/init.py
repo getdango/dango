@@ -141,8 +141,9 @@ class ProjectInitializer:
 
         # First-run anonymous telemetry consent (install ping only — no
         # heartbeat). Skipped for --skip-wizard blank-project creation,
-        # CI environments, and any prior opt-out or stored answer.
-        if not failures and not skip_wizard:
+        # non-interactive sessions, CI environments, and any prior opt-out
+        # or stored answer.
+        if not skip_wizard:
             self._prompt_telemetry_consent(config)
 
         # Exit with error if critical failures
@@ -1498,10 +1499,18 @@ on-run-end:
         ``~/.dango/config.yml``) — in all of those cases the user is
         never prompted at all.
 
+        Also a no-op, without persisting anything, when stdin is not a
+        TTY: ``safe_confirm()`` would fall back to its default answer
+        without ever displaying the prompt, and persisting that
+        unseen fallback would permanently lock the machine into a
+        consent decision the user never actually saw or made.
+
         Args:
             config: The project's freshly created configuration, used to
                 read configured source *type* names for the install ping.
         """
+        import sys
+
         from dango.telemetry import (
             has_recorded_consent,
             is_ci,
@@ -1512,6 +1521,8 @@ on-run-end:
 
         if is_ci() or has_recorded_consent() or not is_telemetry_enabled():
             return
+        if not sys.stdin.isatty():
+            return
 
         console.print()
         consent = safe_confirm(
@@ -1521,7 +1532,7 @@ on-run-end:
         )
         set_telemetry_enabled(consent)
         if consent:
-            source_types = [s.type.value for s in config.sources.sources]
+            source_types = [s.type.value for s in config.sources.get_enabled_sources()]
             ping("install", source_types=source_types)
 
 

@@ -34,13 +34,14 @@ def _isolated_dango_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def _make_config() -> DangoConfig:
-    """Build a minimal DangoConfig with two fake sources for testing."""
+    """Build a minimal DangoConfig with two enabled sources and one disabled one."""
     return DangoConfig(
         project=ProjectContext(name="Test Project", created_by="tester", purpose="testing"),
         sources=SourcesConfig(
             sources=[
                 DataSource(name="my_csv", type=SourceType.CSV),
                 DataSource(name="my_sheet", type=SourceType.GOOGLE_SHEETS),
+                DataSource(name="paused_source", type=SourceType.STRIPE, enabled=False),
             ]
         ),
     )
@@ -77,15 +78,17 @@ class TestPromptTelemetryConsent:
         mock_confirm.assert_not_called()
 
     def test_prompts_and_persists_yes(self, tmp_path: Path) -> None:
-        """Answering yes persists consent and fires the install ping."""
+        """Answering yes persists consent and fires the install ping with enabled source types only."""
         initializer = ProjectInitializer(tmp_path)
         with (
+            patch("sys.stdin.isatty", return_value=True),
             patch("dango.cli.init.safe_confirm", return_value=True) as mock_confirm,
             patch("dango.telemetry.ping") as mock_ping,
         ):
             initializer._prompt_telemetry_consent(_make_config())
 
         mock_confirm.assert_called_once()
+        # The disabled "paused_source" (stripe) must not appear.
         mock_ping.assert_called_once_with("install", source_types=["csv", "google_sheets"])
         assert telemetry.is_telemetry_enabled() is True
         assert telemetry.has_recorded_consent() is True
@@ -94,6 +97,7 @@ class TestPromptTelemetryConsent:
         """Answering no persists the opt-out and never fires a ping."""
         initializer = ProjectInitializer(tmp_path)
         with (
+            patch("sys.stdin.isatty", return_value=True),
             patch("dango.cli.init.safe_confirm", return_value=False),
             patch("dango.telemetry.ping") as mock_ping,
         ):
@@ -102,6 +106,26 @@ class TestPromptTelemetryConsent:
         mock_ping.assert_not_called()
         assert telemetry.is_telemetry_enabled() is False
         assert telemetry.has_recorded_consent() is True
+
+    def test_skips_and_never_persists_when_not_a_tty(self, tmp_path: Path) -> None:
+        """A non-interactive session (no TTY) is never asked, and nothing is recorded.
+
+        Regression test: previously, safe_confirm()'s non-interactive
+        fallback (default=False) was persisted as if it were a real
+        answer, permanently locking the machine into opt-out without the
+        user ever seeing the prompt.
+        """
+        initializer = ProjectInitializer(tmp_path)
+        with (
+            patch("sys.stdin.isatty", return_value=False),
+            patch("dango.cli.init.safe_confirm") as mock_confirm,
+            patch("dango.telemetry.ping") as mock_ping,
+        ):
+            initializer._prompt_telemetry_consent(_make_config())
+
+        mock_confirm.assert_not_called()
+        mock_ping.assert_not_called()
+        assert telemetry.has_recorded_consent() is False
 
 
 @pytest.mark.unit

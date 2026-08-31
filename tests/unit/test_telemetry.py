@@ -7,6 +7,7 @@ the outgoing ping payload shape.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -41,8 +42,30 @@ class TestIsCi:
 
     @pytest.mark.parametrize("var", telemetry._CI_ENV_VARS)
     def test_true_when_ci_env_var_set(self, var: str, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Any recognized CI env var being set makes is_ci() True."""
+        """Any recognized CI env var being set to a truthy value makes is_ci() True."""
         monkeypatch.setenv(var, "1")
+        assert telemetry.is_ci() is True
+
+    @pytest.mark.parametrize("value", ["true", "True", "TRUE", "yes", "t"])
+    def test_true_for_various_truthy_spellings(
+        self, value: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Real CI providers set boolean-ish vars to spellings other than '1'."""
+        monkeypatch.setenv("CI", value)
+        assert telemetry.is_ci() is True
+
+    @pytest.mark.parametrize("var", ["CI", "GITHUB_ACTIONS", "CIRCLECI"])
+    @pytest.mark.parametrize("value", ["false", "False", "0", "no", ""])
+    def test_false_when_var_set_to_falsy_value(
+        self, var: str, value: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A var explicitly set to a falsy value is not mistaken for CI presence."""
+        monkeypatch.setenv(var, value)
+        assert telemetry.is_ci() is False
+
+    def test_true_for_non_boolean_identifier_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """JENKINS_URL/CODEBUILD_BUILD_ID are identifier strings, not booleans — any real value counts."""
+        monkeypatch.setenv("JENKINS_URL", "https://ci.example.com")
         assert telemetry.is_ci() is True
 
 
@@ -54,14 +77,18 @@ class TestIsTelemetryEnabled:
         """No opt-out signal present means telemetry is enabled."""
         assert telemetry.is_telemetry_enabled() is True
 
-    def test_do_not_track_disables(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """DO_NOT_TRACK=1 disables telemetry."""
-        monkeypatch.setenv("DO_NOT_TRACK", "1")
+    @pytest.mark.parametrize("value", ["1", "true", "True", "yes", "t", "Y"])
+    def test_do_not_track_disables(self, value: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        """DO_NOT_TRACK disables telemetry for every spelling dbt-core itself accepts."""
+        monkeypatch.setenv("DO_NOT_TRACK", value)
         assert telemetry.is_telemetry_enabled() is False
 
-    def test_dango_telemetry_env_disables(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """DANGO_TELEMETRY=0 disables telemetry."""
-        monkeypatch.setenv("DANGO_TELEMETRY", "0")
+    @pytest.mark.parametrize("value", ["0", "false", "False", "no", "f"])
+    def test_dango_telemetry_env_disables(
+        self, value: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DANGO_TELEMETRY disables telemetry for common falsy spellings, not just '0'."""
+        monkeypatch.setenv("DANGO_TELEMETRY", value)
         assert telemetry.is_telemetry_enabled() is False
 
     def test_ci_disables(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -163,27 +190,49 @@ class TestSetTelemetryEnabled:
 
 @pytest.mark.unit
 class TestPing:
-    """Tests for telemetry.ping()."""
+    """Tests for telemetry.ping() — spawns a daemon thread, never blocks the caller."""
 
     def test_noop_when_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """ping() never opens a connection when telemetry is disabled."""
+        """ping() never spawns a thread when telemetry is disabled."""
         monkeypatch.setenv("DO_NOT_TRACK", "1")
-        with patch("urllib.request.urlopen") as mock_urlopen:
+        with patch("dango.telemetry.threading.Thread") as mock_thread:
             telemetry.ping("install")
-        mock_urlopen.assert_not_called()
+        mock_thread.assert_not_called()
 
-    def test_silent_on_network_failure(self) -> None:
-        """A network failure inside ping() never propagates."""
+    def test_spawns_daemon_thread_targeting_send_ping(self) -> None:
+        """ping() delegates the real work to a daemon thread running _send_ping."""
         telemetry.set_telemetry_enabled(True)
+        with patch("dango.telemetry.threading.Thread") as mock_thread_cls:
+            telemetry.ping("install", source_types=["csv"])
+
+        mock_thread_cls.assert_called_once_with(
+            target=telemetry._send_ping, args=("install", ["csv"]), daemon=True
+        )
+        mock_thread_cls.return_value.start.assert_called_once()
+
+    def test_never_blocks_even_on_a_slow_send(self) -> None:
+        """ping() returns almost immediately regardless of how long the network call takes.
+
+        Regression test for the original synchronous urlopen() call, which
+        could block `dango init` for up to the full socket timeout.
+        """
+        telemetry.set_telemetry_enabled(True)
+        with patch("dango.telemetry._send_ping", side_effect=lambda *a: time.sleep(1)):
+            start = time.monotonic()
+            telemetry.ping("install")
+            elapsed = time.monotonic() - start
+        assert elapsed < 0.5
+
+    def test_send_ping_silent_on_network_failure(self) -> None:
+        """A network failure inside _send_ping never propagates."""
         with patch("urllib.request.urlopen", side_effect=ConnectionError("boom")):
-            telemetry.ping("install")  # must not raise
+            telemetry._send_ping("install", None)  # must not raise
 
-    def test_sends_expected_payload_shape(self) -> None:
+    def test_send_ping_payload_shape(self) -> None:
         """The outgoing payload has exactly the fields the deployed Worker expects."""
-        telemetry.set_telemetry_enabled(True)
         mock_response = Mock()
         with patch("urllib.request.urlopen", return_value=mock_response) as mock_urlopen:
-            telemetry.ping("install", source_types=["postgres", "stripe"])
+            telemetry._send_ping("install", ["postgres", "stripe"])
 
         mock_urlopen.assert_called_once()
         request = mock_urlopen.call_args[0][0]
