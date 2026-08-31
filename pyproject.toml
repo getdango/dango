@@ -32,9 +32,9 @@ dependencies = [
     # DuckDB Python + Metabase JDBC driver must share the same DuckDB
     # major.minor. Read-only mode CANNOT cross versions.
     "duckdb>=1.5.0,<1.6",         # Tier 1 — must match driver (driver.py)
-    "dbt-duckdb>=1.10.0,<1.11",   # Tier 1 — must match dbt-core
+    "dbt-duckdb>=1.11.0,<1.12",   # Tier 1 — must match dbt-core
     # ── Tier 2: semi-coupled (patch safe, minor needs testing) ────────────
-    "dbt-core~=1.10.0",           # Tier 2 — 1.11 is breaking
+    "dbt-core~=1.11.0",           # Tier 2 — 1.12 flips two flags to default true
     "dlt[duckdb]~=1.28.0",        # Tier 2 — latest stable
 
     # Framework and utilities - flexible versions

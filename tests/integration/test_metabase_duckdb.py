@@ -185,7 +185,7 @@ class TestMetabaseReadsPythonDuckdbData:
                 "MB_DB_TYPE=h2",
                 "-e",
                 "MB_DB_FILE=/metabase-data/metabase.db",
-                "metabase/metabase:v0.59.1",
+                "metabase/metabase:v0.62.18",
             ],
             capture_output=True,
             text=True,
