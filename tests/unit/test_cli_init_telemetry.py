@@ -127,6 +127,42 @@ class TestPromptTelemetryConsent:
         mock_ping.assert_not_called()
         assert telemetry.has_recorded_consent() is False
 
+    def test_skips_without_crashing_when_stdin_is_none(self, tmp_path: Path) -> None:
+        """A closed stdin fd (sys.stdin is None) is treated as non-interactive, not a crash.
+
+        Regression test: CPython sets sys.stdin to None when fd 0 is
+        closed entirely (e.g. a daemonized invocation), rather than
+        merely redirecting it — calling .isatty() on None raises
+        AttributeError, which previously propagated straight up through
+        initialize() right after it had already printed its success
+        panel.
+        """
+        initializer = ProjectInitializer(tmp_path)
+        with (
+            patch("sys.stdin", None),
+            patch("dango.cli.init.safe_confirm") as mock_confirm,
+            patch("dango.telemetry.ping") as mock_ping,
+        ):
+            initializer._prompt_telemetry_consent(_make_config())  # must not raise
+
+        mock_confirm.assert_not_called()
+        mock_ping.assert_not_called()
+        assert telemetry.has_recorded_consent() is False
+
+    def test_skips_without_crashing_when_isatty_raises(self, tmp_path: Path) -> None:
+        """Any other exception from .isatty() (e.g. a closed file object) is also treated as non-interactive."""
+        initializer = ProjectInitializer(tmp_path)
+        with (
+            patch("sys.stdin.isatty", side_effect=ValueError("I/O operation on closed file")),
+            patch("dango.cli.init.safe_confirm") as mock_confirm,
+            patch("dango.telemetry.ping") as mock_ping,
+        ):
+            initializer._prompt_telemetry_consent(_make_config())  # must not raise
+
+        mock_confirm.assert_not_called()
+        mock_ping.assert_not_called()
+        assert telemetry.has_recorded_consent() is False
+
 
 @pytest.mark.unit
 class TestInitializeSkipsPromptWhenSkipWizard:

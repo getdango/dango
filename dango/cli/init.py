@@ -1500,10 +1500,16 @@ on-run-end:
         never prompted at all.
 
         Also a no-op, without persisting anything, when stdin is not a
-        TTY: ``safe_confirm()`` would fall back to its default answer
-        without ever displaying the prompt, and persisting that
+        usable TTY: ``safe_confirm()`` would fall back to its default
+        answer without ever displaying the prompt, and persisting that
         unseen fallback would permanently lock the machine into a
-        consent decision the user never actually saw or made.
+        consent decision the user never actually saw or made. This
+        includes the case where fd 0 is closed entirely (e.g. a
+        daemonized invocation) rather than merely redirected — CPython
+        sets ``sys.stdin`` to ``None`` in that case, so ``.isatty()``
+        can't even be called; that failure is treated the same as "not
+        a TTY" rather than being allowed to crash `dango init` right
+        after it has already printed its success panel.
 
         Args:
             config: The project's freshly created configuration, used to
@@ -1521,7 +1527,11 @@ on-run-end:
 
         if is_ci() or has_recorded_consent() or not is_telemetry_enabled():
             return
-        if not sys.stdin.isatty():
+        try:
+            is_interactive = sys.stdin is not None and sys.stdin.isatty()
+        except Exception:
+            is_interactive = False
+        if not is_interactive:
             return
 
         console.print()

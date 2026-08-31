@@ -48,7 +48,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/dev.py` (~429 lines) | `dev` group (default run + clean) — branch-based dbt development | `dev` (group), `dev_clean()` |
 | `commands/web.py` (69 lines) | `web` dev server command | `web()` |
 | **Wizards** | | |
-| `init.py` (1549 lines) | Project initialization wizard, incl. first-run telemetry consent prompt | `ProjectInitializer` |
+| `init.py` (1559 lines) | Project initialization wizard, incl. first-run telemetry consent prompt | `ProjectInitializer` |
 | `wizard.py` (307 lines) | Interactive setup wizards | `ProjectWizard` |
 | `source_wizard.py` (2525 lines) | Source configuration wizard | `add_source()` |
 | `model_wizard.py` (547 lines) | dbt model creation wizard | `add_model()` |
