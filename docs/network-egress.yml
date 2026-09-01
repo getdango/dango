@@ -1,7 +1,10 @@
 # Dango network egress — all outbound connections made by the stack.
-# Telemetry: controllable via `dango telemetry off --all`
+# Telemetry: each provider has its own opt-out today (see each entry's
+# `control` field). A unified `dango telemetry off --all` command is planned
+# (Session D, not yet merged as of this session) — do not assume it exists.
 # Functional: required for operation, disclosed but not toggleable
-# Verified against installed packages (dbt-core, dlt, marimo source) 2026-08-31.
+# Verified against installed packages (dbt-core 1.11.14, dlt 1.28.1, marimo)
+# 2026-09-01 — re-verified after the dbt-core 1.10->1.11 bump landed on v1.0.8.
 # Metabase's own telemetry endpoint is NOT independently source-verified in this
 # session (Metabase is a Java process, not inspectable from this Python venv) —
 # confirm against Metabase's own telemetry docs before relying on it publicly.
@@ -9,7 +12,13 @@
 telemetry:
   - host: telemetry.getdango.dev
     provider: dango
-    control: "dango telemetry off --provider dango"
+    control: >
+      Today: decline the `dango init` consent prompt (persists "no"), or set
+      DO_NOT_TRACK=1 / DANGO_TELEMETRY=0 / `telemetry: false` in
+      ~/.dango/config.yml (dango/telemetry.py:is_telemetry_enabled) — all
+      three suppress the prompt entirely, no ping is ever sent. A unified
+      `dango telemetry off --provider dango` command is Session D's job
+      (dango/cli/commands/ has no `telemetry.py` yet as of this session).
     sends: "anonymous UUID, version, OS, source type names, weekly heartbeat"
   - host: fishtownanalytics.sinter-collect.com
     provider: dbt-core
@@ -21,7 +30,11 @@ telemetry:
     sends: "command names, hashed pipeline/dataset names, execution times, OS"
   - host: metabase.com
     provider: metabase
-    control: "dango telemetry off --provider metabase (sets allow_tracking=false via API)"
+    control: >
+      Planned: `dango telemetry off --provider metabase` (sets
+      allow_tracking=false via the Metabase admin API) is Session D's job,
+      not yet implemented as of this session — today this requires toggling
+      the setting manually in the Metabase admin UI.
     sends: "anonymous usage statistics"
 
 functional:

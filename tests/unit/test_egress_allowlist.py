@@ -252,6 +252,19 @@ class TestLiveEgressDetection:
         monkeypatch.setenv("DBT_SEND_ANONYMOUS_USAGE_STATS", "false")
         monkeypatch.setenv("DO_NOT_TRACK", "1")
 
+        # DO_NOT_TRACK also now does double duty: cli/init.py's
+        # _prompt_telemetry_consent() (Dango's own opt-in telemetry, added
+        # after this test was first written) is called unconditionally
+        # inside initialize() -- not gated by skip_wizard -- and would
+        # otherwise call click.prompt() interactively. is_ci() short-circuits
+        # it on real CI (GITHUB_ACTIONS=true), but a contributor running this
+        # test locally, on a machine that has never run a real `dango init`
+        # (so has_recorded_consent() is False), would hit a live interactive
+        # prompt without this. is_telemetry_enabled() (dango/telemetry.py)
+        # honors DO_NOT_TRACK the same way dbt does, so the env var above
+        # already covers this -- confirmed empirically (no hang, no prompt)
+        # after dbt-core 1.11/dango-telemetry landed on v1.0.8 post-branch.
+
         # Pre-seed the Metabase DuckDB driver so init's download step
         # (cli/init.py:_setup_metabase, utils/driver.py:driver_needs_update)
         # is a no-op. This test asserts against *undocumented* hosts; it
