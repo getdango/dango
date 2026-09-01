@@ -76,7 +76,9 @@ jobs:
 
   security:
     name: Security (pip-audit)
-    # Known CVE-2026-32274 in black (dbt-core dep) — revisit when dbt-core supports pydantic v2
+    # Known CVE-2026-32274 in black (dev dep) — dbt-core 1.11 now allows pydantic<3 (was the
+    # original blocker), but black>=26.3.1 needs pathspec>=1.0.0 while dbt-core pins
+    # pathspec<0.13,>=0.9 — still blocked. Revisit when dbt-core relaxes its pathspec pin.
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:

@@ -32,9 +32,9 @@ dependencies = [
     # DuckDB Python + Metabase JDBC driver must share the same DuckDB
     # major.minor. Read-only mode CANNOT cross versions.
     "duckdb>=1.5.0,<1.6",         # Tier 1 — must match driver (driver.py)
-    "dbt-duckdb>=1.10.0,<1.11",   # Tier 1 — must match dbt-core
+    "dbt-duckdb>=1.11.0,<1.12",   # Tier 1 — must match dbt-core
     # ── Tier 2: semi-coupled (patch safe, minor needs testing) ────────────
-    "dbt-core~=1.10.0",           # Tier 2 — 1.11 is breaking
+    "dbt-core~=1.11.0",           # Tier 2 — 1.12 flips two flags to default true
     "dlt[duckdb]~=1.28.0",        # Tier 2 — latest stable
 
     # Framework and utilities - flexible versions
@@ -95,7 +95,8 @@ dependencies = [
 dev = [
     "pytest>=9.0.3",              # CVE-2025-71176 fixed in 9.0.3
     "pytest-cov>=5.0.0",
-    "black>=24.0.0",  # CVE-2026-32274 in <26.3.1; bump blocked by dbt-core pydantic<2 conflict
+    "black>=24.0.0",  # CVE-2026-32274 in <26.3.1; dbt-core 1.11 now allows pydantic<3 (unblocked),
+    # but black>=26.3.1 needs pathspec>=1.0.0 while dbt-core pins pathspec<0.13,>=0.9 (still blocked)
     "ruff>=0.6.0",
     "mypy>=1.11.0",
     "types-PyYAML>=6.0.0",
