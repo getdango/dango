@@ -66,7 +66,13 @@ jobs:
       - name: pytest
         env:
           DANGO_LOG_LEVEL: ERROR
-        run: pytest --tb=short -q
+        # -m "not egress": the egress-marked test needs the spaCy PII model
+        # pre-installed to stay hermetic (see the egress job's dedicated
+        # pre-install step below) — this matrix doesn't have that step, so
+        # running it here would add a live GitHub Releases download
+        # dependency to these required checks for no benefit; the egress
+        # job already covers it.
+        run: pytest --tb=short -q -m "not egress"
 
   security:
     name: Security (pip-audit)
@@ -85,6 +91,27 @@ jobs:
       - run: pip install -c constraints.txt -e ".[dev]"
       - name: pip-audit
         run: pip-audit --ignore-vuln CVE-2026-32274 --ignore-vuln PYSEC-2026-2120 --ignore-vuln CVE-2026-71491 --ignore-vuln CVE-2026-59894 --ignore-vuln CVE-2026-59893 --ignore-vuln CVE-2026-54284
+
+  egress:
+    name: Egress allowlist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -c constraints.txt -e ".[dev]"
+      - name: Pre-install spaCy PII model
+        # Real download, done here (unguarded) so the guarded test below is
+        # hermetic — spacy.load() succeeds without any network call once this
+        # is installed. Without this step, the live-detection test's PII scan
+        # hook falls through to governance/pii_detector.py's urllib fallback
+        # and either does a slow live download or gets correctly blocked as
+        # an "unexpected host" (it isn't unexpected, it's just not pre-empted).
+        run: python -m spacy download en_core_web_sm
+      - name: Egress allowlist test
+        run: pytest tests/unit/test_egress_allowlist.py -v
 
   llm-checks:
     name: LLM checks
