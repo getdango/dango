@@ -35,7 +35,6 @@ class ProjectInitializer:
             SystemExit: If project already exists and not force
         """
         # Track initialization status
-        failures = []
         warnings = []
 
         # Check if project already exists
@@ -57,7 +56,7 @@ class ProjectInitializer:
             wizard = ProjectWizard(self.project_dir)
             config = wizard.run()
 
-        # Wrap initialization in try/catch for atomic rollback on critical failures
+        # Wrap initialization in try/catch for atomic rollback on critical errors
         try:
             # Create project structure
             self._create_directory_structure()
@@ -137,7 +136,7 @@ class ProjectInitializer:
             pass  # Never fail init over a convenience hook
 
         # Print success message
-        self._print_success_message(warnings=warnings, failures=failures, auth_success=auth_success)
+        self._print_success_message(warnings=warnings, auth_success=auth_success)
 
         # First-run anonymous telemetry consent (install ping only — no
         # heartbeat). Skipped for --skip-wizard blank-project creation,
@@ -145,10 +144,6 @@ class ProjectInitializer:
         # or stored answer.
         if not skip_wizard:
             self._prompt_telemetry_consent(config)
-
-        # Exit with error if critical failures
-        if failures:
-            raise SystemExit(1)
 
     def _create_blank_config(self) -> DangoConfig:
         """Create blank configuration"""
@@ -1416,19 +1411,14 @@ on-run-end:
 
         return __version__
 
-    def _print_success_message(self, warnings=None, failures=None, auth_success=True):
+    def _print_success_message(self, warnings=None, auth_success=True):
         """Print success message with next steps"""
         warnings = warnings or []
-        failures = failures or []
 
         console.print()
 
         # Determine overall status
-        if failures:
-            title = "❌ Initialization Failed"
-            border_style = "red"
-            status_msg = "[bold red]✗ Project initialization failed[/bold red]"
-        elif warnings:
+        if warnings:
             title = "⚠️  Initialization Completed with Warnings"
             border_style = "yellow"
             status_msg = "[bold yellow]⚠ Project initialized with some warnings[/bold yellow]"
@@ -1447,46 +1437,39 @@ on-run-end:
                 message += f"⚠ {warning}\n"
             message += "\n"
 
-        # Add failures if any
-        if failures:
-            message += "[bold red]Errors:[/bold red]\n"
-            for failure in failures:
-                message += f"✗ {failure}\n"
-            message += "\n"
+        # Add next steps
+        if auth_success:
+            message += "[dim]Auth is enabled — log in with your admin credentials on first visit.[/dim]\n\n"
+        message += "[bold]Next steps:[/bold]\n\n"
 
-        # Add next steps (only if not failed)
-        if not failures:
-            if auth_success:
-                message += "[dim]Auth is enabled — log in with your admin credentials on first visit.[/dim]\n\n"
-            message += "[bold]Next steps:[/bold]\n\n"
+        # Check if user is already in the project directory
+        already_in_dir = self.project_dir == Path.cwd()
 
-            # Check if user is already in the project directory
-            already_in_dir = self.project_dir == Path.cwd()
-
-            if already_in_dir:
-                # Pattern B: User already in directory, skip cd step
-                message += "1. dango source add     # Add your first data source\n"
-                message += "2. dango sync           # Fetch data from sources to database\n"
-                message += "3. dango start          # Start platform\n"
-                message += "4. Open http://localhost:8800"
-            else:
-                # Pattern A: User needs to cd into directory first
-                message += f"1. cd {self.project_dir.name}                # Navigate to project directory\n"
-                message += "2. dango source add     # Add your first data source\n"
-                message += "3. dango sync           # Fetch data from sources to database\n"
-                message += "4. dango start          # Start platform\n"
-                message += "5. Open http://localhost:8800"
+        if already_in_dir:
+            # Pattern B: User already in directory, skip cd step
+            message += "1. dango source add     # Add your first data source\n"
+            message += "2. dango sync           # Fetch data from sources to database\n"
+            message += "3. dango start          # Start platform\n"
+            message += "4. Open http://localhost:8800"
+        else:
+            # Pattern A: User needs to cd into directory first
+            message += (
+                f"1. cd {self.project_dir.name}                # Navigate to project directory\n"
+            )
+            message += "2. dango source add     # Add your first data source\n"
+            message += "3. dango sync           # Fetch data from sources to database\n"
+            message += "4. dango start          # Start platform\n"
+            message += "5. Open http://localhost:8800"
 
         console.print(Panel(message, title=title, border_style=border_style))
 
         # Print detect-secrets recommendation after main panel
-        if not failures:
-            console.print(
-                "[dim]Tip: Add secret scanning to prevent accidentally committing credentials:\n"
-                "  pip install pre-commit detect-secrets\n"
-                "  detect-secrets scan > .secrets.baseline\n"
-                "  # Add detect-secrets hook to .pre-commit-config.yaml[/dim]"
-            )
+        console.print(
+            "[dim]Tip: Add secret scanning to prevent accidentally committing credentials:\n"
+            "  pip install pre-commit detect-secrets\n"
+            "  detect-secrets scan > .secrets.baseline\n"
+            "  # Add detect-secrets hook to .pre-commit-config.yaml[/dim]"
+        )
 
         console.print()
 
