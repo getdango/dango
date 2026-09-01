@@ -139,6 +139,13 @@ class ProjectInitializer:
         # Print success message
         self._print_success_message(warnings=warnings, failures=failures, auth_success=auth_success)
 
+        # First-run anonymous telemetry consent (install ping only — no
+        # heartbeat). Skipped for --skip-wizard blank-project creation,
+        # non-interactive sessions, CI environments, and any prior opt-out
+        # or stored answer.
+        if not skip_wizard:
+            self._prompt_telemetry_consent(config)
+
         # Exit with error if critical failures
         if failures:
             raise SystemExit(1)
@@ -1482,6 +1489,87 @@ on-run-end:
             )
 
         console.print()
+
+    def _prompt_telemetry_consent(self, config: DangoConfig) -> None:
+        """Ask for anonymous telemetry consent on first `dango init` run.
+
+        No-op when telemetry is already ruled out by CI detection, a
+        prior stored answer, or an opt-out (``DO_NOT_TRACK``,
+        ``DANGO_TELEMETRY``, or ``telemetry: false`` in
+        ``~/.dango/config.yml``) — in all of those cases the user is
+        never prompted at all.
+
+        Also a no-op, without persisting anything, when no real answer
+        can be obtained at all — see `_ask_telemetry_consent` for what
+        that covers and why `safe_confirm()` isn't used here.
+
+        Args:
+            config: The project's freshly created configuration, used to
+                read configured source *type* names for the install ping.
+        """
+        from dango.telemetry import (
+            has_recorded_consent,
+            is_ci,
+            is_telemetry_enabled,
+            ping,
+            set_telemetry_enabled,
+        )
+
+        if is_ci() or has_recorded_consent() or not is_telemetry_enabled():
+            return
+
+        console.print()
+        consent = _ask_telemetry_consent()
+        if consent is None:
+            return
+        set_telemetry_enabled(consent)
+        if consent:
+            source_types = [s.type.value for s in config.sources.get_enabled_sources()]
+            ping("install", source_types=source_types)
+
+
+def _ask_telemetry_consent() -> bool | None:
+    """Ask the telemetry yes/no question directly, not via `safe_confirm()`.
+
+    Returns the user's real answer, or ``None`` if no real answer could
+    be obtained at all — closed stdin, genuine EOF, or any other failure
+    reading input (e.g. ``sys.stdin`` being ``None`` because fd 0 is
+    closed entirely, as in a daemonized invocation). ``None`` is
+    deliberately distinct from ``False``: the caller persists a real
+    "no" forever, but must never persist an unseen non-answer as if it
+    were one — that would silently and permanently lock the machine
+    into opt-out.
+
+    Deliberately does not pre-check ``sys.stdin.isatty()`` the way an
+    earlier version of this function did: that gate also silently
+    discarded a real answer piped into stdin (e.g. ``echo yes | dango
+    init``), since piped input is never a TTY even when it has genuine
+    data to read. `click.prompt()` only raises on true EOF — when
+    there is really nothing left to read — so relying on that directly
+    (via a broad ``except``, since a closed ``sys.stdin`` raises
+    something other than the ``EOFError``/``click.Abort`` that
+    `safe_confirm()` itself catches) is what actually distinguishes
+    "no real answer" from "a real answer that happens to arrive
+    non-interactively".
+
+    Returns:
+        True or False for a real answer, None if none could be obtained.
+    """
+    import click
+
+    text = (
+        "Help improve Dango by sending anonymous usage data "
+        "(no source names, credentials, or data — just install count)?"
+    )
+    while True:
+        try:
+            result = click.prompt(f"{text} (yes/no)", default="no", show_default=True)
+        except Exception:
+            return None
+        normalised = str(result).lower().strip()
+        if normalised in ("yes", "y", "no", "n"):
+            return normalised in ("yes", "y")
+        click.echo("Please answer yes or no.")
 
 
 def init_project(project_dir: Path, skip_wizard: bool = False, force: bool = False):
