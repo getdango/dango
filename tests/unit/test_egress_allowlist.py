@@ -36,8 +36,15 @@ def _normalize_host(host: str) -> str:
 
 def _documented_hosts() -> set[str]:
     data = _load_egress_doc()
-    hosts = {entry["host"] for entry in data.get("telemetry", [])}
-    hosts |= {entry["host"] for entry in data.get("functional", [])}
+    hosts: set[str] = set()
+    for section in ("telemetry", "functional"):
+        for i, entry in enumerate(data.get(section, [])):
+            host = entry.get("host")
+            assert host, (
+                f"docs/network-egress.yml: entry {i} in '{section}' is missing "
+                f"a 'host' key: {entry!r}"
+            )
+            hosts.add(host)
     return {_normalize_host(h) for h in hosts}
 
 
@@ -77,9 +84,19 @@ class _AllowlistGuard:
         socket.getaddrinfo = self._original  # type: ignore[assignment]
 
     def _patched(self, host: str | None, *args: Any, **kwargs: Any) -> Any:
-        if host is not None and _normalize_host(host) not in self.allowed_hosts:
-            self.blocked_hosts.add(host)
-            raise socket.gaierror(socket.EAI_NONAME, f"blocked by egress allowlist test: {host!r}")
+        if host is None:
+            return self._original(host, *args, **kwargs)
+        normalized = _normalize_host(host)
+        if normalized not in self.allowed_hosts:
+            # Store the normalized form: this is what gets surfaced in the
+            # final assertion message, and it should match exactly what
+            # someone would type into docs/network-egress.yml, not a
+            # case/trailing-dot variant that looks like a different host.
+            self.blocked_hosts.add(normalized)
+            raise socket.gaierror(
+                socket.EAI_NONAME,
+                f"blocked by egress allowlist test: {host!r} (normalized: {normalized!r})",
+            )
         return self._original(host, *args, **kwargs)
 
 
@@ -95,7 +112,14 @@ class TestNetworkEgressDoc:
 
     def test_network_egress_yml_has_all_known_providers(self) -> None:
         data = _load_egress_doc()
-        providers = {entry["provider"] for entry in data["telemetry"]}
+        providers: set[str] = set()
+        for i, entry in enumerate(data["telemetry"]):
+            provider = entry.get("provider")
+            assert provider, (
+                f"docs/network-egress.yml: telemetry entry {i} is missing a "
+                f"'provider' key: {entry!r}"
+            )
+            providers.add(provider)
         assert providers == {"dango", "dbt-core", "dlt", "metabase"}
 
     def test_dlt_runtime_configuration_has_telemetry_field(self) -> None:
@@ -165,7 +189,31 @@ class TestLiveEgressDetection:
           telemetry send as an unintended side effect of writing a
           telemetry-detection test.
         - dlt itself runs in-process (imported directly in dlt_runner.py,
-          not subprocess'd) — it IS covered by this test, unlike dbt.
+          not subprocess'd) — its DNS calls happen on this thread and are
+          visible to _AllowlistGuard, unlike dbt's. But dlt's own telemetry
+          is dispatched fire-and-forget on a background thread pool
+          (dlt/common/runtime/anon_tracker.py: `_THREAD_POOL.thread_pool.
+          submit(_future_send)`, never joined by the caller) — a send queued
+          there could execute after this `with` block exits and
+          _AllowlistGuard restores the real socket.getaddrinfo, racing past
+          detection. `stop_telemetry()` below forces a synchronous flush
+          (`disable_anon_tracker()` -> `ManagedThreadPool.stop(wait=True)`,
+          which blocks on `ThreadPoolExecutor.shutdown(wait=True)`) so any
+          queued send is forced to happen, and be checked against the
+          allowlist, deterministically inside the guard.
+          Verified empirically for the CSV-source path this test drives:
+          `dlt.common.runtime.telemetry.is_telemetry_started()` and
+          `dlt.common.runtime.anon_tracker._ANON_TRACKER_ENDPOINT` both stay
+          unset through a full run_sync() call here — dlt's runtime-config
+          lazy-init (dlt/common/runtime/run_context.py:
+          `RunContext.runtime_config` property) is apparently never touched
+          by this code path, so there is currently no live telemetry event
+          for stop_telemetry() to flush. It's kept anyway as defense in
+          depth — a different source type, or a future dlt/dango version,
+          could touch that property and start telemetry, and this test
+          shouldn't silently stop covering dlt the day that happens. Do not
+          read "dlt IS covered" as "dlt telemetry was observed firing here";
+          it wasn't, in this specific run.
         - `dango start`/`dango serve` are excluded entirely: they require a
           running Docker daemon to launch Metabase (cli/commands/platform.py:
           464-495), which would make this job slow and Docker-availability
@@ -182,7 +230,16 @@ class TestLiveEgressDetection:
         per CI run, adding real network dependency to the *required* Test
         (Python 3.10)/(3.12) checks for no detection benefit (the dedicated
         `egress` job already covers this test hermetically).
+
+        Local reproduction: run `python -m spacy download en_core_web_sm`
+        once first (matches the CI `egress` job's pre-install step) — the
+        post-sync PII-scan hook isn't gated by skip_dbt (post_sync.py:381,
+        unconditional), so without the model already installed this test
+        falls through to governance/pii_detector.py's live download path
+        instead of a clean skip.
         """
+        from dlt.common.runtime.telemetry import stop_telemetry
+
         from dango.cli.init import init_project
         from dango.config.models import SourceType
         from dango.ingestion import run_sync
@@ -223,6 +280,11 @@ class TestLiveEgressDetection:
             )
 
             result = run_sync(tmp_path, [source], skip_dbt=True)
+
+            # Force dlt's background telemetry thread pool to drain before
+            # the guard exits — see the docstring above. Safe to call even
+            # if no telemetry was actually queued (no-op then).
+            stop_telemetry()
 
         assert guard.blocked_hosts == set(), (
             f"Undocumented host(s) contacted during dango init/source/sync: "
