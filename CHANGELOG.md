@@ -5,6 +5,12 @@ All notable changes to Dango will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- dbt-core 1.10.22 → 1.11.14, dbt-duckdb 1.10.1 → 1.11.0, Metabase v0.59.1 → v0.62.18, Metabase DuckDB JDBC driver 1.5.3.0 → 1.5.4.0
+
 ## [1.0.7] - 2026-08-27
 
 ### Added
