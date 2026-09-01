@@ -118,11 +118,15 @@ def _run_toggle(
     explicit --provider request that can't be fulfilled still raises, since
     that is a single deliberate action rather than a best-effort sweep.
     """
-    if not all_providers and not provider:
+    targets: list[str]
+    if all_providers:
+        targets = list(PROVIDERS)
+    elif provider:
+        targets = [provider]
+    else:
         raise click.UsageError("Specify --all or --provider PROVIDER")
 
     project_root = ctx.obj.get("project_root")
-    targets = list(PROVIDERS) if all_providers else [provider]
     verb = "enabled" if enabled else "disabled"
 
     for p in targets:
