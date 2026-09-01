@@ -1186,6 +1186,72 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         return False
 
 
+def set_metabase_telemetry(
+    project_root: Path, enabled: bool, metabase_url: str = "http://localhost:3000"
+) -> None:
+    """
+    Toggle Metabase's anonymous usage tracking via the admin Setting API.
+
+    Loads admin credentials from .dango/metabase.yml (same pattern as
+    sync_metabase_schema), logs in, then calls
+    PUT /api/setting/anon-tracking-enabled — Metabase's runtime setting key
+    for anonymous tracking (distinct from the one-time "allow_tracking" field
+    used only in the /api/setup wizard payload in setup_metabase() above).
+
+    Args:
+        project_root: Path to project root
+        enabled: True to enable anonymous tracking, False to disable it
+        metabase_url: Metabase URL (default: http://localhost:3000)
+
+    Raises:
+        click.ClickException: If Metabase credentials are missing/incomplete,
+            or if the API call fails (e.g. Metabase not running).
+    """
+    import click
+
+    credentials_file = project_root / ".dango" / "metabase.yml"
+    if not credentials_file.exists():
+        raise click.ClickException("Metabase not configured. Run dango start first.")
+
+    try:
+        with open(credentials_file) as f:
+            credentials = yaml.safe_load(f) or {}
+
+        admin = credentials.get("admin", {})
+        email = admin.get("email")
+        password = admin.get("password")
+        if not email or not password:
+            raise click.ClickException(
+                "Metabase admin credentials missing from .dango/metabase.yml"
+            )
+
+        session = requests.Session()
+        login_response = session.post(
+            f"{metabase_url}/api/session",
+            json={"username": email, "password": password},
+            timeout=10,
+        )
+        login_response.raise_for_status()
+        session_id = login_response.json().get("id")
+        if not session_id:
+            raise click.ClickException("Metabase login did not return a session id")
+
+        response = session.put(
+            f"{metabase_url}/api/setting/anon-tracking-enabled",
+            headers={"X-Metabase-Session": session_id},
+            json={"value": enabled},
+            timeout=10,
+        )
+        response.raise_for_status()
+
+    except click.ClickException:
+        raise
+    except requests.exceptions.RequestException as e:
+        raise click.ClickException(
+            f"Could not reach Metabase at {metabase_url} — is it running? ({e})"
+        ) from e
+
+
 def refresh_metabase_connection(
     project_root: Path, metabase_url: str = "http://localhost:3000"
 ) -> tuple[bool, str | None]:

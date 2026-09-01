@@ -1,4 +1,5 @@
-"""
+"""dango/transformation/__init__.py
+
 Dango Transformation Module
 
 Handles dbt integration and SQL model generation.
@@ -13,6 +14,27 @@ from rich.console import Console
 from dango.exceptions import format_structured_error
 
 console = Console()
+
+
+def _dbt_telemetry_env() -> dict[str, str]:
+    """Return an env dict for the dbt subprocess, with telemetry disabled if opted out.
+
+    Always a complete copy of os.environ ({**os.environ}) — never mutates
+    os.environ in place. The opt-out state comes from the sentinel file
+    dango/cli/commands/telemetry.py writes (~/.dango/dbt_telemetry),
+    machine-level like Dango's own telemetry identity. DBT_SEND_ANONYMOUS_USAGE_STATS
+    is dbt-core's actual documented env var (dbt/cli/params.py); DO_NOT_TRACK
+    is set alongside it as defense in depth, matching the community
+    convention dango/telemetry.py also honors.
+    """
+    import os
+
+    env = {**os.environ}
+    sentinel = Path.home() / ".dango" / "dbt_telemetry"
+    if sentinel.exists() and sentinel.read_text().strip() == "false":
+        env["DBT_SEND_ANONYMOUS_USAGE_STATS"] = "false"
+        env["DO_NOT_TRACK"] = "1"
+    return env
 
 
 def _get_dbt_executable() -> str:
@@ -76,6 +98,7 @@ def run_dbt_models(
             capture_output=True,
             text=True,
             timeout=300,  # 5 minute timeout
+            env=_dbt_telemetry_env(),
         )
 
         output = result.stdout + result.stderr
@@ -161,6 +184,7 @@ def run_dbt_snapshots(
             capture_output=True,
             text=True,
             timeout=300,  # 5 minute timeout
+            env=_dbt_telemetry_env(),
         )
 
         if result.returncode == 0:
@@ -236,6 +260,7 @@ def generate_dbt_docs(project_root: Path) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=60,
+            env=_dbt_telemetry_env(),
         )
 
         return (result.returncode == 0, result.stdout + result.stderr)

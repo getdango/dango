@@ -1,7 +1,11 @@
 # Dango network egress — all outbound connections made by the stack.
-# Telemetry: each provider has its own opt-out today (see each entry's
-# `control` field). A unified `dango telemetry off --all` command is planned
-# (Session D, not yet merged as of this session) — do not assume it exists.
+# Telemetry: each provider has its own opt-out (see each entry's `control`
+# field). `dango telemetry status/on/off [--all|--provider X]`
+# (dango/cli/commands/telemetry.py, added in Session D) controls telemetry
+# for the components Dango configures — Dango, dbt, dlt, and Metabase — by
+# writing through to each provider's own real config mechanism below. It
+# does not affect, and makes no claim about, the `functional` hosts further
+# down this file.
 # Functional: required for operation, disclosed but not toggleable
 # Verified against installed packages (dbt-core 1.11.14, dlt 1.28.1, marimo)
 # 2026-09-01 — re-verified after the dbt-core 1.10->1.11 bump landed on v1.0.8.
@@ -13,13 +17,13 @@ telemetry:
   - host: telemetry.getdango.dev
     provider: dango
     control: >
-      Today: decline the `dango init` consent prompt (persists "no"), or set
-      DO_NOT_TRACK=1 / DANGO_TELEMETRY=0 / `telemetry: false` in
-      ~/.dango/config.yml (dango/telemetry.py:is_telemetry_enabled) — all
-      three suppress the prompt entirely, no ping is ever sent. A unified
-      `dango telemetry off --provider dango` command is Session D's job
-      (dango/cli/commands/ has no `telemetry.py` yet as of this session).
-    sends: "anonymous UUID, version, OS, source type names, weekly heartbeat"
+      `dango telemetry off --provider dango` (or `--all`), which persists
+      the same "no" answer as declining the `dango init` consent prompt
+      (dango/telemetry.py:set_telemetry_enabled). DO_NOT_TRACK=1 /
+      DANGO_TELEMETRY=0 / `telemetry: false` in ~/.dango/config.yml also
+      still suppress every ping without touching stored state
+      (dango/telemetry.py:is_telemetry_enabled).
+    sends: "anonymous UUID, version, OS, source type names — single install ping, no heartbeat"
   - host: fishtownanalytics.sinter-collect.com
     provider: dbt-core
     control: "DBT_SEND_ANONYMOUS_USAGE_STATS=false or DO_NOT_TRACK=1"
@@ -31,10 +35,15 @@ telemetry:
   - host: metabase.com
     provider: metabase
     control: >
-      Planned: `dango telemetry off --provider metabase` (sets
-      allow_tracking=false via the Metabase admin API) is Session D's job,
-      not yet implemented as of this session — today this requires toggling
-      the setting manually in the Metabase admin UI.
+      `dango telemetry off --provider metabase` (or `--all`), which calls
+      PUT /api/setting/anon-tracking-enabled via the Metabase admin API
+      (visualization/metabase.py:set_metabase_telemetry). This is Metabase's
+      runtime setting key for anonymous tracking — distinct from the
+      one-time `allow_tracking` field Dango already sets to false in the
+      /api/setup payload when it provisions a fresh Metabase instance
+      (visualization/metabase.py:setup_metabase), so tracking is off by
+      default on new installs even before this command is ever run.
+      Manually toggling the setting in the Metabase admin UI still works too.
     sends: "anonymous usage statistics"
 
 functional:
@@ -70,8 +79,17 @@ functional:
 
 notes:
   - "dbt and dlt telemetry env vars/config are read by their own subprocesses/library
-     calls, not a separate Dango network layer. dango telemetry off --all (Session D)
-     writes these through to each tool's real config."
+     calls, not a separate Dango network layer. dango telemetry off --all writes
+     these through to each tool's real config (dango/cli/commands/telemetry.py)."
+  - "dlt's write-through (dlthub_telemetry=false in .dlt/config.toml) has not been
+     observed to change real dlt network behavior — Session B verified empirically,
+     for the CSV-source sync path only, that dlt's telemetry runtime never
+     initializes at all for Dango's direct-library usage (RunContext.runtime_config
+     is never touched), so there was nothing live to flip. The write-through is kept
+     anyway: it matches dlt's own documented opt-out mechanism and takes effect if a
+     different source type or a future dlt/dango version does touch that code path.
+     This remains an open question, not a confirmed no-op — see
+     tests/unit/test_egress_allowlist.py's docstring for the full empirical detail."
   - "Marimo update check host (marimo.io/api/oss/latest-version) is not listed above
      because it is never contacted in a Dango deployment: Dango always passes
      --skip-update-check to every Marimo process (dango/notebooks/manager.py:141),
