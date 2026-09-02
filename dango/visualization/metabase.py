@@ -1242,6 +1242,16 @@ def set_metabase_telemetry(
             json={"username": email, "password": password},
             timeout=10,
         )
+        if login_response.status_code in (401, 403):
+            # Distinguish "reachable but rejected the credentials" from
+            # "unreachable" *before* raise_for_status() below would
+            # otherwise turn this into a generic requests.HTTPError (a
+            # RequestException subclass) and get mislabeled by the
+            # "is it running?" branch further down — Metabase is running
+            # fine here, the admin password in metabase.yml is just stale.
+            raise click.ClickException(
+                "Metabase login failed — check admin credentials in .dango/metabase.yml"
+            )
         login_response.raise_for_status()
         session_id = login_response.json().get("id")
         if not session_id:

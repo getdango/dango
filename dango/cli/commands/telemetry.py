@@ -173,10 +173,21 @@ def _set_dbt_telemetry(enabled: bool) -> None:
     Machine-level (~/.dango/), matching Dango's own telemetry identity scope
     (see dango/telemetry.py) — one opt-out covers every project on the
     machine.
+
+    Raises:
+        click.ClickException: If the sentinel file can't be written (e.g.
+            ~/.dango is read-only or otherwise inaccessible) — converted
+            from a raw OSError so `--all` can skip this provider and
+            continue with the rest instead of crashing the whole command,
+            matching the error-handling contract set_metabase_telemetry()
+            uses for every one of its own failure modes.
     """
     sentinel = Path.home() / ".dango" / "dbt_telemetry"
-    sentinel.parent.mkdir(parents=True, exist_ok=True)
-    sentinel.write_text("true" if enabled else "false")
+    try:
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.write_text("true" if enabled else "false")
+    except OSError as e:
+        raise click.ClickException(f"Could not write dbt telemetry sentinel: {e}") from e
 
 
 def _set_dlt_telemetry(enabled: bool, project_root: Path | None) -> None:
@@ -185,18 +196,33 @@ def _set_dlt_telemetry(enabled: bool, project_root: Path | None) -> None:
     Writes a native TOML boolean (not a string) to match the value type
     dlt's own `dango telemetry`-equivalent CLI (`dlt telemetry switch`)
     writes — RuntimeConfiguration.dlthub_telemetry is a bool-typed field.
+
+    Raises:
+        click.ClickException: If project_root is None, if the file can't
+            be read/written (OSError — e.g. permissions), or if the
+            existing .dlt/config.toml is malformed
+            (tomlkit.exceptions.TOMLKitError, e.g. from manual editing) —
+            the latter two converted from raw exceptions so `--all` can
+            skip this provider and continue, same contract as dbt above
+            and Metabase's set_metabase_telemetry().
     """
     import tomlkit
+    from tomlkit.exceptions import TOMLKitError
 
     if project_root is None:
         raise click.ClickException("Must be run inside a Dango project for dlt control")
     config_path = project_root / ".dlt" / "config.toml"
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    doc = tomlkit.parse(config_path.read_text()) if config_path.exists() else tomlkit.document()
-    if "runtime" not in doc:
-        doc.add("runtime", tomlkit.table())
-    doc["runtime"]["dlthub_telemetry"] = enabled
-    config_path.write_text(tomlkit.dumps(doc))
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        doc = tomlkit.parse(config_path.read_text()) if config_path.exists() else tomlkit.document()
+        if "runtime" not in doc:
+            doc.add("runtime", tomlkit.table())
+        doc["runtime"]["dlthub_telemetry"] = enabled
+        config_path.write_text(tomlkit.dumps(doc))
+    except OSError as e:
+        raise click.ClickException(f"Could not write .dlt/config.toml: {e}") from e
+    except TOMLKitError as e:
+        raise click.ClickException(f"Could not parse .dlt/config.toml: {e}") from e
 
 
 def _set_metabase_telemetry(enabled: bool, project_root: Path | None) -> None:
