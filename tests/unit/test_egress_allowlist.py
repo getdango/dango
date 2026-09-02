@@ -306,3 +306,195 @@ class TestLiveEgressDetection:
             f"an honest reason. Do not loosen this test to make it pass."
         )
         assert result["failed_sources"] == [], f"sync failed: {result['failed_sources']}"
+
+    def test_dlt_native_source_sync_initializes_telemetry_and_opt_out_suppresses_it(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """1.0.8-V: answers the open question left by the test above.
+
+        The CSV-source test proves dlt telemetry never initializes for that
+        path because CSV is a fully custom loader that never calls
+        `dlt.pipeline()`. This test drives a real `dlt.pipeline()` through
+        Dango's DLT_NATIVE code path (`_run_dlt_native_source()`,
+        dlt_runner.py ~line 997) via a trivial in-memory
+        `@dlt.source`/`dlt.resource` in `custom_sources/` -- no live
+        credentials needed -- and answers both halves of the open question:
+
+        1. Does telemetry ever initialize for a real dlt-pipeline sync? YES.
+           Traced through dlt 1.28.1's own installed source: every
+           `pipeline.extract()`/`.normalize()`/`.load()` is wrapped by
+           `@with_runtime_trace` (dlt/pipeline/pipeline.py), which calls
+           `dlt.pipeline.trace.end_trace_step()` after each step. That
+           invokes `dlt.pipeline.track.on_end_trace_step()` (registered via
+           `trace.TRACKING_MODULES`, dlt/pipeline/__init__.py ~line 383),
+           which unconditionally reads
+           `pipeline.run_context.runtime_config.sentry_dsn`. `RunContext.
+           runtime_config` (dlt/common/runtime/run_context.py) is a
+           lazy-init property: first access resolves `RuntimeConfiguration()`
+           and calls `initialize_runtime()` -> `start_telemetry()`
+           (dlt/common/runtime/telemetry.py) -- unconditionally, regardless
+           of `dlthub_telemetry`, so `is_telemetry_started()` becomes True
+           either way. The *send* is what's conditional:
+           `start_telemetry()` only calls `init_anon_tracker()` (which sets
+           `anon_tracker._ANON_TRACKER_ENDPOINT`) `if config.dlthub_telemetry`,
+           and `_send_event()` skips its POST when that endpoint is None.
+           So: runtime init always happens for any real dlt.pipeline()
+           source; whether a live send is actually attempted depends on
+           `dlthub_telemetry`.
+
+        2. Does `dango telemetry off --provider dlt`'s config.toml
+           write-through (`dlthub_telemetry=false`) suppress it? YES,
+           confirmed below: with the flag set, `_ANON_TRACKER_ENDPOINT`
+           stays None and no live send to telemetry.scalevector.ai is
+           attempted (same `_AllowlistGuard` mechanism as the test above,
+           with telemetry.scalevector.ai deliberately excluded from the
+           allowed set so an attempt is caught, not silently let through
+           because it's normally a documented host).
+
+        Two phases, matching the "run it twice" approach: Phase 1 uses dlt's
+        own default (`dlthub_telemetry` unset, defaults True) and proves a
+        live send IS attempted. Phase 2 writes `dlthub_telemetry = false`
+        under `[runtime]` in `.dlt/config.toml` -- the exact write-through
+        `_set_dlt_telemetry()` (cli/commands/telemetry.py) performs -- and
+        proves the send is NOT attempted.
+
+        `switch_context()` (dlt.common.runtime.run_context) between phases is
+        not optional: `Pipeline.__init__` caches
+        `config.runtime.pluggable_run_context.context` as a plain attribute,
+        and dlt's config providers cache parsed file content in memory. Two
+        `dlt.pipeline()` calls in one *process* would otherwise reuse Phase
+        1's already-resolved config instead of picking up Phase 2's file
+        write -- confirmed while building this test (without
+        `switch_context()`, Phase 2 incorrectly showed the endpoint still
+        set). A real second `dango sync` is a fresh OS process and wouldn't
+        need this; it's purely an artifact of sharing one pytest process.
+
+        `stop_telemetry()` runs inside each `with guard:` block, before the
+        guard exits (forced-flush, same as the test above) -- and, crucially,
+        *after* each phase's state assertions, since it resets both flags to
+        their disabled defaults.
+
+        Local reproduction: same as the test above -- run
+        `python -m spacy download en_core_web_sm` once first.
+        """
+        from dlt.common.runtime import anon_tracker
+        from dlt.common.runtime.run_context import switch_context
+        from dlt.common.runtime.telemetry import is_telemetry_started, stop_telemetry
+
+        from dango.cli.init import init_project
+        from dango.config.models import DataSource, DltNativeConfig, SourceType
+        from dango.ingestion import run_sync
+        from dango.utils.driver import METABASE_DUCKDB_DRIVER_VERSION
+
+        monkeypatch.setenv("DBT_SEND_ANONYMOUS_USAGE_STATS", "false")
+        monkeypatch.setenv("DO_NOT_TRACK", "1")
+
+        # Same pre-seed rationale as the test above: avoid a real driver
+        # download during init, out of scope for what this test detects.
+        plugins_dir = tmp_path / "metabase-plugins"
+        plugins_dir.mkdir(parents=True, exist_ok=True)
+        (plugins_dir / "duckdb.metabase-driver.jar").write_bytes(b"test-driver-stub")
+        (plugins_dir / ".driver-version").write_text(METABASE_DUCKDB_DRIVER_VERSION + "\n")
+
+        init_project(tmp_path, skip_wizard=True)
+
+        # Trivial in-memory dlt source -- no live credentials, no real API.
+        # Auto-discovered by custom_discovery.py the same way a real user's
+        # custom_sources/ file would be.
+        custom_sources_dir = tmp_path / "custom_sources"
+        custom_sources_dir.mkdir(parents=True, exist_ok=True)
+        (custom_sources_dir / "fake_source.py").write_text(
+            "import dlt\n\n"
+            "@dlt.source\n"
+            "def fake_source():\n"
+            "    return dlt.resource([{'id': 1}], name='fake')\n"
+        )
+
+        source = DataSource(
+            name="fake_native",
+            type=SourceType.DLT_NATIVE,
+            dlt_native=DltNativeConfig(
+                source_module="fake_source",
+                source_function="fake_source",
+                function_kwargs={},
+            ),
+        )
+
+        # telemetry.scalevector.ai IS documented (docs/network-egress.yml) so
+        # the normal allowlist would let a live send through silently. Excise
+        # it here so a real attempt shows up as a *blocked* host instead --
+        # this is what makes "did a live send happen" observable, for both
+        # phases, via the exact same detection mechanism as the test above.
+        restricted_allowed = _documented_hosts() - {"telemetry.scalevector.ai"}
+
+        # --- Phase 1: dlt's own default (dlthub_telemetry unset -> True) ---
+        guard1 = _AllowlistGuard(restricted_allowed)
+        with guard1:
+            result1 = run_sync(tmp_path, [source], skip_dbt=True)
+
+            assert is_telemetry_started() is True, (
+                "dlt telemetry runtime did not initialize for a real "
+                "dlt.pipeline() sync -- this contradicts the finding this "
+                "test documents. Investigate before trusting the rest of "
+                "this test (dlt/dango version drift?) rather than loosening "
+                "the assertion."
+            )
+            assert anon_tracker._ANON_TRACKER_ENDPOINT is not None, (
+                "dlt telemetry started but never set an anon-tracker "
+                "endpoint -- unexpected given dlthub_telemetry defaults to "
+                "True; investigate before trusting the rest of this test."
+            )
+
+            stop_telemetry()  # force the queued send to flush before guard exits
+
+        assert result1["failed_sources"] == [], f"sync failed: {result1['failed_sources']}"
+        assert guard1.blocked_hosts == {"telemetry.scalevector.ai"}, (
+            f"Expected exactly one blocked host (telemetry.scalevector.ai, "
+            f"proving dlt's default telemetry attempted a live send during a "
+            f"real dlt.pipeline() sync). Got: {guard1.blocked_hosts}. Either "
+            f"dlt's default changed, or an additional undocumented host was "
+            f"contacted -- add it to docs/network-egress.yml with an honest "
+            f"reason if expected, do not loosen this test to make it pass."
+        )
+
+        # --- Phase 2: dlthub_telemetry explicitly disabled, same write-through
+        # `dango telemetry off --provider dlt` performs ---
+        import tomlkit
+
+        config_path = tmp_path / ".dlt" / "config.toml"
+        doc = tomlkit.parse(config_path.read_text())
+        if "runtime" not in doc:
+            doc.add("runtime", tomlkit.table())
+        doc["runtime"]["dlthub_telemetry"] = False
+        config_path.write_text(tomlkit.dumps(doc))
+
+        # See docstring: forces a brand-new RunContext so the rewritten
+        # config.toml is actually re-read, instead of reusing Phase 1's
+        # in-process-cached RuntimeConfiguration/providers.
+        switch_context(str(tmp_path))
+
+        guard2 = _AllowlistGuard(restricted_allowed)
+        with guard2:
+            result2 = run_sync(tmp_path, [source], skip_dbt=True)
+
+            assert anon_tracker._ANON_TRACKER_ENDPOINT is None, (
+                "dango telemetry off --provider dlt's .dlt/config.toml "
+                "write-through (dlthub_telemetry=false) did NOT suppress "
+                "dlt's anon tracker -- this is a live privacy/telemetry-"
+                "disclosure bug. Do not fix it here: file a BUGS-FOUND.md "
+                "entry per this task's scope (see 1.0.8-V prompt)."
+            )
+
+            stop_telemetry()
+
+        assert result2["failed_sources"] == [], f"sync failed: {result2['failed_sources']}"
+        assert guard2.blocked_hosts == set(), (
+            f"With dlthub_telemetry=false, dlt should make zero attempts to "
+            f"contact telemetry.scalevector.ai (or anything else undisclosed). "
+            f"Got blocked hosts: {guard2.blocked_hosts}. If telemetry.scalevector.ai "
+            f"is in this set, the opt-out does not work -- this is a live "
+            f"privacy/telemetry-disclosure bug, file a BUGS-FOUND.md entry "
+            f"per this task's scope rather than fixing it here."
+        )
