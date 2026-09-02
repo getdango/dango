@@ -76,6 +76,9 @@ class ModelWizard:
             if model_path is None:
                 return None
 
+            # Update CLAUDE.md models inventory if it exists
+            _update_claude_md_models(self.project_root, model_name, model_layer, description)
+
             # Regenerate manifest.json so model appears in Web UI
             console.print("\n[dim]Regenerating dbt manifest...[/dim]")
             self._regenerate_manifest()
@@ -549,6 +552,35 @@ class ModelWizard:
         except Exception:
             console.print("[dim]ℹ Model won't appear in Web UI until first run[/dim]")
             return False
+
+
+def _update_claude_md_models(
+    project_root: Path,
+    model_name: str,
+    layer: str,
+    description: str,
+) -> None:
+    """Append new model to CLAUDE.md model inventory if the file exists."""
+    claude_path = project_root / "CLAUDE.md"
+    if not claude_path.exists():
+        return
+    content = claude_path.read_text()
+    marker = "## dbt models"
+    if marker not in content:
+        return
+    parts = content.split(marker, 1)
+    before = parts[0] + marker + "\n"
+    after_parts = parts[1].split("\n## ", 1)
+    models_section = after_parts[0]
+    rest = "\n## " + after_parts[1] if len(after_parts) > 1 else ""
+
+    new_entry = f"- **{model_name}** (`{layer}`): {description or '# TODO: Add description'}\n"
+    if "*(Models appear here" in models_section:
+        models_section = "\n" + new_entry
+    elif new_entry not in models_section:
+        models_section = models_section.rstrip("\n") + "\n" + new_entry
+
+    claude_path.write_text(before + models_section + rest)
 
 
 def add_model(project_root: Path) -> Path | None:
