@@ -104,3 +104,4 @@ Apache 2.0 — see [LICENSE](LICENSE) for details.
 - [PyPI](https://pypi.org/project/getdango/)
 - [Changelog](CHANGELOG.md)
 - [Issues](https://github.com/getdango/dango/issues)
+<!-- 1.0.8-O: trivial change to prove the metabase-integration-test.yml path filter excludes this file -->
