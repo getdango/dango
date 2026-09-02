@@ -384,6 +384,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `platform/cloud/scheduled_backup.py` | 606 | — (server-side scheduled backup) |
 | `governance/schema_drift.py` | 654 | — (R9-D: breaking drift protection + accept flow) |
 | `governance/pii_detector.py` | 626 | — (BUG-027/BUG-133/BUG-139/BUG-185: spaCy fallback + PERSON threshold + override application + structured data heuristic) |
+| `platform/scheduling/scheduler.py` | 514 | — (1.0.8-Q: `_setup_telemetry_heartbeat()`, a fourth fixed internal scheduler job) |
 
 ## Module Documentation Index
 

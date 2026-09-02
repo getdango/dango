@@ -1,7 +1,12 @@
 """dango/telemetry.py
 
-Opt-in anonymous telemetry: a single "install ping" fired once at
-`dango init`. No heartbeat, no scheduler hook — that is future scope.
+Opt-in anonymous telemetry: a one-time "install ping" fired at `dango
+init`, plus a weekly "heartbeat" ping registered as a fixed internal
+scheduler job (`SchedulerService._setup_telemetry_heartbeat()` in
+`platform/scheduling/scheduler.py`) whenever `dango start` runs. The
+heartbeat exists so an "active install" (>=2 heartbeats, >=7 days
+apart) is measurable — the install ping alone can't distinguish a
+one-time `dango init` from an install still in active use weeks later.
 
 Payload is limited to an anonymous install UUID, Dango version, Python
 version, OS name, and source *type* names (e.g. "postgres", "stripe") —
@@ -312,3 +317,52 @@ def _send_ping(event: str, source_types: list[str] | None) -> None:
         urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS)
     except Exception:
         pass
+
+
+def heartbeat(source_types: list[str] | None = None) -> None:
+    """Fire an anonymous ``"heartbeat"`` telemetry ping.
+
+    A thin wrapper around `ping()` — reuses its threading/timeout/opt-out
+    logic unchanged. Called weekly by `heartbeat_job()` via the scheduler's
+    fixed internal ``dango-internal:telemetry-heartbeat`` job (see
+    `SchedulerService._setup_telemetry_heartbeat()`), never directly by
+    user-facing code.
+
+    Args:
+        source_types: Configured source *type* names only (e.g.
+            ``["postgres", "stripe"]``) — never source names, credentials,
+            or schema content.
+    """
+    ping("heartbeat", source_types=source_types)
+
+
+def heartbeat_job(project_root: str) -> None:
+    """Module-level, picklable wrapper for the scheduled heartbeat job.
+
+    APScheduler 3.x requires module-level functions for job persistence
+    (matching `cleanup_history_job`/`cleanup_login_attempts_job`'s
+    convention of taking `project_root` as a plain string, not a `Path` —
+    APScheduler's `SQLAlchemyJobStore` needs args to be picklable).
+
+    Reads configured source *type* names the same way
+    `_prompt_telemetry_consent()` does in `cli/init.py`
+    (``config.sources.get_enabled_sources()`` -> ``.type.value``). A
+    config load failure still lets the heartbeat fire (with no
+    ``source_types``) rather than skip it entirely — matching this
+    module's existing "telemetry must never break, and never blocks on a
+    detail it doesn't strictly need" posture.
+
+    Args:
+        project_root: Dango project root as a string (APScheduler
+            serializes args).
+    """
+    source_types: list[str] | None = None
+    try:
+        from dango.config.helpers import get_config
+
+        config = get_config(Path(project_root))
+        source_types = [s.type.value for s in config.sources.get_enabled_sources()]
+    except Exception:
+        pass
+
+    heartbeat(source_types=source_types)
