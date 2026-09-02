@@ -75,6 +75,7 @@ class ProjectValidator:
         self._check_dependencies()
         self._check_permissions()
         self._check_tracked_secrets()
+        self._check_description_completeness()
 
         # Summarize results
         summary = self._create_summary()
@@ -784,6 +785,94 @@ class ProjectValidator:
 
         except (subprocess.TimeoutExpired, FileNotFoundError):  # noqa: BLE001
             pass  # git not installed or timed out — skip silently
+
+    def _check_description_completeness(self) -> None:
+        """Check that dbt model and column descriptions are not placeholders."""
+        models_dir = self.project_root / "dbt" / "models"
+        if not models_dir.exists():
+            return
+
+        schema_files = list(models_dir.glob("**/*.yml")) + list(models_dir.glob("**/*.yaml"))
+        if not schema_files:
+            self.results.append(
+                ValidationResult(
+                    "Docs: schema YML", "warn", "No schema.yml files found in dbt/models/"
+                )
+            )
+            return
+
+        todo_models: list[str] = []
+        todo_columns: list[str] = []
+        empty_models: list[str] = []
+
+        _TODO_PATTERNS = ("# TODO", "TODO:", "todo:", "Add description", "add description")
+
+        for schema_file in schema_files:
+            try:
+                import yaml
+
+                data = yaml.safe_load(schema_file.read_text()) or {}
+            except Exception:
+                continue
+
+            for model in data.get("models", []):
+                model_name = model.get("name", "unknown")
+                desc = model.get("description", "")
+
+                if not desc or not str(desc).strip():
+                    empty_models.append(model_name)
+                elif any(p in str(desc) for p in _TODO_PATTERNS):
+                    todo_models.append(model_name)
+
+                for col in model.get("columns", []):
+                    col_name = col.get("name", "unknown")
+                    col_desc = col.get("description", "")
+                    if col_desc and any(p in str(col_desc) for p in _TODO_PATTERNS):
+                        todo_columns.append(f"{model_name}.{col_name}")
+
+        total_issues = len(todo_models) + len(empty_models) + len(todo_columns)
+
+        if total_issues == 0:
+            self.results.append(
+                ValidationResult(
+                    "Docs: descriptions",
+                    "pass",
+                    f"All model descriptions complete ({len(schema_files)} schema file(s) checked)",
+                )
+            )
+            return
+
+        if empty_models:
+            self.results.append(
+                ValidationResult(
+                    "Docs: empty descriptions",
+                    "warn",
+                    f"{len(empty_models)} model(s) have no description: {', '.join(empty_models[:5])}"
+                    + (f" +{len(empty_models) - 5} more" if len(empty_models) > 5 else ""),
+                )
+            )
+
+        if todo_models:
+            self.results.append(
+                ValidationResult(
+                    "Docs: TODO descriptions",
+                    "warn",
+                    f"{len(todo_models)} model(s) still have placeholder descriptions: "
+                    + ", ".join(todo_models[:5])
+                    + (f" +{len(todo_models) - 5} more" if len(todo_models) > 5 else ""),
+                )
+            )
+
+        if todo_columns:
+            self.results.append(
+                ValidationResult(
+                    "Docs: TODO column descriptions",
+                    "warn",
+                    f"{len(todo_columns)} column(s) still have placeholder descriptions: "
+                    + ", ".join(todo_columns[:5])
+                    + (f" +{len(todo_columns) - 5} more" if len(todo_columns) > 5 else ""),
+                )
+            )
 
     def _create_summary(self) -> dict[str, Any]:
         """Create validation summary"""
