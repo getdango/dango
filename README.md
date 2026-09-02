@@ -104,3 +104,4 @@ Apache 2.0 — see [LICENSE](LICENSE) for details.
 - [PyPI](https://pypi.org/project/getdango/)
 - [Changelog](CHANGELOG.md)
 - [Issues](https://github.com/getdango/dango/issues)
+<!-- 1.0.8-O path-filter isolation check: this PR's only diff from v1.0.8 base is this comment plus the already-existing metabase-integration-test.yml workflow file (cherry-picked, unmodified) — proves the job does NOT run for out-of-scope changes. See PR #452 for the real deliverable. -->
