@@ -33,6 +33,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 - `dango/ingestion/dlt_runner.py` — `DbtModelGenerator`, `run_dbt_models`, `generate_dbt_docs` for post-sync auto-transform
 - `dango/web/app.py` — `run_dbt_models` via API endpoint
 - `dango/platform/watcher_runner.py` — `generate_dbt_docs` for watch-triggered doc generation
+- `_dbt_telemetry_env()` specifically is also imported directly by every other dbt-invoking `subprocess.run` call site outside this module, so the dbt telemetry opt-out (`dango telemetry off --provider dbt`) covers all of them, not just the three functions above: `dango/cli/commands/transform.py` (`dango run`, `dango docs`), `dango/platform/local/watcher_runner.py` (`run_dbt_command`, file-watcher-triggered), `dango/web/routes/dbt.py` (`run_dbt_model_task`, web UI model run), `dango/cli/commands/dev.py` (`_run_dev_dbt`), `dango/cli/init.py` (`_generate_dbt_docs`), `dango/cli/model_wizard.py` (`_regenerate_manifest`), `dango/cli/validate.py` (`_validate_dbt_models`)
 
 ## Testing
 

@@ -1163,6 +1163,8 @@ on-run-end:
         import subprocess
         import sys
 
+        from dango.transformation import _dbt_telemetry_env
+
         console.print("Generating dbt documentation...")
 
         dbt_dir = self.project_dir / "dbt"
@@ -1191,6 +1193,7 @@ on-run-end:
                 capture_output=True,
                 text=True,
                 timeout=60,
+                env=_dbt_telemetry_env(),
             )
 
             if result.returncode == 0:

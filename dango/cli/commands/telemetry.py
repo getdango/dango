@@ -73,7 +73,7 @@ def telemetry_status(ctx: click.Context) -> None:
     )
 
     # Metabase
-    mb_on = _get_metabase_telemetry_state()
+    mb_on = _get_metabase_telemetry_state(project_root)
     table.add_row(
         "metabase",
         "[green]on[/green]" if mb_on else "[dim]off[/dim]",
@@ -200,12 +200,15 @@ def _set_dlt_telemetry(enabled: bool, project_root: Path | None) -> None:
 
 
 def _set_metabase_telemetry(enabled: bool, project_root: Path | None) -> None:
-    """Toggle Metabase anonymous tracking via the admin Setting API."""
+    """Toggle Metabase anonymous tracking via the admin Setting API.
+
+    The "is Metabase configured" check lives once, in
+    `set_metabase_telemetry()` itself (dango/visualization/metabase.py) —
+    not duplicated here — since that's the function that actually reads
+    `.dango/metabase.yml`.
+    """
     if project_root is None:
         raise click.ClickException("Must be run inside a Dango project for Metabase control")
-    creds_file = project_root / ".dango" / "metabase.yml"
-    if not creds_file.exists():
-        raise click.ClickException("Metabase not configured. Run dango start first.")
 
     from dango.visualization.metabase import set_metabase_telemetry
 
@@ -237,12 +240,19 @@ def _get_dlt_telemetry_state(project_root: Path | None) -> bool:
         return True
 
 
-def _get_metabase_telemetry_state() -> bool:
-    """Return Metabase's assumed opt-in state.
+def _get_metabase_telemetry_state(project_root: Path | None) -> bool:
+    """Return Metabase's last-known opt-in state.
 
-    Deliberately does not query the live Metabase instance — that would
-    require Metabase to be running and authenticated just to print a status
-    table. Defaults to "on" since that's Metabase's own out-of-the-box
-    default when anon-tracking-enabled has never been explicitly set.
+    Reads the local cache file `set_metabase_telemetry()` writes after each
+    successful live API call (dango/visualization/metabase.py) — this
+    reports the real last-set state without requiring Metabase to be
+    running just to print a status table. If telemetry was never toggled
+    through this command (no cache file, or no project), defaults to "on":
+    that's Metabase's own out-of-the-box default for anon-tracking-enabled.
     """
-    return True
+    if project_root is None:
+        return True
+    state_file = project_root / ".dango" / "metabase_telemetry_state"
+    if not state_file.exists():
+        return True
+    return state_file.read_text().strip() == "true"

@@ -516,6 +516,8 @@ class ModelWizard:
         """
         import subprocess
 
+        from dango.transformation import _dbt_telemetry_env
+
         try:
             # Run dbt parse to regenerate manifest
             result = subprocess.run(
@@ -531,6 +533,7 @@ class ModelWizard:
                 capture_output=True,
                 text=True,
                 timeout=30,
+                env=_dbt_telemetry_env(),
             )
 
             if result.returncode == 0:

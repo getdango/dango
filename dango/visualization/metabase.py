@@ -1187,7 +1187,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
 
 
 def set_metabase_telemetry(
-    project_root: Path, enabled: bool, metabase_url: str = "http://localhost:3000"
+    project_root: Path, enabled: bool, metabase_url: str | None = None
 ) -> None:
     """
     Toggle Metabase's anonymous usage tracking via the admin Setting API.
@@ -1198,14 +1198,23 @@ def set_metabase_telemetry(
     for anonymous tracking (distinct from the one-time "allow_tracking" field
     used only in the /api/setup wizard payload in setup_metabase() above).
 
+    On success, also writes a local last-known-state cache
+    (.dango/metabase_telemetry_state) so `dango telemetry status` can report
+    the real state without making a live API call every time — see
+    dango/cli/commands/telemetry.py's `_get_metabase_telemetry_state()`.
+
     Args:
         project_root: Path to project root
         enabled: True to enable anonymous tracking, False to disable it
-        metabase_url: Metabase URL (default: http://localhost:3000)
+        metabase_url: Metabase URL. If not given, read from the
+            "metabase_url" key in .dango/metabase.yml (same precedent as
+            cli/commands/metabase_cmd.py), falling back to
+            http://localhost:3000 if that key is absent too.
 
     Raises:
         click.ClickException: If Metabase credentials are missing/incomplete,
-            or if the API call fails (e.g. Metabase not running).
+            or if the API call fails (e.g. Metabase not running), or if
+            anything else in the credentials/login/API flow goes wrong.
     """
     import click
 
@@ -1225,9 +1234,11 @@ def set_metabase_telemetry(
                 "Metabase admin credentials missing from .dango/metabase.yml"
             )
 
+        resolved_url = metabase_url or credentials.get("metabase_url", "http://localhost:3000")
+
         session = requests.Session()
         login_response = session.post(
-            f"{metabase_url}/api/session",
+            f"{resolved_url}/api/session",
             json={"username": email, "password": password},
             timeout=10,
         )
@@ -1237,19 +1248,30 @@ def set_metabase_telemetry(
             raise click.ClickException("Metabase login did not return a session id")
 
         response = session.put(
-            f"{metabase_url}/api/setting/anon-tracking-enabled",
+            f"{resolved_url}/api/setting/anon-tracking-enabled",
             headers={"X-Metabase-Session": session_id},
             json={"value": enabled},
             timeout=10,
         )
         response.raise_for_status()
 
+        state_file = project_root / ".dango" / "metabase_telemetry_state"
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        state_file.write_text("true" if enabled else "false")
+
     except click.ClickException:
         raise
     except requests.exceptions.RequestException as e:
         raise click.ClickException(
-            f"Could not reach Metabase at {metabase_url} — is it running? ({e})"
+            f"Could not reach Metabase at {resolved_url} — is it running? ({e})"
         ) from e
+    except Exception as e:
+        # Broad fallback: credentials-load/login/API flow can also fail on
+        # yaml.YAMLError (malformed metabase.yml) or a non-JSON 200 login
+        # response (login_response.json() raising ValueError), neither of
+        # which is a RequestException. Convert to the same clean-error
+        # contract this function promises for every other failure mode.
+        raise click.ClickException(f"Failed to set Metabase telemetry: {e}") from e
 
 
 def refresh_metabase_connection(

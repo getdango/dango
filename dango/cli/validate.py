@@ -434,6 +434,8 @@ class ProjectValidator:
 
     def _validate_dbt_models(self):
         """Validate dbt models by running dbt parse"""
+        from dango.transformation import _dbt_telemetry_env
+
         dbt_dir = self.project_root / "dbt"
 
         if not dbt_dir.exists():
@@ -447,6 +449,7 @@ class ProjectValidator:
                 capture_output=True,
                 text=True,
                 timeout=60,
+                env=_dbt_telemetry_env(),
             )
 
             if result.returncode == 0:

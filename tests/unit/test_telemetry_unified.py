@@ -204,3 +204,246 @@ class TestMetabaseTelemetry:
         ):
             with pytest.raises(click.ClickException):
                 set_metabase_telemetry(tmp_path, False)
+
+    def test_set_metabase_telemetry_reads_stored_metabase_url(self, tmp_path: Path) -> None:
+        """Review fix #3: when metabase_url isn't passed explicitly, read it
+        from the "metabase_url" key in .dango/metabase.yml (matching the
+        precedent in cli/commands/metabase_cmd.py:343), instead of always
+        hardcoding localhost:3000."""
+        from dango.visualization.metabase import set_metabase_telemetry
+
+        creds_dir = tmp_path / ".dango"
+        creds_dir.mkdir()
+        (creds_dir / "metabase.yml").write_text(
+            "admin:\n  email: admin@example.com\n  password: secret123\n"
+            "metabase_url: http://metabase.internal:9000\n"
+        )
+
+        mock_session = MagicMock()
+        mock_session.post.return_value.json.return_value = {"id": "sess-123"}
+        mock_session.post.return_value.raise_for_status.return_value = None
+        mock_session.put.return_value.raise_for_status.return_value = None
+
+        with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
+            set_metabase_telemetry(tmp_path, False)
+
+        post_url = mock_session.post.call_args.args[0]
+        put_url = mock_session.put.call_args.args[0]
+        assert post_url == "http://metabase.internal:9000/api/session"
+        assert put_url == "http://metabase.internal:9000/api/setting/anon-tracking-enabled"
+
+    def test_set_metabase_telemetry_falls_back_to_localhost_when_url_key_absent(
+        self, tmp_path: Path
+    ) -> None:
+        """No "metabase_url" key in metabase.yml and no explicit override ->
+        still falls back to the documented default, doesn't crash."""
+        from dango.visualization.metabase import set_metabase_telemetry
+
+        creds_dir = tmp_path / ".dango"
+        creds_dir.mkdir()
+        (creds_dir / "metabase.yml").write_text(
+            "admin:\n  email: admin@example.com\n  password: secret123\n"
+        )
+
+        mock_session = MagicMock()
+        mock_session.post.return_value.json.return_value = {"id": "sess-123"}
+        mock_session.post.return_value.raise_for_status.return_value = None
+        mock_session.put.return_value.raise_for_status.return_value = None
+
+        with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
+            set_metabase_telemetry(tmp_path, False)
+
+        assert mock_session.put.call_args.args[0] == (
+            "http://localhost:3000/api/setting/anon-tracking-enabled"
+        )
+
+    def test_set_metabase_telemetry_writes_state_cache_on_success(self, tmp_path: Path) -> None:
+        """Review fix #2: a successful call writes a local last-known-state
+        cache that _get_metabase_telemetry_state() reads, instead of status
+        being hardcoded."""
+        from dango.visualization.metabase import set_metabase_telemetry
+
+        creds_dir = tmp_path / ".dango"
+        creds_dir.mkdir()
+        (creds_dir / "metabase.yml").write_text(
+            "admin:\n  email: admin@example.com\n  password: secret123\n"
+        )
+
+        mock_session = MagicMock()
+        mock_session.post.return_value.json.return_value = {"id": "sess-123"}
+        mock_session.post.return_value.raise_for_status.return_value = None
+        mock_session.put.return_value.raise_for_status.return_value = None
+
+        with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
+            set_metabase_telemetry(tmp_path, False)
+
+        state_file = tmp_path / ".dango" / "metabase_telemetry_state"
+        assert state_file.read_text().strip() == "false"
+
+        with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
+            set_metabase_telemetry(tmp_path, True)
+
+        assert state_file.read_text().strip() == "true"
+
+    def test_set_metabase_telemetry_wraps_malformed_yaml(self, tmp_path: Path) -> None:
+        """Review fix #4: a broad except Exception fallback converts anything
+        else in the credentials/login/API flow (e.g. yaml.YAMLError from a
+        hand-edited metabase.yml) into the same clean click.ClickException
+        contract, instead of letting a raw traceback through."""
+        import click
+
+        from dango.visualization.metabase import set_metabase_telemetry
+
+        creds_dir = tmp_path / ".dango"
+        creds_dir.mkdir()
+        # Invalid YAML (unbalanced flow mapping) -> yaml.safe_load raises YAMLError.
+        (creds_dir / "metabase.yml").write_text("admin: [email: broken\n")
+
+        with pytest.raises(click.ClickException):
+            set_metabase_telemetry(tmp_path, False)
+
+    def test_set_metabase_telemetry_wraps_non_json_login_response(self, tmp_path: Path) -> None:
+        """Same broad-except contract for a 200 login response with a
+        non-JSON body (login_response.json() raising ValueError)."""
+        import click
+
+        from dango.visualization.metabase import set_metabase_telemetry
+
+        creds_dir = tmp_path / ".dango"
+        creds_dir.mkdir()
+        (creds_dir / "metabase.yml").write_text(
+            "admin:\n  email: admin@example.com\n  password: secret123\n"
+        )
+
+        mock_session = MagicMock()
+        mock_session.post.return_value.raise_for_status.return_value = None
+        mock_session.post.return_value.json.side_effect = ValueError("not JSON")
+
+        with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
+            with pytest.raises(click.ClickException):
+                set_metabase_telemetry(tmp_path, False)
+
+
+@pytest.mark.unit
+class TestMetabaseTelemetryStatus:
+    """_get_metabase_telemetry_state — review fix #2: status must reflect the
+    real last-set state (via the cache file), not a hardcoded True."""
+
+    def test_defaults_true_when_no_project(self) -> None:
+        from dango.cli.commands.telemetry import _get_metabase_telemetry_state
+
+        assert _get_metabase_telemetry_state(None) is True
+
+    def test_defaults_true_when_no_cache_file(self, tmp_path: Path) -> None:
+        from dango.cli.commands.telemetry import _get_metabase_telemetry_state
+
+        assert _get_metabase_telemetry_state(tmp_path) is True
+
+    def test_reads_off_from_cache_file(self, tmp_path: Path) -> None:
+        from dango.cli.commands.telemetry import _get_metabase_telemetry_state
+
+        state_dir = tmp_path / ".dango"
+        state_dir.mkdir()
+        (state_dir / "metabase_telemetry_state").write_text("false")
+
+        assert _get_metabase_telemetry_state(tmp_path) is False
+
+    def test_reads_on_from_cache_file(self, tmp_path: Path) -> None:
+        from dango.cli.commands.telemetry import _get_metabase_telemetry_state
+
+        state_dir = tmp_path / ".dango"
+        state_dir.mkdir()
+        (state_dir / "metabase_telemetry_state").write_text("true")
+
+        assert _get_metabase_telemetry_state(tmp_path) is True
+
+    def test_status_reflects_real_toggle_end_to_end(self, tmp_path: Path) -> None:
+        """The specific bug three review angles independently flagged: status
+        must change after a real successful `telemetry off --provider
+        metabase` call, not stay stuck on "on" forever."""
+        creds_dir = tmp_path / ".dango"
+        creds_dir.mkdir()
+        (creds_dir / "metabase.yml").write_text(
+            "admin:\n  email: admin@example.com\n  password: secret123\n"
+        )
+
+        mock_session = MagicMock()
+        mock_session.post.return_value.json.return_value = {"id": "sess-123"}
+        mock_session.post.return_value.raise_for_status.return_value = None
+        mock_session.put.return_value.raise_for_status.return_value = None
+
+        from dango.cli.commands.telemetry import (
+            _get_metabase_telemetry_state,
+            _set_metabase_telemetry,
+        )
+
+        with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
+            assert _get_metabase_telemetry_state(tmp_path) is True
+            _set_metabase_telemetry(False, tmp_path)
+            assert _get_metabase_telemetry_state(tmp_path) is False
+
+
+@pytest.mark.unit
+class TestMetabaseNotConfiguredCheckSingleSource:
+    """Review fix #10: the duplicate `creds_file.exists()` check was removed
+    from telemetry.py's wrapper — the single remaining check, in
+    metabase.py's set_metabase_telemetry(), must still surface the same
+    user-facing error end-to-end."""
+
+    def test_off_provider_metabase_not_configured_inside_project(self, tmp_path: Path) -> None:
+        project_dir = tmp_path / "project"
+        (project_dir / ".dango").mkdir(parents=True)
+        (project_dir / ".dango" / "project.yml").write_text("name: test\n")
+        # Deliberately no .dango/metabase.yml.
+
+        runner = CliRunner()
+        with runner.isolated_filesystem(temp_dir=project_dir):
+            result = runner.invoke(cli, ["telemetry", "off", "--provider", "metabase"])
+
+        assert result.exit_code != 0
+        assert "Metabase not configured" in result.output
+
+
+@pytest.mark.unit
+class TestDbtTelemetryEnvWiredEverywhere:
+    """Review finding #1 (the blocking one): _dbt_telemetry_env() must be
+    wired into every real dbt-invoking subprocess.run call, not just the
+    three functions in transformation/__init__.py. Regression guard against
+    a future dbt call site silently bypassing the opt-out — asserts the
+    literal `env=_dbt_telemetry_env()` wiring is present at each known call
+    site's source line, rather than re-deriving the list by grep (which
+    would just re-check itself)."""
+
+    _EXPECTED_SITES: tuple[tuple[str, str], ...] = (
+        ("dango/transformation/__init__.py", "run_dbt_models"),
+        ("dango/transformation/__init__.py", "run_dbt_snapshots"),
+        ("dango/transformation/__init__.py", "generate_dbt_docs"),
+        ("dango/cli/commands/transform.py", "def run("),
+        ("dango/cli/commands/transform.py", "def docs("),
+        ("dango/platform/local/watcher_runner.py", "def run_dbt_command("),
+        ("dango/web/routes/dbt.py", "def run_dbt_model_task("),
+        ("dango/cli/commands/dev.py", "def _run_dev_dbt("),
+        ("dango/cli/init.py", "def _generate_dbt_docs("),
+        ("dango/cli/model_wizard.py", "def _regenerate_manifest("),
+        ("dango/cli/validate.py", "def _validate_dbt_models("),
+    )
+
+    def test_every_known_dbt_subprocess_site_passes_env(self) -> None:
+        repo_root = Path(__file__).resolve().parents[2]
+        for rel_path, anchor in self._EXPECTED_SITES:
+            source = (repo_root / rel_path).read_text()
+            assert anchor in source, f"{rel_path}: expected anchor {anchor!r} not found"
+            start = source.index(anchor)
+            # The function body containing this anchor must reach a
+            # subprocess.run(...) call that passes env=_dbt_telemetry_env()
+            # before the next top-level def/class (a rough but effective
+            # "same function" boundary for these small, single-call functions).
+            next_def = source.find("\ndef ", start + 1)
+            next_top_level = source.find("\n\ndef ", start + 1)
+            end = min(x for x in (next_def, next_top_level, len(source)) if x != -1)
+            body = source[start:end]
+            assert "env=_dbt_telemetry_env()" in body, (
+                f"{rel_path} ({anchor}): subprocess.run call in this function "
+                f"does not pass env=_dbt_telemetry_env() — dbt telemetry "
+                f"opt-out would silently not apply here"
+            )
