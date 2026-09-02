@@ -81,15 +81,28 @@ notes:
   - "dbt and dlt telemetry env vars/config are read by their own subprocesses/library
      calls, not a separate Dango network layer. dango telemetry off --all writes
      these through to each tool's real config (dango/cli/commands/telemetry.py)."
-  - "dlt's write-through (dlthub_telemetry=false in .dlt/config.toml) has not been
-     observed to change real dlt network behavior — Session B verified empirically,
-     for the CSV-source sync path only, that dlt's telemetry runtime never
-     initializes at all for Dango's direct-library usage (RunContext.runtime_config
-     is never touched), so there was nothing live to flip. The write-through is kept
-     anyway: it matches dlt's own documented opt-out mechanism and takes effect if a
-     different source type or a future dlt/dango version does touch that code path.
-     This remains an open question, not a confirmed no-op — see
-     tests/unit/test_egress_allowlist.py's docstring for the full empirical detail."
+  - "dlt's write-through (dlthub_telemetry=false in .dlt/config.toml) is a confirmed
+     real no-op-when-set, not an open question. 1.0.8-V (2026-09-03) resolved this:
+     for any source type that actually calls dlt.pipeline() (DLT_NATIVE and the
+     generic path used by all 27+ verified/rest_api/PostgreSQL sources — everything
+     except CSV/LOCAL_FILES), dlt's telemetry runtime DOES initialize on every sync
+     (RunContext.runtime_config is touched, unconditionally, by
+     dlt/pipeline/track.py's on_end_trace_step hook on every extract/normalize/load
+     step) — this generalizes to every source type Dango has, since they all share
+     the same DltPipelineRunner extract/normalize/load call path. With
+     dlthub_telemetry left unset (dlt's own default = on), this test verified a real
+     outbound send is attempted to telemetry.scalevector.ai. With dlthub_telemetry=false
+     written to .dlt/config.toml — the exact write-through `dango telemetry off
+     --provider dlt` performs — that send is confirmed suppressed (dlt's anon
+     tracker never receives an endpoint to send to, verified with DNS resolution to
+     telemetry.scalevector.ai blocked and asserted unreached). So: the opt-out was
+     never a no-op — it correctly disables live dlt telemetry for every real source
+     type Dango ships, and users who ran `dango telemetry off --all` before this was
+     confirmed were, in fact, already protected. The CSV-only finding above remains
+     accurate for CSV/LOCAL_FILES specifically (still the one path with nothing live
+     to flip, since it never touches dlt.pipeline() at all) — see
+     tests/unit/test_egress_allowlist.py's TestLiveEgressDetection class docstrings
+     (both tests) for the full empirical/code-level detail on each path."
   - "Marimo update check host (marimo.io/api/oss/latest-version) is not listed above
      because it is never contacted in a Dango deployment: Dango always passes
      --skip-update-check to every Marimo process (dango/notebooks/manager.py:141),
