@@ -1255,9 +1255,28 @@ def set_metabase_telemetry(
         )
         response.raise_for_status()
 
-        state_file = project_root / ".dango" / "metabase_telemetry_state"
-        state_file.parent.mkdir(parents=True, exist_ok=True)
-        state_file.write_text("true" if enabled else "false")
+        # The real API call above already succeeded — enabled is now the
+        # actual live Metabase state. A failure writing the local status
+        # cache (disk full, permissions, read-only filesystem) is a
+        # "dango telemetry status may show a stale value" problem, not a
+        # "this command failed" problem, so it's caught and logged here,
+        # inside its own try, rather than left to fall into the broad
+        # `except Exception` below — that would misreport a successful
+        # toggle as a failure just because a secondary, best-effort write
+        # didn't land.
+        try:
+            state_file = project_root / ".dango" / "metabase_telemetry_state"
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            state_file.write_text("true" if enabled else "false")
+        except Exception:
+            logger.warning(
+                "Metabase telemetry set to %s via API, but failed to write "
+                "local status cache at %s — `dango telemetry status` may "
+                "show a stale value until the next successful toggle.",
+                enabled,
+                project_root / ".dango" / "metabase_telemetry_state",
+                exc_info=True,
+            )
 
     except click.ClickException:
         raise

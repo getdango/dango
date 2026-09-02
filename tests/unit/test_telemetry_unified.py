@@ -285,6 +285,42 @@ class TestMetabaseTelemetry:
 
         assert state_file.read_text().strip() == "true"
 
+    def test_set_metabase_telemetry_cache_write_failure_does_not_raise(
+        self, tmp_path: Path
+    ) -> None:
+        """The failure-ordering bug found in review: if the real Metabase API
+        call already succeeded, a failure writing the secondary local status
+        cache must NOT be reported as a command failure — it's a "status may
+        be stale" problem, not an "operation failed" problem. Forces a real
+        write failure (state-file path collides with an existing directory,
+        so write_text() raises IsADirectoryError) rather than mocking the
+        exception, so this exercises the actual except-block wiring."""
+        from dango.visualization.metabase import set_metabase_telemetry
+
+        creds_dir = tmp_path / ".dango"
+        creds_dir.mkdir()
+        (creds_dir / "metabase.yml").write_text(
+            "admin:\n  email: admin@example.com\n  password: secret123\n"
+        )
+        # Pre-create the cache path AS A DIRECTORY so write_text() fails.
+        (creds_dir / "metabase_telemetry_state").mkdir()
+
+        mock_session = MagicMock()
+        mock_session.post.return_value.json.return_value = {"id": "sess-123"}
+        mock_session.post.return_value.raise_for_status.return_value = None
+        mock_session.put.return_value.raise_for_status.return_value = None
+
+        with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
+            # Must return normally — no exception — even though the cache
+            # write underneath will fail.
+            set_metabase_telemetry(tmp_path, False)
+
+        # The real API call still happened correctly.
+        assert mock_session.put.call_args.args[0] == (
+            "http://localhost:3000/api/setting/anon-tracking-enabled"
+        )
+        assert mock_session.put.call_args.kwargs["json"] == {"value": False}
+
     def test_set_metabase_telemetry_wraps_malformed_yaml(self, tmp_path: Path) -> None:
         """Review fix #4: a broad except Exception fallback converts anything
         else in the credentials/login/API flow (e.g. yaml.YAMLError from a
