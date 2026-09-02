@@ -9,20 +9,32 @@ their LLM client.
 Session E: read tools + setup
 Session F: mutation tools (add_source, create_model, add_schedule, run_sync, run_transform)
 
-CRITICAL: all Dango imports below are lazy (inside function bodies), never at
-module top level. The MCP server communicates over stdio — any stray stdout
-write (a stray `print()`, an eagerly-imported module that logs to stdout at
-import time, etc.) corrupts the JSON-RPC protocol. Keep it that way.
+CRITICAL: all *dango.* imports that touch real project/database/config state
+are lazy (inside function bodies), never at module top level. The MCP server
+communicates over stdio — any stray stdout write (a stray `print()`, an
+eagerly-imported module that logs to stdout at import time, etc.) corrupts
+the JSON-RPC protocol. Keep it that way. The one exception is the top-level
+`from dango.cli.commands.mcp_helpers import ...` below: mcp_helpers.py itself
+does zero dango.* imports at its own module level (stdlib only; all real
+dango.* work stays lazy inside its function bodies), so importing it eagerly
+here is inert and doesn't reintroduce the risk this rule guards against.
 """
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 import click
 from fastmcp import FastMCP
+
+from dango.cli.commands.mcp_helpers import (
+    _connect_readonly_with_retry,
+    _execute_query_sync,
+    _get_project_root,
+    _infer_layer,
+    _validate_select_only,
+)
 
 mcp = FastMCP(
     "dango",
@@ -34,12 +46,16 @@ mcp = FastMCP(
     ),
 )
 
+# Matches web/routes/query.py's QueryRequest.sql max_length / _DEFAULT_QUERY_TIMEOUT_SECONDS.
+_MAX_QUERY_SQL_LENGTH = 102_400
+_QUERY_TIMEOUT_SECONDS = 30
+
 
 # ── Read tools ────────────────────────────────────────────────────────────────
 
 
 @mcp.tool()
-def list_sources() -> list[dict[str, Any]]:
+async def list_sources() -> list[dict[str, Any]]:
     """List all configured data sources with their sync status and row counts.
 
     Returns a list of dicts with: name, type, enabled, last_sync, rows, status.
@@ -56,15 +72,16 @@ def list_sources() -> list[dict[str, Any]]:
     # status-aggregation code the web UI uses.
     web_app.state.project_root = project_root
 
-    sources_config = load_sources_config()
+    # This tool is a native async fastmcp tool (not a sync tool relying on
+    # fastmcp's run_in_thread=True default to make asyncio.run() safe) — it
+    # awaits directly on fastmcp's own event loop, same as
+    # web/routes/sources.py does.
+    sources_config = await asyncio.to_thread(load_sources_config)
     if not sources_config:
         return []
 
-    async def _gather() -> list[Any]:
-        tasks = [get_source_status_data(source) for source in sources_config]
-        return await asyncio.gather(*tasks, return_exceptions=True)
-
-    statuses = asyncio.run(_gather())
+    tasks = [get_source_status_data(source) for source in sources_config]
+    statuses = await asyncio.gather(*tasks, return_exceptions=True)
 
     results = []
     for source, status in zip(sources_config, statuses, strict=True):
@@ -129,9 +146,29 @@ def get_table_schema(table_name: str, schema: str | None = None) -> dict[str, An
         if not result:
             return {"error": f"Table '{table_name}' not found in warehouse"}
 
+        other_schemas: list[str] = []
+        if not schema:
+            # A table name can exist in more than one schema (e.g. a generic
+            # name reused across two raw sources). Filter to the first
+            # (alphabetically) schema's columns rather than silently merging
+            # every matching table's columns into one list — that would
+            # report a schema name whose columns don't actually match it.
+            all_schemas = list(dict.fromkeys(r[0] for r in result))
+            detected_schema = all_schemas[0]
+            other_schemas = all_schemas[1:]
+            result = [r for r in result if r[0] == detected_schema]
+        else:
+            detected_schema = schema
+
         columns = [{"name": r[-2], "type": r[-1]} for r in result]
-        detected_schema = result[0][0] if not schema and result else schema
-        return {"table_name": table_name, "schema": detected_schema, "columns": columns}
+        response = {"table_name": table_name, "schema": detected_schema, "columns": columns}
+        if other_schemas:
+            response["other_schemas"] = other_schemas
+            response["note"] = (
+                f"'{table_name}' also exists in {other_schemas}; showing '{detected_schema}'. "
+                "Pass schema= to select a different one."
+            )
+        return response
     except Exception as e:
         return {"error": str(e)}
 
@@ -191,10 +228,17 @@ def get_lineage(model_name: str | None = None) -> dict[str, Any]:
         sources = manifest.get("sources", {})
 
         if model_name:
-            target = next((n for n in nodes.values() if n.get("name") == model_name), None)
-            if not target:
+            # Use the manifest's own dict key as the unique_id rather than
+            # reconstructing "model.{package_name}.{model_name}" by hand —
+            # that reconstruction breaks for versioned dbt models (dbt-core
+            # 1.5+), whose real unique_id has a ".vN" suffix the manual
+            # string wouldn't include, silently making referenced_by empty.
+            target_entry = next(
+                ((k, n) for k, n in nodes.items() if n.get("name") == model_name), None
+            )
+            if not target_entry:
                 return {"error": f"Model '{model_name}' not found in manifest"}
-            target_unique_id = f"model.{target.get('package_name')}.{model_name}"
+            target_unique_id, target = target_entry
             return {
                 "name": model_name,
                 "path": target.get("original_file_path"),
@@ -278,16 +322,22 @@ def get_model_sql(model_name: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def query(sql: str, row_limit: int = 500) -> dict[str, Any]:
+async def query(sql: str, row_limit: int = 500) -> dict[str, Any]:
     """Run a read-only SQL query against the DuckDB warehouse.
 
     Args:
         sql: SQL query to execute. Must be a single SELECT statement (WITH ... SELECT
-            CTEs are allowed). Multi-statement SQL is rejected.
+            CTEs are allowed). Multi-statement SQL is rejected. Capped at
+            102,400 characters (matches the web query endpoint).
         row_limit: Maximum rows to return (default 500, max 500).
 
-    Returns dict with: columns, rows, row_count, truncated.
+    Returns dict with: columns, rows, row_count, truncated. Queries are killed
+    after 30s (matching the web query endpoint's default) rather than blocking
+    the server indefinitely on an expensive query.
     """
+    if len(sql) > _MAX_QUERY_SQL_LENGTH:
+        return {"error": f"SQL query too long (max {_MAX_QUERY_SQL_LENGTH} characters)"}
+
     try:
         _validate_select_only(sql)
     except ValueError as e:
@@ -300,22 +350,15 @@ def query(sql: str, row_limit: int = 500) -> dict[str, Any]:
     if not db_path.exists():
         return {"error": "No warehouse found. Run dango sync first."}
 
+    import asyncio
+
     try:
-        conn = _connect_readonly_with_retry(db_path)
-        try:
-            rel = conn.execute(sql)
-            columns = [d[0] for d in rel.description]
-            raw_rows = rel.fetchmany(row_limit + 1)
-            truncated = len(raw_rows) > row_limit
-            rows = [list(r) for r in raw_rows[:row_limit]]
-        finally:
-            conn.close()
-        return {
-            "columns": columns,
-            "rows": rows,
-            "row_count": len(rows),
-            "truncated": truncated,
-        }
+        return await asyncio.wait_for(
+            asyncio.to_thread(_execute_query_sync, db_path, sql, row_limit),
+            timeout=_QUERY_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        return {"error": f"Query timed out after {_QUERY_TIMEOUT_SECONDS} seconds"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -373,90 +416,6 @@ def mcp_run(ctx: click.Context) -> None:
     # call on the local-stdio-only surface this session's egress gate exists
     # to protect. Suppress it.
     mcp.run(show_banner=False)
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-
-def _get_project_root() -> Path:
-    """Get project root for MCP tools. Raises RuntimeError if not in a project."""
-    from dango.config.helpers import find_project_root
-
-    try:
-        return find_project_root()
-    except Exception:
-        raise RuntimeError(
-            "Not inside a Dango project. cd into your project directory first."
-        ) from None
-
-
-def _infer_layer(model_name: str) -> str:
-    if model_name.startswith("stg_"):
-        return "staging"
-    if model_name.startswith("int_"):
-        return "intermediate"
-    if model_name.startswith("fct_") or model_name.startswith("dim_"):
-        return "marts"
-    return "other"
-
-
-def _validate_select_only(sql: str) -> None:
-    """Validate that *sql* is a single SELECT (or WITH ... SELECT) statement.
-
-    Uses sqlglot for AST-level validation when available (mirrors
-    dango/web/routes/query.py's `_validate_sql`), falling back to a keyword +
-    multi-statement heuristic otherwise. Raises ValueError on rejection.
-    """
-    if not sql.strip():
-        raise ValueError("SQL query is empty")
-
-    try:
-        import sqlglot
-        import sqlglot.expressions as exp
-    except ImportError:
-        first_keyword = sql.strip().split()[0].upper()
-        if first_keyword not in ("SELECT", "WITH"):
-            raise ValueError("Only SELECT queries are allowed") from None
-        stripped = sql.strip().rstrip(";").strip()
-        if ";" in stripped:
-            raise ValueError("Multiple SQL statements are not allowed") from None
-        return
-
-    try:
-        statements = [s for s in sqlglot.parse(sql, dialect="duckdb") if s is not None]
-    except Exception as e:
-        raise ValueError(f"Invalid SQL syntax: {e}") from None
-
-    if len(statements) == 0:
-        raise ValueError("Empty SQL statement")
-    if len(statements) > 1:
-        raise ValueError("Multiple SQL statements are not allowed")
-    if not isinstance(statements[0], exp.Select):
-        raise ValueError(f"Only SELECT queries are allowed, got {type(statements[0]).__name__}")
-
-
-def _connect_readonly_with_retry(db_path: Path) -> Any:
-    """Open a read-only DuckDB connection, retrying briefly on IOException.
-
-    DuckDB is single-writer (see VAL-003 finding); a concurrent sync can
-    transiently hold the write lock even though read-only connections are
-    normally allowed alongside a writer. Mirrors the retry in
-    dango/web/routes/query.py's `_execute_query`.
-    """
-    import time
-
-    import duckdb
-
-    last_exc: Exception | None = None
-    for attempt in range(3):
-        try:
-            return duckdb.connect(str(db_path), read_only=True)
-        except duckdb.IOException as e:
-            last_exc = e
-            if attempt < 2:
-                time.sleep(0.1 * (2**attempt))
-    assert last_exc is not None
-    raise last_exc
 
 
 # ── Register subcommands from separate modules ─────────────────────────────────

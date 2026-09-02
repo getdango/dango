@@ -24,10 +24,15 @@ def mcp_setup(ctx: click.Context) -> None:
     """Detect installed LLM clients and configure them to use dango mcp."""
     import sys
 
-    dango_cmd = sys.executable.replace("/bin/python", "/bin/dango")
-    # Fall back to `dango` on PATH if we can't determine the venv path
-    if not Path(dango_cmd).exists():
-        dango_cmd = "dango"
+    # Console scripts installed by pip always live next to the interpreter
+    # (<venv>/bin/dango on POSIX, <venv>\Scripts\dango.exe on Windows). A
+    # substring replace on sys.executable (e.g. "/bin/python" -> "/bin/dango")
+    # breaks for any interpreter binary named "pythonX.Y" (leaves a trailing
+    # version suffix, e.g. "/bin/dango3.11", which doesn't exist) and is a
+    # complete no-op on Windows (no "/bin/python" substring to replace),
+    # which would write sys.executable itself — python.exe — as the command.
+    venv_dango = Path(sys.executable).parent / ("dango.exe" if sys.platform == "win32" else "dango")
+    dango_cmd = str(venv_dango) if venv_dango.exists() else "dango"
 
     config_entry = {"command": dango_cmd, "args": ["mcp", "run"]}
     configured = []
@@ -105,7 +110,16 @@ def _write_mcp_config(config_path: Path, entry: dict) -> None:
 
     Claude Code, Cursor, and Windsurf all use {"mcpServers": {...}} at the
     config file's root.
+
+    Writes atomically (temp file + os.replace) rather than a direct
+    write_text(): this is the user's real LLM client config file, which may
+    hold unrelated settings. An interrupted direct write (crash, kill,
+    laptop sleep mid-write) would leave it truncated or corrupted, not just
+    the MCP section.
     """
+    import os
+    import tempfile
+
     existing: dict = {}
     if config_path.exists():
         try:
@@ -116,4 +130,13 @@ def _write_mcp_config(config_path: Path, entry: dict) -> None:
     existing.setdefault("mcpServers", {})["dango"] = entry
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(existing, indent=2))
+    fd, tmp_path = tempfile.mkstemp(
+        dir=config_path.parent, prefix=f".{config_path.name}.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(existing, indent=2))
+        os.replace(tmp_path, config_path)
+    except BaseException:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise

@@ -79,6 +79,55 @@ class TestMcpSetup:
         assert "No LLM clients detected" in result.output
         assert not (tmp_path / ".claude").exists()
 
+    def test_mcp_setup_resolves_venv_console_script_next_to_interpreter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Positive control for the sys.executable.replace() bug: on a
+        `pythonX.Y`-named interpreter (this repo's own documented venv setup,
+        `python3.11 -m venv venv`), a substring replace of '/bin/python' ->
+        '/bin/dango' leaves a bogus '/bin/dango3.11' path. The console script
+        must be found by looking next to the interpreter instead."""
+        home_dir = tmp_path / "home"
+        (home_dir / ".claude").mkdir(parents=True)
+        monkeypatch.setattr(Path, "home", lambda: home_dir)
+
+        venv_bin = tmp_path / "venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        fake_python = venv_bin / "python3.11"
+        fake_python.write_text("")
+        fake_dango = venv_bin / "dango"
+        fake_dango.write_text("")
+        monkeypatch.setattr("sys.executable", str(fake_python))
+
+        runner = CliRunner()
+        result = runner.invoke(mcp_group, ["setup"])
+
+        assert result.exit_code == 0
+        written = json.loads((home_dir / ".claude" / "settings.json").read_text())
+        assert written["mcpServers"]["dango"]["command"] == str(fake_dango)
+
+    def test_mcp_setup_falls_back_to_bare_dango_when_no_sibling_script(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No dango console script next to the interpreter -> falls back to bare 'dango'
+        on PATH, rather than writing a nonexistent path into the config."""
+        home_dir = tmp_path / "home"
+        (home_dir / ".claude").mkdir(parents=True)
+        monkeypatch.setattr(Path, "home", lambda: home_dir)
+
+        venv_bin = tmp_path / "venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        fake_python = venv_bin / "python3.11"
+        fake_python.write_text("")
+        monkeypatch.setattr("sys.executable", str(fake_python))
+
+        runner = CliRunner()
+        result = runner.invoke(mcp_group, ["setup"])
+
+        assert result.exit_code == 0
+        written = json.loads((home_dir / ".claude" / "settings.json").read_text())
+        assert written["mcpServers"]["dango"]["command"] == "dango"
+
 
 @pytest.mark.unit
 class TestMcpStatus:
@@ -110,25 +159,41 @@ class TestMcpStatus:
 
 @pytest.mark.unit
 class TestQueryTool:
-    """query() — SELECT-only guard, row-limit cap."""
+    """query() — SELECT-only guard, row-limit cap, length cap, timeout. Async tool: see
+    dango/cli/CLAUDE.md's async-tool note — call directly with `await` under anyio."""
 
-    def test_query_rejects_non_select(self) -> None:
-        result = mcp_server.query("DELETE FROM foo")
+    @pytest.mark.anyio
+    async def test_query_rejects_non_select(self) -> None:
+        result = await mcp_server.query("DELETE FROM foo")
         assert "error" in result
         assert "SELECT" in result["error"]
 
-    def test_query_rejects_multi_statement(self) -> None:
-        result = mcp_server.query("SELECT 1; DROP TABLE foo")
+    @pytest.mark.anyio
+    async def test_query_rejects_multi_statement(self) -> None:
+        result = await mcp_server.query("SELECT 1; DROP TABLE foo")
         assert "error" in result
 
-    def test_query_allows_with_cte(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.anyio
+    async def test_query_allows_with_cte(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A WITH ... SELECT CTE is a legitimate read-only query, not just bare SELECT."""
         monkeypatch.setattr(mcp_server, "_get_project_root", lambda: Path("/nonexistent"))
-        result = mcp_server.query("WITH t AS (SELECT 1 AS x) SELECT * FROM t")
+        result = await mcp_server.query("WITH t AS (SELECT 1 AS x) SELECT * FROM t")
         # Should get past validation to the "no warehouse found" branch, not a SELECT-only error.
         assert result.get("error") != "Only SELECT queries are allowed"
 
-    def test_query_row_limit_capped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.anyio
+    async def test_query_rejects_oversized_sql(self) -> None:
+        """SQL longer than the 102,400-char cap (matches web/routes/query.py) is rejected
+        before ever touching the project root or the warehouse."""
+        oversized = "SELECT " + "1, " * 60_000 + "1"
+        assert len(oversized) > mcp_server._MAX_QUERY_SQL_LENGTH
+        result = await mcp_server.query(oversized)
+        assert "too long" in result["error"]
+
+    @pytest.mark.anyio
+    async def test_query_row_limit_capped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """row_limit above 500 is capped at 500, even against a table with more rows."""
         import duckdb
 
@@ -140,10 +205,30 @@ class TestQueryTool:
         conn.close()
 
         monkeypatch.setattr(mcp_server, "_get_project_root", lambda: tmp_path)
-        result = mcp_server.query("SELECT * FROM t", row_limit=10_000)
+        result = await mcp_server.query("SELECT * FROM t", row_limit=10_000)
 
         assert result["row_count"] == 500
         assert result["truncated"] is True
+
+    @pytest.mark.anyio
+    async def test_query_times_out(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An execution that outruns the timeout returns a clean error instead of hanging."""
+        import time as time_module
+
+        def _slow_execute(db_path: Path, sql: str, row_limit: int) -> dict:
+            time_module.sleep(0.3)
+            return {"columns": [], "rows": [], "row_count": 0, "truncated": False}
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "warehouse.duckdb").write_bytes(b"")  # only .exists() is checked pre-timeout
+
+        monkeypatch.setattr(mcp_server, "_get_project_root", lambda: tmp_path)
+        monkeypatch.setattr(mcp_server, "_execute_query_sync", _slow_execute)
+        monkeypatch.setattr(mcp_server, "_QUERY_TIMEOUT_SECONDS", 0.05)
+
+        result = await mcp_server.query("SELECT 1")
+        assert "timed out" in result["error"]
 
 
 @pytest.mark.unit
@@ -171,16 +256,79 @@ class TestGetTableSchemaAndModelTools:
         assert "error" in result
         assert "No warehouse found" in result["error"]
 
+    def test_get_table_schema_ambiguous_name_filters_to_one_schema(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A table name that exists in two schemas must not have its columns merged:
+        positive control for the bug where every matching table's columns were
+        concatenated into one list under a single (misleading) schema name."""
+        import duckdb
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        db_path = data_dir / "warehouse.duckdb"
+        conn = duckdb.connect(str(db_path))
+        conn.execute("CREATE SCHEMA raw_a")
+        conn.execute("CREATE SCHEMA raw_b")
+        conn.execute("CREATE TABLE raw_a.events (a_only_col INTEGER)")
+        conn.execute("CREATE TABLE raw_b.events (b_only_col INTEGER, another_b_col INTEGER)")
+        conn.close()
+
+        monkeypatch.setattr(mcp_server, "_get_project_root", lambda: tmp_path)
+        result = mcp_server.get_table_schema("events")
+
+        assert result["schema"] == "raw_a"
+        assert [c["name"] for c in result["columns"]] == ["a_only_col"]
+        assert result["other_schemas"] == ["raw_b"]
+
+
+@pytest.mark.unit
+class TestGetLineage:
+    def test_referenced_by_resolves_for_versioned_model(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Positive control for the manual unique_id reconstruction bug: dbt's versioned
+        models (dbt-core 1.5+) have a real unique_id like 'model.pkg.orders.v2', which
+        f"model.{package_name}.{model_name}" doesn't produce — that silently made
+        referenced_by empty even when a real dependent exists."""
+        manifest = {
+            "nodes": {
+                "model.pkg.orders.v2": {
+                    "name": "orders",
+                    "package_name": "pkg",
+                    "resource_type": "model",
+                    "original_file_path": "models/marts/orders.sql",
+                    "depends_on": {"nodes": []},
+                },
+                "model.pkg.fct_order_summary": {
+                    "name": "fct_order_summary",
+                    "package_name": "pkg",
+                    "resource_type": "model",
+                    "depends_on": {"nodes": ["model.pkg.orders.v2"]},
+                },
+            },
+            "sources": {},
+        }
+        dbt_dir = tmp_path / "dbt" / "target"
+        dbt_dir.mkdir(parents=True)
+        (dbt_dir / "manifest.json").write_text(json.dumps(manifest))
+
+        monkeypatch.setattr(mcp_server, "_get_project_root", lambda: tmp_path)
+        result = mcp_server.get_lineage(model_name="orders")
+
+        assert result["referenced_by"] == ["model.pkg.fct_order_summary"]
+
 
 @pytest.mark.unit
 class TestListSources:
-    def test_list_sources_empty_project(
+    @pytest.mark.anyio
+    async def test_list_sources_empty_project(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """No sources configured -> returns empty list, no crash."""
         monkeypatch.setattr(mcp_server, "_get_project_root", lambda: tmp_path)
         monkeypatch.setattr("dango.web.helpers.load_sources_config", lambda: [], raising=True)
-        result = mcp_server.list_sources()
+        result = await mcp_server.list_sources()
         assert result == []
 
 
