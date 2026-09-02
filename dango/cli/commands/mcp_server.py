@@ -22,6 +22,7 @@ here is inert and doesn't reintroduce the risk this rule guards against.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -30,8 +31,9 @@ from fastmcp import FastMCP
 
 from dango.cli.commands.mcp_helpers import (
     _connect_readonly_with_retry,
-    _execute_query_sync,
+    _execute_query_on_connection,
     _get_project_root,
+    _get_query_timeout_seconds,
     _infer_layer,
     _validate_select_only,
 )
@@ -46,9 +48,8 @@ mcp = FastMCP(
     ),
 )
 
-# Matches web/routes/query.py's QueryRequest.sql max_length / _DEFAULT_QUERY_TIMEOUT_SECONDS.
+# Matches web/routes/query.py's QueryRequest.sql max_length.
 _MAX_QUERY_SQL_LENGTH = 102_400
-_QUERY_TIMEOUT_SECONDS = 30
 
 
 # ── Read tools ────────────────────────────────────────────────────────────────
@@ -61,8 +62,6 @@ async def list_sources() -> list[dict[str, Any]]:
     Returns a list of dicts with: name, type, enabled, last_sync, rows, status.
     """
     project_root = _get_project_root()
-    import asyncio
-
     from dango.web.app import app as web_app
     from dango.web.helpers import get_source_status_data, load_sources_config
 
@@ -331,9 +330,11 @@ async def query(sql: str, row_limit: int = 500) -> dict[str, Any]:
             102,400 characters (matches the web query endpoint).
         row_limit: Maximum rows to return (default 500, max 500).
 
-    Returns dict with: columns, rows, row_count, truncated. Queries are killed
-    after 30s (matching the web query endpoint's default) rather than blocking
-    the server indefinitely on an expensive query.
+    Returns dict with: columns, rows, row_count, truncated. Times out after the
+    project's configured api.query_timeout_seconds (default 30s, matching the
+    web query endpoint) — the tool call returns an error at that point *and*
+    the in-flight DuckDB query is interrupted, not just abandoned in the
+    background.
     """
     if len(sql) > _MAX_QUERY_SQL_LENGTH:
         return {"error": f"SQL query too long (max {_MAX_QUERY_SQL_LENGTH} characters)"}
@@ -350,17 +351,43 @@ async def query(sql: str, row_limit: int = 500) -> dict[str, Any]:
     if not db_path.exists():
         return {"error": "No warehouse found. Run dango sync first."}
 
-    import asyncio
+    timeout_seconds = _get_query_timeout_seconds(project_root)
 
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(_execute_query_sync, db_path, sql, row_limit),
-            timeout=_QUERY_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError:
-        return {"error": f"Query timed out after {_QUERY_TIMEOUT_SECONDS} seconds"}
+        conn = await asyncio.to_thread(_connect_readonly_with_retry, db_path)
     except Exception as e:
         return {"error": str(e)}
+
+    # asyncio.to_thread cannot forcibly stop a worker thread once it has
+    # started executing — a plain asyncio.wait_for() around it only stops
+    # *waiting*; the query keeps running in the background against the
+    # shared default thread-pool executor. asyncio.shield() keeps a live
+    # handle to that task so that on timeout we can call conn.interrupt()
+    # (DuckDB's own thread-safe query cancellation) and then briefly wait
+    # for the worker to actually unwind before closing the connection out
+    # from under it — closing concurrently with an in-flight query is not a
+    # documented-safe operation, interrupt-then-close is.
+    task = asyncio.create_task(
+        asyncio.to_thread(_execute_query_on_connection, conn, sql, row_limit)
+    )
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        conn.interrupt()
+        try:
+            await asyncio.wait_for(task, timeout=5)
+        except Exception:
+            pass  # already reporting the timeout below regardless of how the interrupted query unwound
+        return {"error": f"Query timed out after {timeout_seconds} seconds"}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        if task.done():
+            await asyncio.to_thread(conn.close)
+        # else: worker thread never unwound within the grace period above —
+        # extremely rare (interrupt() failing to take effect). Leaking the
+        # connection handle until it eventually finishes and is garbage
+        # collected is safer than closing underneath a still-running thread.
 
 
 @mcp.tool()

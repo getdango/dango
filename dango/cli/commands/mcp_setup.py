@@ -118,14 +118,17 @@ def _write_mcp_config(config_path: Path, entry: dict) -> None:
     the MCP section.
     """
     import os
+    import stat
     import tempfile
 
     existing: dict = {}
+    original_mode: int | None = None
     if config_path.exists():
         try:
             existing = json.loads(config_path.read_text())
         except Exception:
             pass
+        original_mode = stat.S_IMODE(config_path.stat().st_mode)
 
     existing.setdefault("mcpServers", {})["dango"] = entry
 
@@ -136,6 +139,12 @@ def _write_mcp_config(config_path: Path, entry: dict) -> None:
     try:
         with os.fdopen(fd, "w") as f:
             f.write(json.dumps(existing, indent=2))
+        # tempfile.mkstemp() always creates its file at mode 0600 regardless
+        # of the target's prior permissions. Without this, every `dango mcp
+        # setup` run would silently tighten settings.json from its actual
+        # mode (typically 0644) down to 0600. Preserve the original mode, or
+        # use a normal 0644 default the first time the file is created.
+        os.chmod(tmp_path, original_mode if original_mode is not None else 0o644)
         os.replace(tmp_path, config_path)
     except BaseException:
         Path(tmp_path).unlink(missing_ok=True)

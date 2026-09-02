@@ -11,6 +11,17 @@ imports only" rule for that file: this module itself does zero dango.*
 imports at its own top level (stdlib only below) — find_project_root,
 duckdb, and sqlglot are all imported lazily inside the function bodies here,
 same discipline as before the split. Importing *this* module is inert.
+
+Patchability note: mcp_server.py does `from mcp_helpers import _get_project_root,
+_validate_select_only, ...`, which re-binds those names into mcp_server's own
+module namespace. Patching `mcp_server._get_project_root` etc. in a test
+works correctly for any *mcp_server.py* function that calls it, because a
+bare-name lookup at call time resolves against the caller's own module
+globals. It would NOT work for a call made from *within this file* (a
+function defined here calling another function defined here resolves
+against mcp_helpers's globals, not mcp_server's re-exported copy) — which is
+exactly why _execute_query_on_connection below takes an already-open
+connection instead of calling _connect_readonly_with_retry itself.
 """
 
 from __future__ import annotations
@@ -100,17 +111,39 @@ def _connect_readonly_with_retry(db_path: Path) -> Any:
     raise last_exc
 
 
-def _execute_query_sync(db_path: Path, sql: str, row_limit: int) -> dict[str, Any]:
-    """Blocking DuckDB query execution. Run via asyncio.to_thread from query()."""
-    conn = _connect_readonly_with_retry(db_path)
+def _get_query_timeout_seconds(project_root: Path) -> float:
+    """Read api.query_timeout_seconds from project.yml, mirroring
+    web/routes/query.py's `_get_api_config` so the MCP `query()` tool honors
+    the same per-project configured timeout, not just the same hardcoded
+    default. Falls back to 30s (ApiConfig's own default) if unset/unreadable.
+    """
     try:
-        rel = conn.execute(sql)
-        columns = [d[0] for d in rel.description]
-        raw_rows = rel.fetchmany(row_limit + 1)
-        truncated = len(raw_rows) > row_limit
-        rows = [list(r) for r in raw_rows[:row_limit]]
-    finally:
-        conn.close()
+        from dango.config.helpers import load_config
+
+        config = load_config(project_root)
+        return config.api.query_timeout_seconds
+    except Exception:
+        return 30
+
+
+def _execute_query_on_connection(conn: Any, sql: str, row_limit: int) -> dict[str, Any]:
+    """Blocking DuckDB query execution against an *already-open* connection.
+
+    Run via asyncio.to_thread from query(). Deliberately does not create or
+    close the connection itself, and does not call _connect_readonly_with_retry
+    — the caller (query()) owns the connection's full lifecycle (create,
+    conn.interrupt() on timeout, close) so it can cancel an in-flight query
+    from the awaiting coroutine while this function is still running in a
+    worker thread. Keeping connection creation out of this function also
+    means it's callable from mcp_server.py's own namespace-resolved
+    _connect_readonly_with_retry when needed, rather than only the copy in
+    this module's globals — see the module docstring's patchability note.
+    """
+    rel = conn.execute(sql)
+    columns = [d[0] for d in rel.description]
+    raw_rows = rel.fetchmany(row_limit + 1)
+    truncated = len(raw_rows) > row_limit
+    rows = [list(r) for r in raw_rows[:row_limit]]
     return {
         "columns": columns,
         "rows": rows,

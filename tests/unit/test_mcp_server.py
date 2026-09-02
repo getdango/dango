@@ -128,6 +128,29 @@ class TestMcpSetup:
         written = json.loads((home_dir / ".claude" / "settings.json").read_text())
         assert written["mcpServers"]["dango"]["command"] == "dango"
 
+    def test_mcp_setup_preserves_file_permissions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Positive control for the tempfile.mkstemp() permission-downgrade bug:
+        mkstemp() always creates its temp file at mode 0600 regardless of the
+        target's prior mode, so a naive tmp-file+os.replace atomic write would
+        silently tighten settings.json from 0644 to 0600 on every setup run."""
+        import stat
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_path = claude_dir / "settings.json"
+        settings_path.write_text(json.dumps({"theme": "dark"}))
+        settings_path.chmod(0o644)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        runner = CliRunner()
+        result = runner.invoke(mcp_group, ["setup"])
+
+        assert result.exit_code == 0
+        mode = stat.S_IMODE(settings_path.stat().st_mode)
+        assert mode == 0o644, f"expected settings.json to stay 0644, got {oct(mode)}"
+
 
 @pytest.mark.unit
 class TestMcpStatus:
@@ -211,24 +234,73 @@ class TestQueryTool:
         assert result["truncated"] is True
 
     @pytest.mark.anyio
-    async def test_query_times_out(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """An execution that outruns the timeout returns a clean error instead of hanging."""
+    async def test_query_times_out_and_interrupts_the_connection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An execution that outruns the timeout returns a clean error, AND actually
+        calls conn.interrupt() to cancel the in-flight DuckDB query — positive control
+        for the bug where asyncio.wait_for(asyncio.to_thread(...)) only stopped
+        *waiting*, silently leaving the query running to completion in a background
+        thread against the shared default executor."""
         import time as time_module
+        from unittest.mock import MagicMock
 
-        def _slow_execute(db_path: Path, sql: str, row_limit: int) -> dict:
-            time_module.sleep(0.3)
-            return {"columns": [], "rows": [], "row_count": 0, "truncated": False}
+        import duckdb
 
         data_dir = tmp_path / "data"
         data_dir.mkdir()
-        (data_dir / "warehouse.duckdb").write_bytes(b"")  # only .exists() is checked pre-timeout
+        db_path = data_dir / "warehouse.duckdb"
+        duckdb.connect(str(db_path)).close()  # just needs to exist and be openable
+
+        real_conn = duckdb.connect(str(db_path), read_only=True)
+
+        class _ConnSpy:
+            """duckdb's connection type is a C extension — its attributes can't
+            be monkeypatched directly (they're read-only on the instance), so
+            wrap it to make .interrupt() spyable while still delegating to the
+            real connection."""
+
+            def __init__(self, real: object) -> None:
+                self._real = real
+                self.interrupt = MagicMock(wraps=real.interrupt)
+
+            def close(self) -> None:
+                self._real.close()
+
+        conn_spy = _ConnSpy(real_conn)
+
+        def _slow_execute(conn: object, sql: str, row_limit: int) -> dict:
+            time_module.sleep(0.3)
+            return {"columns": [], "rows": [], "row_count": 0, "truncated": False}
 
         monkeypatch.setattr(mcp_server, "_get_project_root", lambda: tmp_path)
-        monkeypatch.setattr(mcp_server, "_execute_query_sync", _slow_execute)
-        monkeypatch.setattr(mcp_server, "_QUERY_TIMEOUT_SECONDS", 0.05)
+        monkeypatch.setattr(mcp_server, "_connect_readonly_with_retry", lambda db_path: conn_spy)
+        monkeypatch.setattr(mcp_server, "_execute_query_on_connection", _slow_execute)
+        monkeypatch.setattr(mcp_server, "_get_query_timeout_seconds", lambda project_root: 0.05)
 
         result = await mcp_server.query("SELECT 1")
+
         assert "timed out" in result["error"]
+        conn_spy.interrupt.assert_called_once()
+
+    def test_query_timeout_honors_project_config(self, tmp_path: Path, sample_config) -> None:
+        """_get_query_timeout_seconds reads api.query_timeout_seconds from project.yml
+        rather than always using the hardcoded 30s default — positive control for the
+        gap where the MCP tool ignored the same per-project setting
+        web/routes/query.py's _get_api_config honors."""
+        from dango.cli.commands.mcp_helpers import _get_query_timeout_seconds
+        from dango.config.helpers import save_config
+
+        sample_config.api.query_timeout_seconds = 120
+        save_config(sample_config, tmp_path)
+
+        assert _get_query_timeout_seconds(tmp_path) == 120
+
+    def test_query_timeout_falls_back_to_default_when_unconfigured(self, tmp_path: Path) -> None:
+        """No project at all -> falls back to the 30s default rather than raising."""
+        from dango.cli.commands.mcp_helpers import _get_query_timeout_seconds
+
+        assert _get_query_timeout_seconds(tmp_path) == 30
 
 
 @pytest.mark.unit
