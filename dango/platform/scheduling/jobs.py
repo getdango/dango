@@ -620,6 +620,16 @@ def _run_scheduled_sync_impl(schedule_name: str, sources: list[str], **kwargs: A
             except Exception:  # noqa: BLE001
                 logger.debug("mark_stale_after_partial_failure", exc_info=True)
 
+        _broadcast(
+            {
+                "event": "sync_data_loaded",
+                "schedule": schedule_name,
+                "sources": source_names,
+                "succeeded_sources": succeeded_sources,
+                "timestamp": _ts(),
+            }
+        )
+
         # Run coalesced dbt (waits for coalesce window, merges pending sources)
         transform_error: str | None = None
         if not skip_dbt:
