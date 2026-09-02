@@ -20,8 +20,8 @@ def _dbt_telemetry_env() -> dict[str, str]:
     """Return an env dict for the dbt subprocess, with telemetry disabled if opted out.
 
     Always a complete copy of os.environ ({**os.environ}) — never mutates
-    os.environ in place. The opt-out state comes from the sentinel file
-    dango/cli/commands/telemetry.py writes (~/.dango/dbt_telemetry),
+    os.environ in place. The opt-out state comes from the dbt_telemetry key
+    in ~/.dango/config.yml, written by dango/cli/commands/telemetry.py,
     machine-level like Dango's own telemetry identity. DBT_SEND_ANONYMOUS_USAGE_STATS
     is dbt-core's actual documented env var (dbt/cli/params.py); DO_NOT_TRACK
     is set alongside it as defense in depth, matching the community
@@ -29,9 +29,11 @@ def _dbt_telemetry_env() -> dict[str, str]:
     """
     import os
 
+    from dango.telemetry import _read_global_config
+
     env = {**os.environ}
-    sentinel = Path.home() / ".dango" / "dbt_telemetry"
-    if sentinel.exists() and sentinel.read_text().strip() == "false":
+    data = _read_global_config()
+    if data.get("dbt_telemetry", True) is False:
         env["DBT_SEND_ANONYMOUS_USAGE_STATS"] = "false"
         env["DO_NOT_TRACK"] = "1"
     return env

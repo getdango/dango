@@ -2,8 +2,9 @@
 
 Unified telemetry control for Dango, dbt, dlt, and Metabase — a single
 command surface that writes through to each provider's own real config
-mechanism (Dango's ~/.dango/telemetry.json, a dbt subprocess env sentinel,
-dlt's .dlt/config.toml, and Metabase's admin Setting API). This controls
+mechanism (Dango's ~/.dango/telemetry.json, dbt's dbt_telemetry key in
+~/.dango/config.yml, dlt's .dlt/config.toml, and Metabase's admin Setting
+API). This controls
 telemetry for the components Dango configures; it does not claim anything
 about network traffic outside those four providers.
 """
@@ -166,28 +167,15 @@ def _set_provider(provider: str, enabled: bool, project_root: Path | None) -> No
 
 
 def _set_dbt_telemetry(enabled: bool) -> None:
-    """Write the dbt telemetry sentinel file, read by `_dbt_telemetry_env()`
-    in transformation/__init__.py to decide whether to inject
-    DBT_SEND_ANONYMOUS_USAGE_STATS=false into the dbt subprocess env.
+    """Write dbt's opt-out state to ~/.dango/config.yml under the dbt_telemetry key.
 
     Machine-level (~/.dango/), matching Dango's own telemetry identity scope
     (see dango/telemetry.py) — one opt-out covers every project on the
-    machine.
-
-    Raises:
-        click.ClickException: If the sentinel file can't be written (e.g.
-            ~/.dango is read-only or otherwise inaccessible) — converted
-            from a raw OSError so `--all` can skip this provider and
-            continue with the rest instead of crashing the whole command,
-            matching the error-handling contract set_metabase_telemetry()
-            uses for every one of its own failure modes.
+    machine. Read by _dbt_telemetry_env() in transformation/__init__.py.
     """
-    sentinel = Path.home() / ".dango" / "dbt_telemetry"
-    try:
-        sentinel.parent.mkdir(parents=True, exist_ok=True)
-        sentinel.write_text("true" if enabled else "false")
-    except OSError as e:
-        raise click.ClickException(f"Could not write dbt telemetry sentinel: {e}") from e
+    from dango.telemetry import _write_global_config_key
+
+    _write_global_config_key("dbt_telemetry", enabled)
 
 
 def _set_dlt_telemetry(enabled: bool, project_root: Path | None) -> None:
@@ -242,11 +230,11 @@ def _set_metabase_telemetry(enabled: bool, project_root: Path | None) -> None:
 
 
 def _get_dbt_telemetry_state() -> bool:
-    """Return dbt's current opt-in state per the sentinel file (default: on)."""
-    sentinel = Path.home() / ".dango" / "dbt_telemetry"
-    if sentinel.exists():
-        return sentinel.read_text().strip() == "true"
-    return True  # default on
+    """Return dbt's current opt-in state per ~/.dango/config.yml (default: on)."""
+    from dango.telemetry import _read_global_config
+
+    data = _read_global_config()
+    return bool(data.get("dbt_telemetry", True))
 
 
 def _get_dlt_telemetry_state(project_root: Path | None) -> bool:
