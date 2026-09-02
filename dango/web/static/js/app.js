@@ -504,6 +504,11 @@ async function handleWebSocketMessage(data) {
             addLogEntry('success', message || 'Data load complete', source);
             break;
 
+        case 'sync_data_loaded':
+            console.log('🔵 [WS] sync_data_loaded - Source:', source);
+            addLogEntry('info', message || 'Data loaded, running transforms…', source);
+            break;
+
         case 'sync_completed':
             console.log('✅ [WS] sync_completed - Source:', source);
             // sync_completed is the FINAL event — fires after dbt and post-sync
