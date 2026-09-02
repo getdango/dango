@@ -314,6 +314,12 @@ def _print_deploy_success(
             "\n  [bold]Backups:[/bold] Enabled (daily at 02:00 UTC to Spaces). "
             "Run [bold]dango remote backup download[/bold] to save a local copy."
         )
+    else:
+        console.print(
+            "\n  [yellow]Backups:[/yellow] Not configured. Backups are stored on this "
+            "server only — if the server is lost, so are your backups. "
+            "See https://docs.getdango.dev/deployment/backups for BYOS backup options."
+        )
     if warnings:
         for w in warnings:
             console.print(f"  [yellow]Warning:[/yellow] {w}")
