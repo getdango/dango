@@ -2533,6 +2533,48 @@ def {module_name}_resource(api_key: str):
         # Save
         save_config(config, self.project_root)
 
+        # Update CLAUDE.md source inventory if it exists.
+        # This is the single choke point both source-creation flows
+        # (the main wizard flow and the custom dlt_native flow) go
+        # through, so hooking here covers both without duplicating
+        # the call at each call site.
+        _update_claude_md_sources(
+            self.project_root,
+            source_config["name"],
+            source_config["type"],
+            source_config.get("description") or "",
+        )
+
+
+def _update_claude_md_sources(
+    project_root: Path,
+    source_name: str,
+    source_type: str,
+    description: str,
+) -> None:
+    """Append new source to CLAUDE.md source inventory if the file exists."""
+    claude_path = project_root / "CLAUDE.md"
+    if not claude_path.exists():
+        return
+    content = claude_path.read_text()
+    marker = "## Data sources"
+    if marker not in content:
+        return
+    # Find the end of the sources section (next ## heading)
+    parts = content.split(marker, 1)
+    before = parts[0] + marker + "\n"
+    after_parts = parts[1].split("\n## ", 1)
+    sources_section = after_parts[0]
+    rest = "\n## " + after_parts[1] if len(after_parts) > 1 else ""
+
+    new_entry = f"- **{source_name}** (`{source_type}`): {description or 'No description yet'}\n"
+    if "*No sources configured*" in sources_section or "*(No sources" in sources_section:
+        sources_section = "\n" + new_entry
+    elif new_entry not in sources_section:
+        sources_section = sources_section.rstrip("\n") + "\n" + new_entry
+
+    claude_path.write_text(before + sources_section + rest)
+
 
 def add_source(project_root: Path) -> bool:
     """
