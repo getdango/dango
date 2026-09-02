@@ -124,6 +124,47 @@ def is_telemetry_enabled() -> bool:
     return True
 
 
+def _read_global_config() -> dict[str, Any]:
+    """Read ~/.dango/config.yml, returning {} if absent, unreadable, or malformed."""
+    if not _GLOBAL_CONFIG_FILE.is_file():
+        return {}
+    try:
+        import yaml
+
+        with open(_GLOBAL_CONFIG_FILE) as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+
+def _write_global_config_key(key: str, value: Any) -> bool:
+    """Set a single key in ~/.dango/config.yml, preserving every other key.
+
+    Never raises — matching this module's existing telemetry-write
+    conventions (set_telemetry_enabled). Instead, returns whether the write
+    succeeded so callers that need an honest failure signal (e.g.
+    `_set_dbt_telemetry()`, which converts a False return into a
+    click.ClickException so `--all` can skip and continue) can act on it,
+    while a caller with a genuinely best-effort contract can ignore the
+    return value.
+
+    Returns:
+        True if the key was written to disk, False if the write failed for
+        any reason (the setting doesn't stick and can be retried).
+    """
+    try:
+        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        import yaml
+
+        data = _read_global_config()
+        data[key] = value
+        with open(_GLOBAL_CONFIG_FILE, "w") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        return True
+    except Exception:
+        return False
+
+
 def has_recorded_consent() -> bool:
     """Check whether the user has already answered the telemetry prompt.
 

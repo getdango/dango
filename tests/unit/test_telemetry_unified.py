@@ -40,13 +40,13 @@ class TestDbtTelemetryEnv:
     """_dbt_telemetry_env() — the helper wired into all three dbt subprocess.run calls."""
 
     def test_dbt_env_includes_opt_out(self, tmp_path: Path) -> None:
-        """When the sentinel file says 'false', the env carries the real
-        dbt-core opt-out var (DBT_SEND_ANONYMOUS_USAGE_STATS — verified
+        """When config.yml's dbt_telemetry key is False, the env carries the
+        real dbt-core opt-out var (DBT_SEND_ANONYMOUS_USAGE_STATS — verified
         against installed dbt-core in test_egress_allowlist.py) plus
         DO_NOT_TRACK as defense in depth."""
-        sentinel = tmp_path / ".dango" / "dbt_telemetry"
-        sentinel.parent.mkdir(parents=True)
-        sentinel.write_text("false")
+        from dango.telemetry import _write_global_config_key
+
+        _write_global_config_key("dbt_telemetry", False)
 
         env = _dbt_telemetry_env()
 
@@ -54,8 +54,8 @@ class TestDbtTelemetryEnv:
         assert env["DO_NOT_TRACK"] == "1"
 
     def test_dbt_env_default_clean(self, tmp_path: Path) -> None:
-        """When no sentinel file exists, the env is an unmodified copy of
-        os.environ — no telemetry opt-out vars injected."""
+        """When config.yml has no dbt_telemetry key, the env is an
+        unmodified copy of os.environ — no telemetry opt-out vars injected."""
         env = _dbt_telemetry_env()
 
         assert "DBT_SEND_ANONYMOUS_USAGE_STATS" not in env
@@ -65,9 +65,9 @@ class TestDbtTelemetryEnv:
         """Regression risk from the task spec: never mutate os.environ in place."""
         import os
 
-        sentinel = tmp_path / ".dango" / "dbt_telemetry"
-        sentinel.parent.mkdir(parents=True)
-        sentinel.write_text("false")
+        from dango.telemetry import _write_global_config_key
+
+        _write_global_config_key("dbt_telemetry", False)
 
         env = _dbt_telemetry_env()
 
@@ -149,26 +149,88 @@ class TestDltWriteThrough:
 
 
 @pytest.mark.unit
-class TestDbtSentinelErrorHandling:
-    """Review fix #1: _set_dbt_telemetry() must convert a raw OSError into
-    click.ClickException, matching the contract every other provider's
-    write-through follows — otherwise `dango telemetry off --all` crashes
-    outright instead of skipping dbt and continuing with the rest."""
+class TestDbtTelemetryConfigWriteThrough:
+    """1.0.8-R: _set_dbt_telemetry()/_get_dbt_telemetry_state() now write
+    through to the dbt_telemetry key in ~/.dango/config.yml via the shared
+    _write_global_config_key()/_read_global_config() helpers, replacing the
+    old bespoke ~/.dango/dbt_telemetry sentinel file. The error-handling
+    contract is unchanged from before the consolidation: _write_global_config_key()
+    itself never raises (it returns True/False), but _set_dbt_telemetry()
+    checks that return value and raises click.ClickException on False —
+    same raise-on-write-failure contract dlt/metabase use, so `--all` can
+    report `! dbt: skipped — ...` instead of a false `✓`."""
+
+    def test_set_dbt_telemetry_writes_config_yml_key(self, tmp_path: Path) -> None:
+        from dango.cli.commands.telemetry import _get_dbt_telemetry_state, _set_dbt_telemetry
+
+        _set_dbt_telemetry(False)
+
+        config_path = tmp_path / ".dango" / "config.yml"
+        assert config_path.exists()
+        assert "dbt_telemetry: false" in config_path.read_text()
+        assert _get_dbt_telemetry_state() is False
+
+    def test_get_dbt_telemetry_state_defaults_on(self, tmp_path: Path) -> None:
+        from dango.cli.commands.telemetry import _get_dbt_telemetry_state
+
+        assert _get_dbt_telemetry_state() is True
 
     def test_write_failure_raises_click_exception_not_oserror(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A real write failure (e.g. permission denied, disk full) must
+        surface as click.ClickException so `--all` can skip this provider
+        and continue — not be swallowed into a false success. Routed
+        through _write_global_config_key()'s False return rather than a
+        raw try/except around Path.write_text() directly, since
+        _set_dbt_telemetry() now delegates the write to the shared
+        helper."""
         import click
 
         from dango.cli.commands.telemetry import _set_dbt_telemetry
 
-        def _raise_oserror(self: Path, *args: object, **kwargs: object) -> None:
+        def _raise_oserror(*args: object, **kwargs: object) -> None:
             raise OSError("permission denied")
 
-        monkeypatch.setattr(Path, "write_text", _raise_oserror)
+        monkeypatch.setattr("builtins.open", _raise_oserror)
 
         with pytest.raises(click.ClickException):
             _set_dbt_telemetry(False)
+
+    def test_write_global_config_key_returns_false_on_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_write_global_config_key() itself never raises — it signals
+        failure via its return value so callers can decide whether to
+        raise (dbt) or stay silent (dango's own set_telemetry_enabled())."""
+        from dango.telemetry import _write_global_config_key
+
+        def _raise_oserror(*args: object, **kwargs: object) -> None:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr("builtins.open", _raise_oserror)
+
+        assert _write_global_config_key("dbt_telemetry", False) is False
+
+    def test_write_global_config_key_returns_true_on_success(self, tmp_path: Path) -> None:
+        from dango.telemetry import _write_global_config_key
+
+        assert _write_global_config_key("dbt_telemetry", False) is True
+
+    def test_dbt_telemetry_write_preserves_other_config_keys(self, tmp_path: Path) -> None:
+        """Read-modify-write must never clobber unrelated keys already in
+        config.yml — e.g. Dango's own telemetry opt-out."""
+        from dango.cli.commands.telemetry import _set_dbt_telemetry
+        from dango.telemetry import _write_global_config_key
+
+        _write_global_config_key("telemetry", False)
+
+        _set_dbt_telemetry(True)
+
+        config_path = tmp_path / ".dango" / "config.yml"
+        content = config_path.read_text()
+        assert "telemetry: false" in content
+        assert "dbt_telemetry: true" in content
 
 
 @pytest.mark.unit
