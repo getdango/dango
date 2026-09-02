@@ -20,6 +20,7 @@ from dango.cli.commands.dev import dev
 from dango.cli.commands.doctor import doctor
 from dango.cli.commands.governance import governance
 from dango.cli.commands.local_backup import backup_group as local_backup_group
+from dango.cli.commands.mcp_server import mcp_group
 from dango.cli.commands.metabase_cmd import metabase
 from dango.cli.commands.migrate import migrate
 from dango.cli.commands.model import model
@@ -115,6 +116,7 @@ cli.add_command(model)
 cli.add_command(seed)
 cli.add_command(dashboard)
 cli.add_command(metabase)
+cli.add_command(mcp_group)
 cli.add_command(migrate)
 cli.add_command(remote)
 cli.add_command(notebook)
