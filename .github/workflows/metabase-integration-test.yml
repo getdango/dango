@@ -1,0 +1,50 @@
+name: Metabase integration test
+
+on:
+  push:
+    branches: [main, "v1.0.*"]
+    paths:
+      - "dango/utils/driver.py"
+      - "dango/templates/Dockerfile.metabase"
+      - "dango/templates/docker-compose.yml.j2"
+      - "dango/visualization/metabase.py"
+      - "dango/visualization/dashboard_manager.py"
+      - "dango/auth/metabase_bridge.py"
+      - "dango/auth/metabase_sync.py"
+      - "dango/web/routes/metabase_proxy.py"
+      - "dango/cli/commands/metabase_cmd.py"
+      - "dango/platform/common/metabase_lifecycle.py"
+      - "tests/integration/test_metabase_duckdb.py"
+      - "pyproject.toml"
+      - "constraints.txt"
+  pull_request:
+    paths:
+      - "dango/utils/driver.py"
+      - "dango/templates/Dockerfile.metabase"
+      - "dango/templates/docker-compose.yml.j2"
+      - "dango/visualization/metabase.py"
+      - "dango/visualization/dashboard_manager.py"
+      - "dango/auth/metabase_bridge.py"
+      - "dango/auth/metabase_sync.py"
+      - "dango/web/routes/metabase_proxy.py"
+      - "dango/cli/commands/metabase_cmd.py"
+      - "dango/platform/common/metabase_lifecycle.py"
+      - "tests/integration/test_metabase_duckdb.py"
+      - "pyproject.toml"
+      - "constraints.txt"
+
+jobs:
+  metabase-integration:
+    name: Metabase Docker integration test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -c constraints.txt -e ".[dev]"
+      - name: Run Metabase Docker integration test
+        env:
+          DANGO_RUN_DOCKER_TESTS: "1"
+        run: pytest tests/integration/test_metabase_duckdb.py::TestMetabaseReadsPythonDuckdbData -v
