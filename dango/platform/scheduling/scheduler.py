@@ -143,6 +143,7 @@ class SchedulerService:
         self._setup_history_cleanup()
         self._setup_login_attempts_cleanup()
         self._setup_sync_log_cleanup()
+        self._setup_telemetry_heartbeat()
         self._log_startup_summary()
         self._check_dual_scheduler()
 
@@ -447,6 +448,22 @@ class SchedulerService:
             )
         except Exception:  # noqa: BLE001
             logger.debug("sync_log_cleanup_setup_failed", exc_info=True)
+
+    def _setup_telemetry_heartbeat(self) -> None:
+        """Register the weekly telemetry heartbeat (system job, not user-visible)."""
+        try:
+            from dango.telemetry import heartbeat_job
+
+            self._scheduler.add_job(
+                heartbeat_job,
+                "interval",
+                weeks=1,
+                args=[str(self._project_root)],
+                id="dango-internal:telemetry-heartbeat",
+                replace_existing=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("telemetry_heartbeat_setup_failed", exc_info=True)
 
     def _log_missed_recovery(self) -> None:
         """Log count of missed jobs that will be recovered on startup."""

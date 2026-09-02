@@ -382,6 +382,12 @@ exemptions:
 
   # --- Phase 4 scheduling ---
 
+  - file: dango/platform/scheduling/scheduler.py
+    lines: 514
+    category: exempt
+    reason: "1.0.8-Q: Added _setup_telemetry_heartbeat(), a fourth fixed internal job (weekly telemetry heartbeat) following the existing _setup_history_cleanup/_setup_login_attempts_cleanup/_setup_sync_log_cleanup pattern. Pushed the file ~14 lines over the 500-line limit."
+    review_by: "v1.1"
+
   - file: dango/utils/post_sync.py
     lines: 815
     category: exempt

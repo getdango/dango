@@ -10,7 +10,7 @@ Root Python package for Dango — contains all module subpackages (cli, config, 
 |------|---------|----------------------|
 | `__init__.py` | Package metadata: version, author, license | `__version__`, `__author__`, `__license__` |
 | `logging.py` | Structured logging (structlog + stdlib integration) | `configure_logging()`, `get_logger()`, `bind_contextvars`, `clear_contextvars`, `unbind_contextvars` |
-| `telemetry.py` | Opt-in anonymous install telemetry (machine-level UUID in `~/.dango/`) | `is_ci()`, `is_telemetry_enabled()`, `has_recorded_consent()`, `set_telemetry_enabled()`, `ping()` |
+| `telemetry.py` | Opt-in anonymous install + weekly heartbeat telemetry (machine-level UUID in `~/.dango/`) | `is_ci()`, `is_telemetry_enabled()`, `has_recorded_consent()`, `set_telemetry_enabled()`, `ping()`, `heartbeat()`, `heartbeat_job()` |
 
 ## Common Tasks
 
@@ -31,7 +31,7 @@ Root Python package for Dango — contains all module subpackages (cli, config, 
 - `dango.logging` — `get_logger()` used by `web/routes/`, `web/middleware/`, `web/app.py`, `platform/scheduling/`, `platform/notifications/`, `oauth/web_flow.py`, `utils/log_rotation.py`, `utils/post_sync.py`, `cli/commands/schedule.py`, `cli/commands/remote_env.py`, `governance/`, `analysis/`; `configure_logging()` called by entry points. Note: `notebooks/` uses stdlib `logging` directly, not `dango.logging`.
 - `pyproject.toml` defines `getdango` as the installable package
 - Entry point: `dango.cli.main:cli` (configured in `pyproject.toml`)
-- `dango.telemetry` — `cli/init.py` (`ProjectInitializer._prompt_telemetry_consent()`) is the only caller; stdlib `urllib.request`/`json`/`platform`/`uuid` only, plus lazy `yaml` for the opt-out config file. No new pip dependency.
+- `dango.telemetry` — `cli/init.py` (`ProjectInitializer._prompt_telemetry_consent()`) fires the install ping; `platform/scheduling/scheduler.py` (`SchedulerService._setup_telemetry_heartbeat()`) registers `heartbeat_job()` as a weekly internal scheduler job. Stdlib `urllib.request`/`json`/`platform`/`uuid` only, plus lazy `yaml` for the opt-out config file and a lazy `dango.config.helpers.get_config` import inside `heartbeat_job()`. No new pip dependency.
 
 ## Testing
 

@@ -398,6 +398,33 @@ class TestSchedulerServiceHistoryIntegration:
         assert call_kwargs[1]["id"] == "dango-internal:login-attempts-cleanup"
         assert call_kwargs[1]["hours"] == 6
 
+    def test_setup_telemetry_heartbeat_registers_job(self, tmp_path):
+        """_setup_telemetry_heartbeat should register a weekly interval job."""
+        svc = _make_service(tmp_path)
+        svc._project_root = tmp_path
+
+        svc._setup_telemetry_heartbeat()
+
+        svc._scheduler.add_job.assert_called_once()
+        args, call_kwargs = svc._scheduler.add_job.call_args
+        assert args[1] == "interval"
+        assert call_kwargs["id"] == "dango-internal:telemetry-heartbeat"
+        assert call_kwargs["weeks"] == 1
+
+    def test_setup_telemetry_heartbeat_uses_replace_existing(self, tmp_path):
+        """_setup_telemetry_heartbeat should pass replace_existing=True.
+
+        This is what makes a second `dango start` not duplicate the job —
+        same idempotency mechanism the other three internal jobs rely on.
+        """
+        svc = _make_service(tmp_path)
+        svc._project_root = tmp_path
+
+        svc._setup_telemetry_heartbeat()
+
+        call_kwargs = svc._scheduler.add_job.call_args
+        assert call_kwargs[1]["replace_existing"] is True
+
 
 @pytest.mark.unit
 class TestSchedulerServiceCoroutineBridge:

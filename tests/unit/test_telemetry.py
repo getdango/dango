@@ -281,3 +281,74 @@ class TestPing:
         # no User-Agent (urllib sends none by default) — regression test
         # for a live 403 caught during manual verification.
         assert request.get_header("User-agent")
+
+
+@pytest.mark.unit
+class TestHeartbeat:
+    """Tests for telemetry.heartbeat() — the weekly scheduled ping.
+
+    heartbeat() is a thin wrapper: it must call into ping()'s existing
+    threading/timeout/opt-out logic rather than duplicate it, so these
+    tests assert on the delegation itself, not on threading behavior
+    already covered by TestPing.
+    """
+
+    def test_heartbeat_reuses_ping_mechanism(self) -> None:
+        """heartbeat() calls ping("heartbeat", ...) — no reimplemented logic."""
+        with patch("dango.telemetry.ping") as mock_ping:
+            telemetry.heartbeat(source_types=["postgres"])
+        mock_ping.assert_called_once_with("heartbeat", source_types=["postgres"])
+
+    def test_heartbeat_respects_telemetry_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With telemetry disabled, heartbeat() is a no-op — same as ping()'s behavior.
+
+        heartbeat() doesn't check is_telemetry_enabled() itself (that
+        would be a second, separate opt-out check); it inherits the
+        no-op entirely from ping(), verified here via a real opt-out
+        signal (DO_NOT_TRACK) with threading mocked so a real network
+        call is never attempted either way.
+        """
+        monkeypatch.setenv("DO_NOT_TRACK", "1")
+        with patch("dango.telemetry.threading.Thread") as mock_thread:
+            telemetry.heartbeat(source_types=["postgres"])
+        mock_thread.assert_not_called()
+
+
+@pytest.mark.unit
+class TestHeartbeatJob:
+    """Tests for telemetry.heartbeat_job() — the module-level APScheduler entry point."""
+
+    def test_reads_enabled_source_types_and_calls_heartbeat(self, tmp_path: Path) -> None:
+        """heartbeat_job() reads configured source *type* names and passes them through."""
+        mock_source_a = Mock()
+        mock_source_a.type.value = "postgres"
+        mock_source_b = Mock()
+        mock_source_b.type.value = "stripe"
+
+        mock_config = Mock()
+        mock_config.sources.get_enabled_sources.return_value = [mock_source_a, mock_source_b]
+
+        with (
+            patch("dango.config.helpers.get_config", return_value=mock_config) as mock_get_config,
+            patch("dango.telemetry.heartbeat") as mock_heartbeat,
+        ):
+            telemetry.heartbeat_job(str(tmp_path))
+
+        mock_get_config.assert_called_once_with(tmp_path)
+        mock_heartbeat.assert_called_once_with(source_types=["postgres", "stripe"])
+
+    def test_config_load_failure_still_fires_heartbeat(self, tmp_path: Path) -> None:
+        """A config load failure doesn't prevent the heartbeat — it just loses source_types.
+
+        Matches this module's "telemetry must never break" posture:
+        a project.yml parse error shouldn't silently kill the one signal
+        (`LAUNCH-READINESS.md`'s "active install" definition) that needs
+        this job to actually run every week.
+        """
+        with (
+            patch("dango.config.helpers.get_config", side_effect=RuntimeError("boom")),
+            patch("dango.telemetry.heartbeat") as mock_heartbeat,
+        ):
+            telemetry.heartbeat_job(str(tmp_path))
+
+        mock_heartbeat.assert_called_once_with(source_types=None)
