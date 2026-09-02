@@ -14,6 +14,7 @@ from __future__ import annotations
 import multiprocessing
 import os
 import shutil
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -168,6 +169,36 @@ class TestMetabaseReadsPythonDuckdbData:
             capture_output=True,
         )
 
+        # Build the real custom image (glibc-based — see Background for why the
+        # plain upstream metabase/metabase image cannot load the DuckDB driver).
+        # Repo root is 4 levels up from this test file: tests/integration/ -> tests/ -> repo root.
+        repo_root = Path(__file__).resolve().parents[2]
+        dockerfile_dir = repo_root / "dango" / "templates"
+        image_tag = "dango-test-metabase-duckdb-ci:local"
+
+        build_proc = subprocess.run(
+            [
+                "docker",
+                "build",
+                "-f",
+                str(dockerfile_dir / "Dockerfile.metabase"),
+                "-t",
+                image_tag,
+                str(dockerfile_dir),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert build_proc.returncode == 0, f"Docker build failed: {build_proc.stderr}"
+
+        # Plugin dir must match Dockerfile.metabase's WORKDIR (/app) and the
+        # MB_PLUGINS_DIR docker-compose.yml.j2 sets in real deployments — the
+        # real image does not use the upstream image's default /plugins path,
+        # so the driver jar silently fails to load without this override.
+        # Must NOT be mounted :ro — Metabase refuses to use a plugins dir it
+        # can't write to and silently falls back to a temp dir instead of
+        # raising, so the DuckDB driver never registers (matches
+        # docker-compose.yml.j2, which also mounts metabase-plugins writable).
         proc = subprocess.run(
             [
                 "docker",
@@ -180,12 +211,14 @@ class TestMetabaseReadsPythonDuckdbData:
                 "-v",
                 f"{db_path}:/data/warehouse.duckdb:ro",
                 "-v",
-                f"{plugins_dir}:/plugins:ro",
+                f"{plugins_dir}:/app/plugins",
                 "-e",
                 "MB_DB_TYPE=h2",
                 "-e",
                 "MB_DB_FILE=/metabase-data/metabase.db",
-                "metabase/metabase:v0.62.18",
+                "-e",
+                "MB_PLUGINS_DIR=/app/plugins",
+                image_tag,
             ],
             capture_output=True,
             text=True,
