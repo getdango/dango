@@ -172,10 +172,18 @@ def _set_dbt_telemetry(enabled: bool) -> None:
     Machine-level (~/.dango/), matching Dango's own telemetry identity scope
     (see dango/telemetry.py) — one opt-out covers every project on the
     machine. Read by _dbt_telemetry_env() in transformation/__init__.py.
+
+    Raises:
+        click.ClickException: If the write fails (e.g. permission denied,
+            disk full) — converted from `_write_global_config_key()`'s
+            False return so `--all` can skip this provider and continue,
+            matching the error-handling contract `set_metabase_telemetry()`
+            uses.
     """
     from dango.telemetry import _write_global_config_key
 
-    _write_global_config_key("dbt_telemetry", enabled)
+    if not _write_global_config_key("dbt_telemetry", enabled):
+        raise click.ClickException("Could not write ~/.dango/config.yml")
 
 
 def _set_dlt_telemetry(enabled: bool, project_root: Path | None) -> None:

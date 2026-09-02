@@ -153,13 +153,12 @@ class TestDbtTelemetryConfigWriteThrough:
     """1.0.8-R: _set_dbt_telemetry()/_get_dbt_telemetry_state() now write
     through to the dbt_telemetry key in ~/.dango/config.yml via the shared
     _write_global_config_key()/_read_global_config() helpers, replacing the
-    old bespoke ~/.dango/dbt_telemetry sentinel file. This intentionally
-    changes the error-handling contract superseded here: dbt's write-through
-    is now best-effort and never raises, matching dango's own
-    set_telemetry_enabled() (both share _write_global_config_key()) rather
-    than the raise-on-OSError contract dlt/metabase still use — a write
-    failure just means the setting doesn't stick, same as it already works
-    for the dango provider today."""
+    old bespoke ~/.dango/dbt_telemetry sentinel file. The error-handling
+    contract is unchanged from before the consolidation: _write_global_config_key()
+    itself never raises (it returns True/False), but _set_dbt_telemetry()
+    checks that return value and raises click.ClickException on False —
+    same raise-on-write-failure contract dlt/metabase use, so `--all` can
+    report `! dbt: skipped — ...` instead of a false `✓`."""
 
     def test_set_dbt_telemetry_writes_config_yml_key(self, tmp_path: Path) -> None:
         from dango.cli.commands.telemetry import _get_dbt_telemetry_state, _set_dbt_telemetry
@@ -176,13 +175,18 @@ class TestDbtTelemetryConfigWriteThrough:
 
         assert _get_dbt_telemetry_state() is True
 
-    def test_write_failure_is_silent_not_raised(
+    def test_write_failure_raises_click_exception_not_oserror(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Matching the best-effort contract of _write_global_config_key()
-        (and dango's own set_telemetry_enabled()): a write failure (e.g.
-        permission denied) never raises, it just means the setting doesn't
-        stick and can be retried."""
+        """A real write failure (e.g. permission denied, disk full) must
+        surface as click.ClickException so `--all` can skip this provider
+        and continue — not be swallowed into a false success. Routed
+        through _write_global_config_key()'s False return rather than a
+        raw try/except around Path.write_text() directly, since
+        _set_dbt_telemetry() now delegates the write to the shared
+        helper."""
+        import click
+
         from dango.cli.commands.telemetry import _set_dbt_telemetry
 
         def _raise_oserror(*args: object, **kwargs: object) -> None:
@@ -190,7 +194,28 @@ class TestDbtTelemetryConfigWriteThrough:
 
         monkeypatch.setattr("builtins.open", _raise_oserror)
 
-        _set_dbt_telemetry(False)  # must not raise
+        with pytest.raises(click.ClickException):
+            _set_dbt_telemetry(False)
+
+    def test_write_global_config_key_returns_false_on_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_write_global_config_key() itself never raises — it signals
+        failure via its return value so callers can decide whether to
+        raise (dbt) or stay silent (dango's own set_telemetry_enabled())."""
+        from dango.telemetry import _write_global_config_key
+
+        def _raise_oserror(*args: object, **kwargs: object) -> None:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr("builtins.open", _raise_oserror)
+
+        assert _write_global_config_key("dbt_telemetry", False) is False
+
+    def test_write_global_config_key_returns_true_on_success(self, tmp_path: Path) -> None:
+        from dango.telemetry import _write_global_config_key
+
+        assert _write_global_config_key("dbt_telemetry", False) is True
 
     def test_dbt_telemetry_write_preserves_other_config_keys(self, tmp_path: Path) -> None:
         """Read-modify-write must never clobber unrelated keys already in
