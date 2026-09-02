@@ -8,7 +8,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| `__init__.py` | dbt CLI execution functions | `run_dbt_models`, `run_dbt_snapshots`, `generate_dbt_docs`, `_get_dbt_executable` |
+| `__init__.py` | dbt CLI execution functions | `run_dbt_models`, `run_dbt_snapshots`, `generate_dbt_docs`, `_get_dbt_executable`, `_dbt_telemetry_env` |
 | `generator.py` | Auto-generates dbt staging models from data sources | `DbtModelGenerator`, `generate_staging_models` |
 
 ## Common Tasks
@@ -16,6 +16,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 | To... | Modify... | Test with... |
 |-------|-----------|--------------|
 | Change dbt run behavior | `__init__.py` (`run_dbt_models`) | Manual: `dango transform` |
+| Change dbt telemetry opt-out env injection | `__init__.py` (`_dbt_telemetry_env`) | `pytest tests/unit/test_telemetry_unified.py` |
 | Add a new dedup strategy mapping | `generator.py` (`CSV_TO_DBT_STRATEGY_MAP`) | Manual: `dango generate-models` with source using new strategy |
 | Change generated model SQL | `generator.py` + `dango/templates/dbt/staging_model.sql.j2` | Manual: `dango generate-models` and inspect output |
 | Change sources.yml generation | `generator.py` (`generate_sources_yml`) | Manual: `dango generate-models` and inspect `dbt/models/staging/` |
@@ -32,6 +33,7 @@ Integrates with dbt for data transformation, including auto-generation of stagin
 - `dango/ingestion/dlt_runner.py` — `DbtModelGenerator`, `run_dbt_models`, `generate_dbt_docs` for post-sync auto-transform
 - `dango/web/app.py` — `run_dbt_models` via API endpoint
 - `dango/platform/watcher_runner.py` — `generate_dbt_docs` for watch-triggered doc generation
+- `_dbt_telemetry_env()` specifically is also imported directly by every other dbt-invoking `subprocess.run` call site outside this module, so the dbt telemetry opt-out (`dango telemetry off --provider dbt`) covers all of them, not just the three functions above: `dango/cli/commands/transform.py` (`dango run`, `dango docs`), `dango/platform/local/watcher_runner.py` (`run_dbt_command`, file-watcher-triggered), `dango/web/routes/dbt.py` (`run_dbt_model_task`, web UI model run), `dango/cli/commands/dev.py` (`_run_dev_dbt`), `dango/cli/init.py` (`_generate_dbt_docs`), `dango/cli/model_wizard.py` (`_regenerate_manifest`), `dango/cli/validate.py` (`_validate_dbt_models`)
 
 ## Testing
 

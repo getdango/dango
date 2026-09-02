@@ -33,6 +33,7 @@ from dango.cli.commands.seed import seed
 from dango.cli.commands.serve import serve
 from dango.cli.commands.snapshot import snapshot
 from dango.cli.commands.source import source, sync
+from dango.cli.commands.telemetry import telemetry
 from dango.cli.commands.transform import docs, generate, run
 from dango.cli.commands.upgrade import upgrade
 from dango.cli.commands.web import web
@@ -124,6 +125,7 @@ cli.add_command(governance)
 cli.add_command(monitor)
 cli.add_command(snapshot)
 cli.add_command(local_backup_group)
+cli.add_command(telemetry)
 
 
 def main() -> None:

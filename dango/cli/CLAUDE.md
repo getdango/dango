@@ -47,6 +47,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/analyze.py` (~97 lines) | `monitor` group + `analyze` alias | `monitor` (group), `monitor_run()`, `analyze()` |
 | `commands/dev.py` (~429 lines) | `dev` group (default run + clean) — branch-based dbt development | `dev` (group), `dev_clean()` |
 | `commands/web.py` (69 lines) | `web` dev server command | `web()` |
+| `commands/telemetry.py` (~250 lines) | `telemetry` group (status, on, off) — unified write-through control for Dango, dbt, dlt, and Metabase telemetry | `telemetry`, `telemetry_status()`, `telemetry_on()`, `telemetry_off()` |
 | **Wizards** | | |
 | `init.py` (1585 lines) | Project initialization wizard, incl. first-run telemetry consent prompt | `ProjectInitializer` |
 | `wizard.py` (307 lines) | Interactive setup wizards | `ProjectWizard` |
@@ -136,8 +137,12 @@ dango (top-level group)
 │   ├── accept, drift-report, pii-report, pii-set, pii-list
 ├── notebook (group)            ← commands/notebook.py
 │   ├── new, open              (default invocation lists notebooks)
-└── metabase (group)            ← commands/metabase_cmd.py
-    ├── save, load, refresh
+├── metabase (group)            ← commands/metabase_cmd.py
+│   ├── save, load, refresh
+└── telemetry (group)           ← commands/telemetry.py
+    ├── status
+    ├── on   [--all | --provider dango|dbt|dlt|metabase]
+    └── off  [--all | --provider dango|dbt|dlt|metabase]
 ```
 
 ## Seeds vs CSV Data Source

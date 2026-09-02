@@ -128,6 +128,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
         logger.warning(f"Could not acquire dbt lock for {model_name}: {e}")
         return
 
+    from dango.transformation import _dbt_telemetry_env
     from dango.utils.activity_log import log_activity
 
     log_activity(project_root, "info", f"dbt:{model_name}", f"dbt run started: {model_name}")
@@ -181,6 +182,7 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
             capture_output=True,
             text=True,
             timeout=300,  # 5 minute timeout
+            env=_dbt_telemetry_env(),
         )
 
         duration = time.time() - start_time

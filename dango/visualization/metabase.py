@@ -1186,6 +1186,123 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         return False
 
 
+def set_metabase_telemetry(
+    project_root: Path, enabled: bool, metabase_url: str | None = None
+) -> None:
+    """
+    Toggle Metabase's anonymous usage tracking via the admin Setting API.
+
+    Loads admin credentials from .dango/metabase.yml (same pattern as
+    sync_metabase_schema), logs in, then calls
+    PUT /api/setting/anon-tracking-enabled — Metabase's runtime setting key
+    for anonymous tracking (distinct from the one-time "allow_tracking" field
+    used only in the /api/setup wizard payload in setup_metabase() above).
+
+    On success, also writes a local last-known-state cache
+    (.dango/metabase_telemetry_state) so `dango telemetry status` can report
+    the real state without making a live API call every time — see
+    dango/cli/commands/telemetry.py's `_get_metabase_telemetry_state()`.
+
+    Args:
+        project_root: Path to project root
+        enabled: True to enable anonymous tracking, False to disable it
+        metabase_url: Metabase URL. If not given, read from the
+            "metabase_url" key in .dango/metabase.yml (same precedent as
+            cli/commands/metabase_cmd.py), falling back to
+            http://localhost:3000 if that key is absent too.
+
+    Raises:
+        click.ClickException: If Metabase credentials are missing/incomplete,
+            or if the API call fails (e.g. Metabase not running), or if
+            anything else in the credentials/login/API flow goes wrong.
+    """
+    import click
+
+    credentials_file = project_root / ".dango" / "metabase.yml"
+    if not credentials_file.exists():
+        raise click.ClickException("Metabase not configured. Run dango start first.")
+
+    try:
+        with open(credentials_file) as f:
+            credentials = yaml.safe_load(f) or {}
+
+        admin = credentials.get("admin", {})
+        email = admin.get("email")
+        password = admin.get("password")
+        if not email or not password:
+            raise click.ClickException(
+                "Metabase admin credentials missing from .dango/metabase.yml"
+            )
+
+        resolved_url = metabase_url or credentials.get("metabase_url", "http://localhost:3000")
+
+        session = requests.Session()
+        login_response = session.post(
+            f"{resolved_url}/api/session",
+            json={"username": email, "password": password},
+            timeout=10,
+        )
+        if login_response.status_code in (401, 403):
+            # Distinguish "reachable but rejected the credentials" from
+            # "unreachable" *before* raise_for_status() below would
+            # otherwise turn this into a generic requests.HTTPError (a
+            # RequestException subclass) and get mislabeled by the
+            # "is it running?" branch further down — Metabase is running
+            # fine here, the admin password in metabase.yml is just stale.
+            raise click.ClickException(
+                "Metabase login failed — check admin credentials in .dango/metabase.yml"
+            )
+        login_response.raise_for_status()
+        session_id = login_response.json().get("id")
+        if not session_id:
+            raise click.ClickException("Metabase login did not return a session id")
+
+        response = session.put(
+            f"{resolved_url}/api/setting/anon-tracking-enabled",
+            headers={"X-Metabase-Session": session_id},
+            json={"value": enabled},
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        # The real API call above already succeeded — enabled is now the
+        # actual live Metabase state. A failure writing the local status
+        # cache (disk full, permissions, read-only filesystem) is a
+        # "dango telemetry status may show a stale value" problem, not a
+        # "this command failed" problem, so it's caught and logged here,
+        # inside its own try, rather than left to fall into the broad
+        # `except Exception` below — that would misreport a successful
+        # toggle as a failure just because a secondary, best-effort write
+        # didn't land.
+        try:
+            state_file = project_root / ".dango" / "metabase_telemetry_state"
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            state_file.write_text("true" if enabled else "false")
+        except Exception:
+            logger.warning(
+                "Metabase telemetry set to %s via API, but failed to write "
+                "local status cache at %s — `dango telemetry status` may "
+                "show a stale value until the next successful toggle.",
+                enabled,
+                project_root / ".dango" / "metabase_telemetry_state",
+                exc_info=True,
+            )
+
+    except click.ClickException:
+        raise
+    except requests.exceptions.RequestException as e:
+        raise click.ClickException(
+            f"Could not reach Metabase at {resolved_url} — is it running? ({e})"
+        ) from e
+    except Exception as e:
+        # Broad fallback: credentials-load/login/API flow can also fail on
+        # yaml.YAMLError (malformed metabase.yml) or a non-JSON 200 login
+        # response (login_response.json() raising ValueError), neither of
+        # which is a RequestException. Convert to the same clean-error
+        # contract this function promises for every other failure mode.
+        raise click.ClickException(f"Failed to set Metabase telemetry: {e}") from e
+
+
 def refresh_metabase_connection(
     project_root: Path, metabase_url: str = "http://localhost:3000"
 ) -> tuple[bool, str | None]:

@@ -34,6 +34,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
     """
     import subprocess
 
+    from dango.transformation import _dbt_telemetry_env
     from dango.utils import DbtLock, DbtLockError
     from dango.utils.dbt_status import update_model_status
 
@@ -80,7 +81,7 @@ def run(ctx: click.Context, dbt_args: tuple[str, ...]) -> None:
         _metabase_was_stopped = stop_metabase_for_writes(project_root)
         try:
             # Run dbt command from dbt directory for correct path resolution
-            result = subprocess.run(cmd, cwd=str(dbt_dir))
+            result = subprocess.run(cmd, cwd=str(dbt_dir), env=_dbt_telemetry_env())
         finally:
             if _metabase_was_stopped:
                 start_metabase_after_writes(project_root)
@@ -170,6 +171,7 @@ def docs(ctx: click.Context) -> None:
     import subprocess
 
     from dango.config import ConfigLoader
+    from dango.transformation import _dbt_telemetry_env
 
     from ..utils import require_project_context
 
@@ -196,7 +198,7 @@ def docs(ctx: click.Context) -> None:
         ]
 
         # Run dbt command from dbt directory for correct path resolution
-        result = subprocess.run(cmd, cwd=str(dbt_dir))
+        result = subprocess.run(cmd, cwd=str(dbt_dir), env=_dbt_telemetry_env())
 
         if result.returncode != 0:
             console.print(

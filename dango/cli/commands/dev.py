@@ -121,7 +121,7 @@ def _run_dev_dbt(project_root: Path, dev_dir: Path, select: str | None) -> int:
     """
     import subprocess
 
-    from dango.transformation import _get_dbt_executable
+    from dango.transformation import _dbt_telemetry_env, _get_dbt_executable
 
     dbt_cmd = _get_dbt_executable()
     dbt_dir = project_root / "dbt"
@@ -133,7 +133,7 @@ def _run_dev_dbt(project_root: Path, dev_dir: Path, select: str | None) -> int:
     console.print(f"[dim]Running: {' '.join(cmd)}[/dim]\n")
 
     try:
-        result = subprocess.run(cmd, cwd=str(dbt_dir), timeout=300)
+        result = subprocess.run(cmd, cwd=str(dbt_dir), timeout=300, env=_dbt_telemetry_env())
         return result.returncode
     except subprocess.TimeoutExpired:
         console.print(
