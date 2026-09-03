@@ -91,6 +91,80 @@ class TestRunTransform:
         result = mcp_mutations.run_transform()
         assert result == {"status": "failed", "output": "Compilation Error in model foo"}
 
+    def test_run_transform_acquires_and_releases_dbt_lock(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression test for BUGS-FOUND.md 'MCP run_transform does not acquire
+        DbtLock': run_transform() was the one caller of run_dbt_models() in the
+        whole codebase with no lock acquisition (unlike dlt_runner.py,
+        web/routes/upload.py, and platform/scheduling/jobs.py x2). Assert the
+        real call order is acquire -> dbt -> release, matching transform.py's
+        `run()` CLI command."""
+        import dango.utils as dango_utils
+
+        call_order: list[str] = []
+
+        class FakeLock:
+            def __init__(self, *, project_root, source, operation):
+                call_order.append(f"init:{source}")
+                self._acquired = False
+
+            def acquire(self, timeout: float = 300) -> bool:
+                call_order.append("acquire")
+                self._acquired = True
+                return True
+
+            def release(self) -> None:
+                call_order.append("release")
+                self._acquired = False
+
+        monkeypatch.setattr(dango_utils, "DbtLock", FakeLock)
+
+        def _track_dbt(project_root, select, full_refresh):
+            call_order.append("dbt")
+            return (True, "1 of 1 OK")
+
+        monkeypatch.setattr("dango.transformation.run_dbt_models", _track_dbt)
+
+        result = mcp_mutations.run_transform()
+
+        assert result == {"status": "completed", "output": "1 of 1 OK"}
+        assert call_order == ["init:mcp", "acquire", "dbt", "release"]
+
+    def test_run_transform_lock_timeout_returns_clean_error(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When DbtLock can't be acquired (e.g. a sync or scheduled job is already
+        writing to DuckDB), run_transform() must return the tool's normal
+        {"status": "failed", "error": ...} shape — same convention as every other
+        error path in this function — rather than letting DbtLockError propagate
+        unhandled through the MCP tool boundary. Also confirms run_dbt_models()
+        is never reached when the lock can't be acquired."""
+        from dango.exceptions import DbtLockError
+        from dango.utils import DbtLock
+
+        def _raise_lock_error(self, timeout: float = 300) -> bool:
+            raise DbtLockError("Sync queue timeout. Another sync is still running.")
+
+        monkeypatch.setattr(DbtLock, "acquire", _raise_lock_error)
+
+        dbt_called = False
+
+        def _track_dbt(project_root, select, full_refresh):
+            nonlocal dbt_called
+            dbt_called = True
+            return (True, "should not run")
+
+        monkeypatch.setattr("dango.transformation.run_dbt_models", _track_dbt)
+
+        result = mcp_mutations.run_transform()
+
+        assert result == {
+            "status": "failed",
+            "error": "Sync queue timeout. Another sync is still running.",
+        }
+        assert dbt_called is False
+
 
 @pytest.mark.unit
 class TestRunDoctor:
