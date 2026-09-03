@@ -167,10 +167,29 @@ def start_docker_services(project_root: Path) -> None:
     if not manager.is_docker_daemon_running():
         raise RuntimeError("Docker daemon is not running. Start Docker Desktop and try again.")
 
-    # Pre-flight: Required Docker ports must be free
+    # Pre-flight: Required Docker ports must be free.
+    # Read the project's actual configured ports rather than hardcoding the
+    # defaults — a project with metabase_port/dbt_docs_port customized in
+    # project.yml (e.g. to avoid a conflict) would otherwise have this check
+    # look at the wrong ports entirely. Falls back to the same literal
+    # defaults PlatformSettings itself uses if config can't be loaded (e.g.
+    # no project.yml yet) — this function's own contract only raises
+    # RuntimeError for its own documented pre-flight reasons, so a config
+    # load failure here must not surface as a different exception type.
+    metabase_port = 3000
+    dbt_docs_port = 8081
+    try:
+        from dango.config.helpers import load_config
+
+        config = load_config(project_root)
+        metabase_port = config.platform.metabase_port
+        dbt_docs_port = config.platform.dbt_docs_port
+    except Exception:
+        pass
+
     required_docker_ports = {
-        3000: "Metabase",
-        8081: "dbt-docs",
+        metabase_port: "Metabase",
+        dbt_docs_port: "dbt-docs",
     }
 
     ports_in_use = []
@@ -282,11 +301,29 @@ def setup_metabase_if_needed(
             )
             return {"already_configured": False, "success": True, "skipped": True}
 
+    # Read the project's actual configured Metabase port rather than relying
+    # on setup_metabase()'s own http://localhost:3000 default — a project
+    # configured on a non-default port (e.g. to avoid a real conflict) would
+    # otherwise have its admin-setup API calls silently target the wrong
+    # Metabase instance entirely. The URL setup_metabase() is called with
+    # gets persisted into .dango/metabase.yml's "metabase_url" key, so every
+    # downstream reader of that file (sync_metabase_schema,
+    # set_metabase_telemetry, etc.) inherits the correct port from this one
+    # fix — no other call site needs to change.
+    metabase_port = 3000
+    try:
+        from dango.config.helpers import load_config
+
+        metabase_port = load_config(project_root).platform.metabase_port
+    except Exception:
+        pass
+
     setup_result = setup_metabase(
         project_root,
         project_name,
         admin_email,
         organization=organization,
+        metabase_url=f"http://localhost:{metabase_port}",
         cloud_mode=is_cloud_mode(project_root),
     )
 
