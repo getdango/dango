@@ -167,10 +167,29 @@ def start_docker_services(project_root: Path) -> None:
     if not manager.is_docker_daemon_running():
         raise RuntimeError("Docker daemon is not running. Start Docker Desktop and try again.")
 
-    # Pre-flight: Required Docker ports must be free
+    # Pre-flight: Required Docker ports must be free.
+    # Read the project's actual configured ports rather than hardcoding the
+    # defaults — a project with metabase_port/dbt_docs_port customized in
+    # project.yml (e.g. to avoid a conflict) would otherwise have this check
+    # look at the wrong ports entirely. Falls back to the same literal
+    # defaults PlatformSettings itself uses if config can't be loaded (e.g.
+    # no project.yml yet) — this function's own contract only raises
+    # RuntimeError for its own documented pre-flight reasons, so a config
+    # load failure here must not surface as a different exception type.
+    metabase_port = 3000
+    dbt_docs_port = 8081
+    try:
+        from dango.config.helpers import load_config
+
+        config = load_config(project_root)
+        metabase_port = config.platform.metabase_port
+        dbt_docs_port = config.platform.dbt_docs_port
+    except Exception:
+        pass
+
     required_docker_ports = {
-        3000: "Metabase",
-        8081: "dbt-docs",
+        metabase_port: "Metabase",
+        dbt_docs_port: "dbt-docs",
     }
 
     ports_in_use = []
