@@ -380,10 +380,15 @@ class TestMetabaseProvisionerCreateDashboard:
 
 
 @pytest.mark.unit
-class TestMetabaseProvisionerAddCardToDashboard:
-    """Test MetabaseProvisioner.add_card_to_dashboard."""
+class TestMetabaseProvisionerSetDashboardCards:
+    """Test MetabaseProvisioner.set_dashboard_cards.
 
-    def test_success_returns_true(self) -> None:
+    Metabase 0.62 removed POST /api/dashboard/:id/cards (404s now); cards
+    are attached via PUT /api/dashboard/:id with a full `dashcards` array
+    instead. See dango/visualization/metabase.py.
+    """
+
+    def test_success_returns_true_and_uses_put_with_dashcards(self) -> None:
         import requests
 
         from dango.visualization.metabase import MetabaseProvisioner
@@ -391,21 +396,32 @@ class TestMetabaseProvisionerAddCardToDashboard:
         mock_session = MagicMock(spec=requests.Session)
         response = MagicMock()
         response.status_code = 200
-        mock_session.post.return_value = response
+        mock_session.put.return_value = response
 
         with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
             provisioner = MetabaseProvisioner()
 
         provisioner.session_token = "tok-123"
-        result = provisioner.add_card_to_dashboard(
-            dashboard_id=10, card_id=42, row=0, col=0, size_x=6, size_y=4
+        result = provisioner.set_dashboard_cards(
+            dashboard_id=10,
+            cards=[
+                {"card_id": 42, "row": 0, "col": 0, "size_x": 6, "size_y": 4},
+                {"card_id": 43, "row": 0, "col": 6, "size_x": 6, "size_y": 4},
+            ],
         )
 
         assert result is True
-        call_args = mock_session.post.call_args
-        assert call_args[0][0] == "http://localhost:3000/api/dashboard/10/cards"
-        assert call_args[1]["json"]["cardId"] == 42
-        assert call_args[1]["json"]["row"] == 0
+        # Old removed endpoint must never be hit
+        mock_session.post.assert_not_called()
+        call_args = mock_session.put.call_args
+        assert call_args[0][0] == "http://localhost:3000/api/dashboard/10"
+        dashcards = call_args[1]["json"]["dashcards"]
+        assert len(dashcards) == 2
+        assert {c["card_id"] for c in dashcards} == {42, 43}
+        # Each new dashcard needs a unique negative placeholder id
+        assert {c["id"] for c in dashcards} == {-1, -2}
+        assert dashcards[0]["row"] == 0
+        assert dashcards[0]["col"] == 0
 
     def test_returns_false_without_session_token(self) -> None:
         from dango.visualization.metabase import MetabaseProvisioner
@@ -413,20 +429,51 @@ class TestMetabaseProvisionerAddCardToDashboard:
         provisioner = MetabaseProvisioner()
         provisioner.session_token = None
 
-        result = provisioner.add_card_to_dashboard(10, 42)
+        result = provisioner.set_dashboard_cards(
+            10, [{"card_id": 42, "row": 0, "col": 0, "size_x": 6, "size_y": 4}]
+        )
         assert result is False
 
-    def test_returns_false_on_api_error(self) -> None:
+    def test_raises_runtime_error_on_non_200(self) -> None:
+        """A 404 (the exact failure mode of the removed endpoint) must be
+        loud -- raised, not silently swallowed into a truthy/falsy return
+        that the caller can ignore."""
         import requests
 
         from dango.visualization.metabase import MetabaseProvisioner
 
         mock_session = MagicMock(spec=requests.Session)
-        mock_session.post.side_effect = requests.ConnectionError("refused")
+        response = MagicMock()
+        response.status_code = 404
+        response.text = "Not Found"
+        mock_session.put.return_value = response
 
         with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
             provisioner = MetabaseProvisioner()
 
         provisioner.session_token = "tok-123"
-        result = provisioner.add_card_to_dashboard(10, 42)
-        assert result is False
+
+        with pytest.raises(RuntimeError, match="Failed to attach cards"):
+            provisioner.set_dashboard_cards(
+                dashboard_id=10,
+                cards=[{"card_id": 42, "row": 0, "col": 0, "size_x": 6, "size_y": 4}],
+            )
+
+    def test_raises_runtime_error_on_request_exception(self) -> None:
+        import requests
+
+        from dango.visualization.metabase import MetabaseProvisioner
+
+        mock_session = MagicMock(spec=requests.Session)
+        mock_session.put.side_effect = requests.ConnectionError("refused")
+
+        with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
+            provisioner = MetabaseProvisioner()
+
+        provisioner.session_token = "tok-123"
+
+        with pytest.raises(RuntimeError, match="Failed to attach cards"):
+            provisioner.set_dashboard_cards(
+                dashboard_id=10,
+                cards=[{"card_id": 42, "row": 0, "col": 0, "size_x": 6, "size_y": 4}],
+            )
