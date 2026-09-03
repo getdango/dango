@@ -99,6 +99,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 Apache 2.0 — see [LICENSE](LICENSE) for details.
 
+## Known limitations
+
+Dango is honest about what it doesn't do yet. The short version — full detail at
+[docs.getdango.dev/reference/limitations](https://docs.getdango.dev/reference/limitations):
+
+- Single-writer concurrency until the Quack migration lands (DuckDB 2.0)
+- No streaming, CDC, or reverse ETL
+- 34 sources today, added on demand
+- BYOS deployments need to configure their own backup destination (warned at deploy time)
+
 ## Links
 
 - [PyPI](https://pypi.org/project/getdango/)
