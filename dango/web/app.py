@@ -543,6 +543,7 @@ from dango.web.routes.scripts import router as scripts_router  # noqa: E402
 from dango.web.routes.secrets import router as secrets_router  # noqa: E402
 from dango.web.routes.sources import router as sources_router  # noqa: E402
 from dango.web.routes.sync import router as sync_router  # noqa: E402
+from dango.web.routes.telemetry import router as telemetry_router  # noqa: E402
 from dango.web.routes.ui import router as ui_router  # noqa: E402
 from dango.web.routes.upload import router as upload_router  # noqa: E402
 from dango.web.routes.users import router as users_router  # noqa: E402
@@ -560,6 +561,7 @@ app.include_router(initial_sync_router)
 app.include_router(logs_router)
 app.include_router(upload_router)
 app.include_router(secrets_router)
+app.include_router(telemetry_router)
 app.include_router(oauth_connect_router)
 app.include_router(dbt_router)
 app.include_router(schedules_router)

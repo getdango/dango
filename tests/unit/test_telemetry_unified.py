@@ -6,6 +6,15 @@ telemetry-env helper in dango.transformation, and the top-level status/
 --all CLI behavior. Metabase-specific tests live in
 tests/unit/test_telemetry_unified_metabase.py (split out to stay under the
 500-line file-size limit — see scripts/check_file_sizes.py).
+
+1.0.8-U relocated the dbt/dlt provider state read/write logic out of
+`dango.cli.commands.telemetry`'s private functions and into
+`dango.telemetry` (Level 0), so `web/routes/telemetry.py` (Level 2) can
+call it without a Level-2-imports-Level-3 violation. The CLI-facing tests
+above are unchanged (they still import `_get_dbt_telemetry_state` etc. from
+`dango.cli.commands.telemetry`, now thin wrappers) — the
+`TestLevel0DbtDltTelemetryFunctions` class below tests the relocated
+functions directly at their new home.
 """
 
 from __future__ import annotations
@@ -320,3 +329,91 @@ class TestDbtTelemetryEnvWiredEverywhere:
                 f"does not pass env=_dbt_telemetry_env() — dbt telemetry "
                 f"opt-out would silently not apply here"
             )
+
+
+@pytest.mark.unit
+class TestLevel0DbtDltTelemetryFunctions:
+    """1.0.8-U: get_dbt_telemetry_state/set_dbt_telemetry_state/
+    get_dlt_telemetry_state/set_dlt_telemetry_state now live directly in
+    dango.telemetry (Level 0) — cli/commands/telemetry.py's
+    `_get_dbt_telemetry_state()` etc. are thin wrappers around these. Tested
+    here without going through the CLI wrapper to confirm the Level-0
+    functions raise plain exceptions (OSError/ValueError), not
+    click.ClickException — the wrapper is responsible for that translation,
+    not these functions themselves."""
+
+    def test_get_dbt_telemetry_state_defaults_on(self) -> None:
+        from dango.telemetry import get_dbt_telemetry_state
+
+        assert get_dbt_telemetry_state() is True
+
+    def test_set_get_dbt_telemetry_state_round_trip(self) -> None:
+        from dango.telemetry import get_dbt_telemetry_state, set_dbt_telemetry_state
+
+        set_dbt_telemetry_state(False)
+        assert get_dbt_telemetry_state() is False
+        set_dbt_telemetry_state(True)
+        assert get_dbt_telemetry_state() is True
+
+    def test_set_dbt_telemetry_state_raises_plain_oserror(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Level 0 has no click import — a write failure must surface as a
+        plain OSError, not click.ClickException (that translation is
+        cli/commands/telemetry.py's job)."""
+        from dango.telemetry import set_dbt_telemetry_state
+
+        def _raise_oserror(*args: object, **kwargs: object) -> None:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr("builtins.open", _raise_oserror)
+
+        with pytest.raises(OSError):
+            set_dbt_telemetry_state(False)
+
+    def test_get_dlt_telemetry_state_defaults_on(self, tmp_path: Path) -> None:
+        from dango.telemetry import get_dlt_telemetry_state
+
+        assert get_dlt_telemetry_state(tmp_path) is True
+        assert get_dlt_telemetry_state(None) is True
+
+    def test_set_get_dlt_telemetry_state_round_trip(self, tmp_path: Path) -> None:
+        from dango.telemetry import get_dlt_telemetry_state, set_dlt_telemetry_state
+
+        set_dlt_telemetry_state(tmp_path, False)
+        assert get_dlt_telemetry_state(tmp_path) is False
+        set_dlt_telemetry_state(tmp_path, True)
+        assert get_dlt_telemetry_state(tmp_path) is True
+
+    def test_set_dlt_telemetry_state_malformed_toml_raises_value_error(
+        self, tmp_path: Path
+    ) -> None:
+        """A malformed .dlt/config.toml raises ValueError (wrapping
+        tomlkit's TOMLKitError) here — the CLI wrapper is what converts
+        this to click.ClickException."""
+        from dango.telemetry import set_dlt_telemetry_state
+
+        config_path = tmp_path / ".dlt" / "config.toml"
+        config_path.parent.mkdir(parents=True)
+        config_path.write_text("[runtime\ndlthub_telemetry = true\n")  # missing ']'
+
+        with pytest.raises(ValueError):
+            set_dlt_telemetry_state(tmp_path, False)
+
+    def test_set_dlt_telemetry_state_write_failure_raises_plain_oserror(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dango.telemetry import set_dlt_telemetry_state
+
+        def _raise_oserror(self: Path, *args: object, **kwargs: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(Path, "write_text", _raise_oserror)
+
+        with pytest.raises(OSError):
+            set_dlt_telemetry_state(tmp_path, False)
+
+    def test_providers_constant(self) -> None:
+        from dango.telemetry import PROVIDERS
+
+        assert PROVIDERS == ("dango", "dbt", "dlt", "metabase")

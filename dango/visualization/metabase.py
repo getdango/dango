@@ -1303,6 +1303,29 @@ def set_metabase_telemetry(
         raise click.ClickException(f"Failed to set Metabase telemetry: {e}") from e
 
 
+def get_metabase_telemetry_state(project_root: Path | None) -> bool:
+    """Return Metabase's last-known opt-in state.
+
+    Reads the local cache file `set_metabase_telemetry()` writes above after
+    each successful live API call — this reports the real last-set state
+    without requiring Metabase to be running just to print a status table.
+    If telemetry was never toggled through this command (no cache file, or
+    no project), defaults to "on": that's Metabase's own out-of-the-box
+    default for anon-tracking-enabled.
+
+    Relocated here (Level 2, same level as `web/`) from
+    `cli/commands/telemetry.py`'s `_get_metabase_telemetry_state()`
+    (1.0.8-U) — both the CLI and `web/routes/telemetry.py` call this same
+    function so there is one real implementation, not two.
+    """
+    if project_root is None:
+        return True
+    state_file = project_root / ".dango" / "metabase_telemetry_state"
+    if not state_file.exists():
+        return True
+    return state_file.read_text().strip() == "true"
+
+
 def refresh_metabase_connection(
     project_root: Path, metabase_url: str = "http://localhost:3000"
 ) -> tuple[bool, str | None]:
