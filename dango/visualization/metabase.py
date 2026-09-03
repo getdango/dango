@@ -363,9 +363,20 @@ class MetabaseProvisioner:
 
         return True
 
-    def provision_pipeline_health_dashboard(self) -> dict[str, Any]:
+    def provision_pipeline_health_dashboard(self, database_id: int | None = None) -> dict[str, Any]:
         """
         Provision complete Data Pipeline Health dashboard
+
+        Args:
+            database_id: Known Metabase database ID to use directly, bypassing
+                the name-search fallback below. `setup_metabase()` names the
+                DuckDB connection ``f"{org_name} Analytics"`` and persists its
+                ID in ``.dango/metabase.yml`` — passing that ID here avoids
+                relying on `get_database_id()`'s default `"DuckDB"` substring
+                search, which never matches that naming convention (found
+                2026-09-04: every real project's database name is
+                "<org> Analytics", never containing the literal word
+                "DuckDB", so the search always failed).
 
         Returns:
             Summary of provisioning results
@@ -383,8 +394,11 @@ class MetabaseProvisioner:
             summary["errors"].append("Authentication failed")
             return summary
 
-        # Get database ID
-        database_id = self.get_database_id()
+        # Get database ID: prefer the caller-supplied known ID; fall back to
+        # the name-search only when no ID was supplied (e.g. a caller that
+        # doesn't have access to .dango/metabase.yml).
+        if database_id is None:
+            database_id = self.get_database_id()
         if not database_id:
             summary["errors"].append("DuckDB database not found in Metabase")
             return summary
@@ -450,6 +464,7 @@ def provision_dashboard(
     metabase_url: str = "http://localhost:3000",
     username: str = "admin@example.com",
     password: str = "admin123",
+    database_id: int | None = None,
 ) -> dict[str, Any]:
     """
     Convenience function to provision Data Pipeline Health dashboard
@@ -458,12 +473,16 @@ def provision_dashboard(
         metabase_url: Metabase instance URL
         username: Admin username
         password: Admin password
+        database_id: Known Metabase database ID — see
+            `MetabaseProvisioner.provision_pipeline_health_dashboard`'s docstring
+            for why this should be supplied whenever the caller has it
+            (e.g. from `.dango/metabase.yml`).
 
     Returns:
         Provisioning summary
     """
     provisioner = MetabaseProvisioner(metabase_url, username, password)
-    return provisioner.provision_pipeline_health_dashboard()
+    return provisioner.provision_pipeline_health_dashboard(database_id=database_id)
 
 
 def create_pipeline_health_dashboard(project_root: Path) -> dict[str, Any]:

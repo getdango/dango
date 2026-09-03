@@ -21,13 +21,15 @@ def dashboard(ctx: click.Context) -> None:
 
 
 @dashboard.command("provision")
-@click.option("--url", default="http://localhost:3000", help="Metabase URL")
+@click.option("--url", default=None, help="Metabase URL (default: project's configured port)")
 @click.option(
     "--username", default=None, help="Metabase admin username (auto-detected from auth DB)"
 )
 @click.option("--password", prompt=True, hide_input=True, help="Metabase admin password")
 @click.pass_context
-def dashboard_provision(ctx: click.Context, url: str, username: str | None, password: str) -> None:
+def dashboard_provision(
+    ctx: click.Context, url: str | None, username: str | None, password: str
+) -> None:
     """
     Provision Data Pipeline Health dashboard in Metabase.
 
@@ -41,13 +43,30 @@ def dashboard_provision(ctx: click.Context, url: str, username: str | None, pass
     The dashboard provides instant visibility into your data pipeline.
 
     Examples:
-      dango dashboard provision                  # Use defaults (localhost:3000)
+      dango dashboard provision                  # Use the project's configured Metabase port
       dango dashboard provision --url http://metabase.local
     """
     from rich.panel import Panel
     from rich.table import Table
 
     from dango.visualization import provision_dashboard
+
+    project_root = ctx.obj["project_root"]
+
+    # Read the project's actual configured Metabase port rather than
+    # defaulting to localhost:3000 — a project configured on a non-default
+    # port would otherwise have this command silently target the wrong (or a
+    # different project's) Metabase instance. Same pattern as
+    # setup_metabase_if_needed() in platform/common/startup.py.
+    if url is None:
+        metabase_port = 3000
+        try:
+            from dango.config.helpers import load_config
+
+            metabase_port = load_config(project_root).platform.metabase_port
+        except Exception:  # noqa: BLE001
+            pass
+        url = f"http://localhost:{metabase_port}"
 
     # Resolve admin email: env var → auth DB → fallback
     if username is None:
@@ -60,7 +79,6 @@ def dashboard_provision(ctx: click.Context, url: str, username: str | None, pass
                 from dango.auth.database import list_users
                 from dango.auth.models import Role
 
-                project_root = ctx.obj["project_root"]
                 db_path = get_auth_db_path(project_root)
                 if db_path.exists():
                     users = list_users(db_path, active_only=True)
@@ -78,9 +96,26 @@ def dashboard_provision(ctx: click.Context, url: str, username: str | None, pass
         console.print(f"Connecting to Metabase at {url}...")
         console.print()
 
+        # Read the known DuckDB database ID persisted by setup_metabase() at
+        # first-run time, so provision_dashboard() doesn't need to guess it
+        # via get_database_id()'s "DuckDB" substring search — which never
+        # matches setup_metabase()'s actual f"{org_name} Analytics" naming.
+        database_id = None
+        try:
+            import yaml
+
+            credentials_file = project_root / ".dango" / "metabase.yml"
+            if credentials_file.exists():
+                stored = yaml.safe_load(credentials_file.read_text())
+                database_id = (stored or {}).get("database", {}).get("id")
+        except Exception:  # noqa: BLE001
+            pass
+
         # Provision dashboard
         with console.status("[cyan]Creating dashboard...[/cyan]", spinner="dots"):
-            result = provision_dashboard(metabase_url=url, username=username, password=password)
+            result = provision_dashboard(
+                metabase_url=url, username=username, password=password, database_id=database_id
+            )
 
         if result["success"]:
             console.print("[green]✅ Dashboard provisioned successfully![/green]\n")
