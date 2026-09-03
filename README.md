@@ -45,7 +45,7 @@ for the complete tool reference and worked examples.
 
 ## Features
 
-- **33 data sources** — Stripe, Google Sheets, Google Analytics, Shopify, PostgreSQL, MySQL, CSV, REST APIs, and more
+- **35 data sources** — Stripe, Google Sheets, Google Analytics, Shopify, PostgreSQL, MySQL, CSV, REST APIs, and more
 - **Auto-generated dbt models** — staging models created automatically when you add a source
 - **Data catalog** — browse tables, columns, and profiling stats; view dbt lineage and test results
 - **Web dashboard** — monitor syncs, manage sources, and view platform health
@@ -91,7 +91,7 @@ All data stays local in DuckDB. No external warehouse needed.
 
 | Component | Tool | Role |
 |-----------|------|------|
-| Ingestion | [dlt](https://dlthub.com/) | Load data from 33+ sources |
+| Ingestion | [dlt](https://dlthub.com/) | Load data from 35 sources |
 | Warehouse | [DuckDB](https://duckdb.org/) | Embedded analytics database |
 | Transformation | [dbt](https://www.getdbt.com/) | SQL modeling and testing |
 | Dashboards | [Metabase](https://www.metabase.com/) | BI and SQL queries |
@@ -117,7 +117,7 @@ Dango is honest about what it doesn't do yet. The short version — full detail 
 
 - Single-writer concurrency until the Quack migration lands (DuckDB 2.0)
 - No streaming, CDC, or reverse ETL
-- 34 sources today, added on demand
+- 35 sources today, added on demand
 - BYOS deployments need to configure their own backup destination (warned at deploy time)
 
 ## Links
