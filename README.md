@@ -5,9 +5,9 @@
 [![License](https://img.shields.io/github/license/getdango/dango)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/getdango/dango)](https://github.com/getdango/dango)
 
-**Open-source data platform for small teams.**
+**The data platform your coding agent can run.**
 
-Dango gives you a complete data stack — ingestion, warehouse, transformations, and dashboards — in a single CLI. It combines [dlt](https://dlthub.com/) for data loading, [DuckDB](https://duckdb.org/) as the analytics database, [dbt](https://www.getdbt.com/) for SQL transformations, and [Metabase](https://www.metabase.com/) for dashboards. One `pip install`, one command to start.
+Dango gives you a complete data stack — ingestion, warehouse, transformations, and dashboards — with the operational machinery a self-assembled stack (or an LLM improvising one) doesn't have: sync queue management, lock recovery, empty-replace protection, schema drift detection, credential health checks, and backups. It combines [dlt](https://dlthub.com/) for data loading, [DuckDB](https://duckdb.org/) as the analytics database, [dbt](https://www.getdbt.com/) for SQL transformations, and [Metabase](https://www.metabase.com/) for dashboards. One `pip install`, one command to start.
 
 > **Upgrading from v0.1.x?** v1.0.0 is a complete rewrite. Back up your data and run `dango init` to create a new v1 project. See the [migration guide](https://docs.getdango.dev) for details.
 
@@ -98,6 +98,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE) for details.
+
+## Known limitations
+
+Dango is honest about what it doesn't do yet. The short version — full detail at
+[docs.getdango.dev/reference/limitations](https://docs.getdango.dev/reference/limitations):
+
+- Single-writer concurrency until the Quack migration lands (DuckDB 2.0)
+- No streaming, CDC, or reverse ETL
+- 34 sources today, added on demand
+- BYOS deployments need to configure their own backup destination (warned at deploy time)
 
 ## Links
 
