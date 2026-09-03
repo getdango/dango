@@ -151,6 +151,50 @@ class TestMetabaseProvisionerAuthenticate:
 
 
 # ---------------------------------------------------------------------------
+# _metabase_login (shared helper — 1.0.8-S consolidation)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestMetabaseLoginHelper:
+    """Test the shared _metabase_login() login primitive."""
+
+    def test_metabase_login_helper_returns_none_on_non_200(self) -> None:
+        import requests
+
+        from dango.visualization.metabase import _metabase_login
+
+        mock_session = MagicMock(spec=requests.Session)
+        response = MagicMock()
+        response.status_code = 401
+        mock_session.post.return_value = response
+
+        result = _metabase_login(mock_session, "http://localhost:3000", "admin@test.com", "wrong")
+
+        assert result is None
+        mock_session.post.assert_called_once_with(
+            "http://localhost:3000/api/session",
+            json={"username": "admin@test.com", "password": "wrong"},
+            timeout=10,
+        )
+
+    def test_metabase_login_helper_returns_session_id_on_200(self) -> None:
+        import requests
+
+        from dango.visualization.metabase import _metabase_login
+
+        mock_session = MagicMock(spec=requests.Session)
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"id": "abc-session-token"}
+        mock_session.post.return_value = response
+
+        result = _metabase_login(mock_session, "http://localhost:3000", "admin@test.com", "secret")
+
+        assert result == "abc-session-token"
+
+
+# ---------------------------------------------------------------------------
 # MetabaseProvisioner.get_database_id
 # ---------------------------------------------------------------------------
 
