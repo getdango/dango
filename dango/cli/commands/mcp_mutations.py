@@ -85,8 +85,18 @@ def run_transform(select: str | None = None, full_refresh: bool = False) -> dict
     """
     project_root = _get_project_root()
     from dango.transformation import run_dbt_models
+    from dango.utils import DbtLock
 
+    # Single-writer DuckDB (VAL-003) — was the one run_dbt_models() caller
+    # missing lock acquisition. Mirrors transform.py's run(); a lock timeout
+    # (DbtLockError) falls through to the except below unchanged.
+    lock = DbtLock(
+        project_root=project_root,
+        source="mcp",
+        operation=f"run_transform select={select}" if select else "run_transform",
+    )
     try:
+        lock.acquire()
         # Correction (coordinating-chat pre-dispatch verification, 2026-09-03):
         # run_dbt_models() returns tuple[bool, str] (success, output), not a
         # single value — `if result` on a 2-tuple is always truthy regardless
@@ -96,6 +106,9 @@ def run_transform(select: str | None = None, full_refresh: bool = False) -> dict
         return {"status": "completed" if success else "failed", "output": output}
     except Exception as e:
         return {"status": "failed", "error": str(e)}
+    finally:
+        if lock._acquired:
+            lock.release()
 
 
 @mcp.tool()
