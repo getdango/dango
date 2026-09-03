@@ -6,6 +6,7 @@ load (locked). BUG-S3-2.
 
 from __future__ import annotations
 
+import os
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -64,6 +65,40 @@ def _make_source_config(name="test_source", source_type_value="hubspot"):
 @pytest.mark.unit
 class TestPipelinePhases:
     """Tests for the extract/normalize/load split in _run_dlt_source()."""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_dlt_project_dir(self):
+        """_run_dlt_source() sets os.environ["DLT_PROJECT_DIR"] for real
+        (dlt_runner.py ~line 1341, not mocked by any patch below — only
+        dlt.pipeline() and os.chdir are) so dlt can find .dlt/ regardless of
+        cwd. dlt's RunContext.run_dir property (dlt/common/runtime/
+        run_context.py) reads this env var and *takes priority over* any
+        explicit run_dir, including one passed to switch_context(). Without
+        this fixture, that env var leaks past this test (plain os.environ
+        write, no monkeypatch/cleanup) and poisons config resolution for any
+        later test in the same pytest process that touches dlt's RunContext
+        with a different project dir -- confirmed to cause a false failure
+        in test_egress_allowlist.py's
+        test_dlt_native_source_sync_initializes_telemetry_and_opt_out_suppresses_it
+        when run after this class in a full, unscoped `pytest -x` (its
+        Phase 2 switch_context() call gets silently overridden by this
+        stale, often-already-deleted tmp dir).
+
+        Deliberately NOT monkeypatch.delenv(..., raising=False): when the
+        var is unset pre-test (the common case), delenv's underlying
+        delitem() sees `name not in dic` and registers no undo action at
+        all (_pytest/monkeypatch.py) -- so it silently no-ops and the leak
+        this fixture exists to close would go right through it. A plain
+        save/restore in a try/finally has no such gap.
+        """
+        original = os.environ.get("DLT_PROJECT_DIR")
+        try:
+            yield
+        finally:
+            if original is None:
+                os.environ.pop("DLT_PROJECT_DIR", None)
+            else:
+                os.environ["DLT_PROJECT_DIR"] = original
 
     @patch("dango.ingestion.dlt_runner.get_source_metadata")
     @patch("dlt.pipeline")
