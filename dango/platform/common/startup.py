@@ -301,11 +301,29 @@ def setup_metabase_if_needed(
             )
             return {"already_configured": False, "success": True, "skipped": True}
 
+    # Read the project's actual configured Metabase port rather than relying
+    # on setup_metabase()'s own http://localhost:3000 default — a project
+    # configured on a non-default port (e.g. to avoid a real conflict) would
+    # otherwise have its admin-setup API calls silently target the wrong
+    # Metabase instance entirely. The URL setup_metabase() is called with
+    # gets persisted into .dango/metabase.yml's "metabase_url" key, so every
+    # downstream reader of that file (sync_metabase_schema,
+    # set_metabase_telemetry, etc.) inherits the correct port from this one
+    # fix — no other call site needs to change.
+    metabase_port = 3000
+    try:
+        from dango.config.helpers import load_config
+
+        metabase_port = load_config(project_root).platform.metabase_port
+    except Exception:
+        pass
+
     setup_result = setup_metabase(
         project_root,
         project_name,
         admin_email,
         organization=organization,
+        metabase_url=f"http://localhost:{metabase_port}",
         cloud_mode=is_cloud_mode(project_root),
     )
 
