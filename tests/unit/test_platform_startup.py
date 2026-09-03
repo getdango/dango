@@ -199,6 +199,63 @@ class TestStartDockerServices:
 
         manager.start_services.assert_called_once()
 
+    def test_checks_configured_ports_not_hardcoded_defaults(self, tmp_path):
+        """A project with custom metabase_port/dbt_docs_port must have the
+        pre-flight check look at those ports, not the hardcoded 3000/8081
+        defaults — otherwise a project configured to avoid a real conflict
+        gets a misleading conflict report on the wrong ports entirely."""
+        import yaml
+
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        project_data = {
+            "project": {
+                "name": "Custom Port Project",
+                "created_by": "test@example.com",
+                "purpose": "Testing custom ports",
+            },
+            "platform": {
+                "metabase_port": 3001,
+                "dbt_docs_port": 8082,
+            },
+        }
+        with open(dango_dir / "project.yml", "w") as f:
+            yaml.safe_dump(project_data, f, default_flow_style=False)
+        with open(dango_dir / "sources.yml", "w") as f:
+            yaml.safe_dump({"version": "1.0", "sources": []}, f)
+
+        manager = self._make_manager()
+
+        # Only port 3000 (the OLD hardcoded default) is occupied — the
+        # configured port 3001 is free. If the fix works, this should NOT
+        # raise, because the pre-flight check looks at 3001, not 3000.
+        def fake_socket(*args, **kwargs):
+            sock = MagicMock()
+            sock.connect_ex.side_effect = lambda addr: 0 if addr[1] == 3000 else 1
+            return sock
+
+        with patch("dango.platform.DockerManager", return_value=manager):
+            with patch("dango.platform.common.startup.socket.socket", side_effect=fake_socket):
+                start_docker_services(tmp_path)  # Should not raise — 3001 is free
+
+        manager.start_services.assert_called_once()
+
+    def test_falls_back_to_defaults_when_config_unavailable(self, tmp_path):
+        """No project.yml present (e.g. called before a project exists) —
+        must fall back to the same 3000/8081 defaults as before, not raise
+        a config-loading exception through this function's RuntimeError-only
+        contract."""
+        manager = self._make_manager()
+
+        mock_sock = MagicMock()
+        mock_sock.connect_ex.return_value = 1  # ports free
+
+        with patch("dango.platform.DockerManager", return_value=manager):
+            with patch("dango.platform.common.startup.socket.socket", return_value=mock_sock):
+                start_docker_services(tmp_path)  # Should not raise
+
+        manager.start_services.assert_called_once()
+
 
 @pytest.mark.unit
 class TestSetupMetabaseIfNeeded:
