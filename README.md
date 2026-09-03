@@ -32,6 +32,17 @@ curl -sSL https://getdango.dev/install.sh | bash
 
 For detailed installation instructions, see the [documentation](https://docs.getdango.dev).
 
+## Use Dango with your coding agent
+
+```bash
+dango mcp setup
+```
+
+Connects Claude Code, Cursor, or Windsurf to your project over MCP — your agent can list sources,
+inspect schemas and lineage, run read-only queries, and (with your permission) trigger syncs, run
+dbt, and scaffold new models. See the [full guide](https://docs.getdango.dev/guides/mcp-claude-code/)
+for the complete tool reference and worked examples.
+
 ## Features
 
 - **35 data sources** — Stripe, Google Sheets, Google Analytics, Shopify, PostgreSQL, MySQL, CSV, REST APIs, and more
