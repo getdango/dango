@@ -112,6 +112,31 @@ DASHBOARD_QUERIES = {
 }
 
 
+def _metabase_login(
+    session: requests.Session,
+    metabase_url: str,
+    email: str,
+    password: str,
+    timeout: int = 10,
+) -> str | None:
+    """POST /api/session and return the session id, or None if login failed (non-200).
+
+    Shared by the three simple (single-attempt) login call sites. Does NOT
+    raise — callers decide what a failed login means for their own contract
+    (return False, raise click.ClickException, etc). setup_metabase() has its
+    own multi-path login/retry logic and does not use this helper — see
+    BUGS-FOUND.md for why.
+    """
+    response = session.post(
+        f"{metabase_url}/api/session",
+        json={"username": email, "password": password},
+        timeout=timeout,
+    )
+    if response.status_code != 200:
+        return None
+    return response.json().get("id")
+
+
 class MetabaseProvisioner:
     """
     Provisions Metabase dashboards via API
@@ -152,17 +177,10 @@ class MetabaseProvisioner:
             True if authentication successful
         """
         try:
-            response = self.session.post(
-                f"{self.metabase_url}/api/session",
-                json={"username": self.username, "password": self.password},
-                timeout=10,
+            self.session_token = _metabase_login(
+                self.session, self.metabase_url, self.username, self.password
             )
-
-            if response.status_code == 200:
-                self.session_token = response.json().get("id")
-                return True
-            else:
-                return False
+            return bool(self.session_token)
 
         except Exception as e:
             print(f"Authentication failed: {e}")
@@ -1052,16 +1070,7 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
             return False
 
         # Login to get session
-        login_response = session.post(
-            f"{metabase_url}/api/session",
-            json={"username": email, "password": password},
-            timeout=10,
-        )
-
-        if login_response.status_code != 200:
-            return False
-
-        session_id = login_response.json().get("id")
+        session_id = _metabase_login(session, metabase_url, email, password)
         if not session_id:
             return False
 
