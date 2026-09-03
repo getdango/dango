@@ -318,6 +318,53 @@ class TestSetupMetabaseIfNeeded:
         assert result["success"] is True
         assert result["duckdb_connected"] is True
 
+    def test_calls_setup_metabase_with_configured_port(self, tmp_path, monkeypatch):
+        """setup_metabase() must be called with the project's actual configured
+        metabase_port, not the hardcoded localhost:3000 default — otherwise a
+        project on a non-default port silently targets the wrong Metabase
+        instance entirely (confirmed live: this exact scenario hit a real,
+        unrelated Metabase instance during 1.0.8-S's manual verification)."""
+        import yaml
+
+        monkeypatch.setenv("DANGO_ADMIN_EMAIL", "admin@test.com")
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        project_data = {
+            "project": {
+                "name": "Custom Port",
+                "created_by": "test@example.com",
+                "purpose": "Testing",
+            },
+            "platform": {"metabase_port": 3001},
+        }
+        with open(dango_dir / "project.yml", "w") as f:
+            yaml.safe_dump(project_data, f)
+        with open(dango_dir / "sources.yml", "w") as f:
+            yaml.safe_dump({"version": "1.0", "sources": []}, f)
+
+        setup_result = {"success": True, "duckdb_connected": True, "errors": []}
+        with patch(
+            "dango.visualization.metabase.setup_metabase", return_value=setup_result
+        ) as mock_setup:
+            setup_metabase_if_needed(tmp_path, "MyProject", None)
+
+        _, kwargs = mock_setup.call_args
+        assert kwargs["metabase_url"] == "http://localhost:3001"
+
+    def test_falls_back_to_default_port_when_config_unavailable(self, tmp_path, monkeypatch):
+        """No project.yml present — must fall back to localhost:3000, not raise
+        a config-loading exception."""
+        monkeypatch.setenv("DANGO_ADMIN_EMAIL", "admin@test.com")
+        setup_result = {"success": True, "duckdb_connected": True, "errors": []}
+
+        with patch(
+            "dango.visualization.metabase.setup_metabase", return_value=setup_result
+        ) as mock_setup:
+            setup_metabase_if_needed(tmp_path, "MyProject", None)
+
+        _, kwargs = mock_setup.call_args
+        assert kwargs["metabase_url"] == "http://localhost:3000"
+
     def test_skips_when_no_admin_email(self, tmp_path, monkeypatch):
         """setup_metabase_if_needed skips when no admin email is available."""
         monkeypatch.delenv("DANGO_ADMIN_EMAIL", raising=False)
