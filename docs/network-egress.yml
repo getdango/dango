@@ -8,7 +8,8 @@
 # down this file.
 # Functional: required for operation, disclosed but not toggleable
 # Verified against installed packages (dbt-core 1.11.14, dlt 1.28.1, marimo)
-# 2026-09-01 — re-verified after the dbt-core 1.10->1.11 bump landed on v1.0.8.
+# 2026-09-03 — re-verified to document the weekly telemetry heartbeat (Session Q,
+# PR #445) alongside the existing one-time install ping.
 # Metabase's own telemetry endpoint is NOT independently source-verified in this
 # session (Metabase is a Java process, not inspectable from this Python venv) —
 # confirm against Metabase's own telemetry docs before relying on it publicly.
@@ -23,7 +24,10 @@ telemetry:
       DANGO_TELEMETRY=0 / `telemetry: false` in ~/.dango/config.yml also
       still suppress every ping without touching stored state
       (dango/telemetry.py:is_telemetry_enabled).
-    sends: "anonymous UUID, version, OS, source type names — single install ping, no heartbeat"
+    sends: "anonymous UUID, version, OS, Python version, source type names — one install ping at
+      `dango init`, plus a weekly heartbeat ping (dango/telemetry.py:heartbeat/heartbeat_job,
+      registered by platform/scheduling/scheduler.py:_setup_telemetry_heartbeat as a fixed
+      internal APScheduler job whenever `dango start` runs) so an active install is measurable"
   - host: fishtownanalytics.sinter-collect.com
     provider: dbt-core
     control: "DBT_SEND_ANONYMOUS_USAGE_STATS=false or DO_NOT_TRACK=1"
