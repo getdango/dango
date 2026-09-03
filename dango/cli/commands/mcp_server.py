@@ -445,10 +445,17 @@ def mcp_run(ctx: click.Context) -> None:
     mcp.run(show_banner=False)
 
 
-# ── Register subcommands from separate modules ─────────────────────────────────
+# ── Register subcommands / tools from separate modules ──────────────────────────
 # Mirrors the cross-file registration pattern in commands/remote.py: mcp_setup.py
 # imports mcp_group from here and self-registers `setup`/`status` via
 # @mcp_group.command(...) decorators. Split out to keep this file (the read
 # tools + FastMCP server definition) under the 500-line file-size check.
+#
+# mcp_mutations.py (Session F) follows the same bottom-of-file import pattern,
+# but registers onto `mcp` (the FastMCP instance) via @mcp.tool() rather than
+# onto `mcp_group` (the Click group) — it adds mutation tools (run_sync,
+# run_transform, run_doctor, add_source, list_source_types, create_model,
+# add_schedule), not CLI subcommands.
 
+import dango.cli.commands.mcp_mutations as _mcp_mutations  # noqa: E402, F401
 import dango.cli.commands.mcp_setup as _mcp_setup  # noqa: E402, F401
