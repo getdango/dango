@@ -7,9 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Telemetry — `dango init` now asks for one-time, anonymous opt-in consent before sending an install ping; declining, running in CI, or setting `DO_NOT_TRACK`/`DANGO_TELEMETRY` skips it silently
+- `dango telemetry` command (`status` / `on` / `off`) — control telemetry for Dango, dbt, dlt, and Metabase together with `--all`, or one at a time with `--provider`
+- `/settings/telemetry` page — toggle telemetry status from the web UI, matching the CLI command
+- MCP server — `dango mcp setup` configures Claude Code, Cursor, or Windsurf to talk to your Dango project; 15 tools cover reading (sources, schema, catalog, lineage, models, SQL, sync history, ad-hoc queries) and making changes (running syncs/transforms/doctor, adding sources/schedules, creating models) through the same functions the CLI itself uses
+- `dango init`, `dango source add`, and `dango model add` now generate and keep a `CLAUDE.md` file up to date in the project, summarizing its purpose, sources, and models for AI coding assistants
+- `dango validate` now warns when model or column descriptions are missing or left as `# TODO` placeholders
+- Deploy output now warns when backups aren't configured for BYOS/self-hosted deploys, with a link to the backup setup docs
+
 ### Fixed
 
 - dbt-core 1.10.22 → 1.11.14, dbt-duckdb 1.10.1 → 1.11.0, Metabase v0.59.1 → v0.62.18, Metabase DuckDB JDBC driver 1.5.3.0 → 1.5.4.0
+- `dango generate` no longer rewrites every staging model file (and its timestamp) on every sync when nothing actually changed — previously this produced diff noise on every run even with no real schema changes. Manually customized models are also no longer overwritten by default; use the new `--force` flag to regenerate them anyway
+- Sync progress: the UI no longer looks like it's stuck for up to ~90 seconds between a sync finishing and dbt starting — a "data loaded, running transforms" update now appears in between
+- Metabase: `dango start`'s port pre-flight check now reads the project's configured Metabase/dbt-docs ports instead of always checking 3000/8081
+- Metabase: first-run setup now targets the project's configured Metabase port instead of always defaulting to `localhost:3000`
 
 ## [1.0.7] - 2026-08-27
 
