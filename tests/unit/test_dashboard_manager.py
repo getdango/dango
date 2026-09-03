@@ -3,7 +3,7 @@
 Unit tests for dashboard_manager module: _parse_parent_id and _import_collections.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -221,3 +221,132 @@ class TestImportCollections:
         # If Metabase returns malformed location with non-numeric parent
         assert dashboard_manager._parse_parent_id("/admin/5/") is None
         assert dashboard_manager._parse_parent_id("/invalid/path/") is None
+
+
+class TestCreateDashboardFromYamlCardAttach:
+    """Tests for _create_dashboard_from_yaml's card-attach step.
+
+    Metabase 0.62 removed POST /api/dashboard/:id/cards (404s now); cards
+    are attached via PUT /api/dashboard/:id with a full `dashcards` array
+    instead. See dango/visualization/dashboard_manager.py.
+    """
+
+    @patch("dango.visualization.dashboard_manager.requests.put")
+    @patch("dango.visualization.dashboard_manager.requests.post")
+    def test_attaches_cards_via_put_with_dashcards_array(
+        self, mock_post, mock_put, dashboard_manager
+    ):
+        """Successful card creation + attach uses PUT with a dashcards array."""
+        # First POST creates the dashboard, second+ POSTs create cards
+        dashboard_response = MagicMock(status_code=200)
+        dashboard_response.json.return_value = {"id": 99}
+        card_response_1 = MagicMock(status_code=200)
+        card_response_1.json.return_value = {"id": 11}
+        card_response_2 = MagicMock(status_code=200)
+        card_response_2.json.return_value = {"id": 12}
+        mock_post.side_effect = [dashboard_response, card_response_1, card_response_2]
+
+        mock_put.return_value = MagicMock(status_code=200)
+
+        with patch.object(dashboard_manager, "get_dashboards", return_value=[]):
+            dashboard_data = {
+                "name": "Test Dashboard",
+                "description": "desc",
+                "cards": [
+                    {
+                        "name": "Card A",
+                        "dataset_query": {"type": "native", "native": {"query": "SELECT 1"}},
+                        "display": "table",
+                        "position": {"row": 0, "col": 0, "size_x": 6, "size_y": 4},
+                    },
+                    {
+                        "name": "Card B",
+                        "dataset_query": {"type": "native", "native": {"query": "SELECT 2"}},
+                        "display": "table",
+                        "position": {"row": 0, "col": 6, "size_x": 6, "size_y": 4},
+                    },
+                ],
+            }
+
+            dashboard_id = dashboard_manager._create_dashboard_from_yaml(dashboard_data)
+
+        assert dashboard_id == 99
+        mock_put.assert_called_once()
+        put_call = mock_put.call_args
+        assert put_call[0][0] == "http://localhost:3000/api/dashboard/99"
+        dashcards = put_call[1]["json"]["dashcards"]
+        assert len(dashcards) == 2
+        assert {c["card_id"] for c in dashcards} == {11, 12}
+        # Each new dashcard needs a unique negative placeholder id
+        assert {c["id"] for c in dashcards} == {-1, -2}
+        assert dashcards[0]["row"] == 0
+        assert dashcards[0]["col"] == 0
+        assert dashcards[0]["size_x"] == 6
+        assert dashcards[0]["size_y"] == 4
+        # Old removed endpoint must never be hit
+        for call in mock_post.call_args_list:
+            assert not call[0][0].endswith("/cards")
+
+    @patch("dango.visualization.dashboard_manager.requests.put")
+    @patch("dango.visualization.dashboard_manager.requests.post")
+    def test_attach_failure_raises_and_returns_none(self, mock_post, mock_put, dashboard_manager):
+        """A non-200 from the PUT attach call is loud: caught internally,
+        logged, and surfaces as a None return (this file's existing
+        failure convention), not silently reported as a successful import
+        with zero cards."""
+        dashboard_response = MagicMock(status_code=200)
+        dashboard_response.json.return_value = {"id": 99}
+        card_response = MagicMock(status_code=200)
+        card_response.json.return_value = {"id": 11}
+        mock_post.side_effect = [dashboard_response, card_response]
+
+        mock_put.return_value = MagicMock(status_code=404, text="Not Found")
+
+        with patch.object(dashboard_manager, "get_dashboards", return_value=[]):
+            dashboard_data = {
+                "name": "Test Dashboard",
+                "description": "desc",
+                "cards": [
+                    {
+                        "name": "Card A",
+                        "dataset_query": {"type": "native", "native": {"query": "SELECT 1"}},
+                        "display": "table",
+                        "position": {},
+                    },
+                ],
+            }
+
+            dashboard_id = dashboard_manager._create_dashboard_from_yaml(dashboard_data)
+
+        # Failure must not be silently swallowed into a "successful" import
+        assert dashboard_id is None
+
+    @patch("dango.visualization.dashboard_manager.requests.put")
+    @patch("dango.visualization.dashboard_manager.requests.post")
+    def test_no_cards_created_skips_put_call(self, mock_post, mock_put, dashboard_manager):
+        """If every card fails to create, there's nothing to attach --
+        the PUT call should be skipped rather than sent with an empty
+        dashcards array."""
+        dashboard_response = MagicMock(status_code=200)
+        dashboard_response.json.return_value = {"id": 99}
+        failed_card_response = MagicMock(status_code=500, text="error")
+        mock_post.side_effect = [dashboard_response, failed_card_response]
+
+        with patch.object(dashboard_manager, "get_dashboards", return_value=[]):
+            dashboard_data = {
+                "name": "Test Dashboard",
+                "description": "desc",
+                "cards": [
+                    {
+                        "name": "Card A",
+                        "dataset_query": {"type": "native", "native": {"query": "SELECT 1"}},
+                        "display": "table",
+                        "position": {},
+                    },
+                ],
+            }
+
+            dashboard_id = dashboard_manager._create_dashboard_from_yaml(dashboard_data)
+
+        assert dashboard_id == 99
+        mock_put.assert_not_called()

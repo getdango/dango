@@ -592,39 +592,52 @@ class DashboardManager:
 
             dashboard_id = response.json().get("id")
 
-            # Create cards and add them to dashboard
+            # Create cards, then attach them all to the dashboard in one call.
+            # Metabase 0.62 removed POST /api/dashboard/:id/cards (404s now);
+            # cards are attached via PUT /api/dashboard/:id with a full
+            # `dashcards` array instead, which replaces the whole card layout
+            # in one shot -- each new dashcard needs a unique negative
+            # placeholder `id`.
             cards = dashboard_data.get("cards", [])
+            dashcards = []
+            failed_cards = []
             for card_data in cards:
-                # Create the card
                 card_id = self._create_card_from_yaml(card_data, collection_id)
 
                 if card_id:
-                    # Add card to dashboard
                     position = card_data.get("position", {})
-                    card_payload = {
-                        "cardId": card_id,
-                        "row": position.get("row", 0),
-                        "col": position.get("col", 0),
-                        "sizeX": position.get("size_x", 6),
-                        "sizeY": position.get("size_y", 4),
-                    }
+                    dashcards.append(
+                        {
+                            "id": -(len(dashcards) + 1),
+                            "card_id": card_id,
+                            "row": position.get("row", 0),
+                            "col": position.get("col", 0),
+                            "size_x": position.get("size_x", 6),
+                            "size_y": position.get("size_y", 4),
+                        }
+                    )
+                else:
+                    failed_cards.append(card_data.get("name"))
 
-                    try:
-                        add_card_response = requests.post(
-                            f"{self.metabase_url}/api/dashboard/{dashboard_id}/cards",
-                            headers=self._get_headers(),
-                            json=card_payload,
-                            timeout=30,
-                        )
+            if dashcards:
+                attach_response = requests.put(
+                    f"{self.metabase_url}/api/dashboard/{dashboard_id}",
+                    headers=self._get_headers(),
+                    json={"dashcards": dashcards},
+                    timeout=30,
+                )
 
-                        if add_card_response.status_code not in [200, 201]:
-                            console.print(
-                                f"[yellow]Warning: Failed to add card '{card_data.get('name')}' to dashboard[/yellow]"
-                            )
-                    except Exception as e:
-                        console.print(
-                            f"[yellow]Warning: Error adding card to dashboard: {e}[/yellow]"
-                        )
+                if attach_response.status_code != 200:
+                    raise RuntimeError(
+                        f"Failed to attach cards to dashboard '{dashboard_name}': "
+                        f"{attach_response.status_code} {attach_response.text[:500]}"
+                    )
+
+            if failed_cards:
+                console.print(
+                    f"[yellow]Warning: Failed to create card(s) for dashboard "
+                    f"'{dashboard_name}': {', '.join(failed_cards)}[/yellow]"
+                )
 
             return dashboard_id
 

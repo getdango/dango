@@ -301,48 +301,67 @@ class MetabaseProvisioner:
 
         return None
 
-    def add_card_to_dashboard(
+    def set_dashboard_cards(
         self,
         dashboard_id: int,
-        card_id: int,
-        row: int = 0,
-        col: int = 0,
-        size_x: int = 6,
-        size_y: int = 4,
+        cards: list[dict[str, Any]],
     ) -> bool:
         """
-        Add card to dashboard with positioning
+        Attach a set of cards to a dashboard in a single call.
+
+        Metabase 0.62 removed `POST /api/dashboard/:id/cards` (it now 404s).
+        Cards are attached via `PUT /api/dashboard/:id` with a full
+        `dashcards` array instead -- Metabase replaces the dashboard's whole
+        card layout on each PUT, so all cards must be sent together. Each
+        new dashcard needs a unique negative placeholder `id`.
 
         Args:
             dashboard_id: Dashboard ID
-            card_id: Card ID to add
-            row: Row position (0-indexed)
-            col: Column position (0-indexed)
-            size_x: Width in grid units (0-18)
-            size_y: Height in grid units
+            cards: List of dicts, each with card_id, row, col, size_x, size_y
 
         Returns:
             True if successful
+
+        Raises:
+            RuntimeError: if the Metabase API call fails. Raised (rather
+                than silently returning False) so a future Metabase API
+                change can't hide the same way this one did -- cards
+                silently failing to attach while the dashboard reported
+                success with zero cards.
         """
         if not self.session_token:
             return False
 
-        card_data = {"cardId": card_id, "row": row, "col": col, "sizeX": size_x, "sizeY": size_y}
+        dashcards = [
+            {
+                "id": -(i + 1),  # negative placeholder id required for new dashcards
+                "card_id": card["card_id"],
+                "row": card["row"],
+                "col": card["col"],
+                "size_x": card["size_x"],
+                "size_y": card["size_y"],
+            }
+            for i, card in enumerate(cards)
+        ]
 
+        headers = {"X-Metabase-Session": self.session_token}
         try:
-            headers = {"X-Metabase-Session": self.session_token}
-            response = self.session.post(
-                f"{self.metabase_url}/api/dashboard/{dashboard_id}/cards",
+            response = self.session.put(
+                f"{self.metabase_url}/api/dashboard/{dashboard_id}",
                 headers=headers,
-                json=card_data,
+                json={"dashcards": dashcards},
                 timeout=10,
             )
-
-            return response.status_code == 200
-
         except Exception as e:
-            print(f"Failed to add card to dashboard: {e}")
-            return False
+            raise RuntimeError(f"Failed to attach cards to dashboard {dashboard_id}: {e}") from e
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Failed to attach cards to dashboard {dashboard_id}: "
+                f"{response.status_code} {response.text[:500]}"
+            )
+
+        return True
 
     def provision_pipeline_health_dashboard(self) -> dict[str, Any]:
         """
@@ -392,17 +411,35 @@ class MetabaseProvisioner:
             ("data_freshness", 10, 0, 18, 4),  # Full width: Freshness table
         ]
 
+        created_cards: list[dict[str, Any]] = []
         for query_key, row, col, size_x, size_y in card_layout:
             card_id = self.create_card(query_key, database_id)
             if card_id:
-                if self.add_card_to_dashboard(dashboard_id, card_id, row, col, size_x, size_y):
-                    summary["cards_created"].append(
-                        {"name": DASHBOARD_QUERIES[query_key]["name"], "card_id": card_id}
-                    )
-                else:
-                    summary["errors"].append(f"Failed to add card: {query_key}")
+                created_cards.append(
+                    {
+                        "query_key": query_key,
+                        "card_id": card_id,
+                        "row": row,
+                        "col": col,
+                        "size_x": size_x,
+                        "size_y": size_y,
+                    }
+                )
             else:
                 summary["errors"].append(f"Failed to create card: {query_key}")
+
+        # Attach all successfully-created cards to the dashboard in one call
+        # (Metabase's PUT /api/dashboard/:id replaces the whole dashcards
+        # array, so this can't be done incrementally per card).
+        if created_cards:
+            try:
+                self.set_dashboard_cards(dashboard_id, created_cards)
+                summary["cards_created"] = [
+                    {"name": DASHBOARD_QUERIES[c["query_key"]]["name"], "card_id": c["card_id"]}
+                    for c in created_cards
+                ]
+            except RuntimeError as e:
+                summary["errors"].append(str(e))
 
         summary["success"] = len(summary["cards_created"]) > 0
 
