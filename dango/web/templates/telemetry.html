@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Telemetry - Dango{% endblock %}
+
+{% block content %}
+<main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div x-data="telemetryPage()" x-init="init()">
+        <!-- Header -->
+        <div class="mb-6">
+            <h2 class="text-xl font-bold text-gray-900">Telemetry</h2>
+            <p class="text-sm text-gray-500 mt-1">
+                Controls telemetry for the components Dango configures — dango itself, plus the
+                bundled dbt, dlt, and Metabase tools. Does not claim anything about network traffic
+                outside these four providers.
+            </p>
+        </div>
+
+        <!-- Error banner -->
+        <div x-show="error" x-cloak class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <p class="text-sm text-red-700" x-text="error"></p>
+        </div>
+
+        <!-- Success banner -->
+        <div x-show="success" x-cloak class="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+            <p class="text-sm text-green-700" x-text="success"></p>
+        </div>
+
+        <!-- Providers table -->
+        <div class="bg-white shadow rounded-lg overflow-hidden">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Provider</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">What it sends</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">State</th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Toggle</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    <template x-for="p in providers" :key="p.provider">
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900" x-text="p.label"></td>
+                            <td class="px-6 py-4 text-sm text-gray-600" x-text="p.description"></td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                <span :class="p.enabled ? 'text-green-600' : 'text-gray-400'" x-text="p.enabled ? 'on' : 'off'"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right">
+                                <button @click="toggle(p)"
+                                        :disabled="saving === p.provider"
+                                        class="px-3 py-1.5 text-sm rounded-md border transition-colors disabled:opacity-50"
+                                        :class="p.enabled ? 'text-red-600 border-red-200 hover:bg-red-50' : 'text-dango-600 border-dango-200 hover:bg-dango-50'">
+                                    <span x-show="saving !== p.provider" x-text="p.enabled ? 'Turn off' : 'Turn on'"></span>
+                                    <span x-show="saving === p.provider" x-cloak>Saving...</span>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                    <template x-if="providers.length === 0 && !error">
+                        <tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500">Loading...</td></tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function telemetryPage() {
+    const headers = {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'};
+    return {
+        providers: [],
+        error: '', success: '', saving: null,
+
+        async init() {
+            await this.loadStatus();
+        },
+
+        async loadStatus() {
+            try {
+                const res = await fetch('/api/telemetry/status', {headers});
+                if (!res.ok) throw new Error('Failed to load telemetry status');
+                const data = await res.json();
+                this.providers = data.providers || [];
+            } catch (e) { this.error = e.message; }
+        },
+
+        async toggle(p) {
+            const nextEnabled = !p.enabled;
+            this.saving = p.provider;
+            this.error = '';
+            try {
+                const res = await fetch('/api/telemetry', {
+                    method: 'POST', headers,
+                    body: JSON.stringify({provider: p.provider, enabled: nextEnabled})
+                });
+                const data = await res.json();
+                if (!res.ok) { this.error = data.message; this.saving = null; return; }
+                this.success = data.message;
+                setTimeout(() => this.success = '', 3000);
+                await this.loadStatus();
+            } catch (e) { this.error = `Failed to update ${p.label} telemetry`; }
+            this.saving = null;
+        }
+    }
+}
+</script>
+{% endblock %}

@@ -41,6 +41,12 @@ from uuid import uuid4
 
 TELEMETRY_ENDPOINT = "https://telemetry.getdango.dev/v1/ping"
 
+# The four telemetry providers `dango telemetry` and the `/settings/telemetry`
+# web page both control. Defined here (Level 0) rather than in
+# `cli/commands/telemetry.py` (Level 3) so `web/routes/telemetry.py` (Level 2)
+# can import it without a Level-2-imports-Level-3 violation.
+PROVIDERS = ("dango", "dbt", "dlt", "metabase")
+
 _TIMEOUT_SECONDS = 2
 
 _CONFIG_DIR = Path.home() / ".dango"
@@ -168,6 +174,98 @@ def _write_global_config_key(key: str, value: Any) -> bool:
         return True
     except Exception:
         return False
+
+
+def get_dbt_telemetry_state() -> bool:
+    """Return dbt's current opt-in state per ~/.dango/config.yml (default: on).
+
+    Relocated here (Level 0) from `cli/commands/telemetry.py`'s
+    `_get_dbt_telemetry_state()` (1.0.8-U) — both the CLI and
+    `web/routes/telemetry.py` (Level 2) call this same function so there is
+    one real implementation, not two.
+    """
+    data = _read_global_config()
+    return bool(data.get("dbt_telemetry", True))
+
+
+def set_dbt_telemetry_state(enabled: bool) -> None:
+    """Write dbt's opt-out state to ~/.dango/config.yml under the dbt_telemetry key.
+
+    Machine-level (~/.dango/), matching Dango's own telemetry identity scope
+    — one opt-out covers every project on the machine. Read by
+    `_dbt_telemetry_env()` in `transformation/__init__.py`.
+
+    Relocated here (Level 0) from `cli/commands/telemetry.py`'s
+    `_set_dbt_telemetry()` (1.0.8-U). This module has no `click` import
+    (Level 0 cannot depend on Level 3), so callers that need a
+    `click.ClickException` (the CLI) catch the plain `OSError` below and
+    wrap it themselves.
+
+    Raises:
+        OSError: If the write fails (e.g. permission denied, disk full) —
+            converted from `_write_global_config_key()`'s False return so
+            callers get an honest failure signal to act on.
+    """
+    if not _write_global_config_key("dbt_telemetry", enabled):
+        raise OSError("Could not write ~/.dango/config.yml")
+
+
+def get_dlt_telemetry_state(project_root: Path | None) -> bool:
+    """Return dlt's current opt-in state per .dlt/config.toml (default: on).
+
+    Relocated here (Level 0) from `cli/commands/telemetry.py`'s
+    `_get_dlt_telemetry_state()` (1.0.8-U) — only touches `.dlt/config.toml`
+    via `tomlkit` (third-party), no dango-internal import, so this has
+    always belonged at Level 0.
+    """
+    if project_root is None:
+        return True
+    config_path = project_root / ".dlt" / "config.toml"
+    if not config_path.exists():
+        return True
+    try:
+        import tomlkit
+
+        doc = tomlkit.parse(config_path.read_text())
+        val = doc.get("runtime", {}).get("dlthub_telemetry", True)
+        return bool(val)
+    except Exception:
+        return True
+
+
+def set_dlt_telemetry_state(project_root: Path, enabled: bool) -> None:
+    """Write dlthub_telemetry to .dlt/config.toml under [runtime].
+
+    Writes a native TOML boolean (not a string) to match the value type
+    dlt's own `dlt telemetry switch` CLI writes —
+    RuntimeConfiguration.dlthub_telemetry is a bool-typed field.
+
+    Relocated here (Level 0), moved verbatim from
+    `cli/commands/telemetry.py`'s `_set_dlt_telemetry()` body (1.0.8-U),
+    minus the `click.ClickException` wrapping — this module has no `click`
+    import (Level 0 cannot depend on Level 3). Callers that need a
+    `click.ClickException` (the CLI) catch the exceptions below and wrap
+    them with the same message text as before the relocation.
+
+    Raises:
+        OSError: If the file can't be read/written (e.g. permissions).
+        ValueError: Wrapping `tomlkit.exceptions.TOMLKitError` if the
+            existing `.dlt/config.toml` is malformed (e.g. from manual
+            editing).
+    """
+    import tomlkit
+    from tomlkit.exceptions import TOMLKitError
+
+    config_path = project_root / ".dlt" / "config.toml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        doc = tomlkit.parse(config_path.read_text()) if config_path.exists() else tomlkit.document()
+    except TOMLKitError as e:
+        raise ValueError(str(e)) from e
+    if "runtime" not in doc:
+        doc.add("runtime", tomlkit.table())
+    doc["runtime"]["dlthub_telemetry"] = enabled
+    config_path.write_text(tomlkit.dumps(doc))
 
 
 def has_recorded_consent() -> bool:

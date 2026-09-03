@@ -9,7 +9,7 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
 | `__init__.py` | Public exports | `provision_dashboard`, `create_pipeline_health_dashboard` |
-| `metabase.py` | Metabase auto-setup, DuckDB connection, schema sync | `MetabaseProvisioner`, `setup_metabase`, `sync_metabase_schema`, `refresh_metabase_connection`, `set_metabase_telemetry` |
+| `metabase.py` | Metabase auto-setup, DuckDB connection, schema sync | `MetabaseProvisioner`, `setup_metabase`, `sync_metabase_schema`, `refresh_metabase_connection`, `set_metabase_telemetry`, `get_metabase_telemetry_state` |
 | `dashboard_manager.py` | YAML-based dashboard/question export and import with rollback | `DashboardManager`, `import_dashboards` |
 
 ## Common Tasks
@@ -30,6 +30,7 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
 - `dango/cli/main.py` — Metabase CLI commands (`dango metabase setup/sync/export/import/provision/refresh`)
 - `dango/ingestion/dlt_runner.py` — `sync_metabase_schema`, `refresh_metabase_connection` after data syncs
 - `dango/web/app.py` — `sync_metabase_schema`, `refresh_metabase_connection` via API endpoints
+- `dango/web/routes/telemetry.py`, `dango/cli/commands/telemetry.py` — `set_metabase_telemetry`, `get_metabase_telemetry_state` (1.0.8-U unified telemetry control, CLI + web front-ends)
 
 ## Testing
 

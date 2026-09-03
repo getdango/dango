@@ -186,6 +186,7 @@ dango/                          # Python package source
 │   │   ├── ui.py               # /, /health, /logs, /login, /account, /admin/users
 │   │   ├── metabase_proxy.py   # Metabase reverse proxy + SSO session
 │   │   ├── secrets.py          # Secrets + OAuth credential management (admin-only)
+│   │   ├── telemetry.py        # Telemetry status/toggle API + /settings/telemetry page (admin-only)
 │   │   ├── oauth_connect.py    # Web-based OAuth connect/callback
 │   │   ├── catalog.py          # Data catalog: columns, profiling, lineage, impact, models, search (1350 lines)
 │   │   ├── governance.py       # Schema drift + PII results API
@@ -199,6 +200,7 @@ dango/                          # Python package source
 │   │   ├── account.html        # User account settings
 │   │   ├── invite.html         # Invite acceptance page
 │   │   ├── secrets.html        # Secrets management page
+│   │   ├── telemetry.html      # Telemetry settings page (4-provider toggle table)
 │   │   ├── schedules.html      # Schedule management page
 │   │   ├── notebooks.html      # Notebook management page
 │   │   ├── catalog.html        # Data catalog page (1029 lines)
