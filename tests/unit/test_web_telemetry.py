@@ -171,7 +171,9 @@ class TestSetTelemetry:
         assert resp.status_code == 200
         mock_set.assert_called_once_with(True)
 
-    def test_toggle_dlt_provider(self, admin_client: TestClient, tmp_path: Path) -> None:
+    def test_toggle_dlt_provider(self, admin_client: TestClient) -> None:
+        """dlt is machine-level since 1.0.8-OPS-2 — set_dlt_telemetry_state()
+        no longer takes project_root (matching set_dbt_telemetry_state())."""
         with patch("dango.web.routes.telemetry.set_dlt_telemetry_state") as mock_set:
             resp = admin_client.post(
                 "/api/telemetry",
@@ -179,7 +181,7 @@ class TestSetTelemetry:
                 headers=HEADERS,
             )
         assert resp.status_code == 200
-        mock_set.assert_called_once_with(tmp_path, False)
+        mock_set.assert_called_once_with(False)
 
     def test_toggle_metabase_provider(self, admin_client: TestClient, tmp_path: Path) -> None:
         with patch("dango.web.routes.telemetry.set_metabase_telemetry") as mock_set:

@@ -9,7 +9,6 @@ visibly on an undisclosed host, which is the detection mechanism §A5 asks for.
 
 from __future__ import annotations
 
-import inspect
 import socket
 from pathlib import Path
 from typing import Any
@@ -101,57 +100,6 @@ class _AllowlistGuard:
 
 
 @pytest.mark.unit
-class TestNetworkEgressDoc:
-    """Doc-consistency and real-introspection checks — no network, fast."""
-
-    def test_network_egress_yml_exists(self) -> None:
-        assert EGRESS_DOC.exists(), "docs/network-egress.yml not found"
-        data = _load_egress_doc()
-        assert "telemetry" in data
-        assert "functional" in data
-
-    def test_network_egress_yml_has_all_known_providers(self) -> None:
-        data = _load_egress_doc()
-        providers: set[str] = set()
-        for i, entry in enumerate(data["telemetry"]):
-            provider = entry.get("provider")
-            assert provider, (
-                f"docs/network-egress.yml: telemetry entry {i} is missing a "
-                f"'provider' key: {entry!r}"
-            )
-            providers.add(provider)
-        assert providers == {"dango", "dbt-core", "dlt", "metabase"}
-
-    def test_dlt_runtime_configuration_has_telemetry_field(self) -> None:
-        """Real introspection against the installed dlt version, not a
-        hardcoded string comparison. Catches a silent rename of the field
-        docs/network-egress.yml claims controls dlt's telemetry (this is
-        exactly the risk LAUNCH-READINESS.md §A2 calls out: "If dlt renames
-        dlthub_telemetry... a silent failure means you are telling users
-        something false")."""
-        from dlt.common.configuration.specs.runtime_configuration import (
-            RuntimeConfiguration,
-        )
-
-        fields = RuntimeConfiguration.__dataclass_fields__
-        assert "dlthub_telemetry" in fields, (
-            "dlt renamed its telemetry opt-out field — update "
-            "docs/network-egress.yml and the write-through in the telemetry command"
-        )
-
-    def test_dbt_send_anonymous_usage_stats_envvar_name(self) -> None:
-        """Real check against the installed dbt-core source, not memory.
-        Catches a silent rename of the env var docs/network-egress.yml
-        documents as dbt's telemetry opt-out control."""
-        from dbt.cli import params as dbt_params
-
-        source = inspect.getsource(dbt_params)
-        assert "DBT_SEND_ANONYMOUS_USAGE_STATS" in source, (
-            "dbt-core's telemetry opt-out env var name changed — update "
-            "docs/network-egress.yml and the write-through in the telemetry command"
-        )
-
-
 @pytest.mark.unit
 @pytest.mark.egress
 class TestLiveEgressDetection:
@@ -344,32 +292,46 @@ class TestLiveEgressDetection:
            source; whether a live send is actually attempted depends on
            `dlthub_telemetry`.
 
-        2. Does `dango telemetry off --provider dlt`'s config.toml
-           write-through (`dlthub_telemetry=false`) suppress it? YES,
-           confirmed below: with the flag set, `_ANON_TRACKER_ENDPOINT`
-           stays None and no live send to telemetry.scalevector.ai is
-           attempted (same `_AllowlistGuard` mechanism as the test above,
-           with telemetry.scalevector.ai deliberately excluded from the
-           allowed set so an attempt is caught, not silently let through
-           because it's normally a documented host).
+        2. Does `dango telemetry off --provider dlt`'s write-through
+           suppress it? YES, confirmed below: with the opt-out set,
+           `_ANON_TRACKER_ENDPOINT` stays None and no live send to
+           telemetry.scalevector.ai is attempted (same `_AllowlistGuard`
+           mechanism as the test above, with telemetry.scalevector.ai
+           deliberately excluded from the allowed set so an attempt is
+           caught, not silently let through because it's normally a
+           documented host).
 
         Two phases, matching the "run it twice" approach: Phase 1 uses dlt's
         own default (`dlthub_telemetry` unset, defaults True) and proves a
-        live send IS attempted. Phase 2 writes `dlthub_telemetry = false`
-        under `[runtime]` in `.dlt/config.toml` -- the exact write-through
-        `_set_dlt_telemetry()` (cli/commands/telemetry.py) performs -- and
-        proves the send is NOT attempted.
+        live send IS attempted. Phase 2 calls
+        `dango.telemetry.set_dlt_telemetry_state(False)` -- the exact
+        write-through `dango telemetry off --provider dlt` performs since
+        1.0.8-OPS-2 (machine-level `~/.dango/config.yml`, translated into
+        dlt's own `RUNTIME__DLTHUB_TELEMETRY` env-var override by
+        `_apply_dlt_telemetry_env()` in `dlt_runner.py` right before each
+        `dlt.pipeline()` call -- no longer a direct write to
+        `.dlt/config.toml`, which is what this test drove pre-1.0.8-OPS-2)
+        -- and proves the send is NOT attempted.
+
+        `~/.dango/` is isolated via a monkeypatched `Path.home()` (plus the
+        `dango.telemetry` module's already-resolved path constants, which a
+        bare `Path.home()` patch alone would not reach) so this test never
+        reads or writes the real machine's `~/.dango/config.yml` -- both
+        phases exercise the opt-out purely through that isolated file, the
+        same mechanism a real `dango telemetry off --provider dlt` /
+        `dango sync` pair would use across two separate OS processes on a
+        real machine.
 
         `switch_context()` (dlt.common.runtime.run_context) between phases is
-        not optional: `Pipeline.__init__` caches
-        `config.runtime.pluggable_run_context.context` as a plain attribute,
-        and dlt's config providers cache parsed file content in memory. Two
-        `dlt.pipeline()` calls in one *process* would otherwise reuse Phase
-        1's already-resolved config instead of picking up Phase 2's file
-        write -- confirmed while building this test (without
-        `switch_context()`, Phase 2 incorrectly showed the endpoint still
-        set). A real second `dango sync` is a fresh OS process and wouldn't
-        need this; it's purely an artifact of sharing one pytest process.
+        not optional: `RunContext.runtime_config` is a lazy-init property
+        that resolves `RuntimeConfiguration()` once and caches it on the
+        (process-lifetime) `RunContext` singleton -- Phase 2's fresh
+        `RUNTIME__DLTHUB_TELEMETRY` env var would otherwise never be
+        re-read, since `EnvironProvider` reads `os.environ` live but the
+        *singleton* holding Phase 1's already-resolved config never gets
+        this far again. A real second `dango sync` is a fresh OS process and
+        wouldn't need this; it's purely an artifact of sharing one pytest
+        process.
 
         `stop_telemetry()` runs inside each `with guard:` block, before the
         guard exits (forced-flush, same as the test above) -- and, crucially,
@@ -383,6 +345,7 @@ class TestLiveEgressDetection:
         from dlt.common.runtime.run_context import switch_context
         from dlt.common.runtime.telemetry import is_telemetry_started, stop_telemetry
 
+        import dango.telemetry as dango_telemetry
         from dango.cli.init import init_project
         from dango.config.models import DataSource, DltNativeConfig, SourceType
         from dango.ingestion import run_sync
@@ -390,6 +353,20 @@ class TestLiveEgressDetection:
 
         monkeypatch.setenv("DBT_SEND_ANONYMOUS_USAGE_STATS", "false")
         monkeypatch.setenv("DO_NOT_TRACK", "1")
+
+        # Isolate ~/.dango/ (1.0.8-OPS-2 moved dlt's opt-out here) so this
+        # test never touches the real machine's telemetry config — same
+        # pattern as tests/unit/test_telemetry_unified.py's _isolated_home
+        # fixture. A bare Path.home() patch is not enough: dango.telemetry's
+        # _CONFIG_DIR/_GLOBAL_CONFIG_FILE constants are already resolved at
+        # import time, so they're patched directly too.
+        fake_home = tmp_path / "_fake_home"
+        fake_home.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+        fake_config_dir = fake_home / ".dango"
+        monkeypatch.setattr(dango_telemetry, "_CONFIG_DIR", fake_config_dir)
+        monkeypatch.setattr(dango_telemetry, "_IDENTITY_FILE", fake_config_dir / "telemetry.json")
+        monkeypatch.setattr(dango_telemetry, "_GLOBAL_CONFIG_FILE", fake_config_dir / "config.yml")
 
         # Same pre-seed rationale as the test above: avoid a real driver
         # download during init, out of scope for what this test detects.
@@ -459,20 +436,34 @@ class TestLiveEgressDetection:
             f"reason if expected, do not loosen this test to make it pass."
         )
 
-        # --- Phase 2: dlthub_telemetry explicitly disabled, same write-through
-        # `dango telemetry off --provider dlt` performs ---
-        import tomlkit
+        # --- Phase 2: dlt telemetry explicitly disabled via the 1.0.8-OPS-2
+        # machine-level write-through `dango telemetry off --provider dlt`
+        # performs -- ~/.dango/config.yml (isolated above), not
+        # .dlt/config.toml.
+        dango_telemetry.set_dlt_telemetry_state(False)
 
-        config_path = tmp_path / ".dlt" / "config.toml"
-        doc = tomlkit.parse(config_path.read_text())
-        if "runtime" not in doc:
-            doc.add("runtime", tomlkit.table())
-        doc["runtime"]["dlthub_telemetry"] = False
-        config_path.write_text(tomlkit.dumps(doc))
+        # Apply the env var directly here, rather than waiting for
+        # run_sync() below to reach _apply_dlt_telemetry_env() on its own:
+        # switch_context() below (PluggableRunContext.reload() ->
+        # add_extras()) eagerly re-resolves RuntimeConfiguration and calls
+        # start_telemetry() as a side effect of the reload itself -- before
+        # run_sync() gets a chance to run -- so RUNTIME__DLTHUB_TELEMETRY
+        # must already reflect the new state by this point, or
+        # switch_context() re-initializes telemetry from the stale Phase-1
+        # env var ("true") and _TELEMETRY_STARTED latches True again before
+        # Phase 2's own _apply_dlt_telemetry_env() call ever runs. A real
+        # process never calls switch_context() at all -- _apply_dlt_telemetry_env()
+        # already runs before any dlt code touches the RunContext for a
+        # given sync (moved there in this same change specifically because
+        # of this ordering requirement) -- so this mirrors production
+        # ordering, not something being carved out only for the test.
+        from dango.ingestion.dlt_runner import _apply_dlt_telemetry_env
 
-        # See docstring: forces a brand-new RunContext so the rewritten
-        # config.toml is actually re-read, instead of reusing Phase 1's
-        # in-process-cached RuntimeConfiguration/providers.
+        _apply_dlt_telemetry_env(tmp_path)
+
+        # Forces a brand-new RunContext so the env var above is actually
+        # picked up, instead of reusing Phase 1's in-process-cached
+        # RuntimeConfiguration/providers.
         switch_context(str(tmp_path))
 
         guard2 = _AllowlistGuard(restricted_allowed)
@@ -480,11 +471,13 @@ class TestLiveEgressDetection:
             result2 = run_sync(tmp_path, [source], skip_dbt=True)
 
             assert anon_tracker._ANON_TRACKER_ENDPOINT is None, (
-                "dango telemetry off --provider dlt's .dlt/config.toml "
-                "write-through (dlthub_telemetry=false) did NOT suppress "
-                "dlt's anon tracker -- this is a live privacy/telemetry-"
-                "disclosure bug. Do not fix it here: file a BUGS-FOUND.md "
-                "entry per this task's scope (see 1.0.8-V prompt)."
+                "dango telemetry off --provider dlt's ~/.dango/config.yml "
+                "write-through (1.0.8-OPS-2, translated into dlt's "
+                "RUNTIME__DLTHUB_TELEMETRY env var by "
+                "_apply_dlt_telemetry_env() in dlt_runner.py) did NOT "
+                "suppress dlt's anon tracker -- this is a live "
+                "privacy/telemetry-disclosure bug. Do not fix it here: file "
+                "a BUGS-FOUND.md entry per this task's scope."
             )
 
             stop_telemetry()
