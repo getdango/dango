@@ -17,7 +17,7 @@ for wizard — use dlt_native) and Shopify (`wizard_enabled=False`, see P5-006).
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
 | `__init__.py` | Public exports | `DltPipelineRunner`, `run_sync`, `CSVLoader`, `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata`, `get_source_capabilities` |
-| `dlt_runner.py` | Generic pipeline runner for all dlt and custom sources | `DltPipelineRunner`, `run_sync` (accepts `progress_callback` for dbt phase reporting; imports `SyncTimeoutError` from `dango.exceptions`) |
+| `dlt_runner.py` | Generic pipeline runner for all dlt and custom sources | `DltPipelineRunner`, `run_sync` (accepts `progress_callback` for dbt phase reporting; imports `SyncTimeoutError` from `dango.exceptions`); `_apply_dlt_telemetry_env()` — sets dlt's `RUNTIME__DLTHUB_TELEMETRY` env var from the machine-level opt-out (1.0.8-OPS-2), called at the top of both `_run_dlt_native_source()` and `_run_dlt_source()`, before any dlt config resolution |
 | `csv_loader.py` | Multi-format file loading (CSV, JSON, JSONL, Parquet) with metadata tracking and 4 dedup strategies | `CSVLoader`, `SUPPORTED_READ_FUNCTIONS` (imports `CSVSchemaMismatchError` from `dango.exceptions`) |
 | `credential_health.py` | Cross-references configured sources against available credentials (OAuth tokens, API keys, service accounts) | `run_credential_checks()`, `get_cached_credential_health()` (5-minute in-process cache) |
 | `sources/__init__.py` | Sources subpackage exports | Re-exports `SOURCE_REGISTRY`, `CATEGORIES`, `get_source_metadata`, `get_source_capabilities` |
@@ -32,6 +32,7 @@ for wizard — use dlt_native) and Shopify (`wizard_enabled=False`, see P5-006).
 | Change CSV loading behavior | `csv_loader.py` | `pytest tests/unit/test_csv_loader.py` (when created) |
 | Change sync execution logic | `dlt_runner.py` | Manual: `dango sync <source_name>` |
 | Add a new dedup strategy | `csv_loader.py` + `config/models.py` (`DeduplicationStrategy`) | Manual: sync CSV source with new strategy |
+| Change dlt telemetry opt-out env injection | `dlt_runner.py` (`_apply_dlt_telemetry_env`) — mirror both call sites (`_run_dlt_native_source`, `_run_dlt_source`) | `pytest tests/unit/test_telemetry_unified.py tests/unit/test_egress_allowlist.py` |
 
 ## Dependencies
 

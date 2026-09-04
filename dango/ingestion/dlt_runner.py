@@ -67,6 +67,48 @@ def _is_duckdb_lock_error(error: BaseException) -> bool:
     return any(keyword in error_str for keyword in _DUCKDB_LOCK_KEYWORDS)
 
 
+def _apply_dlt_telemetry_env(project_root: Path) -> None:
+    """Set dlt's RUNTIME__DLTHUB_TELEMETRY env var from the machine-level opt-out.
+
+    dlt runs in-process here (`dlt.pipeline(...)` below), not via subprocess
+    like dbt (`_dbt_telemetry_env()` in `transformation/__init__.py`) — so
+    there is no per-invocation env dict to pass. dlt's `EnvironProvider`
+    reads `os.environ` live at config-resolution time
+    (dlt/common/configuration/providers/environ.py), so the only way to
+    inject the machine-level opt-out is to set the actual process env var
+    before creating the pipeline.
+
+    `RUNTIME__DLTHUB_TELEMETRY` is dlt's own env-var override for
+    `RuntimeConfiguration.dlthub_telemetry` — verified empirically against
+    dlt 1.28.1 (not just read from docs, per 1.0.8-OPS-2's verification
+    requirement): `RuntimeConfiguration.__section__ == "runtime"`, and
+    `EnvironProvider.get_key_name()` uppercases `"__".join((*sections,
+    key))`, giving `RUNTIME__DLTHUB_TELEMETRY` — no `DLT__` prefix. Also
+    confirmed the env var overrides an explicit `.dlt/config.toml` value,
+    which is what lets this override a project's stale pre-1.0.8-OPS-2
+    opt-out file without needing to touch or delete that file.
+
+    dlt caches whether telemetry has started per-process
+    (`dlt.common.runtime.telemetry._TELEMETRY_STARTED`) — this only takes
+    effect for the FIRST dlt pipeline created after this call in a given
+    process, identical to the caching behavior before this change (the
+    opt-out lived in `.dlt/config.toml` then, read via the same
+    `RuntimeConfiguration` resolution at the same point in dlt's pipeline
+    lifecycle) — not a new limitation introduced here.
+
+    Args:
+        project_root: Current project root — passed through to
+            `get_dlt_telemetry_state()` so a legacy per-project
+            `.dlt/config.toml` opt-out gets migrated into
+            `~/.dango/config.yml` on first read (see that function's
+            docstring).
+    """
+    from dango.telemetry import get_dlt_telemetry_state
+
+    enabled = get_dlt_telemetry_state(project_root)
+    os.environ["RUNTIME__DLTHUB_TELEMETRY"] = "true" if enabled else "false"
+
+
 class DltPipelineRunner:
     """
     Generic pipeline runner for all dlt sources
@@ -934,6 +976,17 @@ class DltPipelineRunner:
         original_cwd = os.getcwd()
         os.chdir(self.project_root)
 
+        # IMPORTANT: Must happen before ANY dlt config resolution below —
+        # calling the @dlt.source-decorated source_function (a few lines
+        # down) already triggers dlt's RunContext/RuntimeConfiguration
+        # resolution (and, on the first such access in this process,
+        # telemetry init) via dlt's own config-injection machinery, which
+        # then caches on that RunContext for the rest of this sync. Setting
+        # the env var any later (e.g. right before dlt.pipeline() below) is
+        # too late — confirmed empirically while building this: the
+        # opt-out silently didn't apply until this was moved here.
+        _apply_dlt_telemetry_env(self.project_root)
+
         try:
             # Try to import source from custom_sources/ directory first
             import sys
@@ -1343,6 +1396,11 @@ class DltPipelineRunner:
         # Change to project root as additional fallback
         original_cwd = os.getcwd()
         os.chdir(self.project_root)
+
+        # IMPORTANT: Must happen before ANY dlt config resolution below — see
+        # the identical comment in _run_dlt_native_source for why this can't
+        # wait until right before dlt.pipeline().
+        _apply_dlt_telemetry_env(self.project_root)
 
         try:
             # Dynamic import of dlt source
