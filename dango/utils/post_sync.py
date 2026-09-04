@@ -335,6 +335,37 @@ def _run_dbt_snapshots(project_root: Path) -> None:
         logger.error("dbt_snapshots_error", exc_info=True)
 
 
+def _materialize_pipeline_health(project_root: Path) -> None:
+    """Materialize sync history / dbt test results / source list into DuckDB
+    tables for the "Data Pipeline Health" dashboard (1.0.8-DASH-1).
+
+    Runs after dbt (and dbt docs generation, which briefly overwrites then
+    restores ``run_results.json`` — see ``dlt_runner.py``) has fully
+    completed, so ``dbt/target/run_results.json`` reflects the sync that
+    just finished. Failures are logged but do not fail the sync.
+
+    Note on staleness: ``dlt_runner.py`` already calls
+    ``refresh_metabase_connection()`` (which restarts the Metabase
+    container so its long-lived embedded DuckDB connection sees new data —
+    see that function's docstring) earlier in the sync flow, *before*
+    post-sync hooks run. This hook's write therefore lands one refresh
+    cycle late for a Metabase instance that's already open and being
+    looked at mid-sync — it self-heals on the *next* sync's refresh. A
+    second container restart here (to make this specific write visible
+    immediately) was deliberately not added: it would double Metabase's
+    per-sync restart/downtime for a background hook nobody is watching in
+    real time. The path that must be fresh immediately —
+    ``dango dashboard provision`` — materializes and refreshes for itself
+    (see ``cli/commands/dashboard.py``), independent of this hook.
+    """
+    try:
+        from dango.utils.pipeline_health import materialize_pipeline_health
+
+        materialize_pipeline_health(project_root)
+    except Exception:
+        logger.error("pipeline_health_hook_error", exc_info=True)
+
+
 # ---------------------------------------------------------------------------
 # Post-sync dispatcher
 # ---------------------------------------------------------------------------
@@ -381,6 +412,7 @@ def dispatch_post_sync_hooks(
         ("pii_scan", lambda: _run_pii_scan(project_root, sources)),
         ("analysis", lambda: _run_analysis(project_root, sources)),
         ("dbt_snapshots", lambda: _run_dbt_snapshots(project_root)),
+        ("pipeline_health", lambda: _materialize_pipeline_health(project_root)),
     ]:
         try:
             hook_fn()

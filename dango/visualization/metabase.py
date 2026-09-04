@@ -20,7 +20,20 @@ logger = logging.getLogger(__name__)
 
 
 # Dashboard SQL Queries
-# These queries work against DuckDB with dlt state tables
+#
+# These queries run against the `_dango_meta` schema of the DuckDB warehouse
+# (sync_history, dbt_test_results, source_overview tables), NOT hardcoded
+# constants. That schema is populated by
+# `dango.utils.pipeline_health.materialize_pipeline_health()` — see that
+# module's docstring for why materialization (rather than e.g. mounting the
+# underlying JSON state files into Metabase's container) was chosen, and
+# `dango/templates/docker-compose.yml.j2` for why the JSON files aren't
+# directly reachable from Metabase in the first place (its container only
+# mounts `./data:/data:ro`).
+#
+# 1.0.8-DASH-1: replaced the previous hardcoded placeholder SQL (health
+# score always 100/"Excellent", tests always "All Tests Passing", etc. —
+# see BUGS-FOUND.md's "Data Pipeline Health" entry) with the queries below.
 
 DASHBOARD_QUERIES = {
     "source_overview": {
@@ -28,15 +41,21 @@ DASHBOARD_QUERIES = {
         "description": "Overview of all configured data sources",
         "sql": """
         SELECT
-            name as source_name,
-            type as source_type,
-            enabled,
-            'Synced' as status  -- Placeholder, will be enhanced with actual state
-        FROM (VALUES
-            ('sample', 'csv', true),
-            ('demo', 'csv', true)
-        ) as t(name, type, enabled)
-        -- TODO: Replace with actual sources.yml data
+            so.source_name,
+            so.source_type,
+            so.enabled,
+            COALESCE(
+                (
+                    SELECT sh.status
+                    FROM _dango_meta.sync_history sh
+                    WHERE sh.source_name = so.source_name
+                    ORDER BY sh.sync_timestamp DESC
+                    LIMIT 1
+                ),
+                'never synced'
+            ) AS status
+        FROM _dango_meta.source_overview so
+        ORDER BY so.source_name
         """,
         "visualization": "table",
     },
@@ -50,10 +69,14 @@ DASHBOARD_QUERIES = {
             FROM generate_series(0, 6) as t(n)
         )
         SELECT
-            sync_date::DATE as date,
-            0 as syncs_completed  -- Placeholder
-        FROM sync_dates
-        ORDER BY sync_date DESC
+            sd.sync_date::DATE as date,
+            COUNT(sh.source_name) as syncs_completed
+        FROM sync_dates sd
+        LEFT JOIN _dango_meta.sync_history sh
+            ON date_trunc('day', sh.sync_timestamp) = sd.sync_date
+            AND sh.status = 'success'
+        GROUP BY sd.sync_date
+        ORDER BY sd.sync_date DESC
         """,
         "visualization": "line",
     },
@@ -62,11 +85,21 @@ DASHBOARD_QUERIES = {
         "description": "How recent is the data in each source",
         "sql": """
         SELECT
-            'sample_data' as source_name,
-            COUNT(*) as row_count,
-            MAX(CURRENT_TIMESTAMP) as last_updated
-        FROM (SELECT 1)  -- Placeholder
-        -- TODO: Query actual staging tables
+            so.source_name,
+            (
+                SELECT sh.rows_processed
+                FROM _dango_meta.sync_history sh
+                WHERE sh.source_name = so.source_name AND sh.status = 'success'
+                ORDER BY sh.sync_timestamp DESC
+                LIMIT 1
+            ) AS last_sync_row_count,
+            (
+                SELECT MAX(sh2.sync_timestamp)
+                FROM _dango_meta.sync_history sh2
+                WHERE sh2.source_name = so.source_name AND sh2.status = 'success'
+            ) AS last_updated
+        FROM _dango_meta.source_overview so
+        ORDER BY last_updated DESC NULLS LAST
         """,
         "visualization": "table",
     },
@@ -74,15 +107,31 @@ DASHBOARD_QUERIES = {
         "name": "Row Counts Over Time",
         "description": "Track data growth across all sources",
         "sql": """
+        -- Cumulative (not per-day) total: sync_history.rows_processed is the
+        -- count processed *in that sync* (often an incremental delta), not a
+        -- running warehouse total, so a running SUM approximates overall
+        -- data growth over the window — matching the "Row Counts Over Time"
+        -- / area-chart intent better than a per-day bar would.
         WITH dates AS (
             SELECT date_trunc('day', CURRENT_DATE - INTERVAL (n) DAY) as date
             FROM generate_series(0, 29) as t(n)
+        ),
+        daily_rows AS (
+            SELECT
+                date_trunc('day', sync_timestamp) as date,
+                SUM(rows_processed) as rows_that_day
+            FROM _dango_meta.sync_history
+            WHERE status = 'success'
+            GROUP BY 1
         )
         SELECT
-            date::DATE,
-            0 as total_rows  -- Placeholder
-        FROM dates
-        ORDER BY date
+            d.date::DATE as date,
+            SUM(COALESCE(dr.rows_that_day, 0)) OVER (
+                ORDER BY d.date ROWS UNBOUNDED PRECEDING
+            ) as total_rows
+        FROM dates d
+        LEFT JOIN daily_rows dr ON dr.date = d.date
+        ORDER BY d.date
         """,
         "visualization": "area",
     },
@@ -90,11 +139,25 @@ DASHBOARD_QUERIES = {
         "name": "dbt Test Results",
         "description": "Data quality tests from dbt",
         "sql": """
+        WITH latest_run AS (
+            SELECT MAX(run_generated_at) as run_generated_at
+            FROM _dango_meta.dbt_test_results
+        ),
+        latest_tests AS (
+            SELECT dtr.*
+            FROM _dango_meta.dbt_test_results dtr, latest_run lr
+            WHERE dtr.run_generated_at = lr.run_generated_at
+                AND dtr.passed IS NOT NULL  -- excludes skipped tests
+        )
         SELECT
-            'All Tests Passing' as status,
-            0 as failed_tests,
-            0 as total_tests
-        -- TODO: Parse dbt test results
+            CASE
+                WHEN COUNT(*) = 0 THEN 'No tests run yet'
+                WHEN SUM(CASE WHEN NOT passed THEN 1 ELSE 0 END) = 0 THEN 'All Tests Passing'
+                ELSE 'Tests Failing'
+            END as status,
+            COALESCE(SUM(CASE WHEN NOT passed THEN 1 ELSE 0 END), 0) as failed_tests,
+            COUNT(*) as total_tests
+        FROM latest_tests
         """,
         "visualization": "scalar",
     },
@@ -102,10 +165,75 @@ DASHBOARD_QUERIES = {
         "name": "Pipeline Health Score",
         "description": "Overall health of data pipeline (0-100)",
         "sql": """
+        -- Health score definition: a 50/50 weighted average of
+        --   (a) sync success rate — % of enabled sources whose most recent
+        --       sync attempt succeeded (sources that have never synced are
+        --       excluded from this rate, not counted as failures), and
+        --   (b) dbt test pass rate — % of tests passing in the latest dbt run.
+        -- If only one signal has data (e.g. sources synced but dbt has
+        -- never run), that signal is used alone. If neither has data
+        -- (fresh install), the score is 0 with an honest message instead of
+        -- a fake "Excellent" — see BUGS-FOUND.md's "Data Pipeline Health"
+        -- entry for why this matters.
+        WITH sync_health AS (
+            SELECT
+                COUNT(*) as total_enabled,
+                SUM(CASE WHEN latest_status = 'success' THEN 1 ELSE 0 END) as succeeded
+            FROM (
+                SELECT
+                    so.source_name,
+                    (
+                        SELECT sh.status
+                        FROM _dango_meta.sync_history sh
+                        WHERE sh.source_name = so.source_name
+                        ORDER BY sh.sync_timestamp DESC
+                        LIMIT 1
+                    ) as latest_status
+                FROM _dango_meta.source_overview so
+                WHERE so.enabled
+            ) t
+            WHERE latest_status IS NOT NULL
+        ),
+        test_health AS (
+            SELECT
+                COUNT(*) as total_tests,
+                SUM(CASE WHEN passed THEN 1 ELSE 0 END) as passed_tests
+            FROM _dango_meta.dbt_test_results dtr, (
+                SELECT MAX(run_generated_at) as m FROM _dango_meta.dbt_test_results
+            ) lr
+            WHERE dtr.run_generated_at = lr.m AND dtr.passed IS NOT NULL
+        )
         SELECT
-            100 as health_score,
-            'Excellent' as status,
-            'All sources syncing successfully' as message
+            CASE
+                WHEN sh.total_enabled = 0 AND th.total_tests = 0 THEN 0
+                WHEN sh.total_enabled > 0 AND th.total_tests > 0 THEN
+                    ROUND(
+                        0.5 * (sh.succeeded::DOUBLE / sh.total_enabled) * 100
+                        + 0.5 * (th.passed_tests::DOUBLE / th.total_tests) * 100
+                    )
+                WHEN sh.total_enabled > 0 THEN
+                    ROUND((sh.succeeded::DOUBLE / sh.total_enabled) * 100)
+                ELSE
+                    ROUND((th.passed_tests::DOUBLE / th.total_tests) * 100)
+            END as health_score,
+            CASE
+                WHEN sh.total_enabled = 0 AND th.total_tests = 0 THEN 'No data yet'
+                WHEN sh.total_enabled = 0 OR sh.succeeded = sh.total_enabled THEN
+                    CASE WHEN th.total_tests = 0 OR th.passed_tests = th.total_tests
+                         THEN 'Excellent' ELSE 'Needs Attention' END
+                WHEN (sh.succeeded::DOUBLE / sh.total_enabled) >= 0.8 THEN 'Good'
+                ELSE 'Needs Attention'
+            END as status,
+            CASE
+                WHEN sh.total_enabled = 0 AND th.total_tests = 0
+                    THEN 'No sources have synced yet and no dbt tests have run'
+                ELSE
+                    COALESCE(sh.succeeded, 0) || '/' || COALESCE(sh.total_enabled, 0)
+                    || ' sources synced successfully, '
+                    || COALESCE(th.passed_tests, 0) || '/' || COALESCE(th.total_tests, 0)
+                    || ' dbt tests passing'
+            END as message
+        FROM sync_health sh, test_health th
         """,
         "visualization": "gauge",
     },
