@@ -49,7 +49,7 @@ FastAPI web server providing REST API and WebSocket for managing Dango data pipe
 | `routes/notebooks.py` | Notebook management API + `/notebooks` page route (~506 lines) | `router` |
 | `routes/scripts.py` | Script list page and log viewer page routes | `router` |
 | `routes/scripts_api.py` | Script API endpoints: list, run, cancel, history | `router` |
-| `routes/scripts_helpers.py` | Script discovery, path validation, history, audit helpers | `_discover_scripts`, `_validate_script_path`, `_load_history`, `_append_history` |
+| `routes/scripts_helpers.py` | Script discovery, path validation, history, audit helpers. `_discover_scripts()` attaches each script's effective `timeout_seconds` (from `dango.config.scripts`, 1.0.8-BUGS-FOUND) | `_discover_scripts`, `_get_script_timeout`, `_validate_script_path`, `_load_history`, `_append_history` |
 | `routes/catalog.py` | Data catalog: columns, profiling, lineage, impact, model list/detail, search (~1338 lines) | `router` |
 | `routes/governance.py` | Schema drift + PII results API (~203 lines) | `router` |
 | `routes/monitoring.py` | Monitor results API (`/api/monitoring`, `/api/monitoring/run`, `/api/monitoring/history`), dbt test results. Page route removed in R12-M2 (test/freshness moved to catalog). Backward-compat `/api/insights*` redirects removed in M2 cloud fix. | `router` |

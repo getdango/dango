@@ -24,12 +24,12 @@ from dango.web.helpers import append_log_entry, get_project_root
 from dango.web.routes.scripts_helpers import (
     _MAX_STDERR_SIZE,
     _MAX_STDOUT_SIZE,
-    _SCRIPT_TIMEOUT,
     _append_history,
     _audit,
     _cancelling,
     _discover_scripts,
     _get_log_dir,
+    _get_script_timeout,
     _load_history,
     _running_processes,
     _validate_script_path,
@@ -64,6 +64,7 @@ async def list_scripts(
             "path": script["path"],
             "last_run": last_run,
             "running": name in _running_processes,
+            "timeout_seconds": script["timeout_seconds"],
         }
         result.append(entry)
 
@@ -84,6 +85,7 @@ async def run_script(
         return validated
 
     script_path = validated
+    timeout_seconds = _get_script_timeout(project_root, name)
 
     # Check not already running
     if name in _running_processes:
@@ -163,7 +165,7 @@ async def run_script(
         try:
             stdout, stderr = await asyncio.wait_for(
                 loop.run_in_executor(None, proc.communicate),
-                timeout=_SCRIPT_TIMEOUT,
+                timeout=timeout_seconds,
             )
             finished_at = datetime.now(timezone.utc)
             duration = (finished_at - started_at).total_seconds()
@@ -186,7 +188,7 @@ async def run_script(
             duration = (finished_at - started_at).total_seconds()
             exit_code = proc.returncode if proc.returncode is not None else -1
             status = "timeout"
-            error = f"Script timed out after {_SCRIPT_TIMEOUT}s"
+            error = f"Script timed out after {timeout_seconds}s"
 
         try:
             stdout_str = stdout or ""
