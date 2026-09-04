@@ -13,6 +13,7 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 | `loader.py` | Load/save YAML config files | `ConfigLoader` |
 | `helpers.py` | Config convenience functions | `find_project_root`, `get_config`, `load_config`, `save_config`, `check_unreferenced_custom_sources`, `format_unreferenced_sources_warning` |
 | `schedules.py` | Schedule config models, validation, reload. `ScheduleType` enum: SYNC, SYNC_ONLY, DBT, SCRIPT | `ScheduleConfig`, `SchedulesConfig`, `ScheduleType`, `ReloadResult`, `CRON_PRESETS`, `load_schedules_config`, `validate_schedules`, `reload_schedules`, `log_startup_checks` |
+| `scripts.py` | Per-script execution timeout override for the Scripts page (`.dango/scripts.yml`), mirroring `schedules.py`'s `timeout_minutes` pattern (1.0.8-BUGS-FOUND) | `ScriptConfig`, `ScriptsConfig`, `load_scripts_config`, `DEFAULT_SCRIPT_TIMEOUT_SECONDS` |
 | `credentials.py` | Credential loading for dlt sources | `CredentialManager`, `init_dlt_directory` |
 | `cloud_credentials.py` | Cloud provider credential persistence (`~/.dango/credentials`, INI, 0o600) | `get_do_token`, `save_do_token`, `clear_do_token` |
 | `exceptions.py` | Re-export shim — classes live in `dango/exceptions.py` | `ConfigError`, `ConfigNotFoundError`, `ConfigValidationError`, `ProjectNotFoundError` |
@@ -26,6 +27,7 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 | Change config loading logic | `loader.py` | `pytest tests/unit/test_config_loader.py` |
 | Add a new config error type | `exceptions.py` | `pytest tests/unit/test_config_loader.py` |
 | Add/modify schedule config | `schedules.py` | `pytest tests/unit/test_schedules_config.py tests/unit/test_schedules_loading.py` |
+| Add/modify per-script timeout config | `scripts.py` | `pytest tests/unit/test_config_scripts.py` |
 | Add a new credential provider | `credentials.py` | Manual: create test project with `.dlt/secrets.toml` |
 
 ## Dependencies
