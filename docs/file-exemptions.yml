@@ -178,9 +178,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/source_wizard.py
-    lines: 2525
+    lines: 2610
     category: exempt
-    reason: "Interactive source configuration wizard. Sequential prompting logic doesn't benefit from splitting. P7-011 added metrics generation. P5c grew +529 lines (credential unification, resource selection, dedup collection). P8-001 added REST API wizard enhancements: headers, query params, endpoint testing, data_selector/primary_key suggestions (+267 lines)."
+    reason: "Interactive source configuration wizard. Sequential prompting logic doesn't benefit from splitting. P7-011 added metrics generation. P5c grew +529 lines (credential unification, resource selection, dedup collection). P8-001 added REST API wizard enhancements: headers, query params, endpoint testing, data_selector/primary_key suggestions (+267 lines). 1.0.8-OPS-3 added _print_git_warnings() (+~19 lines)."
     review_by: "v1.1"
 
   - file: dango/visualization/metabase.py
@@ -234,9 +234,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/cli/model_wizard.py
-    lines: 547
+    lines: 617
     category: exempt
-    reason: "Interactive dbt model creation wizard. Sequential prompting, stable. 1.0.7-1: Added table selection + CTE scaffold generation."
+    reason: "Interactive dbt model creation wizard. Sequential prompting, stable. 1.0.7-1: Added table selection + CTE scaffold generation. 1.0.8-OPS-3 added _print_git_warnings() (+~16 lines)."
     review_by: "v1.1"
 
 # Removed: dango/platform/network.py — now 486 lines, within limit (TASK-088)
@@ -386,6 +386,12 @@ exemptions:
     lines: 514
     category: exempt
     reason: "1.0.8-Q: Added _setup_telemetry_heartbeat(), a fourth fixed internal job (weekly telemetry heartbeat) following the existing _setup_history_cleanup/_setup_login_attempts_cleanup/_setup_sync_log_cleanup pattern. Pushed the file ~14 lines over the 500-line limit."
+    review_by: "v1.1"
+
+  - file: dango/cli/commands/mcp_mutations.py
+    lines: 508
+    category: exempt
+    reason: "1.0.8-OPS-3: Wired check_mutation_guardrails() (git-state warnings) into add_source/create_model/add_schedule, surfacing a git_warning key on their return dicts. The file was already at 499/500 lines before this change (5 mutation tools is a lot of surface area, per its own module docstring on why it was split out of mcp_server.py) — the actual _git_warnings() helper itself lives in mcp_helpers.py, not here, to keep the addition minimal. Pushed the file ~8 lines over the 500-line limit."
     review_by: "v1.1"
 
   - file: dango/utils/post_sync.py

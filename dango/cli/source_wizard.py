@@ -111,6 +111,24 @@ class SourceWizard:
         self.env_file = project_root / ".env"
         self.secret_params = []  # Track secret parameters for .env setup
 
+    def _print_git_warnings(self) -> None:
+        """Warn (never block) on unsafe git state — on main/master, dirty tree,
+        or detached HEAD — before writing a new source to sources.yml. Non-git
+        projects print nothing (check_mutation_guardrails() returns no warning
+        for them by design — 'not a git repo' isn't actionable for a wizard
+        user). Mirrors the warning style `dango remote push` already uses for
+        check_git_guardrails() (cli/commands/remote.py)."""
+        from dango.utils.git_info import check_mutation_guardrails, collect_git_info
+
+        git_info = collect_git_info(self.project_root)
+        if not git_info.is_git_repo:
+            return
+        result = check_mutation_guardrails(git_info)
+        for w in result.warnings:
+            console.print(f"  [yellow]Warning:[/yellow] {w}")
+        if result.warnings:
+            console.print()
+
     def run(self) -> bool:
         """
         Run the source wizard
@@ -127,6 +145,8 @@ class SourceWizard:
                     border_style="cyan",
                 )
             )
+
+            self._print_git_warnings()
 
             # State machine for navigation with back button support
             source_type = None

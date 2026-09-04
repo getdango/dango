@@ -44,6 +44,8 @@ class ModelWizard:
         console.print("Create a new intermediate or marts model.\n")
         console.print("[dim]Staging models are auto-generated during sync.[/dim]\n")
 
+        self._print_git_warnings()
+
         # Check if dbt directory exists
         if not self.dbt_dir.exists():
             console.print("[red]Error: dbt directory not found. Run 'dango init' first.[/red]")
@@ -172,6 +174,24 @@ class ModelWizard:
         except KeyboardInterrupt:
             console.print("\n[yellow]Cancelled[/yellow]")
             return None
+
+    def _print_git_warnings(self) -> None:
+        """Warn (never block) on unsafe git state — on main/master, dirty tree,
+        or detached HEAD — before writing a new model file. Non-git projects
+        print nothing (check_mutation_guardrails() returns no warning for them
+        by design — 'not a git repo' isn't actionable for a wizard user).
+        Mirrors the warning style `dango remote push` already uses for
+        check_git_guardrails() (cli/commands/remote.py)."""
+        from dango.utils.git_info import check_mutation_guardrails, collect_git_info
+
+        git_info = collect_git_info(self.project_root)
+        if not git_info.is_git_repo:
+            return
+        result = check_mutation_guardrails(git_info)
+        for w in result.warnings:
+            console.print(f"  [yellow]Warning:[/yellow] {w}")
+        if result.warnings:
+            console.print()
 
     def _ask_layer(self) -> str | None:
         """Ask which model layer"""
