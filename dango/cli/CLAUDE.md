@@ -26,7 +26,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/metabase_cmd.py` (412 lines) | `metabase` group (`save`, `load`, `refresh`) | `metabase` |
 | `commands/model.py` (258 lines) | `model` group (`add`, `remove`) | `model` |
 | `commands/seed.py` (135 lines) | `seed` group (`add`, `list`) — dbt seed CSV management | `seed` |
-| `commands/dashboard.py` (153 lines) | `dashboard` group (`provision`) | `dashboard` |
+| `commands/dashboard.py` (215 lines) | `dashboard` group (`provision`) — materializes pipeline-health state via `dango.utils.pipeline_health` before provisioning (1.0.8-DASH-1) | `dashboard` |
 | `commands/mcp_server.py` (~460 lines) | `mcp` group + `run` command; FastMCP stdio server with 8 read-only tools (list_sources, get_table_schema, get_catalog, get_lineage, list_models, get_model_sql, query, get_sync_history) | `mcp_group`, `mcp`, `mcp_run()` |
 | `commands/mcp_mutations.py` (~485 lines) | Mutation tools registered onto the shared `mcp` FastMCP instance (run_sync, run_transform, run_doctor, add_source, list_source_types, create_model, add_schedule) — split out of mcp_server.py, not a Click module | `run_sync()`, `run_transform()`, `run_doctor()`, `add_source()`, `list_source_types()`, `create_model()`, `add_schedule()` |
 | `commands/mcp_setup.py` (~145 lines) | `mcp setup` / `mcp status` subcommands (registers onto `mcp_group` from mcp_server.py) — detects/configures Claude Code, Cursor, Windsurf | `mcp_setup()`, `mcp_status()` |
