@@ -5,11 +5,100 @@ Unit tests for source wizard UX bugs (P2-2, P2-4, P2-6, P2-7, P8-3).
 
 from __future__ import annotations
 
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from dango.ingestion.sources.registry import SOURCE_REGISTRY
+
+
+def _init_git_repo(path, branch="main", dirty=False):
+    """Create a real git repo at `path` on the given branch."""
+    subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.email", "test@test.com"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.name", "Test"], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "checkout", "-b", branch], check=True, capture_output=True
+    )
+    (path / "committed.txt").write_text("hello")
+    subprocess.run(["git", "-C", str(path), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(path), "commit", "-m", "init"], check=True, capture_output=True
+    )
+    if dirty:
+        (path / "dirty.txt").write_text("uncommitted")
+
+
+# ---------------------------------------------------------------------------
+# 1.0.8-OPS-3: git guardrail warnings before writing a new source
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestPrintGitWarnings:
+    """SourceWizard._print_git_warnings() — warn-only git state check called
+    from run() right after the intro panel, before the state machine starts."""
+
+    def test_on_main_prints_warning(self, tmp_path):
+        from dango.cli.source_wizard import SourceWizard
+
+        _init_git_repo(tmp_path, branch="main")
+        wizard = SourceWizard(tmp_path)
+
+        with patch("dango.cli.source_wizard.console") as mock_console:
+            printed = []
+            mock_console.print = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            wizard._print_git_warnings()
+
+        assert any("main" in p and "Warning" in p for p in printed)
+
+    def test_clean_feature_branch_prints_nothing(self, tmp_path):
+        from dango.cli.source_wizard import SourceWizard
+
+        _init_git_repo(tmp_path, branch="feat/my-source")
+        wizard = SourceWizard(tmp_path)
+
+        with patch("dango.cli.source_wizard.console") as mock_console:
+            printed = []
+            mock_console.print = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            wizard._print_git_warnings()
+
+        assert printed == []
+
+    def test_dirty_tree_prints_warning(self, tmp_path):
+        from dango.cli.source_wizard import SourceWizard
+
+        _init_git_repo(tmp_path, branch="feat/my-source", dirty=True)
+        wizard = SourceWizard(tmp_path)
+
+        with patch("dango.cli.source_wizard.console") as mock_console:
+            printed = []
+            mock_console.print = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            wizard._print_git_warnings()
+
+        assert any("uncommitted" in p for p in printed)
+
+    def test_non_git_project_does_not_crash_or_print(self, tmp_path):
+        """tmp_path is a plain directory, never git-initialized here — must not
+        raise and must not print anything."""
+        from dango.cli.source_wizard import SourceWizard
+
+        wizard = SourceWizard(tmp_path)
+
+        with patch("dango.cli.source_wizard.console") as mock_console:
+            printed = []
+            mock_console.print = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            wizard._print_git_warnings()  # must not raise
+
+        assert printed == []
+
 
 # ---------------------------------------------------------------------------
 # P2-2: Success message requires actual auth tokens

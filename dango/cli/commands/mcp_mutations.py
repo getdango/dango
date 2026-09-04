@@ -28,7 +28,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from dango.cli.commands.mcp_helpers import _get_project_root
+from dango.cli.commands.mcp_helpers import _get_project_root, _git_warnings
 from dango.cli.commands.mcp_server import mcp
 
 # ── Trigger tools ─────────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ def add_source(
                      Use lowercase_with_underscores. Must not already exist.
         description: Human-readable description of what this source contains.
 
-    Returns dict with: status, source_name, next_steps (credentials to configure).
+    Returns dict with: status, source_name, next_steps (credentials to configure), git_warning.
     """
     project_root = _get_project_root()
     from dango.config.helpers import load_config, save_config
@@ -202,13 +202,16 @@ def add_source(
         next_steps.append(f"Add {key_name} to .dlt/secrets.toml")
     next_steps.append(f"Run: dango sync {source_name}")
 
-    return {
+    result = {
         "status": "created",
         "source_name": source_name,
         "source_type": source_type,
         "auth_type": auth_type,
         "next_steps": next_steps,
     }
+    if git_warning := _git_warnings(project_root):
+        result["git_warning"] = git_warning
+    return result
 
 
 @mcp.tool()
@@ -256,7 +259,7 @@ def create_model(
                        For staging: use source names. For others: use model names.
         description: What this model represents (written to schema.yml).
 
-    Returns dict with: status, file_path, sql_scaffold, warnings (if any).
+    Returns dict with: status, file_path, sql_scaffold, warnings (if any), git_warning.
     """
     project_root = _get_project_root()
 
@@ -386,7 +389,7 @@ select * from {first_alias}
     # Update schema.yml
     _update_schema_yml(model_dir, model_name, description, upstream_refs)
 
-    return {
+    result = {
         "status": "created",
         "file_path": str(model_path.relative_to(project_root)),
         "sql_scaffold": sql,
@@ -396,6 +399,9 @@ select * from {first_alias}
             "Run: dango run to test",
         ],
     }
+    if git_warning := _git_warnings(project_root):
+        result["git_warning"] = git_warning
+    return result
 
 
 @mcp.tool()
@@ -417,7 +423,7 @@ def add_schedule(
         timezone: Timezone for the cron (e.g. "Asia/Singapore", "US/Eastern"). Default UTC.
         skip_dbt: If True, sync only — do not run dbt transforms after sync.
 
-    Returns dict with: status, schedule_name, next_run_approx.
+    Returns dict with: status, schedule_name, next_run_approx, git_warning.
     """
     project_root = _get_project_root()
     from dango.config.helpers import load_config
@@ -454,7 +460,7 @@ def add_schedule(
     schedules_config.schedules.append(new_schedule)
     save_schedules_config(project_root, schedules_config)
 
-    return {
+    result = {
         "status": "created",
         "schedule_name": schedule_name,
         "cron": cron,
@@ -462,6 +468,9 @@ def add_schedule(
         "sources": sources,
         "next_steps": ["Run: dango schedule reload (or restart dango) to activate"],
     }
+    if git_warning := _git_warnings(project_root):
+        result["git_warning"] = git_warning
+    return result
 
 
 # ── Schema YML helper ─────────────────────────────────────────────────────────

@@ -3,6 +3,9 @@
 Tests for dbt model wizard.
 """
 
+import subprocess
+from unittest.mock import patch
+
 import pytest
 
 from dango.cli.model_wizard import ModelWizard
@@ -17,6 +20,89 @@ def project_root(tmp_path):
         "project:\n  name: test\n  created_by: test\n  purpose: test project\n"
     )
     return tmp_path
+
+
+def _init_git_repo(path, branch="main", dirty=False):
+    """Create a real git repo at `path` on the given branch (main is git's
+    default init branch on modern git, so no checkout needed for that case)."""
+    subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.email", "test@test.com"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.name", "Test"], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "checkout", "-b", branch], check=True, capture_output=True
+    )
+    (path / "committed.txt").write_text("hello")
+    # -A picks up the .dango/project.yml the project_root fixture already wrote,
+    # not just committed.txt — otherwise the tree would be dirty even in the
+    # "clean" test case.
+    subprocess.run(["git", "-C", str(path), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(path), "commit", "-m", "init"], check=True, capture_output=True
+    )
+    if dirty:
+        (path / "dirty.txt").write_text("uncommitted")
+
+
+# ---------------------------------------------------------------------------
+# 1.0.8-OPS-3: git guardrail warnings before writing a new model
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestPrintGitWarnings:
+    """ModelWizard._print_git_warnings() — warn-only git state check called
+    from run() before the wizard starts collecting input."""
+
+    def test_on_main_prints_warning(self, project_root):
+        _init_git_repo(project_root, branch="main")
+        wizard = ModelWizard(project_root)
+
+        with patch("dango.cli.model_wizard.console") as mock_console:
+            printed = []
+            mock_console.print = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            wizard._print_git_warnings()
+
+        assert any("main" in p and "Warning" in p for p in printed)
+
+    def test_clean_feature_branch_prints_nothing(self, project_root):
+        _init_git_repo(project_root, branch="feat/my-model")
+        wizard = ModelWizard(project_root)
+
+        with patch("dango.cli.model_wizard.console") as mock_console:
+            printed = []
+            mock_console.print = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            wizard._print_git_warnings()
+
+        assert printed == []
+
+    def test_dirty_tree_prints_warning(self, project_root):
+        _init_git_repo(project_root, branch="feat/my-model", dirty=True)
+        wizard = ModelWizard(project_root)
+
+        with patch("dango.cli.model_wizard.console") as mock_console:
+            printed = []
+            mock_console.print = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            wizard._print_git_warnings()
+
+        assert any("uncommitted" in p for p in printed)
+
+    def test_non_git_project_does_not_crash_or_print(self, project_root):
+        """project_root is a plain tmp_path, never git-initialized here — must not
+        raise and must not print anything (nothing actionable for a wizard user)."""
+        wizard = ModelWizard(project_root)
+
+        with patch("dango.cli.model_wizard.console") as mock_console:
+            printed = []
+            mock_console.print = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            wizard._print_git_warnings()  # must not raise
+
+        assert printed == []
 
 
 @pytest.fixture
