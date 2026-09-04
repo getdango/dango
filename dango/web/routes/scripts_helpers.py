@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 
 from dango.auth.audit import AuditEvent, log_auth_event
 from dango.auth.models import User
+from dango.config.scripts import load_scripts_config
 from dango.logging import get_logger
 
 logger = get_logger(__name__)
@@ -29,7 +30,6 @@ _cancelling: set[str] = set()
 
 _MAX_STDOUT_SIZE = 1_048_576  # 1 MB
 _MAX_STDERR_SIZE = 1_048_576  # 1 MB
-_SCRIPT_TIMEOUT = 300  # 5 minutes
 
 
 # ---------------------------------------------------------------------------
@@ -90,13 +90,18 @@ def _safe_filename(script_name: str) -> str:
 def _discover_scripts(project_root: Path) -> list[dict[str, Any]]:
     """Recursively walk ``scripts/`` and return sorted ``.py`` file entries.
 
-    Skips ``__init__.py``, dotfiles, and ``_``-prefixed files and dirs.
+    Skips ``__init__.py``, dotfiles, and ``_``-prefixed files and dirs. Each
+    entry includes ``timeout_seconds`` — the effective run timeout, from
+    ``.dango/scripts.yml`` if configured, otherwise the default (see
+    ``dango.config.scripts``, 1.0.8-BUGS-FOUND).
     """
     scripts_dir = _get_scripts_dir(project_root)
     result: list[dict[str, Any]] = []
 
     if not scripts_dir.exists():
         return result
+
+    scripts_config = load_scripts_config(project_root)
 
     for py_file in sorted(scripts_dir.rglob("*.py")):
         # Skip __init__.py
@@ -110,9 +115,20 @@ def _discover_scripts(project_root: Path) -> list[dict[str, Any]]:
             continue
 
         rel_path = str(py_file.relative_to(scripts_dir))
-        result.append({"name": rel_path, "path": rel_path})
+        result.append(
+            {
+                "name": rel_path,
+                "path": rel_path,
+                "timeout_seconds": scripts_config.timeout_for(rel_path),
+            }
+        )
 
     return result
+
+
+def _get_script_timeout(project_root: Path, script_name: str) -> int:
+    """Effective run timeout for one script (see ``_discover_scripts()``)."""
+    return load_scripts_config(project_root).timeout_for(script_name)
 
 
 def _validate_script_path(project_root: Path, script_name: str) -> Path | JSONResponse:
