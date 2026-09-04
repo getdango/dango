@@ -8,7 +8,7 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
 
 | File | Purpose | Key Functions/Classes |
 |------|---------|----------------------|
-| `__init__.py` | Public exports | `provision_dashboard`, `create_pipeline_health_dashboard` |
+| `__init__.py` | Public exports | `provision_dashboard` |
 | `metabase.py` | Metabase auto-setup, DuckDB connection, schema sync | `MetabaseProvisioner`, `setup_metabase`, `sync_metabase_schema`, `refresh_metabase_connection`, `set_metabase_telemetry`, `get_metabase_telemetry_state` |
 | `dashboard_manager.py` | YAML-based dashboard/question export and import with rollback | `DashboardManager`, `import_dashboards` |
 
