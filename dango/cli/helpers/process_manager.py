@@ -217,7 +217,7 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
     pid = pid_record.pid if pid_record else None
 
     if pid_record is not None:
-        if not is_process_running(pid, expected_start_time=pid_record.start_time):
+        if not is_process_running(pid_record.pid, expected_start_time=pid_record.start_time):
             if verbose:
                 console.print(
                     f"[yellow]⚠[/yellow] FastAPI server PID {pid} is not running (stale PID file)"
@@ -229,7 +229,9 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
 
             # Try to kill the process — identity-verified, so a stale PID file
             # pointing at a reused PID is never signaled (see 1.0.8-OPS-1).
-            success = kill_process(pid, timeout=10, expected_start_time=pid_record.start_time)
+            success = kill_process(
+                pid_record.pid, timeout=10, expected_start_time=pid_record.start_time
+            )
 
             # Clean up PID file
             remove_pid_file(project_root)
