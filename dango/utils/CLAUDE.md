@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Shared utilities for process management, activity logging, sync history tracking, DuckDB schema initialization, database health monitoring, cross-process dbt locking, and persistent dbt model status.
+Shared utilities for process management, activity logging, sync history tracking, DuckDB schema initialization, database health monitoring, cross-process dbt locking, persistent dbt model status, and pipeline-health materialization for the Metabase dashboard.
 
 ## Files
 
@@ -20,7 +20,8 @@ Shared utilities for process management, activity logging, sync history tracking
 | `data_validation.py` | Schema/data integrity checks against DuckDB | `validate_cursor_field()`, `detect_schema_changes()`, `validate_data_completeness()`, `print_validation_report()` |
 | `env_file.py` | .env file parsing and serialization | `parse_env_file()`, `serialize_env_file()` |
 | `dango_db.py` (~210 lines) | SQLite context manager for `.dango/dango.db` + schema init | `connect()`, `get_connection()` |
-| `post_sync.py` (~804 lines) | Post-sync hook dispatcher + sync notification | `dispatch_post_sync_hooks()`, `_run_profiling()`, `_profile_dbt_models()`, `_enrich_staging_tests()`, `_run_pii_scan()`, `_run_analysis()`, `_run_dbt_snapshots()`, `_ensure_default_metrics()`, `_send_sync_notification()` |
+| `post_sync.py` (~804 lines) | Post-sync hook dispatcher + sync notification | `dispatch_post_sync_hooks()`, `_run_profiling()`, `_profile_dbt_models()`, `_enrich_staging_tests()`, `_run_pii_scan()`, `_run_analysis()`, `_run_dbt_snapshots()`, `_materialize_pipeline_health()`, `_ensure_default_metrics()`, `_send_sync_notification()` |
+| `pipeline_health.py` | Materializes sync history / dbt test results / source list into DuckDB tables (`_dango_meta` schema) for the "Data Pipeline Health" dashboard (1.0.8-DASH-1) — Metabase's container can't read the underlying JSON files directly | `materialize_pipeline_health()`, `SCHEMA` |
 | `git_info.py` | Git repository info and deployment guardrails | `GitInfo`, `GitGuardrailResult`, `collect_git_info()`, `check_git_guardrails()` |
 | `driver.py` | Metabase DuckDB driver version management + version alignment check | `METABASE_DUCKDB_DRIVER_VERSION`, `METABASE_DUCKDB_DRIVER_URL`, `get_duckdb_driver_url()`, `read_driver_version()`, `write_driver_version()`, `driver_needs_update()`, `check_version_alignment()` |
 
@@ -37,6 +38,7 @@ Shared utilities for process management, activity logging, sync history tracking
 | Add a data validation check | `data_validation.py` | Manual: call against a DuckDB with test data |
 | Rotate JSONL logs | `log_rotation.py` | `pytest tests/unit/test_log_rotation.py` |
 | Change log archive retention | `log_rotation.py` (`max_age_days` param, default 90) | `pytest tests/unit/test_log_rotation.py` |
+| Change what the pipeline-health dashboard materializes | `pipeline_health.py` | `pytest tests/unit/test_pipeline_health.py` |
 
 ## Dependencies
 
@@ -51,6 +53,7 @@ Shared utilities for process management, activity logging, sync history tracking
 - `dango/web/helpers.py` — db_health, sync_history, activity_log, dbt_status
 - `dango/web/routes/sync.py` — dbt_lock
 - `dango/ingestion/dlt_runner.py` — activity_log, sync_history, db_health, post_sync (dispatch_post_sync_hooks)
+- `dango/cli/commands/dashboard.py` — pipeline_health (materialize_pipeline_health, called before provisioning so the dashboard reflects current state even without a prior sync)
 - `dango/cli/commands/platform.py` — process (kill_process)
 - `dango/cli/commands/cleanup.py` — db_health, log_rotation
 - `dango/platform/local/watcher_runner.py` — dbt_lock, dbt_status
@@ -65,7 +68,7 @@ Shared utilities for process management, activity logging, sync history tracking
 
 ## Testing
 
-- **Unit:** `pytest tests/unit/test_db_health_disk.py tests/unit/test_log_rotation.py tests/unit/test_driver_utils.py`
+- **Unit:** `pytest tests/unit/test_db_health_disk.py tests/unit/test_log_rotation.py tests/unit/test_driver_utils.py tests/unit/test_pipeline_health.py`
 - **Integration:** None yet
 - **Manual:** `dango start` exercises database.py; `dango sync` exercises activity_log, sync_history, db_health, dbt_lock; `dango cleanup` exercises log_rotation, db_health
 

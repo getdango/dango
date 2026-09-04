@@ -111,6 +111,33 @@ def dashboard_provision(
         except Exception:  # noqa: BLE001
             pass
 
+        # Materialize sync history / dbt test results / source list into
+        # DuckDB tables (1.0.8-DASH-1) before creating the cards, so the
+        # dashboard reflects current state even on a project that has never
+        # synced (empty tables, honest zero state) or whose last sync
+        # predates this run of `dango dashboard provision`.
+        try:
+            from dango.utils.pipeline_health import materialize_pipeline_health
+
+            materialize_pipeline_health(project_root)
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Refresh Metabase's own DuckDB connection so it sees the write
+        # above. Metabase's embedded DuckDB connection holds a snapshot of
+        # the file as of when it was opened — this is the same reason
+        # dlt_runner.py calls refresh_metabase_connection() after every dbt
+        # run (see that function's docstring). Without this, a Metabase
+        # instance that was already running before this materialize step
+        # would keep showing pre-materialization (or stale) data on the new
+        # cards until something else happened to restart it.
+        try:
+            from dango.visualization.metabase import refresh_metabase_connection
+
+            refresh_metabase_connection(project_root, metabase_url=url)
+        except Exception:  # noqa: BLE001
+            pass
+
         # Provision dashboard
         with console.status("[cyan]Creating dashboard...[/cyan]", spinner="dots"):
             result = provision_dashboard(

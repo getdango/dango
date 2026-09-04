@@ -25,6 +25,7 @@ Integrates with Metabase for dashboard provisioning, auto-setup, schema synchron
 
 **Imports from:**
 - No dango module imports (isolated module). Uses `requests` to call Metabase API, reads credentials from `.dango/metabase.yml` at runtime.
+- `DASHBOARD_QUERIES`' SQL (not Python imports) reads the `_dango_meta` schema tables written by `dango.utils.pipeline_health.materialize_pipeline_health()` (1.0.8-DASH-1) — `cli/commands/dashboard.py` calls that function (and `refresh_metabase_connection()`, below) before provisioning, not this module.
 
 **Used by:**
 - `dango/cli/main.py` — Metabase CLI commands (`dango metabase setup/sync/export/import/provision/refresh`)
