@@ -3,6 +3,7 @@
 Handles creation of new Dango projects.
 """
 
+import re
 from pathlib import Path
 
 from rich.console import Console
@@ -1112,8 +1113,12 @@ custom_sources/
 
     def _create_dbt_project(self, config: DangoConfig):
         """Create dbt project configuration files"""
-        # Sanitize project name for dbt (lowercase, underscores only)
-        dbt_project_name = config.project.name.lower().replace(" ", "_").replace("-", "_")
+        # Sanitize project name for dbt: must match dbt's project-name regex
+        # (^[^\d\W]\w*$ — starts with a letter/underscore, rest is word chars only).
+        # Any character outside [A-Za-z0-9_] (dots, spaces, hyphens, etc.) becomes "_".
+        dbt_project_name = re.sub(r"\W", "_", config.project.name.lower())
+        if re.match(r"^\d", dbt_project_name):
+            dbt_project_name = f"_{dbt_project_name}"
 
         # Create dbt_project.yml
         dbt_project_content = f"""# dbt Project Configuration

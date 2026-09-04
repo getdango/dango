@@ -280,16 +280,19 @@ class MetabaseProvisioner:
     def __init__(
         self,
         metabase_url: str = "http://localhost:3000",
-        username: str = "admin@example.com",
-        password: str = "admin123",
+        username: str = "",
+        password: str = "",
     ):
         """
         Initialize Metabase provisioner
 
         Args:
             metabase_url: Metabase instance URL
-            username: Admin username
-            password: Admin password
+            username: Admin username. Defaults to "" — real callers must supply this
+                explicitly; it previously defaulted to "admin@example.com", a
+                hardcoded-credential-shaped trap for any future caller (see
+                1.0.8-BUGS-FOUND.md)
+            password: Admin password. Defaults to "", same reasoning as username
         """
         self.metabase_url = metabase_url.rstrip("/")
         self.username = username
@@ -590,8 +593,9 @@ class MetabaseProvisioner:
 
 def provision_dashboard(
     metabase_url: str = "http://localhost:3000",
-    username: str = "admin@example.com",
-    password: str = "admin123",
+    *,
+    username: str,
+    password: str,
     database_id: int | None = None,
 ) -> dict[str, Any]:
     """
@@ -609,23 +613,8 @@ def provision_dashboard(
     Returns:
         Provisioning summary
     """
-    provisioner = MetabaseProvisioner(metabase_url, username, password)
+    provisioner = MetabaseProvisioner(metabase_url, username=username, password=password)
     return provisioner.provision_pipeline_health_dashboard(database_id=database_id)
-
-
-def create_pipeline_health_dashboard(project_root: Path) -> dict[str, Any]:
-    """
-    Create Data Pipeline Health dashboard for a Dango project
-
-    Args:
-        project_root: Path to Dango project root
-
-    Returns:
-        Provisioning summary
-    """
-    # Read Metabase credentials from project config if available
-    # For now, use defaults
-    return provision_dashboard()
 
 
 def generate_secure_password(length: int = 20) -> str:
