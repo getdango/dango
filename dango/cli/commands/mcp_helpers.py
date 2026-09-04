@@ -1,10 +1,11 @@
 """dango/cli/commands/mcp_helpers.py
 
-Shared helpers for the MCP server's read tools (dango/cli/commands/mcp_server.py).
-Split out purely to keep mcp_server.py under the file-size check — these are
-plain functions, not Click-registered commands, so there's no cross-file
-command-registration pattern involved (unlike mcp_setup.py), just a normal
-helper extraction.
+Shared helpers for the MCP server's read tools (dango/cli/commands/mcp_server.py)
+and, since 1.0.8-OPS-3, _git_warnings() below for the mutation tools in
+mcp_mutations.py. Split out purely to keep mcp_server.py under the file-size
+check — these are plain functions, not Click-registered commands, so there's
+no cross-file command-registration pattern involved (unlike mcp_setup.py),
+just a normal helper extraction.
 
 Safe to import at mcp_server.py's module top level despite the "lazy Dango
 imports only" rule for that file: this module itself does zero dango.*
@@ -40,6 +41,19 @@ def _get_project_root() -> Path:
         raise RuntimeError(
             "Not inside a Dango project. cd into your project directory first."
         ) from None
+
+
+def _git_warnings(project_root: Path) -> list[str]:
+    """Non-blocking git-state warnings (on main/master, dirty tree, detached
+    HEAD) for a repo-mutating MCP tool. No human to prompt over stdio, so
+    callers fold this into their return dict as a `git_warning` key instead
+    of printing (1.0.8-OPS-3). [] for a non-git project or a clean branch."""
+    from dango.utils.git_info import check_mutation_guardrails, collect_git_info
+
+    git_info = collect_git_info(project_root)
+    if not git_info.is_git_repo:
+        return []
+    return list(check_mutation_guardrails(git_info).warnings)
 
 
 def _infer_layer(model_name: str) -> str:

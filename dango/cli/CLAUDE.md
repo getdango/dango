@@ -28,9 +28,9 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/seed.py` (135 lines) | `seed` group (`add`, `list`) — dbt seed CSV management | `seed` |
 | `commands/dashboard.py` (215 lines) | `dashboard` group (`provision`) — materializes pipeline-health state via `dango.utils.pipeline_health` before provisioning (1.0.8-DASH-1) | `dashboard` |
 | `commands/mcp_server.py` (~460 lines) | `mcp` group + `run` command; FastMCP stdio server with 8 read-only tools (list_sources, get_table_schema, get_catalog, get_lineage, list_models, get_model_sql, query, get_sync_history) | `mcp_group`, `mcp`, `mcp_run()` |
-| `commands/mcp_mutations.py` (~485 lines) | Mutation tools registered onto the shared `mcp` FastMCP instance (run_sync, run_transform, run_doctor, add_source, list_source_types, create_model, add_schedule) — split out of mcp_server.py, not a Click module | `run_sync()`, `run_transform()`, `run_doctor()`, `add_source()`, `list_source_types()`, `create_model()`, `add_schedule()` |
+| `commands/mcp_mutations.py` (~508 lines, exempt — see `docs/file-exemptions.yml`) | Mutation tools registered onto the shared `mcp` FastMCP instance (run_sync, run_transform, run_doctor, add_source, list_source_types, create_model, add_schedule) — split out of mcp_server.py, not a Click module. `add_source`/`create_model`/`add_schedule` call `mcp_helpers._git_warnings()` (1.0.8-OPS-3) and fold any result into a `git_warning` key on success | `run_sync()`, `run_transform()`, `run_doctor()`, `add_source()`, `list_source_types()`, `create_model()`, `add_schedule()` |
 | `commands/mcp_setup.py` (~145 lines) | `mcp setup` / `mcp status` subcommands (registers onto `mcp_group` from mcp_server.py) — detects/configures Claude Code, Cursor, Windsurf | `mcp_setup()`, `mcp_status()` |
-| `commands/mcp_helpers.py` (~120 lines) | Plain-function helpers for the MCP read tools (project root, SELECT-only SQL validation, retry-on-lock DuckDB connect, blocking query execution) — split out of mcp_server.py, not a Click module | `_get_project_root()`, `_validate_select_only()`, `_connect_readonly_with_retry()`, `_execute_query_sync()` |
+| `commands/mcp_helpers.py` (~166 lines) | Plain-function helpers for the MCP read tools (project root, SELECT-only SQL validation, retry-on-lock DuckDB connect, blocking query execution) plus `_git_warnings()` (1.0.8-OPS-3) shared by the mutation tools in mcp_mutations.py — split out of mcp_server.py, not a Click module | `_get_project_root()`, `_validate_select_only()`, `_connect_readonly_with_retry()`, `_execute_query_sync()`, `_git_warnings()` |
 | `commands/remote.py` (702 lines) | `remote` group → `push`, `rollback`, `firewall`, `domain` subgroups + management commands | `remote`, `remote_push()`, `remote_rollback()`, `firewall`, `domain` |
 | `commands/migrate.py` | `migrate` group (`status`, `run`) | `migrate` |
 | `commands/serve.py` (~205 lines) | `serve` production foreground server with `--workers` option. Metabase setup failure is non-fatal (prints warning, continues to uvicorn). | `serve()` |
@@ -55,8 +55,8 @@ Click-based command-line interface for all Dango operations — project init, so
 | **Wizards** | | |
 | `init.py` (1585 lines) | Project initialization wizard, incl. first-run telemetry consent prompt | `ProjectInitializer` |
 | `wizard.py` (307 lines) | Interactive setup wizards | `ProjectWizard` |
-| `source_wizard.py` (2525 lines) | Source configuration wizard | `add_source()` |
-| `model_wizard.py` (547 lines) | dbt model creation wizard | `add_model()` |
+| `source_wizard.py` (2610 lines) | Source configuration wizard. `run()` calls `_print_git_warnings()` (1.0.8-OPS-3) right after the intro panel | `add_source()` |
+| `model_wizard.py` (617 lines) | dbt model creation wizard. `run()` calls `_print_git_warnings()` (1.0.8-OPS-3) right after the intro banner | `add_model()` |
 | **Helpers** | | |
 | `utils.py` (164 lines) | Display helpers + project context | `require_project_context()` |
 | `validate.py` (787 lines) | Project validation logic | `validate_project()` |

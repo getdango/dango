@@ -87,22 +87,26 @@ class TestDbtTelemetryEnv:
 
 @pytest.mark.unit
 class TestDltWriteThrough:
-    """_set_dlt_telemetry / _get_dlt_telemetry_state — .dlt/config.toml write-through."""
+    """_set_dlt_telemetry / _get_dlt_telemetry_state — ~/.dango/config.yml
+    write-through (1.0.8-OPS-2: moved off project-level .dlt/config.toml,
+    which was git-tracked by default — see
+    v1.0.x-planning/1.0.8/OPS-2-telemetry-storage-consolidation.md).
+    `project_root` is still accepted by both CLI wrappers (for --all's
+    downgrade-to-warning bookkeeping and legacy-opt-out migration
+    respectively) but no longer determines where the value is stored."""
 
     def test_dlt_write_through(self, tmp_path: Path) -> None:
         from dango.cli.commands.telemetry import _set_dlt_telemetry
 
         _set_dlt_telemetry(False, tmp_path)
 
-        config_path = tmp_path / ".dlt" / "config.toml"
+        config_path = tmp_path / ".dango" / "config.yml"
         assert config_path.exists()
         content = config_path.read_text()
-        assert "dlthub_telemetry" in content
-        # Written as a native TOML boolean (unquoted), matching the type of
-        # dlt's own dlthub_telemetry field (RuntimeConfiguration.dlthub_telemetry: bool)
-        # and the value type dlt's own CLI writes via WritableConfigValue(..., bool, ...).
-        assert "false" in content
-        assert '"false"' not in content
+        assert "dlt_telemetry: false" in content
+
+        # And the project-level legacy file must NOT be touched.
+        assert not (tmp_path / ".dlt" / "config.toml").exists()
 
     def test_dlt_read_state_off(self, tmp_path: Path) -> None:
         from dango.cli.commands.telemetry import _get_dlt_telemetry_state, _set_dlt_telemetry
@@ -124,37 +128,66 @@ class TestDltWriteThrough:
 
         assert _get_dlt_telemetry_state(tmp_path) is True
 
-    def test_dlt_malformed_existing_toml_raises_click_exception(self, tmp_path: Path) -> None:
-        """Review fix #1: a hand-corrupted .dlt/config.toml must raise
-        click.ClickException (so --all can skip and continue), not a raw
-        tomlkit.exceptions.TOMLKitError."""
-        import click
-
-        from dango.cli.commands.telemetry import _set_dlt_telemetry
-
-        config_path = tmp_path / ".dlt" / "config.toml"
-        config_path.parent.mkdir(parents=True)
-        config_path.write_text("[runtime\ndlthub_telemetry = true\n")  # missing ']'
-
-        with pytest.raises(click.ClickException):
-            _set_dlt_telemetry(False, tmp_path)
-
     def test_dlt_write_failure_raises_click_exception_not_oserror(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Review fix #1: a real OSError writing .dlt/config.toml (disk
-        full, permissions) must surface as click.ClickException."""
+        """A real OSError writing ~/.dango/config.yml (disk full,
+        permissions) must surface as click.ClickException — same contract
+        as _set_dbt_telemetry."""
         import click
 
         from dango.cli.commands.telemetry import _set_dlt_telemetry
 
-        def _raise_oserror(self: Path, *args: object, **kwargs: object) -> None:
+        def _raise_oserror(*args: object, **kwargs: object) -> None:
             raise OSError("disk full")
 
-        monkeypatch.setattr(Path, "write_text", _raise_oserror)
+        monkeypatch.setattr("builtins.open", _raise_oserror)
 
         with pytest.raises(click.ClickException):
             _set_dlt_telemetry(False, tmp_path)
+
+    def test_dlt_legacy_toml_opt_out_migrated_on_first_read(self, tmp_path: Path) -> None:
+        """1.0.8-OPS-2 migration decision: a pre-existing project-level
+        .dlt/config.toml opt-out (dlthub_telemetry = false) is migrated
+        into ~/.dango/config.yml the first time it's read through the CLI
+        wrapper, rather than silently reverting to the new default. A
+        second read must not require the legacy file any more."""
+        import tomlkit
+
+        from dango.cli.commands.telemetry import _get_dlt_telemetry_state
+
+        config_path = tmp_path / ".dlt" / "config.toml"
+        config_path.parent.mkdir(parents=True)
+        doc = tomlkit.document()
+        doc.add("runtime", tomlkit.table())
+        doc["runtime"]["dlthub_telemetry"] = False
+        config_path.write_text(tomlkit.dumps(doc))
+
+        assert _get_dlt_telemetry_state(tmp_path) is False
+
+        global_config = tmp_path / ".dango" / "config.yml"
+        assert "dlt_telemetry: false" in global_config.read_text()
+
+        # Second read must not need the legacy file at all.
+        config_path.unlink()
+        assert _get_dlt_telemetry_state(tmp_path) is False
+
+    def test_dlt_legacy_toml_opt_in_needs_no_migration(self, tmp_path: Path) -> None:
+        """An explicit `dlthub_telemetry = true` in the legacy file matches
+        the new default already — no migration write should happen."""
+        import tomlkit
+
+        from dango.cli.commands.telemetry import _get_dlt_telemetry_state
+
+        config_path = tmp_path / ".dlt" / "config.toml"
+        config_path.parent.mkdir(parents=True)
+        doc = tomlkit.document()
+        doc.add("runtime", tomlkit.table())
+        doc["runtime"]["dlthub_telemetry"] = True
+        config_path.write_text(tomlkit.dumps(doc))
+
+        assert _get_dlt_telemetry_state(tmp_path) is True
+        assert not (tmp_path / ".dango" / "config.yml").exists()
 
 
 @pytest.mark.unit
@@ -262,7 +295,9 @@ class TestTelemetryStatusCommand:
 @pytest.mark.unit
 class TestTelemetryOffAllOutsideProject:
     """Regression risk + acceptance criterion: `--all` outside a project must
-    succeed for dango+dbt and warn (not crash) for dlt+metabase."""
+    succeed for dango+dbt+dlt (all machine-level as of 1.0.8-OPS-2) and warn
+    (not crash) for metabase (still project-scoped — write-through is a live
+    API call using per-project credentials)."""
 
     def test_off_all_outside_project_warns_not_crashes(self, tmp_path: Path) -> None:
         runner = CliRunner()
@@ -272,15 +307,27 @@ class TestTelemetryOffAllOutsideProject:
         assert result.exit_code == 0, result.output
         assert "dango: telemetry disabled" in result.output
         assert "dbt: telemetry disabled" in result.output
-        assert "dlt" in result.output and "skipped" in result.output
+        assert "dlt: telemetry disabled" in result.output
         assert "metabase" in result.output and "skipped" in result.output
 
-    def test_off_provider_dlt_outside_project_raises(self, tmp_path: Path) -> None:
-        """A single explicit --provider request outside a project is a hard
-        error, not a silent skip — this is a deliberate action, not a sweep."""
+    def test_off_provider_dlt_outside_project_succeeds(self, tmp_path: Path) -> None:
+        """1.0.8-OPS-2: dlt telemetry is machine-level now, so an explicit
+        --provider dlt request no longer requires an active Dango project
+        (unlike metabase, which still does — see the class docstring)."""
         runner = CliRunner()
         with runner.isolated_filesystem(temp_dir=tmp_path):
             result = runner.invoke(cli, ["telemetry", "off", "--provider", "dlt"])
+
+        assert result.exit_code == 0, result.output
+        assert "dlt: telemetry disabled" in result.output
+
+    def test_off_provider_metabase_outside_project_raises(self, tmp_path: Path) -> None:
+        """A single explicit --provider request outside a project is a hard
+        error, not a silent skip — this is a deliberate action, not a sweep.
+        Only metabase remains project-scoped after 1.0.8-OPS-2."""
+        runner = CliRunner()
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(cli, ["telemetry", "off", "--provider", "metabase"])
 
         assert result.exit_code != 0
         assert "Dango project" in result.output
@@ -376,42 +423,69 @@ class TestLevel0DbtDltTelemetryFunctions:
 
         assert get_dlt_telemetry_state(tmp_path) is True
         assert get_dlt_telemetry_state(None) is True
+        assert get_dlt_telemetry_state() is True
 
     def test_set_get_dlt_telemetry_state_round_trip(self, tmp_path: Path) -> None:
+        """1.0.8-OPS-2: dlt telemetry is machine-level (~/.dango/config.yml)
+        like dbt's — set_dlt_telemetry_state() takes no project_root."""
         from dango.telemetry import get_dlt_telemetry_state, set_dlt_telemetry_state
 
-        set_dlt_telemetry_state(tmp_path, False)
+        set_dlt_telemetry_state(False)
+        assert get_dlt_telemetry_state() is False
         assert get_dlt_telemetry_state(tmp_path) is False
-        set_dlt_telemetry_state(tmp_path, True)
-        assert get_dlt_telemetry_state(tmp_path) is True
+        set_dlt_telemetry_state(True)
+        assert get_dlt_telemetry_state() is True
 
-    def test_set_dlt_telemetry_state_malformed_toml_raises_value_error(
-        self, tmp_path: Path
+    def test_set_dlt_telemetry_state_raises_plain_oserror(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A malformed .dlt/config.toml raises ValueError (wrapping
-        tomlkit's TOMLKitError) here — the CLI wrapper is what converts
-        this to click.ClickException."""
+        """Level 0 has no click import — a write failure must surface as a
+        plain OSError, not click.ClickException (that translation is
+        cli/commands/telemetry.py's job) — same contract as
+        set_dbt_telemetry_state."""
         from dango.telemetry import set_dlt_telemetry_state
+
+        def _raise_oserror(*args: object, **kwargs: object) -> None:
+            raise OSError("permission denied")
+
+        monkeypatch.setattr("builtins.open", _raise_oserror)
+
+        with pytest.raises(OSError):
+            set_dlt_telemetry_state(False)
+
+    def test_get_dlt_telemetry_state_migration_writes_global_config(self, tmp_path: Path) -> None:
+        """1.0.8-OPS-2 migration decision: a pre-existing project-level
+        .dlt/config.toml opt-out is migrated into ~/.dango/config.yml on
+        first read, so an existing opted-out user's prior "no" answer isn't
+        silently dropped by the storage move (see task file's Background /
+        migration-decision section)."""
+        import tomlkit
+
+        from dango.telemetry import get_dlt_telemetry_state
 
         config_path = tmp_path / ".dlt" / "config.toml"
         config_path.parent.mkdir(parents=True)
-        config_path.write_text("[runtime\ndlthub_telemetry = true\n")  # missing ']'
+        doc = tomlkit.document()
+        doc.add("runtime", tomlkit.table())
+        doc["runtime"]["dlthub_telemetry"] = False
+        config_path.write_text(tomlkit.dumps(doc))
 
-        with pytest.raises(ValueError):
-            set_dlt_telemetry_state(tmp_path, False)
+        result = get_dlt_telemetry_state(tmp_path)
 
-    def test_set_dlt_telemetry_state_write_failure_raises_plain_oserror(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        assert result is False
+        global_config = tmp_path / ".dango" / "config.yml"
+        assert global_config.exists()
+        assert "dlt_telemetry: false" in global_config.read_text()
+
+    def test_get_dlt_telemetry_state_no_migration_without_project_root(
+        self, tmp_path: Path
     ) -> None:
-        from dango.telemetry import set_dlt_telemetry_state
+        """Without a project_root, there's nothing to migrate from — the
+        machine-level default applies, same as a brand-new install."""
+        from dango.telemetry import get_dlt_telemetry_state
 
-        def _raise_oserror(self: Path, *args: object, **kwargs: object) -> None:
-            raise OSError("disk full")
-
-        monkeypatch.setattr(Path, "write_text", _raise_oserror)
-
-        with pytest.raises(OSError):
-            set_dlt_telemetry_state(tmp_path, False)
+        assert get_dlt_telemetry_state(None) is True
+        assert not (tmp_path / ".dango" / "config.yml").exists()
 
     def test_providers_constant(self) -> None:
         from dango.telemetry import PROVIDERS

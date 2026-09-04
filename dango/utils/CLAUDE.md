@@ -22,7 +22,7 @@ Shared utilities for process management, activity logging, sync history tracking
 | `dango_db.py` (~210 lines) | SQLite context manager for `.dango/dango.db` + schema init | `connect()`, `get_connection()` |
 | `post_sync.py` (~804 lines) | Post-sync hook dispatcher + sync notification | `dispatch_post_sync_hooks()`, `_run_profiling()`, `_profile_dbt_models()`, `_enrich_staging_tests()`, `_run_pii_scan()`, `_run_analysis()`, `_run_dbt_snapshots()`, `_materialize_pipeline_health()`, `_ensure_default_metrics()`, `_send_sync_notification()` |
 | `pipeline_health.py` | Materializes sync history / dbt test results / source list into DuckDB tables (`_dango_meta` schema) for the "Data Pipeline Health" dashboard (1.0.8-DASH-1) — Metabase's container can't read the underlying JSON files directly | `materialize_pipeline_health()`, `SCHEMA` |
-| `git_info.py` | Git repository info and deployment guardrails | `GitInfo`, `GitGuardrailResult`, `collect_git_info()`, `check_git_guardrails()` |
+| `git_info.py` | Git repository info, deployment guardrails, and warn-only mutation guardrails (CLI wizards + MCP tools, 1.0.8-OPS-3) | `GitInfo`, `GitGuardrailResult`, `collect_git_info()`, `check_git_guardrails()`, `check_mutation_guardrails()` |
 | `driver.py` | Metabase DuckDB driver version management + version alignment check | `METABASE_DUCKDB_DRIVER_VERSION`, `METABASE_DUCKDB_DRIVER_URL`, `get_duckdb_driver_url()`, `read_driver_version()`, `write_driver_version()`, `driver_needs_update()`, `check_version_alignment()` |
 
 ## Common Tasks
@@ -63,6 +63,8 @@ Shared utilities for process management, activity logging, sync history tracking
 - `dango/governance/` — dango_db (connect)
 - `dango/notebooks/` — dango_db (connect)
 - `dango/analysis/` — dango_db (connect)
+- `dango/cli/commands/remote.py` — git_info (check_git_guardrails, cloud deploy/push path)
+- `dango/cli/model_wizard.py`, `dango/cli/source_wizard.py`, `dango/cli/commands/mcp_helpers.py` — git_info (check_mutation_guardrails, 1.0.8-OPS-3 warn-only guardrails for the CLI wizards and MCP mutation tools)
 
 **Not yet imported:** `data_validation.py` (prepared utility, not integrated into any module)
 

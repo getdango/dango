@@ -91,8 +91,11 @@ def _set_provider_state(provider: str, enabled: bool, project_root: Path) -> Non
     """Write through the enabled/disabled state for a single provider.
 
     Raises:
-        OSError: dbt write failure.
-        ValueError: dlt malformed/unwritable .dlt/config.toml.
+        OSError: dbt or dlt write failure (~/.dango/config.yml) — dlt moved
+            to this machine-level key in 1.0.8-OPS-2, matching dbt, so it
+            no longer raises ValueError for a malformed project-level
+            .dlt/config.toml (that file is no longer written by this code
+            path at all).
         click.ClickException: Metabase API/credentials failure —
             `set_metabase_telemetry()` (dango/visualization/metabase.py)
             raises this directly rather than a plain exception (an
@@ -105,7 +108,7 @@ def _set_provider_state(provider: str, enabled: bool, project_root: Path) -> Non
     elif provider == "dbt":
         set_dbt_telemetry_state(enabled)
     elif provider == "dlt":
-        set_dlt_telemetry_state(project_root, enabled)
+        set_dlt_telemetry_state(enabled)
     elif provider == "metabase":
         set_metabase_telemetry(project_root, enabled)
     else:

@@ -2,9 +2,9 @@
 
 Unified telemetry control for Dango, dbt, dlt, and Metabase — a single
 command surface that writes through to each provider's own real config
-mechanism (Dango's ~/.dango/telemetry.json, dbt's dbt_telemetry key in
-~/.dango/config.yml, dlt's .dlt/config.toml, and Metabase's admin Setting
-API). This controls
+mechanism (Dango's ~/.dango/telemetry.json, dbt's dbt_telemetry key and
+dlt's dlt_telemetry key — both in ~/.dango/config.yml as of 1.0.8-OPS-2 —
+and Metabase's admin Setting API). This controls
 telemetry for the components Dango configures; it does not claim anything
 about network traffic outside those four providers.
 
@@ -30,9 +30,12 @@ from dango.telemetry import PROVIDERS
 
 # Providers whose write-through requires an active Dango project (project_root
 # is not None). Used by the --all path to downgrade a missing-project failure
-# to a warning instead of aborting the whole command — dango and dbt are
-# machine-level and always succeed regardless of project context.
-_PROJECT_SCOPED_PROVIDERS = ("dlt", "metabase")
+# to a warning instead of aborting the whole command — dango, dbt, and dlt
+# (1.0.8-OPS-2: dlt moved to machine-level ~/.dango/config.yml) are
+# machine-level and always succeed regardless of project context. Only
+# metabase remains project-scoped (it write-through's via a live API call
+# using per-project credentials in .dango/metabase.yml).
+_PROJECT_SCOPED_PROVIDERS = ("metabase",)
 
 
 @click.group("telemetry")
@@ -200,36 +203,32 @@ def _set_dbt_telemetry(enabled: bool) -> None:
 
 
 def _set_dlt_telemetry(enabled: bool, project_root: Path | None) -> None:
-    """Write dlthub_telemetry to .dlt/config.toml under [runtime].
+    """Write dlt's opt-out state to ~/.dango/config.yml under the dlt_telemetry key.
 
-    Thin wrapper (1.0.8-U) around `dango.telemetry.set_dlt_telemetry_state()`
-    — the actual read/write logic lives there (Level 0) so
-    `web/routes/telemetry.py` (Level 2) can call it too without importing
-    this Level-3 module. This wrapper's only job is the `project_root is
-    None` check (CLI-specific — the web route always has a project_root)
-    and translating that function's plain exceptions into
-    `click.ClickException` with identical message text to before the
-    relocation.
+    Thin wrapper (1.0.8-U, machine-level since 1.0.8-OPS-2) around
+    `dango.telemetry.set_dlt_telemetry_state()` — the actual read/write
+    logic lives there (Level 0) so `web/routes/telemetry.py` (Level 2) can
+    call it too without importing this Level-3 module. `project_root` is
+    accepted but unused now that dlt telemetry is machine-level rather than
+    project-scoped (kept for call-site symmetry with the other
+    `_set_*_telemetry` helpers, all of which take `project_root`). This
+    wrapper's only job is translating `set_dlt_telemetry_state()`'s plain
+    `OSError` into `click.ClickException`.
 
     Raises:
-        click.ClickException: If project_root is None, if the file can't
-            be read/written (OSError — e.g. permissions), or if the
-            existing .dlt/config.toml is malformed (a ValueError wrapping
-            tomlkit.exceptions.TOMLKitError, e.g. from manual editing) —
-            the latter two converted from raw exceptions so `--all` can
-            skip this provider and continue, same contract as dbt above
-            and Metabase's set_metabase_telemetry().
+        click.ClickException: If the write fails (e.g. permission denied,
+            disk full) — same message text as before the 1.0.8-U
+            relocation, so `--all` can skip this provider and continue,
+            matching the error-handling contract `set_metabase_telemetry()`
+            uses.
     """
+    del project_root  # unused — dlt telemetry is machine-level, see docstring
     from dango.telemetry import set_dlt_telemetry_state
 
-    if project_root is None:
-        raise click.ClickException("Must be run inside a Dango project for dlt control")
     try:
-        set_dlt_telemetry_state(project_root, enabled)
-    except OSError as e:
-        raise click.ClickException(f"Could not write .dlt/config.toml: {e}") from e
-    except ValueError as e:
-        raise click.ClickException(f"Could not parse .dlt/config.toml: {e}") from e
+        set_dlt_telemetry_state(enabled)
+    except OSError:
+        raise click.ClickException("Could not write ~/.dango/config.yml") from None
 
 
 def _set_metabase_telemetry(enabled: bool, project_root: Path | None) -> None:
@@ -260,10 +259,14 @@ def _get_dbt_telemetry_state() -> bool:
 
 
 def _get_dlt_telemetry_state(project_root: Path | None) -> bool:
-    """Return dlt's current opt-in state per .dlt/config.toml (default: on).
+    """Return dlt's current opt-in state per ~/.dango/config.yml (default: on).
 
-    Thin wrapper (1.0.8-U) — the actual read logic now lives in
-    `dango.telemetry.get_dlt_telemetry_state()` (Level 0).
+    Thin wrapper (1.0.8-U, machine-level since 1.0.8-OPS-2) — the actual
+    read logic now lives in `dango.telemetry.get_dlt_telemetry_state()`
+    (Level 0). `project_root` is still passed through (rather than dropped
+    like the dbt wrapper above) so a legacy per-project `.dlt/config.toml`
+    opt-out can be migrated into ~/.dango/config.yml on first read — see
+    that function's docstring.
     """
     from dango.telemetry import get_dlt_telemetry_state
 

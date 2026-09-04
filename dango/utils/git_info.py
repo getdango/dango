@@ -127,3 +127,48 @@ def check_git_guardrails(
         warnings=tuple(warnings),
         errors=tuple(errors),
     )
+
+
+def check_mutation_guardrails(
+    git_info: GitInfo,
+    *,
+    protected_branches: tuple[str, ...] = ("main", "master"),
+) -> GitGuardrailResult:
+    """Check git state before a local repo-mutating command (CLI wizard or MCP tool).
+
+    This is a sibling of check_git_guardrails(), not a caller of it — deliberately, not
+    an oversight. check_git_guardrails()'s branch check flags being OFF an
+    *expected_branch* (deploy semantics: "you must be on the branch you're pushing to
+    the server"). Mutation entry points (dango model add, dango source add, and the MCP
+    create_model/add_source/add_schedule tools) need the opposite signal: flag being ON
+    a shared/protected branch, since the write lands directly on it with no review.
+    Reusing check_git_guardrails() here — even with allow_branch=True — would either
+    warn on the wrong condition or require passing expected_branch=<the branch we're
+    already on> just to suppress it, which is more contorted than a small, purpose-built
+    sibling that reuses the same GitInfo/GitGuardrailResult/collect_git_info() building
+    blocks and the same warning message style.
+
+    Always warn-only: passed is always True. 1.0.8-OPS-3 is an explicit warn-don't-block
+    decision — these are local file writes, not a production deploy, so
+    check_git_guardrails()'s hard-block-by-default behavior does not apply here.
+    """
+    warnings: list[str] = []
+
+    if not git_info.is_git_repo:
+        warnings.append("Not a git repository — skipping git checks.")
+        return GitGuardrailResult(passed=True, warnings=tuple(warnings))
+
+    if git_info.branch == "HEAD":
+        warnings.append("Detached HEAD — no branch tracking.")
+    elif git_info.branch and git_info.branch in protected_branches:
+        warnings.append(
+            f"On branch '{git_info.branch}' — this change will be written directly "
+            "to that branch. Consider creating a feature branch first."
+        )
+
+    if git_info.is_clean is False:
+        warnings.append("Working tree has uncommitted changes.")
+    elif git_info.is_clean is None:
+        warnings.append("Could not determine working tree status.")
+
+    return GitGuardrailResult(passed=True, warnings=tuple(warnings))
