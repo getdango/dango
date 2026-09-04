@@ -210,62 +210,87 @@ def set_dbt_telemetry_state(enabled: bool) -> None:
         raise OSError("Could not write ~/.dango/config.yml")
 
 
-def get_dlt_telemetry_state(project_root: Path | None) -> bool:
-    """Return dlt's current opt-in state per .dlt/config.toml (default: on).
+def _read_legacy_dlt_toml_opt_out(project_root: Path) -> bool | None:
+    """Read a pre-1.0.8-OPS-2 project-level dlt opt-out, for one-time migration only.
 
-    Relocated here (Level 0) from `cli/commands/telemetry.py`'s
-    `_get_dlt_telemetry_state()` (1.0.8-U) — only touches `.dlt/config.toml`
-    via `tomlkit` (third-party), no dango-internal import, so this has
-    always belonged at Level 0.
+    Returns the explicit ``[runtime].dlthub_telemetry`` value from the
+    project's `.dlt/config.toml` if present and parseable, or None if the
+    file is absent, unparseable, or has no explicit value (dlt's own
+    default is True, same as ours, so an absent key needs no migration).
+
+    Never raises — this is a best-effort read for migration purposes only,
+    not the source of truth going forward (see `get_dlt_telemetry_state`).
     """
-    if project_root is None:
-        return True
     config_path = project_root / ".dlt" / "config.toml"
     if not config_path.exists():
-        return True
+        return None
     try:
         import tomlkit
 
         doc = tomlkit.parse(config_path.read_text())
-        val = doc.get("runtime", {}).get("dlthub_telemetry", True)
-        return bool(val)
+        runtime = doc.get("runtime")
+        if runtime is None or "dlthub_telemetry" not in runtime:
+            return None
+        return bool(runtime["dlthub_telemetry"])
     except Exception:
-        return True
+        return None
 
 
-def set_dlt_telemetry_state(project_root: Path, enabled: bool) -> None:
-    """Write dlthub_telemetry to .dlt/config.toml under [runtime].
+def get_dlt_telemetry_state(project_root: Path | None = None) -> bool:
+    """Return dlt's current opt-in state per ~/.dango/config.yml (default: on).
 
-    Writes a native TOML boolean (not a string) to match the value type
-    dlt's own `dlt telemetry switch` CLI writes —
-    RuntimeConfiguration.dlthub_telemetry is a bool-typed field.
+    Machine-level (1.0.8-OPS-2), matching `get_dbt_telemetry_state()` —
+    moved off project-level `.dlt/config.toml` (which was git-tracked by
+    default, the exact inconsistency this task fixes: see
+    `1.0.x-planning/1.0.8/OPS-2-telemetry-storage-consolidation.md`).
 
-    Relocated here (Level 0), moved verbatim from
-    `cli/commands/telemetry.py`'s `_set_dlt_telemetry()` body (1.0.8-U),
-    minus the `click.ClickException` wrapping — this module has no `click`
-    import (Level 0 cannot depend on Level 3). Callers that need a
-    `click.ClickException` (the CLI) catch the exceptions below and wrap
-    them with the same message text as before the relocation.
+    One-time migration: if the global config has no `dlt_telemetry` key yet
+    AND `project_root` is given AND that project's `.dlt/config.toml` has an
+    explicit `dlthub_telemetry = false` from before this change, that
+    opt-out is migrated into `~/.dango/config.yml` (written once, here) so
+    an existing user's prior "no" answer survives the storage move instead
+    of silently reverting to the new default. A prior explicit `true` needs
+    no migration (matches the new default already). The legacy file itself
+    is left untouched — dlt may still read it directly, but
+    `_apply_dlt_telemetry_env()` (dango/ingestion/dlt_runner.py) always
+    overrides it with the machine-level value via the env var before any
+    dlt pipeline runs, so the legacy file stops being consulted for
+    anything dango-controlled from this point on.
+
+    Args:
+        project_root: Current project root, if any — only used to look for
+            a legacy opt-out to migrate on first read. Not required for
+            subsequent reads once the global key exists.
+    """
+    data = _read_global_config()
+    if "dlt_telemetry" in data:
+        return bool(data["dlt_telemetry"])
+
+    if project_root is not None:
+        legacy = _read_legacy_dlt_toml_opt_out(project_root)
+        if legacy is False:
+            _write_global_config_key("dlt_telemetry", False)
+            return False
+
+    return True
+
+
+def set_dlt_telemetry_state(enabled: bool) -> None:
+    """Write dlt's opt-out state to ~/.dango/config.yml under the dlt_telemetry key.
+
+    Machine-level (1.0.8-OPS-2), matching `set_dbt_telemetry_state()` — one
+    opt-out covers every project on the machine, translated into dlt's own
+    `RUNTIME__DLTHUB_TELEMETRY` env-var override at pipeline-invocation time
+    by `_apply_dlt_telemetry_env()` (dango/ingestion/dlt_runner.py), never
+    written into a project's git-tracked `.dlt/config.toml`.
 
     Raises:
-        OSError: If the file can't be read/written (e.g. permissions).
-        ValueError: Wrapping `tomlkit.exceptions.TOMLKitError` if the
-            existing `.dlt/config.toml` is malformed (e.g. from manual
-            editing).
+        OSError: If the write fails (e.g. permission denied, disk full) —
+            converted from `_write_global_config_key()`'s False return so
+            callers get an honest failure signal to act on.
     """
-    import tomlkit
-    from tomlkit.exceptions import TOMLKitError
-
-    config_path = project_root / ".dlt" / "config.toml"
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        doc = tomlkit.parse(config_path.read_text()) if config_path.exists() else tomlkit.document()
-    except TOMLKitError as e:
-        raise ValueError(str(e)) from e
-    if "runtime" not in doc:
-        doc.add("runtime", tomlkit.table())
-    doc["runtime"]["dlthub_telemetry"] = enabled
-    config_path.write_text(tomlkit.dumps(doc))
+    if not _write_global_config_key("dlt_telemetry", enabled):
+        raise OSError("Could not write ~/.dango/config.yml")
 
 
 def has_recorded_consent() -> bool:

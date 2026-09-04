@@ -254,6 +254,7 @@ class ProjectInitializer:
 .dango/auth.yml
 .dango/dbt_model_status.json
 .dango/history/
+.dango/metabase_telemetry_state
 data/
 metabase-data/
 metabase-plugins/
