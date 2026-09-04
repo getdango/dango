@@ -7,6 +7,8 @@ warning shown for that case, and confirms the existing "enabled" message is
 unaffected.
 """
 
+from unittest.mock import patch
+
 import pytest
 
 
@@ -15,13 +17,14 @@ class TestBackupWarning:
     def test_warning_shown_when_backup_disabled(self, capsys):
         from dango.cli.commands.deploy import _print_deploy_success
 
-        _print_deploy_success(
-            url="https://example.com",
-            ip="1.2.3.4",
-            admin_email="admin@example.com",
-            warnings=[],
-            backup_enabled=False,
-        )
+        with patch("webbrowser.open"):
+            _print_deploy_success(
+                url="https://example.com",
+                ip="1.2.3.4",
+                admin_email="admin@example.com",
+                warnings=[],
+                backup_enabled=False,
+            )
         captured = capsys.readouterr()
         assert "Backups" in captured.out
         assert "Not configured" in captured.out or "server only" in captured.out
@@ -29,13 +32,14 @@ class TestBackupWarning:
     def test_no_warning_when_backup_enabled(self, capsys):
         from dango.cli.commands.deploy import _print_deploy_success
 
-        _print_deploy_success(
-            url="https://example.com",
-            ip="1.2.3.4",
-            admin_email="admin@example.com",
-            warnings=[],
-            backup_enabled=True,
-        )
+        with patch("webbrowser.open"):
+            _print_deploy_success(
+                url="https://example.com",
+                ip="1.2.3.4",
+                admin_email="admin@example.com",
+                warnings=[],
+                backup_enabled=True,
+            )
         captured = capsys.readouterr()
         assert "Enabled" in captured.out
         assert "Not configured" not in captured.out
