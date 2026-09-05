@@ -3,6 +3,7 @@
 Tests for dango.platform.watcher_lifecycle — watcher subprocess lifecycle management.
 """
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -33,10 +34,13 @@ class TestStartFileWatcher:
         dango_dir.mkdir(parents=True, exist_ok=True)
         return dango_dir
 
+    @patch("dango.utils.process.get_process_start_time", return_value=42.0)
     @patch("dango.platform.local.watcher_lifecycle.time.sleep")
     @patch("dango.platform.local.watcher_lifecycle.subprocess.Popen")
     @patch("dango.platform.local.watcher_lifecycle.is_process_running")
-    def test_successful_start_returns_pid(self, mock_running, mock_popen, mock_sleep, tmp_path):
+    def test_successful_start_returns_pid(
+        self, mock_running, mock_popen, mock_sleep, _mock_start_time, tmp_path
+    ):
         self._setup_project(tmp_path)
         mock_proc = MagicMock()
         mock_proc.pid = 5555
@@ -47,7 +51,7 @@ class TestStartFileWatcher:
 
         assert pid == 5555
         pid_file = tmp_path / ".dango" / "watcher.pid"
-        assert pid_file.read_text() == "5555"
+        assert json.loads(pid_file.read_text()) == {"pid": 5555, "start_time": 42.0}
 
     @patch("dango.platform.local.watcher_lifecycle.is_process_running", return_value=True)
     def test_already_running_raises_runtime_error(self, _mock_running, tmp_path):
@@ -183,7 +187,8 @@ class TestStopFileWatcher:
         pid_file.write_text("4444")
 
         assert stop_file_watcher(tmp_path) is True
-        mock_kill.assert_called_once_with(4444, timeout=10)
+        # Old-format (bare-integer) PID file in this test → identity unknown (None).
+        mock_kill.assert_called_once_with(4444, timeout=10, expected_start_time=None)
         assert not pid_file.exists()
 
     @patch("dango.platform.local.watcher_lifecycle.kill_process", return_value=False)
@@ -195,6 +200,63 @@ class TestStopFileWatcher:
 
         assert stop_file_watcher(tmp_path) is False
         assert not pid_file.exists()  # PID file still cleaned up
+
+
+@pytest.mark.unit
+class TestStopFileWatcherIdentityIntegration:
+    """1.0.8-OPS-1 end-to-end coverage for watcher.pid: real is_process_running()/
+    kill_process() (only psutil mocked), same bug class and fix shape as web.pid."""
+
+    def _setup_project(self, tmp_path):
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir(parents=True, exist_ok=True)
+        return dango_dir
+
+    def _mock_psutil_exceptions(self, mock_psutil):
+        import psutil as real_psutil
+
+        mock_psutil.NoSuchProcess = real_psutil.NoSuchProcess
+        mock_psutil.AccessDenied = real_psutil.AccessDenied
+        mock_psutil.ZombieProcess = real_psutil.ZombieProcess
+
+    @patch("dango.utils.process.psutil")
+    def test_reused_pid_is_not_signaled(self, mock_psutil, tmp_path):
+        """Mismatch case: watcher.pid records a process that has since exited; the
+        OS reused the PID for something unrelated. Must not be signaled."""
+        self._mock_psutil_exceptions(mock_psutil)
+        dango_dir = self._setup_project(tmp_path)
+        pid_file = dango_dir / "watcher.pid"
+        pid_file.write_text(json.dumps({"pid": 6543, "start_time": 1000.0}))
+
+        mock_psutil.pid_exists.return_value = True
+        mock_reused_proc = MagicMock()
+        mock_reused_proc.create_time.return_value = 9_999_999.0
+        mock_psutil.Process.return_value = mock_reused_proc
+
+        assert stop_file_watcher(tmp_path) is False
+        mock_reused_proc.terminate.assert_not_called()
+        mock_reused_proc.kill.assert_not_called()
+        assert not pid_file.exists()
+
+    @patch("dango.utils.process.psutil")
+    def test_matching_pid_is_signaled(self, mock_psutil, tmp_path):
+        """Match case (positive control): recorded start_time agrees with the live
+        process's create_time() — must still kill normally."""
+        self._mock_psutil_exceptions(mock_psutil)
+        dango_dir = self._setup_project(tmp_path)
+        pid_file = dango_dir / "watcher.pid"
+        pid_file.write_text(json.dumps({"pid": 6543, "start_time": 1000.0}))
+
+        mock_psutil.pid_exists.return_value = True
+        mock_proc = MagicMock()
+        mock_proc.create_time.return_value = 1000.0
+        mock_proc.children.return_value = []
+        mock_psutil.Process.return_value = mock_proc
+        mock_psutil.wait_procs.return_value = ([mock_proc], [])
+
+        assert stop_file_watcher(tmp_path) is True
+        mock_proc.terminate.assert_called_once()
+        assert not pid_file.exists()
 
 
 @pytest.mark.unit

@@ -10,7 +10,13 @@ from pathlib import Path
 import psutil
 from rich.console import Console
 
-from dango.utils.process import is_process_running, kill_process
+from dango.utils.process import (
+    PidRecord,
+    is_process_running,
+    kill_process,
+    read_pid_record,
+    write_pid_record,
+)
 
 from .port_manager import check_port_in_use, get_process_using_port
 
@@ -24,20 +30,44 @@ def get_pid_file_path(project_root: Path) -> Path:
 
 def write_pid_file(project_root: Path, pid: int) -> None:
     """
-    Write PID to file.
+    Write PID to file, alongside the process's start time for identity verification.
+
+    See dango.utils.process.write_pid_record — storing the start time lets a later
+    reader detect PID reuse (1.0.8-OPS-1) instead of trusting the bare PID number.
 
     Args:
         project_root: Project root directory
         pid: Process ID to write
     """
-    pid_file = get_pid_file_path(project_root)
-    pid_file.parent.mkdir(parents=True, exist_ok=True)
-    pid_file.write_text(str(pid))
+    write_pid_record(get_pid_file_path(project_root), pid)
+
+
+def read_pid_record_for_project(project_root: Path) -> PidRecord | None:
+    """
+    Read the PID record (PID + start time) for the FastAPI server.
+
+    Old-format bare-integer PID files (pre-1.0.8-OPS-1) are returned with
+    start_time=None — "identity unknown," not an error. Callers should pass the
+    start_time through to is_process_running()/kill_process() so identity gets
+    verified whenever it's known, and falls back to existence-only checking when
+    it isn't.
+
+    Args:
+        project_root: Project root directory
+
+    Returns:
+        PidRecord if file exists and is parseable, None otherwise
+    """
+    return read_pid_record(get_pid_file_path(project_root))
 
 
 def read_pid_file(project_root: Path) -> int | None:
     """
     Read PID from file.
+
+    Backward-compatible: returns just the PID, dropping identity info. Callers that
+    intend to signal the process (kill it) should use read_pid_record_for_project()
+    instead so identity gets verified before the PID is trusted.
 
     Args:
         project_root: Project root directory
@@ -45,16 +75,8 @@ def read_pid_file(project_root: Path) -> int | None:
     Returns:
         PID if file exists and valid, None otherwise
     """
-    pid_file = get_pid_file_path(project_root)
-
-    if not pid_file.exists():
-        return None
-
-    try:
-        pid_str = pid_file.read_text().strip()
-        return int(pid_str)
-    except (ValueError, OSError):
-        return None
+    record = read_pid_record_for_project(project_root)
+    return record.pid if record else None
 
 
 def remove_pid_file(project_root: Path) -> None:
@@ -90,15 +112,17 @@ def start_fastapi_server(project_root: Path, host: str = "0.0.0.0", port: int = 
     import sys
 
     # Check if we already have a PID file first (more informative error)
-    existing_pid = read_pid_file(project_root)
-    if existing_pid and is_process_running(existing_pid):
+    existing_record = read_pid_record_for_project(project_root)
+    if existing_record and is_process_running(
+        existing_record.pid, expected_start_time=existing_record.start_time
+    ):
         raise RuntimeError(
-            f"FastAPI server is already running (PID {existing_pid}).\n"
+            f"FastAPI server is already running (PID {existing_record.pid}).\n"
             f"Stop it with 'dango stop' or check status with 'dango status'"
         )
 
     # Clean up stale PID file if exists
-    if existing_pid:
+    if existing_record:
         remove_pid_file(project_root)
 
     # Check if port is already in use (by something else)
@@ -189,10 +213,11 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
     from dango.config import ConfigLoader
 
     # Try to stop using PID file first
-    pid = read_pid_file(project_root)
+    pid_record = read_pid_record_for_project(project_root)
+    pid = pid_record.pid if pid_record else None
 
-    if pid is not None:
-        if not is_process_running(pid):
+    if pid_record is not None:
+        if not is_process_running(pid_record.pid, expected_start_time=pid_record.start_time):
             if verbose:
                 console.print(
                     f"[yellow]⚠[/yellow] FastAPI server PID {pid} is not running (stale PID file)"
@@ -202,8 +227,11 @@ def stop_fastapi_server(project_root: Path, verbose: bool = True) -> bool:
             if verbose:
                 console.print(f"Stopping FastAPI server (PID {pid})...")
 
-            # Try to kill the process
-            success = kill_process(pid, timeout=10)
+            # Try to kill the process — identity-verified, so a stale PID file
+            # pointing at a reused PID is never signaled (see 1.0.8-OPS-1).
+            success = kill_process(
+                pid_record.pid, timeout=10, expected_start_time=pid_record.start_time
+            )
 
             # Clean up PID file
             remove_pid_file(project_root)
@@ -357,7 +385,7 @@ def get_fastapi_status(project_root: Path) -> dict:
             - url: Optional[str]
             - log_file: Path
     """
-    pid = read_pid_file(project_root)
+    pid_record = read_pid_record_for_project(project_root)
     log_file = project_root / ".dango" / "web.log"
 
     # Read port from project config (default 8800)
@@ -372,9 +400,9 @@ def get_fastapi_status(project_root: Path) -> dict:
 
     status: dict = {"running": False, "pid": None, "port": port, "url": None, "log_file": log_file}
 
-    if pid and is_process_running(pid):
+    if pid_record and is_process_running(pid_record.pid, expected_start_time=pid_record.start_time):
         status["running"] = True
-        status["pid"] = pid
+        status["pid"] = pid_record.pid
         status["url"] = f"http://localhost:{port}"
 
     return status
