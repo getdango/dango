@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dango init`, `dango source add`, and `dango model add` now generate and keep a `CLAUDE.md` file up to date in the project, summarizing its purpose, sources, and models for AI coding assistants
 - `dango validate` now warns when model or column descriptions are missing or left as `# TODO` placeholders
 - Deploy output now warns when backups aren't configured for BYOS/self-hosted deploys, with a link to the backup setup docs
+- Data Pipeline Health dashboard now shows real sync history, dbt test results, and source counts instead of placeholder queries
+- Git guardrail warnings (previously only on `dango remote push`) now also cover model/source/schedule creation — CLI wizards and MCP's mutation tools warn when run on a protected branch
 
 ### Fixed
 
@@ -24,6 +26,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sync progress: the UI no longer looks like it's stuck for up to ~90 seconds between a sync finishing and dbt starting — a "data loaded, running transforms" update now appears in between
 - Metabase: `dango start`'s port pre-flight check now reads the project's configured Metabase/dbt-docs ports instead of always checking 3000/8081
 - Metabase: first-run setup now targets the project's configured Metabase port instead of always defaulting to `localhost:3000`
+- Metabase: dashboard card attachment fixed — the API endpoint it called was removed as of Metabase 0.47, so cards silently failed to attach while the CLI reported the dashboard as successfully provisioned
+- `dango dashboard provision`: no longer hardcodes port 3000 or fails to find the project's DuckDB database in Metabase (name-based lookup never matched the actual connection name)
+- MCP's `run_transform` tool now acquires the same DuckDB write lock as every other transform path, preventing warehouse corruption if it runs concurrently with a sync or scheduled job
+- Process management: a tracked PID's start time is now verified before signaling it, so a stale PID file can no longer kill an unrelated process that has since reused the same PID
+- Telemetry: dlt's telemetry setting now lives in machine-level config alongside dango/dbt/Metabase, instead of the project's own `.dlt/config.toml` — toggling telemetry no longer produces a git diff
+- `dango init`: project names containing a dot (e.g. `my.project`) no longer produce a broken dbt project
+- Scripts page: per-script execution timeout is now configurable per script instead of a hardcoded 5 minutes
+
+### Security
+
+- Metabase: `MetabaseProvisioner` no longer defaults to a guessable admin username/password when none is supplied
+- postcss-selector-parser updated 6.1.2 → 6.1.4, resolving Dependabot alert #7
 
 ## [1.0.7] - 2026-08-27
 
