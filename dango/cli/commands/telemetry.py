@@ -96,6 +96,8 @@ def telemetry_status(ctx: click.Context) -> None:
     console.print()
     console.print(table)
     console.print(
+        "\n[dim]dango/dbt/dlt are shared across every project on this machine; "
+        "metabase applies only to this project.[/dim]"
         "\n[dim]controls telemetry for the components Dango configures — "
         "full egress docs: docs/network-egress.yml[/dim]\n"
     )

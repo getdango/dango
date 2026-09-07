@@ -163,6 +163,58 @@ class TestPromptTelemetryConsent:
         assert telemetry.is_telemetry_enabled() is False
         assert telemetry.has_recorded_consent() is True
 
+    def test_second_init_prints_info_line_when_consent_already_recorded(
+        self, tmp_path: Path
+    ) -> None:
+        """A second `dango init` (consent already recorded from a prior project)
+        prints an informational line instead of staying silent, and does not
+        show the interactive prompt."""
+        telemetry.set_telemetry_enabled(True)
+        initializer = ProjectInitializer(tmp_path)
+        printed: list[str] = []
+        with (
+            patch("dango.cli.init._ask_telemetry_consent") as mock_ask,
+            patch("dango.cli.init.console") as mock_console,
+        ):
+            mock_console.print.side_effect = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            initializer._prompt_telemetry_consent(_make_config())
+
+        mock_ask.assert_not_called()
+        assert any("already configured machine-wide" in p for p in printed)
+
+    def test_ci_skip_still_silent(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """CI detection stays completely silent — no prompt, no informational line."""
+        monkeypatch.setenv("CI", "true")
+        initializer = ProjectInitializer(tmp_path)
+        printed: list[str] = []
+        with (
+            patch("dango.cli.init._ask_telemetry_consent") as mock_ask,
+            patch("dango.cli.init.console") as mock_console,
+        ):
+            mock_console.print.side_effect = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            initializer._prompt_telemetry_consent(_make_config())
+
+        mock_ask.assert_not_called()
+        assert printed == []
+
+    def test_opted_out_skip_still_silent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An explicit opt-out (DO_NOT_TRACK) stays completely silent — no
+        prompt, no informational line."""
+        monkeypatch.setenv("DO_NOT_TRACK", "1")
+        initializer = ProjectInitializer(tmp_path)
+        printed: list[str] = []
+        with (
+            patch("dango.cli.init._ask_telemetry_consent") as mock_ask,
+            patch("dango.cli.init.console") as mock_console,
+        ):
+            mock_console.print.side_effect = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            initializer._prompt_telemetry_consent(_make_config())
+
+        mock_ask.assert_not_called()
+        assert printed == []
+
     def test_no_real_answer_skips_without_persisting_or_pinging(self, tmp_path: Path) -> None:
         """When _ask_telemetry_consent() returns None (no real answer obtained), nothing is recorded.
 

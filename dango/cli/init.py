@@ -1563,11 +1563,14 @@ on-run-end:
     def _prompt_telemetry_consent(self, config: DangoConfig) -> None:
         """Ask for anonymous telemetry consent on first `dango init` run.
 
-        No-op when telemetry is already ruled out by CI detection, a
-        prior stored answer, or an opt-out (``DO_NOT_TRACK``,
-        ``DANGO_TELEMETRY``, or ``telemetry: false`` in
-        ``~/.dango/config.yml``) — in all of those cases the user is
-        never prompted at all.
+        Never shows the interactive prompt when telemetry is already ruled
+        out by CI detection, a prior stored answer, or an opt-out
+        (``DO_NOT_TRACK``, ``DANGO_TELEMETRY``, or ``telemetry: false`` in
+        ``~/.dango/config.yml``). CI detection and opt-out stay completely
+        silent; a prior stored answer instead prints a one-line
+        informational note, since that answer came from a *different*
+        project on this machine and the user has no other way to know it's
+        being inherited here.
 
         Also a no-op, without persisting anything, when no real answer
         can be obtained at all — see `_ask_telemetry_consent` for what
@@ -1585,7 +1588,14 @@ on-run-end:
             set_telemetry_enabled,
         )
 
-        if is_ci() or has_recorded_consent() or not is_telemetry_enabled():
+        if is_ci() or not is_telemetry_enabled():
+            return
+        if has_recorded_consent():
+            console.print(
+                "[dim]Telemetry: already configured machine-wide "
+                f"({'on' if is_telemetry_enabled() else 'off'}) — "
+                "`dango telemetry status` to review, `dango telemetry off --all` to change.[/dim]"
+            )
             return
 
         console.print()
