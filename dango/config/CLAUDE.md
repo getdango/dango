@@ -69,3 +69,5 @@ Loads, validates, and manages dango project configuration files (project.yml, so
 | `models.py` field names | Changing field names breaks existing project.yml/sources.yml files |
 | `models.py` `SourceType` enum values | Enum values are stored in user config files and referenced across modules |
 | `exceptions.py` re-export shim | Exception classes are caught by name in cli/, web/, and ingestion/. Adding/removing classes here must mirror `dango/exceptions.py`. |
+
+Carve-out for `SourceType`: a member with zero registry entry, no wizard path, and no `dlt_runner.py` handling (confirmed via grep) was never reachable and can't exist in a real persisted config, so it can be removed — the rule protects values a live config could actually contain, not dead ones (see 1.0.8-Q3's removal of `SCRAPY`).
