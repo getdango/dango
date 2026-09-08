@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Metabase: `MetabaseProvisioner` no longer defaults to a guessable admin username/password when none is supplied
 - postcss-selector-parser updated 6.1.2 → 6.1.4, resolving Dependabot alert #7
 
+### Changed
+
+- MCP server setup (`dango mcp setup`) now configures Claude Code via its own `claude mcp add --scope local` command instead of writing directly into `~/.claude/settings.json` — the entry is now private to the current project instead of shared machine-wide across every Dango project. Cursor gets a project-scoped, git-committable `.cursor/mcp.json`. Windsurf keeps a machine-wide config (no per-project option exists in Windsurf itself), now with the current project's path included so at least one project is unambiguous. New `dango mcp remove` command reverses whatever `dango mcp setup` configured
+- `dango source add --help` and `dango status`'s Metabase row no longer show a stale source count or a hardcoded port — both now read from the live configuration/registry
+- `/settings/telemetry` and `dango telemetry status` now state plainly that the dango/dbt/dlt toggles apply machine-wide (shared across every Dango project) while the Metabase toggle applies only to the current project; `dango init` on any project after the first now prints a one-line note when it silently inherits a telemetry decision made elsewhere, instead of staying completely silent
+- `dango model add`/`dango source add` no longer print two separate warnings for the same "you're on a protected branch" condition — only the more complete one remains
+
 ## [1.0.7] - 2026-08-27
 
 ### Added
