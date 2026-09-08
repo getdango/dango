@@ -87,20 +87,13 @@ def source_add(ctx: click.Context) -> None:
     """
     Add a new data source (interactive wizard).
 
-    Supports 27+ sources across 9 categories:
-      - Marketing & Analytics (7): Facebook Ads, Google Ads, Sheets, Analytics, etc.
-      - Business & CRM (7): HubSpot, Salesforce, Zendesk, Jira, etc.
-      - E-commerce & Payment (1): Stripe
-      - Files & Storage (2): Notion, Email Inbox
-      - Databases (1): MongoDB
-      - Streaming (2): Kafka, Kinesis
-      - Development (1): GitHub
-      - Communication (1): Slack
-      - Local & Custom (2): CSV, REST API
+    Supports 35+ data source types across marketing/analytics, business/CRM,
+    e-commerce, files/storage, databases, streaming, development, and
+    communication tools. Run this command to see the full current list.
     """
     from dango.cli.source_wizard import add_source
 
-    from ..utils import check_git_branch_warning, check_v01x_project
+    from ..utils import check_v01x_project
 
     check_v01x_project()
 
@@ -108,9 +101,6 @@ def source_add(ctx: click.Context) -> None:
     if not project_root:
         console.print("[red]❌ Not in a dango project directory[/red]")
         return
-
-    # Check git branch (gentle reminder if on main/master)
-    check_git_branch_warning(project_root)
 
     # Run wizard
     success = add_source(project_root)
