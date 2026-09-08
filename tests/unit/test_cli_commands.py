@@ -6,9 +6,15 @@ Verifies all command modules import correctly and all expected
 commands appear in the CLI help output.
 """
 
+import subprocess
+from pathlib import Path
+from unittest.mock import patch
+
 import pytest
 from click.testing import CliRunner
 
+from dango.cli.commands.model import model_add
+from dango.cli.commands.source import source_add
 from dango.cli.main import cli
 
 
@@ -189,3 +195,76 @@ class TestCliCommandRegistration:
         from dango.cli.main import cli as cli_group  # noqa: F811
 
         assert cli_group is not None
+
+
+def _init_git_repo(path: Path, branch: str = "main") -> None:
+    """Create a real git repo at `path` on the given branch (main is git's
+    default init branch on modern git, so no checkout needed for that case)."""
+    subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.email", "test@test.com"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.name", "Test"], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "checkout", "-b", branch], check=True, capture_output=True
+    )
+    (path / "committed.txt").write_text("hello")
+    subprocess.run(["git", "-C", str(path), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(path), "commit", "-m", "init"], check=True, capture_output=True
+    )
+
+
+@pytest.mark.unit
+class TestGitWarningDeduplication:
+    """1.0.8-Q1: `model add` and `source add` used to print both the old
+    boxed 'Git Branch Reminder' panel (check_git_branch_warning(),
+    cli/utils.py) and the newer plain-text warning from the wizard's own
+    _print_git_warnings() (model_wizard.py / source_wizard.py). The boxed
+    panel call was removed from both CLI commands — only the wizard's own
+    plain warning should remain.
+    """
+
+    def test_model_add_on_main_shows_only_one_warning(self, tmp_path: Path) -> None:
+        """`dango model add` on a main-branch repo prints the wizard's plain
+        'Warning:' line exactly once, and never the old boxed panel.
+
+        No dbt/ directory exists, so ModelWizard.run() prints its intro,
+        prints the git warning, then exits early with 'dbt directory not
+        found' — this exercises the real warning path without needing to
+        mock the interactive question prompts.
+        """
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        (dango_dir / "project.yml").write_text(
+            "project:\n  name: test\n  created_by: test\n  purpose: test project\n"
+        )
+        _init_git_repo(tmp_path, branch="main")
+
+        runner = CliRunner()
+        with patch("dango.cli.utils.require_project_context", return_value=tmp_path):
+            result = runner.invoke(model_add, obj={"project_root": tmp_path})
+
+        assert "Git Branch Reminder" not in result.output
+        assert result.output.count("Warning:") == 1
+
+    def test_source_add_on_main_shows_only_one_warning(self, tmp_path: Path) -> None:
+        """`dango source add` on a main-branch repo prints the wizard's plain
+        'Warning:' line exactly once, and never the old boxed panel.
+
+        Only the interactive source-type selection is mocked (to cancel
+        immediately) — everything before it, including the git warning, is
+        the real SourceWizard.run() path.
+        """
+        _init_git_repo(tmp_path, branch="main")
+
+        runner = CliRunner()
+        with patch("dango.cli.source_wizard.SourceWizard._select_source_flat", return_value=None):
+            result = runner.invoke(source_add, obj={"project_root": tmp_path})
+
+        assert "Git Branch Reminder" not in result.output
+        assert result.output.count("Warning:") == 1

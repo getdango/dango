@@ -1023,9 +1023,11 @@ def status(ctx: click.Context) -> None:
                 status_text = (
                     f"[{svc_status.value}]● {svc_status.value.capitalize()}[/{svc_status.value}]"
                 )
-            table.add_row("Metabase (port 3000)", status_text)
+            table.add_row(f"Metabase (port {config.platform.metabase_port})", status_text)
         else:
-            table.add_row("Metabase (port 3000)", "[red]● Stopped[/red]")
+            table.add_row(
+                f"Metabase (port {config.platform.metabase_port})", "[red]● Stopped[/red]"
+            )
 
         console.print(table)
         console.print()
