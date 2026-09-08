@@ -68,6 +68,20 @@ class TestFindMcpServerProcess:
             result = _find_mcp_server_process(tmp_path)
         assert result is None
 
+    def test_find_mcp_server_process_ignores_process_missing_env_var(self, tmp_path: Path) -> None:
+        """A real `dango mcp run` process that predates 1.0.8-OPS-4 (or was
+        configured by hand) has no DANGO_PROJECT_ROOT in its environment at
+        all -- not just a different value. Per spec: don't guess, don't
+        count it as this project's."""
+        proc = _make_proc(
+            12345,
+            ["/venv/bin/dango", "mcp", "run"],
+            environ={"SOME_OTHER_VAR": "unrelated"},
+        )
+        with patch("psutil.process_iter", return_value=[proc]):
+            result = _find_mcp_server_process(tmp_path)
+        assert result is None
+
     def test_find_mcp_server_process_detects_shebang_rewritten_argv(self, tmp_path: Path) -> None:
         """Live-verified regression: a `dango` console script has a
         `#!/path/to/python` shebang, so the kernel rewrites argv to
