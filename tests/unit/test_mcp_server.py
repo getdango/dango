@@ -1,7 +1,9 @@
 """tests/unit/test_mcp_server.py
 
 Tests for the `dango mcp` command group (dango/cli/commands/mcp_server.py):
-the read-only MCP tool functions and the setup/status CLI subcommands.
+the read-only MCP tool functions, group registration, and the
+_get_project_root()/_check_version_compatibility() helpers (1.0.8-OPS-4).
+See tests/unit/test_mcp_setup.py for `mcp setup`/`status`/`remove`.
 """
 
 from __future__ import annotations
@@ -28,156 +30,6 @@ class TestMcpGroupRegistration:
         assert "run" in result.output
         assert "setup" in result.output
         assert "status" in result.output
-
-
-@pytest.mark.unit
-class TestMcpSetup:
-    """dango mcp setup — LLM client config detection + writing."""
-
-    def test_mcp_setup_writes_claude_code_config(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """When ~/.claude/ exists, setup writes settings.json with dango in mcpServers."""
-        claude_dir = tmp_path / ".claude"
-        claude_dir.mkdir()
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
-
-        runner = CliRunner()
-        result = runner.invoke(mcp_group, ["setup"])
-
-        assert result.exit_code == 0
-        settings_path = claude_dir / "settings.json"
-        assert settings_path.exists()
-        written = json.loads(settings_path.read_text())
-        assert written["mcpServers"]["dango"]["args"] == ["mcp", "run"]
-
-    def test_mcp_setup_preserves_existing_settings(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Existing unrelated keys in settings.json are not clobbered."""
-        claude_dir = tmp_path / ".claude"
-        claude_dir.mkdir()
-        (claude_dir / "settings.json").write_text(json.dumps({"theme": "dark"}))
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
-
-        runner = CliRunner()
-        result = runner.invoke(mcp_group, ["setup"])
-
-        assert result.exit_code == 0
-        written = json.loads((claude_dir / "settings.json").read_text())
-        assert written["theme"] == "dark"
-        assert written["mcpServers"]["dango"]["args"] == ["mcp", "run"]
-
-    def test_mcp_setup_no_clients(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """No LLM client dirs exist -> helpful message, no error, no files written."""
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
-
-        runner = CliRunner()
-        result = runner.invoke(mcp_group, ["setup"])
-
-        assert result.exit_code == 0
-        assert "No LLM clients detected" in result.output
-        assert not (tmp_path / ".claude").exists()
-
-    def test_mcp_setup_resolves_venv_console_script_next_to_interpreter(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Positive control for the sys.executable.replace() bug: on a
-        `pythonX.Y`-named interpreter (this repo's own documented venv setup,
-        `python3.11 -m venv venv`), a substring replace of '/bin/python' ->
-        '/bin/dango' leaves a bogus '/bin/dango3.11' path. The console script
-        must be found by looking next to the interpreter instead."""
-        home_dir = tmp_path / "home"
-        (home_dir / ".claude").mkdir(parents=True)
-        monkeypatch.setattr(Path, "home", lambda: home_dir)
-
-        venv_bin = tmp_path / "venv" / "bin"
-        venv_bin.mkdir(parents=True)
-        fake_python = venv_bin / "python3.11"
-        fake_python.write_text("")
-        fake_dango = venv_bin / "dango"
-        fake_dango.write_text("")
-        monkeypatch.setattr("sys.executable", str(fake_python))
-
-        runner = CliRunner()
-        result = runner.invoke(mcp_group, ["setup"])
-
-        assert result.exit_code == 0
-        written = json.loads((home_dir / ".claude" / "settings.json").read_text())
-        assert written["mcpServers"]["dango"]["command"] == str(fake_dango)
-
-    def test_mcp_setup_falls_back_to_bare_dango_when_no_sibling_script(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """No dango console script next to the interpreter -> falls back to bare 'dango'
-        on PATH, rather than writing a nonexistent path into the config."""
-        home_dir = tmp_path / "home"
-        (home_dir / ".claude").mkdir(parents=True)
-        monkeypatch.setattr(Path, "home", lambda: home_dir)
-
-        venv_bin = tmp_path / "venv" / "bin"
-        venv_bin.mkdir(parents=True)
-        fake_python = venv_bin / "python3.11"
-        fake_python.write_text("")
-        monkeypatch.setattr("sys.executable", str(fake_python))
-
-        runner = CliRunner()
-        result = runner.invoke(mcp_group, ["setup"])
-
-        assert result.exit_code == 0
-        written = json.loads((home_dir / ".claude" / "settings.json").read_text())
-        assert written["mcpServers"]["dango"]["command"] == "dango"
-
-    def test_mcp_setup_preserves_file_permissions(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Positive control for the tempfile.mkstemp() permission-downgrade bug:
-        mkstemp() always creates its temp file at mode 0600 regardless of the
-        target's prior mode, so a naive tmp-file+os.replace atomic write would
-        silently tighten settings.json from 0644 to 0600 on every setup run."""
-        import stat
-
-        claude_dir = tmp_path / ".claude"
-        claude_dir.mkdir()
-        settings_path = claude_dir / "settings.json"
-        settings_path.write_text(json.dumps({"theme": "dark"}))
-        settings_path.chmod(0o644)
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
-
-        runner = CliRunner()
-        result = runner.invoke(mcp_group, ["setup"])
-
-        assert result.exit_code == 0
-        mode = stat.S_IMODE(settings_path.stat().st_mode)
-        assert mode == 0o644, f"expected settings.json to stay 0644, got {oct(mode)}"
-
-
-@pytest.mark.unit
-class TestMcpStatus:
-    """dango mcp status — verification output."""
-
-    def test_mcp_status_no_clients(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
-
-        runner = CliRunner()
-        result = runner.invoke(mcp_group, ["status"])
-
-        assert result.exit_code == 0
-        assert "No LLM clients detected" in result.output
-
-    def test_mcp_status_configured(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        claude_dir = tmp_path / ".claude"
-        claude_dir.mkdir()
-        (claude_dir / "settings.json").write_text(
-            json.dumps({"mcpServers": {"dango": {"command": "dango", "args": ["mcp", "run"]}}})
-        )
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
-
-        runner = CliRunner()
-        result = runner.invoke(mcp_group, ["status"])
-
-        assert result.exit_code == 0
-        assert "dango MCP configured" in result.output
 
 
 @pytest.mark.unit
@@ -473,3 +325,93 @@ class TestValidateSelectOnly:
 
     def test_allows_with_cte(self) -> None:
         mcp_server._validate_select_only("WITH t AS (SELECT 1) SELECT * FROM t")
+
+
+@pytest.mark.unit
+class TestGetProjectRoot:
+    """_get_project_root() — DANGO_PROJECT_ROOT env var takes precedence over
+    cwd-walking (1.0.8-OPS-4: the fix for MCP servers being long-lived
+    processes where cwd-at-spawn-time may not match the intended project)."""
+
+    def test_prefers_env_var(self, tmp_project_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """DANGO_PROJECT_ROOT set to a real project -> returned directly,
+        without ever falling through to cwd-based resolution."""
+        from dango.cli.commands.mcp_helpers import _get_project_root
+
+        monkeypatch.setenv("DANGO_PROJECT_ROOT", str(tmp_project_dir))
+        monkeypatch.setattr(
+            "dango.config.helpers.find_project_root",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not fall back to cwd")),
+        )
+
+        assert _get_project_root() == tmp_project_dir
+
+    def test_env_var_invalid_path_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DANGO_PROJECT_ROOT pointing at a path with no .dango/project.yml ->
+        RuntimeError naming the bad path, not a silent fallback to cwd."""
+        from dango.cli.commands.mcp_helpers import _get_project_root
+
+        bad_path = tmp_path / "not-a-project"
+        bad_path.mkdir()
+        monkeypatch.setenv("DANGO_PROJECT_ROOT", str(bad_path))
+
+        with pytest.raises(RuntimeError, match=str(bad_path)):
+            _get_project_root()
+
+    def test_falls_back_to_cwd_when_env_var_unset(
+        self, tmp_project_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No DANGO_PROJECT_ROOT -> existing cwd-walking behavior, unchanged
+        (regression check for every manually-invoked `dango mcp run` and any
+        config predating this change)."""
+        from dango.cli.commands.mcp_helpers import _get_project_root
+
+        monkeypatch.delenv("DANGO_PROJECT_ROOT", raising=False)
+        monkeypatch.chdir(tmp_project_dir)
+
+        assert _get_project_root() == tmp_project_dir
+
+
+@pytest.mark.unit
+class TestCheckVersionCompatibility:
+    """_check_version_compatibility() — startup-only warning when the running
+    dango differs from the project's own recorded version."""
+
+    def test_version_mismatch_returns_warning(
+        self, tmp_project_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dango.cli.commands.mcp_helpers import _check_version_compatibility
+        from dango.config.helpers import get_config, save_config
+
+        config = get_config(tmp_project_dir)
+        config.project.dango_version = "1.0.7"
+        save_config(config, tmp_project_dir)
+        monkeypatch.setattr("dango.__version__", "1.0.8")
+
+        warning = _check_version_compatibility(tmp_project_dir)
+
+        assert warning is not None
+        assert "1.0.7" in warning
+        assert "1.0.8" in warning
+
+    def test_version_match_returns_none(
+        self, tmp_project_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dango.cli.commands.mcp_helpers import _check_version_compatibility
+        from dango.config.helpers import get_config, save_config
+
+        config = get_config(tmp_project_dir)
+        config.project.dango_version = "1.0.8"
+        save_config(config, tmp_project_dir)
+        monkeypatch.setattr("dango.__version__", "1.0.8")
+
+        assert _check_version_compatibility(tmp_project_dir) is None
+
+    def test_no_recorded_version_returns_none(self, tmp_project_dir: Path) -> None:
+        """A project with no recorded dango_version at all (e.g. created
+        before this field existed) -> nothing to compare against, no warning."""
+        from dango.cli.commands.mcp_helpers import _check_version_compatibility
+
+        assert _check_version_compatibility(tmp_project_dir) is None

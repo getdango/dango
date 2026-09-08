@@ -435,6 +435,29 @@ def mcp_group() -> None:
 @click.pass_context
 def mcp_run(ctx: click.Context) -> None:
     """Start the MCP stdio server. Called automatically by LLM clients — do not run manually."""
+    import sys
+
+    from dango.cli.commands.mcp_helpers import _check_version_compatibility
+
+    # One-time startup diagnostic (1.0.8-OPS-4), not a hard gate: a bad
+    # DANGO_PROJECT_ROOT or version mismatch is surfaced to stderr (stdout is
+    # reserved for the JSON-RPC protocol -- see module docstring), but the
+    # server still starts. Every individual tool call already raises its own
+    # RuntimeError via _get_project_root() if the project can't be resolved,
+    # so failing to resolve it here must not crash startup itself -- that
+    # would just trade one error surface for a less informative one.
+    try:
+        project_root = _get_project_root()
+    except RuntimeError as e:
+        print(str(e), file=sys.stderr)
+    else:
+        try:
+            warning = _check_version_compatibility(project_root)
+        except Exception as e:  # noqa: BLE001 -- startup diagnostic must never crash the server
+            warning = f"Warning: could not check version compatibility: {e}"
+        if warning:
+            print(warning, file=sys.stderr)
+
     # show_banner=False: fastmcp's default banner is harmless to the stdio
     # protocol (it renders to stderr), but showing it also triggers a
     # blocking network call to PyPI to check for a newer fastmcp version on
