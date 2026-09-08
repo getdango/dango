@@ -182,6 +182,35 @@ class TestPromptTelemetryConsent:
         mock_ask.assert_not_called()
         assert any("already configured machine-wide" in p for p in printed)
 
+    def test_second_init_prints_info_line_when_consent_previously_declined(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression test: a prior recorded *opt-out* ("no") must also print
+        the informational line, not stay silent.
+
+        `is_telemetry_enabled()` itself returns False once a stored "no" is
+        recorded (it's one of the opt-out signals it checks), so gating on
+        `not is_telemetry_enabled()` before `has_recorded_consent()` would
+        silently swallow this exact case — the only case where an inherited
+        decision is a *change* from Dango's default (on) the user might not
+        expect. `has_recorded_consent()` must be checked first.
+        """
+        telemetry.set_telemetry_enabled(False)
+        assert telemetry.has_recorded_consent() is True
+        assert telemetry.is_telemetry_enabled() is False  # sanity: the opt-out signal itself
+
+        initializer = ProjectInitializer(tmp_path)
+        printed: list[str] = []
+        with (
+            patch("dango.cli.init._ask_telemetry_consent") as mock_ask,
+            patch("dango.cli.init.console") as mock_console,
+        ):
+            mock_console.print.side_effect = lambda *a, **kw: printed.append(str(a[0]) if a else "")
+            initializer._prompt_telemetry_consent(_make_config())
+
+        mock_ask.assert_not_called()
+        assert any("already configured machine-wide (off)" in p for p in printed)
+
     def test_ci_skip_still_silent(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """CI detection stays completely silent — no prompt, no informational line."""
         monkeypatch.setenv("CI", "true")

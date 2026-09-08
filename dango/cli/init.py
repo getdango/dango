@@ -1588,14 +1588,21 @@ on-run-end:
             set_telemetry_enabled,
         )
 
-        if is_ci() or not is_telemetry_enabled():
+        if is_ci():
             return
         if has_recorded_consent():
+            # Checked before the is_telemetry_enabled() gate below: a prior
+            # recorded answer can itself be "off" (opted out), in which case
+            # is_telemetry_enabled() also returns False — checking it first
+            # would silently swallow the disclosure for exactly the case
+            # (an inherited opt-out) this message exists to surface.
             console.print(
                 "[dim]Telemetry: already configured machine-wide "
                 f"({'on' if is_telemetry_enabled() else 'off'}) — "
                 "`dango telemetry status` to review, `dango telemetry off --all` to change.[/dim]"
             )
+            return
+        if not is_telemetry_enabled():
             return
 
         console.print()
