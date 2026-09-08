@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/github/license/getdango/dango)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/getdango/dango)](https://github.com/getdango/dango)
 
-**The data platform your coding agent can run.**
+**Open-source data platform for small teams.**
 
 Dango gives you a complete data stack — ingestion, warehouse, transformations, and dashboards — with the operational machinery a self-assembled stack (or an LLM improvising one) doesn't have: sync queue management, lock recovery, empty-replace protection, schema drift detection, credential health checks, and backups. It combines [dlt](https://dlthub.com/) for data loading, [DuckDB](https://duckdb.org/) as the analytics database, [dbt](https://www.getdbt.com/) for SQL transformations, and [Metabase](https://www.metabase.com/) for dashboards. One `pip install`, one command to start.
 
