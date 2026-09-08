@@ -3,6 +3,8 @@
 Platform lifecycle commands (start, stop, status) and port helpers.
 """
 
+from pathlib import Path
+
 import click
 
 from dango.cli import console
@@ -882,6 +884,63 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
         raise click.Abort() from e
 
 
+def _find_mcp_server_process(project_root: Path) -> int | None:
+    """Scan running processes for a `dango mcp run` server matching this
+    project, identified by its DANGO_PROJECT_ROOT environment variable (set
+    by `dango mcp setup` since 1.0.8-OPS-4). Returns the PID if found, None
+    otherwise.
+
+    MCP processes are spawned entirely by the LLM client (Claude Code,
+    Cursor, Windsurf), not by `dango start`, and are never written to any PID
+    file Dango tracks — this is read-only detection, never process
+    management. This function must never attempt to start, stop, or
+    otherwise control what it finds.
+
+    Mirrors `platform.local.watcher_lifecycle.kill_orphan_watchers()`'s scan
+    shape (`psutil.process_iter` over all processes, filtered by cmdline
+    substring, with the same NoSuchProcess/AccessDenied/ZombieProcess guard)
+    rather than shelling out to `pgrep` or `ps`: no new external-tool
+    dependency, and it's the existing tested pattern in this codebase for
+    "scan all processes by cmdline content."
+    """
+    import psutil
+
+    resolved_project_root = project_root.resolve()
+
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            cmdline = proc.info.get("cmdline") or []
+            if not cmdline:
+                continue
+
+            # Identify candidate `dango mcp run` processes by argv shape: see
+            # mcp_setup.py's _resolve_dango_cmd()/_setup_claude_code(), which
+            # always spawns it as [<path>/dango, "mcp", "run"]. Live-verified
+            # this does NOT mean argv[0] is the "dango" script: the console
+            # script has a `#!/path/to/python` shebang, so the kernel
+            # rewrites argv to [<python-interpreter>, <path>/dango, "mcp",
+            # "run"] — the "dango" token can land at any early index, not
+            # just 0. Check the whole cmdline for a "dango"/"dango.exe"
+            # basename instead of assuming a fixed position.
+            has_dango_exe = any(Path(arg).name in ("dango", "dango.exe") for arg in cmdline)
+            has_mcp_run = "mcp" in cmdline and "run" in cmdline
+            if not (has_dango_exe and has_mcp_run):
+                continue
+
+            env = proc.environ()
+            env_root = env.get("DANGO_PROJECT_ROOT")
+            if env_root and Path(env_root).resolve() == resolved_project_root:
+                return int(proc.info["pid"])
+        except (
+            psutil.NoSuchProcess,
+            psutil.AccessDenied,
+            psutil.ZombieProcess,
+        ):
+            continue
+
+    return None
+
+
 @click.command()
 @click.pass_context
 def status(ctx: click.Context) -> None:
@@ -1028,6 +1087,17 @@ def status(ctx: click.Context) -> None:
             table.add_row(
                 f"Metabase (port {config.platform.metabase_port})", "[red]● Stopped[/red]"
             )
+
+        # Add MCP server — read-only detection, Dango does not manage this
+        # process's lifecycle (see _find_mcp_server_process docstring).
+        mcp_pid = _find_mcp_server_process(project_root)
+        if mcp_pid is not None:
+            table.add_row("MCP server", f"[green]● Running[/green] (PID {mcp_pid})")
+        else:
+            # Dim/neutral, not red/Stopped: an MCP server not running is the
+            # normal state for a project nobody has an LLM client connected
+            # to right now, not an actionable problem like the other rows.
+            table.add_row("MCP server", "[dim]● Not running[/dim]")
 
         console.print(table)
         console.print()
