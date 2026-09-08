@@ -1,6 +1,6 @@
 """dango/cli/source_wizard.py
 
-Metadata-driven wizard that works for all 27+ data sources. Uses SOURCE_REGISTRY for display names, categories, and parameters.
+Metadata-driven wizard that works for all 34 data sources. Uses SOURCE_REGISTRY for display names, categories, and parameters.
 """
 
 from pathlib import Path

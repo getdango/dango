@@ -260,7 +260,7 @@ dango/                          # Python package source
 │   ├── dlt_runner.py           # ⚠ 2885 lines — orchestrates full sync pipeline
 │   ├── csv_loader.py           # Multi-format file loading with dedup (922 lines)
 │   ├── sources/
-│   │   └── registry.py         # Source metadata (33 source types)
+│   │   └── registry.py         # Source metadata (34 source types)
 │   └── dlt_sources/            # 127 files — helper files are custom Dango code (safe to modify); vendored connectors should not be changed
 │
 ├── transformation/             # Level 1 — dbt model generation & execution
