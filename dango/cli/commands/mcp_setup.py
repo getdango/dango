@@ -83,11 +83,30 @@ def _setup_claude_code(project_root: Path, dango_cmd: str) -> list[str]:
     install can leave ~/.claude in place while `claude` itself is missing or
     not on PATH in the *current* shell, which is a distinct, actionable
     problem from "Claude Code isn't installed at all".
+
+    Removes any existing `dango` local-scope entry before adding (ignoring
+    whether one existed) rather than calling `add` directly: `claude mcp add`
+    has no `--force`/overwrite flag and fails with exit 1 ("MCP server dango
+    already exists in local config") if an entry with this name is already
+    registered — confirmed live. Without the remove-first step, re-running
+    `dango mcp setup` a second time (or after switching venvs, which is
+    exactly the scenario this redesign exists to fix — see BUGS-FOUND.md's
+    version-pinning entry) would always report a spurious failure instead of
+    updating the entry.
     """
     if not (Path.home() / ".claude").exists():
         return []
 
     try:
+        # Ignore this result entirely: it fails harmlessly (exit 1, "no MCP
+        # server named dango") when there's nothing to remove yet, which is
+        # the common case on a first-ever `dango mcp setup` run.
+        subprocess.run(
+            ["claude", "mcp", "remove", "dango", "--scope", "local"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
         result = subprocess.run(
             [
                 "claude",
@@ -105,12 +124,13 @@ def _setup_claude_code(project_root: Path, dango_cmd: str) -> list[str]:
             ],
             capture_output=True,
             text=True,
+            timeout=10,
         )
-    except FileNotFoundError:
+    except (subprocess.TimeoutExpired, FileNotFoundError):
         console.print(
             "[yellow]⚠[/yellow]  Claude Code detected (~/.claude exists) but the `claude` "
-            "CLI isn't on PATH — skipping. Ensure `claude` is on your PATH and re-run "
-            "`dango mcp setup`."
+            "CLI isn't on PATH or timed out — skipping. Ensure `claude` is on your PATH "
+            "and re-run `dango mcp setup`."
         )
         return []
 
@@ -273,6 +293,7 @@ def mcp_status(ctx: click.Context) -> None:
                 capture_output=True,
                 text=True,
                 cwd=str(project_root),
+                timeout=10,
             )
             if result.returncode == 0 and "Local config" in result.stdout:
                 console.print("[green]✓[/green] Claude Code: dango MCP configured (local scope)")
@@ -281,9 +302,10 @@ def mcp_status(ctx: click.Context) -> None:
                     "[yellow]⚠[/yellow]  Claude Code: dango not configured for this project — "
                     "run `dango mcp setup`"
                 )
-        except FileNotFoundError:
+        except (subprocess.TimeoutExpired, FileNotFoundError):
             console.print(
-                "[yellow]⚠[/yellow]  Claude Code: `claude` CLI not found on PATH — can't verify"
+                "[yellow]⚠[/yellow]  Claude Code: `claude` CLI not found on PATH or timed out "
+                "— can't verify"
             )
 
     if (Path.home() / ".cursor").exists():
@@ -317,17 +339,26 @@ def mcp_remove(ctx: click.Context) -> None:
                 capture_output=True,
                 text=True,
                 cwd=str(project_root),
+                timeout=10,
             )
             if result.returncode == 0:
                 removed.append("Claude Code")
             else:
                 message = result.stderr.strip() or result.stdout.strip()
-                console.print(
-                    f"[yellow]⚠[/yellow]  Claude Code: `claude mcp remove` reported: {message}"
-                )
-        except FileNotFoundError:
+                # "No MCP server named ... in local scope" just means there was
+                # nothing to remove (never configured, or already removed) --
+                # an expected no-op, not a failure worth alarming the user
+                # over. Matches how Cursor/Windsurf's _remove_mcp_config()
+                # silently returns False for the same "nothing to remove"
+                # case below, instead of printing a warning for it.
+                if "No MCP server" not in message:
+                    console.print(
+                        f"[yellow]⚠[/yellow]  Claude Code: `claude mcp remove` reported: {message}"
+                    )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
             console.print(
-                "[yellow]⚠[/yellow]  Claude Code: `claude` CLI not found on PATH — skipping"
+                "[yellow]⚠[/yellow]  Claude Code: `claude` CLI not found on PATH or timed out "
+                "— skipping"
             )
 
     if _remove_mcp_config(project_root / ".cursor" / "mcp.json"):

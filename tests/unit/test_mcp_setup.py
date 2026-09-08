@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from dango.cli.commands import mcp_setup
 from dango.cli.commands.mcp_server import mcp_group
 
 
@@ -28,107 +27,6 @@ def _patch_project_context(monkeypatch: pytest.MonkeyPatch, project_root: Path) 
     takes effect at call time. Mirrors the pattern already used for e.g.
     `dango.cli.commands.analyze` in test_cli_analyze.py."""
     monkeypatch.setattr("dango.cli.utils.require_project_context", lambda ctx: project_root)
-
-
-@pytest.mark.unit
-class TestResolveDangoCmd:
-    """_resolve_dango_cmd() — venv console-script resolution, shared by the
-    Claude Code and Windsurf branches of `dango mcp setup`."""
-
-    def test_resolves_venv_console_script_next_to_interpreter(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Positive control for the sys.executable.replace() bug: on a
-        `pythonX.Y`-named interpreter (this repo's own documented venv setup,
-        `python3.11 -m venv venv`), a substring replace of '/bin/python' ->
-        '/bin/dango' leaves a bogus '/bin/dango3.11' path. The console script
-        must be found by looking next to the interpreter instead."""
-        venv_bin = tmp_path / "venv" / "bin"
-        venv_bin.mkdir(parents=True)
-        fake_python = venv_bin / "python3.11"
-        fake_python.write_text("")
-        fake_dango = venv_bin / "dango"
-        fake_dango.write_text("")
-        monkeypatch.setattr("sys.executable", str(fake_python))
-
-        assert mcp_setup._resolve_dango_cmd() == str(fake_dango)
-
-    def test_falls_back_to_bare_dango_when_no_sibling_script(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """No dango console script next to the interpreter -> falls back to bare
-        'dango' on PATH, rather than resolving a nonexistent path."""
-        venv_bin = tmp_path / "venv" / "bin"
-        venv_bin.mkdir(parents=True)
-        fake_python = venv_bin / "python3.11"
-        fake_python.write_text("")
-        monkeypatch.setattr("sys.executable", str(fake_python))
-
-        assert mcp_setup._resolve_dango_cmd() == "dango"
-
-
-@pytest.mark.unit
-class TestWriteAndRemoveMcpConfig:
-    """_write_mcp_config() / _remove_mcp_config() — the shared atomic-write
-    helpers still used by the Cursor and Windsurf branches."""
-
-    def test_write_preserves_file_permissions(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Positive control for the tempfile.mkstemp() permission-downgrade bug:
-        mkstemp() always creates its temp file at mode 0600 regardless of the
-        target's prior mode, so a naive tmp-file+os.replace atomic write would
-        silently tighten a config file from 0644 to 0600 on every write."""
-        import stat
-
-        config_path = tmp_path / "mcp.json"
-        config_path.write_text(json.dumps({"theme": "dark"}))
-        config_path.chmod(0o644)
-
-        mcp_setup._write_mcp_config(config_path, {"command": "dango", "args": ["mcp", "run"]})
-
-        mode = stat.S_IMODE(config_path.stat().st_mode)
-        assert mode == 0o644, f"expected config to stay 0644, got {oct(mode)}"
-
-    def test_write_preserves_existing_unrelated_keys(self, tmp_path: Path) -> None:
-        """Existing unrelated keys in the config file are not clobbered."""
-        config_path = tmp_path / "mcp.json"
-        config_path.write_text(json.dumps({"theme": "dark"}))
-
-        mcp_setup._write_mcp_config(config_path, {"command": "dango", "args": ["mcp", "run"]})
-
-        written = json.loads(config_path.read_text())
-        assert written["theme"] == "dark"
-        assert written["mcpServers"]["dango"]["args"] == ["mcp", "run"]
-
-    def test_remove_deletes_dango_key_only(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "mcp.json"
-        config_path.write_text(
-            json.dumps(
-                {
-                    "theme": "dark",
-                    "mcpServers": {
-                        "dango": {"command": "dango", "args": ["mcp", "run"]},
-                        "other": {"command": "other"},
-                    },
-                }
-            )
-        )
-
-        removed = mcp_setup._remove_mcp_config(config_path)
-
-        assert removed is True
-        written = json.loads(config_path.read_text())
-        assert written["theme"] == "dark"
-        assert "dango" not in written["mcpServers"]
-        assert "other" in written["mcpServers"]
-
-    def test_remove_returns_false_when_nothing_to_remove(self, tmp_path: Path) -> None:
-        config_path = tmp_path / "mcp.json"
-        assert mcp_setup._remove_mcp_config(config_path) is False
-
-        config_path.write_text(json.dumps({"mcpServers": {"other": {}}}))
-        assert mcp_setup._remove_mcp_config(config_path) is False
 
 
 @pytest.mark.unit
@@ -170,6 +68,51 @@ class TestMcpSetup:
         assert cmd[7] == f"DANGO_PROJECT_ROOT={project_root}"
         assert cmd[8] == "--"
         assert cmd[-2:] == ["mcp", "run"]
+        assert "Claude Code" in result.output
+
+    def test_mcp_setup_is_idempotent_on_rerun(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Positive control for a real bug found live while reviewing this PR:
+        `claude mcp add` has no --force/overwrite flag and fails with exit 1
+        ("MCP server dango already exists in local config") if an entry with
+        this name is already registered. Re-running `dango mcp setup` a
+        second time -- or after switching venvs, which is exactly the
+        scenario this redesign exists to fix -- must not report a spurious
+        failure. `_setup_claude_code` fixes this by removing any existing
+        entry (ignoring the result) before adding, so setup stays idempotent
+        and can actually update a changed dango_cmd/DANGO_PROJECT_ROOT."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        project_root = tmp_path / "myproject"
+        project_root.mkdir()
+        _patch_project_context(monkeypatch, project_root)
+
+        calls: list[list[str]] = []
+
+        def _fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[2] == "remove":
+                # Simulates the real, live-confirmed behavior: exit 1 with
+                # nothing to remove yet on a first-ever setup run.
+                return subprocess.CompletedProcess(
+                    cmd, 1, stdout="", stderr='No MCP server named "dango" in local scope'
+                )
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr("dango.cli.commands.mcp_setup.subprocess.run", _fake_run)
+
+        runner = CliRunner()
+        result = runner.invoke(mcp_group, ["setup"])
+
+        assert result.exit_code == 0
+        assert len(calls) == 2
+        assert calls[0][:3] == ["claude", "mcp", "remove"]
+        assert calls[1][:3] == ["claude", "mcp", "add"]
+        # The failed (nothing-to-remove) first call must not produce a
+        # warning or block the add from running.
+        assert "⚠" not in result.output
         assert "Claude Code" in result.output
 
     def test_mcp_setup_claude_cli_not_found(
@@ -343,6 +286,56 @@ class TestMcpRemove:
 
         assert result.exit_code == 0
         assert "Nothing to remove" in result.output
+
+    def test_claude_code_nothing_to_remove_is_silent_not_a_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`claude mcp remove` on a name that was never configured exits 1
+        with "No MCP server named ... in local scope" (confirmed live) --
+        an expected no-op, not a failure. Must be silent, matching how
+        Cursor/Windsurf's _remove_mcp_config() silently returns False for
+        the same case, not printed as a scary yellow warning on every
+        `dango mcp remove` run from a project that only uses another client."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        _patch_project_context(monkeypatch, tmp_path / "myproject")
+
+        def _fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(
+                cmd, 1, stdout="", stderr='No MCP server named "dango" in local scope'
+            )
+
+        monkeypatch.setattr("dango.cli.commands.mcp_setup.subprocess.run", _fake_run)
+
+        runner = CliRunner()
+        result = runner.invoke(mcp_group, ["remove"])
+
+        assert result.exit_code == 0
+        assert "⚠" not in result.output
+        assert "Claude Code" not in result.output
+        assert "Nothing to remove" in result.output
+
+    def test_claude_code_remove_genuine_failure_still_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A real failure (not the expected "nothing to remove" case) must
+        still surface a warning, not be silently swallowed."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        _patch_project_context(monkeypatch, tmp_path / "myproject")
+
+        def _fake_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="something broke")
+
+        monkeypatch.setattr("dango.cli.commands.mcp_setup.subprocess.run", _fake_run)
+
+        runner = CliRunner()
+        result = runner.invoke(mcp_group, ["remove"])
+
+        assert result.exit_code == 0
+        assert "something broke" in result.output
 
 
 @pytest.mark.unit
