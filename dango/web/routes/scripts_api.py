@@ -162,9 +162,10 @@ async def run_script(
     async def _wait_for_completion() -> None:
         stdout = ""
         stderr = ""
+        communicate_future = loop.run_in_executor(None, proc.communicate)
         try:
             stdout, stderr = await asyncio.wait_for(
-                loop.run_in_executor(None, proc.communicate),
+                asyncio.shield(communicate_future),
                 timeout=timeout_seconds,
             )
             finished_at = datetime.now(timezone.utc)
@@ -177,12 +178,12 @@ async def run_script(
             proc.terminate()
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    loop.run_in_executor(None, proc.communicate),
+                    asyncio.shield(communicate_future),
                     timeout=5,
                 )
             except asyncio.TimeoutError:
                 proc.kill()
-                stdout, stderr = await loop.run_in_executor(None, proc.communicate)
+                stdout, stderr = await communicate_future
 
             finished_at = datetime.now(timezone.utc)
             duration = (finished_at - started_at).total_seconds()
