@@ -32,7 +32,34 @@ from typing import Any
 
 
 def _get_project_root() -> Path:
-    """Get project root for MCP tools. Raises RuntimeError if not in a project."""
+    """Get project root for MCP tools.
+
+    Prefers the explicit ``DANGO_PROJECT_ROOT`` env var (set by ``dango mcp
+    setup``'s config entry -- see mcp_setup.py) over cwd-based resolution,
+    which is a known anti-pattern for long-lived MCP server processes: the
+    cwd at client-spawn time may not match the intended project, and every
+    other `dango` CLI command's cwd-walking behavior assumes a short-lived
+    process invoked fresh each time, not a server that stays alive for an
+    entire LLM client session (1.0.8-OPS-4; see BUGS-FOUND.md's two MCP
+    entries, 2026-09-07, for the full investigation). Falls back to
+    find_project_root()'s cwd-walking only when the env var is unset, so a
+    manually-invoked `dango mcp run` (or any config predating this change)
+    keeps working exactly as before.
+
+    Raises RuntimeError if neither resolves to a real project.
+    """
+    import os
+
+    env_root = os.environ.get("DANGO_PROJECT_ROOT")
+    if env_root:
+        path = Path(env_root)
+        if (path / ".dango" / "project.yml").exists():
+            return path
+        raise RuntimeError(
+            f"DANGO_PROJECT_ROOT is set to {env_root!r} but no .dango/project.yml "
+            "found there. Re-run `dango mcp setup` from inside the correct project."
+        )
+
     from dango.config.helpers import find_project_root
 
     try:
@@ -41,6 +68,38 @@ def _get_project_root() -> Path:
         raise RuntimeError(
             "Not inside a Dango project. cd into your project directory first."
         ) from None
+
+
+def _check_version_compatibility(project_root: Path) -> str | None:
+    """Compare this running dango's version against the project's own
+    recorded version (set once, at `dango init` time -- see
+    config/models.py's `ProjectContext.dango_version`). Returns a warning
+    string if they differ, None if they match or the project has no recorded
+    version to compare against (e.g. very old projects created before this
+    field existed).
+
+    Called once at MCP server startup (mcp_server.py's `mcp_run()`), not from
+    `_get_project_root()` -- this is a one-time startup diagnostic, not
+    something every tool call should re-verify. Guards against the scenario
+    BUGS-FOUND.md documented live: a machine with two real dango installs at
+    different code versions, where the MCP config's pinned binary path and
+    DANGO_PROJECT_ROOT's resolved project have no compatibility check
+    between them today.
+    """
+    from dango import __version__ as running_version
+    from dango.config.helpers import get_config
+
+    config = get_config(project_root)
+    recorded_version = config.project.dango_version
+    if recorded_version and recorded_version != running_version:
+        return (
+            f"Warning: this MCP server is running dango {running_version}, but "
+            f"this project was last touched by dango {recorded_version}. Results "
+            "may be incorrect if the versions have incompatible changes. Run "
+            "`dango mcp setup` again from this project's own environment if this "
+            "looks wrong."
+        )
+    return None
 
 
 def _git_warnings(project_root: Path) -> list[str]:
