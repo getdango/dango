@@ -39,13 +39,10 @@ def model_add(ctx: click.Context) -> None:
       dango model add    Run interactive wizard
     """
     from ..model_wizard import add_model
-    from ..utils import check_git_branch_warning, require_project_context
+    from ..utils import require_project_context
 
     try:
         project_root = require_project_context(ctx)
-
-        # Check git branch (gentle reminder if on main/master)
-        check_git_branch_warning(project_root)
 
         model_path = add_model(project_root)
 
