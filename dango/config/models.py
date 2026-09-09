@@ -3,6 +3,7 @@
 Pydantic models for configuration validation.
 """
 
+import uuid
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -89,6 +90,12 @@ class ProjectContext(BaseModel):
     """Project-level context and metadata"""
 
     name: str
+    id: str = Field(
+        default_factory=lambda: uuid.uuid4().hex,
+        description="Stable identifier for this project, used to derive its Docker Compose "
+        "project name. Generated once at `dango init` and never changes, even if the project "
+        "directory is later moved or renamed. Do not edit by hand.",
+    )
     organization: str | None = Field(
         None, description="Organization name (used in Metabase, Web UI, etc.)"
     )
