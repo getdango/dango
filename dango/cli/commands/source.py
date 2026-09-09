@@ -4,6 +4,8 @@ Data source management commands (add, list, remove) and sync.
 """
 
 import re
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -13,6 +15,11 @@ from dango.config.helpers import (
     check_unreferenced_custom_sources,
     format_unreferenced_sources_warning,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from dango.config.models import DataSource
 
 _DURATION_PATTERN = re.compile(r"^(\d+)([dwmDWM])$")
 _DURATION_MULTIPLIERS = {"d": 1, "w": 7, "m": 30}
@@ -73,10 +80,11 @@ def source() -> None:
     Manage data sources.
 
     Commands:
-      dango source add      Add a new data source
-      dango source list     List all sources
-      dango source remove   Remove a source
-      dango source edit     Open sources.yml in $EDITOR
+      dango source add            Add a new data source
+      dango source list           List all sources
+      dango source remove         Remove a source
+      dango source edit           Open sources.yml in $EDITOR
+      dango source inspect-state  Show dlt's incremental cursor state (read-only)
     """
     pass
 
@@ -586,6 +594,275 @@ def source_remove(ctx: click.Context, source_name: str, yes: bool) -> None:
             console.print("[red]Error:[/red] Invalid sources.yml format")
             raise click.Abort()
 
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        from dango.exceptions import is_debug_mode
+
+        if is_debug_mode():
+            import traceback
+
+            console.print(traceback.format_exc())
+        raise click.Abort() from e
+
+
+def _resolve_pipeline_and_dataset_name(src: "DataSource") -> tuple[str, str]:
+    """
+    Resolve a source's dlt pipeline_name and dataset_name the same way dlt_runner.py does.
+
+    - dlt_native sources: pipeline_name/dataset_name may be overridden via the
+      source's ``dlt_native`` config block (``DltNativeConfig.pipeline_name`` /
+      ``.dataset_name``), defaulting to the source name / ``raw_{name}`` — mirrors
+      ``_run_dlt_native_source()``.
+    - All other dlt-backed sources (registry-based, e.g. facebook_ads, stripe):
+      pipeline_name is always the source name and dataset_name is always
+      ``raw_{name}`` — mirrors ``_run_dlt_source()`` / ``_get_dataset_name()``.
+      There is no per-source override for these; ``DataSource`` has no top-level
+      ``pipeline_name``/``dataset_name`` fields.
+
+    Note: CSV/Local Files sources have no dlt pipeline at all (loaded via
+    ``csv_loader.py``, not dlt) — callers should expect no ``_dlt_pipeline_state``
+    table to exist for those, regardless of the names returned here.
+    """
+    if src.dlt_native is not None:
+        pipeline_name = src.dlt_native.pipeline_name or src.name
+        dataset_name = src.dlt_native.dataset_name or f"raw_{src.name}"
+    else:
+        pipeline_name = src.name
+        dataset_name = f"raw_{src.name}"
+    return pipeline_name, dataset_name
+
+
+def _decode_dlt_state(state_b64: str) -> dict[str, Any]:
+    """
+    Decode a dlt ``_dlt_pipeline_state.state`` value.
+
+    dlt stores pipeline state as base64(zlib(json)). Verified live against a real
+    dlt 1.28.1 sync (dlt_native incremental resource) on 2026-09-09 — see PR
+    description for the manual decode used to confirm this.
+    """
+    import base64
+    import json
+    import zlib
+
+    decoded: dict[str, Any] = json.loads(zlib.decompress(base64.b64decode(state_b64)))
+    return decoded
+
+
+def _connect_readonly_with_retry(db_path: "Path") -> Any:
+    """Open a read-only DuckDB connection, retrying briefly on IOException.
+
+    DuckDB is single-writer (see VAL-003 finding); a concurrent sync can
+    transiently hold the write lock even though read-only connections are
+    normally allowed alongside a writer. Mirrors the identical retry in
+    ``dango/cli/commands/mcp_helpers.py``'s ``_connect_readonly_with_retry()``
+    and ``dango/web/routes/query.py``'s ``_execute_query()`` — this codebase's
+    established pattern is to duplicate this small retry locally in each
+    module that needs it rather than share a central helper (see
+    mcp_helpers.py's own docstring on this).
+    """
+    import time
+
+    import duckdb
+
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            return duckdb.connect(str(db_path), config={"access_mode": "read_only"})
+        except duckdb.IOException as e:
+            last_exc = e
+            if attempt < 2:
+                time.sleep(0.1 * (2**attempt))
+    assert last_exc is not None
+    raise last_exc
+
+
+def _iter_incremental_cursors(
+    state: dict[str, Any],
+) -> Iterator[tuple[str, str, str | None, dict[str, Any] | None]]:
+    """
+    Yield (dlt_source_name, resource_name, cursor_field, cursor_info) tuples for
+    every incremental cursor found in a decoded dlt pipeline state.
+
+    Note: the "source" key inside dlt's state dict is the dlt *source function's*
+    internal name (schema name), which is not necessarily equal to the Dango
+    source name used on the CLI — resources are nested under it regardless.
+    """
+    sources = state.get("sources") or {}
+    for dlt_source_name, source_state in sources.items():
+        if not isinstance(source_state, dict):
+            continue
+        resources = source_state.get("resources") or {}
+        for resource_name, resource_state in resources.items():
+            if not isinstance(resource_state, dict):
+                continue
+            incremental = resource_state.get("incremental")
+            if not incremental:
+                yield dlt_source_name, resource_name, None, None
+                continue
+            for cursor_field, cursor_info in incremental.items():
+                yield dlt_source_name, resource_name, cursor_field, cursor_info
+
+
+@source.command("inspect-state")
+@click.argument("source_name")
+@click.pass_context
+def source_inspect_state(ctx: click.Context, source_name: str) -> None:
+    """
+    Show dlt's internal incremental cursor state for a source (read-only).
+
+    Decodes and displays the incremental last_value(s) dlt is tracking for each
+    resource of SOURCE_NAME, plus whether a local dlt pipeline cache exists on
+    disk. This surfaces information that otherwise requires manually decoding
+    base64+zlib+JSON from the _dlt_pipeline_state table by hand — useful when
+    diagnosing why an incremental sync is fetching less data than expected.
+
+    This command is strictly read-only: it never modifies, clears, or resets
+    any state. Use 'dango sync <name> --full-refresh' to reset state.
+
+    Examples:
+      dango source inspect-state stripe
+      dango source inspect-state my_dlt_native_source
+    """
+    import os
+
+    import duckdb
+    from rich.table import Table
+
+    from dango.config import get_config
+
+    from ..utils import require_project_context
+
+    console.print(f"🍡 [bold]Inspecting dlt state for: {source_name}[/bold]\n")
+
+    try:
+        project_root = require_project_context(ctx)
+        config = get_config(project_root)
+
+        src = config.sources.get_source(source_name)
+        if not src:
+            console.print(f"[red]Error:[/red] Source '{source_name}' not found")
+            console.print("\nAvailable sources:")
+            for s in config.sources.sources:
+                console.print(f"  • {s.name} ({s.type.value})")
+            raise click.Abort()
+
+        pipeline_name, dataset_name = _resolve_pipeline_and_dataset_name(src)
+        console.print(f"[dim]Pipeline name:[/dim] {pipeline_name}")
+        console.print(f"[dim]Dataset name:[/dim]  {dataset_name}\n")
+
+        # --- 1. Destination state (_dlt_pipeline_state table) ---
+        duckdb_path = project_root / "data" / "warehouse.duckdb"
+        state: dict[str, Any] | None = None
+        state_error: str | None = None
+
+        if not duckdb_path.exists():
+            state_error = "Warehouse database not found — this source has never been synced."
+        else:
+            conn = None
+            try:
+                conn = _connect_readonly_with_retry(duckdb_path)
+            except duckdb.IOException as lock_err:
+                state_error = (
+                    f"Could not open the warehouse read-only (write lock busy): {lock_err}. "
+                    "Try again in a moment — a sync or the web server may be writing right now."
+                )
+
+            if conn is not None:
+                try:
+                    table_exists = conn.execute(
+                        """
+                        SELECT COUNT(*) FROM information_schema.tables
+                        WHERE table_schema = ? AND table_name = '_dlt_pipeline_state'
+                        """,
+                        [dataset_name],
+                    ).fetchone()[0]
+
+                    if not table_exists:
+                        state_error = (
+                            f"No _dlt_pipeline_state table found in schema '{dataset_name}'. "
+                            "This is normal for CSV/Local Files sources (no dlt pipeline), or "
+                            "a dlt-backed source that has never been synced."
+                        )
+                    else:
+                        row = conn.execute(
+                            f'SELECT state FROM "{dataset_name}"._dlt_pipeline_state '
+                            "ORDER BY created_at DESC LIMIT 1"
+                        ).fetchone()
+                        if not row or row[0] is None:
+                            state_error = (
+                                f"_dlt_pipeline_state table in '{dataset_name}' "
+                                "exists but has no rows."
+                            )
+                        else:
+                            try:
+                                state = _decode_dlt_state(row[0])
+                            except Exception as decode_err:
+                                state_error = f"Could not decode state blob: {decode_err}"
+                finally:
+                    conn.close()
+
+        if state_error:
+            console.print(f"[yellow]⚠ {state_error}[/yellow]\n")
+        elif state is not None:
+            table = Table(show_header=True, header_style="bold cyan")
+            table.add_column("dlt source", style="dim")
+            table.add_column("Resource", style="white")
+            table.add_column("Cursor field", style="dim")
+            table.add_column("last_value", style="green")
+            table.add_column("initial_value", style="dim")
+
+            found_any = False
+            for (
+                dlt_source_name,
+                resource_name,
+                cursor_field,
+                cursor_info,
+            ) in _iter_incremental_cursors(state):
+                found_any = True
+                if cursor_field is None:
+                    table.add_row(
+                        dlt_source_name,
+                        resource_name,
+                        "[dim]-[/dim]",
+                        "[dim]no incremental cursor[/dim]",
+                        "[dim]-[/dim]",
+                    )
+                else:
+                    last_value = str(cursor_info.get("last_value", ""))
+                    initial_value = str(cursor_info.get("initial_value", ""))
+                    table.add_row(
+                        dlt_source_name, resource_name, cursor_field, last_value, initial_value
+                    )
+
+            if found_any:
+                console.print(table)
+            else:
+                console.print("[yellow]⚠ State was found but contains no resources.[/yellow]")
+            console.print()
+
+        # --- 2. Local filesystem cache (~/.dlt/pipelines/{pipeline_name}/) ---
+        from datetime import datetime
+        from pathlib import Path
+
+        dlt_home = os.path.expanduser("~/.dlt")
+        local_cache_path = Path(dlt_home) / "pipelines" / pipeline_name
+        if local_cache_path.exists():
+            mtime = datetime.fromtimestamp(local_cache_path.stat().st_mtime)
+            console.print(
+                f"[dim]Local pipeline cache:[/dim] [green]exists[/green] at {local_cache_path} "
+                f"(last modified {mtime.strftime('%Y-%m-%d %H:%M:%S')})"
+            )
+            console.print(
+                "[dim]  Note: a stale local cache can itself mask state changes after a "
+                "--full-refresh — its mere presence is diagnostic.[/dim]"
+            )
+        else:
+            console.print(
+                f"[dim]Local pipeline cache:[/dim] [dim]not found[/dim] at {local_cache_path}"
+            )
+
+    except click.Abort:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode
