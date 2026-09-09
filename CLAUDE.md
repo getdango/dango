@@ -86,7 +86,7 @@ dango/                          # Python package source
 │   │   ├── model.py            # model group (add/remove)
 │   │   ├── platform.py         # start/stop/status + port helpers (1136 lines)
 │   │   ├── project.py          # init/rename/info
-│   │   ├── source.py           # source group (add/list/remove/edit) + sync (924 lines)
+│   │   ├── source.py           # source group (add/list/remove/edit/inspect-state) + sync (~1160 lines)
 │   │   ├── transform.py        # run/docs/generate
 │   │   ├── upgrade.py          # local Dango upgrade via pip + migrations
 │   │   ├── web.py              # web dev server
@@ -362,7 +362,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `web/routes/upload.py` | 771 | — (extracted from app.py by TASK-085) |
 | `oauth/providers.py` | 748 | — |
 | `platform/cloud/ssh.py` | 665 | — (SSH key mgmt, TOFU, exec/SFTP) |
-| `cli/commands/source.py` | 924 | — (extracted from main.py by TASK-005) |
+| `cli/commands/source.py` | 1162 | — (extracted from main.py by TASK-005; 1.0.8-Q7 added `inspect-state`) |
 | `cli/commands/remote.py` | 702 | — (remote group + push/rollback/firewall/domain) |
 | `cli/commands/remote_mgmt.py` | 608 | — (remote status/logs/ssh/query + deployment history) |
 | `platform/cloud/deployer.py` | 643 | — (push deploy workflow + deploy lock + journal) |
