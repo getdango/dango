@@ -18,6 +18,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | `commands/auth.py` (666 lines) | `auth` group (13 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, change-role, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_change_role()`, `auth_status()`, etc. |
 | `commands/cleanup.py` (388 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
 | `commands/doctor.py` (65 lines) | `doctor` command — check credential health for all configured sources | `doctor()` |
+| `commands/docker_audit.py` (~330 lines) | `docker-audit` command (1.0.8-Q8) — machine-wide diagnostic/cleanup for `dango-*` Docker resources, grouped by real Compose project identity (`com.docker.compose.project.working_dir` label) and classified orphaned / needs-attention / live. Deliberately separate from `dango doctor`, which is scoped to credential health only. | `docker_audit()`, `_build_groups()`, `_remove_group()` |
 | `commands/oauth.py` (842 lines) | `oauth` group (10 subcommands) | `oauth`, `oauth_setup()`, `oauth_status()`, `oauth_check()`, etc. |
 | `commands/transform.py` (343 lines) | `run`, `docs`, `generate` | `run()`, `docs()`, `generate()` |
 | `commands/upgrade.py` (236 lines) | `upgrade` command — local Dango upgrade via pip + migrations | `upgrade()`, `get_latest_version_cached()` |
@@ -80,6 +81,7 @@ dango (top-level group)
 ├── upgrade                     ← commands/upgrade.py
 ├── cleanup                     ← commands/cleanup.py
 ├── doctor                      ← commands/doctor.py
+├── docker-audit                ← commands/docker_audit.py
 ├── sync                        ← commands/source.py
 ├── run, docs, generate         ← commands/transform.py
 ├── validate                    ← commands/data.py

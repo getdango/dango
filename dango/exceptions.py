@@ -39,6 +39,7 @@ __all__ = [
     "JobTimeoutError",
     "JobCancelledError",
     "VersionMismatchError",
+    "DockerIdentityCollisionError",
     "MigrationError",
     "MigrationDiscoveryError",
     "MigrationApplicationError",
@@ -269,6 +270,14 @@ class VersionMismatchError(InfrastructureError):
     """Python DuckDB and Metabase JDBC driver major.minor versions differ."""
 
     _default_error_code = "DANGO-U008"
+
+
+class DockerIdentityCollisionError(InfrastructureError):
+    """Raised when a Docker Compose project name already has containers
+    belonging to a different project directory than the one currently
+    being operated on."""
+
+    _default_error_code = "DANGO-U009"
 
 
 # ---------------------------------------------------------------------------

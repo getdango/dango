@@ -73,7 +73,7 @@ platform/
 
 | File | Purpose | Key Symbols |
 |------|---------|-------------|
-| `docker.py` | Docker Compose lifecycle | `DockerManager`, `ServiceStatus` |
+| `docker.py` | Docker Compose lifecycle + project-identity collision guard (1.0.8-Q8) | `DockerManager`, `ServiceStatus`, `_get_existing_container_working_dirs()` |
 | `common/startup.py` | Shared startup helpers | `run_pending_migrations`, `ensure_dbt_schemas`, `check_duckdb_version_alignment`, `ensure_duckdb_driver`, `start_docker_services`, `setup_metabase_if_needed`, `import_dashboards` |
 | `local/network.py` | Shared nginx routing (local dev) | `NetworkConfig`, `NginxManager`, `HostsManager` |
 | `local/watcher.py` | File change detection | `DebouncedFileHandler`, `FileWatcher`, `MultiTargetWatcher`, `SyncTrigger` |
@@ -233,6 +233,7 @@ with patch.dict(sys.modules, {"paramiko": pm_mock}):
 ## Architecture Notes
 
 - **`docker.py` is shared** — both local and cloud use `DockerManager`. Cloud may add additional services but reuses the same Docker management abstraction.
+- **Project-identity collision guard (1.0.8-Q8)** — `get_compose_project_name()`'s MD5 path-hash is not a stable identifier (see its docstring and `DockerManager.compose_project_name`'s comment on the prior orphaning incident this same instability caused). `DockerManager._assert_no_identity_collision()` is called at the very start of both `start_services()` and `stop_services()`; it reads Docker's own `com.docker.compose.project.working_dir` label via `_get_existing_container_working_dirs()` and raises `DockerIdentityCollisionError` (`dango/exceptions.py`) on a confirmed mismatch against `self.project_root`. Fails open (never blocks) if the Docker check itself can't be performed — only a confirmed mismatch raises. `stop_services()` also re-verifies via the same label check after `docker compose down` reports exit 0, since exit 0 is not proof nothing is left running. `cli/commands/docker_audit.py` (`dango docker-audit`) is the machine-wide diagnostic/cleanup companion — this guard only protects the two DockerManager methods; it does not extend to the separate SSH-based `stop_services()`/`start_services()` in `cloud/backup.py` or the raw `docker compose stop/start` calls in `cloud/scheduled_backup.py`, which don't go through `DockerManager` at all.
 - **`local/` is local-only** — nginx routing and file watcher don't apply to cloud deployments (cloud uses Caddy, and `auto_sync=false`).
 - **`common/startup.py` raises, never displays** — no `console`, `click`, or `rich` imports. Callers (CLI, cloud serve) handle all user-facing output. Exception: `setup_metabase_if_needed()` swallows setup errors into the return dict rather than raising (callers decide severity).
 - **Shims for backwards compatibility** — existing code that imports from `dango.platform.watcher_lifecycle` continues to work without changes.
