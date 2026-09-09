@@ -1089,6 +1089,20 @@ class DltPipelineRunner:
                 pipeline.drop()
             except Exception as e:
                 console.print(f"  ⚠️  Could not drop pipeline state: {e}")
+            self._clear_local_pipeline_cache(pipeline_name)
+            # Re-create the pipeline object: the one above was constructed
+            # against the on-disk working directory we just deleted, and dlt's
+            # Pipeline does not lazily recreate that directory before
+            # extract()/normalize()/load() — reusing the stale in-memory
+            # object here raises FileNotFoundError on schemas/ mid-sync
+            # (confirmed via live testing on a scratch project). A fresh
+            # dlt.pipeline() call bootstraps a clean directory exactly like it
+            # would for a pipeline_name that has never been synced before.
+            pipeline = dlt.pipeline(
+                pipeline_name=pipeline_name,
+                destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
+                dataset_name=dataset_name,
+            )
 
         try:
             # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
@@ -1477,6 +1491,23 @@ class DltPipelineRunner:
                 pipeline.drop()
             except Exception as e:
                 console.print(f"  ⚠️  Could not drop pipeline state: {e}")
+            # NOTE: this method's pipeline is always named `source_name` (see
+            # dlt.pipeline(pipeline_name=source_name, ...) above) — unlike
+            # _run_dlt_native_source, there is no separate pipeline_name override.
+            self._clear_local_pipeline_cache(source_name)
+            # Re-create the pipeline object: the one above was constructed
+            # against the on-disk working directory we just deleted, and dlt's
+            # Pipeline does not lazily recreate that directory before
+            # extract()/normalize()/load() — reusing the stale in-memory
+            # object here raises FileNotFoundError on schemas/ mid-sync
+            # (confirmed via live testing on a scratch project). A fresh
+            # dlt.pipeline() call bootstraps a clean directory exactly like it
+            # would for a pipeline_name that has never been synced before.
+            pipeline = dlt.pipeline(
+                pipeline_name=source_name,
+                destination=dlt.destinations.duckdb(credentials=str(self.duckdb_path)),
+                dataset_name=dataset_name,
+            )
 
         try:
             # Phase 1: Extract (API calls, NO LOCK, with retry for network errors)
@@ -2714,6 +2745,36 @@ Need help? Visit: https://github.com/getdango/dango/issues
         except Exception as e:
             console.print(f"  [dim]⚠️  Could not backup state: {e}[/dim]")
             return None
+
+    def _clear_local_pipeline_cache(self, pipeline_name: str) -> None:
+        """Ensure the local dlt pipeline working directory is actually gone after
+        a full refresh. pipeline.drop() is expected to clear this, but its
+        failure is caught and only logged elsewhere in this file — a full
+        refresh must not silently proceed with stale local incremental cursor
+        state still present, since that state is independent of the destination
+        schema drop and can survive it.
+
+        pipeline_name is always sourced from trusted config (config.pipeline_name
+        or source_name in _run_dlt_native_source; source_name directly in
+        _run_dlt_source) — never raw/unsanitized external input. See
+        _backup_dlt_state above, which already performs filesystem operations
+        (shutil.copytree) on this exact path with these exact inputs.
+        """
+        import shutil
+
+        dlt_home = Path(os.path.expanduser("~/.dlt"))
+        pipeline_state_dir = dlt_home / "pipelines" / pipeline_name
+
+        if not pipeline_state_dir.exists():
+            return
+
+        try:
+            shutil.rmtree(pipeline_state_dir)
+            console.print(
+                f"  [dim]🗑️  Cleared local pipeline cache ({pipeline_state_dir.name})[/dim]"
+            )
+        except Exception as e:
+            console.print(f"  ⚠️  Could not clear local pipeline cache: {e}")
 
     def _restore_dlt_state(self, backup_dir: Path | None):
         """
