@@ -17,6 +17,7 @@ from dango.cli.commands.dashboard import dashboard
 from dango.cli.commands.data import db, validate
 from dango.cli.commands.deploy import deploy
 from dango.cli.commands.dev import dev
+from dango.cli.commands.docker_audit import docker_audit
 from dango.cli.commands.doctor import doctor
 from dango.cli.commands.governance import governance
 from dango.cli.commands.local_backup import backup_group as local_backup_group
@@ -105,6 +106,7 @@ cli.add_command(serve)
 cli.add_command(upgrade)
 cli.add_command(cleanup)
 cli.add_command(doctor)
+cli.add_command(docker_audit)
 
 # --- Register command groups ---
 cli.add_command(source)

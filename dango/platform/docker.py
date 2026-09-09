@@ -12,7 +12,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from dango.exceptions import format_structured_error
+from dango.exceptions import DockerIdentityCollisionError, format_structured_error
 
 console = Console()
 
@@ -25,6 +25,44 @@ def get_compose_project_name(project_root: Path | str) -> str:
     """
     path_hash = hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]
     return f"dango-{path_hash}"
+
+
+def _get_existing_container_working_dirs(compose_project_name: str) -> set[str]:
+    """Return the distinct com.docker.compose.project.working_dir label
+    values of any containers (running or stopped) that already exist under
+    this compose project name.
+
+    Empty set if none exist or if the check itself fails — this fails open
+    on Docker connectivity issues (unreachable daemon, missing CLI, slow
+    response) because this check exists to catch a *confirmed* mismatch, not
+    to add a general reliability dependency on Docker being reachable.
+
+    NOTE on ``--format`` syntax: the Go template helper for reading a single
+    label on ``docker ps`` is the ``.Label "<key>"`` method, NOT
+    ``index .Labels "<key>"`` (the latter fails at runtime — live-verified
+    against Docker 28.5.1: ``.Labels`` is a pre-joined ``k=v,k=v`` string on
+    this subcommand, not a map, so ``index`` cannot operate on it).
+    """
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--filter",
+                f"label=com.docker.compose.project={compose_project_name}",
+                "--format",
+                '{{.Label "com.docker.compose.project.working_dir"}}',
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return set()
+        return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return set()
 
 
 class ServiceStatus(str, Enum):
@@ -59,6 +97,40 @@ class DockerManager:
         env = os.environ.copy()
         env["COMPOSE_PROJECT_NAME"] = self.compose_project_name
         return env
+
+    def _assert_no_identity_collision(self) -> None:
+        """Refuse to proceed if this compose project name already belongs to
+        a different project directory.
+
+        Background: ``compose_project_name`` (above) is an MD5 hash of the
+        project's path string, truncated to 8 hex chars — not a stable
+        identifier (path casing, symlink resolution, or directory reuse can
+        change or collide it). On 2026-09-09 this class of bug destroyed a
+        real project's Metabase data: a scratch project's containers were
+        assumed-orphaned and torn down manually, but the compose project name
+        actually belonged to ``tests/beta-1``. This guard makes that mistake
+        structurally harder by checking Docker's own
+        ``com.docker.compose.project.working_dir`` label — the literal path
+        used to create the existing containers — against this instance's own
+        resolved path before any start/stop subprocess call proceeds.
+
+        Fails open (returns without raising) if the Docker check itself
+        can't be performed — see ``_get_existing_container_working_dirs()``.
+        Only a confirmed mismatch raises.
+        """
+        existing = _get_existing_container_working_dirs(self.compose_project_name)
+        if not existing:
+            return
+        current = str(self.project_root.resolve())
+        mismatched = existing - {current}
+        if mismatched:
+            raise DockerIdentityCollisionError(
+                f"Compose project '{self.compose_project_name}' already has containers "
+                f"belonging to a different project directory: {sorted(mismatched)}. "
+                f"Refusing to proceed — this is almost certainly a project-identity "
+                f"collision, not your project. Run 'dango docker-audit' to "
+                f"investigate before taking any manual action."
+            )
 
     def _metabase_image_exists(self) -> bool:
         """Check if the dango-metabase Docker image already exists locally."""
@@ -130,7 +202,16 @@ class DockerManager:
 
         Returns:
             True if successful, False otherwise
+
+        Raises:
+            DockerIdentityCollisionError: This compose project name already
+                has containers belonging to a different project directory
+                (confirmed via Docker's own working_dir label). Never raised
+                for Docker connectivity issues — see
+                ``_assert_no_identity_collision()``.
         """
+        self._assert_no_identity_collision()
+
         if not self.compose_file.exists():
             msg = format_structured_error(
                 what_failed="docker-compose.yml not found",
@@ -245,7 +326,16 @@ class DockerManager:
 
         Returns:
             True if successful, False otherwise
+
+        Raises:
+            DockerIdentityCollisionError: This compose project name already
+                has containers belonging to a different project directory
+                (confirmed via Docker's own working_dir label). Never raised
+                for Docker connectivity issues — see
+                ``_assert_no_identity_collision()``.
         """
+        self._assert_no_identity_collision()
+
         if not self.compose_file.exists():
             console.print("[yellow]Warning:[/yellow] docker-compose.yml not found")
             return True  # Nothing to stop
@@ -265,6 +355,19 @@ class DockerManager:
             )
 
             if result.returncode == 0:
+                # Honest reporting: `docker compose down` exiting 0 is not
+                # proof nothing is left running (BUGS-FOUND.md 2026-09-09 —
+                # this exact assumption contributed to the incident this
+                # module's identity guard exists to prevent). Re-verify via
+                # the same label-based check before claiming success.
+                survivors = _get_existing_container_working_dirs(self.compose_project_name)
+                if survivors:
+                    console.print(
+                        "[yellow]⚠[/yellow]  'docker compose down' exited successfully, but "
+                        f"container(s) still exist for project '{self.compose_project_name}'. "
+                        "Run 'docker ps -a' to inspect, or 'dango docker-audit' to investigate."
+                    )
+                    return False
                 console.print("[green]✓[/green] Services stopped")
                 self._warn_orphaned_containers()
                 return True

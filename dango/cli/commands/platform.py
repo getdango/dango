@@ -146,6 +146,7 @@ def start(ctx: click.Context, yes: bool) -> None:
     Change port in .dango/project.yml under platform.port
     """
     from dango.config import ConfigLoader
+    from dango.exceptions import DockerIdentityCollisionError, format_structured_error
     from dango.platform.common.startup import (
         check_duckdb_version_alignment,
         ensure_dbt_schemas,
@@ -742,6 +743,21 @@ def start(ctx: click.Context, yes: bool) -> None:
         # User cancelled or intentional abort - re-raise without extra cleanup
         # (cleanup already handled where abort was raised)
         raise
+    except DockerIdentityCollisionError as e:
+        # Confirmed project-identity collision (BUGS-FOUND.md 2026-09-09) —
+        # do NOT attempt the generic rollback below, which would call
+        # stop_services() again for the same colliding compose project name.
+        # The whole point of this guard is to refuse to touch that project's
+        # containers at all until a human investigates.
+        console.print()
+        msg = format_structured_error(
+            what_failed="Docker project-identity collision detected",
+            causes=[str(e)],
+            suggested_fix="Run 'dango docker-audit' to investigate before taking any manual Docker action.",
+        )
+        console.print(f"[red]Error:[/red]\n{msg}")
+        console.print()
+        raise click.Abort() from e
     except Exception as e:
         # Unexpected error - roll back everything
         console.print()
@@ -798,6 +814,7 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
     from pathlib import Path
 
     from dango.config import ConfigLoader
+    from dango.exceptions import DockerIdentityCollisionError, format_structured_error
     from dango.platform import DockerManager
     from dango.platform.network import NetworkConfig
 
@@ -873,6 +890,14 @@ def stop(ctx: click.Context, stop_all: bool) -> None:
         console.print("[green]✅ All services stopped[/green]")
         console.print()
 
+    except DockerIdentityCollisionError as e:
+        msg = format_structured_error(
+            what_failed="Docker project-identity collision detected",
+            causes=[str(e)],
+            suggested_fix="Run 'dango docker-audit' to investigate before taking any manual Docker action.",
+        )
+        console.print(f"[red]Error:[/red]\n{msg}")
+        raise click.Abort() from e
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         from dango.exceptions import is_debug_mode

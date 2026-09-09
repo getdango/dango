@@ -105,9 +105,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/platform/docker.py
-    lines: 508
+    lines: 611
     category: exempt
-    reason: "P0-3: Added all_projects parameter and conditional docker ps filtering for project-scoped container cleanup (+26 lines). Marginally over limit."
+    reason: "P0-3: Added all_projects parameter and conditional docker ps filtering for project-scoped container cleanup (+26 lines). 1.0.8-Q8: Added the project-identity collision guard (_get_existing_container_working_dirs(), DockerManager._assert_no_identity_collision(), called at the start of start_services()/stop_services()) plus honest stop-reporting re-verification after `docker compose down` — release-blocking fix for a real incident (BUGS-FOUND.md 2026-09-09) where an unstable path-hash compose project name led to a real project's Metabase data being destroyed. This logic must live alongside the Docker subprocess calls it guards, not in a new file."
     review_by: "v1.1"
 
   - file: tests/unit/test_process_manager.py

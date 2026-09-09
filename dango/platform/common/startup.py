@@ -155,6 +155,12 @@ def start_docker_services(project_root: Path) -> None:
     Raises:
         RuntimeError: If Docker daemon is not running, required ports are
             still occupied after cleanup, or services fail to start
+        DockerIdentityCollisionError: The compose project name for this
+            project root already has containers belonging to a confirmed
+            different project directory (raised by
+            ``DockerManager._assert_no_identity_collision()``, called at the
+            start of the ``stop_services()``/``start_services()`` calls
+            below). Never raised for Docker connectivity issues alone.
     """
     from dango.platform import DockerManager
 
