@@ -4,13 +4,15 @@ Machine-wide diagnostic + cleanup for dango-managed Docker resources.
 
 Added by 1.0.8-Q8 after a real incident (2026-09-09, see
 v1.0.x-planning/1.0.8/BUGS-FOUND.md and dango/exceptions.py's
-DockerIdentityCollisionError): get_compose_project_name() derives a
+DockerIdentityCollisionError): get_compose_project_name() used to derive a
 project's Docker Compose identity from an MD5 hash of its path string,
-which is not a stable identifier. When a scratch project's containers
+which was not a stable identifier. When a scratch project's containers
 looked orphaned, a human/agent operator guessed which real project they
 belonged to and ran manual `docker compose down` + `docker volume rm` +
 `docker rmi` outside any `dango` command — destroying a different, real
-project's Metabase data.
+project's Metabase data. 1.0.8-Q9 fixed the root cause (a persisted
+`project.id` in project.yml instead of a path hash); this command remains
+as defense in depth for any other identity confusion.
 
 This command is the tool that should have existed: it reads Docker
 Compose's own `com.docker.compose.project.working_dir` label (the literal

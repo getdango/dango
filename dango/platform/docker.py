@@ -6,6 +6,7 @@ Handles Docker Compose operations for Dango services.
 import hashlib
 import os
 import subprocess
+import uuid
 from enum import Enum
 from pathlib import Path
 
@@ -17,14 +18,69 @@ from dango.exceptions import DockerIdentityCollisionError, format_structured_err
 console = Console()
 
 
+def _legacy_path_hash(project_root: Path | str) -> str:
+    """Compute the pre-1.0.8-Q9 path-hash compose identity for ``project_root``.
+
+    NOT a general-purpose identity function anymore — ``get_compose_project_name()``
+    reads the persisted ``project.id`` from project.yml instead (1.0.8-Q9). This
+    helper exists solely for:
+
+    1. The one-time migration in ``DockerManager._resolve_or_migrate_project_id()``
+       — adopting this exact value as ``project.id`` if containers already exist
+       under it (zero disruption for a pre-upgrade project).
+    2. A deterministic (never random) fallback in ``get_compose_project_name()``
+       for a project that hasn't been migrated yet, so read-only callers invoked
+       before the first post-upgrade start/stop see a stable name consistent with
+       what migration will itself check for and potentially adopt.
+
+    See ``v1.0.x-planning/1.0.8/Q9-docker-persistent-project-id.md`` for the full
+    background and the 2026-09-09 incident this replaces the root cause of.
+    """
+    return hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]
+
+
+def _read_raw_project_id(project_root: Path | str) -> str | None:
+    """Return the persisted ``project.id`` from project.yml's raw YAML, or
+    ``None`` if project.yml doesn't exist or has no ``id`` field.
+
+    Deliberately reads the raw YAML dict rather than constructing a
+    ``ProjectContext`` — Pydantic's ``default_factory`` on the ``id`` field
+    means a constructed model always has *some* id, even when the file
+    itself has none. Checking the raw dict is the only way to distinguish
+    "already migrated" from "never migrated" (see 1.0.8-Q9).
+    """
+    from dango.config.loader import ConfigLoader
+
+    loader = ConfigLoader(Path(project_root))
+    try:
+        data = loader.load_yaml(loader.project_file)
+    except Exception:
+        return None
+    project_id = data.get("project", {}).get("id")
+    return project_id if isinstance(project_id, str) and project_id else None
+
+
 def get_compose_project_name(project_root: Path | str) -> str:
     """Return the Docker Compose project name for the given project root.
 
-    Deterministic name derived from path hash to avoid collisions between
-    multiple Dango projects on the same machine or server.
+    Reads the persisted ``project.id`` from project.yml (1.0.8-Q9) — no
+    longer hashes the path. A persisted id travels with project.yml even if
+    the project directory is later moved or renamed, fixing the root cause
+    of the 2026-09-09 identity-collision incident (see
+    ``DockerManager._assert_no_identity_collision()`` and
+    ``v1.0.x-planning/1.0.8/Q9-docker-persistent-project-id.md``).
+
+    For a project that hasn't yet gone through the one-time migration in
+    ``DockerManager._resolve_or_migrate_project_id()`` (run only inside
+    ``start_services()``/``stop_services()``), falls back to the
+    deterministic legacy path hash — the exact value migration will itself
+    adopt if legacy containers exist — rather than generating a fresh
+    random id on every call, which would be worse than the bug this fixes.
     """
-    path_hash = hashlib.md5(str(project_root).encode(), usedforsecurity=False).hexdigest()[:8]
-    return f"dango-{path_hash}"
+    project_id = _read_raw_project_id(project_root)
+    if project_id is None:
+        project_id = _legacy_path_hash(project_root)
+    return f"dango-{project_id[:8]}"
 
 
 def _get_existing_container_working_dirs(compose_project_name: str) -> set[str]:
@@ -84,11 +140,14 @@ class DockerManager:
 
     @property
     def compose_project_name(self) -> str:
-        """Deterministic project name derived from path to avoid collisions.
+        """Deterministic project name derived from this project's persisted
+        ``project.id`` (1.0.8-Q9) — stable across moves/renames of the
+        project directory.
 
-        NOTE: Containers started before this change used Docker's default
-        naming (directory-based) and will be orphaned.  ``dango stop --all``
-        cleans those up via ``docker ps --filter name=``.
+        NOTE: Containers started before the original hash-based naming
+        scheme used Docker's default naming (directory-based) and will be
+        orphaned.  ``dango stop --all`` cleans those up via
+        ``docker ps --filter name=``.
         """
         return get_compose_project_name(self.project_root)
 
@@ -98,18 +157,75 @@ class DockerManager:
         env["COMPOSE_PROJECT_NAME"] = self.compose_project_name
         return env
 
+    def _resolve_or_migrate_project_id(self) -> str:
+        """Resolve this project's persisted ``project.id``, migrating a
+        pre-1.0.8-Q9 project (no ``id`` in project.yml) exactly once.
+
+        Must only be called from ``start_services()``/``stop_services()`` —
+        never from a general config-load path or the ``dango/migrations/``
+        framework. The whole point of this being "lazy" is that it only
+        ever runs at a moment when real Docker state can be checked and
+        acted on safely (see Q9-docker-persistent-project-id.md).
+
+        Safe to call from either method first, in either order — the check
+        for an already-persisted id makes repeat calls (including from the
+        other method) a no-op.
+
+        Migration logic:
+        1. No project.yml at all (e.g. a bare directory, not a real Dango
+           project) — nothing to migrate or persist. Returns the
+           deterministic legacy hash so callers still get a stable name.
+        2. ``project.id`` already present in the raw YAML — already
+           migrated (or created fresh by ``dango init`` after this fix
+           shipped). Return it unchanged. Never overwritten.
+        3. ``project.id`` missing from the raw YAML (pre-upgrade project) —
+           compute the legacy path hash, check via Q8's
+           ``_get_existing_container_working_dirs()`` whether containers
+           already exist under that legacy compose name:
+           - If yes: adopt the legacy hash as ``project.id`` — zero
+             disruption, the exact same compose project name continues to
+             be used.
+           - If no: generate a fresh ``uuid.uuid4().hex``.
+           Either way, persist the resolved id back to project.yml
+           immediately via ``ConfigLoader.save_project_context()``.
+        """
+        from dango.config.loader import ConfigLoader
+
+        loader = ConfigLoader(self.project_root)
+        if not loader.project_file.exists():
+            return _legacy_path_hash(self.project_root)
+
+        raw = loader.load_yaml(loader.project_file)
+        existing_id = raw.get("project", {}).get("id")
+        if isinstance(existing_id, str) and existing_id:
+            return existing_id
+
+        legacy_hash = _legacy_path_hash(self.project_root)
+        legacy_name = f"dango-{legacy_hash}"
+        if _get_existing_container_working_dirs(legacy_name):
+            resolved_id = legacy_hash
+        else:
+            resolved_id = uuid.uuid4().hex
+
+        project = loader.load_project_context()
+        project.id = resolved_id
+        loader.save_project_context(project)
+        return resolved_id
+
     def _assert_no_identity_collision(self) -> None:
         """Refuse to proceed if this compose project name already belongs to
         a different project directory.
 
-        Background: ``compose_project_name`` (above) is an MD5 hash of the
-        project's path string, truncated to 8 hex chars — not a stable
-        identifier (path casing, symlink resolution, or directory reuse can
-        change or collide it). On 2026-09-09 this class of bug destroyed a
-        real project's Metabase data: a scratch project's containers were
-        assumed-orphaned and torn down manually, but the compose project name
-        actually belonged to ``tests/beta-1``. This guard makes that mistake
-        structurally harder by checking Docker's own
+        Background: ``compose_project_name`` (above) used to be an MD5 hash
+        of the project's path string, truncated to 8 hex chars — not a
+        stable identifier (path casing, symlink resolution, or directory
+        reuse could change or collide it). On 2026-09-09 this class of bug
+        destroyed a real project's Metabase data: a scratch project's
+        containers were assumed-orphaned and torn down manually, but the
+        compose project name actually belonged to ``tests/beta-1``. 1.0.8-Q9
+        fixed the root cause (a persisted ``project.id`` in project.yml
+        instead of a path hash — see ``get_compose_project_name()``), but
+        this guard remains as defense in depth: it checks Docker's own
         ``com.docker.compose.project.working_dir`` label — the literal path
         used to create the existing containers — against this instance's own
         resolved path before any start/stop subprocess call proceeds.
@@ -210,6 +326,7 @@ class DockerManager:
                 for Docker connectivity issues — see
                 ``_assert_no_identity_collision()``.
         """
+        self._resolve_or_migrate_project_id()
         self._assert_no_identity_collision()
 
         if not self.compose_file.exists():
@@ -334,6 +451,7 @@ class DockerManager:
                 for Docker connectivity issues — see
                 ``_assert_no_identity_collision()``.
         """
+        self._resolve_or_migrate_project_id()
         self._assert_no_identity_collision()
 
         if not self.compose_file.exists():
