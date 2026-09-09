@@ -13,7 +13,7 @@ Click-based command-line interface for all Dango operations — project init, so
 | **commands/** | | |
 | `commands/__init__.py` (4 lines) | Package marker | — |
 | `commands/project.py` (307 lines) | `init`, `rename`, `info` | `init()`, `rename()`, `info()` |
-| `commands/source.py` (924 lines) | `source` group (`add`, `list`, `remove`, `edit`) + `sync` | `source`, `sync()` |
+| `commands/source.py` (~1160 lines) | `source` group (`add`, `list`, `remove`, `edit`, `inspect-state`) + `sync` | `source`, `sync()`, `source_inspect_state()` |
 | `commands/platform.py` (1136 lines) | `start`, `stop`, `status` | `start()`, `stop()`, `status()` |
 | `commands/auth.py` (666 lines) | `auth` group (13 subcommands: enable, disable, add-user, list-users, reset-password, deactivate-user, reactivate-user, delete-user, status, unlock, change-role, audit, recover) | `auth`, `auth_enable()`, `auth_add_user()`, `auth_change_role()`, `auth_status()`, etc. |
 | `commands/cleanup.py` (388 lines) | `cleanup` command — remove old log archives, dbt artifacts, Python cache | `cleanup()` |
@@ -85,7 +85,7 @@ dango (top-level group)
 ├── validate                    ← commands/data.py
 ├── web                         ← commands/web.py
 ├── source (group)              ← commands/source.py
-│   ├── add, list, remove, edit
+│   ├── add, list, remove, edit, inspect-state
 ├── config (group)              ← commands/config_cmd.py
 │   ├── validate, show, do-token
 ├── db (group)                  ← commands/data.py
