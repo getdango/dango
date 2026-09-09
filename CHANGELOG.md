@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deploy output now warns when backups aren't configured for BYOS/self-hosted deploys, with a link to the backup setup docs
 - Data Pipeline Health dashboard now shows real sync history, dbt test results, and source counts instead of placeholder queries
 - Git guardrail warnings (previously only on `dango remote push`) now also cover model/source/schedule creation — CLI wizards and MCP's mutation tools warn when run on a protected branch
+- `dango status` now shows whether an MCP server process is running for the current project, alongside the existing web server, watcher, and Metabase rows
+- `dango source inspect-state <name>` — a new read-only command that decodes and displays a source's dlt incremental sync state (the cursor value it's tracking per resource), useful for diagnosing why an incremental sync isn't picking up data you'd expect it to
 
 ### Fixed
 
@@ -33,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Telemetry: dlt's telemetry setting now lives in machine-level config alongside dango/dbt/Metabase, instead of the project's own `.dlt/config.toml` — toggling telemetry no longer produces a git diff
 - `dango init`: project names containing a dot (e.g. `my.project`) no longer produce a broken dbt project
 - Scripts page: per-script execution timeout is now configurable per script instead of a hardcoded 5 minutes
+- `dango source add`: selecting MySQL no longer crashes with a validation error and losing all entered configuration
+- Scripts page: a script that times out or is killed now correctly shows the output it had already printed, instead of an empty log — a race between two competing reads of the same process output was discarding it
+- `dango sync ... --full-refresh` on a merge-based source now actually clears cached incremental sync state, instead of only resetting the destination tables and leaving stale state behind that could prevent a full reload
 
 ### Security
 
