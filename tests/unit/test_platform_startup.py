@@ -426,6 +426,31 @@ class TestImportDashboards:
         result = import_dashboards(tmp_path)
         assert result is None
 
+    def test_import_dashboards_still_noops_with_no_directories(self, tmp_path):
+        """Regression risk check: a project with neither dashboards/ nor
+        metabase/ (the common case for most projects) must still no-op
+        cleanly, returning None with zero side effects -- matching current
+        behavior exactly, not just for the metabase/ case this task fixes."""
+        result = import_dashboards(tmp_path)
+        assert result is None
+
+    def test_import_dashboards_still_finds_legacy_directory(self, tmp_path):
+        """Backward compatible: the legacy bare dashboards/ directory (no
+        metabase/ directory at all) must still trigger delegation, exactly
+        as before this fix."""
+        dashboards_dir = tmp_path / "dashboards"
+        dashboards_dir.mkdir()
+        (dashboards_dir / "overview.yml").touch()
+
+        expected = {"imported": 1, "skipped": 0}
+        with patch(
+            "dango.visualization.dashboard_manager.import_dashboards", return_value=expected
+        ) as mock_import:
+            result = import_dashboards(tmp_path)
+
+        assert result == expected
+        mock_import.assert_called_once_with(tmp_path)
+
     def test_calls_import_when_dashboards_exist(self, tmp_path):
         """import_dashboards delegates to dashboard_manager when .yml files found."""
         dashboards_dir = tmp_path / "dashboards"
@@ -440,6 +465,38 @@ class TestImportDashboards:
 
         assert result == expected
         mock_import.assert_called_once_with(tmp_path)
+
+    def test_import_dashboards_finds_metabase_directory(self, tmp_path):
+        """1.0.8-Q10 fix #1 regression test: a project using the current
+        `dango metabase save` export convention (metabase/dashboards/*.yml)
+        but with no legacy dashboards/ directory at all must still trigger
+        the wrapper to proceed and delegate to the real import function.
+
+        This is the exact regression from the live incident: this must
+        fail against the pre-fix code (which gated on the legacy dashboards/
+        directory only and returned None immediately, silently) and pass
+        against the fix."""
+        metabase_dashboards_dir = tmp_path / "metabase" / "dashboards"
+        metabase_dashboards_dir.mkdir(parents=True)
+        (metabase_dashboards_dir / "overview.yml").touch()
+
+        expected = {"imported": 1, "skipped": 0}
+        with patch(
+            "dango.visualization.dashboard_manager.import_dashboards", return_value=expected
+        ) as mock_import:
+            result = import_dashboards(tmp_path)
+
+        assert result == expected
+        mock_import.assert_called_once_with(tmp_path)
+
+    def test_returns_none_when_metabase_dir_has_no_yml_files(self, tmp_path):
+        """An empty metabase/ directory (e.g. only non-yml files) must still
+        no-op cleanly, matching the legacy-directory no-op behavior."""
+        metabase_dir = tmp_path / "metabase"
+        metabase_dir.mkdir()
+        (metabase_dir / "README.txt").touch()
+        result = import_dashboards(tmp_path)
+        assert result is None
 
 
 @pytest.mark.unit

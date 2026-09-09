@@ -455,17 +455,25 @@ def _link_metabase_admin(project_root: Path, admin_email: str) -> None:
 
 def import_dashboards(project_root: Path) -> dict[str, Any] | None:
     """
-    Import YAML dashboards if any exist in the dashboards/ directory.
+    Import YAML dashboards if any exist, in either the legacy dashboards/
+    directory or the current metabase/ export directory written by
+    `dango metabase save` (see dashboard_manager.import_dashboards()'s
+    docstring for the dual-path support this delegates to).
 
     Args:
         project_root: Project root directory
 
     Returns:
         Import result dict (with 'imported' and 'skipped' keys), or None if
-        no dashboards directory or no .yml files found.
+        neither directory has any .yml files to import.
     """
-    dashboards_dir = project_root / "dashboards"
-    if not dashboards_dir.exists() or not list(dashboards_dir.glob("*.yml")):
+    legacy_dir = project_root / "dashboards"
+    metabase_dir = project_root / "metabase"
+
+    has_legacy = legacy_dir.exists() and bool(list(legacy_dir.glob("*.yml")))
+    has_current = metabase_dir.exists() and any(metabase_dir.rglob("*.yml"))
+
+    if not has_legacy and not has_current:
         return None
 
     from dango.visualization.dashboard_manager import import_dashboards as _import_dashboards

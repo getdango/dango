@@ -526,7 +526,7 @@ class DashboardManager:
         dashboard_data: dict[str, Any],
         collection_id: int | None = None,
         overwrite: bool = False,
-    ) -> int | None:
+    ) -> dict[str, Any] | None:
         """
         Create a dashboard in Metabase from YAML data
 
@@ -536,7 +536,11 @@ class DashboardManager:
             overwrite: If True and dashboard exists, delete and recreate
 
         Returns:
-            Dashboard ID if successful, None otherwise
+            On success, a dict with keys "dashboard_id" (int) and
+            "card_ids" (list[int], the embedded cards created for this
+            dashboard) so callers can track every object this call created
+            for rollback purposes. None if the dashboard was not created
+            (skipped as already-existing, or a Metabase API call failed).
         """
         try:
             dashboard_name = dashboard_data.get("name")
@@ -639,7 +643,10 @@ class DashboardManager:
                     f"'{dashboard_name}': {', '.join(failed_cards)}[/yellow]"
                 )
 
-            return dashboard_id
+            return {
+                "dashboard_id": dashboard_id,
+                "card_ids": [dc["card_id"] for dc in dashcards],
+            }
 
         except Exception as e:
             console.print(
@@ -1056,11 +1063,12 @@ class DashboardManager:
                             if collection_id is not None:
                                 collection_id = id_mapping.get(collection_id, collection_id)
 
-                            dashboard_id = self._create_dashboard_from_yaml(
+                            dashboard_result = self._create_dashboard_from_yaml(
                                 dashboard_data, collection_id=collection_id, overwrite=overwrite
                             )
 
-                            if dashboard_id:
+                            if dashboard_result:
+                                dashboard_id = dashboard_result["dashboard_id"]
                                 created_items.append(
                                     {
                                         "type": "dashboard",
@@ -1068,6 +1076,19 @@ class DashboardManager:
                                         "name": dashboard_name,
                                     }
                                 )
+                                # Track each embedded card created for this
+                                # dashboard too, so a later rollback deletes
+                                # them instead of leaving them orphaned
+                                # (they are independent Card objects, not
+                                # cascade-deleted with the dashboard).
+                                for card_id in dashboard_result["card_ids"]:
+                                    created_items.append(
+                                        {
+                                            "type": "card",
+                                            "id": card_id,
+                                            "name": f"{dashboard_name} (embedded card)",
+                                        }
+                                    )
                                 summary["imported_dashboards"].append(
                                     {
                                         "name": dashboard_name,
