@@ -725,6 +725,23 @@ class TestLinkMetabaseAdmin:
 class TestRefreshMetabaseConnection:
     """Tests for refresh_metabase_connection() container name resolution (BUG-118)."""
 
+    def test_unexpected_error_returns_gracefully_instead_of_masking_typeerror(
+        self, tmp_path: Path
+    ) -> None:
+        """1.0.8-W regression test: the outer `except Exception as e: logger.warning(...)`
+        block used to pass `error=str(e)` to stdlib logging.Logger.warning(), which isn't
+        a valid kwarg there (this module's `logger` is `logging.getLogger`, not
+        structlog) -- verified live to raise its own TypeError, silently replacing
+        whatever the real exception was. Positive control: force an exception inside the
+        try block and confirm the function now returns (False, <message>) instead of
+        raising."""
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        with patch("dango.platform.docker.DockerManager", side_effect=RuntimeError("boom")):
+            result = refresh_metabase_connection(tmp_path)
+
+        assert result == (False, "boom")
+
     def test_uses_hash_based_container_name(self, tmp_path: Path) -> None:
         """BUG-118: refresh_metabase_connection uses DockerManager's hash-based name."""
         from dango.visualization.metabase import refresh_metabase_connection
