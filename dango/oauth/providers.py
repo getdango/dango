@@ -255,8 +255,9 @@ class GoogleOAuthProvider(BaseOAuthProvider):
                 )
                 console.print(
                     "[yellow]If your app is Published:[/yellow]"
-                    "\n[yellow]  You'll see a standard Google consent screen — "
-                    "click [bold]Allow[/bold][/yellow]"
+                    "\n[yellow]  You'll likely still see the same unverified-app "
+                    "warning as above — see the Prerequisites panel, click "
+                    "through the same way[/yellow]"
                 )
                 oauth_response = self.oauth_manager.start_oauth_flow("Google", auth_url)
 
