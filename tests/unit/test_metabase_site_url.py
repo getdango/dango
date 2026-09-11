@@ -17,6 +17,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import pytest
+import yaml
+
+# Patch target for NetworkConfig.get_project_info: dango.platform.local.network is
+# the source module (metabase.py lazy-imports it inside _should_apply_local_site_url()
+# rather than importing it at module level), so that's what must be patched -- patching
+# dango.visualization.metabase.NetworkConfig would silently no-op.
+_NETWORK_CONFIG_GET_PROJECT_INFO = "dango.platform.local.network.NetworkConfig.get_project_info"
 
 
 def _mock_fresh_setup_session(put_side_effect: list[MagicMock]) -> MagicMock:
@@ -79,6 +86,7 @@ class TestSetupMetabaseSiteUrl:
             patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
         ):
             result = setup_metabase(tmp_project_dir, "test-project", "admin@example.com")
 
@@ -89,12 +97,15 @@ class TestSetupMetabaseSiteUrl:
             json={"value": "http://localhost:8800/metabase/"},
             timeout=10,
         )
+        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
+        assert yaml.safe_load(creds_file.read_text())["site_url_set"] is True
 
     def test_setup_metabase_site_url_failure_does_not_block_setup(
         self, tmp_project_dir: Path
     ) -> None:
         """A non-200 from the site-url PUT must not stop the rest of setup_metabase()
-        (DuckDB connection, credentials save) from completing."""
+        (DuckDB connection, credentials save) from completing, and must not mark
+        site_url_set so refresh_metabase_connection() retries it on the next sync."""
         from dango.visualization.metabase import setup_metabase
 
         mock_session = _mock_fresh_setup_session(
@@ -105,9 +116,61 @@ class TestSetupMetabaseSiteUrl:
             patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
         ):
             result = setup_metabase(tmp_project_dir, "test-project", "admin@example.com")
 
         assert result["success"] is True
         assert result["duckdb_connected"] is True
         assert result["credentials_saved"] is True
+        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
+        assert yaml.safe_load(creds_file.read_text())["site_url_set"] is False
+
+    def test_setup_metabase_skips_site_url_in_cloud_mode(self, tmp_project_dir: Path) -> None:
+        """cloud_mode=True must skip the site-url PUT entirely -- Caddy fronts Metabase
+        with a real public domain/HTTPS on cloud deployments, not localhost:{port}."""
+        from dango.visualization.metabase import setup_metabase
+
+        set_default_resp = MagicMock(status_code=200)
+        mock_session = _mock_fresh_setup_session([set_default_resp])
+
+        with (
+            patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+        ):
+            result = setup_metabase(
+                tmp_project_dir, "test-project", "admin@example.com", cloud_mode=True
+            )
+
+        assert result["success"] is True
+        # Only the "set default database" PUT should fire -- no site-url PUT, and
+        # no NetworkConfig lookup either (cloud_mode short-circuits before that).
+        assert mock_session.put.call_count == 1
+        assert "site-url" not in mock_session.put.call_args_list[0][0][0]
+        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
+        assert yaml.safe_load(creds_file.read_text())["site_url_set"] is False
+
+    def test_setup_metabase_skips_site_url_for_custom_domain(self, tmp_project_dir: Path) -> None:
+        """A project registered under a non-default domain in the local shared-nginx
+        routing (platform/local/network.py) must not get a localhost:{port} Site URL
+        -- that's not how it's actually accessed. See _should_apply_local_site_url()."""
+        from dango.visualization.metabase import setup_metabase
+
+        set_default_resp = MagicMock(status_code=200)
+        mock_session = _mock_fresh_setup_session([set_default_resp])
+
+        with (
+            patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch(
+                _NETWORK_CONFIG_GET_PROJECT_INFO,
+                return_value={"domain": "custom.example.com", "backend_port": 8800},
+            ),
+        ):
+            result = setup_metabase(tmp_project_dir, "test-project", "admin@example.com")
+
+        assert result["success"] is True
+        assert mock_session.put.call_count == 1
+        assert "site-url" not in mock_session.put.call_args_list[0][0][0]
