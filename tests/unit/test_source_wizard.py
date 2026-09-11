@@ -357,3 +357,68 @@ class TestCredentialBlockGating:
         secrets_template = metadata.get("secrets_toml_template")
         would_show = not secret_params and auth_type != AuthType.OAUTH and secrets_template
         assert would_show, "Credential block SHOULD trigger with secrets_toml_template"
+
+
+# ---------------------------------------------------------------------------
+# 1.0.8-Y: Google Sheets OAuth refresh must not pass a scope list
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestGoogleSheetsRefreshScopes:
+    """1.0.8-Y: `_fetch_google_sheets()` builds a refresh-only Credentials
+    object to refresh the access token before listing sheet names. Passing
+    `scopes=` there requires an exact match against what Google actually
+    granted (see google.oauth2._client.refresh_grant's docstring), and the
+    stored metadata scope list reflects what was *requested* pre-exchange,
+    not what was *granted* — a mismatch fails with invalid_scope. Regression
+    test: no `scopes` kwarg (or scopes=None) should reach the Credentials
+    constructor.
+
+    Patch target note: `Credentials` is imported lazily inside
+    `_fetch_google_sheets()` (`from google.oauth2.credentials import
+    Credentials`), not at module level in source_wizard.py — so it must be
+    patched on its actual source module (`google.oauth2.credentials.Credentials`),
+    not on `dango.cli.source_wizard.Credentials` (which doesn't exist as a
+    module attribute and would raise AttributeError when patched).
+    """
+
+    @patch("googleapiclient.discovery.build")
+    @patch("google.oauth2.credentials.Credentials")
+    @patch("dango.cli.source_wizard.OAuthStorage")
+    def test_google_sheets_refresh_does_not_pass_scopes(
+        self, mock_storage_cls, mock_credentials_cls, mock_build, tmp_path
+    ):
+        from dango.cli.source_wizard import SourceWizard
+
+        mock_cred = MagicMock()
+        mock_cred.credentials = {
+            "refresh_token": "refresh-token-value",
+            "client_id": "client-id-value",
+            "client_secret": "client-secret-value",
+        }
+        # Metadata still carries the pre-exchange *requested* scopes (storage
+        # of this value is untouched by this fix) — the bug was passing it
+        # into the refresh-only Credentials() call below.
+        mock_cred.metadata = {
+            "scopes": [
+                "https://www.googleapis.com/auth/userinfo.email",
+                "https://www.googleapis.com/auth/spreadsheets.readonly",
+            ]
+        }
+        mock_storage_cls.return_value.get.return_value = mock_cred
+
+        wizard = SourceWizard(tmp_path)
+        # No spreadsheet ID collected yet, so the method returns None right
+        # after the refresh + service-build calls this test asserts on — no
+        # need to mock the Sheets API response itself.
+
+        with patch("dango.cli.source_wizard.console"):
+            wizard._fetch_google_sheets("my_sheets_source")
+
+        mock_credentials_cls.assert_called_once()
+        _, kwargs = mock_credentials_cls.call_args
+        assert "scopes" not in kwargs or kwargs["scopes"] is None, (
+            f"Credentials() must not be called with a scopes list (invalid_scope "
+            f"regression), got scopes={kwargs.get('scopes')!r}"
+        )
