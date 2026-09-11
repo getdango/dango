@@ -284,11 +284,20 @@ def _should_apply_local_site_url(project_root: Path, cloud_mode: bool) -> bool:
 
     - **Cloud deployments** — Caddy fronts Metabase there with the real public
       domain/HTTPS, not ``localhost:{port}``.
-    - **Local custom-domain projects** — ``platform/local/network.py``'s shared
-      nginx routing can register a project under ``{project_name}.dango``
-      (or another domain) instead of ``localhost:{port}``.
+    - **Local shared-nginx-registered projects** — ``platform/local/network.py``'s
+      shared nginx routing serves a registered project at its routing.json
+      ``domain`` entry (``{project_name}.dango`` by default, or a custom domain),
+      not ``localhost:{port}`` — *any* registration means this module's computed
+      URL is wrong for that project, not just a non-default one. (An earlier
+      version of this check compared the registered domain to
+      ``f"{project_name}.dango"`` to detect a "custom" domain — but
+      ``NetworkConfig.register_project()`` always registers under exactly that
+      pattern for the current project name, so that comparison could never be
+      true for the only real caller and silently never skipped anything. Fixed
+      during review to treat any registration as disqualifying, regardless of
+      what the domain string is.)
 
-    The custom-domain check is defense in depth rather than an active concern
+    This registration check is defense in depth rather than an active concern
     today: grepping the codebase confirmed ``NetworkConfig.register_project()``
     is currently only ever called from the ``dango rename`` CLI command,
     conditional on a routing.json entry that nothing else creates — there is no
@@ -297,7 +306,9 @@ def _should_apply_local_site_url(project_root: Path, cloud_mode: bool) -> bool:
     mismatch (nothing set Site URL at all before this fix), so this check isn't
     closing a new gap for such projects — it's just making sure this PR doesn't
     start actively writing a wrong value where none was written before. Fully
-    correct Site URL handling for local custom domains is out of scope here.
+    correct Site URL handling for locally-routed/custom-domain projects (e.g.
+    writing ``http://{domain}/metabase/`` instead of skipping) is out of scope
+    here.
 
     Fails open (returns True) if project name / routing lookup can't be
     completed, matching the common case (no registration exists) rather than
@@ -310,8 +321,7 @@ def _should_apply_local_site_url(project_root: Path, cloud_mode: bool) -> bool:
         from dango.platform.local.network import NetworkConfig
 
         project_name = ConfigLoader(project_root).load_config().project.name
-        project_info = NetworkConfig().get_project_info(project_name)
-        if project_info and project_info.get("domain") != f"{project_name}.dango":
+        if NetworkConfig().get_project_info(project_name) is not None:
             return False
     except Exception:  # noqa: BLE001
         pass
@@ -322,9 +332,12 @@ def _safe_print(msg: str) -> None:
     """print() that can't itself violate a caller's "never raises" contract.
 
     A non-UTF-8 stdout (rare, but real: some CI runners, some Windows consoles)
-    could otherwise turn a ``UnicodeEncodeError`` on one of this module's own
-    status glyphs (✓/⚠) into an uncaught exception escaping from what's
-    supposed to be a best-effort, print-only status line.
+    could otherwise turn a ``UnicodeEncodeError`` on one of ``_set_metabase_site_url()``'s
+    own status glyphs (✓/⚠) into an uncaught exception escaping from what's supposed to
+    be a best-effort, print-only status line — its plain ``print()`` fallback branch
+    wasn't itself protected. Scoped to this PR's own new print calls only: the dozen-plus
+    pre-existing ✓/⚠/✗ prints elsewhere in this module (``setup_metabase()``, etc.) are a
+    pre-existing, unrelated risk this function does not attempt to cover.
     """
     try:
         print(msg)
@@ -378,6 +391,59 @@ def _set_metabase_site_url(
     except Exception as e:  # noqa: BLE001
         _safe_print(f"  ⚠ Could not set Metabase Site URL: {e}")
         return False
+
+
+def _apply_metabase_site_url_catchup(
+    session: requests.Session, metabase_url: str, project_root: Path
+) -> None:
+    """One-time catch-up for refresh_metabase_connection(): apply the Site URL fix to
+    a project whose .dango/metabase.yml was created before this fix shipped —
+    setup_metabase() only runs once per project and won't retroactively fix those.
+
+    Deliberately checks the "site_url_set" marker in metabase.yml (one cheap file
+    read) *before* calling `_should_apply_local_site_url()`, which does heavier I/O
+    (project.yml reparse + pydantic validation, a `NetworkConfig()` construction that
+    touches ``~/.dango/``). Once a project is caught up, every subsequent sync pays for
+    a single open()+yaml.safe_load() here and nothing else — not a repeated
+    config/routing reparse forever, which an earlier ordering of these checks did.
+
+    Never raises: every step is independently defensive, and the caller
+    (refresh_metabase_connection()) also wraps this call, so a failure here can never
+    turn a successful container restart into a reported failure.
+    """
+    creds_file = project_root / ".dango" / "metabase.yml"
+    if not creds_file.exists():
+        return
+    try:
+        with open(creds_file) as f:
+            creds = yaml.safe_load(f) or {}
+    except Exception:  # noqa: BLE001
+        return
+    if creds.get("site_url_set"):
+        return
+
+    from dango.config.helpers import is_cloud_mode
+
+    if not _should_apply_local_site_url(project_root, is_cloud_mode(project_root)):
+        return
+
+    admin = creds.get("admin", {})
+    email = admin.get("email")
+    password = admin.get("password")
+    if not email or not password:
+        return
+
+    session_id = _metabase_login(session, metabase_url, email, password)
+    if not session_id:
+        return
+
+    applied = _set_metabase_site_url(
+        session, metabase_url, {"X-Metabase-Session": session_id}, project_root
+    )
+    if applied:
+        creds["site_url_set"] = True
+        with open(creds_file, "w") as f:
+            yaml.safe_dump(creds, f, default_flow_style=False)
 
 
 class MetabaseProvisioner:
@@ -1653,8 +1719,6 @@ def refresh_metabase_connection(
     """
     import subprocess
 
-    from dango.config.helpers import is_cloud_mode
-
     session = requests.Session()
 
     try:
@@ -1690,45 +1754,12 @@ def refresh_metabase_connection(
             try:
                 response = session.get(f"{metabase_url}/api/health", timeout=1)
                 if response.status_code == 200:
-                    # One-time catch-up, not a recurring cost: apply Site URL for a
-                    # project whose .dango/metabase.yml was created before this fix
-                    # shipped — setup_metabase() only runs once per project and won't
-                    # retroactively fix those. The "site_url_set" marker (also written
-                    # by setup_metabase() itself, see there) means this login+PUT is
-                    # attempted at most once per project, on its first sync after
-                    # upgrading, not on every single sync forever — re-doing it every
-                    # restart would add a login POST + PUT (10s timeout each) on top of
-                    # this function's existing 20s health-poll budget, and repeatedly
-                    # transmit the admin password for no benefit once it's already
-                    # correct. Best-effort throughout: never turns a successful restart
-                    # into a reported failure.
+                    # See _apply_metabase_site_url_catchup()'s docstring for why this
+                    # is a bounded one-time catch-up (cheap on every call once done),
+                    # not a recurring cost paid on every sync forever. Best-effort:
+                    # never turns a successful restart into a reported failure.
                     try:
-                        if _should_apply_local_site_url(project_root, is_cloud_mode(project_root)):
-                            creds_file = project_root / ".dango" / "metabase.yml"
-                            if creds_file.exists():
-                                with open(creds_file) as f:
-                                    creds = yaml.safe_load(f) or {}
-                                if not creds.get("site_url_set"):
-                                    admin = creds.get("admin", {})
-                                    email = admin.get("email")
-                                    password = admin.get("password")
-                                    if email and password:
-                                        session_id = _metabase_login(
-                                            session, metabase_url, email, password
-                                        )
-                                        if session_id:
-                                            applied = _set_metabase_site_url(
-                                                session,
-                                                metabase_url,
-                                                {"X-Metabase-Session": session_id},
-                                                project_root,
-                                            )
-                                            if applied:
-                                                creds["site_url_set"] = True
-                                                with open(creds_file, "w") as f:
-                                                    yaml.safe_dump(
-                                                        creds, f, default_flow_style=False
-                                                    )
+                        _apply_metabase_site_url_catchup(session, metabase_url, project_root)
                     except Exception:  # noqa: BLE001
                         pass  # Not critical — site URL refresh is best-effort
 

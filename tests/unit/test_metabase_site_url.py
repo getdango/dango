@@ -151,10 +151,14 @@ class TestSetupMetabaseSiteUrl:
         creds_file = tmp_project_dir / ".dango" / "metabase.yml"
         assert yaml.safe_load(creds_file.read_text())["site_url_set"] is False
 
-    def test_setup_metabase_skips_site_url_for_custom_domain(self, tmp_project_dir: Path) -> None:
-        """A project registered under a non-default domain in the local shared-nginx
-        routing (platform/local/network.py) must not get a localhost:{port} Site URL
-        -- that's not how it's actually accessed. See _should_apply_local_site_url()."""
+    def test_setup_metabase_skips_site_url_for_registered_project(
+        self, tmp_project_dir: Path
+    ) -> None:
+        """A project registered in the local shared-nginx routing
+        (platform/local/network.py) must not get a localhost:{port} Site URL -- it's
+        actually accessed via its routing.json domain entry. See
+        _should_apply_local_site_url() (and TestShouldApplyLocalSiteUrl below for the
+        direct unit tests on that function's registered/not-registered logic)."""
         from dango.visualization.metabase import setup_metabase
 
         set_default_resp = MagicMock(status_code=200)
@@ -174,3 +178,67 @@ class TestSetupMetabaseSiteUrl:
         assert result["success"] is True
         assert mock_session.put.call_count == 1
         assert "site-url" not in mock_session.put.call_args_list[0][0][0]
+
+
+@pytest.mark.unit
+class TestShouldApplyLocalSiteUrl:
+    """Direct unit tests for _should_apply_local_site_url() (1.0.8-W review fix).
+
+    An earlier version of this function compared the registered domain to
+    ``f"{project_name}.dango"`` to detect a "custom" domain, but
+    ``NetworkConfig.register_project()`` (the only real caller, via `dango rename`)
+    always registers under exactly that pattern for the *current* project name -- so
+    that comparison could never be true and the check silently never skipped anything
+    for the one live registration path. Fixed to treat any registration as
+    disqualifying. test_skips_registered_project_even_with_default_domain_pattern
+    below is the positive control for that exact scenario.
+    """
+
+    def test_skips_in_cloud_mode_without_any_io(self, tmp_path: Path) -> None:
+        """cloud_mode=True short-circuits before ConfigLoader/NetworkConfig are even
+        touched -- verified by not patching either and still getting False back
+        (a bare tmp_path with no .dango/project.yml would otherwise raise)."""
+        from dango.visualization.metabase import _should_apply_local_site_url
+
+        assert _should_apply_local_site_url(tmp_path, cloud_mode=True) is False
+
+    def test_skips_registered_project_even_with_default_domain_pattern(
+        self, tmp_project_dir: Path
+    ) -> None:
+        """Positive control for the bug found in review: a project registered under
+        exactly the default f"{project_name}.dango" pattern (what `dango rename`
+        always produces) must still be skipped -- the domain string doesn't matter,
+        only whether a registration exists at all."""
+        from dango.visualization.metabase import _should_apply_local_site_url
+
+        project_name = "Test Project"  # matches tmp_project_dir's project.yml fixture
+        with patch(
+            _NETWORK_CONFIG_GET_PROJECT_INFO,
+            return_value={"domain": f"{project_name}.dango", "backend_port": 8800},
+        ):
+            assert _should_apply_local_site_url(tmp_project_dir, cloud_mode=False) is False
+
+    def test_skips_registered_project_with_a_different_domain(self, tmp_project_dir: Path) -> None:
+        """Also skips for a domain that doesn't match the default pattern at all."""
+        from dango.visualization.metabase import _should_apply_local_site_url
+
+        with patch(
+            _NETWORK_CONFIG_GET_PROJECT_INFO,
+            return_value={"domain": "custom.example.com", "backend_port": 8800},
+        ):
+            assert _should_apply_local_site_url(tmp_project_dir, cloud_mode=False) is False
+
+    def test_applies_for_unregistered_project(self, tmp_project_dir: Path) -> None:
+        """The common case: no shared-nginx registration exists -> True."""
+        from dango.visualization.metabase import _should_apply_local_site_url
+
+        with patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None):
+            assert _should_apply_local_site_url(tmp_project_dir, cloud_mode=False) is True
+
+    def test_fails_open_when_config_cannot_be_loaded(self, tmp_path: Path) -> None:
+        """A bare tmp_path has no .dango/project.yml, so ConfigLoader.load_config()
+        raises ConfigNotFoundError -- caught, and the function fails open (True)
+        rather than silently disabling the fix for every project on an I/O hiccup."""
+        from dango.visualization.metabase import _should_apply_local_site_url
+
+        assert _should_apply_local_site_url(tmp_path, cloud_mode=False) is True

@@ -208,7 +208,7 @@ dango/                          # Python package source
 │   └── static/                 # Frontend HTML/CSS/JS
 │
 ├── visualization/              # Level 2 — Metabase integration
-│   ├── metabase.py             # Metabase API (1251 lines)
+│   ├── metabase.py             # Metabase API (1775 lines)
 │   └── dashboard_manager.py    # Dashboard export/import (1117 lines)
 │
 ├── platform/                   # Level 2 — Docker, network, file watcher, scheduling
@@ -343,7 +343,7 @@ Full exemption registry: [`docs/file-exemptions.yml`](docs/file-exemptions.yml)
 | `ingestion/dlt_runner.py` | 2885 | — (exempt, too risky) |
 | `ingestion/sources/registry.py` | 2340 | — (metadata-only) |
 | `cli/source_wizard.py` | 2610 | — |
-| `visualization/metabase.py` | 1251 | — |
+| `visualization/metabase.py` | 1775 | — |
 | `cli/init.py` | 1585 | — |
 | `visualization/dashboard_manager.py` | 1117 | — |
 | `cli/commands/platform.py` | 1136 | — (extracted from main.py by TASK-005) |

@@ -184,9 +184,9 @@ exemptions:
     review_by: "v1.1"
 
   - file: dango/visualization/metabase.py
-    lines: 1251
+    lines: 1775
     category: exempt
-    reason: "Metabase REST API wrapper. Methods map 1:1 to API endpoints — splitting would scatter related operations. R12-I1 added cloud timeout + poll logging."
+    reason: "Metabase REST API wrapper. Methods map 1:1 to API endpoints — splitting would scatter related operations. R12-I1 added cloud timeout + poll logging. 1.0.8-W added Site URL handling (_should_apply_local_site_url, _apply_metabase_site_url_catchup)."
     review_by: "v1.1"
 
   - file: dango/visualization/dashboard_manager.py
