@@ -1247,6 +1247,27 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         if not session_id:
             return False
 
+        # Capture a baseline task id before triggering the re-sync, so the poll
+        # below can identify the specific "sync" task this call triggers (as
+        # opposed to some earlier/unrelated sync task for the same database).
+        baseline_task_id = 0
+        try:
+            baseline_resp = session.get(
+                f"{metabase_url}/api/task",
+                headers={"X-Metabase-Session": session_id},
+                params={"db_id": database_id, "limit": 1},
+                timeout=5,
+            )
+            if baseline_resp.status_code == 200:
+                baseline_tasks = baseline_resp.json().get("data", [])
+                if baseline_tasks:
+                    baseline_task_id = max(t.get("id", 0) for t in baseline_tasks)
+        except Exception:
+            # Non-fatal — worst case we just fall back to matching any "sync"
+            # task for this database, which is still far better than the old
+            # initial_sync_status check.
+            baseline_task_id = 0
+
         # Trigger sync
         response = session.post(
             f"{metabase_url}/api/database/{database_id}/sync_schema",
@@ -1257,24 +1278,43 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         if response.status_code != 200:
             return False
 
-        # Wait for sync to complete (poll up to 30 seconds)
+        # Wait for the async re-sync to settle (poll up to 30 seconds).
+        # initial_sync_status only reflects the database's one-time initial
+        # onboarding sync, not this re-scan — for any database past first
+        # setup that field is already "complete" and this poll would
+        # otherwise exit instantly, before the re-scan has actually found
+        # new tables. Instead, poll Metabase's task log (GET /api/task) for
+        # the specific "sync" task this sync_schema call triggered (its id
+        # is greater than the baseline captured above) and wait for its
+        # status to leave "started".
         import time
 
         for _ in range(30):
             time.sleep(1)
-            db_status = session.get(
-                f"{metabase_url}/api/database/{database_id}",
-                headers={"X-Metabase-Session": session_id},
-                timeout=5,
-            )
-            if db_status.status_code == 200:
-                # Check if sync is complete (no longer has 'initial_sync_status')
-                db_data = db_status.json()
-                if (
-                    not db_data.get("initial_sync_status")
-                    or db_data.get("initial_sync_status") == "complete"
-                ):
-                    break
+            try:
+                task_resp = session.get(
+                    f"{metabase_url}/api/task",
+                    headers={"X-Metabase-Session": session_id},
+                    params={"db_id": database_id, "limit": 20},
+                    timeout=5,
+                )
+            except Exception:
+                continue
+
+            if task_resp.status_code != 200:
+                continue
+
+            sync_tasks = [
+                t
+                for t in task_resp.json().get("data", [])
+                if t.get("task") == "sync" and t.get("id", 0) > baseline_task_id
+            ]
+            if not sync_tasks:
+                continue
+
+            latest_sync_task = max(sync_tasks, key=lambda t: t.get("id", 0))
+            if latest_sync_task.get("status") != "started":
+                break
 
         # Update table descriptions to guide users
         tables: list[dict[str, Any]] = []
