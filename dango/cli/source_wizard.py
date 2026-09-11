@@ -2245,9 +2245,6 @@ def {module_name}_resource(api_key: str):
                 console.print("[yellow]Could not get OAuth tokens[/yellow]")
                 return None
 
-            # Get scopes from metadata (saved during OAuth authentication)
-            scopes = cred.metadata.get("scopes", []) if cred.metadata else []
-
             # Debug: Check what we have
             if not tokens.get("refresh_token"):
                 console.print("[red]Error: No refresh token found in credentials[/red]")
@@ -2267,7 +2264,14 @@ def {module_name}_resource(api_key: str):
                 token_uri="https://oauth2.googleapis.com/token",
                 client_id=tokens.get("client_id"),
                 client_secret=tokens.get("client_secret"),
-                scopes=scopes,
+                # scopes intentionally omitted — passing a scope list to a
+                # refresh-only Credentials object requires it to exactly match
+                # what Google actually granted (see google.oauth2._client.refresh_grant),
+                # which the stored metadata scope list does not reliably do (it
+                # reflects what was *requested* at auth time, not what was
+                # *granted* in the token response). Omitting it lets Google
+                # honor whatever was actually granted, with no exact-match
+                # requirement — this is what fixes the invalid_scope error.
             )
 
             # Refresh credentials to get a new access token
