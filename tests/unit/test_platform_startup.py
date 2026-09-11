@@ -764,6 +764,106 @@ class TestRefreshMetabaseConnection:
         assert result[0] is False
         assert result[1] == "Metabase container not running"
 
+    def test_reapplies_site_url_on_successful_restart(self, tmp_project_dir: Path) -> None:
+        """1.0.8-W: an already-configured project (metabase.yml predates the Site URL
+        fix) only ever gets the fix applied via this path, since setup_metabase() runs
+        once and never retroactively fixes existing projects. tmp_project_dir gives
+        config.platform.port == 8800 (default, no platform: override)."""
+        import requests
+        import yaml as yaml_module
+
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
+        creds_file.write_text(
+            yaml_module.dump(
+                {
+                    "metabase_url": "http://localhost:3000",
+                    "admin": {"email": "admin@example.com", "password": "secret"},
+                    "database": {"id": 5, "name": "Test Analytics"},
+                }
+            )
+        )
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        mock_subprocess_run = MagicMock(
+            side_effect=[
+                MagicMock(stdout="dango-abc123-metabase-1\n", returncode=0),  # docker ps
+                MagicMock(returncode=0),  # docker restart
+            ]
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        mock_session.get.return_value = MagicMock(status_code=200)  # /api/health
+
+        login_resp = MagicMock(status_code=200)
+        login_resp.json.return_value = {"id": "sess-xyz"}
+        mock_session.post.return_value = login_resp  # /api/session (login)
+
+        site_url_resp = MagicMock(status_code=200)
+        mock_session.put.return_value = site_url_resp  # /api/setting/site-url
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", mock_subprocess_run),
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+        ):
+            result = refresh_metabase_connection(tmp_project_dir)
+
+        assert result == (True, None)
+        mock_session.put.assert_called_once_with(
+            "http://localhost:3000/api/setting/site-url",
+            headers={"X-Metabase-Session": "sess-xyz"},
+            json={"value": "http://localhost:8800/metabase/"},
+            timeout=10,
+        )
+
+    def test_site_url_failure_does_not_block_refresh(self, tmp_project_dir: Path) -> None:
+        """A site-url PUT failure (or login failure) must not turn a successful
+        container restart into a reported failure."""
+        import requests
+        import yaml as yaml_module
+
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
+        creds_file.write_text(
+            yaml_module.dump(
+                {
+                    "metabase_url": "http://localhost:3000",
+                    "admin": {"email": "admin@example.com", "password": "secret"},
+                    "database": {"id": 5, "name": "Test Analytics"},
+                }
+            )
+        )
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        mock_subprocess_run = MagicMock(
+            side_effect=[
+                MagicMock(stdout="dango-abc123-metabase-1\n", returncode=0),  # docker ps
+                MagicMock(returncode=0),  # docker restart
+            ]
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        mock_session.get.return_value = MagicMock(status_code=200)  # /api/health
+        # Login fails outright — site-url refresh should be skipped, not raise.
+        mock_session.post.return_value = MagicMock(status_code=401)
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", mock_subprocess_run),
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+        ):
+            result = refresh_metabase_connection(tmp_project_dir)
+
+        assert result == (True, None)
+        mock_session.put.assert_not_called()
+
 
 @pytest.mark.unit
 class TestCheckDuckdbVersionAlignment:

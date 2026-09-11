@@ -265,6 +265,42 @@ def _metabase_login(
     return response.json().get("id")
 
 
+def _set_metabase_site_url(
+    session: requests.Session,
+    metabase_url: str,
+    headers: dict[str, str],
+    project_root: Path,
+) -> None:
+    """PUT /api/setting/site-url so the local /metabase/ proxy serves correctly-pathed
+    JS assets — Metabase computes chunk-loading URLs from this setting, and the local
+    proxy (metabase_proxy.py) does not rewrite response bodies to compensate.
+
+    Shared by setup_metabase() (once, at initial setup) and refresh_metabase_connection()
+    (every sync-triggered restart — the only path that ever reaches an already-configured
+    project, i.e. one set up before this fix shipped). The PUT is idempotent — setting the
+    same value repeatedly is harmless — so callers do not need to check "was it already
+    set" before calling this. Never raises; failure is printed as a warning only.
+    """
+    try:
+        from dango.config import ConfigLoader
+
+        config = ConfigLoader(project_root).load_config()
+        web_port = config.platform.port
+        site_url = f"http://localhost:{web_port}/metabase/"
+        site_url_resp = session.put(
+            f"{metabase_url}/api/setting/site-url",
+            headers=headers,
+            json={"value": site_url},
+            timeout=10,
+        )
+        if site_url_resp.status_code == 200:
+            print(f"  ✓ Metabase Site URL set to {site_url}")
+        else:
+            print(f"  ⚠ Could not set Metabase Site URL: {site_url_resp.status_code}")
+    except Exception as e:  # noqa: BLE001
+        print(f"  ⚠ Could not set Metabase Site URL: {e}")
+
+
 class MetabaseProvisioner:
     """
     Provisions Metabase dashboards via API
@@ -971,6 +1007,9 @@ def setup_metabase(
 
         # At this point, we have headers with session token from either path
 
+        # Set Site URL so the local /metabase/ proxy serves correctly-pathed JS assets.
+        _set_metabase_site_url(session, metabase_url, headers, project_root)
+
         # Check for existing DuckDB connection to prevent duplicates
         existing_db_id = None
         db_name = f"{org_name} Analytics"
@@ -1561,6 +1600,32 @@ def refresh_metabase_connection(
             try:
                 response = session.get(f"{metabase_url}/api/health", timeout=1)
                 if response.status_code == 200:
+                    # Re-apply Site URL on every restart, not just at initial setup.
+                    # This is the only path that ever reaches a project whose
+                    # .dango/metabase.yml was created before this fix shipped —
+                    # setup_metabase() only runs once and won't retroactively fix
+                    # those projects. Best-effort: login + PUT are wrapped so a
+                    # failure here never turns a successful restart into a failure.
+                    try:
+                        creds_file = project_root / ".dango" / "metabase.yml"
+                        if creds_file.exists():
+                            with open(creds_file) as f:
+                                creds = yaml.safe_load(f) or {}
+                            admin = creds.get("admin", {})
+                            email = admin.get("email")
+                            password = admin.get("password")
+                            if email and password:
+                                session_id = _metabase_login(session, metabase_url, email, password)
+                                if session_id:
+                                    _set_metabase_site_url(
+                                        session,
+                                        metabase_url,
+                                        {"X-Metabase-Session": session_id},
+                                        project_root,
+                                    )
+                    except Exception:  # noqa: BLE001
+                        pass  # Not critical — site URL refresh is best-effort
+
                     return (True, None)
             except requests.exceptions.RequestException:  # noqa: BLE001
                 pass
