@@ -21,6 +21,12 @@ from dango.platform.common.startup import (
 )
 from dango.utils.driver import METABASE_DUCKDB_DRIVER_VERSION
 
+# Patch target for NetworkConfig.get_project_info: dango.platform.local.network is the
+# source module (metabase.py lazy-imports it inside _should_apply_local_site_url()
+# rather than importing it at module level), so that's what must be patched — patching
+# dango.visualization.metabase.NetworkConfig would silently no-op.
+_NETWORK_CONFIG_GET_PROJECT_INFO = "dango.platform.local.network.NetworkConfig.get_project_info"
+
 
 @pytest.mark.unit
 class TestRunPendingMigrations:
@@ -719,6 +725,23 @@ class TestLinkMetabaseAdmin:
 class TestRefreshMetabaseConnection:
     """Tests for refresh_metabase_connection() container name resolution (BUG-118)."""
 
+    def test_unexpected_error_returns_gracefully_instead_of_masking_typeerror(
+        self, tmp_path: Path
+    ) -> None:
+        """1.0.8-W regression test: the outer `except Exception as e: logger.warning(...)`
+        block used to pass `error=str(e)` to stdlib logging.Logger.warning(), which isn't
+        a valid kwarg there (this module's `logger` is `logging.getLogger`, not
+        structlog) -- verified live to raise its own TypeError, silently replacing
+        whatever the real exception was. Positive control: force an exception inside the
+        try block and confirm the function now returns (False, <message>) instead of
+        raising."""
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        with patch("dango.platform.docker.DockerManager", side_effect=RuntimeError("boom")):
+            result = refresh_metabase_connection(tmp_path)
+
+        assert result == (False, "boom")
+
     def test_uses_hash_based_container_name(self, tmp_path: Path) -> None:
         """BUG-118: refresh_metabase_connection uses DockerManager's hash-based name."""
         from dango.visualization.metabase import refresh_metabase_connection
@@ -763,6 +786,209 @@ class TestRefreshMetabaseConnection:
             result = refresh_metabase_connection(tmp_path)
         assert result[0] is False
         assert result[1] == "Metabase container not running"
+
+    def test_reapplies_site_url_on_successful_restart(self, tmp_project_dir: Path) -> None:
+        """1.0.8-W: an already-configured project (metabase.yml predates the Site URL
+        fix, no site_url_set marker yet) gets the fix applied via this path exactly
+        once, since setup_metabase() runs once and never retroactively fixes existing
+        projects. tmp_project_dir gives config.platform.port == 8800 (default, no
+        platform: override). A successful PUT must also persist site_url_set: true so
+        future syncs skip the login+PUT entirely (see the marker-skip test below)."""
+        import requests
+        import yaml as yaml_module
+
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
+        creds_file.write_text(
+            yaml_module.dump(
+                {
+                    "metabase_url": "http://localhost:3000",
+                    "admin": {"email": "admin@example.com", "password": "secret"},
+                    "database": {"id": 5, "name": "Test Analytics"},
+                }
+            )
+        )
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        mock_subprocess_run = MagicMock(
+            side_effect=[
+                MagicMock(stdout="dango-abc123-metabase-1\n", returncode=0),  # docker ps
+                MagicMock(returncode=0),  # docker restart
+            ]
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        mock_session.get.return_value = MagicMock(status_code=200)  # /api/health
+
+        login_resp = MagicMock(status_code=200)
+        login_resp.json.return_value = {"id": "sess-xyz"}
+        mock_session.post.return_value = login_resp  # /api/session (login)
+
+        site_url_resp = MagicMock(status_code=200)
+        mock_session.put.return_value = site_url_resp  # /api/setting/site-url
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", mock_subprocess_run),
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch("dango.config.helpers.is_cloud_mode", return_value=False),
+            patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
+        ):
+            result = refresh_metabase_connection(tmp_project_dir)
+
+        assert result == (True, None)
+        mock_session.put.assert_called_once_with(
+            "http://localhost:3000/api/setting/site-url",
+            headers={"X-Metabase-Session": "sess-xyz"},
+            json={"value": "http://localhost:8800/metabase/"},
+            timeout=10,
+        )
+        assert yaml_module.safe_load(creds_file.read_text())["site_url_set"] is True
+
+    def test_site_url_failure_does_not_block_refresh(self, tmp_project_dir: Path) -> None:
+        """A site-url PUT failure (or login failure) must not turn a successful
+        container restart into a reported failure, and must not mark site_url_set so
+        the next sync retries it."""
+        import requests
+        import yaml as yaml_module
+
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
+        creds_file.write_text(
+            yaml_module.dump(
+                {
+                    "metabase_url": "http://localhost:3000",
+                    "admin": {"email": "admin@example.com", "password": "secret"},
+                    "database": {"id": 5, "name": "Test Analytics"},
+                }
+            )
+        )
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        mock_subprocess_run = MagicMock(
+            side_effect=[
+                MagicMock(stdout="dango-abc123-metabase-1\n", returncode=0),  # docker ps
+                MagicMock(returncode=0),  # docker restart
+            ]
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        mock_session.get.return_value = MagicMock(status_code=200)  # /api/health
+        # Login fails outright — site-url refresh should be skipped, not raise.
+        mock_session.post.return_value = MagicMock(status_code=401)
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", mock_subprocess_run),
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch("dango.config.helpers.is_cloud_mode", return_value=False),
+            patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
+        ):
+            result = refresh_metabase_connection(tmp_project_dir)
+
+        assert result == (True, None)
+        mock_session.put.assert_not_called()
+        assert "site_url_set" not in yaml_module.safe_load(creds_file.read_text())
+
+    def test_skips_site_url_when_already_marked_set(self, tmp_project_dir: Path) -> None:
+        """1.0.8-W: once site_url_set is true (written by a prior successful
+        setup_metabase() or refresh_metabase_connection() call), subsequent syncs must
+        not repeat the login POST + PUT -- that would add ~20s of latency budget and
+        retransmit the admin password on every single sync forever, for zero benefit
+        once it's already correct."""
+        import requests
+        import yaml as yaml_module
+
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
+        creds_file.write_text(
+            yaml_module.dump(
+                {
+                    "metabase_url": "http://localhost:3000",
+                    "admin": {"email": "admin@example.com", "password": "secret"},
+                    "database": {"id": 5, "name": "Test Analytics"},
+                    "site_url_set": True,
+                }
+            )
+        )
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        mock_subprocess_run = MagicMock(
+            side_effect=[
+                MagicMock(stdout="dango-abc123-metabase-1\n", returncode=0),  # docker ps
+                MagicMock(returncode=0),  # docker restart
+            ]
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        mock_session.get.return_value = MagicMock(status_code=200)  # /api/health
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", mock_subprocess_run),
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch("dango.config.helpers.is_cloud_mode", return_value=False),
+            patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
+        ):
+            result = refresh_metabase_connection(tmp_project_dir)
+
+        assert result == (True, None)
+        mock_session.post.assert_not_called()  # no login attempt
+        mock_session.put.assert_not_called()  # no site-url PUT
+
+    def test_skips_site_url_in_cloud_mode(self, tmp_project_dir: Path) -> None:
+        """cloud_mode must skip the login+PUT entirely (not just the PUT) -- Caddy
+        fronts Metabase with a real public domain there, and there's no reason to pay
+        a login POST for a value this function isn't going to write anyway."""
+        import requests
+        import yaml as yaml_module
+
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
+        creds_file.write_text(
+            yaml_module.dump(
+                {
+                    "metabase_url": "http://localhost:3000",
+                    "admin": {"email": "admin@example.com", "password": "secret"},
+                    "database": {"id": 5, "name": "Test Analytics"},
+                }
+            )
+        )
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        mock_subprocess_run = MagicMock(
+            side_effect=[
+                MagicMock(stdout="dango-abc123-metabase-1\n", returncode=0),  # docker ps
+                MagicMock(returncode=0),  # docker restart
+            ]
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        mock_session.get.return_value = MagicMock(status_code=200)  # /api/health
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", mock_subprocess_run),
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch("dango.config.helpers.is_cloud_mode", return_value=True),
+        ):
+            result = refresh_metabase_connection(tmp_project_dir)
+
+        assert result == (True, None)
+        mock_session.post.assert_not_called()
+        mock_session.put.assert_not_called()
 
 
 @pytest.mark.unit

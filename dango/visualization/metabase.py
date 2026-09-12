@@ -249,11 +249,25 @@ def _metabase_login(
 ) -> str | None:
     """POST /api/session and return the session id, or None if login failed (non-200).
 
-    Shared by the three simple (single-attempt) login call sites. Does NOT
-    raise — callers decide what a failed login means for their own contract
-    (return False, raise click.ClickException, etc). setup_metabase() has its
-    own multi-path login/retry logic and does not use this helper — see
-    BUGS-FOUND.md for why.
+    Shared by three of this module's simple (single-attempt) login call sites:
+    ``MetabaseProvisioner.authenticate()``, ``sync_metabase_schema()``, and
+    ``_apply_metabase_site_url_catchup()`` (added by 1.0.8-W's Site URL refresh — see
+    there and ``_set_metabase_site_url()`` below). Does NOT raise — callers decide
+    what a failed login means for their own contract (return False, swallow
+    silently, etc). ``setup_metabase()`` has its own multi-path login/retry logic and
+    does not use this helper — see BUGS-FOUND.md for why. ``set_metabase_telemetry()``
+    also does its own inline login rather than using this helper, since it needs to
+    distinguish a 401/403 (bad credentials) from other failures with a different
+    user-facing error message.
+
+    All four of the above (three real callers of this function, plus
+    ``set_metabase_telemetry()``'s own inline copy) also independently repeat the
+    "open .dango/metabase.yml, ``yaml.safe_load``, pull out ``admin.email``/
+    ``admin.password``" step before calling this — a shape that's now been copied
+    enough times that it's worth a shared loader, but each caller's error handling
+    on top of that shape differs enough (raise vs. return False vs. swallow
+    silently) that unifying it wasn't undertaken as part of this already-large PR;
+    left as an explicit follow-up rather than fixed here or left unacknowledged.
     """
     response = session.post(
         f"{metabase_url}/api/session",
@@ -263,6 +277,218 @@ def _metabase_login(
     if response.status_code != 200:
         return None
     return response.json().get("id")
+
+
+def _should_apply_local_site_url(project_root: Path, cloud_mode: bool) -> bool:
+    """True only when the Site URL ``_set_metabase_site_url()`` computes
+    (``http://localhost:{config.platform.port}/metabase/``) is actually correct
+    for how this project is accessed.
+
+    Two cases make it wrong, not just unhelpful — Site URL also governs
+    Metabase's own password-reset/invite email links and other absolute URLs it
+    generates, not just JS asset paths, so writing the wrong value is a real
+    regression:
+
+    - **Cloud deployments** — Caddy fronts Metabase there with the real public
+      domain/HTTPS, not ``localhost:{port}``.
+    - **Local shared-nginx-registered projects** — ``platform/local/network.py``'s
+      shared nginx routing serves a registered project at its routing.json
+      ``domain`` entry (``{project_name}.dango`` by default, or a custom domain),
+      not ``localhost:{port}`` — *any* registration means this module's computed
+      URL is wrong for that project, not just a non-default one. (An earlier
+      version of this check compared the registered domain to
+      ``f"{project_name}.dango"`` to detect a "custom" domain — but
+      ``NetworkConfig.register_project()`` always registers under exactly that
+      pattern for the current project name, so that comparison could never be
+      true for the only real caller and silently never skipped anything. Fixed
+      during review to treat any registration as disqualifying, regardless of
+      what the domain string is.)
+
+    This registration check is defense in depth rather than an active concern
+    today: grepping the codebase confirmed ``NetworkConfig.register_project()``
+    is currently only ever called from the ``dango rename`` CLI command,
+    conditional on a routing.json entry that nothing else creates — there is no
+    live registration path for a *fresh* project. A project actually using this
+    feature already has the same JS-asset-path bug via a different Site URL
+    mismatch (nothing set Site URL at all before this fix), so this check isn't
+    closing a new gap for such projects — it's just making sure this PR doesn't
+    start actively writing a wrong value where none was written before. Fully
+    correct Site URL handling for locally-routed/custom-domain projects (e.g.
+    writing ``http://{domain}/metabase/`` instead of skipping) is out of scope
+    here.
+
+    Fails open (returns True) if project name / routing lookup can't be
+    completed, matching the common case (no registration exists) rather than
+    silently disabling the fix for every project over an unrelated I/O hiccup.
+    The failure is logged at debug level (not printed — this runs on every sync
+    for a project that's never registered, so it must stay silent by default)
+    so a persistent lookup failure (e.g. a corrupted ``~/.dango/routing.json``)
+    is still traceable rather than invisibly swallowed.
+    """
+    if cloud_mode:
+        return False
+    try:
+        # load_project_context() (not the full load_config()) is enough here —
+        # only project.name is needed, and the full load also parses/validates
+        # sources.yml for no benefit to this check. _set_metabase_site_url()
+        # still does its own full load separately (it needs platform.port, a
+        # different section of project.yml) — this doesn't eliminate that
+        # second parse, just avoids a third, heavier one here.
+        from dango.config import ConfigLoader
+        from dango.platform.local.network import NetworkConfig
+
+        project_name = ConfigLoader(project_root).load_project_context().name
+        if NetworkConfig().get_project_info(project_name) is not None:
+            return False
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"should_apply_local_site_url_check_failed: {e}")
+    return True
+
+
+def _safe_print(msg: str) -> None:
+    """print() that can't itself violate a caller's "never raises" contract.
+
+    A non-UTF-8 stdout (rare, but real: some CI runners, some Windows consoles)
+    could otherwise turn a ``UnicodeEncodeError`` on one of ``_set_metabase_site_url()``'s
+    own status glyphs (✓/⚠) into an uncaught exception escaping from what's supposed to
+    be a best-effort, print-only status line — its plain ``print()`` fallback branch
+    wasn't itself protected. Scoped to this PR's own new print calls only: the dozen-plus
+    pre-existing ✓/⚠/✗ prints elsewhere in this module (``setup_metabase()``, etc.) are a
+    pre-existing, unrelated risk this function does not attempt to cover.
+    """
+    try:
+        print(msg)
+    except Exception:  # noqa: BLE001
+        try:
+            print(msg.encode("ascii", "replace").decode("ascii"))
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _set_metabase_site_url(
+    session: requests.Session,
+    metabase_url: str,
+    headers: dict[str, str],
+    project_root: Path,
+) -> bool:
+    """PUT /api/setting/site-url so the local /metabase/ proxy serves correctly-pathed
+    JS assets — Metabase computes chunk-loading URLs from this setting, and the local
+    proxy (metabase_proxy.py) does not rewrite response bodies to compensate.
+
+    Shared by setup_metabase() (once, at initial setup) and refresh_metabase_connection()
+    (a one-time catch-up on the first post-upgrade sync — see the "site_url_set" marker
+    handling there — for a project whose .dango/metabase.yml was created before this fix
+    shipped). The PUT is idempotent — setting the same value repeatedly is harmless — but
+    callers should still gate on `_should_apply_local_site_url()` first: this function
+    always computes a plain ``localhost:{port}`` URL and has no way to know if that's
+    wrong for a cloud/custom-domain project. Never raises; failure is printed as a
+    warning only.
+
+    Returns:
+        True if the PUT succeeded (2xx — Metabase's setting-PUT endpoints return 204 No
+        Content on success, not 200; see the sibling anon-tracking-enabled PUT above,
+        which already relies on this via raise_for_status()), False otherwise (including
+        on any exception). Callers use this to decide whether it's safe to persist a
+        "site_url_set" marker.
+    """
+    try:
+        from dango.config import ConfigLoader
+
+        config = ConfigLoader(project_root).load_config()
+        web_port = config.platform.port
+        site_url = f"http://localhost:{web_port}/metabase/"
+        site_url_resp = session.put(
+            f"{metabase_url}/api/setting/site-url",
+            headers=headers,
+            json={"value": site_url},
+            timeout=10,
+        )
+        if site_url_resp.ok:
+            _safe_print(f"  ✓ Metabase Site URL set to {site_url}")
+            return True
+        _safe_print(f"  ⚠ Could not set Metabase Site URL: {site_url_resp.status_code}")
+        return False
+    except Exception as e:  # noqa: BLE001
+        _safe_print(f"  ⚠ Could not set Metabase Site URL: {e}")
+        return False
+
+
+def _apply_metabase_site_url_catchup(
+    session: requests.Session, metabase_url: str, project_root: Path
+) -> None:
+    """One-time catch-up for refresh_metabase_connection(): apply the Site URL fix to
+    a project whose .dango/metabase.yml was created before this fix shipped —
+    setup_metabase() only runs once per project and won't retroactively fix those.
+
+    Deliberately checks the "site_url_set" marker in metabase.yml (one cheap file
+    read) *before* calling `_should_apply_local_site_url()`, which does heavier I/O
+    (project.yml reparse + pydantic validation, a `NetworkConfig()` construction that
+    touches ``~/.dango/``). Once a project is caught up, every subsequent sync pays for
+    a single open()+yaml.safe_load() here and nothing else — not a repeated
+    config/routing reparse forever, which an earlier ordering of these checks did.
+
+    Two known, accepted asymmetries from that marker design, left as-is rather than
+    fixed here (fixing either would mean re-doing the "one-time" work this ordering
+    exists to avoid):
+
+    - **Cloud/registered projects never get the "one-time" savings.**
+      `_should_apply_local_site_url()` returning False means the marker is never
+      written, so those projects *do* re-pay the project.yml/routing.json check on
+      every sync, indefinitely. This is intentional, not an oversight: it's what lets
+      a project whose topology later becomes plain-local (e.g. cloud deployment torn
+      down) get caught up automatically on a later sync, instead of being stuck
+      un-appliable forever. The cost is bounded to local file I/O (no network calls),
+      not the ~20s login+PUT budget.
+    - **The reverse direction has no correction path.** Once a project's marker is
+      True, it's never re-validated — a project that becomes cloud/registered *after*
+      already being marked keeps serving its earlier `localhost:{port}` Site URL
+      indefinitely, with no automatic re-check. In the current codebase this is a
+      narrow gap in practice: the only live path to local registration
+      (`dango rename`, see `_should_apply_local_site_url()`) only *updates* an
+      existing routing.json entry, it doesn't *create* one, so a project can't newly
+      become registered without already having been registered (itself requiring a
+      path this codebase doesn't currently expose either). Part of the same
+      already-disclosed "local custom-domain Site URL handling is out of scope"
+      follow-up gap, not a new one.
+
+    Never raises: the whole body is wrapped in its own try/except, so this
+    guarantee is self-contained rather than depending on the caller.
+    refresh_metabase_connection() also wraps this call as defense in depth, not
+    because this function relies on that wrapping to keep its own contract.
+    """
+    creds_file = project_root / ".dango" / "metabase.yml"
+    if not creds_file.exists():
+        return
+    try:
+        with open(creds_file) as f:
+            creds = yaml.safe_load(f) or {}
+        if creds.get("site_url_set"):
+            return
+
+        from dango.config.helpers import is_cloud_mode
+
+        if not _should_apply_local_site_url(project_root, is_cloud_mode(project_root)):
+            return
+
+        admin = creds.get("admin", {})
+        email = admin.get("email")
+        password = admin.get("password")
+        if not email or not password:
+            return
+
+        session_id = _metabase_login(session, metabase_url, email, password)
+        if not session_id:
+            return
+
+        applied = _set_metabase_site_url(
+            session, metabase_url, {"X-Metabase-Session": session_id}, project_root
+        )
+        if applied:
+            creds["site_url_set"] = True
+            with open(creds_file, "w") as f:
+                yaml.safe_dump(creds, f, default_flow_style=False)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"metabase_site_url_catchup_failed: {e}")
 
 
 class MetabaseProvisioner:
@@ -971,6 +1197,15 @@ def setup_metabase(
 
         # At this point, we have headers with session token from either path
 
+        # Set Site URL so the local /metabase/ proxy serves correctly-pathed JS assets.
+        # Skipped for cloud deployments (cloud_mode) and local custom-domain projects,
+        # where http://localhost:{port}/metabase/ would be the wrong Site URL to write
+        # — see _should_apply_local_site_url(). site_url_set is persisted below so
+        # refresh_metabase_connection() doesn't redundantly re-apply it on every sync.
+        site_url_set = False
+        if _should_apply_local_site_url(project_root, cloud_mode):
+            site_url_set = _set_metabase_site_url(session, metabase_url, headers, project_root)
+
         # Check for existing DuckDB connection to prevent duplicates
         existing_db_id = None
         db_name = f"{org_name} Analytics"
@@ -1180,6 +1415,9 @@ def setup_metabase(
             "admin": {"email": admin_email, "password": admin_password},
             "database": {"id": summary.get("duckdb_id"), "name": f"{org_name} Analytics"},
             "setup_completed_at": datetime.now(tz=timezone.utc).isoformat(),
+            # 1.0.8-W: lets refresh_metabase_connection() skip its own login+PUT once
+            # this is already True, instead of re-attempting it on every sync forever.
+            "site_url_set": site_url_set,
         }
 
         credentials_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1637,6 +1875,15 @@ def refresh_metabase_connection(
             try:
                 response = session.get(f"{metabase_url}/api/health", timeout=1)
                 if response.status_code == 200:
+                    # See _apply_metabase_site_url_catchup()'s docstring for why this
+                    # is a bounded one-time catch-up (cheap on every call once done),
+                    # not a recurring cost paid on every sync forever. Best-effort:
+                    # never turns a successful restart into a reported failure.
+                    try:
+                        _apply_metabase_site_url_catchup(session, metabase_url, project_root)
+                    except Exception:  # noqa: BLE001
+                        pass  # Not critical — site URL refresh is best-effort
+
                     return (True, None)
             except requests.exceptions.RequestException:  # noqa: BLE001
                 pass
@@ -1645,5 +1892,10 @@ def refresh_metabase_connection(
         return (False, "Metabase did not become healthy after restart")
 
     except Exception as e:
-        logger.warning("refresh_metabase_connection_error", error=str(e), exc_info=True)
+        # Pre-existing bug fixed in passing: `error=str(e)` isn't a valid stdlib
+        # logging kwarg (logger here is `logging.getLogger`, not structlog) — it
+        # raised TypeError instead of logging, replacing the real exception this
+        # was supposed to report with an unrelated one. Caught while touching this
+        # exact except block for 1.0.8-W; verified live (see PR description).
+        logger.warning(f"refresh_metabase_connection_error: {e}", exc_info=True)
         return (False, str(e))
