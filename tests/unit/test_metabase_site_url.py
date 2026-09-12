@@ -79,7 +79,7 @@ class TestSetupMetabaseSiteUrl:
         # Site-url PUT happens first (right after login), then the "set default
         # database" PUT further down in the DuckDB-connection block.
         mock_session = _mock_fresh_setup_session(
-            [MagicMock(status_code=200), MagicMock(status_code=200)]
+            [MagicMock(status_code=200, ok=True), MagicMock(status_code=200, ok=True)]
         )
 
         with (
@@ -100,6 +100,29 @@ class TestSetupMetabaseSiteUrl:
         creds_file = tmp_project_dir / ".dango" / "metabase.yml"
         assert yaml.safe_load(creds_file.read_text())["site_url_set"] is True
 
+    def test_setup_metabase_site_url_204_is_treated_as_success(self, tmp_project_dir: Path) -> None:
+        """Metabase's /api/setting/* PUT endpoints return 204 No Content on success, not
+        200 (confirmed live against a real Metabase instance during 1.0.8-T5 manual
+        verification -- a strict `== 200` check silently treated every real success as a
+        failure). Guards against regressing back to a status-code-200-only check."""
+        from dango.visualization.metabase import setup_metabase
+
+        mock_session = _mock_fresh_setup_session(
+            [MagicMock(status_code=204, ok=True), MagicMock(status_code=200, ok=True)]
+        )
+
+        with (
+            patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
+        ):
+            result = setup_metabase(tmp_project_dir, "test-project", "admin@example.com")
+
+        assert result["success"] is True
+        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
+        assert yaml.safe_load(creds_file.read_text())["site_url_set"] is True
+
     def test_setup_metabase_site_url_failure_does_not_block_setup(
         self, tmp_project_dir: Path
     ) -> None:
@@ -109,7 +132,7 @@ class TestSetupMetabaseSiteUrl:
         from dango.visualization.metabase import setup_metabase
 
         mock_session = _mock_fresh_setup_session(
-            [MagicMock(status_code=500), MagicMock(status_code=200)]
+            [MagicMock(status_code=500, ok=False), MagicMock(status_code=200, ok=True)]
         )
 
         with (

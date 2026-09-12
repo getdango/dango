@@ -385,8 +385,11 @@ def _set_metabase_site_url(
     warning only.
 
     Returns:
-        True if the PUT succeeded (200), False otherwise (including on any exception).
-        Callers use this to decide whether it's safe to persist a "site_url_set" marker.
+        True if the PUT succeeded (2xx — Metabase's setting-PUT endpoints return 204 No
+        Content on success, not 200; see the sibling anon-tracking-enabled PUT above,
+        which already relies on this via raise_for_status()), False otherwise (including
+        on any exception). Callers use this to decide whether it's safe to persist a
+        "site_url_set" marker.
     """
     try:
         from dango.config import ConfigLoader
@@ -400,7 +403,7 @@ def _set_metabase_site_url(
             json={"value": site_url},
             timeout=10,
         )
-        if site_url_resp.status_code == 200:
+        if site_url_resp.ok:
             _safe_print(f"  ✓ Metabase Site URL set to {site_url}")
             return True
         _safe_print(f"  ⚠ Could not set Metabase Site URL: {site_url_resp.status_code}")
