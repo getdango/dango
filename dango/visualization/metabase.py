@@ -1247,6 +1247,31 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         if not session_id:
             return False
 
+        # Capture a baseline task id before triggering the re-sync, so the poll
+        # below can identify the specific "sync" task this call triggers (as
+        # opposed to some earlier/unrelated sync task for the same database).
+        # baseline_task_id is intentionally left as None (not 0) when this
+        # lookup fails — defaulting to 0 would let ANY historical "sync" task
+        # for this database (there's almost always one, for any database past
+        # first setup) match "id > baseline" and be mistaken for the task this
+        # call is about to trigger, breaking the poll loop instantly on an
+        # already-finished, unrelated task. That's the same false-positive
+        # failure mode this whole fix exists to remove, just reached via a
+        # flaky baseline call instead of the old initial_sync_status field.
+        baseline_task_id: int | None = None
+        try:
+            baseline_resp = session.get(
+                f"{metabase_url}/api/task",
+                headers={"X-Metabase-Session": session_id},
+                params={"db_id": database_id, "limit": 1},
+                timeout=5,
+            )
+            if baseline_resp.status_code == 200:
+                baseline_tasks = baseline_resp.json().get("data", [])
+                baseline_task_id = max((t.get("id", 0) for t in baseline_tasks), default=0)
+        except Exception:
+            baseline_task_id = None
+
         # Trigger sync
         response = session.post(
             f"{metabase_url}/api/database/{database_id}/sync_schema",
@@ -1257,24 +1282,75 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         if response.status_code != 200:
             return False
 
-        # Wait for sync to complete (poll up to 30 seconds)
         import time
 
-        for _ in range(30):
-            time.sleep(1)
-            db_status = session.get(
-                f"{metabase_url}/api/database/{database_id}",
-                headers={"X-Metabase-Session": session_id},
-                timeout=5,
+        if baseline_task_id is None:
+            # Couldn't establish a pre-trigger baseline — without one we can't
+            # safely tell a newly-triggered "sync" task apart from an older,
+            # already-finished one (see note above), so the task-status poll
+            # below isn't safe to run. Fall back to a short fixed wait instead
+            # of guessing, then fall through to the metadata fetch as usual.
+            logger.warning(
+                "sync_metabase_schema: could not establish a baseline task id "
+                "before triggering the re-sync (GET /api/task failed) — "
+                "falling back to a fixed wait instead of task-status polling. "
+                "database_id=%s",
+                database_id,
             )
-            if db_status.status_code == 200:
-                # Check if sync is complete (no longer has 'initial_sync_status')
-                db_data = db_status.json()
-                if (
-                    not db_data.get("initial_sync_status")
-                    or db_data.get("initial_sync_status") == "complete"
-                ):
-                    break
+            time.sleep(5)
+        else:
+            # Wait for the async re-sync to settle. initial_sync_status only
+            # reflects the database's one-time initial onboarding sync, not
+            # this re-scan — for any database past first setup that field is
+            # already "complete" and this poll would otherwise exit instantly,
+            # before the re-scan has actually found new tables. Instead, poll
+            # Metabase's task log (GET /api/task) for the specific "sync" task
+            # this sync_schema call triggered (its id is greater than the
+            # baseline captured above) and wait for its status to leave
+            # "started". Bounded at 30 iterations of 1s sleep + up to 5s per
+            # request each — in the worst case (a consistently slow but not
+            # outright failing API) this can run longer than a strict 30s,
+            # up to roughly 30 * (1 + 5) = 180s.
+            for _ in range(30):
+                time.sleep(1)
+                try:
+                    task_resp = session.get(
+                        f"{metabase_url}/api/task",
+                        headers={"X-Metabase-Session": session_id},
+                        params={"db_id": database_id, "limit": 20},
+                        timeout=5,
+                    )
+                    if task_resp.status_code != 200:
+                        continue
+                    task_data = task_resp.json().get("data", [])
+                except Exception:
+                    continue
+
+                sync_tasks = [
+                    t
+                    for t in task_data
+                    if t.get("task") == "sync" and t.get("id", 0) > baseline_task_id
+                ]
+                if not sync_tasks:
+                    continue
+
+                latest_sync_task = max(sync_tasks, key=lambda t: t.get("id", 0))
+                status = latest_sync_task.get("status")
+                if status == "started":
+                    continue
+                if status != "success":
+                    # Covers "failed"/other terminal states and a missing
+                    # status field — still stop polling (the task is done,
+                    # just not successfully), but make sure this is visible
+                    # instead of silently reporting success below.
+                    logger.warning(
+                        "sync_metabase_schema: triggered re-sync task ended "
+                        "with unexpected status %r (task_id=%s, database_id=%s)",
+                        status,
+                        latest_sync_task.get("id"),
+                        database_id,
+                    )
+                break
 
         # Update table descriptions to guide users
         tables: list[dict[str, Any]] = []

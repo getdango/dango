@@ -19,6 +19,22 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
+def _empty_task_resp() -> MagicMock:
+    """Mock GET /api/task response with no prior tasks (used as poll baseline)."""
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {"data": []}
+    return resp
+
+
+def _task_resp(status: str, task_id: int = 1, db_id: int = 5) -> MagicMock:
+    """Mock GET /api/task response containing one "sync" task with the given status."""
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {
+        "data": [{"id": task_id, "task": "sync", "status": status, "db_id": db_id}]
+    }
+    return resp
+
+
 @pytest.mark.unit
 class TestSyncMetabaseSchema:
     """Test sync_metabase_schema API interactions."""
@@ -61,11 +77,6 @@ class TestSyncMetabaseSchema:
         sync_resp = MagicMock()
         sync_resp.status_code = 200
 
-        # Poll response — sync complete
-        poll_resp = MagicMock()
-        poll_resp.status_code = 200
-        poll_resp.json.return_value = {"initial_sync_status": "complete"}
-
         # Metadata response
         metadata_resp = MagicMock()
         metadata_resp.status_code = 200
@@ -81,7 +92,9 @@ class TestSyncMetabaseSchema:
         update_resp.status_code = 200
 
         mock_session.post.side_effect = [login_resp, sync_resp]
-        mock_session.get.side_effect = [poll_resp, metadata_resp]
+        # Baseline task lookup (no prior tasks), then the triggered "sync" task
+        # already showing as finished.
+        mock_session.get.side_effect = [_empty_task_resp(), _task_resp("success"), metadata_resp]
         mock_session.put.return_value = update_resp
 
         with (
@@ -208,16 +221,12 @@ class TestSyncMetabaseSchema:
         sync_resp = MagicMock()
         sync_resp.status_code = 200
 
-        poll_resp = MagicMock()
-        poll_resp.status_code = 200
-        poll_resp.json.return_value = {"initial_sync_status": "complete"}
-
         metadata_resp = MagicMock()
         metadata_resp.status_code = 200
         metadata_resp.json.return_value = {"tables": []}  # No tables
 
         mock_session.post.side_effect = [login_resp, sync_resp]
-        mock_session.get.side_effect = [poll_resp, metadata_resp]
+        mock_session.get.side_effect = [_empty_task_resp(), _task_resp("success"), metadata_resp]
 
         with (
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
@@ -250,8 +259,6 @@ class TestSyncMetabaseSchema:
         login_resp = MagicMock(status_code=200)
         login_resp.json.return_value = {"id": "sess-abc"}
         sync_resp = MagicMock(status_code=200)
-        poll_resp = MagicMock(status_code=200)
-        poll_resp.json.return_value = {"initial_sync_status": "complete"}
         metadata_resp = MagicMock(status_code=200)
         metadata_resp.json.return_value = {
             "tables": [
@@ -263,7 +270,7 @@ class TestSyncMetabaseSchema:
         update_resp = MagicMock(status_code=200)
 
         mock_session.post.side_effect = [login_resp, sync_resp]
-        mock_session.get.side_effect = [poll_resp, metadata_resp]
+        mock_session.get.side_effect = [_empty_task_resp(), _task_resp("success"), metadata_resp]
         mock_session.put.return_value = update_resp
 
         with (
