@@ -26,6 +26,7 @@ scoped specifically to credential health.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -59,6 +60,8 @@ class ResourceGroup:
     volumes: list[str] = field(default_factory=list)
     images: list[str] = field(default_factory=list)
     classification: str = ""  # "orphaned" | "needs_attention" | "live"
+    project_name: str | None = None
+    project_id: str | None = None
 
 
 def _list_dango_containers() -> list[dict[str, str]]:
@@ -120,6 +123,67 @@ def _list_dango_volumes() -> list[str]:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return []
     return [v.strip() for v in result.stdout.splitlines() if v.strip().startswith("dango-")]
+
+
+def _get_volume_labels(names: list[str]) -> dict[str, tuple[str | None, str | None]]:
+    """Batch-fetch ``com.dango.project_name``/``com.dango.project_id`` labels
+    for the given volume names via a single ``docker volume inspect`` call.
+
+    Added by 1.0.8-Q12: Compose never writes a human-readable identity label
+    onto volumes (only onto containers, via
+    ``com.docker.compose.project.working_dir`` — see
+    ``_list_dango_containers()``), so once a project's container is removed
+    there was previously no way to identify which project an orphaned
+    volume belonged to. `dango init` (1.0.8-Q12+) now stamps these two
+    labels onto the ``metabase-data`` volume at creation time; this helper
+    reads them back.
+
+    Uses ``--format json`` (not a Go-template string join) so label values
+    are never at risk of a naive delimiter split, and parses with the
+    stdlib ``json`` module.
+
+    Returns a dict of volume name -> (project_name, project_id). Volumes
+    with no labels (created before this fix shipped, or missing entirely)
+    map to ``(None, None)`` — this never raises; any Docker error or
+    unparseable output fails open to an empty dict, matching the
+    fail-open pattern used elsewhere in this module (e.g.
+    ``_list_dango_containers()`` returns ``[]`` on any Docker error).
+    """
+    if not names:
+        return {}
+    try:
+        result = subprocess.run(
+            ["docker", "volume", "inspect", *names, "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return {}
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return {}
+
+    labels_by_name: dict[str, tuple[str | None, str | None]] = {}
+    try:
+        # Live-verified (Docker 28.5.1 / Compose v2.40.2): `docker volume
+        # inspect <names...> --format json` prints a single JSON array
+        # (matching the default, un-formatted output shape), not JSON
+        # Lines. `Labels` is JSON `null` (not `{}`) on a volume with no
+        # labels at all.
+        records = json.loads(result.stdout)
+        for record in records:
+            name = record.get("Name")
+            if not name:
+                continue
+            labels = record.get("Labels") or {}
+            labels_by_name[name] = (
+                labels.get("com.dango.project_name"),
+                labels.get("com.dango.project_id"),
+            )
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        return {}
+
+    return labels_by_name
 
 
 def _list_dango_images() -> list[str]:
@@ -194,10 +258,22 @@ def _build_groups() -> list[ResourceGroup]:
         if c["working_dir"] and c["working_dir"] not in g.working_dirs:
             g.working_dirs.append(c["working_dir"])
 
-    for v in _list_dango_volumes():
+    volume_names = _list_dango_volumes()
+    volume_labels = _get_volume_labels(volume_names)
+    for v in volume_names:
         project = _project_from_resource_name(v)
         if project:
-            _get(project).volumes.append(v)
+            g = _get(project)
+            g.volumes.append(v)
+            project_name, project_id = volume_labels.get(v, (None, None))
+            # Only one labeled volume per project today (metabase-data), so
+            # conflict resolution across multiple volumes isn't a real
+            # concern — but never let a None from an unlabeled resource
+            # clobber a real value already set on the group.
+            if project_name is not None:
+                g.project_name = project_name
+            if project_id is not None:
+                g.project_id = project_id
 
     for i in _list_dango_images():
         project = _project_from_resource_name(i)
@@ -320,6 +396,7 @@ def docker_audit(yes: bool, dry_run: bool) -> None:
 
     table = Table(title="Dango Docker resources", show_header=True, header_style="bold cyan")
     table.add_column("Project", style="bold")
+    table.add_column("Project name")
     table.add_column("Working directory")
     table.add_column("Containers", justify="right")
     table.add_column("Volumes", justify="right")
@@ -334,8 +411,11 @@ def docker_audit(yes: bool, dry_run: bool) -> None:
         else:
             wd_display = "[dim]unknown (no container)[/dim]"
 
+        project_name_display = g.project_name if g.project_name else "[dim]unknown[/dim]"
+
         table.add_row(
             g.project,
+            project_name_display,
             wd_display,
             str(len(g.containers)),
             str(len(g.volumes)),
@@ -352,7 +432,12 @@ def docker_audit(yes: bool, dry_run: bool) -> None:
     if needs_attention:
         console.print(
             f"[red]{len(needs_attention)} group(s) need attention[/red] — ambiguous identity, "
-            "never auto-cleaned. Investigate manually, e.g.:\n"
+            'never auto-cleaned. A populated "Project name" column above tells you which '
+            "project a group belongs to, so you can decide for yourself whether it's safe to "
+            "remove with `docker volume rm`/`docker rmi`/`docker rm` — [dim]unknown[/dim] means "
+            "the volume predates this label (created before 1.0.8-Q12) and there's nothing more "
+            'to go on. For the "multiple/conflicting" working-directory case, investigate '
+            "manually, e.g.:\n"
             "  [dim]docker ps -a --filter label=com.docker.compose.project=<name>[/dim]\n"
         )
 

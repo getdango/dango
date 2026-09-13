@@ -47,3 +47,6 @@ services:
 volumes:
   metabase-data:
     driver: local
+    labels:
+      com.dango.project_name: "{{ project_name }}"
+      com.dango.project_id: "{{ project_id }}"
