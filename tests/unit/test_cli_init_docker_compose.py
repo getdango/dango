@@ -60,3 +60,24 @@ class TestCreateDockerCompose:
 
         content = (tmp_path / "docker-compose.yml").read_text()
         assert content.count(config.project.id) == 1  # only in project_id label
+
+    def test_both_services_have_bounded_log_rotation(self, tmp_path: Path) -> None:
+        """1.0.8: metabase and dbt-docs both cap their own container stdout/stderr
+        capture (json-file driver, max-size/max-file) — previously unbounded, a
+        long-lived project (especially an unattended cloud deployment) could
+        accumulate this indefinitely. This is Docker's own container-level log
+        capture, unrelated to and never touching dango's application-level audit
+        log (auth/audit.py -> .dango/logs/audit.jsonl), which already has its own
+        separate gzip-rotation (utils/log_rotation.py)."""
+        import yaml
+
+        config = _make_config()
+        initializer = ProjectInitializer(tmp_path)
+        initializer._create_docker_compose(config)
+
+        compose = yaml.safe_load((tmp_path / "docker-compose.yml").read_text())
+        for service_name in ("metabase", "dbt-docs"):
+            logging_config = compose["services"][service_name]["logging"]
+            assert logging_config["driver"] == "json-file"
+            assert logging_config["options"]["max-size"] == "10m"
+            assert logging_config["options"]["max-file"] == "3"
