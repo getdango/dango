@@ -7,6 +7,12 @@ machine-wide Docker resource diagnostic + cleanup command added in
 Compose identity was confused with a different, real project's identity
 during manual cleanup, destroying that project's Metabase data.
 
+1.0.8-Q12 extended this command to also read back
+`com.dango.project_name`/`com.dango.project_id` labels (stamped onto the
+metabase-data volume by `dango init`) so an orphaned volume's owning
+project stays identifiable even after its container is removed — see
+`TestGetVolumeLabels` and `TestBuildGroupsWithLabels`.
+
 These are unit tests with mocked `subprocess.run`. Live verification
 against a real Docker daemon (a real orphaned scratch project created by
 `rm -rf`-ing its directory without stopping it first, and a real
@@ -15,6 +21,7 @@ was performed manually — see the PR description for the exact commands and
 output.
 """
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,6 +29,7 @@ import pytest
 from dango.cli.commands.docker_audit import (
     ResourceGroup,
     _build_groups,
+    _get_volume_labels,
     _project_from_resource_name,
     _remove_group,
 )
@@ -29,6 +37,17 @@ from dango.cli.commands.docker_audit import (
 
 def _docker_ps_line(container_id: str, name: str, project: str, working_dir: str) -> str:
     return f"{container_id}\t{name}\t{project}\t{working_dir}"
+
+
+def _volume_inspect_json(
+    labels_by_name: dict[str, dict[str, str] | None],
+) -> MagicMock:
+    """Build a mocked `docker volume inspect ... --format json` response —
+    a single JSON array of records, live-verified shape (Docker 28.5.1 /
+    Compose v2.40.2): `Labels` is JSON `null`, not `{}`, on an unlabeled
+    volume."""
+    records = [{"Name": name, "Labels": labels} for name, labels in labels_by_name.items()]
+    return MagicMock(returncode=0, stdout=json.dumps(records))
 
 
 @pytest.mark.unit
@@ -104,6 +123,7 @@ class TestBuildGroupsClassification:
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout=""),  # no containers
                 MagicMock(returncode=0, stdout="dango-ccc3333_metabase-data\n"),
+                _volume_inspect_json({"dango-ccc3333_metabase-data": None}),
                 MagicMock(returncode=0, stdout=""),
             ]
             groups = _build_groups()
@@ -153,6 +173,7 @@ class TestBuildGroupsClassification:
                     ),
                 ),
                 MagicMock(returncode=0, stdout="dango-eee5555_metabase-data\n"),
+                _volume_inspect_json({"dango-eee5555_metabase-data": None}),
                 MagicMock(returncode=0, stdout="dango-eee5555-metabase\n"),
             ]
             groups = _build_groups()
@@ -168,6 +189,138 @@ class TestBuildGroupsClassification:
             mock_run.return_value = MagicMock(returncode=1, stdout="")
             groups = _build_groups()
         assert groups == []
+
+
+@pytest.mark.unit
+class TestGetVolumeLabels:
+    """`_get_volume_labels()` (1.0.8-Q12) — batch-fetches the
+    com.dango.project_name/com.dango.project_id labels dango init (Q12+)
+    stamps onto the metabase-data volume, so docker-audit can identify an
+    orphaned volume's origin even after its container is gone."""
+
+    def test_empty_names_returns_empty_dict_without_calling_docker(self):
+        with patch("subprocess.run") as mock_run:
+            result = _get_volume_labels([])
+        assert result == {}
+        mock_run.assert_not_called()
+
+    def test_labels_present_populates_fields(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = _volume_inspect_json(
+                {
+                    "dango-1fc60021_metabase-data": {
+                        "com.dango.project_name": "acme-analytics",
+                        "com.dango.project_id": "1fc60021deadbeef",
+                    }
+                }
+            )
+            result = _get_volume_labels(["dango-1fc60021_metabase-data"])
+        assert result == {"dango-1fc60021_metabase-data": ("acme-analytics", "1fc60021deadbeef")}
+
+    def test_labels_absent_returns_none_none_not_error(self):
+        """A volume created before this fix shipped has no com.dango.*
+        labels at all (Labels is JSON null) -> (None, None), not an error."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = _volume_inspect_json({"dango-preexisting_metabase-data": None})
+            result = _get_volume_labels(["dango-preexisting_metabase-data"])
+        assert result == {"dango-preexisting_metabase-data": (None, None)}
+
+    def test_labels_present_but_missing_dango_keys_returns_none_none(self):
+        """A volume with some OTHER labels (not ours) also degrades to
+        (None, None) for our two keys, not a KeyError."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = _volume_inspect_json(
+                {"dango-other_metabase-data": {"some.other.label": "x"}}
+            )
+            result = _get_volume_labels(["dango-other_metabase-data"])
+        assert result == {"dango-other_metabase-data": (None, None)}
+
+    def test_docker_error_fails_open_to_empty_dict(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="")
+            result = _get_volume_labels(["dango-x_metabase-data"])
+        assert result == {}
+
+    def test_docker_timeout_fails_open_to_empty_dict(self):
+        import subprocess as subprocess_module
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess_module.TimeoutExpired(cmd="docker", timeout=10)
+            result = _get_volume_labels(["dango-x_metabase-data"])
+        assert result == {}
+
+    def test_malformed_json_fails_open_to_empty_dict(self):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="not json{{{")
+            result = _get_volume_labels(["dango-x_metabase-data"])
+        assert result == {}
+
+    def test_batches_all_names_into_one_call(self):
+        """N+1 subprocess calls would be slow with many volumes on the
+        machine — confirm every name is passed to a single `docker volume
+        inspect` invocation, not one call per volume."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = _volume_inspect_json(
+                {"vol-a": None, "vol-b": None, "vol-c": None}
+            )
+            _get_volume_labels(["vol-a", "vol-b", "vol-c"])
+        assert mock_run.call_count == 1
+        cmd = mock_run.call_args[0][0]
+        assert cmd == ["docker", "volume", "inspect", "vol-a", "vol-b", "vol-c", "--format", "json"]
+
+
+@pytest.mark.unit
+class TestBuildGroupsWithLabels:
+    """`_build_groups()` populates project_name/project_id from a labeled
+    volume, without changing classification — the label is purely
+    additive display information (1.0.8-Q12)."""
+
+    def test_labeled_volume_populates_group_fields_classification_unchanged(self):
+        """A group with no container (needs_attention) still shows the
+        real project name/id from its labeled volume — this is the actual
+        bug being fixed: identity survives container removal."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=""),  # no containers
+                MagicMock(returncode=0, stdout="dango-1fc60021_metabase-data\n"),
+                _volume_inspect_json(
+                    {
+                        "dango-1fc60021_metabase-data": {
+                            "com.dango.project_name": "acme-analytics",
+                            "com.dango.project_id": "1fc60021deadbeef",
+                        }
+                    }
+                ),
+                MagicMock(returncode=0, stdout=""),
+            ]
+            groups = _build_groups()
+
+        assert len(groups) == 1
+        g = groups[0]
+        # The label must not leak into or change classification — a
+        # container-less group is still needs_attention, never promoted
+        # to cleanable just because we now know its name.
+        assert g.classification == "needs_attention"
+        assert g.project_name == "acme-analytics"
+        assert g.project_id == "1fc60021deadbeef"
+
+    def test_unlabeled_volume_leaves_fields_none(self):
+        """A volume created before this fix shipped has no labels ->
+        project_name/project_id stay None, not an error, and docker-audit
+        keeps working exactly as it did before this fix."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout=""),
+                MagicMock(returncode=0, stdout="dango-preexisting_metabase-data\n"),
+                _volume_inspect_json({"dango-preexisting_metabase-data": None}),
+                MagicMock(returncode=0, stdout=""),
+            ]
+            groups = _build_groups()
+
+        assert len(groups) == 1
+        assert groups[0].project_name is None
+        assert groups[0].project_id is None
+        assert groups[0].classification == "needs_attention"
 
 
 @pytest.mark.unit

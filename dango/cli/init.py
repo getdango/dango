@@ -981,6 +981,7 @@ custom_sources/
 
         content = template.render(
             project_name=config.project.name.lower().replace(" ", "-"),
+            project_id=config.project.id,
             metabase_port=config.platform.metabase_port,
             dbt_docs_port=config.platform.dbt_docs_port,
         )
