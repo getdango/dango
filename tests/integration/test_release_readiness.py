@@ -311,7 +311,6 @@ class TestReleaseReadinessCleanFlow:
         base_url = project["base_url"]
         session = project["session"]
         database_id = project["database_id"]
-        metabase_url = project["metabase_url"]
 
         # Bridge a Metabase session on this client (idempotent — safe even if
         # test_metabase_proxy_serves_valid_js already ran first).
@@ -340,85 +339,45 @@ class TestReleaseReadinessCleanFlow:
                 return []
             return [t["name"] for t in meta_resp.json().get("tables", [])]
 
-        def _metabase_admin_login_ready(timeout_s: int = 45) -> bool:
-            """Poll a *fresh* Metabase admin login until it succeeds.
-
-            This is a readiness probe only (a plain login attempt with the
-            real admin credentials already on disk in
-            ``.dango/metabase.yml``) — it never touches sync_schema or any
-            other schema/data-mutating endpoint, so it stays within "no
-            manual sync_schema call from the test."
-
-            Why a fresh login, not just a metadata GET with the test's
-            already-bridged session: this session found, by direct
-            reproduction while writing this test (captured in this PR's
-            description), that Metabase's REST API can serve reads through an
-            *existing* session (this test's own bridged cookie) noticeably
-            *before* a brand-new `POST /api/session` (bcrypt + user lookup)
-            succeeds after a `docker restart` — exactly the call
-            `sync_metabase_schema()` makes internally. Gating retries on a
-            metadata GET alone (an earlier version of this test did that)
-            wasn't actually probing the same readiness `dango sync`'s own
-            automatic refresh depends on, so it retried into the same gap
-            every time instead of past it.
-            """
-            import requests
-            import yaml as _yaml
-
-            mb_yml = _yaml.safe_load((project_root / ".dango" / "metabase.yml").read_text())
-            admin = mb_yml["admin"]
-            deadline = time.monotonic() + timeout_s
-            while time.monotonic() < deadline:
-                try:
-                    resp = requests.post(
-                        f"{metabase_url}/api/session",
-                        json={"username": admin["email"], "password": admin["password"]},
-                        timeout=5,
-                    )
-                    if resp.status_code == 200:
-                        return True
-                except requests.RequestException:
-                    pass
-                time.sleep(2)
-            return False
-
         def _sync_until_table_visible(
-            source_name: str, max_sync_attempts: int = 4, poll_timeout_s: int = 30
+            source_name: str, max_sync_attempts: int = 3, poll_timeout_s: int = 45
         ) -> list[str]:
             """Run `dango sync` for source_name, polling for its table to appear.
 
             A single `dango sync` call is expected to make the table visible
             through its own automatic post-sync Metabase refresh alone — no
-            manual sync_schema call is ever made here. Each attempt is
-            preceded by `_metabase_admin_login_ready()` so a retry doesn't
-            race the same post-restart readiness gap `sync_metabase_schema()`
-            itself is subject to. Retrying `dango sync` (never Metabase's
-            sync_schema API directly) is a legitimate real-world recovery
-            action a user would also take.
+            manual sync_schema call is ever made here, and this loop makes NO
+            direct login/POST /api/session calls of its own: only the
+            metadata GET below (which reuses this test's already-bridged
+            session cookie through the FastAPI proxy, not a fresh Metabase
+            login) and whatever `dango sync` triggers internally.
 
-            KNOWN ISSUE (found writing this test, not fixed here — see this
-            PR's description): `refresh_metabase_connection()`
-            (`dango/visualization/metabase.py`) issues `docker restart` and
-            immediately starts polling `/api/health`, but a direct capture of
-            the Metabase container's own logs (in this PR's description)
-            shows the *old*, still-shutting-down process can answer one more
-            health check *after* `docker restart`'s SIGTERM is sent and
-            *before* the new process is listening — a false-positive
-            readiness signal. `sync_metabase_schema()`'s login then fails
-            (401, or the connection is refused/reset outright) against a
-            container that is not actually up yet. This isn't occasional
-            flakiness: on the machine this test was written on, it reproduced
-            on every attempt, so retrying `dango sync` here is a best-effort
-            mitigation (real restart timing can vary by Docker backend), not
-            a guaranteed fix — see the PR description for the diagnosis and a
-            suggested fix in `refresh_metabase_connection()` itself.
+            History: 1.0.8-Q11 (`dango/visualization/metabase.py`,
+            `refresh_metabase_connection()`) fixed the actual root cause this
+            test exists to guard against — a still-shutting-down old Metabase
+            process could answer `/api/health` with 200 for several seconds
+            after `docker restart`'s SIGTERM, before a real gap where nothing
+            is listening, so `sync_metabase_schema()`'s single login attempt
+            right after could fail even though the restart had genuinely
+            succeeded. `refresh_metabase_connection()` now waits out that gap
+            itself via a bounded internal login-readiness poll.
+
+            An earlier version of *this* test's own retry loop additionally
+            polled `POST /api/session` directly (every 2s, up to 45s, before
+            each of up to 4 sync retries) to work around the Q11 bug before it
+            was fixed. On this machine `docker restart` -> healthy takes
+            ~15-20s, so that polling accumulated far more login attempts than
+            intended and tripped Metabase's own login-throttle lockout
+            (escalating to 1000+ second lockout windows) — a second, separate
+            bug in this test file itself, found live-verifying the Q11 fix
+            (see BUGS-FOUND.md). With Q11 fixing the actual race, this test no
+            longer needs its own login-readiness probing at all: a bounded
+            retry of `dango sync` (a legitimate real-world recovery action) is
+            enough, and the metadata-poll below never touches Metabase's login
+            endpoint.
             """
             names: list[str] = []
             for attempt in range(1, max_sync_attempts + 1):
-                assert _metabase_admin_login_ready(), (
-                    f"Metabase admin login never became ready before sync attempt {attempt}"
-                )
-
                 result = _sync_source(project_root, source_name)
                 assert source_name in result.get("success_sources", []), (
                     f"{source_name} sync (attempt {attempt}) did not report success: {result}"
@@ -429,7 +388,7 @@ class TestReleaseReadinessCleanFlow:
                     names = _table_names()
                     if source_name in names:
                         return names
-                    time.sleep(2)
+                    time.sleep(3)
             pytest.fail(
                 f"Table {source_name!r} never appeared via "
                 f"/api/database/{database_id}/metadata after {max_sync_attempts} "
