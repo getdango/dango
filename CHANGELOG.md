@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git guardrail warnings (previously only on `dango remote push`) now also cover model/source/schedule creation — CLI wizards and MCP's mutation tools warn when run on a protected branch
 - `dango status` now shows whether an MCP server process is running for the current project, alongside the existing web server, watcher, and Metabase rows
 - `dango source inspect-state <name>` — a new read-only command that decodes and displays a source's dlt incremental sync state (the cursor value it's tracking per resource), useful for diagnosing why an incremental sync isn't picking up data you'd expect it to
+- `dango docker-audit` — a new diagnostic command that lists every Dango-managed Docker resource on the machine (not just the current project), grouped by real Compose project identity, and classifies each as live, safe to clean, or needing manual attention
 
 ### Fixed
 
@@ -38,6 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dango source add`: selecting MySQL no longer crashes with a validation error and losing all entered configuration
 - Scripts page: a script that times out or is killed now correctly shows the output it had already printed, instead of an empty log — a race between two competing reads of the same process output was discarding it
 - `dango sync ... --full-refresh` on a merge-based source now actually clears cached incremental sync state, instead of only resetting the destination tables and leaving stale state behind that could prevent a full reload
+- Docker project identity: a project's Compose identity is now a stable ID persisted once in `project.yml` at `dango init`, instead of a hash of its filesystem path — moving or renaming a project directory could previously produce a different identity and orphan its existing containers/volumes. Existing projects migrate automatically and losslessly on their next `dango start`/`dango stop`. `dango start`/`dango stop` also now verify a project's identity against Docker's own record of which directory actually created a given container before operating on it, and `dango stop` no longer reports success when containers were left running
+- Metabase: the local `/metabase/` proxy could show a blank page (JS assets served as HTML instead of JavaScript) because Metabase's own Site URL setting never matched the path it was actually being served under — now set automatically during setup and on the first sync after upgrading
+- Metabase: a second (and later) data source's tables could fail to appear in Metabase without manually clicking "Sync database schema now," even though the sync itself succeeded — the automatic post-sync refresh was polling the wrong readiness signal and could report a re-sync complete before it had actually finished
+- Metabase: `dango sync`'s automatic post-Metabase-restart check could report the container ready before it could actually accept a login, causing the schema refresh that depends on that login to silently fail — the readiness check now confirms a real login succeeds, not just that the container is listening
+- Metabase: `dango start`'s automatic dashboard restore no longer silently skips projects using the current `metabase/` export directory (it previously only checked for the legacy `dashboards/` path)
+- `dango metabase load`'s rollback-on-failure no longer leaves orphaned cards behind in Metabase while reporting "Rollback complete - no changes applied"
+- Google Sheets OAuth: `dango source add` no longer fails with `invalid_scope` immediately after completing the browser consent flow, when the very next step (listing sheet names) needed to refresh the just-issued token
+- Google OAuth setup instructions (CLI panel and docs) now match Google's current "Google Auth Platform" Console UI (renamed and restructured from the old "OAuth consent screen" flow) instead of describing a UI that no longer exists
 
 ### Security
 
