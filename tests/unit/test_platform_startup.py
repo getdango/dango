@@ -924,11 +924,11 @@ class TestRefreshMetabaseConnection:
             result = refresh_metabase_connection(tmp_project_dir)
 
         assert result == (True, None)
-        # 5 login attempts from the readiness poll's own short non-200 retry
+        # 60 login attempts from the readiness poll's own short non-200 retry
         # window (max_non_200_attempts default) + 1 more from the site-url
         # catch-up's separate login attempt — proves the bounded retry actually
         # ran to its limit rather than stopping instantly on the first 401.
-        assert mock_session.post.call_count == 6
+        assert mock_session.post.call_count == 61
         mock_session.put.assert_not_called()
         assert "site_url_set" not in yaml_module.safe_load(creds_file.read_text())
 
@@ -985,11 +985,11 @@ class TestRefreshMetabaseConnection:
         # restart-readiness race it closes applies regardless of site_url_set). Its
         # default mock response has a non-200 status_code (a MagicMock, not the int
         # 200) on every call, so the poll retries through its own short bounded
-        # non-200 window (5 attempts by default — see _wait_for_metabase_login_ready)
+        # non-200 window (60 attempts by default — see _wait_for_metabase_login_ready)
         # before giving up. What this test actually cares about -- the site-url
         # login is still skipped -- is that no *additional* post() call happens
         # beyond that readiness-poll window, and no PUT happens.
-        assert mock_session.post.call_count == 5  # readiness poll's bounded retry window only
+        assert mock_session.post.call_count == 60  # readiness poll's bounded retry window only
         mock_session.put.assert_not_called()  # no site-url PUT
 
     def test_skips_site_url_in_cloud_mode(self, tmp_project_dir: Path) -> None:
@@ -1039,12 +1039,12 @@ class TestRefreshMetabaseConnection:
         assert result == (True, None)
         # 1.0.8-Q11: the login-readiness poll runs unconditionally regardless of
         # cloud_mode. Its default mock response has a non-200 status_code on every
-        # call, so the poll retries through its own short bounded non-200 window (5
+        # call, so the poll retries through its own short bounded non-200 window (60
         # attempts by default) before giving up. The site-url login specifically is
         # still correctly skipped in cloud mode, which is what the PUT assertion
         # below verifies (no additional post() call for a site-url login, and no
         # PUT at all).
-        assert mock_session.post.call_count == 5  # readiness poll's bounded retry window only
+        assert mock_session.post.call_count == 60  # readiness poll's bounded retry window only
         mock_session.put.assert_not_called()
 
     def test_retries_login_readiness_through_connection_errors(self, tmp_project_dir: Path) -> None:
