@@ -1977,7 +1977,11 @@ def refresh_metabase_connection(
         if restart_result.returncode != 0:
             return (False, f"Docker restart failed: {restart_result.stderr[:200]}")
 
-        # Wait for Metabase to come back up (max 20 seconds)
+        # Wait for Metabase to come back up (max 20 seconds for /api/health
+        # itself). Once /api/health goes green, the login-readiness poll below
+        # runs once and can add up to ~60s more (1.0.8-Q14) before this
+        # function returns -- this loop's 20s bound is NOT the function's
+        # total ceiling. See _wait_for_metabase_login_ready()'s own docstring.
         max_attempts = 20
         for _ in range(max_attempts):
             try:

@@ -871,11 +871,17 @@ class TestRefreshMetabaseConnection:
         that worked moments before the restart and moments after this window
         passed (Metabase's own auth/user-lookup subsystem can still be warming up
         even once its HTTP listener is answering). So this test's login now fails
-        for the login-readiness poll's whole short retry window (asserted below via
-        the post() call count) before the function gives up and moves on -- it must
-        still complete quickly (a bounded few seconds, not the full ~10s
-        connection-error budget, and nowhere near the old health-check loop's
-        ~20-30s ceiling), and still report the restart itself as successful.
+        for the login-readiness poll's whole retry window (asserted below via the
+        post() call count) before the function gives up and moves on.
+
+        1.0.8-Q14 update: that retry window was widened from ~5s to ~60s (both
+        ``max_attempts`` and ``max_non_200_attempts`` now default to 60 -- see
+        _wait_for_metabase_login_ready()'s docstring for why). This is no longer
+        a "bounded few seconds" completion -- it now takes the full ~60-attempt
+        window (mocked/instant here via the ``time.sleep`` patch below, but ~60s
+        of real wall-clock time in production) -- an accepted tradeoff, not a
+        regression in this test. It must still report the restart itself as
+        successful regardless of how long the readiness poll took.
         """
         import requests
         import yaml as yaml_module
