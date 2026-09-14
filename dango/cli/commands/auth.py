@@ -7,10 +7,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from dango.cli import console
+
+if TYPE_CHECKING:
+    from dango.auth.models import User
 
 
 @click.group()
@@ -603,6 +607,202 @@ def auth_audit(
                 ", ".join(f"{k}={v}" for k, v in d.items()) or "—",
             )
         console.print(table)
+    except click.Abort:
+        raise
+    except Exception as exc:
+        _handle_error(exc)
+        raise click.Abort() from None
+
+
+def _check_metabase_login(metabase_url: str, user: User, project_root: Path) -> bool:
+    """Decrypt a user's stored Metabase password and test it against a real login.
+
+    Returns ``True`` if the password works (HTTP 200 from ``POST /api/session``),
+    ``False`` otherwise (wrong password or unreachable Metabase).
+    """
+    import requests
+
+    from dango.auth.metabase_sync import decrypt_metabase_password
+
+    if user.metabase_password_enc is None:
+        return False
+    decrypted_password = decrypt_metabase_password(user.metabase_password_enc, project_root)
+    try:
+        resp = requests.post(
+            f"{metabase_url}/api/session",
+            json={"username": user.email, "password": decrypted_password},
+            timeout=10,
+        )
+        return resp.status_code == 200
+    except requests.RequestException:
+        return False
+
+
+@auth.command("metabase-status")
+@click.argument("email", required=False)
+@click.pass_context
+def auth_metabase_status(ctx: click.Context, email: str | None) -> None:
+    """Check whether users' Metabase SSO bridge credentials actually work.
+
+    Tests each user's stored (encrypted) Metabase password against a real
+    Metabase login. Reports OK (bridge works) or DESYNCED (stored password
+    does not match Metabase's actual password — run 'metabase-repair' to fix).
+    """
+    import requests
+
+    from dango.auth.database import get_user_by_email, list_users
+    from dango.auth.metabase_sync import _load_metabase_credentials, decrypt_metabase_password
+    from dango.cli.utils import print_error, print_info
+
+    try:
+        project_root, db_path = _get_db_path(ctx)
+
+        creds = _load_metabase_credentials(project_root)
+        if not creds or not creds.get("metabase_url"):
+            print_error("Metabase not configured for this project (missing .dango/metabase.yml).")
+            raise click.Abort()
+        metabase_url = creds["metabase_url"]
+
+        if email:
+            user = get_user_by_email(db_path, email)
+            if user is None:
+                print_error(f"User '{email}' not found.")
+                raise click.Abort()
+            users = [user]
+        else:
+            users = [
+                u for u in list_users(db_path, active_only=True) if u.metabase_user_id is not None
+            ]
+
+        if not users:
+            print_info("No Metabase-linked users to check.")
+            return
+
+        any_desynced = False
+        for u in users:
+            if u.metabase_password_enc is None:
+                status = "NOT LINKED"
+                color = "yellow"
+            else:
+                decrypted_password = decrypt_metabase_password(
+                    u.metabase_password_enc, project_root
+                )
+                try:
+                    resp = requests.post(
+                        f"{metabase_url}/api/session",
+                        json={"username": u.email, "password": decrypted_password},
+                        timeout=10,
+                    )
+                    if resp.status_code == 200:
+                        status = "OK"
+                        color = "green"
+                    else:
+                        status = "DESYNCED"
+                        color = "red"
+                        any_desynced = True
+                except requests.RequestException:
+                    status = "ERROR (could not reach Metabase)"
+                    color = "yellow"
+            console.print(f"  [{color}]{u.email:<40} {status}[/{color}]")
+
+        if any_desynced:
+            console.print(
+                "\n[yellow]Run 'dango auth metabase-repair <email>' to fix a desynced "
+                "user.[/yellow]"
+            )
+    except click.Abort:
+        raise
+    except Exception as exc:
+        _handle_error(exc)
+        raise click.Abort() from None
+
+
+@auth.command("metabase-repair")
+@click.argument("email")
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt.")
+@click.pass_context
+def auth_metabase_repair(ctx: click.Context, email: str, yes: bool) -> None:
+    """Regenerate a user's Metabase bridge password and re-sync it.
+
+    Fixes a desynced SSO bridge (Metabase login page shown instead of
+    automatic SSO) for one user, without touching their Dango account,
+    role, or any other user's Metabase dashboards/data.
+    """
+    from dango.auth.database import get_user_by_email, update_user
+    from dango.auth.metabase_sync import (
+        _get_admin_session,
+        _load_metabase_credentials,
+        encrypt_metabase_password,
+        generate_metabase_password,
+        update_metabase_user_password,
+    )
+    from dango.auth.models import UserUpdate
+    from dango.cli.utils import print_error, print_info, print_success
+
+    try:
+        project_root, db_path = _get_db_path(ctx)
+
+        user = get_user_by_email(db_path, email)
+        if user is None:
+            print_error(f"User '{email}' not found.")
+            raise click.Abort()
+        if user.metabase_user_id is None:
+            print_error(f"User '{email}' has no Metabase account linked yet — nothing to repair.")
+            raise click.Abort()
+
+        if not yes:
+            console.print(
+                f"This will regenerate the Metabase password for [bold]{user.email}[/bold] "
+                "and re-sync it. No dashboards or data are affected."
+            )
+            if not click.confirm("Continue?"):
+                print_info("Aborted.")
+                return
+
+        creds = _load_metabase_credentials(project_root)
+        if not creds or not creds.get("metabase_url"):
+            print_error("Metabase not configured for this project (missing .dango/metabase.yml).")
+            raise click.Abort()
+        metabase_url = creds["metabase_url"]
+
+        session = _get_admin_session(metabase_url, project_root)
+        if session is None:
+            print_error("Could not authenticate as Metabase admin — check .dango/metabase.yml.")
+            raise click.Abort()
+
+        new_password = generate_metabase_password()
+        ok = update_metabase_user_password(
+            metabase_url, session, user.metabase_user_id, new_password
+        )
+        if not ok:
+            print_error("Failed to update password on the Metabase side. No local changes made.")
+            raise click.Abort()
+
+        encrypted = encrypt_metabase_password(new_password, project_root)
+        update_user(db_path, user.id, UserUpdate(metabase_password_enc=encrypted))
+
+        # Re-fetch so verification decrypts the just-written password.
+        user = get_user_by_email(db_path, email)
+        assert user is not None  # just written above
+        verify_ok = _check_metabase_login(metabase_url, user, project_root)
+        if verify_ok:
+            print_success(f"Repaired and verified: '{user.email}' can now log in to Metabase.")
+        else:
+            print_error(
+                f"Password was updated but verification login still failed for '{user.email}'. "
+                "Check that Metabase is running and reachable."
+            )
+            raise click.Abort()
+
+        from dango.auth.audit import AuditEvent, log_auth_event
+
+        log_auth_event(
+            event_type=AuditEvent.PASSWORD_RESET,
+            email=user.email,
+            user_id=user.id,
+            details={"via": "cli", "target": "metabase_bridge"},
+            log_dir=project_root / ".dango" / "logs",
+        )
     except click.Abort:
         raise
     except Exception as exc:

@@ -247,7 +247,7 @@ Session bridging syncs Dango auth state to Metabase so users get single sign-on.
 **Metabase reconciliation (users/roles out of sync):**
 - Full sync: call `sync_all_users_to_metabase(db_path, project_root, metabase_url)`
 - Single user: call `sync_user_to_metabase(db_path, user_id, project_root, metabase_url)`
-- Password reset: `generate_metabase_password()` + `encrypt_metabase_password()` + update user
+- **Metabase SSO bridge desync** (user sees Metabase's native login page instead of automatic SSO): run `dango auth metabase-status [email]` to check which users are affected, then `dango auth metabase-repair <email>` to regenerate and re-sync that user's bridge password. Non-destructive — does not affect the user's Dango account, role, or any Metabase dashboards/data.
 
 ## Dependencies
 
