@@ -871,17 +871,11 @@ class TestRefreshMetabaseConnection:
         that worked moments before the restart and moments after this window
         passed (Metabase's own auth/user-lookup subsystem can still be warming up
         even once its HTTP listener is answering). So this test's login now fails
-        for the login-readiness poll's whole retry window (asserted below via the
-        post() call count) before the function gives up and moves on.
-
-        1.0.8-Q14 update: that retry window was widened from ~5s to ~60s (both
-        ``max_attempts`` and ``max_non_200_attempts`` now default to 60 -- see
-        _wait_for_metabase_login_ready()'s docstring for why). This is no longer
-        a "bounded few seconds" completion -- it now takes the full ~60-attempt
-        window (mocked/instant here via the ``time.sleep`` patch below, but ~60s
-        of real wall-clock time in production) -- an accepted tradeoff, not a
-        regression in this test. It must still report the restart itself as
-        successful regardless of how long the readiness poll took.
+        for the login-readiness poll's whole short retry window (asserted below via
+        the post() call count) before the function gives up and moves on -- it must
+        still complete quickly (a bounded few seconds, not the full ~10s
+        connection-error budget, and nowhere near the old health-check loop's
+        ~20-30s ceiling), and still report the restart itself as successful.
         """
         import requests
         import yaml as yaml_module
@@ -930,11 +924,11 @@ class TestRefreshMetabaseConnection:
             result = refresh_metabase_connection(tmp_project_dir)
 
         assert result == (True, None)
-        # 60 login attempts from the readiness poll's own short non-200 retry
+        # 5 login attempts from the readiness poll's own short non-200 retry
         # window (max_non_200_attempts default) + 1 more from the site-url
         # catch-up's separate login attempt — proves the bounded retry actually
         # ran to its limit rather than stopping instantly on the first 401.
-        assert mock_session.post.call_count == 61
+        assert mock_session.post.call_count == 6
         mock_session.put.assert_not_called()
         assert "site_url_set" not in yaml_module.safe_load(creds_file.read_text())
 
@@ -991,11 +985,11 @@ class TestRefreshMetabaseConnection:
         # restart-readiness race it closes applies regardless of site_url_set). Its
         # default mock response has a non-200 status_code (a MagicMock, not the int
         # 200) on every call, so the poll retries through its own short bounded
-        # non-200 window (60 attempts by default — see _wait_for_metabase_login_ready)
+        # non-200 window (5 attempts by default — see _wait_for_metabase_login_ready)
         # before giving up. What this test actually cares about -- the site-url
         # login is still skipped -- is that no *additional* post() call happens
         # beyond that readiness-poll window, and no PUT happens.
-        assert mock_session.post.call_count == 60  # readiness poll's bounded retry window only
+        assert mock_session.post.call_count == 5  # readiness poll's bounded retry window only
         mock_session.put.assert_not_called()  # no site-url PUT
 
     def test_skips_site_url_in_cloud_mode(self, tmp_project_dir: Path) -> None:
@@ -1045,12 +1039,12 @@ class TestRefreshMetabaseConnection:
         assert result == (True, None)
         # 1.0.8-Q11: the login-readiness poll runs unconditionally regardless of
         # cloud_mode. Its default mock response has a non-200 status_code on every
-        # call, so the poll retries through its own short bounded non-200 window (60
+        # call, so the poll retries through its own short bounded non-200 window (5
         # attempts by default) before giving up. The site-url login specifically is
         # still correctly skipped in cloud mode, which is what the PUT assertion
         # below verifies (no additional post() call for a site-url login, and no
         # PUT at all).
-        assert mock_session.post.call_count == 60  # readiness poll's bounded retry window only
+        assert mock_session.post.call_count == 5  # readiness poll's bounded retry window only
         mock_session.put.assert_not_called()
 
     def test_retries_login_readiness_through_connection_errors(self, tmp_project_dir: Path) -> None:

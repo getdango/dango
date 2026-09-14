@@ -495,8 +495,8 @@ def _wait_for_metabase_login_ready(
     session: requests.Session,
     metabase_url: str,
     project_root: Path,
-    max_attempts: int = 60,
-    max_non_200_attempts: int = 60,
+    max_attempts: int = 10,
+    max_non_200_attempts: int = 5,
 ) -> bool:
     """Poll ``_metabase_login()`` until Metabase can actually complete a login, not
     just answer ``/api/health`` -- see ``refresh_metabase_connection()``'s call site
@@ -540,24 +540,11 @@ def _wait_for_metabase_login_ready(
       without waiting out the rest of the budget -- this keeps the common case
       (already ready by the time this runs) fast.
 
-    Bounded to ``max_attempts`` * 1s (~60s by default as of 1.0.8-Q14 --
-    widened from an original ~10s) for connection-level retries, and
-    ``max_non_200_attempts`` * 1s (~60s by default, widened from an original
-    ~5s) for the non-200 case -- both raised together after real evidence
-    showed a restart immediately following a heavy sync pipeline (CSV load,
-    dbt run, dbt docs generate -- i.e. every real `dango sync`) can leave the
-    new Metabase process still in early JVM boot well past the original ~5-10s
-    budgets, while an isolated restart with no preceding load resolves within
-    ~17s total. The two budgets are no longer kept intentionally different
-    sizes: evidence showed the non-200 case is frequently the *same* warmup
-    race manifesting as a real (not connection-level) response rather than a
-    separate "probably a wrong password" signal, so there's no reason left to
-    cap it more tightly than the connection-error case. Accepted tradeoff: a
-    genuinely wrong Metabase password now also takes up to ~60s to report
-    failure at this specific call site, instead of ~5-10s --
-    `dango auth metabase-status`/`metabase-repair` (1.0.8-Q13) give users a
-    fast, on-demand way to diagnose a real credential problem without waiting
-    on this path.
+    Bounded to ``max_attempts`` * 1s (~10s by default) for connection-level
+    retries -- a sub-budget within the same overall ~20-30s restart-readiness
+    ceiling the ``/api/health`` loop above already spends, not a new unrelated
+    constant. The non-200 case is capped separately and more tightly, at
+    ``max_non_200_attempts`` * 1s (~5s by default).
 
     Never raises -- matches this module's restart/refresh functions' "report
     failure via return value" contract, so callers don't need new exception
@@ -1977,11 +1964,7 @@ def refresh_metabase_connection(
         if restart_result.returncode != 0:
             return (False, f"Docker restart failed: {restart_result.stderr[:200]}")
 
-        # Wait for Metabase to come back up (max 20 seconds for /api/health
-        # itself). Once /api/health goes green, the login-readiness poll below
-        # runs once and can add up to ~60s more (1.0.8-Q14) before this
-        # function returns -- this loop's 20s bound is NOT the function's
-        # total ceiling. See _wait_for_metabase_login_ready()'s own docstring.
+        # Wait for Metabase to come back up (max 20 seconds)
         max_attempts = 20
         for _ in range(max_attempts):
             try:
