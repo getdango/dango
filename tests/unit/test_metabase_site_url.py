@@ -265,3 +265,96 @@ class TestShouldApplyLocalSiteUrl:
         from dango.visualization.metabase import _should_apply_local_site_url
 
         assert _should_apply_local_site_url(tmp_path, cloud_mode=False) is True
+
+
+@pytest.mark.unit
+class TestApplyMetabaseSiteUrlCatchupSessionReuse:
+    """Direct unit tests for _apply_metabase_site_url_catchup()'s optional
+    `session_id` parameter (1.0.8-Q17) -- session-token reuse to avoid a second
+    real Metabase login when the caller (refresh_metabase_connection()) already
+    has a valid one from its own post-restart login."""
+
+    def test_skips_own_login_when_session_id_given(self, tmp_project_dir: Path) -> None:
+        import requests
+
+        from dango.visualization.metabase import _apply_metabase_site_url_catchup
+
+        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
+        creds_file.write_text(
+            yaml.dump(
+                {
+                    "admin": {"email": "admin@example.com", "password": "secret"},
+                    "database": {"id": 5, "name": "Test Analytics"},
+                }
+            )
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        put_resp = MagicMock(status_code=200, ok=True)
+        mock_session.put.return_value = put_resp
+
+        with (
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch("dango.config.helpers.is_cloud_mode", return_value=False),
+            patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
+        ):
+            _apply_metabase_site_url_catchup(
+                mock_session,
+                "http://localhost:3000",
+                tmp_project_dir,
+                session_id="sess-reused",
+            )
+
+        # No login POST at all -- the passed-in token went straight to the PUT.
+        mock_session.post.assert_not_called()
+        mock_session.put.assert_called_once_with(
+            "http://localhost:3000/api/setting/site-url",
+            headers={"X-Metabase-Session": "sess-reused"},
+            json={"value": "http://localhost:8800/metabase/"},
+            timeout=10,
+        )
+        assert yaml.safe_load(creds_file.read_text())["site_url_set"] is True
+
+    def test_falls_back_to_own_login_when_session_id_none(self, tmp_project_dir: Path) -> None:
+        import requests
+
+        from dango.visualization.metabase import _apply_metabase_site_url_catchup
+
+        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
+        creds_file.write_text(
+            yaml.dump(
+                {
+                    "admin": {"email": "admin@example.com", "password": "secret"},
+                    "database": {"id": 5, "name": "Test Analytics"},
+                }
+            )
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        login_resp = MagicMock(status_code=200)
+        login_resp.json.return_value = {"id": "sess-own-login"}
+        mock_session.post.return_value = login_resp
+        put_resp = MagicMock(status_code=200, ok=True)
+        mock_session.put.return_value = put_resp
+
+        with (
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch("dango.config.helpers.is_cloud_mode", return_value=False),
+            patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
+        ):
+            _apply_metabase_site_url_catchup(
+                mock_session, "http://localhost:3000", tmp_project_dir, session_id=None
+            )
+
+        mock_session.post.assert_called_once_with(
+            "http://localhost:3000/api/session",
+            json={"username": "admin@example.com", "password": "secret"},
+            timeout=10,
+        )
+        mock_session.put.assert_called_once_with(
+            "http://localhost:3000/api/setting/site-url",
+            headers={"X-Metabase-Session": "sess-own-login"},
+            json={"value": "http://localhost:8800/metabase/"},
+            timeout=10,
+        )
+        assert yaml.safe_load(creds_file.read_text())["site_url_set"] is True

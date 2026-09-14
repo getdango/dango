@@ -740,7 +740,7 @@ class TestRefreshMetabaseConnection:
         with patch("dango.platform.docker.DockerManager", side_effect=RuntimeError("boom")):
             result = refresh_metabase_connection(tmp_path)
 
-        assert result == (False, "boom")
+        assert result == (False, "boom", None)
 
     def test_uses_hash_based_container_name(self, tmp_path: Path) -> None:
         """BUG-118: refresh_metabase_connection uses DockerManager's hash-based name."""
@@ -756,19 +756,15 @@ class TestRefreshMetabaseConnection:
             ]
         )
 
-        login_resp = MagicMock(status_code=200)
-        login_resp.json.return_value = {"id": "sess-readiness"}
-
         with (
             patch("dango.platform.docker.DockerManager", return_value=mock_dm),
             patch("subprocess.run", mock_subprocess_run),
             patch("requests.Session.get", return_value=MagicMock(status_code=200)),
-            # 1.0.8-Q11: the login-readiness poll added inside
-            # refresh_metabase_connection() now calls .post() unconditionally after
-            # the health check succeeds -- mock it so this test (whose tmp_path has
-            # no .dango/metabase.yml at all) doesn't make a real, unmocked network
-            # call to a real local server.
-            patch("requests.Session.post", return_value=login_resp),
+            # 1.0.8-Q17: readiness is now a docker-logs poll, not a login --
+            # mock it directly rather than faking subprocess.run's 3rd call
+            # (docker logs), which mock_subprocess_run's 2-item side_effect
+            # list above doesn't provide.
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
         ):
             result = refresh_metabase_connection(tmp_path)
 
@@ -779,7 +775,10 @@ class TestRefreshMetabaseConnection:
 
         restart_call = mock_subprocess_run.call_args_list[1]
         assert restart_call[0][0] == ["docker", "restart", "dango-abc123-metabase-1"]
-        assert result == (True, None)
+        # tmp_path has no .dango/metabase.yml at all, so the post-readiness
+        # login is skipped entirely (no credentials to log in with) --
+        # session_id is None, not a failure.
+        assert result == (True, None, None)
 
     def test_returns_false_when_container_not_running(self, tmp_path: Path) -> None:
         """Returns False when the Metabase container is not found."""
@@ -795,6 +794,7 @@ class TestRefreshMetabaseConnection:
             result = refresh_metabase_connection(tmp_path)
         assert result[0] is False
         assert result[1] == "Metabase container not running"
+        assert result[2] is None
 
     def test_reapplies_site_url_on_successful_restart(self, tmp_project_dir: Path) -> None:
         """1.0.8-W: an already-configured project (metabase.yml predates the Site URL
@@ -845,10 +845,11 @@ class TestRefreshMetabaseConnection:
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
             patch("dango.config.helpers.is_cloud_mode", return_value=False),
             patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
         ):
             result = refresh_metabase_connection(tmp_project_dir)
 
-        assert result == (True, None)
+        assert result == (True, None, "sess-xyz")
         mock_session.put.assert_called_once_with(
             "http://localhost:3000/api/setting/site-url",
             headers={"X-Metabase-Session": "sess-xyz"},
@@ -856,26 +857,22 @@ class TestRefreshMetabaseConnection:
             timeout=10,
         )
         assert yaml_module.safe_load(creds_file.read_text())["site_url_set"] is True
+        # 1.0.8-Q17: only ONE real login now -- refresh_metabase_connection()'s
+        # own post-restart login token is reused by the site-url catch-up
+        # instead of it logging in a second time.
+        assert mock_session.post.call_count == 1
 
     def test_site_url_failure_does_not_block_refresh(self, tmp_project_dir: Path) -> None:
-        """A site-url PUT failure (or login failure) must not turn a successful
-        container restart into a reported failure, and must not mark site_url_set so
-        the next sync retries it.
+        """A login failure (so the site-url PUT never even gets attempted) must not
+        turn a successful container restart into a reported failure, and must not
+        mark site_url_set so the next sync retries it.
 
-        1.0.8-Q11 update: a persistent clean 401 (not just a connection error) now
-        gets a short, bounded retry window inside the login-readiness poll before
-        giving up, instead of stopping on the very first 401 -- live repro during
-        Q11 caught Metabase returning a genuine 401
-        (``{"errors":{"password":"did not match stored password"}}``) for a brief
-        window after a restart's /api/health first went green, using credentials
-        that worked moments before the restart and moments after this window
-        passed (Metabase's own auth/user-lookup subsystem can still be warming up
-        even once its HTTP listener is answering). So this test's login now fails
-        for the login-readiness poll's whole short retry window (asserted below via
-        the post() call count) before the function gives up and moves on -- it must
-        still complete quickly (a bounded few seconds, not the full ~10s
-        connection-error budget, and nowhere near the old health-check loop's
-        ~20-30s ceiling), and still report the restart itself as successful.
+        1.0.8-Q17 rewrite: readiness is now a docker-logs poll (mocked True here,
+        isolating this test to the login-failure behavior specifically -- the
+        log-based readiness check itself has its own direct tests below). Login
+        is now a single attempt (no retry loop to bound/count), consistent with
+        this module's other single-attempt login call sites -- Q11/Q14/Q16's
+        login-retry-loop budget no longer exists to tune or trip a lockout with.
         """
         import requests
         import yaml as yaml_module
@@ -905,9 +902,7 @@ class TestRefreshMetabaseConnection:
 
         mock_session = MagicMock(spec=requests.Session)
         mock_session.get.return_value = MagicMock(status_code=200)  # /api/health
-        # Login fails outright (every attempt) — site-url refresh should be
-        # skipped, not raise, once the login-readiness poll's own short retry
-        # window (below) is exhausted.
+        # Login fails outright, every attempt.
         mock_session.post.return_value = MagicMock(status_code=401)
 
         with (
@@ -916,28 +911,34 @@ class TestRefreshMetabaseConnection:
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
             patch("dango.config.helpers.is_cloud_mode", return_value=False),
             patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
-            # Don't actually sleep through the readiness poll's ~4s of retry
-            # backoff in a unit test — the retry *count* below is what proves the
-            # bounded window ran, not real wall-clock elapsed time.
-            patch("dango.visualization.metabase.time.sleep"),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
         ):
             result = refresh_metabase_connection(tmp_project_dir)
 
-        assert result == (True, None)
-        # 5 login attempts from the readiness poll's own short non-200 retry
-        # window (max_non_200_attempts default) + 1 more from the site-url
-        # catch-up's separate login attempt — proves the bounded retry actually
-        # ran to its limit rather than stopping instantly on the first 401.
-        assert mock_session.post.call_count == 6
+        # Restart itself still reported successful; session_id is None since the
+        # login failed.
+        assert result == (True, None, None)
+        # 2 login attempts total: refresh_metabase_connection()'s own, plus the
+        # site-url catch-up's fallback login (since it was passed session_id=None
+        # -- the first login failed). Not 6+ like the old retry-loop design.
+        assert mock_session.post.call_count == 2
         mock_session.put.assert_not_called()
         assert "site_url_set" not in yaml_module.safe_load(creds_file.read_text())
 
     def test_skips_site_url_when_already_marked_set(self, tmp_project_dir: Path) -> None:
         """1.0.8-W: once site_url_set is true (written by a prior successful
-        setup_metabase() or refresh_metabase_connection() call), subsequent syncs must
-        not repeat the login POST + PUT -- that would add ~20s of latency budget and
-        retransmit the admin password on every single sync forever, for zero benefit
-        once it's already correct."""
+        setup_metabase() or refresh_metabase_connection() call), the site-url
+        catch-up must not repeat its own login + PUT -- that would retransmit the
+        admin password on every single sync forever, for zero benefit once it's
+        already correct.
+
+        1.0.8-Q17: refresh_metabase_connection() itself still does ONE real login
+        unconditionally (regardless of site_url_set) to obtain a token for
+        downstream callers like sync_metabase_schema() -- that single login is
+        asserted below, distinguishing it from the site-url catch-up adding a
+        SECOND one (which it must not, since it returns early on the
+        site_url_set marker before ever looking at the passed-in session_id).
+        """
         import requests
         import yaml as yaml_module
 
@@ -967,6 +968,9 @@ class TestRefreshMetabaseConnection:
 
         mock_session = MagicMock(spec=requests.Session)
         mock_session.get.return_value = MagicMock(status_code=200)  # /api/health
+        login_resp = MagicMock(status_code=200)
+        login_resp.json.return_value = {"id": "sess-marked"}
+        mock_session.post.return_value = login_resp
 
         with (
             patch("dango.platform.docker.DockerManager", return_value=mock_dm),
@@ -974,28 +978,24 @@ class TestRefreshMetabaseConnection:
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
             patch("dango.config.helpers.is_cloud_mode", return_value=False),
             patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
-            # Don't actually sleep through the readiness poll's non-200 retry
-            # backoff in a unit test — see test_site_url_failure_does_not_block_refresh.
-            patch("dango.visualization.metabase.time.sleep"),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
         ):
             result = refresh_metabase_connection(tmp_project_dir)
 
-        assert result == (True, None)
-        # 1.0.8-Q11: the login-readiness poll now runs unconditionally (the
-        # restart-readiness race it closes applies regardless of site_url_set). Its
-        # default mock response has a non-200 status_code (a MagicMock, not the int
-        # 200) on every call, so the poll retries through its own short bounded
-        # non-200 window (5 attempts by default — see _wait_for_metabase_login_ready)
-        # before giving up. What this test actually cares about -- the site-url
-        # login is still skipped -- is that no *additional* post() call happens
-        # beyond that readiness-poll window, and no PUT happens.
-        assert mock_session.post.call_count == 5  # readiness poll's bounded retry window only
+        assert result == (True, None, "sess-marked")
+        # Exactly one real login: refresh_metabase_connection()'s own. The
+        # site-url catch-up's early-return on site_url_set means it never adds
+        # a second one.
+        assert mock_session.post.call_count == 1
         mock_session.put.assert_not_called()  # no site-url PUT
 
     def test_skips_site_url_in_cloud_mode(self, tmp_project_dir: Path) -> None:
-        """cloud_mode must skip the login+PUT entirely (not just the PUT) -- Caddy
-        fronts Metabase with a real public domain there, and there's no reason to pay
-        a login POST for a value this function isn't going to write anyway."""
+        """cloud_mode must skip the site-url login+PUT entirely (not just the PUT)
+        -- Caddy fronts Metabase with a real public domain there, and there's no
+        reason to pay a second login for a value this function isn't going to
+        write anyway. refresh_metabase_connection()'s own single unconditional
+        login (for downstream token reuse) still happens regardless of
+        cloud_mode -- asserted below as exactly one call, not zero."""
         import requests
         import yaml as yaml_module
 
@@ -1024,58 +1024,30 @@ class TestRefreshMetabaseConnection:
 
         mock_session = MagicMock(spec=requests.Session)
         mock_session.get.return_value = MagicMock(status_code=200)  # /api/health
+        login_resp = MagicMock(status_code=200)
+        login_resp.json.return_value = {"id": "sess-cloud"}
+        mock_session.post.return_value = login_resp
 
         with (
             patch("dango.platform.docker.DockerManager", return_value=mock_dm),
             patch("subprocess.run", mock_subprocess_run),
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
             patch("dango.config.helpers.is_cloud_mode", return_value=True),
-            # Don't actually sleep through the readiness poll's non-200 retry
-            # backoff in a unit test — see test_site_url_failure_does_not_block_refresh.
-            patch("dango.visualization.metabase.time.sleep"),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
         ):
             result = refresh_metabase_connection(tmp_project_dir)
 
-        assert result == (True, None)
-        # 1.0.8-Q11: the login-readiness poll runs unconditionally regardless of
-        # cloud_mode. Its default mock response has a non-200 status_code on every
-        # call, so the poll retries through its own short bounded non-200 window (5
-        # attempts by default) before giving up. The site-url login specifically is
-        # still correctly skipped in cloud mode, which is what the PUT assertion
-        # below verifies (no additional post() call for a site-url login, and no
-        # PUT at all).
-        assert mock_session.post.call_count == 5  # readiness poll's bounded retry window only
-        mock_session.put.assert_not_called()
+        assert result == (True, None, "sess-cloud")
+        assert mock_session.post.call_count == 1  # refresh's own login only
+        mock_session.put.assert_not_called()  # no site-url PUT in cloud mode
 
-    def test_retries_login_readiness_through_connection_errors(self, tmp_project_dir: Path) -> None:
-        """1.0.8-Q11 regression test: `docker restart` sends SIGTERM to the *old*
-        Metabase process, which (being a JVM app) can keep answering /api/health
-        with 200 for several seconds into its own graceful shutdown -- followed by
-        a real gap where nothing is listening until the new instance finishes
-        booting. Simulate exactly that gap on the login endpoint (two
-        connection-level failures, then success) and confirm
-        refresh_metabase_connection() retries through it via the new
-        login-readiness poll, rather than reporting ready the instant /api/health
-        alone returns 200 (the single-attempt check this fix replaces)."""
-        import requests
-        import yaml as yaml_module
-
+    def test_session_id_none_when_login_never_attempted(self, tmp_path: Path) -> None:
+        """1.0.8-Q17: the 3-tuple's session_id is None (not an error) when there
+        were simply no credentials to log in with -- distinct from a login that
+        was attempted and failed (covered by test_site_url_failure_does_not_block_refresh
+        above), but both land on session_id=None for the same reason downstream
+        callers fall back to their own login either way."""
         from dango.visualization.metabase import refresh_metabase_connection
-
-        creds_file = tmp_project_dir / ".dango" / "metabase.yml"
-        creds_file.write_text(
-            yaml_module.dump(
-                {
-                    "metabase_url": "http://localhost:3000",
-                    "admin": {"email": "admin@example.com", "password": "secret"},
-                    "database": {"id": 5, "name": "Test Analytics"},
-                    # Marked already-applied so the site-url catch-up path makes no
-                    # .post() calls of its own -- isolates this test's post()
-                    # call count to the login-readiness poll being tested.
-                    "site_url_set": True,
-                }
-            )
-        )
 
         mock_dm = MagicMock()
         mock_dm.compose_project_name = "dango-abc123"
@@ -1087,34 +1059,141 @@ class TestRefreshMetabaseConnection:
             ]
         )
 
-        mock_session = MagicMock(spec=requests.Session)
-        mock_session.get.return_value = MagicMock(status_code=200)  # /api/health
-
-        login_resp = MagicMock(status_code=200)
-        login_resp.json.return_value = {"id": "sess-after-retry"}
-
-        # The dying-old-process gap: two connection-level failures, then success.
-        mock_session.post.side_effect = [
-            requests.exceptions.ConnectionError("connection refused"),
-            requests.exceptions.ConnectionError("connection refused"),
-            login_resp,
-        ]
-
         with (
             patch("dango.platform.docker.DockerManager", return_value=mock_dm),
             patch("subprocess.run", mock_subprocess_run),
-            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
-            patch("dango.visualization.metabase.time.sleep"),  # don't really wait in the test
+            patch("requests.Session.get", return_value=MagicMock(status_code=200)),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
         ):
-            result = refresh_metabase_connection(tmp_project_dir)
+            result = refresh_metabase_connection(tmp_path)  # no .dango/metabase.yml at all
 
-        assert result == (True, None)
-        # Proves the poll actually retried through the connection errors instead of
-        # giving up after one attempt -- not just that the end-to-end result was
-        # fine (a poll that gave up after 1 attempt and happened to still return
-        # (True, None) via the outer restart-succeeded path would pass a weaker
-        # assertion here without actually closing the race).
-        assert mock_session.post.call_count == 3
+        assert result == (True, None, None)
+
+
+@pytest.mark.unit
+class TestWaitForMetabaseLogReady:
+    """Direct unit tests for _wait_for_metabase_log_ready() (1.0.8-Q17) -- the
+    docker-logs-based restart-readiness check that replaced this module's prior
+    login-based readiness poll (removed by this task; see its history in
+    BUGS-FOUND.md: 1.0.8-Q11/Q14/Q16 all tried login-based versions of this
+    check and either failed to close the race or tripped Metabase's own
+    login-throttle lockout)."""
+
+    def test_returns_true_promptly_when_line_present(self) -> None:
+        from dango.visualization.metabase import _wait_for_metabase_log_ready
+
+        log_output = MagicMock(
+            stdout=(
+                "2026-09-15 10:00:00,000 INFO core.core :: Metabase Initialization "
+                "COMPLETE in 3.4 s (JVM uptime: 16.1 s)\n"
+            ),
+            stderr="",
+        )
+
+        with (
+            patch("subprocess.run", return_value=log_output) as mock_run,
+            patch("dango.visualization.metabase.time.sleep") as mock_sleep,
+        ):
+            result = _wait_for_metabase_log_ready("dango-abc-metabase-1", "2026-09-15T10:00:00Z")
+
+        assert result is True
+        # Found on the very first poll -- no retry sleep needed.
+        mock_sleep.assert_not_called()
+        docker_cmd = mock_run.call_args[0][0]
+        assert docker_cmd == [
+            "docker",
+            "logs",
+            "--since",
+            "2026-09-15T10:00:00Z",
+            "dango-abc-metabase-1",
+        ]
+
+    def test_checks_stderr_too(self) -> None:
+        """The line is confirmed live to be on stdout for this module's own
+        Metabase image (see the function's docstring), but this isn't a contract
+        Dango controls -- confirm the stderr fallback path also works."""
+        from dango.visualization.metabase import _wait_for_metabase_log_ready
+
+        log_output = MagicMock(
+            stdout="",
+            stderr="INFO core.core :: Metabase Initialization COMPLETE in 2.1 s\n",
+        )
+
+        with patch("subprocess.run", return_value=log_output):
+            result = _wait_for_metabase_log_ready("dango-abc-metabase-1", "2026-09-15T10:00:00Z")
+
+        assert result is True
+
+    def test_returns_false_after_timeout_when_line_never_appears(self) -> None:
+        from dango.visualization.metabase import _wait_for_metabase_log_ready
+
+        no_match = MagicMock(stdout="some other unrelated log line\n", stderr="")
+
+        # time.monotonic() call #1 sets the deadline (0 + 90 = 90). Calls #2-#4
+        # (values 1, 2, 3) each pass the `< 90` while-condition check, driving one
+        # subprocess.run + sleep per iteration (3 total). Call #5 (value 100)
+        # fails the condition and the loop exits without a 4th subprocess.run.
+        with (
+            patch("subprocess.run", return_value=no_match) as mock_run,
+            patch("dango.visualization.metabase.time.sleep"),
+            patch(
+                "dango.visualization.metabase.time.monotonic",
+                side_effect=[0, 1, 2, 3, 100],
+            ),
+        ):
+            result = _wait_for_metabase_log_ready(
+                "dango-abc-metabase-1", "2026-09-15T10:00:00Z", max_wait_seconds=90
+            )
+
+        assert result is False
+        assert mock_run.call_count == 3
+
+    def test_stale_line_from_prior_boot_does_not_false_positive_without_since(self) -> None:
+        """Sanity check on the false-positive this function's docstring warns
+        about: a log blob containing the target line always matches, regardless
+        of timestamp, which is exactly why callers MUST pass a `since` captured
+        right before the restart -- `docker logs --since` is what filters out a
+        stale line, not anything in this function's own string search. This test
+        documents that contract by showing the function trusts `since` completely
+        (it's passed straight to the `docker logs` subprocess call, not
+        re-validated), so passing a stale `since` would defeat the guarantee."""
+        from dango.visualization.metabase import _wait_for_metabase_log_ready
+
+        stale_and_fresh = MagicMock(
+            stdout=(
+                "2026-09-15 09:00:00,000 INFO core.core :: Metabase Initialization "
+                "COMPLETE in 3.0 s (JVM uptime: 10.0 s)\n"  # from a PRIOR boot
+            ),
+            stderr="",
+        )
+
+        with patch("subprocess.run", return_value=stale_and_fresh) as mock_run:
+            result = _wait_for_metabase_log_ready(
+                "dango-abc-metabase-1", since="2026-09-15T08:00:00Z"
+            )
+
+        # This function has no way to tell a "stale" line from a "fresh" one on
+        # its own -- it relies entirely on `docker logs --since` (passed the
+        # `since` argument) to have already excluded prior-boot lines from
+        # `result.stdout` before this function ever sees it. Confirms `since`
+        # actually reaches the subprocess call unmodified.
+        assert result is True
+        assert mock_run.call_args[0][0][3] == "2026-09-15T08:00:00Z"  # index 2 is "--since" itself
+
+    def test_returns_false_on_subprocess_failure_without_raising(self) -> None:
+        from dango.visualization.metabase import _wait_for_metabase_log_ready
+
+        with (
+            patch("subprocess.run", side_effect=OSError("docker not found")),
+            patch("dango.visualization.metabase.time.sleep"),
+            patch(
+                "dango.visualization.metabase.time.monotonic",
+                side_effect=[0, 1, 100],
+            ),
+        ):
+            result = _wait_for_metabase_log_ready("dango-abc-metabase-1", "2026-09-15T10:00:00Z")
+
+        assert result is False
 
 
 @pytest.mark.unit
