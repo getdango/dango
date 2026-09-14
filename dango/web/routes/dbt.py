@@ -3,6 +3,7 @@
 dbt model endpoints and dbt docs proxy.
 """
 
+import asyncio
 import logging
 import subprocess
 import sys
@@ -208,12 +209,16 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
                 log=False,
             )
 
-            # CRITICAL: Refresh Metabase connection to see new/updated tables
+            # CRITICAL: Refresh Metabase connection to see new/updated tables.
+            # refresh_metabase_connection() is fully synchronous/blocking (subprocess.run,
+            # blocking requests calls, a time.sleep retry loop that can now run up to ~60s
+            # as of 1.0.8-Q14) -- run it in a thread so it doesn't block the single-worker
+            # event loop for every other user's HTTP/WebSocket traffic while it runs.
             from dango.visualization.metabase import refresh_metabase_connection
 
             project_root = get_project_root()
 
-            mb_ok, _mb_err = refresh_metabase_connection(project_root)
+            mb_ok, _mb_err = await asyncio.to_thread(refresh_metabase_connection, project_root)
             if mb_ok:
                 await ws_manager.broadcast(
                     {
