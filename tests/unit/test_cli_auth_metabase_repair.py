@@ -184,6 +184,30 @@ class TestMetabaseStatus:
         assert "nonexistent@example.com" in result.output
         assert "not found" in result.output.lower()
 
+    def test_metabase_status_continues_after_decrypt_error(self, tmp_path: Path) -> None:
+        """One user's undecryptable stored password must not abort the whole scan."""
+        project_root = _setup_project(tmp_path)
+        _mb_yml(project_root)
+        _add_linked_user(project_root, email="broken@test.com", mb_user_id=1)
+        _add_linked_user(project_root, email="fine@test.com", mb_user_id=2)
+
+        runner = CliRunner()
+        with (
+            patch("dango.cli.utils.find_project_root", return_value=project_root),
+            patch(
+                "dango.auth.metabase_sync.decrypt_metabase_password",
+                side_effect=[Exception("corrupt ciphertext"), "old-password"],
+            ),
+            patch("requests.post", return_value=_resp(200)) as mock_post,
+        ):
+            result = runner.invoke(cli, ["auth", "metabase-status"])
+
+        assert result.exit_code == 0, result.output
+        assert "ERROR" in result.output
+        assert "OK" in result.output
+        # Only the second (decryptable) user reaches the login POST.
+        assert mock_post.call_count == 1
+
 
 @pytest.mark.unit
 class TestMetabaseRepair:
@@ -307,3 +331,9 @@ class TestMetabaseRepair:
         updated = get_user_by_email(db_path, "user@test.com")
         assert updated is not None
         assert updated.metabase_password_enc is not None
+
+        # The audit trail must still record the mutation that did happen,
+        # independent of the (unrelated) verification-step outcome.
+        audit_log = project_root / ".dango" / "logs" / "audit.jsonl"
+        assert audit_log.exists()
+        assert "password_reset" in audit_log.read_text()

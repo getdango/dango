@@ -684,10 +684,12 @@ def auth_metabase_status(ctx: click.Context, email: str | None) -> None:
                 status = "NOT LINKED"
                 color = "yellow"
             else:
-                decrypted_password = decrypt_metabase_password(
-                    u.metabase_password_enc, project_root
-                )
+                # A single user's decrypt/network failure must not abort the whole
+                # scan — report that user as ERROR and keep checking the rest.
                 try:
+                    decrypted_password = decrypt_metabase_password(
+                        u.metabase_password_enc, project_root
+                    )
                     resp = requests.post(
                         f"{metabase_url}/api/session",
                         json={"username": u.email, "password": decrypted_password},
@@ -702,6 +704,9 @@ def auth_metabase_status(ctx: click.Context, email: str | None) -> None:
                         any_desynced = True
                 except requests.RequestException:
                     status = "ERROR (could not reach Metabase)"
+                    color = "yellow"
+                except Exception:
+                    status = "ERROR (could not decrypt stored password)"
                     color = "yellow"
             console.print(f"  [{color}]{u.email:<40} {status}[/{color}]")
 
@@ -781,6 +786,19 @@ def auth_metabase_repair(ctx: click.Context, email: str, yes: bool) -> None:
         encrypted = encrypt_metabase_password(new_password, project_root)
         update_user(db_path, user.id, UserUpdate(metabase_password_enc=encrypted))
 
+        # Log the mutation as soon as it has actually happened, regardless of
+        # whether the verification step below succeeds — the password change
+        # itself must always be captured in the audit trail.
+        from dango.auth.audit import AuditEvent, log_auth_event
+
+        log_auth_event(
+            event_type=AuditEvent.PASSWORD_RESET,
+            email=user.email,
+            user_id=user.id,
+            details={"via": "cli", "target": "metabase_bridge"},
+            log_dir=project_root / ".dango" / "logs",
+        )
+
         # Re-fetch so verification decrypts the just-written password.
         user = get_user_by_email(db_path, email)
         assert user is not None  # just written above
@@ -793,16 +811,6 @@ def auth_metabase_repair(ctx: click.Context, email: str, yes: bool) -> None:
                 "Check that Metabase is running and reachable."
             )
             raise click.Abort()
-
-        from dango.auth.audit import AuditEvent, log_auth_event
-
-        log_auth_event(
-            event_type=AuditEvent.PASSWORD_RESET,
-            email=user.email,
-            user_id=user.id,
-            details={"via": "cli", "target": "metabase_bridge"},
-            log_dir=project_root / ".dango" / "logs",
-        )
     except click.Abort:
         raise
     except Exception as exc:
