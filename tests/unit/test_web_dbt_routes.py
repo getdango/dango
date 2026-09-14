@@ -38,12 +38,12 @@ class TestRunDbtModelTaskMetabaseRefresh:
         release_event = threading.Event()
         concurrent_ran = asyncio.Event()
 
-        def blocking_refresh(project_root: Path) -> tuple[bool, str | None]:
+        def blocking_refresh(project_root: Path) -> tuple[bool, str | None, str | None]:
             # Runs in a worker thread if properly wrapped in asyncio.to_thread --
             # blocks until the concurrent coroutine below releases it. Bounded at 2s
             # so the test can never hang forever even in the broken case.
             release_event.wait(timeout=2)
-            return (True, None)
+            return (True, None, None)
 
         async def concurrent_probe() -> None:
             # A real yield back to the event loop. If run_dbt_model_task's refresh call

@@ -387,9 +387,9 @@ def _run_coalesced_dbt(project_root: Path) -> bool:
                 sync_metabase_schema,
             )
 
-            mb_ok, _mb_err = refresh_metabase_connection(project_root)
+            mb_ok, _mb_err, mb_session_id = refresh_metabase_connection(project_root)
             if mb_ok:
-                sync_metabase_schema(project_root)
+                sync_metabase_schema(project_root, existing_session_id=mb_session_id)
         except Exception:
             logger.warning("metabase_refresh_after_coalesced_dbt_failed", exc_info=True)
     else:

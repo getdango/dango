@@ -101,7 +101,7 @@ class TestRunSyncDbtLock:
             ),
             patch(
                 "dango.visualization.metabase.refresh_metabase_connection",
-                return_value=(False, None),
+                return_value=(False, None, None),
             ),
             patch(
                 "dango.visualization.metabase.sync_metabase_schema",
@@ -186,7 +186,7 @@ class TestRunSyncDbtLock:
             ),
             patch(
                 "dango.visualization.metabase.refresh_metabase_connection",
-                return_value=(False, None),
+                return_value=(False, None, None),
             ),
             patch(
                 "dango.visualization.metabase.sync_metabase_schema",

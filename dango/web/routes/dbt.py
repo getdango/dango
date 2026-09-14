@@ -218,7 +218,9 @@ async def run_dbt_model_task(model_name: str, cascade: bool) -> None:
 
             project_root = get_project_root()
 
-            mb_ok, _mb_err = await asyncio.to_thread(refresh_metabase_connection, project_root)
+            mb_ok, _mb_err, _mb_session = await asyncio.to_thread(
+                refresh_metabase_connection, project_root
+            )
             if mb_ok:
                 await ws_manager.broadcast(
                     {
