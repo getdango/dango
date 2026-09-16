@@ -310,3 +310,91 @@ class TestSyncMetabaseSchemaSessionReuse:
             json={"username": "admin@test.com", "password": "secret"},
             timeout=10,
         )
+
+
+class TestSyncMetabaseSchemaUrlResolution:
+    """1.0.8-fix: sync_metabase_schema() must resolve a caller-omitted
+    metabase_url from .dango/metabase.yml's own "metabase_url" key (same
+    precedent as set_metabase_telemetry()) instead of always defaulting to
+    localhost:3000 -- any project on a non-default platform.metabase_port
+    had every automatic post-sync schema refresh silently target the wrong
+    host. See BUGS-FOUND.md."""
+
+    def test_uses_configured_url_from_creds_file_when_not_passed(self, tmp_path: Path) -> None:
+        import requests
+        import yaml
+
+        from dango.visualization.metabase import sync_metabase_schema
+
+        creds_dir = tmp_path / ".dango"
+        creds_dir.mkdir()
+        creds_file = creds_dir / "metabase.yml"
+        creds_file.write_text(
+            yaml.dump(
+                {
+                    "metabase_url": "http://localhost:13000",
+                    "admin": {"email": "admin@test.com", "password": "secret"},
+                    "database": {"id": 5, "name": "Test Analytics"},
+                }
+            )
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        login_resp = MagicMock(status_code=200)
+        login_resp.json.return_value = {"id": "sess-1"}
+        sync_resp = MagicMock(status_code=200)
+        mock_session.post.side_effect = [login_resp, sync_resp]
+        metadata_resp = MagicMock(status_code=200)
+        metadata_resp.json.return_value = {
+            "tables": [{"id": 1, "name": "stg_orders", "schema": "staging"}]
+        }
+        mock_session.get.side_effect = [
+            _empty_task_resp(),
+            _task_resp("success"),
+            metadata_resp,
+        ]
+
+        with (
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch("dango.visualization.metabase.time.sleep"),
+        ):
+            result = sync_metabase_schema(tmp_path)
+
+        assert result is True
+        # Every real call went to the configured port, not the hardcoded default.
+        assert mock_session.post.call_args_list[0][0][0] == "http://localhost:13000/api/session"
+        assert (
+            mock_session.post.call_args_list[1][0][0]
+            == "http://localhost:13000/api/database/5/sync_schema"
+        )
+
+    def test_explicit_metabase_url_wins_over_creds_file(self, tmp_path: Path) -> None:
+        """An explicitly-passed metabase_url still takes priority over the
+        creds file's own value -- e.g. cli/commands/metabase_cmd.py already
+        resolves and passes it itself."""
+        import requests
+        import yaml
+
+        from dango.visualization.metabase import sync_metabase_schema
+
+        creds_dir = tmp_path / ".dango"
+        creds_dir.mkdir()
+        creds_file = creds_dir / "metabase.yml"
+        creds_file.write_text(
+            yaml.dump(
+                {
+                    "metabase_url": "http://localhost:13000",
+                    "admin": {"email": "admin@test.com", "password": "secret"},
+                    "database": {"id": 5},
+                }
+            )
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        login_resp = MagicMock(status_code=401)
+        mock_session.post.return_value = login_resp
+
+        with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
+            sync_metabase_schema(tmp_path, metabase_url="http://localhost:19999")
+
+        assert mock_session.post.call_args_list[0][0][0] == "http://localhost:19999/api/session"

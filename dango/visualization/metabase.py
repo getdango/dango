@@ -1511,7 +1511,7 @@ def setup_metabase(
 
 def sync_metabase_schema(
     project_root: Path,
-    metabase_url: str = "http://localhost:3000",
+    metabase_url: str | None = None,
     existing_session_id: str | None = None,
 ) -> bool:
     """
@@ -1522,7 +1522,13 @@ def sync_metabase_schema(
 
     Args:
         project_root: Path to project root
-        metabase_url: Metabase URL (default: http://localhost:3000)
+        metabase_url: Metabase URL. If not given, read from the "metabase_url"
+            key in .dango/metabase.yml (1.0.8-fix, same precedent as
+            set_metabase_telemetry()/cli/commands/metabase_cmd.py), falling
+            back to http://localhost:3000 if that key is absent too. The 6
+            call sites that never passed this explicitly were previously
+            silently hitting localhost:3000 regardless of a project's actual
+            configured platform.metabase_port -- see BUGS-FOUND.md.
         existing_session_id: an optional already-authenticated Metabase session
             token (1.0.8-Q17). When the caller already has a valid token (e.g.
             from `refresh_metabase_connection()`'s post-restart login), pass it
@@ -1550,6 +1556,8 @@ def sync_metabase_schema(
         # Load credentials
         with open(credentials_file) as f:
             credentials = yaml.safe_load(f)
+
+        metabase_url = metabase_url or credentials.get("metabase_url", "http://localhost:3000")
 
         # Get database ID from nested structure
         database_id = credentials.get("database", {}).get("id")
@@ -1909,7 +1917,7 @@ def get_metabase_telemetry_state(project_root: Path | None) -> bool:
 
 
 def refresh_metabase_connection(
-    project_root: Path, metabase_url: str = "http://localhost:3000"
+    project_root: Path, metabase_url: str | None = None
 ) -> tuple[bool, str | None, str | None]:
     """
     Force Metabase to refresh its DuckDB connection to see latest data.
@@ -1919,7 +1927,14 @@ def refresh_metabase_connection(
 
     Args:
         project_root: Path to project root
-        metabase_url: Metabase URL
+        metabase_url: Metabase URL. If not given, read from the "metabase_url"
+            key in .dango/metabase.yml (1.0.8-fix, same precedent as
+            set_metabase_telemetry()/sync_metabase_schema()), falling back to
+            http://localhost:3000 if that key is absent too. The 4 real call
+            sites (dlt_runner.py, platform/scheduling/jobs.py, web/routes/dbt.py,
+            cli/commands/transform.py) never passed this explicitly, so were
+            silently targeting localhost:3000 regardless of a project's actual
+            configured platform.metabase_port -- see BUGS-FOUND.md.
 
     Returns:
         Tuple of (success, error_message, session_id). error_message is None on
@@ -1934,6 +1949,21 @@ def refresh_metabase_connection(
     session = requests.Session()
 
     try:
+        # Resolve the real configured Metabase URL before anything else uses
+        # it below (the /api/health poll, the post-restart login) -- best
+        # effort: a missing/malformed metabase.yml falls back to the same
+        # localhost:3000 default this function always had, it just no longer
+        # silently overrides an explicitly-configured non-default port.
+        if metabase_url is None:
+            metabase_url = "http://localhost:3000"
+            try:
+                creds_file = project_root / ".dango" / "metabase.yml"
+                with open(creds_file) as f:
+                    _creds = yaml.safe_load(f) or {}
+                metabase_url = _creds.get("metabase_url", metabase_url)
+            except (OSError, yaml.YAMLError):
+                pass
+
         # Get container name from DockerManager (uses hash-based naming)
         from dango.platform.docker import DockerManager
 

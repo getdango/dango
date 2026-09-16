@@ -780,6 +780,75 @@ class TestRefreshMetabaseConnection:
         # session_id is None, not a failure.
         assert result == (True, None, None)
 
+    def test_uses_configured_url_from_creds_file_when_not_passed(self, tmp_path: Path) -> None:
+        """1.0.8-fix: when the caller doesn't pass metabase_url explicitly, it must
+        be resolved from .dango/metabase.yml's own "metabase_url" key (same
+        precedent as sync_metabase_schema()/set_metabase_telemetry()), not always
+        default to localhost:3000 -- a project on a non-default
+        platform.metabase_port had every automatic post-sync refresh silently
+        target the wrong host. See BUGS-FOUND.md."""
+        import yaml as yaml_module
+
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        creds_file = tmp_path / ".dango" / "metabase.yml"
+        creds_file.parent.mkdir(parents=True)
+        creds_file.write_text(yaml_module.dump({"metabase_url": "http://localhost:13000"}))
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        mock_subprocess_run = MagicMock(
+            side_effect=[
+                MagicMock(stdout="dango-abc123-metabase-1\n", returncode=0),  # docker ps
+                MagicMock(returncode=0),  # docker restart
+            ]
+        )
+        mock_get = MagicMock(return_value=MagicMock(status_code=200))
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", mock_subprocess_run),
+            patch("requests.Session.get", mock_get),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
+        ):
+            result = refresh_metabase_connection(tmp_path)
+
+        assert result == (True, None, None)
+        assert mock_get.call_args[0][0] == "http://localhost:13000/api/health"
+
+    def test_explicit_metabase_url_wins_over_creds_file(self, tmp_path: Path) -> None:
+        """An explicitly-passed metabase_url still takes priority over the creds
+        file's own value."""
+        import yaml as yaml_module
+
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        creds_file = tmp_path / ".dango" / "metabase.yml"
+        creds_file.parent.mkdir(parents=True)
+        creds_file.write_text(yaml_module.dump({"metabase_url": "http://localhost:13000"}))
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        mock_subprocess_run = MagicMock(
+            side_effect=[
+                MagicMock(stdout="dango-abc123-metabase-1\n", returncode=0),
+                MagicMock(returncode=0),
+            ]
+        )
+        mock_get = MagicMock(return_value=MagicMock(status_code=200))
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", mock_subprocess_run),
+            patch("requests.Session.get", mock_get),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
+        ):
+            refresh_metabase_connection(tmp_path, metabase_url="http://localhost:19999")
+
+        assert mock_get.call_args[0][0] == "http://localhost:19999/api/health"
+
     def test_returns_false_when_container_not_running(self, tmp_path: Path) -> None:
         """Returns False when the Metabase container is not found."""
         from dango.visualization.metabase import refresh_metabase_connection
