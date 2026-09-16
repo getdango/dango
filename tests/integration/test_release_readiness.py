@@ -386,11 +386,17 @@ class TestReleaseReadinessCleanFlow:
                 deadline = time.monotonic() + poll_timeout_s
                 while time.monotonic() < deadline:
                     names = _table_names()
-                    if source_name in names:
+                    # dbt staging models are always named stg_{source.name}__{table_name}
+                    # (dango/transformation/generator.py) -- the bare source name never
+                    # appears as a table name. An earlier version of this check looked for
+                    # `source_name in names` directly, which could never match even when
+                    # the sync genuinely succeeded (found live-verifying 1.0.8-Q16/Q17 --
+                    # see BUGS-FOUND.md).
+                    if any(n.startswith(f"stg_{source_name}__") for n in names):
                         return names
                     time.sleep(3)
             pytest.fail(
-                f"Table {source_name!r} never appeared via "
+                f"Table stg_{source_name}__* never appeared via "
                 f"/api/database/{database_id}/metadata after {max_sync_attempts} "
                 f"sync attempt(s). Tables seen: {names}"
             )
@@ -399,7 +405,7 @@ class TestReleaseReadinessCleanFlow:
         # _sync_until_table_visible), confirm visible.
         _write_csv_source(project_root, "csvsrc1")
         names_after_first = _sync_until_table_visible("csvsrc1")
-        assert "csvsrc1" in names_after_first
+        assert any(n.startswith("stg_csvsrc1__") for n in names_after_first), names_after_first
 
         # Second, different source: add, sync — do NOT call sync_schema
         # manually. Only whatever `dango sync` itself triggers automatically
@@ -407,4 +413,4 @@ class TestReleaseReadinessCleanFlow:
         # sync_metabase_schema()) should make this visible.
         _write_csv_source(project_root, "csvsrc2")
         names_after_second = _sync_until_table_visible("csvsrc2")
-        assert "csvsrc2" in names_after_second
+        assert any(n.startswith("stg_csvsrc2__") for n in names_after_second), names_after_second
