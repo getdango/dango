@@ -211,3 +211,102 @@ class TestSyncMetabaseSchemaTaskPoll:
         assert result is True
         warning_msgs = [c[0][0] for c in mock_logger.warning.call_args_list]
         assert any("unexpected status" in msg for msg in warning_msgs)
+
+
+@pytest.mark.unit
+class TestSyncMetabaseSchemaSessionReuse:
+    """1.0.8-Q17: sync_metabase_schema()'s optional `existing_session_id` --
+    lets a caller that already has a valid Metabase session token (e.g.
+    refresh_metabase_connection()'s own post-restart login) skip this
+    function's own _metabase_login() call. Metabase auth is header-based
+    (X-Metabase-Session), not cookie-based, so a token from one
+    requests.Session object is valid on requests made via another."""
+
+    def test_existing_session_id_skips_own_login(self, tmp_path: Path) -> None:
+        import requests
+        import yaml
+
+        from dango.visualization.metabase import sync_metabase_schema
+
+        creds_dir = tmp_path / ".dango"
+        creds_dir.mkdir()
+        creds_file = creds_dir / "metabase.yml"
+        creds_file.write_text(
+            yaml.dump(
+                {
+                    "metabase_url": "http://localhost:3000",
+                    "admin": {"email": "admin@test.com", "password": "secret"},
+                    "database": {"id": 5, "name": "Test Analytics"},
+                }
+            )
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        # No login response queued -- if sync_metabase_schema tried its own
+        # login, the next .post() call (sync_schema) would consume this
+        # response as if it were the login response, corrupting the flow.
+        sync_resp = MagicMock(status_code=200)
+        mock_session.post.return_value = sync_resp
+        metadata_resp = MagicMock(status_code=200)
+        metadata_resp.json.return_value = {
+            "tables": [{"id": 1, "name": "stg_orders", "schema": "staging"}]
+        }
+        mock_session.get.side_effect = [
+            _empty_task_resp(),
+            _task_resp("success"),
+            metadata_resp,
+        ]
+
+        with (
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch("dango.visualization.metabase.time.sleep"),
+        ):
+            result = sync_metabase_schema(tmp_path, existing_session_id="sess-reused")
+
+        assert result is True
+        # Exactly one post call: the sync_schema trigger. No login POST at all.
+        assert mock_session.post.call_count == 1
+        assert (
+            mock_session.post.call_args_list[0][0][0]
+            == "http://localhost:3000/api/database/5/sync_schema"
+        )
+        # The reused token, not a freshly-logged-in one, is what's sent.
+        assert (
+            mock_session.post.call_args_list[0][1]["headers"]["X-Metabase-Session"] == "sess-reused"
+        )
+
+    def test_falsy_existing_session_id_falls_back_to_own_login(self, tmp_path: Path) -> None:
+        """An explicit falsy existing_session_id (empty string) is treated the
+        same as not passing one at all -- still logs in for itself."""
+        import requests
+        import yaml
+
+        from dango.visualization.metabase import sync_metabase_schema
+
+        creds_dir = tmp_path / ".dango"
+        creds_dir.mkdir()
+        creds_file = creds_dir / "metabase.yml"
+        creds_file.write_text(
+            yaml.dump(
+                {
+                    "admin": {"email": "admin@test.com", "password": "secret"},
+                    "database": {"id": 5},
+                }
+            )
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        login_resp = MagicMock(status_code=401)
+        mock_session.post.return_value = login_resp
+
+        with patch("dango.visualization.metabase.requests.Session", return_value=mock_session):
+            result = sync_metabase_schema(tmp_path, existing_session_id="")
+
+        assert result is False
+        # Own login was attempted (and failed) -- proves the falsy value wasn't
+        # treated as a usable token.
+        mock_session.post.assert_called_once_with(
+            "http://localhost:3000/api/session",
+            json={"username": "admin@test.com", "password": "secret"},
+            timeout=10,
+        )

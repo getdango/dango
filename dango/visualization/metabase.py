@@ -414,11 +414,23 @@ def _set_metabase_site_url(
 
 
 def _apply_metabase_site_url_catchup(
-    session: requests.Session, metabase_url: str, project_root: Path
+    session: requests.Session,
+    metabase_url: str,
+    project_root: Path,
+    session_id: str | None = None,
 ) -> None:
     """One-time catch-up for refresh_metabase_connection(): apply the Site URL fix to
     a project whose .dango/metabase.yml was created before this fix shipped —
     setup_metabase() only runs once per project and won't retroactively fix those.
+
+    ``session_id``: an optional already-authenticated Metabase session token
+    (1.0.8-Q17). When the caller already has a valid token from its own recent
+    login (e.g. ``refresh_metabase_connection()``'s post-restart login), pass it
+    here to skip this function's own ``_metabase_login()`` call — Metabase auth
+    is header-based (``X-Metabase-Session``), not cookie-based, so the same token
+    is valid for both requests regardless of which ``requests.Session`` object
+    makes them. Falls back to logging in itself when ``None`` (or falsy), so this
+    function remains standalone-callable exactly as before.
 
     Deliberately checks the "site_url_set" marker in metabase.yml (one cheap file
     read) *before* calling `_should_apply_local_site_url()`, which does heavier I/O
@@ -473,10 +485,11 @@ def _apply_metabase_site_url_catchup(
         admin = creds.get("admin", {})
         email = admin.get("email")
         password = admin.get("password")
-        if not email or not password:
-            return
 
-        session_id = _metabase_login(session, metabase_url, email, password)
+        if not session_id:
+            if not email or not password:
+                return
+            session_id = _metabase_login(session, metabase_url, email, password)
         if not session_id:
             return
 
@@ -491,97 +504,60 @@ def _apply_metabase_site_url_catchup(
         logger.debug(f"metabase_site_url_catchup_failed: {e}")
 
 
-def _wait_for_metabase_login_ready(
-    session: requests.Session,
-    metabase_url: str,
-    project_root: Path,
-    max_attempts: int = 10,
-    max_non_200_attempts: int = 5,
+def _wait_for_metabase_log_ready(
+    container_name: str,
+    since: str,
+    max_wait_seconds: int = 90,
+    poll_interval: int = 2,
 ) -> bool:
-    """Poll ``_metabase_login()`` until Metabase can actually complete a login, not
-    just answer ``/api/health`` -- see ``refresh_metabase_connection()``'s call site
-    for the restart-readiness race this closes: a still-shutting-down old Metabase
-    process (JVM graceful shutdown) can keep answering `/api/health` with 200 for
-    several seconds after `docker restart`'s SIGTERM, followed by a real gap where
-    nothing is listening until the new instance finishes booting.
+    """Poll ``docker logs <container_name> --since <since>`` for Metabase's own
+    startup-complete banner line, instead of attempting a real login -- see
+    ``refresh_metabase_connection()``'s call site for the restart-readiness race
+    this closes (1.0.8-Q11/Q14/Q16 all tried a login-based version of this and
+    either failed to close the race or tripped Metabase's own login-throttle
+    lockout; see BUGS-FOUND.md). Metabase logs exactly one line, at real startup
+    completion, that has nothing to do with auth:
 
-    Reuses the same "open .dango/metabase.yml, yaml.safe_load, pull admin.email/
-    admin.password" shape as ``_apply_metabase_site_url_catchup()``, but deliberately
-    does NOT return early when the file is missing or the fields are absent --
-    unlike the site-url catch-up (which has nothing useful to do without real
-    credentials), this poll's job is to confirm Metabase's login endpoint is
-    actually reachable again, and attempting a login (even one that will cleanly
-    fail on empty credentials) still exercises that connection. A missing/malformed
-    metabase.yml is treated as "no credentials" (empty strings), not a reason to
-    skip the check.
+        INFO core.core :: Metabase Initialization COMPLETE in X.Xs (JVM uptime: Y.Ys)
 
-    Distinguishes three outcomes on each attempt:
-    - A connection-level exception (``requests.exceptions.RequestException`` --
-      ``_metabase_login()`` doesn't catch this itself, by its own docstring's
-      contract) means nothing is listening yet -- this is the race. Sleep and
-      retry, within ``max_attempts``.
-    - ``_metabase_login()`` returning ``None`` (a clean non-200 -- the server
-      accepted the connection) is NOT automatically treated as a permanent
-      credentials failure. Live repro during 1.0.8-Q11 (see BUGS-FOUND.md)
-      caught Metabase returning a genuine HTTP 401
-      (``{"errors":{"password":"did not match stored password"}}``) moments
-      after a restart's ``/api/health`` first went green, using the exact same
-      admin credentials that had logged in successfully seconds before the
-      restart and logged in successfully again moments later with no change in
-      between -- i.e. Metabase's auth/user-lookup subsystem can still be
-      warming up even after its HTTP listener and health endpoint are already
-      answering, and it returns a "real" 401 rather than a connection error
-      during that gap. So a 401 gets its OWN short, bounded retry window
-      (``max_non_200_attempts`` attempts, well under ``max_attempts``) rather
-      than an instant give-up -- generous enough to cover the observed warmup
-      gap without letting a *genuinely* wrong password hang every sync for the
-      full connection-error budget.
-    - A real session id means Metabase is actually ready. Return immediately
-      without waiting out the rest of the budget -- this keeps the common case
-      (already ready by the time this runs) fast.
+    Reading container logs costs Metabase nothing server-side and cannot trip any
+    request-rate-based protection, unlike a login attempt -- so this can be polled
+    as long and as often as needed without the tradeoffs every prior version of
+    this function had to balance.
 
-    Bounded to ``max_attempts`` * 1s (~10s by default) for connection-level
-    retries -- a sub-budget within the same overall ~20-30s restart-readiness
-    ceiling the ``/api/health`` loop above already spends, not a new unrelated
-    constant. The non-200 case is capped separately and more tightly, at
-    ``max_non_200_attempts`` * 1s (~5s by default).
+    Confirmed live (2026-09-15, against `beta-1`'s real container,
+    `docker logs dango-59f02899-metabase-1`, read-only -- no restart/interference):
+    the line is written to the container's **stdout**, never stderr (stdout capture
+    had 20 matches; an isolated stderr-only capture of the full log had 0 lines at
+    all). Checked here regardless, since Metabase's own logging config isn't a
+    contract Dango controls and could change between versions.
 
-    Never raises -- matches this module's restart/refresh functions' "report
-    failure via return value" contract, so callers don't need new exception
-    handling.
+    ``since`` MUST be captured (e.g. via ``datetime.now(timezone.utc).isoformat()``)
+    immediately before the ``docker restart`` call this is polling for -- without
+    it, a stale "Initialization COMPLETE" line from a PRIOR boot still sitting in
+    the container's log buffer would cause an instant false-positive.
+
+    Never raises. Returns False (not an exception) on any subprocess failure
+    (docker not available, container gone, timeout) -- callers treat this the same
+    as "readiness not confirmed" and fall back accordingly, matching this module's
+    existing best-effort contract for restart-readiness checks.
     """
-    creds_file = project_root / ".dango" / "metabase.yml"
-    try:
-        with open(creds_file) as f:
-            creds = yaml.safe_load(f) or {}
-    except (OSError, yaml.YAMLError):
-        creds = {}
-    admin = creds.get("admin", {})
-    email = admin.get("email")
-    password = admin.get("password")
-
-    non_200_attempts = 0
-    for _ in range(max_attempts):
+    deadline = time.monotonic() + max_wait_seconds
+    while time.monotonic() < deadline:
         try:
-            session_id = _metabase_login(session, metabase_url, email, password)
-        except requests.exceptions.RequestException:  # noqa: BLE001
-            # Nothing listening yet (or mid-handshake) -- the restart-readiness
-            # race this function exists to close. Keep retrying within budget.
-            time.sleep(1)
-            continue
-        if session_id:
-            return True
-        # Clean non-200 -- Metabase accepted the connection. Usually this means
-        # genuinely wrong credentials, but it can also be the same
-        # restart-readiness race manifesting as a real (not connection-level)
-        # 401 during Metabase's own auth-subsystem warmup -- see docstring.
-        # Give it a short, separately-bounded number of retries rather than
-        # stopping on the first one, but don't burn the full connection-error
-        # budget on what might be a genuinely wrong password.
-        non_200_attempts += 1
-        if non_200_attempts >= max_non_200_attempts:
-            return False
-        time.sleep(1)
+            result = subprocess.run(
+                ["docker", "logs", "--since", since, container_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if "Metabase Initialization COMPLETE" in result.stdout:
+                return True
+            if "Metabase Initialization COMPLETE" in result.stderr:
+                return True
+        except (subprocess.SubprocessError, OSError):
+            pass
+        time.sleep(poll_interval)
 
     return False
 
@@ -1533,7 +1509,11 @@ def setup_metabase(
     return summary
 
 
-def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localhost:3000") -> bool:
+def sync_metabase_schema(
+    project_root: Path,
+    metabase_url: str = "http://localhost:3000",
+    existing_session_id: str | None = None,
+) -> bool:
     """
     Trigger Metabase to re-sync database schema (table/column metadata).
 
@@ -1543,6 +1523,15 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
     Args:
         project_root: Path to project root
         metabase_url: Metabase URL (default: http://localhost:3000)
+        existing_session_id: an optional already-authenticated Metabase session
+            token (1.0.8-Q17). When the caller already has a valid token (e.g.
+            from `refresh_metabase_connection()`'s post-restart login), pass it
+            here to skip this function's own `_metabase_login()` call — Metabase
+            auth is header-based (`X-Metabase-Session`), not cookie-based, so the
+            same token is valid regardless of which `requests.Session` object
+            makes the request. Falls back to logging in itself when `None` (or
+            falsy) — the default, unchanged behavior for the 6 other call sites
+            that don't pass this.
 
     Returns:
         True if sync triggered successfully, False otherwise
@@ -1572,11 +1561,13 @@ def sync_metabase_schema(project_root: Path, metabase_url: str = "http://localho
         email = admin.get("email")
         password = admin.get("password")
 
-        if not email or not password:
-            return False
-
-        # Login to get session
-        session_id = _metabase_login(session, metabase_url, email, password)
+        # Reuse a pre-authenticated token if the caller already has one
+        # (1.0.8-Q17) -- otherwise log in ourselves, same as before.
+        session_id = existing_session_id
+        if not session_id:
+            if not email or not password:
+                return False
+            session_id = _metabase_login(session, metabase_url, email, password)
         if not session_id:
             return False
 
@@ -1919,7 +1910,7 @@ def get_metabase_telemetry_state(project_root: Path | None) -> bool:
 
 def refresh_metabase_connection(
     project_root: Path, metabase_url: str = "http://localhost:3000"
-) -> tuple[bool, str | None]:
+) -> tuple[bool, str | None, str | None]:
     """
     Force Metabase to refresh its DuckDB connection to see latest data.
 
@@ -1931,10 +1922,15 @@ def refresh_metabase_connection(
         metabase_url: Metabase URL
 
     Returns:
-        Tuple of (success, error_message). error_message is None on success.
+        Tuple of (success, error_message, session_id). error_message is None on
+        success. session_id (1.0.8-Q17) is the Metabase session token obtained by
+        this function's own post-restart login, or None if that login was never
+        attempted/reached or failed -- callers that also need to call Metabase
+        (e.g. `sync_metabase_schema()`) can pass it through as
+        `existing_session_id` to avoid a second real login, since Metabase auth is
+        header-based (`X-Metabase-Session`), not cookie-based, so the token is
+        valid regardless of which `requests.Session` object makes the request.
     """
-    import subprocess
-
     session = requests.Session()
 
     try:
@@ -1954,7 +1950,13 @@ def refresh_metabase_connection(
 
         if container_name not in check_result.stdout:
             # Container not running
-            return (False, "Metabase container not running")
+            return (False, "Metabase container not running", None)
+
+        # Captured immediately before the restart -- _wait_for_metabase_log_ready()
+        # depends on this being the real restart boundary, not an earlier point, to
+        # avoid a false-positive match on an "Initialization COMPLETE" line left
+        # over from a PRIOR boot still sitting in the container's log buffer.
+        restart_time = datetime.now(timezone.utc).isoformat()
 
         # Restart Metabase container to force reconnection
         restart_result = subprocess.run(
@@ -1962,7 +1964,7 @@ def refresh_metabase_connection(
         )
 
         if restart_result.returncode != 0:
-            return (False, f"Docker restart failed: {restart_result.stderr[:200]}")
+            return (False, f"Docker restart failed: {restart_result.stderr[:200]}", None)
 
         # Wait for Metabase to come back up (max 20 seconds)
         max_attempts = 20
@@ -1974,38 +1976,65 @@ def refresh_metabase_connection(
                     # Metabase process can keep answering it with 200 for several
                     # seconds after `docker restart`'s SIGTERM (JVM graceful
                     # shutdown), followed by a real gap where nothing is listening.
-                    # Confirm a login can actually complete before declaring
-                    # readiness — runs unconditionally (not gated on
+                    # Confirm real readiness before declaring it -- 1.0.8-Q17:
+                    # poll Metabase's own log-based startup-complete banner
+                    # instead of a login-based check (1.0.8-Q11/Q14/Q16 all tried
+                    # a login-based version of this and either failed to close the
+                    # race or tripped Metabase's own login-throttle lockout; see
+                    # BUGS-FOUND.md). Runs unconditionally (not gated on
                     # site_url_set/cloud_mode below), since the race applies
                     # regardless of whether the site-url catch-up will do anything.
                     # Best-effort like the site-url catch-up right below: a
-                    # login-readiness failure here does not turn a successful
+                    # readiness-check failure here does not turn a successful
                     # restart into a reported failure — the restart genuinely did
                     # succeed, this is downstream of that.
-                    if not _wait_for_metabase_login_ready(session, metabase_url, project_root):
+                    if not _wait_for_metabase_log_ready(container_name, restart_time):
                         logger.warning(
                             "refresh_metabase_connection: restart succeeded and "
-                            "/api/health responded, but login never became ready "
+                            "/api/health responded, but Metabase's own "
+                            "'Initialization COMPLETE' log line never appeared "
                             "within the readiness budget — a caller's own "
                             "single-attempt login (e.g. sync_metabase_schema()) may "
                             "still hit this gap and fail"
                         )
+
+                    # 1.0.8-Q17: one real login here, reused by both the site-url
+                    # catch-up below and (via the return value) by callers'
+                    # subsequent sync_metabase_schema() calls, instead of each
+                    # independently re-logging in — drops real logins per
+                    # successful cycle from up to 3 down to at most 1. Best-effort:
+                    # a login failure here just means downstream callers fall back
+                    # to their own login, same as before this change.
+                    session_id: str | None = None
+                    try:
+                        creds_file = project_root / ".dango" / "metabase.yml"
+                        with open(creds_file) as f:
+                            creds = yaml.safe_load(f) or {}
+                        admin = creds.get("admin", {})
+                        email = admin.get("email")
+                        password = admin.get("password")
+                        if email and password:
+                            session_id = _metabase_login(session, metabase_url, email, password)
+                    except Exception:  # noqa: BLE001
+                        pass  # Best-effort — downstream callers fall back to their own login
 
                     # See _apply_metabase_site_url_catchup()'s docstring for why this
                     # is a bounded one-time catch-up (cheap on every call once done),
                     # not a recurring cost paid on every sync forever. Best-effort:
                     # never turns a successful restart into a reported failure.
                     try:
-                        _apply_metabase_site_url_catchup(session, metabase_url, project_root)
+                        _apply_metabase_site_url_catchup(
+                            session, metabase_url, project_root, session_id=session_id
+                        )
                     except Exception:  # noqa: BLE001
                         pass  # Not critical — site URL refresh is best-effort
 
-                    return (True, None)
+                    return (True, None, session_id)
             except requests.exceptions.RequestException:  # noqa: BLE001
                 pass
             time.sleep(1)
 
-        return (False, "Metabase did not become healthy after restart")
+        return (False, "Metabase did not become healthy after restart", None)
 
     except Exception as e:
         # Pre-existing bug fixed in passing: `error=str(e)` isn't a valid stdlib
@@ -2014,4 +2043,4 @@ def refresh_metabase_connection(
         # was supposed to report with an unrelated one. Caught while touching this
         # exact except block for 1.0.8-W; verified live (see PR description).
         logger.warning(f"refresh_metabase_connection_error: {e}", exc_info=True)
-        return (False, str(e))
+        return (False, str(e), None)

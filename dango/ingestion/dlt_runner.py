@@ -3186,13 +3186,13 @@ def run_sync(
                     sync_metabase_schema,
                 )
 
-                mb_ok, _mb_err = refresh_metabase_connection(project_root)
+                mb_ok, _mb_err, mb_session_id = refresh_metabase_connection(project_root)
                 if mb_ok:
                     console.print("[green]✓ Metabase connection refreshed[/green]")
 
                     # Sync schema metadata to ensure all tables are discovered
                     console.print("[dim]Syncing Metabase schema metadata...[/dim]")
-                    if sync_metabase_schema(project_root):
+                    if sync_metabase_schema(project_root, existing_session_id=mb_session_id):
                         console.print("[green]✓ Metabase schema synced[/green]")
                 else:
                     console.print("[dim]ℹ Metabase not running (will sync when started)[/dim]")
