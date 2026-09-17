@@ -400,12 +400,7 @@ class CSVLoader:
         Returns:
             List of data column names (excludes _dango_* columns)
         """
-        columns = [
-            col[0]
-            for col in conn.execute(f"DESCRIBE {table_name}").fetchall()
-            if not col[0].startswith("_dango_")
-        ]
-        return columns
+        return list(self._get_table_column_types(conn, table_name))
 
     def _get_table_column_types(
         self, conn: duckdb.DuckDBPyConnection, table_name: str
@@ -644,10 +639,7 @@ class CSVLoader:
                 error_lines.extend(
                     [
                         "If you need to change the table schema:",
-                        f"  1. dango source remove {source_name}",
-                        "  2. dango db clean",
-                        f"  3. dango source add  # Re-add '{source_name}'",
-                        "  4. dango sync",
+                        *self._schema_fix_instructions(source_name),
                         "",
                         "Or use --allow-schema-changes to accept schema evolution.",
                     ]
@@ -656,6 +648,23 @@ class CSVLoader:
             raise CSVSchemaMismatchError("\n".join(error_lines))
 
         return all_new_columns
+
+    @staticmethod
+    def _schema_fix_instructions(source_name: str) -> list[str]:
+        """Standard 4-step recovery instructions shown in every schema-mismatch error.
+
+        Args:
+            source_name: Source name (for the remove/re-add commands)
+
+        Returns:
+            Lines of the "remove -> clean -> re-add -> sync" recovery flow
+        """
+        return [
+            f"  1. dango source remove {source_name}",
+            "  2. dango db clean",
+            f"  3. dango source add  # Re-add '{source_name}'",
+            "  4. dango sync",
+        ]
 
     def _validate_schema_match(
         self, conn: duckdb.DuckDBPyConnection, filepath: str, target_table: str, source_name: str
@@ -704,10 +713,7 @@ class CSVLoader:
                 [
                     "",
                     "To update the table schema:",
-                    f"  1. dango source remove {source_name}",
-                    "  2. dango db clean",
-                    f"  3. dango source add  # Re-add '{source_name}'",
-                    "  4. dango sync",
+                    *self._schema_fix_instructions(source_name),
                     "",
                     "Note: Your CSV files in the folder will NOT be deleted.",
                     "      Just re-add the source pointing to the same folder.",
@@ -724,17 +730,60 @@ class CSVLoader:
         # raising a clear, actionable error like the name-mismatch case above does.
         table_types = self._get_table_column_types(conn, target_table)
         file_types = self._get_file_column_types(conn, filepath)
+
+        if not file_types:
+            # _get_file_column_types() swallows read errors and returns {} — with no
+            # file-side types to compare against, every table column would otherwise
+            # look "mismatched" here and trigger a doomed per-column scan against a
+            # file we already know can't be read. Nothing useful to check; bail out
+            # and let the file load proceed to surface the real read error.
+            return
+
         read_fn = self._get_read_function(filepath)
 
         for col in table_types:
             if table_types[col] == file_types.get(col):
                 continue  # exact type match, nothing to check
 
-            bad_value = conn.execute(
-                f"SELECT \"{col}\" FROM {read_fn}('{filepath}') "
-                f'WHERE "{col}" IS NOT NULL AND TRY_CAST("{col}" AS {table_types[col]}) IS NULL '
-                f"LIMIT 1"
-            ).fetchone()
+            # Escape embedded double-quotes in the column name (DuckDB's own
+            # identifier-escaping convention) so a column name like `weird"col`
+            # can't break out of the quoted identifier and malform this query.
+            col_ident = '"' + col.replace('"', '""') + '"'
+
+            try:
+                bad_value = conn.execute(
+                    f"SELECT {col_ident} FROM {read_fn}('{filepath}') "
+                    f"WHERE {col_ident} IS NOT NULL AND "
+                    f"TRY_CAST({col_ident} AS {table_types[col]}) IS NULL "
+                    f"LIMIT 1"
+                ).fetchone()
+            except duckdb.Error:
+                # DuckDB's read_csv_auto infers a column's type from a sample of
+                # rows (default ~20,480). A value beyond that sample that doesn't
+                # fit the inferred type makes the scan itself raise a raw
+                # ConversionException — before TRY_CAST ever sees the value. Don't
+                # let that raw DuckDB error escape from validation code whose whole
+                # point is producing a *clear* error: raise our own instead.
+                filename = os.path.basename(filepath)
+                raise CSVSchemaMismatchError(
+                    "\n".join(
+                        [
+                            f"❌ Could not verify column type compatibility for '{filename}'",
+                            "",
+                            f"Column '{col}' is type {table_types[col]} in the existing table, "
+                            "but this file could not be fully read while checking "
+                            "compatibility — it likely contains a value that doesn't "
+                            "match that type.",
+                            "",
+                            "To update the table schema:",
+                            *self._schema_fix_instructions(source_name),
+                            "",
+                            "Note: Your CSV files in the folder will NOT be deleted.",
+                            "      Just re-add the source pointing to the same folder.",
+                        ]
+                    )
+                ) from None
+
             if bad_value is not None:
                 filename = os.path.basename(filepath)
                 raise CSVSchemaMismatchError(
@@ -743,14 +792,11 @@ class CSVLoader:
                             f"❌ Column type mismatch detected in '{filename}'",
                             "",
                             f"Column '{col}' is type {table_types[col]} in the existing table, "
-                            f"but this file has a value that cannot be converted: "
-                            f"{bad_value[0]!r}",
+                            "but this file has a value in that column that cannot be "
+                            "converted to that type.",
                             "",
                             "To update the table schema:",
-                            f"  1. dango source remove {source_name}",
-                            "  2. dango db clean",
-                            f"  3. dango source add  # Re-add '{source_name}'",
-                            "  4. dango sync",
+                            *self._schema_fix_instructions(source_name),
                             "",
                             "Note: Your CSV files in the folder will NOT be deleted.",
                             "      Just re-add the source pointing to the same folder.",

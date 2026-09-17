@@ -243,8 +243,11 @@ class TestValidateSchemaMatchTypeChecking:
 
         assert result["status"] == "error"
         assert "amount" in result["error"]
-        assert "not_a_number" in result["error"]
         assert "BIGINT" in result["error"]
+        # The raw failing cell value must NOT be echoed into the error message —
+        # this message is persisted to sync history and shown in the web UI logs
+        # page, so it must never leak arbitrary file content verbatim.
+        assert "not_a_number" not in result["error"]
 
     def test_validate_schema_match_allows_compatible_type_widening(self, csv_env: Any) -> None:
         """Numeric values loading into a table column locked as VARCHAR do not raise."""
@@ -304,6 +307,110 @@ class TestValidateSchemaMatchTypeChecking:
             # real results come back, while call_args_list records every query.
             spy_conn = MagicMock(wraps=conn)
             loader._validate_schema_match(spy_conn, str(file2), target_table, "test_src")
+
+            try_cast_calls = [
+                call for call in spy_conn.execute.call_args_list if "TRY_CAST" in call.args[0]
+            ]
+            assert try_cast_calls == []
+        finally:
+            conn.close()
+
+    def test_validate_schema_match_escapes_double_quote_in_column_name(
+        self, tmp_path: Path
+    ) -> None:
+        """A column name containing an embedded double quote does not malform the
+        TRY_CAST probe query — the identifier must be escaped by doubling the quote.
+
+        Built via _create_table_from_file() directly (not loader.load()) because
+        CSVLoader._build_insert_select() has its own, separate, pre-existing
+        identifier-quoting bug on this same input — out of scope for this task
+        (task doc: "Do NOT change ... _build_insert_select()"). This test targets
+        only the type-check code this task adds.
+        """
+        db_path = tmp_path / "data" / "warehouse.duckdb"
+        db_path.parent.mkdir(parents=True)
+        data_dir = tmp_path / "csv_data"
+        data_dir.mkdir()
+
+        loader = CSVLoader(tmp_path, db_path)
+        target_table = "raw_test_src.test_src"
+
+        file1 = _make_csv(data_dir, "file1.csv", 'id,"weird""col"', ["1,100", "2,200"])
+        file2 = _make_csv(data_dir, "file2.csv", 'id,"weird""col"', ["3,not_a_number"])
+
+        conn = duckdb.connect(str(db_path))
+        try:
+            conn.execute("CREATE SCHEMA IF NOT EXISTS raw_test_src")
+            loader._create_table_from_file(conn, str(file1), target_table, "test_src")
+
+            with pytest.raises(Exception) as exc_info:
+                loader._validate_schema_match(conn, str(file2), target_table, "test_src")
+
+            # Must be our clean CSVSchemaMismatchError, not a raw "Parser Error"
+            # from malformed SQL escaping the quoted identifier.
+            assert type(exc_info.value).__name__ == "CSVSchemaMismatchError"
+            assert "Parser Error" not in str(exc_info.value)
+            assert "type mismatch" in str(exc_info.value).lower()
+        finally:
+            conn.close()
+
+    def test_validate_schema_match_wraps_sample_window_conversion_error(self, csv_env: Any) -> None:
+        """A value beyond DuckDB's read_csv_auto sample window that doesn't fit the
+        file's own inferred type must not let a raw duckdb.ConversionException escape
+        validation — it must be wrapped in a clean CSVSchemaMismatchError instead.
+        """
+        loader, db_path, data_dir, config = csv_env
+
+        # First file forces the table's 'code' column to lock in as VARCHAR.
+        _make_csv(data_dir, "file1.csv", "id,code", ["1,ABC123"])
+        result = loader.load("test_src", config, "raw_test_src")
+        assert result["status"] == "success"
+
+        # Second file: 'code' is purely numeric for ~25,000 rows (its own inferred
+        # type is BIGINT, differing from the table's VARCHAR -> TRY_CAST branch
+        # runs), but one value beyond the ~20,480-row sample window doesn't fit
+        # that inferred type -> the scan itself throws during validation.
+        rows = [f"{i},{i}" for i in range(2, 25002)]
+        rows[22998] = "99999,not_numeric_either"
+        file2 = data_dir / "file2.csv"
+        file2.write_text("id,code\n" + "\n".join(rows) + "\n")
+
+        conn = duckdb.connect(str(db_path))
+        try:
+            with pytest.raises(Exception) as exc_info:
+                loader._validate_schema_match(conn, str(file2), "raw_test_src.test_src", "test_src")
+            # Must be our clean, actionable error, not a raw duckdb exception.
+            assert type(exc_info.value).__name__ == "CSVSchemaMismatchError"
+            assert "code" in str(exc_info.value)
+        finally:
+            conn.close()
+
+    def test_validate_schema_match_skips_check_when_file_types_empty(self, tmp_path: Path) -> None:
+        """When _get_file_column_types() returns {} (its own swallowed-error path),
+        the type-check loop must skip entirely rather than scanning every table
+        column against a file that's already known to be unreadable.
+        """
+        db_path = tmp_path / "data" / "warehouse.duckdb"
+        db_path.parent.mkdir(parents=True)
+        data_dir = tmp_path / "csv_data"
+        data_dir.mkdir()
+
+        loader = CSVLoader(tmp_path, db_path)
+        target_table = "raw_test_src.test_src"
+
+        file1 = _make_csv(data_dir, "file1.csv", "id,amount", ["1,100", "2,200"])
+        file2 = _make_csv(data_dir, "file2.csv", "id,amount", ["3,300"])
+
+        conn = duckdb.connect(str(db_path))
+        try:
+            conn.execute("CREATE SCHEMA IF NOT EXISTS raw_test_src")
+            loader._create_table_from_file(conn, str(file1), target_table, "test_src")
+
+            spy_conn = MagicMock(wraps=conn)
+            with patch.object(loader, "_get_file_column_types", return_value={}):
+                # Must return cleanly (no exception) rather than treating every
+                # table column as mismatched against no data.
+                loader._validate_schema_match(spy_conn, str(file2), target_table, "test_src")
 
             try_cast_calls = [
                 call for call in spy_conn.execute.call_args_list if "TRY_CAST" in call.args[0]
