@@ -780,9 +780,9 @@ class SourceWizard:
             console.print("[cyan]To authenticate later, run:[/cyan]")
             console.print(f"  dango oauth {source_type}")
             console.print(
-                "\n[dim]You can still configure this source, but you won't be able to sync"
+                "\n[dim]You can still configure this source, but you won't be able to sync "
+                "until you set up OAuth credentials.[/dim]\n"
             )
-            console.print("until you set up OAuth credentials.[/dim]\n")
             return "skipped"
 
         # "Set up OAuth now" - run OAuth flow with retry
