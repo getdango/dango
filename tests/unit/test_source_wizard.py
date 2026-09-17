@@ -220,6 +220,50 @@ class TestOAuthSkipHandling:
 
         assert result == "skipped"
 
+    @patch("dango.cli.source_wizard.OAuthStorage")
+    @patch("dango.cli.source_wizard.inquirer")
+    def test_skip_message_renders_without_markup_error(
+        self, mock_inquirer, mock_storage_cls, tmp_path
+    ):
+        """The 'Skip for now' branch's dimmed message must render through Rich's
+        real markup parser without raising MarkupError. Deliberately does NOT mock
+        the console (unlike test_skip_returns_skipped above, which mocks it to test
+        the return value) — a mocked console never invokes Rich's real parser, which
+        is exactly how the original [dim]/[/dim] split-across-two-calls bug went
+        undetected for seven months."""
+        import io
+
+        from rich.console import Console
+
+        from dango.cli.source_wizard import SourceWizard
+
+        mock_storage_cls.return_value.get.return_value = None
+
+        mock_inquirer.prompt.return_value = {
+            "oauth_action": "Skip for now (configure manually later)"
+        }
+        mock_inquirer.List = MagicMock()
+
+        wizard = SourceWizard(tmp_path)
+        metadata = {"auth_type": "oauth", "display_name": "Google Ads"}
+
+        buffer = io.StringIO()
+        # Wide enough that Rich doesn't word-wrap the message onto a second
+        # line, which would otherwise break the exact-substring assertion below.
+        real_console = Console(file=buffer, force_terminal=False, width=200)
+
+        with patch("dango.cli.source_wizard.console", real_console):
+            result = wizard._handle_oauth_setup("google_ads", "my_ads", metadata)
+
+        assert result == "skipped"
+
+        output = buffer.getvalue()
+        # Confirms Rich actually parsed and rendered the [dim]...[/dim] markup
+        # (rather than the call simply not crashing for an unrelated reason).
+        assert "[dim]" not in output
+        assert "[/dim]" not in output
+        assert "you won't be able to sync until you set up OAuth credentials." in output
+
     def test_wizard_exits_on_skip_decline(self, tmp_path):
         """When user declines 'Continue setup anyway?' after skip, wizard exits (returns False)
         without proceeding to parameter collection."""
