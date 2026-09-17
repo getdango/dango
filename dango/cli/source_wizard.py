@@ -1939,6 +1939,22 @@ def {module_name}_resource(api_key: str):
 
             return env_var
 
+        elif param_name == "spreadsheet_url_or_id":
+            # inquirer.Text redraws the full question+value line on every keystroke/paste
+            # event; when a pasted value is longer than the terminal width, the renderer's
+            # fixed "move up 1 line" math doesn't account for the line wrapping to 2+ rows,
+            # so each redraw leaves stale content on screen -- visually duplicating the line
+            # dozens of times during a paste. Confirmed still present in the latest inquirer
+            # release (3.4.1) by reading its renderer source directly; not a version-bump fix.
+            # click.prompt() reads the whole line in a single blocking call via the terminal's
+            # native line editing, avoiding the bug entirely for this one field.
+            default_str = str(default) if default is not None else None
+            try:
+                value = click.prompt(prompt, default=default_str, show_default=bool(default_str))
+            except click.Abort:
+                return None  # User cancelled (Ctrl+C) - always abort, same as every other field
+            return value
+
         elif param_type == "boolean" or param_type == "bool":
             questions = [
                 inquirer.Confirm(
