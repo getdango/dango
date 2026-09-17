@@ -4,8 +4,10 @@ Tests for dango.ingestion.csv_loader — multi-format file loading.
 """
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import duckdb
 import pytest
 
 from dango.config.models import CSVSourceConfig, LocalFilesSourceConfig
@@ -190,3 +192,122 @@ class TestLoadFileFiltering:
 
             files_passed = mock_classify.call_args[0][2]
             assert len(files_passed) == 5
+
+
+def _make_csv(directory: Path, filename: str, header: str, rows: list[str]) -> Path:
+    """Write a CSV file with given header and rows."""
+    filepath = directory / filename
+    lines = [header] + rows
+    filepath.write_text("\n".join(lines) + "\n")
+    return filepath
+
+
+@pytest.fixture()
+def csv_env(tmp_path: Path) -> tuple[CSVLoader, Path, Path, CSVSourceConfig]:
+    """Set up a CSV loader environment with DuckDB and a data directory.
+
+    Mirrors the fixture in tests/unit/test_csv_schema_evolution.py — a real (not
+    mocked) DuckDB file + real CSV files on disk, exercised through CSVLoader.load().
+    A real connection is required here because the type-validation logic under test
+    relies on genuine DuckDB type inference (read_csv_auto) and TRY_CAST semantics,
+    which a mocked connection cannot meaningfully reproduce.
+    """
+    db_path = tmp_path / "data" / "warehouse.duckdb"
+    db_path.parent.mkdir(parents=True)
+
+    data_dir = tmp_path / "csv_data"
+    data_dir.mkdir()
+
+    loader = CSVLoader(tmp_path, db_path)
+    config = CSVSourceConfig(directory=data_dir, file_pattern="*.csv")
+
+    return loader, db_path, data_dir, config
+
+
+@pytest.mark.unit
+class TestValidateSchemaMatchTypeChecking:
+    """Tests for the column TYPE validation added to _validate_schema_match()."""
+
+    def test_validate_schema_match_raises_on_type_mismatch(self, csv_env: Any) -> None:
+        """A non-numeric value landing in a locked-in BIGINT column raises CSVSchemaMismatchError."""
+        loader, _db_path, data_dir, config = csv_env
+
+        # First file establishes the table with 'amount' inferred as BIGINT.
+        _make_csv(data_dir, "file1.csv", "id,amount", ["1,100", "2,200"])
+        result = loader.load("test_src", config, "raw_test_src")
+        assert result["status"] == "success"
+
+        # Second file has a non-numeric value in 'amount' — cannot cast to BIGINT.
+        _make_csv(data_dir, "file2.csv", "id,amount", ["3,not_a_number"])
+        result = loader.load("test_src", config, "raw_test_src")
+
+        assert result["status"] == "error"
+        assert "amount" in result["error"]
+        assert "not_a_number" in result["error"]
+        assert "BIGINT" in result["error"]
+
+    def test_validate_schema_match_allows_compatible_type_widening(self, csv_env: Any) -> None:
+        """Numeric values loading into a table column locked as VARCHAR do not raise."""
+        loader, _db_path, data_dir, config = csv_env
+
+        # First file forces 'code' to infer as VARCHAR (contains a non-numeric value).
+        _make_csv(data_dir, "file1.csv", "id,code", ["1,ABC123"])
+        result = loader.load("test_src", config, "raw_test_src")
+        assert result["status"] == "success"
+
+        # Second file's 'code' column is purely numeric -> infers as BIGINT for this
+        # file, but every value casts safely into the table's locked-in VARCHAR type.
+        _make_csv(data_dir, "file2.csv", "id,code", ["2,456"])
+        result = loader.load("test_src", config, "raw_test_src")
+
+        assert result["status"] == "success"
+        assert result["total_rows"] == 2
+
+    def test_validate_schema_match_allows_null_values_in_differing_type_column(
+        self, csv_env: Any
+    ) -> None:
+        """A differing-type column that is entirely NULL/blank in the new file does not raise."""
+        loader, _db_path, data_dir, config = csv_env
+
+        # First file establishes 'amount' as BIGINT.
+        _make_csv(data_dir, "file1.csv", "id,amount", ["1,100", "2,200"])
+        result = loader.load("test_src", config, "raw_test_src")
+        assert result["status"] == "success"
+
+        # Second file's 'amount' column is blank on every row -> DuckDB infers
+        # VARCHAR for this file (a genuine type difference from the table's BIGINT),
+        # but since every value is NULL the IS NOT NULL guard must prevent a raise.
+        _make_csv(data_dir, "file2.csv", "id,amount", ["3,", "4,"])
+        result = loader.load("test_src", config, "raw_test_src")
+
+        assert result["status"] == "success"
+
+    def test_validate_schema_match_unchanged_for_matching_types(self, tmp_path: Path) -> None:
+        """When file and table column types match exactly, no extra TRY_CAST query runs."""
+        db_path = tmp_path / "data" / "warehouse.duckdb"
+        db_path.parent.mkdir(parents=True)
+        data_dir = tmp_path / "csv_data"
+        data_dir.mkdir()
+
+        loader = CSVLoader(tmp_path, db_path)
+        target_table = "raw_test_src.test_src"
+
+        file1 = _make_csv(data_dir, "file1.csv", "id,amount", ["1,100", "2,200"])
+        file2 = _make_csv(data_dir, "file2.csv", "id,amount", ["3,300"])
+
+        conn = duckdb.connect(str(db_path))
+        try:
+            conn.execute("CREATE SCHEMA IF NOT EXISTS raw_test_src")
+            loader._create_table_from_file(conn, str(file1), target_table, "test_src")
+
+            # Spy on the real connection (wraps=conn) so real SQL executes and
+            # real results come back, while call_args_list records every query.
+            spy_conn = MagicMock(wraps=conn)
+            loader._validate_schema_match(spy_conn, str(file2), target_table, "test_src")
+
+            try_cast_calls = [
+                call for call in spy_conn.execute.call_args_list if "TRY_CAST" in call.args[0]
+            ]
+            assert try_cast_calls == []
+        finally:
+            conn.close()

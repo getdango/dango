@@ -407,6 +407,24 @@ class CSVLoader:
         ]
         return columns
 
+    def _get_table_column_types(
+        self, conn: duckdb.DuckDBPyConnection, table_name: str
+    ) -> dict[str, str]:
+        """Get column names and types from an existing table (excluding metadata columns).
+
+        Args:
+            conn: DuckDB connection
+            table_name: Fully qualified table name (schema.table)
+
+        Returns:
+            Mapping of {column_name: data_type}, excludes _dango_* columns
+        """
+        return {
+            row[0]: row[1]
+            for row in conn.execute(f"DESCRIBE {table_name}").fetchall()
+            if not row[0].startswith("_dango_")
+        }
+
     def _get_file_column_types(
         self, conn: duckdb.DuckDBPyConnection, filepath: str
     ) -> dict[str, str]:
@@ -697,6 +715,48 @@ class CSVLoader:
             )
 
             raise CSVSchemaMismatchError("\n".join(error_lines))
+
+        # Column names match. Now check TYPES — a name match doesn't guarantee
+        # insert-time compatibility: DuckDB infers this file's raw types independently
+        # of the table's locked-in types. A narrowing mismatch (e.g. text landing in an
+        # INTEGER column) currently only surfaces as a generic INSERT failure deep in
+        # _load_new_file's bare except block, which silently skips the file instead of
+        # raising a clear, actionable error like the name-mismatch case above does.
+        table_types = self._get_table_column_types(conn, target_table)
+        file_types = self._get_file_column_types(conn, filepath)
+        read_fn = self._get_read_function(filepath)
+
+        for col in table_types:
+            if table_types[col] == file_types.get(col):
+                continue  # exact type match, nothing to check
+
+            bad_value = conn.execute(
+                f"SELECT \"{col}\" FROM {read_fn}('{filepath}') "
+                f'WHERE "{col}" IS NOT NULL AND TRY_CAST("{col}" AS {table_types[col]}) IS NULL '
+                f"LIMIT 1"
+            ).fetchone()
+            if bad_value is not None:
+                filename = os.path.basename(filepath)
+                raise CSVSchemaMismatchError(
+                    "\n".join(
+                        [
+                            f"❌ Column type mismatch detected in '{filename}'",
+                            "",
+                            f"Column '{col}' is type {table_types[col]} in the existing table, "
+                            f"but this file has a value that cannot be converted: "
+                            f"{bad_value[0]!r}",
+                            "",
+                            "To update the table schema:",
+                            f"  1. dango source remove {source_name}",
+                            "  2. dango db clean",
+                            f"  3. dango source add  # Re-add '{source_name}'",
+                            "  4. dango sync",
+                            "",
+                            "Note: Your CSV files in the folder will NOT be deleted.",
+                            "      Just re-add the source pointing to the same folder.",
+                        ]
+                    )
+                )
 
     def _create_table_from_file(
         self,
