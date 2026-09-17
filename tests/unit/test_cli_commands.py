@@ -8,7 +8,7 @@ commands appear in the CLI help output.
 
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -268,3 +268,155 @@ class TestGitWarningDeduplication:
 
         assert "Git Branch Reminder" not in result.output
         assert result.output.count("Warning:") == 1
+
+
+@pytest.mark.unit
+class TestMetabaseRefreshCommand:
+    """1.0.8-AC: `dango metabase refresh` must call refresh_metabase_connection()
+    before sync_metabase_schema() and thread existing_session_id through,
+    matching the pattern already used by dlt_runner.py/jobs.py/transform.py."""
+
+    @staticmethod
+    def _write_mb_yml(tmp_path: Path) -> None:
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        (dango_dir / "metabase.yml").write_text(
+            "metabase_url: http://localhost:3000\n"
+            "admin:\n  email: admin@test.com\n  password: testpw\n"
+        )
+
+    def test_refresh_calls_refresh_connection_first(self, tmp_path: Path) -> None:
+        from dango.cli.commands.metabase_cmd import metabase_refresh
+
+        self._write_mb_yml(tmp_path)
+        call_order: list[str] = []
+
+        def _fake_refresh(project_root, metabase_url=None):
+            call_order.append("refresh")
+            return True, None, "sess-xyz"
+
+        def _fake_sync(project_root, metabase_url=None, existing_session_id=None):
+            call_order.append("sync")
+            assert existing_session_id == "sess-xyz"
+            return True
+
+        runner = CliRunner()
+        with (
+            patch("dango.cli.utils.require_project_context", return_value=tmp_path),
+            patch("requests.get", return_value=MagicMock(status_code=200)),
+            patch(
+                "dango.visualization.metabase.refresh_metabase_connection",
+                side_effect=_fake_refresh,
+            ),
+            patch(
+                "dango.visualization.metabase.sync_metabase_schema",
+                side_effect=_fake_sync,
+            ),
+        ):
+            result = runner.invoke(metabase_refresh, obj={"project_root": tmp_path})
+
+        assert result.exit_code == 0, result.output
+        assert call_order == ["refresh", "sync"]
+
+    def test_aborts_when_refresh_connection_fails(self, tmp_path: Path) -> None:
+        from dango.cli.commands.metabase_cmd import metabase_refresh
+
+        self._write_mb_yml(tmp_path)
+
+        runner = CliRunner()
+        with (
+            patch("dango.cli.utils.require_project_context", return_value=tmp_path),
+            patch("requests.get", return_value=MagicMock(status_code=200)),
+            patch(
+                "dango.visualization.metabase.refresh_metabase_connection",
+                return_value=(False, "connection refused", None),
+            ),
+            patch("dango.visualization.metabase.sync_metabase_schema") as mock_sync,
+        ):
+            result = runner.invoke(metabase_refresh, obj={"project_root": tmp_path})
+
+        assert result.exit_code != 0
+        mock_sync.assert_not_called()
+
+
+@pytest.mark.unit
+class TestModelRemoveMetabaseRefresh:
+    """1.0.8-AC: `dango model remove` (when a DuckDB table is dropped) must
+    call refresh_metabase_connection() before sync_metabase_schema() and
+    thread existing_session_id through."""
+
+    @staticmethod
+    def _make_model(tmp_path: Path, model_name: str = "test_model") -> None:
+        model_dir = tmp_path / "dbt" / "models" / "intermediate"
+        model_dir.mkdir(parents=True)
+        (model_dir / f"{model_name}.sql").write_text("select 1 as id")
+        (tmp_path / "data").mkdir()
+        (tmp_path / "data" / "warehouse.duckdb").touch()
+
+    def test_model_remove_metabase_refresh_calls_refresh_connection_first(
+        self, tmp_path: Path
+    ) -> None:
+        from dango.cli.commands.model import model_remove
+
+        self._make_model(tmp_path)
+
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchone.return_value = (1,)
+
+        call_order: list[str] = []
+
+        def _fake_refresh(project_root):
+            call_order.append("refresh")
+            return True, None, "sess-model"
+
+        def _fake_sync(project_root, existing_session_id=None):
+            call_order.append("sync")
+            assert existing_session_id == "sess-model"
+            return True
+
+        runner = CliRunner()
+        with (
+            patch("dango.cli.utils.require_project_context", return_value=tmp_path),
+            patch("duckdb.connect", return_value=mock_conn),
+            patch(
+                "dango.visualization.metabase.refresh_metabase_connection",
+                side_effect=_fake_refresh,
+            ),
+            patch(
+                "dango.visualization.metabase.sync_metabase_schema",
+                side_effect=_fake_sync,
+            ),
+        ):
+            result = runner.invoke(
+                model_remove, ["test_model", "--yes"], obj={"project_root": tmp_path}
+            )
+
+        assert result.exit_code == 0, result.output
+        assert call_order == ["refresh", "sync"]
+
+    def test_model_remove_skips_schema_sync_when_refresh_fails(self, tmp_path: Path) -> None:
+        from dango.cli.commands.model import model_remove
+
+        self._make_model(tmp_path)
+
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchone.return_value = (1,)
+
+        runner = CliRunner()
+        with (
+            patch("dango.cli.utils.require_project_context", return_value=tmp_path),
+            patch("duckdb.connect", return_value=mock_conn),
+            patch(
+                "dango.visualization.metabase.refresh_metabase_connection",
+                return_value=(False, "connection refused", None),
+            ),
+            patch("dango.visualization.metabase.sync_metabase_schema") as mock_sync,
+        ):
+            result = runner.invoke(
+                model_remove, ["test_model", "--yes"], obj={"project_root": tmp_path}
+            )
+
+        # Non-critical failure — model.py's outer try/except swallows it,
+        # removal still reports success.
+        assert result.exit_code == 0, result.output
+        mock_sync.assert_not_called()

@@ -1115,15 +1115,20 @@ def sync(
             console.print("[green]Resume with the same command.[/green]")
             return
 
-        # Trigger Metabase schema sync (if Metabase is running).
-        # Metabase is restarted by _load_with_lock() after the write phase,
-        # so it is available for schema sync on both local and cloud.
+        # Refresh Metabase's connection before triggering schema sync. On cloud,
+        # _load_with_lock() already stopped/started Metabase around the write phase;
+        # on local (the common case), stop_metabase_for_writes() is a documented no-op,
+        # so Metabase's DuckDB connection is NOT guaranteed fresh here without this call.
         if summary["failed_count"] == 0:
             console.print()
             console.print("[dim]Updating Metabase schema...[/dim]")
-            from dango.visualization.metabase import sync_metabase_schema
+            from dango.visualization.metabase import (
+                refresh_metabase_connection,
+                sync_metabase_schema,
+            )
 
-            if sync_metabase_schema(project_root):
+            mb_ok, _mb_err, mb_session_id = refresh_metabase_connection(project_root)
+            if mb_ok and sync_metabase_schema(project_root, existing_session_id=mb_session_id):
                 console.print("[green]✓[/green] Metabase schema updated")
             else:
                 # Silent skip if Metabase isn't configured or running
