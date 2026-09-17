@@ -59,6 +59,17 @@ class CSVLoader:
             raise ValueError(f"Unsupported file format '{ext}'. Supported extensions: {supported}")
         return SUPPORTED_READ_FUNCTIONS[ext]
 
+    @staticmethod
+    def _sql_quote(value: str) -> str:
+        """Escape a string for safe interpolation inside a single-quoted SQL literal.
+
+        Doubles embedded single quotes (DuckDB's own string-literal escaping
+        convention) so a filepath or filename containing an apostrophe (e.g. a
+        folder named after a client with one in their name) can't break out of
+        the quoted literal and malform the query.
+        """
+        return value.replace("'", "''")
+
     def load(
         self,
         source_name: str,
@@ -373,10 +384,12 @@ class CSVLoader:
             List of column names (excluding metadata columns)
         """
         read_fn = self._get_read_function(filepath)
+        filepath_escaped = self._sql_quote(filepath)
         temp_view = f"_temp_schema_check_{int(datetime.now().timestamp())}"
         try:
             conn.execute(
-                f"CREATE TEMP VIEW {temp_view} AS SELECT * FROM {read_fn}('{filepath}') LIMIT 0"
+                f"CREATE TEMP VIEW {temp_view} AS "
+                f"SELECT * FROM {read_fn}('{filepath_escaped}') LIMIT 0"
             )
             columns = [col[0] for col in conn.execute(f"DESCRIBE {temp_view}").fetchall()]
             conn.execute(f"DROP VIEW {temp_view}")
@@ -433,10 +446,12 @@ class CSVLoader:
             Mapping of {column_name: data_type}
         """
         read_fn = self._get_read_function(filepath)
+        filepath_escaped = self._sql_quote(filepath)
         temp_view = f"_temp_types_check_{int(datetime.now().timestamp())}"
         try:
             conn.execute(
-                f"CREATE TEMP VIEW {temp_view} AS SELECT * FROM {read_fn}('{filepath}') LIMIT 0"
+                f"CREATE TEMP VIEW {temp_view} AS "
+                f"SELECT * FROM {read_fn}('{filepath_escaped}') LIMIT 0"
             )
             rows = conn.execute(f"DESCRIBE {temp_view}").fetchall()
             conn.execute(f"DROP VIEW {temp_view}")
@@ -583,6 +598,14 @@ class CSVLoader:
                                 "missing_columns": missing_columns,
                             }
                         )
+
+                if allow_schema_changes and table_exists:
+                    # Whether names matched exactly or evolved above, columns common to
+                    # both file and table still need type verification — this is the
+                    # ONLY validation path reached when allow_schema_changes=True, since
+                    # _load_new_file/_reload_updated_file skip _validate_schema_match
+                    # entirely (skip_schema_check=allow_schema_changes) on this path.
+                    self._check_column_types(conn, filepath, target_table, source_name)
             except Exception as e:
                 # If we can't read the file schema, treat as mismatch
                 mismatched_files.append({"filename": filename, "error": str(e)})
@@ -666,6 +689,114 @@ class CSVLoader:
             "  4. dango sync",
         ]
 
+    def _check_column_types(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        filepath: str,
+        target_table: str,
+        source_name: str,
+    ) -> None:
+        """Check a file's column types against an existing table's locked-in types.
+
+        Raises CSVSchemaMismatchError if any column's data can't be cast to the
+        table's type. Only checks columns present in BOTH the file and the table —
+        a column entirely absent from the file (allowed under schema evolution,
+        NULL-padded elsewhere) is not a type mismatch and is silently skipped here;
+        callers that need to reject missing/extra columns must check names separately.
+
+        Args:
+            conn: DuckDB connection
+            filepath: Path to CSV file to validate
+            target_table: Target table name (schema.table)
+            source_name: Source name (for error messages)
+
+        Raises:
+            CSVSchemaMismatchError: If a type mismatch is found or can't be ruled out
+        """
+        table_types = self._get_table_column_types(conn, target_table)
+        file_types = self._get_file_column_types(conn, filepath)
+
+        if not file_types:
+            # _get_file_column_types() swallows read errors and returns {} — with no
+            # file-side types to compare against, every table column would otherwise
+            # look "mismatched" here and trigger a doomed per-column scan against a
+            # file we already know can't be read. Nothing useful to check; bail out
+            # and let the file load proceed to surface the real read error.
+            return
+
+        read_fn = self._get_read_function(filepath)
+        filepath_escaped = self._sql_quote(filepath)
+
+        for col in table_types:
+            if col not in file_types:
+                # Column entirely absent from the file — a missing-column case
+                # (allowed under schema evolution, loaded as NULL), not a type
+                # mismatch. Selecting a nonexistent column below would raise a
+                # DuckDB Binder Error, not a TRY_CAST-detectable type issue.
+                continue
+
+            if table_types[col] == file_types[col]:
+                continue  # exact type match, nothing to check
+
+            # Escape embedded double-quotes in the column name (DuckDB's own
+            # identifier-escaping convention) so a column name like `weird"col`
+            # can't break out of the quoted identifier and malform this query.
+            col_ident = '"' + col.replace('"', '""') + '"'
+
+            try:
+                bad_value = conn.execute(
+                    f"SELECT {col_ident} FROM {read_fn}('{filepath_escaped}') "
+                    f"WHERE {col_ident} IS NOT NULL AND "
+                    f"TRY_CAST({col_ident} AS {table_types[col]}) IS NULL "
+                    f"LIMIT 1"
+                ).fetchone()
+            except duckdb.Error:
+                # DuckDB's read_csv_auto infers a column's type from a sample of
+                # rows (default ~20,480). A value beyond that sample that doesn't
+                # fit the inferred type makes the scan itself raise a raw
+                # ConversionException — before TRY_CAST ever sees the value. Don't
+                # let that raw DuckDB error escape from validation code whose whole
+                # point is producing a *clear* error: raise our own instead.
+                filename = os.path.basename(filepath)
+                raise CSVSchemaMismatchError(
+                    "\n".join(
+                        [
+                            f"❌ Could not verify column type compatibility for '{filename}'",
+                            "",
+                            f"Column '{col}' is type {table_types[col]} in the existing table, "
+                            "but this file could not be fully read while checking "
+                            "compatibility — it likely contains a value that doesn't "
+                            "match that type.",
+                            "",
+                            "To update the table schema:",
+                            *self._schema_fix_instructions(source_name),
+                            "",
+                            "Note: Your CSV files in the folder will NOT be deleted.",
+                            "      Just re-add the source pointing to the same folder.",
+                        ]
+                    )
+                ) from None
+
+            if bad_value is not None:
+                filename = os.path.basename(filepath)
+                raise CSVSchemaMismatchError(
+                    "\n".join(
+                        [
+                            f"❌ Column type mismatch detected in '{filename}'",
+                            "",
+                            f"Column '{col}' is type {table_types[col]} in the existing table, "
+                            "but this file has a value in that column that cannot be "
+                            "converted to that type.",
+                            "",
+                            "To update the table schema:",
+                            *self._schema_fix_instructions(source_name),
+                            "",
+                            "Note: Your CSV files in the folder will NOT be deleted.",
+                            "      Just re-add the source pointing to the same folder.",
+                        ]
+                    )
+                )
+
     def _validate_schema_match(
         self, conn: duckdb.DuckDBPyConnection, filepath: str, target_table: str, source_name: str
     ) -> None:
@@ -722,87 +853,8 @@ class CSVLoader:
 
             raise CSVSchemaMismatchError("\n".join(error_lines))
 
-        # Column names match. Now check TYPES — a name match doesn't guarantee
-        # insert-time compatibility: DuckDB infers this file's raw types independently
-        # of the table's locked-in types. A narrowing mismatch (e.g. text landing in an
-        # INTEGER column) currently only surfaces as a generic INSERT failure deep in
-        # _load_new_file's bare except block, which silently skips the file instead of
-        # raising a clear, actionable error like the name-mismatch case above does.
-        table_types = self._get_table_column_types(conn, target_table)
-        file_types = self._get_file_column_types(conn, filepath)
-
-        if not file_types:
-            # _get_file_column_types() swallows read errors and returns {} — with no
-            # file-side types to compare against, every table column would otherwise
-            # look "mismatched" here and trigger a doomed per-column scan against a
-            # file we already know can't be read. Nothing useful to check; bail out
-            # and let the file load proceed to surface the real read error.
-            return
-
-        read_fn = self._get_read_function(filepath)
-
-        for col in table_types:
-            if table_types[col] == file_types.get(col):
-                continue  # exact type match, nothing to check
-
-            # Escape embedded double-quotes in the column name (DuckDB's own
-            # identifier-escaping convention) so a column name like `weird"col`
-            # can't break out of the quoted identifier and malform this query.
-            col_ident = '"' + col.replace('"', '""') + '"'
-
-            try:
-                bad_value = conn.execute(
-                    f"SELECT {col_ident} FROM {read_fn}('{filepath}') "
-                    f"WHERE {col_ident} IS NOT NULL AND "
-                    f"TRY_CAST({col_ident} AS {table_types[col]}) IS NULL "
-                    f"LIMIT 1"
-                ).fetchone()
-            except duckdb.Error:
-                # DuckDB's read_csv_auto infers a column's type from a sample of
-                # rows (default ~20,480). A value beyond that sample that doesn't
-                # fit the inferred type makes the scan itself raise a raw
-                # ConversionException — before TRY_CAST ever sees the value. Don't
-                # let that raw DuckDB error escape from validation code whose whole
-                # point is producing a *clear* error: raise our own instead.
-                filename = os.path.basename(filepath)
-                raise CSVSchemaMismatchError(
-                    "\n".join(
-                        [
-                            f"❌ Could not verify column type compatibility for '{filename}'",
-                            "",
-                            f"Column '{col}' is type {table_types[col]} in the existing table, "
-                            "but this file could not be fully read while checking "
-                            "compatibility — it likely contains a value that doesn't "
-                            "match that type.",
-                            "",
-                            "To update the table schema:",
-                            *self._schema_fix_instructions(source_name),
-                            "",
-                            "Note: Your CSV files in the folder will NOT be deleted.",
-                            "      Just re-add the source pointing to the same folder.",
-                        ]
-                    )
-                ) from None
-
-            if bad_value is not None:
-                filename = os.path.basename(filepath)
-                raise CSVSchemaMismatchError(
-                    "\n".join(
-                        [
-                            f"❌ Column type mismatch detected in '{filename}'",
-                            "",
-                            f"Column '{col}' is type {table_types[col]} in the existing table, "
-                            "but this file has a value in that column that cannot be "
-                            "converted to that type.",
-                            "",
-                            "To update the table schema:",
-                            *self._schema_fix_instructions(source_name),
-                            "",
-                            "Note: Your CSV files in the folder will NOT be deleted.",
-                            "      Just re-add the source pointing to the same folder.",
-                        ]
-                    )
-                )
+        # Column names match. Check types.
+        self._check_column_types(conn, filepath, target_table, source_name)
 
     def _create_table_from_file(
         self,
@@ -815,6 +867,8 @@ class CSVLoader:
         temp_table = f"_temp_schema_{int(datetime.now().timestamp())}"
         metadata = self._get_file_metadata(filepath)
         filename = os.path.basename(filepath)
+        filename_escaped = self._sql_quote(filename)
+        filepath_escaped = self._sql_quote(filepath)
         read_fn = self._get_read_function(filepath)
 
         # Load to temp table with metadata columns
@@ -822,11 +876,11 @@ class CSVLoader:
             CREATE TABLE {temp_table} AS
             SELECT
                 *,
-                '{filename}' AS _dango_filename,
+                '{filename_escaped}' AS _dango_filename,
                 TIMESTAMP '{metadata["mtime"].strftime("%Y-%m-%d %H:%M:%S")}' AS _dango_file_mtime,
                 CURRENT_TIMESTAMP AS _dango_loaded_at,
                 false AS _dango_deleted
-            FROM {read_fn}('{filepath}')
+            FROM {read_fn}('{filepath_escaped}')
         """)
 
         # Create target table from temp (empty)
@@ -856,6 +910,8 @@ class CSVLoader:
                 self._validate_schema_match(conn, filepath, target_table, source_name)
 
             metadata = self._get_file_metadata(filepath)
+            filename_escaped = self._sql_quote(filename)
+            filepath_escaped = self._sql_quote(filepath)
             read_fn = self._get_read_function(filepath)
 
             # Load to temp table
@@ -863,11 +919,11 @@ class CSVLoader:
                 CREATE TABLE {temp_table} AS
                 SELECT
                     *,
-                    '{filename}' AS _dango_filename,
+                    '{filename_escaped}' AS _dango_filename,
                     TIMESTAMP '{metadata["mtime"].strftime("%Y-%m-%d %H:%M:%S")}' AS _dango_file_mtime,
                     CURRENT_TIMESTAMP AS _dango_loaded_at,
                     false AS _dango_deleted
-                FROM {read_fn}('{filepath}')
+                FROM {read_fn}('{filepath_escaped}')
             """)
 
             row_count = conn.execute(f"SELECT COUNT(*) FROM {temp_table}").fetchone()[0]
@@ -932,6 +988,8 @@ class CSVLoader:
                 self._validate_schema_match(conn, filepath, target_table, source_name)
 
             metadata = self._get_file_metadata(filepath)
+            filename_escaped = self._sql_quote(filename)
+            filepath_escaped = self._sql_quote(filepath)
             read_fn = self._get_read_function(filepath)
 
             # Load to temp table
@@ -939,11 +997,11 @@ class CSVLoader:
                 CREATE TABLE {temp_table} AS
                 SELECT
                     *,
-                    '{filename}' AS _dango_filename,
+                    '{filename_escaped}' AS _dango_filename,
                     TIMESTAMP '{metadata["mtime"].strftime("%Y-%m-%d %H:%M:%S")}' AS _dango_file_mtime,
                     CURRENT_TIMESTAMP AS _dango_loaded_at,
                     false AS _dango_deleted
-                FROM {read_fn}('{filepath}')
+                FROM {read_fn}('{filepath_escaped}')
             """)
 
             row_count = conn.execute(f"SELECT COUNT(*) FROM {temp_table}").fetchone()[0]
