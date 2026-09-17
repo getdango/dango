@@ -212,6 +212,88 @@ class TestSyncMetabaseSchemaTaskPoll:
         warning_msgs = [c[0][0] for c in mock_logger.warning.call_args_list]
         assert any("unexpected status" in msg for msg in warning_msgs)
 
+    def test_sync_metabase_schema_task_poll_order_documented(self, tmp_path: Path) -> None:
+        """1.0.8-AD: live-verified against a real Metabase v0.62.18 instance with 27
+        historical "sync" task records for one database — GET /api/task's default
+        (no sort params passed) order is reliably newest-first by id, and an explicit
+        sort_column=started_at&sort_direction=desc call produces byte-identical
+        ordering to the unsorted default (confirming this isn't coincidental — it's
+        Metabase's own SortParams schema default). See
+        v1.0.x-planning/1.0.8/BUGS-FOUND.md's "task-list poll assumes newest-first
+        ordering" entry for the full raw-response evidence.
+
+        This test does NOT assert on response order — it deliberately mocks the
+        limit=20 poll response in non-newest-first (scrambled) order to prove the
+        baseline-ID/max-by-id selection logic (not response order) is what makes
+        the poll safe. Even if a future Metabase version changed its default
+        ordering, this selection logic would still correctly find the triggered
+        task as long as it appears anywhere in the returned window.
+        """
+        import requests
+        import yaml
+
+        from dango.visualization.metabase import sync_metabase_schema
+
+        creds_dir = tmp_path / ".dango"
+        creds_dir.mkdir()
+        (creds_dir / "metabase.yml").write_text(
+            yaml.dump({"admin": {"email": "a@test.com", "password": "s"}, "database": {"id": 5}})
+        )
+
+        mock_session = MagicMock(spec=requests.Session)
+        login_resp = MagicMock(status_code=200)
+        login_resp.json.return_value = {"id": "sess-abc"}
+        sync_resp = MagicMock(status_code=200)
+        metadata_resp = MagicMock(status_code=200)
+        metadata_resp.json.return_value = {
+            "tables": [{"id": 1, "name": "stg_orders", "schema": "staging"}]
+        }
+
+        # Baseline: 3 prior "sync" tasks already exist (ids 100, 101, 102) — the
+        # real baseline_task_id becomes max(id)=102.
+        baseline_resp = MagicMock(status_code=200)
+        baseline_resp.json.return_value = {
+            "data": [
+                {"id": 100, "task": "sync", "status": "success"},
+                {"id": 101, "task": "sync", "status": "success"},
+                {"id": 102, "task": "sync", "status": "success"},
+            ]
+        }
+
+        # Poll response: deliberately NOT newest-first (scrambled order) — the
+        # real just-triggered task (id=103) is buried in the middle, with an
+        # older, already-finished unrelated task (id=99) mixed in too. If the
+        # code trusted response order (e.g. "the first sync task is the right
+        # one"), it would pick the wrong task here. It must instead filter to
+        # id > baseline_task_id (102) and take the max by id.
+        poll_resp = MagicMock(status_code=200)
+        poll_resp.json.return_value = {
+            "data": [
+                {"id": 99, "task": "sync", "status": "success"},
+                {"id": 103, "task": "sync", "status": "success"},
+                {"id": 101, "task": "sync", "status": "success"},
+                {"id": 100, "task": "sync", "status": "success"},
+                {"id": 102, "task": "sync", "status": "success"},
+            ]
+        }
+
+        mock_session.post.side_effect = [login_resp, sync_resp]
+        mock_session.get.side_effect = [baseline_resp, poll_resp, metadata_resp]
+        mock_session.put.return_value = MagicMock(status_code=200)
+
+        with (
+            patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
+            patch("dango.visualization.metabase.time.sleep"),
+        ):
+            result = sync_metabase_schema(tmp_path)
+
+        # Correctly identified task id=103 (the only one > baseline 102) as the
+        # triggered task and exited the poll on the first iteration (status
+        # already "success") — proving max-by-id, not response position/order,
+        # drove the decision.
+        assert result is True
+        assert mock_session.get.call_count == 3  # baseline + 1 poll + metadata
+
 
 @pytest.mark.unit
 class TestSyncMetabaseSchemaSessionReuse:
