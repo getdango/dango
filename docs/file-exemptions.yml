@@ -523,12 +523,6 @@ exemptions:
     reason: "1.0.7-6: 14 tests covering credential health checks across all auth types (OAuth, API key, service account, none) with cache scoping and multi-project isolation. Tests also verify exception handling and TOML parsing for service accounts."
     review_by: "v1.1"
 
-  - file: tests/unit/test_csv_loader.py
-    lines: 586
-    category: exempt
-    reason: "1.0.8-AE: added TestAllowSchemaChangesTypeChecking (3 tests, incl. a missing-column-vs-type-mismatch regression found while implementing) and TestFilepathEscaping (2 tests) covering the new _check_column_types() allow-schema-changes gap fix and _sql_quote() filepath/filename escaping fix. Test files track source file growth."
-    review_by: "v1.1"
-
 # Vendored files (in dlt_sources/, not subject to dango standards, always skipped by check script)
 vendored:
   - file: dango/ingestion/dlt_sources/mongodb/helpers.py
