@@ -394,12 +394,6 @@ exemptions:
     reason: "1.0.8-OPS-3: Wired check_mutation_guardrails() (git-state warnings) into add_source/create_model/add_schedule, surfacing a git_warning key on their return dicts. The file was already at 499/500 lines before this change (5 mutation tools is a lot of surface area, per its own module docstring on why it was split out of mcp_server.py) — the actual _git_warnings() helper itself lives in mcp_helpers.py, not here, to keep the addition minimal. Pushed the file ~8 lines over the 500-line limit."
     review_by: "v1.1"
 
-  - file: tests/unit/test_source_wizard.py
-    lines: 524
-    category: exempt
-    reason: "1.0.8-AB: Added TestSpreadsheetUrlPromptUsesClick (3 tests: click.prompt is used instead of inquirer.Text for spreadsheet_url_or_id, default is passed through, click.Abort propagates on Ctrl+C). The file was already at 424 lines (1.0.8-OPS-3 git-warning tests + earlier OAuth/credential-gating/GA4/Sheets-refresh test classes) -- pushed ~24 lines over the 500-line limit."
-    review_by: "v1.1"
-
   - file: dango/utils/post_sync.py
     lines: 815
     category: exempt
