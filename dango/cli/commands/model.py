@@ -320,9 +320,13 @@ def model_remove(ctx: click.Context, model_name: str, yes: bool, dry_run: bool) 
         # Refresh Metabase schema if table was dropped
         if dropped_table:
             try:
-                from dango.visualization.metabase import sync_metabase_schema
+                from dango.visualization.metabase import (
+                    refresh_metabase_connection,
+                    sync_metabase_schema,
+                )
 
-                if sync_metabase_schema(project_root):
+                mb_ok, _mb_err, mb_session_id = refresh_metabase_connection(project_root)
+                if mb_ok and sync_metabase_schema(project_root, existing_session_id=mb_session_id):
                     console.print("[green]✓[/green] Metabase schema refreshed")
             except Exception:  # noqa: BLE001
                 pass  # Non-critical — Metabase may not be running

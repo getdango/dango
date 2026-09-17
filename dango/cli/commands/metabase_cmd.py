@@ -355,10 +355,22 @@ def metabase_refresh(ctx: click.Context) -> None:
 
         console.print("[green]✓[/green] Metabase is running")
 
+        # Refresh Metabase's connection first so schema sync isn't reading
+        # through a stale DuckDB connection (1.0.8-AC).
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        console.print("[cyan]Refreshing Metabase connection...[/cyan]")
+        mb_ok, mb_err, mb_session_id = refresh_metabase_connection(project_root, metabase_url)
+        if not mb_ok:
+            console.print(f"[red]✗[/red] Could not refresh Metabase connection: {mb_err}")
+            raise click.Abort()
+
         # Trigger non-destructive schema sync (handles login, sync, polling,
         # and visibility rules internally)
         console.print("[cyan]Syncing schema...[/cyan]")
-        success = sync_metabase_schema(project_root, metabase_url)
+        success = sync_metabase_schema(
+            project_root, metabase_url, existing_session_id=mb_session_id
+        )
 
         if not success:
             console.print("[red]✗[/red] Schema sync failed. Check Metabase logs for details.")
