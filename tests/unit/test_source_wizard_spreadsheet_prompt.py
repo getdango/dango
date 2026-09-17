@@ -81,15 +81,23 @@ class TestSpreadsheetUrlPromptUsesClick:
 
     @patch("dango.cli.source_wizard.inquirer")
     @patch("dango.cli.source_wizard.click.prompt")
-    def test_prompt_parameter_spreadsheet_url_ctrl_c_raises_abort(
+    def test_prompt_parameter_spreadsheet_url_ctrl_c_returns_none(
         self, mock_click_prompt, mock_inquirer, tmp_path
     ):
         """click.prompt() raises click.Abort on Ctrl+C (unlike inquirer's
-        `if not answers: return None` pattern). _prompt_parameter() has no
-        try/except around this branch, so Abort propagates unchanged out of
-        the call -- matching the existing `raise click.Abort()` at line ~208
-        in run(), which is likewise never caught locally and left to
-        propagate to Click's own top-level handling."""
+        `if not answers: return None` pattern). If left unguarded, that Abort
+        would propagate past _collect_parameters' `if value is None: return
+        None` check and past run()'s `except KeyboardInterrupt:` clause
+        (Abort is a RuntimeError/Exception, not a KeyboardInterrupt), landing
+        in the generic `except Exception as e:` handler and printing a bare
+        "Error: " (str(Abort()) == '') before the wizard's normal "Source not
+        added" / "Aborted!" cancellation message from commands/source.py --
+        confirmed live via a real pty + real Ctrl+C keystroke. This branch
+        must catch Abort locally and return None, exactly like every other
+        field's `if not answers: return None`, so cancellation flows through
+        the same silent path regardless of which field the user was on, and
+        the wizard prints only "Source not added" / "Aborted!" with no
+        spurious error line."""
         from dango.cli.source_wizard import SourceWizard
 
         mock_click_prompt.side_effect = click.Abort()
@@ -98,7 +106,8 @@ class TestSpreadsheetUrlPromptUsesClick:
         metadata = {"display_name": "Google Sheets"}
 
         with patch("dango.cli.source_wizard.console"):
-            with pytest.raises(click.Abort):
-                wizard._prompt_parameter(
-                    self._param(), "my_sheets_source", "Google Sheets", metadata, required=True
-                )
+            value = wizard._prompt_parameter(
+                self._param(), "my_sheets_source", "Google Sheets", metadata, required=True
+            )
+
+        assert value is None

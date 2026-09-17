@@ -1949,7 +1949,10 @@ def {module_name}_resource(api_key: str):
             # click.prompt() reads the whole line in a single blocking call via the terminal's
             # native line editing, avoiding the bug entirely for this one field.
             default_str = str(default) if default is not None else None
-            value = click.prompt(prompt, default=default_str, show_default=bool(default_str))
+            try:
+                value = click.prompt(prompt, default=default_str, show_default=bool(default_str))
+            except click.Abort:
+                return None  # User cancelled (Ctrl+C) - always abort, same as every other field
             return value
 
         elif param_type == "boolean" or param_type == "bool":
