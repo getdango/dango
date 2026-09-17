@@ -47,6 +47,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dango metabase load`'s rollback-on-failure no longer leaves orphaned cards behind in Metabase while reporting "Rollback complete - no changes applied"
 - Google Sheets OAuth: `dango source add` no longer fails with `invalid_scope` immediately after completing the browser consent flow, when the very next step (listing sheet names) needed to refresh the just-issued token
 - Google OAuth setup instructions (CLI panel and docs) now match Google's current "Google Auth Platform" Console UI (renamed and restructured from the old "OAuth consent screen" flow) instead of describing a UI that no longer exists
+- CSV/local-files sources: a file with a value that can't convert to an existing column's type (e.g. text landing in a numeric column) is now rejected with a clear error, instead of being silently skipped while the sync still reports success
+- CSV/local-files sources: the same type-mismatch check now also applies when syncing with `--allow-schema-changes`, which previously had no type protection at all
+- CSV/local-files sources: a source directory or filename containing an apostrophe no longer breaks loading with a raw database error
+- `dango source add`: pasting a long Google Sheets URL into the "Spreadsheet ID or URL" prompt no longer causes the terminal to redraw the line dozens of times
+- `dango source add`: pressing Ctrl+C at the "Spreadsheet ID or URL" prompt now cancels cleanly like every other field, instead of showing a bare error message
+- `dango source add`: choosing "Skip for now" at the OAuth setup prompt no longer crashes
+- Metabase: schema sync triggered by `dango metabase refresh`, `dango model remove`, `dango sync`, and initial cloud onboarding now refreshes Metabase's connection first, so newly-changed tables reliably become visible — previously only 3 of 7 call sites did this
 
 ### Security
 
