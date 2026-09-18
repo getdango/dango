@@ -974,22 +974,9 @@ custom_sources/
 
     def _create_docker_compose(self, config: DangoConfig):
         """Create docker-compose.yml from template"""
-        from jinja2 import Environment, PackageLoader
+        from dango.platform.docker import render_docker_compose
 
-        env = Environment(loader=PackageLoader("dango", "templates"))
-        template = env.get_template("docker-compose.yml.j2")
-
-        content = template.render(
-            project_name=config.project.name.lower().replace(" ", "-"),
-            project_id=config.project.id,
-            metabase_port=config.platform.metabase_port,
-            dbt_docs_port=config.platform.dbt_docs_port,
-        )
-
-        docker_compose_path = self.project_dir / "docker-compose.yml"
-        with open(docker_compose_path, "w", encoding="utf-8") as f:
-            f.write(content)
-
+        render_docker_compose(self.project_dir, config)
         print_success("Created docker-compose.yml")
 
     def _setup_metabase(self) -> bool:

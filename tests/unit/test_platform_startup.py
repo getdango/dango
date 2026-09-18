@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from dango.config.models import DangoConfig, PlatformSettings, ProjectContext
 from dango.exceptions import VersionMismatchError
 from dango.platform.common.startup import (
     _link_metabase_admin,
@@ -19,6 +20,7 @@ from dango.platform.common.startup import (
     setup_metabase_if_needed,
     start_docker_services,
 )
+from dango.platform.docker import render_docker_compose
 from dango.utils.driver import METABASE_DUCKDB_DRIVER_VERSION
 
 # Patch target for NetworkConfig.get_project_info: dango.platform.local.network is the
@@ -146,6 +148,48 @@ class TestEnsureDuckdbDriver:
         ).read_text().strip() == METABASE_DUCKDB_DRIVER_VERSION
 
 
+def _make_config(metabase_port: int = 3000, dbt_docs_port: int = 8081) -> DangoConfig:
+    return DangoConfig(
+        project=ProjectContext(
+            name="Test Project",
+            purpose="testing",
+            created_by="test-user",
+        ),
+        platform=PlatformSettings(metabase_port=metabase_port, dbt_docs_port=dbt_docs_port),
+    )
+
+
+@pytest.mark.unit
+class TestRenderDockerCompose:
+    def test_uses_current_config_ports(self, tmp_path: Path) -> None:
+        """render_docker_compose() writes the ports from the passed-in
+        config, not the PlatformSettings defaults -- this is the core of
+        the bug fix: docker-compose.yml must reflect whatever config says
+        *right now*, not whatever it said at `dango init` time."""
+        config = _make_config(metabase_port=9999, dbt_docs_port=9998)
+        render_docker_compose(tmp_path, config)
+
+        content = (tmp_path / "docker-compose.yml").read_text()
+        assert "127.0.0.1:9999:3000" in content
+        assert "127.0.0.1:9998:80" in content
+        assert "127.0.0.1:3000:3000" not in content
+        assert "127.0.0.1:8081:80" not in content
+
+    def test_idempotent(self, tmp_path: Path) -> None:
+        """Calling render_docker_compose() twice with identical config
+        produces byte-for-byte identical output -- the regression risk this
+        task calls out: unconditional regeneration must be a true no-op
+        when nothing has changed."""
+        config = _make_config()
+        render_docker_compose(tmp_path, config)
+        first = (tmp_path / "docker-compose.yml").read_bytes()
+
+        render_docker_compose(tmp_path, config)
+        second = (tmp_path / "docker-compose.yml").read_bytes()
+
+        assert first == second
+
+
 @pytest.mark.unit
 class TestStartDockerServices:
     def _make_manager(self) -> MagicMock:
@@ -261,6 +305,60 @@ class TestStartDockerServices:
                 start_docker_services(tmp_path)  # Should not raise
 
         manager.start_services.assert_called_once()
+
+    def test_regenerates_compose_before_starting(self, tmp_path):
+        """docker-compose.yml must be regenerated from the project's
+        current config immediately before manager.start_services() runs --
+        otherwise a metabase_port/dbt_docs_port change in project.yml would
+        silently have no effect (this is the exact bug this task fixes:
+        the pre-flight check above already reads the *new* port, but
+        without this call, start_services() would still start containers
+        from the *old*, frozen docker-compose.yml)."""
+        import yaml
+
+        dango_dir = tmp_path / ".dango"
+        dango_dir.mkdir()
+        with open(dango_dir / "project.yml", "w") as f:
+            yaml.safe_dump(
+                {
+                    "project": {
+                        "name": "Test Project",
+                        "created_by": "test@example.com",
+                        "purpose": "testing",
+                    },
+                    "platform": {"metabase_port": 3005, "dbt_docs_port": 8085},
+                },
+                f,
+            )
+        with open(dango_dir / "sources.yml", "w") as f:
+            yaml.safe_dump({"version": "1.0", "sources": []}, f)
+
+        manager = self._make_manager()
+        mock_sock = MagicMock()
+        mock_sock.connect_ex.return_value = 1  # ports free
+
+        call_order = []
+
+        def start_services_side_effect():
+            call_order.append("start_services")
+            return True
+
+        manager.start_services.side_effect = start_services_side_effect
+
+        def fake_render(project_root, config):
+            call_order.append("render_docker_compose")
+            assert config.platform.metabase_port == 3005
+            assert config.platform.dbt_docs_port == 8085
+
+        with patch("dango.platform.DockerManager", return_value=manager):
+            with patch("dango.platform.common.startup.socket.socket", return_value=mock_sock):
+                with patch(
+                    "dango.platform.docker.render_docker_compose", side_effect=fake_render
+                ) as mock_render:
+                    start_docker_services(tmp_path)
+
+        mock_render.assert_called_once()
+        assert call_order == ["render_docker_compose", "start_services"]
 
 
 @pytest.mark.unit
