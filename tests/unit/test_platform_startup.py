@@ -1149,12 +1149,18 @@ class TestRefreshMetabaseConnection:
 
         assert result == (True, None, None)
 
-    def test_refresh_metabase_connection_succeeds_via_log_check(self, tmp_path: Path) -> None:
+    def test_refresh_metabase_connection_succeeds_via_log_check(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """1.0.8-AH: the log-line-based check is tried first and, when it
         confirms readiness, short-circuits the /api/health fallback entirely
         -- mirroring AG's test_setup_metabase_uses_log_ready_check_first.
         Asserts session.get is never called for /api/health, not just that
-        the return value is correct."""
+        the return value is correct. Also asserts NO fallback warning is
+        logged here -- negative control paired with the positive control in
+        test_refresh_metabase_connection_falls_back_to_health_check, so the
+        two tests together prove the warning actually distinguishes which
+        check fired instead of firing unconditionally."""
         from dango.visualization.metabase import refresh_metabase_connection
 
         mock_dm = MagicMock()
@@ -1173,16 +1179,25 @@ class TestRefreshMetabaseConnection:
             patch("subprocess.run", mock_subprocess_run),
             patch("requests.Session.get", mock_get),
             patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
+            caplog.at_level("WARNING", logger="dango.visualization.metabase"),
         ):
             result = refresh_metabase_connection(tmp_path)  # no .dango/metabase.yml at all
 
         assert result == (True, None, None)
         mock_get.assert_not_called()
+        assert not any("/api/health fallback" in record.message for record in caplog.records)
 
-    def test_refresh_metabase_connection_falls_back_to_health_check(self, tmp_path: Path) -> None:
+    def test_refresh_metabase_connection_falls_back_to_health_check(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """1.0.8-AH: when the log check doesn't confirm readiness, the
         /api/health poll is the fallback and a 200 response still yields a
-        successful result."""
+        successful result. Also asserts the fallback-succeeded case is
+        logged (not silent) -- this project's own review history flagged an
+        earlier version of this diff for dropping observability into exactly
+        this scenario (log check never confirmed, but Metabase does appear
+        to be up per /api/health) without noticing the substantive case was
+        still reachable, just via a different branch."""
         from dango.visualization.metabase import refresh_metabase_connection
 
         mock_dm = MagicMock()
@@ -1200,10 +1215,14 @@ class TestRefreshMetabaseConnection:
             patch("subprocess.run", mock_subprocess_run),
             patch("requests.Session.get", return_value=MagicMock(status_code=200)),
             patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
+            caplog.at_level("WARNING", logger="dango.visualization.metabase"),
         ):
             result = refresh_metabase_connection(tmp_path)  # no .dango/metabase.yml at all
 
         assert result == (True, None, None)
+        assert any("/api/health fallback" in record.message for record in caplog.records), (
+            "expected a warning logging that readiness was confirmed via the /api/health fallback"
+        )
 
     def test_refresh_metabase_connection_fails_when_both_checks_fail(self, tmp_path: Path) -> None:
         """1.0.8-AH: when neither the log check nor the /api/health poll ever

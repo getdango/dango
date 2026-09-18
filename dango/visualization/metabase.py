@@ -2021,9 +2021,13 @@ def refresh_metabase_connection(
         # Wait for Metabase to come back up. Try the log-line-based check
         # first (Q17's proven mechanism, same precedent as AG's setup_metabase()
         # fix, PR #514) -- confirms Metabase's own internal readiness claim,
-        # not just that the container is listening. Falls back to the
-        # original /api/health poll, same overall budget, only if the log
-        # check doesn't confirm readiness.
+        # not just that the container is listening. A still-shutting-down old
+        # Metabase process can keep answering /api/health with 200 for several
+        # seconds after `docker restart`'s SIGTERM (JVM graceful shutdown),
+        # followed by a real gap where nothing is listening -- the log line is
+        # immune to that race since it only appears once, at real startup
+        # completion. Falls back to the original /api/health poll, same
+        # overall budget, only if the log check doesn't confirm readiness.
         #
         # max_wait_seconds (1.0.8-AH, 2026-09-18) is derived from 4 live
         # *restart*-path measurements against an already-warm, already-set-up
@@ -2056,6 +2060,23 @@ def refresh_metabase_connection(
                 time.sleep(1)
 
         if log_ready or health_ready:
+            if health_ready and not log_ready:
+                # 1.0.8-AH: surfaces the same condition the old per-loop
+                # warning did (Metabase answers /api/health but its own
+                # "Initialization COMPLETE" log line never showed up within
+                # the readiness budget) -- worth keeping visible given this
+                # project's history needing exactly this signal to diagnose
+                # the Q11/Q14/Q16/Q17 readiness-race saga, even though it no
+                # longer implies a *downstream caller's* login is at risk
+                # (this function now does its own login unconditionally
+                # below, regardless of which check fired).
+                logger.warning(
+                    "refresh_metabase_connection: restart succeeded via the "
+                    "/api/health fallback -- Metabase's own 'Initialization "
+                    "COMPLETE' log line never appeared within the readiness "
+                    "budget"
+                )
+
             # 1.0.8-Q17: one real login here, reused by both the site-url
             # catch-up below and (via the return value) by callers'
             # subsequent sync_metabase_schema() calls, instead of each
