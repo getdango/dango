@@ -3,7 +3,9 @@
 Unit tests for Metabase API-calling functions in dango/visualization/metabase.py.
 
 Covers: wait_for_metabase_ready and MetabaseProvisioner methods.
-For sync_metabase_schema and setup_metabase tests, see test_metabase_setup.py.
+For setup_metabase tests, see test_metabase_setup.py. For
+sync_metabase_schema tests, see test_metabase_schema_sync_core.py and
+test_metabase_schema_sync.py.
 """
 
 from __future__ import annotations
