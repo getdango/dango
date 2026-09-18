@@ -13,9 +13,39 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from dango.config.models import DangoConfig
 from dango.exceptions import DockerIdentityCollisionError, format_structured_error
 
 console = Console()
+
+
+def render_docker_compose(project_root: Path, config: DangoConfig) -> None:
+    """Render docker-compose.yml from the project's current config.
+
+    Safe to call unconditionally, any number of times: the template is a pure
+    function of config.project.name/id and config.platform.metabase_port/
+    dbt_docs_port, with no free-form user-customizable sections (verified
+    2026-09-18, see BUGS-FOUND.md) -- re-rendering from unchanged config
+    produces a byte-for-byte identical file, and from changed config produces
+    the correct one. Called once at `dango init` (cli/init.py) and again by
+    start_docker_services() before every `dango start`, so a project.yml port
+    change takes effect without requiring the user to re-run `dango init`.
+    """
+    from jinja2 import Environment, PackageLoader
+
+    env = Environment(loader=PackageLoader("dango", "templates"))
+    template = env.get_template("docker-compose.yml.j2")
+
+    content = template.render(
+        project_name=config.project.name.lower().replace(" ", "-"),
+        project_id=config.project.id,
+        metabase_port=config.platform.metabase_port,
+        dbt_docs_port=config.platform.dbt_docs_port,
+    )
+
+    docker_compose_path = project_root / "docker-compose.yml"
+    with open(docker_compose_path, "w", encoding="utf-8") as f:
+        f.write(content)
 
 
 def _legacy_path_hash(project_root: Path | str) -> str:

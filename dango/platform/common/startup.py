@@ -226,6 +226,19 @@ def start_docker_services(project_root: Path) -> None:
                 "Run: lsof -ti:<port> | xargs kill -9"
             )
 
+    # Regenerate docker-compose.yml from current config before starting --
+    # it's rendered once at `dango init` and otherwise never updated, so a
+    # project.yml port change (e.g. to resolve a conflict, per this
+    # function's own error messages) would silently have no effect
+    # otherwise. See BUGS-FOUND.md for the incident this fixes.
+    try:
+        from dango.config.helpers import load_config
+        from dango.platform.docker import render_docker_compose
+
+        render_docker_compose(project_root, load_config(project_root))
+    except Exception:
+        pass  # Best-effort -- if config can't load, start_services() below will fail anyway
+
     # Start Docker services (Metabase, dbt-docs)
     docker_success = manager.start_services()
     if not docker_success:
