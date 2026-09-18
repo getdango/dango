@@ -3,9 +3,12 @@
 Unit tests for sync_metabase_schema()'s re-sync completion poll
 in dango/visualization/metabase.py.
 
-Split out from test_metabase_setup.py (which covers the rest of
-sync_metabase_schema()'s behavior) to keep both files under the
-project's 500-line-per-file limit.
+Split out from test_metabase_setup.py (which originally covered the rest
+of sync_metabase_schema()'s behavior) to keep both files under the
+project's 500-line-per-file limit. That core coverage moved again
+(1.0.8-AG) into test_metabase_schema_sync_core.py, when test_metabase_setup.py
+needed the room for setup_metabase()'s new log-ready-check tests --
+test_metabase_setup.py now covers setup_metabase() only.
 """
 
 from __future__ import annotations

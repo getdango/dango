@@ -1130,11 +1130,33 @@ def setup_metabase(
     from dango.platform.docker import get_compose_project_name
 
     compose_name = get_compose_project_name(project_root)
+    container_name = f"{compose_name}-metabase-1"
 
-    # Wait for Metabase to be ready (longer timeout for cloud cold start)
-    ready_timeout = 300 if cloud_mode else 60
+    # Wait for Metabase to be ready (longer timeout for cloud cold start).
+    # Try the log-line-based check first (Q17's proven mechanism -- confirms
+    # Metabase's own internal claim of readiness, not just that the container
+    # is listening, and reading container logs is cheap enough it can't trip
+    # any request-rate protection). Falls back to the original /api/health
+    # poll, same budget, only if the log-based check doesn't confirm
+    # readiness -- e.g. a Metabase version that logs the line differently, or
+    # a docker-logs failure for an unrelated reason -- so this never
+    # regresses below the previous behavior.
+    #
+    # Local-mode timeout (200s) is derived from 3 live cold-start
+    # measurements (1.0.8-AG, 2026-09-18), not a guess: wall-clock elapsed
+    # from this same `since` capture point to Metabase's "Initialization
+    # COMPLETE ... (JVM uptime: Y.Ys)" log line was 127.8s / 94.5s / 82.2s
+    # across 3 fresh cold starts (real Docker containers, real scratch
+    # projects) -- max 127.8s, ~1.5x variance across just 3 samples on one
+    # machine. 200s gives ~57% margin over the observed max while staying
+    # well under the untouched 300s cloud-mode budget.
+    ready_timeout = 300 if cloud_mode else 200
+    since = datetime.now(timezone.utc).isoformat()
     print("  ⏳ Waiting for Metabase to be ready...")
-    if not wait_for_metabase_ready(metabase_url, timeout=ready_timeout):
+    if not (
+        _wait_for_metabase_log_ready(container_name, since, max_wait_seconds=ready_timeout)
+        or wait_for_metabase_ready(metabase_url, timeout=ready_timeout)
+    ):
         summary["errors"].append(f"Metabase not ready after {ready_timeout} seconds")
         return summary
 

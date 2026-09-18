@@ -84,6 +84,10 @@ class TestSetupMetabaseSiteUrl:
 
         with (
             patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            # 1.0.8-AG: log-ready check runs first; force it False so this
+            # test falls straight through to the (mocked) health check
+            # instead of real-polling a nonexistent container.
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
             patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
@@ -113,6 +117,10 @@ class TestSetupMetabaseSiteUrl:
 
         with (
             patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            # 1.0.8-AG: log-ready check runs first; force it False so this
+            # test falls straight through to the (mocked) health check
+            # instead of real-polling a nonexistent container.
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
             patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
@@ -137,6 +145,10 @@ class TestSetupMetabaseSiteUrl:
 
         with (
             patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            # 1.0.8-AG: log-ready check runs first; force it False so this
+            # test falls straight through to the (mocked) health check
+            # instead of real-polling a nonexistent container.
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
             patch(_NETWORK_CONFIG_GET_PROJECT_INFO, return_value=None),
@@ -159,6 +171,10 @@ class TestSetupMetabaseSiteUrl:
 
         with (
             patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            # 1.0.8-AG: log-ready check runs first; force it False so this
+            # test falls straight through to the (mocked) health check
+            # instead of real-polling a nonexistent container.
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
         ):
@@ -189,6 +205,10 @@ class TestSetupMetabaseSiteUrl:
 
         with (
             patch("dango.platform.docker.get_compose_project_name", return_value="dango-abc"),
+            # 1.0.8-AG: log-ready check runs first; force it False so this
+            # test falls straight through to the (mocked) health check
+            # instead of real-polling a nonexistent container.
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
             patch("dango.visualization.metabase.wait_for_metabase_ready", return_value=True),
             patch("dango.visualization.metabase.requests.Session", return_value=mock_session),
             patch(
