@@ -786,7 +786,14 @@ class TestRefreshMetabaseConnection:
         precedent as sync_metabase_schema()/set_metabase_telemetry()), not always
         default to localhost:3000 -- a project on a non-default
         platform.metabase_port had every automatic post-sync refresh silently
-        target the wrong host. See BUGS-FOUND.md."""
+        target the wrong host. See BUGS-FOUND.md.
+
+        1.0.8-AH: the log-ready check is mocked False here (not True, as most
+        other tests in this class use) so the /api/health fallback actually
+        runs and its URL can be asserted -- with log_ready=True the health
+        check is never called at all, so there'd be nothing to assert
+        the resolved URL against.
+        """
         import yaml as yaml_module
 
         from dango.visualization.metabase import refresh_metabase_connection
@@ -810,7 +817,7 @@ class TestRefreshMetabaseConnection:
             patch("dango.platform.docker.DockerManager", return_value=mock_dm),
             patch("subprocess.run", mock_subprocess_run),
             patch("requests.Session.get", mock_get),
-            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
         ):
             result = refresh_metabase_connection(tmp_path)
 
@@ -819,7 +826,11 @@ class TestRefreshMetabaseConnection:
 
     def test_explicit_metabase_url_wins_over_creds_file(self, tmp_path: Path) -> None:
         """An explicitly-passed metabase_url still takes priority over the creds
-        file's own value."""
+        file's own value.
+
+        1.0.8-AH: log-ready mocked False (see comment on the test above) so
+        the /api/health fallback runs and its URL can be asserted.
+        """
         import yaml as yaml_module
 
         from dango.visualization.metabase import refresh_metabase_connection
@@ -843,7 +854,7 @@ class TestRefreshMetabaseConnection:
             patch("dango.platform.docker.DockerManager", return_value=mock_dm),
             patch("subprocess.run", mock_subprocess_run),
             patch("requests.Session.get", mock_get),
-            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
         ):
             refresh_metabase_connection(tmp_path, metabase_url="http://localhost:19999")
 
@@ -1137,6 +1148,102 @@ class TestRefreshMetabaseConnection:
             result = refresh_metabase_connection(tmp_path)  # no .dango/metabase.yml at all
 
         assert result == (True, None, None)
+
+    def test_refresh_metabase_connection_succeeds_via_log_check(self, tmp_path: Path) -> None:
+        """1.0.8-AH: the log-line-based check is tried first and, when it
+        confirms readiness, short-circuits the /api/health fallback entirely
+        -- mirroring AG's test_setup_metabase_uses_log_ready_check_first.
+        Asserts session.get is never called for /api/health, not just that
+        the return value is correct."""
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        mock_subprocess_run = MagicMock(
+            side_effect=[
+                MagicMock(stdout="dango-abc123-metabase-1\n", returncode=0),  # docker ps
+                MagicMock(returncode=0),  # docker restart
+            ]
+        )
+        mock_get = MagicMock(return_value=MagicMock(status_code=200))
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", mock_subprocess_run),
+            patch("requests.Session.get", mock_get),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=True),
+        ):
+            result = refresh_metabase_connection(tmp_path)  # no .dango/metabase.yml at all
+
+        assert result == (True, None, None)
+        mock_get.assert_not_called()
+
+    def test_refresh_metabase_connection_falls_back_to_health_check(self, tmp_path: Path) -> None:
+        """1.0.8-AH: when the log check doesn't confirm readiness, the
+        /api/health poll is the fallback and a 200 response still yields a
+        successful result."""
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        mock_subprocess_run = MagicMock(
+            side_effect=[
+                MagicMock(stdout="dango-abc123-metabase-1\n", returncode=0),  # docker ps
+                MagicMock(returncode=0),  # docker restart
+            ]
+        )
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", mock_subprocess_run),
+            patch("requests.Session.get", return_value=MagicMock(status_code=200)),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
+        ):
+            result = refresh_metabase_connection(tmp_path)  # no .dango/metabase.yml at all
+
+        assert result == (True, None, None)
+
+    def test_refresh_metabase_connection_fails_when_both_checks_fail(self, tmp_path: Path) -> None:
+        """1.0.8-AH: when neither the log check nor the /api/health poll ever
+        confirms readiness within max_wait_seconds, the function reports
+        failure -- the same error message as before this change. time.sleep
+        is mocked so this doesn't actually wait real wall-clock time."""
+        import requests
+
+        from dango.visualization.metabase import refresh_metabase_connection
+
+        mock_dm = MagicMock()
+        mock_dm.compose_project_name = "dango-abc123"
+
+        mock_subprocess_run = MagicMock(
+            side_effect=[
+                MagicMock(stdout="dango-abc123-metabase-1\n", returncode=0),  # docker ps
+                MagicMock(returncode=0),  # docker restart
+            ]
+        )
+
+        # time.monotonic() must actually advance past the deadline across
+        # repeated calls (the fallback loop's `while time.monotonic() <
+        # deadline`) -- a fixed return_value would spin the mocked
+        # time.sleep() forever instead of exiting the loop.
+        monotonic_values = iter([0.0, 0.0, 61.0])
+
+        with (
+            patch("dango.platform.docker.DockerManager", return_value=mock_dm),
+            patch("subprocess.run", mock_subprocess_run),
+            patch(
+                "requests.Session.get",
+                side_effect=requests.exceptions.RequestException("connection refused"),
+            ),
+            patch("dango.visualization.metabase._wait_for_metabase_log_ready", return_value=False),
+            patch("time.monotonic", side_effect=lambda: next(monotonic_values)),
+            patch("time.sleep"),
+        ):
+            result = refresh_metabase_connection(tmp_path)  # no .dango/metabase.yml at all
+
+        assert result == (False, "Metabase did not become healthy after restart", None)
 
 
 @pytest.mark.unit
