@@ -2018,73 +2018,97 @@ def refresh_metabase_connection(
         if restart_result.returncode != 0:
             return (False, f"Docker restart failed: {restart_result.stderr[:200]}", None)
 
-        # Wait for Metabase to come back up (max 20 seconds)
-        max_attempts = 20
-        for _ in range(max_attempts):
+        # Wait for Metabase to come back up. Try the log-line-based check
+        # first (Q17's proven mechanism, same precedent as AG's setup_metabase()
+        # fix, PR #514) -- confirms Metabase's own internal readiness claim,
+        # not just that the container is listening. A still-shutting-down old
+        # Metabase process can keep answering /api/health with 200 for several
+        # seconds after `docker restart`'s SIGTERM (JVM graceful shutdown),
+        # followed by a real gap where nothing is listening -- the log line is
+        # immune to that race since it only appears once, at real startup
+        # completion. Falls back to the original /api/health poll, same
+        # overall budget, only if the log check doesn't confirm readiness.
+        #
+        # max_wait_seconds (1.0.8-AH, 2026-09-18) is derived from 4 live
+        # *restart*-path measurements against an already-warm, already-set-up
+        # container (not a cold first boot -- see AG's setup_metabase() fix
+        # above for that separate, larger number): wall-clock elapsed from
+        # this same `restart_time` capture point to Metabase's own
+        # "Initialization COMPLETE ... (JVM uptime: Y.Ys)" log line was
+        # 38.4s / 36.0s / 35.9s / 37.0s across 4 real `docker restart` cycles
+        # (real Docker container, real scratch project) -- max 38.4s, a tight
+        # ~7% spread (far tighter than AG's cold-boot 82.2-127.8s, consistent
+        # with a warm restart skipping image build/pull and benefiting from
+        # OS page cache). 60s gives ~56% margin over the observed max, the
+        # same margin ratio AG's own 200s/127.8s local-mode value used, not a
+        # guessed round number.
+        max_wait_seconds = 60
+        log_ready = _wait_for_metabase_log_ready(
+            container_name, restart_time, max_wait_seconds=max_wait_seconds
+        )
+        health_ready = False
+        if not log_ready:
+            deadline = time.monotonic() + max_wait_seconds
+            while time.monotonic() < deadline:
+                try:
+                    response = session.get(f"{metabase_url}/api/health", timeout=1)
+                    if response.status_code == 200:
+                        health_ready = True
+                        break
+                except requests.exceptions.RequestException:  # noqa: BLE001
+                    pass
+                time.sleep(1)
+
+        if log_ready or health_ready:
+            if health_ready and not log_ready:
+                # 1.0.8-AH: surfaces the same condition the old per-loop
+                # warning did (Metabase answers /api/health but its own
+                # "Initialization COMPLETE" log line never showed up within
+                # the readiness budget) -- worth keeping visible given this
+                # project's history needing exactly this signal to diagnose
+                # the Q11/Q14/Q16/Q17 readiness-race saga, even though it no
+                # longer implies a *downstream caller's* login is at risk
+                # (this function now does its own login unconditionally
+                # below, regardless of which check fired).
+                logger.warning(
+                    "refresh_metabase_connection: restart succeeded via the "
+                    "/api/health fallback -- Metabase's own 'Initialization "
+                    "COMPLETE' log line never appeared within the readiness "
+                    "budget"
+                )
+
+            # 1.0.8-Q17: one real login here, reused by both the site-url
+            # catch-up below and (via the return value) by callers'
+            # subsequent sync_metabase_schema() calls, instead of each
+            # independently re-logging in — drops real logins per
+            # successful cycle from up to 3 down to at most 1. Best-effort:
+            # a login failure here just means downstream callers fall back
+            # to their own login, same as before this change.
+            session_id: str | None = None
             try:
-                response = session.get(f"{metabase_url}/api/health", timeout=1)
-                if response.status_code == 200:
-                    # /api/health alone is not enough: a still-shutting-down old
-                    # Metabase process can keep answering it with 200 for several
-                    # seconds after `docker restart`'s SIGTERM (JVM graceful
-                    # shutdown), followed by a real gap where nothing is listening.
-                    # Confirm real readiness before declaring it -- 1.0.8-Q17:
-                    # poll Metabase's own log-based startup-complete banner
-                    # instead of a login-based check (1.0.8-Q11/Q14/Q16 all tried
-                    # a login-based version of this and either failed to close the
-                    # race or tripped Metabase's own login-throttle lockout; see
-                    # BUGS-FOUND.md). Runs unconditionally (not gated on
-                    # site_url_set/cloud_mode below), since the race applies
-                    # regardless of whether the site-url catch-up will do anything.
-                    # Best-effort like the site-url catch-up right below: a
-                    # readiness-check failure here does not turn a successful
-                    # restart into a reported failure — the restart genuinely did
-                    # succeed, this is downstream of that.
-                    if not _wait_for_metabase_log_ready(container_name, restart_time):
-                        logger.warning(
-                            "refresh_metabase_connection: restart succeeded and "
-                            "/api/health responded, but Metabase's own "
-                            "'Initialization COMPLETE' log line never appeared "
-                            "within the readiness budget — a caller's own "
-                            "single-attempt login (e.g. sync_metabase_schema()) may "
-                            "still hit this gap and fail"
-                        )
+                creds_file = project_root / ".dango" / "metabase.yml"
+                with open(creds_file) as f:
+                    creds = yaml.safe_load(f) or {}
+                admin = creds.get("admin", {})
+                email = admin.get("email")
+                password = admin.get("password")
+                if email and password:
+                    session_id = _metabase_login(session, metabase_url, email, password)
+            except Exception:  # noqa: BLE001
+                pass  # Best-effort — downstream callers fall back to their own login
 
-                    # 1.0.8-Q17: one real login here, reused by both the site-url
-                    # catch-up below and (via the return value) by callers'
-                    # subsequent sync_metabase_schema() calls, instead of each
-                    # independently re-logging in — drops real logins per
-                    # successful cycle from up to 3 down to at most 1. Best-effort:
-                    # a login failure here just means downstream callers fall back
-                    # to their own login, same as before this change.
-                    session_id: str | None = None
-                    try:
-                        creds_file = project_root / ".dango" / "metabase.yml"
-                        with open(creds_file) as f:
-                            creds = yaml.safe_load(f) or {}
-                        admin = creds.get("admin", {})
-                        email = admin.get("email")
-                        password = admin.get("password")
-                        if email and password:
-                            session_id = _metabase_login(session, metabase_url, email, password)
-                    except Exception:  # noqa: BLE001
-                        pass  # Best-effort — downstream callers fall back to their own login
+            # See _apply_metabase_site_url_catchup()'s docstring for why this
+            # is a bounded one-time catch-up (cheap on every call once done),
+            # not a recurring cost paid on every sync forever. Best-effort:
+            # never turns a successful restart into a reported failure.
+            try:
+                _apply_metabase_site_url_catchup(
+                    session, metabase_url, project_root, session_id=session_id
+                )
+            except Exception:  # noqa: BLE001
+                pass  # Not critical — site URL refresh is best-effort
 
-                    # See _apply_metabase_site_url_catchup()'s docstring for why this
-                    # is a bounded one-time catch-up (cheap on every call once done),
-                    # not a recurring cost paid on every sync forever. Best-effort:
-                    # never turns a successful restart into a reported failure.
-                    try:
-                        _apply_metabase_site_url_catchup(
-                            session, metabase_url, project_root, session_id=session_id
-                        )
-                    except Exception:  # noqa: BLE001
-                        pass  # Not critical — site URL refresh is best-effort
-
-                    return (True, None, session_id)
-            except requests.exceptions.RequestException:  # noqa: BLE001
-                pass
-            time.sleep(1)
+            return (True, None, session_id)
 
         return (False, "Metabase did not become healthy after restart", None)
 
