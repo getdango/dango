@@ -271,8 +271,22 @@ def start(ctx: click.Context, yes: bool) -> None:
                 if result.returncode == 0 and result.stdout.strip():
                     pids = result.stdout.strip().split("\n")
 
-                    # Check each process to see if it's a Dango process
-                    dango_pids = []
+                    from dango.cli.helpers.process_manager import (
+                        read_pid_record_for_project,
+                    )
+                    from dango.utils.process import is_process_running
+
+                    # Identity-verified against THIS project's own previously-recorded
+                    # server (PID + start time, see 1.0.8-OPS-1) — a bare command-line
+                    # match only tells us "some Dango process," not "my process."
+                    my_record = read_pid_record_for_project(project_root)
+
+                    # Check each process to see if it's a Dango process, and — for
+                    # ones that are — whether it's confirmed as this project's own
+                    # (own_pids) or a Dango process this project doesn't recognize as
+                    # its own (foreign_dango_pids, e.g. a different project's server).
+                    own_pids = []
+                    foreign_dango_pids = []
                     other_pids = []
 
                     for proc_pid in pids:
@@ -292,16 +306,23 @@ def start(ctx: click.Context, yes: bool) -> None:
 
                                 # Check if it's a Dango uvicorn process
                                 if "uvicorn" in cmd_line and "dango.web.app" in cmd_line:
-                                    dango_pids.append(proc_pid)
+                                    if (
+                                        my_record is not None
+                                        and proc_pid == my_record.pid
+                                        and is_process_running(proc_pid, my_record.start_time)
+                                    ):
+                                        own_pids.append(proc_pid)
+                                    else:
+                                        foreign_dango_pids.append((proc_pid, cmd_line))
                                 else:
                                     other_pids.append((proc_pid, cmd_line))
                         except (ValueError, Exception):
                             continue
 
-                    # Only auto-kill Dango processes
-                    if dango_pids:
+                    # Only auto-kill this project's own previously-recorded process
+                    if own_pids:
                         console.print(
-                            f"[dim]Found {len(dango_pids)} Dango process(es) using port {port}[/dim]"
+                            f"[dim]Found {len(own_pids)} Dango process(es) using port {port}[/dim]"
                         )
                         console.print("[dim]Attempting to stop zombie Dango processes...[/dim]")
                         console.print()
@@ -309,8 +330,10 @@ def start(ctx: click.Context, yes: bool) -> None:
                         from dango.utils.process import kill_process
 
                         killed_any = False
-                        for proc_pid in dango_pids:
-                            if kill_process(proc_pid, timeout=5):
+                        for proc_pid in own_pids:
+                            if kill_process(
+                                proc_pid, timeout=5, expected_start_time=my_record.start_time
+                            ):
                                 killed_any = True
                                 console.print(f"[green]✓[/green] Stopped Dango process {proc_pid}")
 
@@ -352,6 +375,41 @@ def start(ctx: click.Context, yes: bool) -> None:
                             )
                             console.print()
                             raise click.Abort()
+
+                    # Refuse to kill Dango processes that aren't confirmed as this
+                    # project's own — could be a different project's live server, or
+                    # this project's own server but with the recorded PID reused by
+                    # an unrelated process (see is_process_running()'s docstring)
+                    elif foreign_dango_pids:
+                        console.print(
+                            f"[red]✗[/red] Port {port} is in use by a Dango process from a "
+                            f"different project (or one this project doesn't recognize as its own):"
+                        )
+                        console.print()
+                        for proc_pid, cmd_line in foreign_dango_pids:
+                            # Truncate long command lines
+                            display_cmd = cmd_line if len(cmd_line) <= 60 else cmd_line[:57] + "..."
+                            console.print(f"  [dim]PID {proc_pid}:[/dim] {display_cmd}")
+                        console.print()
+                        console.print(
+                            "[yellow]⚠  Refusing to stop a process that isn't confirmed as this "
+                            "project's own.[/yellow]"
+                        )
+                        console.print()
+                        console.print("[bold]Option 1: Stop the other project[/bold]")
+                        console.print(
+                            "  If you know which project this is, run [cyan]dango stop[/cyan] "
+                            "from its directory, or [cyan]kill <PID>[/cyan] above"
+                        )
+                        console.print()
+                        console.print("[bold]Option 2: Change this project's port[/bold]")
+                        console.print("  Edit [cyan].dango/project.yml[/cyan]:")
+                        console.print("[dim]  platform:[/dim]")
+                        console.print(
+                            f"[dim]    port: 9000  # Change from {port} to any free port[/dim]"
+                        )
+                        console.print()
+                        raise click.Abort()
 
                     # Warn about non-Dango processes and refuse to continue
                     elif other_pids:
