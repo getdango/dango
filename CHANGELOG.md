@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dango source add`: choosing "Skip for now" at the OAuth setup prompt no longer crashes
 - Metabase: schema sync triggered by `dango metabase refresh`, `dango model remove`, `dango sync`, and initial cloud onboarding now refreshes Metabase's connection first, so newly-changed tables reliably become visible — previously only 3 of 7 call sites did this
 - Metabase: first-run setup no longer fails with "Metabase not ready after 60 seconds" on a slow cold start — readiness now confirms Metabase's own startup-complete log line first, with a realistic (measured, not guessed) timeout as a fallback
+- Metabase: `refresh_metabase_connection()`'s post-restart readiness check now uses the same proven log-based signal as first-run setup, with a realistic timeout — previously a fixed 20-second budget was often too short for a real restart, silently skipping the post-sync schema refresh that makes new tables visible in Metabase
+- `dango start` no longer kills another project's live server when the configured port is already in use — it now verifies the process is this project's own before stopping it, and shows a clear error if it can't confirm that instead
+- `docker-compose.yml` is now regenerated from current config before every `dango start` — previously it was only written once at `dango init`, so changing `metabase_port`/`dbt_docs_port` afterward (including via this project's own suggested port-conflict fix) silently had no effect
 
 ### Security
 
