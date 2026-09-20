@@ -71,7 +71,10 @@ def _is_duckdb_lock_error(error: BaseException) -> bool:
 
 
 def _connect_with_lock_retry(
-    duckdb_path: Path, source_name: str, operation: str
+    duckdb_path: Path,
+    source_name: str,
+    operation: str,
+    project_root: Path | None = None,
 ) -> "duckdb.DuckDBPyConnection":
     """Open a write connection to the warehouse, retrying on Metabase-held-lock conflicts.
 
@@ -83,6 +86,14 @@ def _connect_with_lock_retry(
     which previously connected directly with zero retry, so any of them could fail outright the
     moment Metabase happened to be querying. See BUGS-FOUND.md, 2026-09-21, for the incident this
     fixes (found via the first-ever real run of the release-readiness CI job).
+
+    If ``project_root`` is given, a final fallback is attempted after retries are
+    exhausted: stop Metabase (forced, regardless of cloud/local mode), connect, then
+    restart Metabase — guaranteeing success instead of propagating the lock error, at
+    the cost of briefly disrupting anyone viewing a live Metabase dashboard (~15-20s).
+    Only pass ``project_root`` for write sites where failing outright is worse than
+    that disruption. Leave it ``None`` (the default) for best-effort bookkeeping that
+    should keep failing softly, same as before this fallback existed.
     """
     import duckdb as _duckdb
 
@@ -92,7 +103,13 @@ def _connect_with_lock_retry(
         try:
             return _duckdb.connect(str(duckdb_path))
         except Exception as _exc:
-            if _attempt >= _LOCK_MAX_RETRIES - 1 or not _is_duckdb_lock_error(_exc):
+            if not _is_duckdb_lock_error(_exc):
+                raise
+            if _attempt >= _LOCK_MAX_RETRIES - 1:
+                if project_root is not None:
+                    return _connect_with_metabase_stopped(
+                        duckdb_path, project_root, source_name, operation
+                    )
                 raise
             _logging.getLogger(__name__).warning(
                 "duckdb_lock_conflict_retry: attempt=%d/%d wait=%ds source=%s operation=%s",
@@ -108,6 +125,41 @@ def _connect_with_lock_retry(
             )
             time.sleep(_LOCK_RETRY_WAIT)
     raise AssertionError("unreachable: loop above always returns or raises")
+
+
+def _connect_with_metabase_stopped(
+    duckdb_path: Path, project_root: Path, source_name: str, operation: str
+) -> "duckdb.DuckDBPyConnection":
+    """Last-resort fallback after _connect_with_lock_retry() exhausts its retries.
+
+    Force-stops Metabase (bypassing its usual cloud-only gate — see
+    metabase_lifecycle.py's stop_metabase_for_writes(force=True)), opens the
+    connection, and restarts Metabase. Disrupts anyone viewing a live Metabase
+    dashboard for roughly 15-20 seconds — only called for write sites where failing
+    outright is worse than that disruption.
+    """
+    import duckdb as _duckdb
+
+    from dango.platform.common.metabase_lifecycle import (
+        start_metabase_after_writes,
+        stop_metabase_for_writes,
+    )
+
+    _logging.getLogger(__name__).warning(
+        "duckdb_lock_conflict_escalate_stop_metabase: source=%s operation=%s",
+        source_name,
+        operation,
+    )
+    console.print(
+        "  [yellow]⚠ DuckDB lock conflict persisted after 5 retries — "
+        "stopping Metabase to force a write window...[/yellow]"
+    )
+    _metabase_was_stopped = stop_metabase_for_writes(project_root, force=True)
+    try:
+        return _duckdb.connect(str(duckdb_path))
+    finally:
+        if _metabase_was_stopped:
+            start_metabase_after_writes(project_root)
 
 
 def _apply_dlt_telemetry_env(project_root: Path) -> None:
@@ -1132,7 +1184,10 @@ class DltPipelineRunner:
                 console.print("  🔄 Full refresh: dropping data and pipeline state")
                 try:
                     db = _connect_with_lock_retry(
-                        self.duckdb_path, source_name, "dlt-native-full-refresh-drop"
+                        self.duckdb_path,
+                        source_name,
+                        "dlt-native-full-refresh-drop",
+                        project_root=self.project_root,
                     )
                     try:
                         db.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')
@@ -1534,7 +1589,10 @@ class DltPipelineRunner:
                 console.print("  🔄 Full refresh: dropping data and pipeline state")
                 try:
                     db = _connect_with_lock_retry(
-                        self.duckdb_path, source_name, "dlt-full-refresh-drop"
+                        self.duckdb_path,
+                        source_name,
+                        "dlt-full-refresh-drop",
+                        project_root=self.project_root,
                     )
                     try:
                         db.execute(f'DROP SCHEMA IF EXISTS "{dataset_name}" CASCADE')

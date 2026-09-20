@@ -220,7 +220,7 @@ class TestLoadFileFiltering:
                         loader.load("test_source", config)
 
         mock_connect_retry.assert_called_once_with(
-            loader.duckdb_path, "test_source", "csv-loader-write"
+            loader.duckdb_path, "test_source", "csv-loader-write", project_root=loader.project_root
         )
 
 

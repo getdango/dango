@@ -24,13 +24,18 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-def stop_metabase_for_writes(project_root: Path) -> bool:
-    """Stop Metabase container on cloud to prevent DuckDB write lock conflicts.
+def stop_metabase_for_writes(project_root: Path, force: bool = False) -> bool:
+    """Stop Metabase container to prevent DuckDB write lock conflicts.
 
-    Returns ``True`` if Metabase was stopped (cloud mode), ``False`` if not
-    cloud mode or if the stop failed (logged, not raised).
+    Normally cloud-only (``force=False``). Pass ``force=True`` to bypass that gate —
+    used as a last-resort local/CI fallback by
+    ``_connect_with_metabase_stopped()`` in dlt_runner.py after
+    ``_connect_with_lock_retry()``'s own retries are exhausted.
+
+    Returns ``True`` if Metabase was stopped, ``False`` if not applicable or if the
+    stop failed (logged, not raised).
     """
-    if os.environ.get("DANGO_CLOUD_MODE") != "true":
+    if not force and os.environ.get("DANGO_CLOUD_MODE") != "true":
         return False
 
     try:
