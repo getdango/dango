@@ -110,9 +110,9 @@ class TestLoadFileFiltering:
         loader = CSVLoader(project_root=tmp_path, duckdb_path=tmp_path / "test.duckdb")
         config = CSVSourceConfig(directory=data_dir, file_pattern="*.*")
 
-        with patch("dango.ingestion.csv_loader.duckdb") as mock_duckdb:
+        with patch("dango.ingestion.dlt_runner._connect_with_lock_retry") as mock_connect_retry:
             mock_conn = MagicMock()
-            mock_duckdb.connect.return_value = mock_conn
+            mock_connect_retry.return_value = mock_conn
             with patch.object(
                 loader,
                 "_classify_files",
@@ -140,9 +140,9 @@ class TestLoadFileFiltering:
         loader = CSVLoader(project_root=tmp_path, duckdb_path=tmp_path / "test.duckdb")
         config = LocalFilesSourceConfig(directory=data_dir)
 
-        with patch("dango.ingestion.csv_loader.duckdb") as mock_duckdb:
+        with patch("dango.ingestion.dlt_runner._connect_with_lock_retry") as mock_connect_retry:
             mock_conn = MagicMock()
-            mock_duckdb.connect.return_value = mock_conn
+            mock_connect_retry.return_value = mock_conn
             with patch.object(
                 loader,
                 "_classify_files",
@@ -173,9 +173,9 @@ class TestLoadFileFiltering:
         loader = CSVLoader(project_root=tmp_path, duckdb_path=tmp_path / "test.duckdb")
         config = CSVSourceConfig(directory=data_dir, file_pattern="*.*")
 
-        with patch("dango.ingestion.csv_loader.duckdb") as mock_duckdb:
+        with patch("dango.ingestion.dlt_runner._connect_with_lock_retry") as mock_connect_retry:
             mock_conn = MagicMock()
-            mock_duckdb.connect.return_value = mock_conn
+            mock_connect_retry.return_value = mock_conn
             with patch.object(
                 loader,
                 "_classify_files",
@@ -192,6 +192,36 @@ class TestLoadFileFiltering:
 
             files_passed = mock_classify.call_args[0][2]
             assert len(files_passed) == 5
+
+    def test_csv_loader_load_retries_on_lock_conflict(self, tmp_path: Path, data_dir: Path) -> None:
+        """CSVLoader.load() connects via _connect_with_lock_retry(), not duckdb.connect()
+        directly — confirms the Metabase-lock-conflict retry (1.0.8-AQ) is actually wired up.
+
+        _connect_with_lock_retry is imported lazily inside load()'s own body (to avoid a
+        circular import with dlt_runner.py, which imports CSVLoader at its own module level),
+        so the patch target is the defining module (dango.ingestion.dlt_runner), not
+        dango.ingestion.csv_loader — see STANDARDS.md §7 / pattern-mock-patch-targets.
+        """
+        (data_dir / "good.csv").write_text("a,b\n1,2\n")
+
+        loader = CSVLoader(project_root=tmp_path, duckdb_path=tmp_path / "test.duckdb")
+        config = CSVSourceConfig(directory=data_dir, file_pattern="*.*")
+
+        with patch("dango.ingestion.dlt_runner._connect_with_lock_retry") as mock_connect_retry:
+            mock_conn = MagicMock()
+            mock_connect_retry.return_value = mock_conn
+            with patch.object(
+                loader,
+                "_classify_files",
+                return_value={"new": [], "updated": [], "unchanged": [], "deleted": []},
+            ):
+                with patch.object(loader, "_setup_metadata_table"):
+                    with patch.object(loader, "_check_table_exists", return_value=False):
+                        loader.load("test_source", config)
+
+        mock_connect_retry.assert_called_once_with(
+            loader.duckdb_path, "test_source", "csv-loader-write"
+        )
 
 
 def _make_csv(directory: Path, filename: str, header: str, rows: list[str]) -> Path:
