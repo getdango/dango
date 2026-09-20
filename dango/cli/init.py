@@ -562,14 +562,6 @@ When creating dashboards and reports in Metabase, use tables in this priority or
         if claude_path.exists():
             return  # Never overwrite user-edited CLAUDE.md
 
-        # config.sources is a SourcesConfig wrapper — the actual list is config.sources.sources
-        source_inventory = ""
-        if config.sources.sources:
-            for src in config.sources.sources:
-                source_inventory += f"- **{src.name}** (`{src.type.value}`): {src.description or 'No description yet'}\n"
-        else:
-            source_inventory = "*(No sources configured yet — run `dango source add`)*\n"
-
         content = f"""# {config.project.name} — Dango Project
 
 ## Purpose
@@ -581,7 +573,9 @@ When creating dashboards and reports in Metabase, use tables in this priority or
 **Start here:**
 1. Read this file to understand the project
 2. Run `dango mcp setup` to connect your LLM tool to Dango
-3. Use `list_sources()` and `get_catalog()` MCP tools to explore the data
+3. Use `list_sources()` and `get_catalog()` MCP tools to see current data sources and tables —
+   this file doesn't list them, since that changes independently of this file and the MCP
+   tools are always accurate and current
 
 **Data layers (use in this order):**
 | Layer | Schema | Use for |
@@ -590,13 +584,6 @@ When creating dashboards and reports in Metabase, use tables in this priority or
 | Intermediate | `intermediate.*` | ✅ Reusable business logic |
 | Marts | `marts.*` | ✅ Final business metrics and facts |
 | Raw | `raw_*.*` | ⚠️ Avoid — engineers only |
-
-## Data sources
-
-{source_inventory}
-## dbt models
-
-*(Models appear here as you create them with `dango model add`)*
 
 ## Key commands
 
@@ -630,6 +617,11 @@ data/
 
         claude_path.write_text(content)
         print_success("Created CLAUDE.md")
+
+        agents_path = self.project_dir / "AGENTS.md"
+        if not agents_path.exists():
+            agents_path.write_text(content)
+            print_success("Created AGENTS.md")
 
     @staticmethod
     def _get_duckdb_version() -> str:
