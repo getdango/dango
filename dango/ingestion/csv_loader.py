@@ -113,7 +113,11 @@ class CSVLoader:
                 console.print(f"  ⚠️  Skipping unsupported format: {Path(f).name}")
 
         # Connect to DuckDB (needed even if no files exist, to process deletions)
-        conn = duckdb.connect(str(self.duckdb_path))
+        # Lazy import to avoid a circular import: dlt_runner.py imports CSVLoader from this
+        # module at its own top level, so a top-level import here would cycle back.
+        from dango.ingestion.dlt_runner import _connect_with_lock_retry
+
+        conn = _connect_with_lock_retry(self.duckdb_path, source_name, "csv-loader-write")
 
         # Create schema
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {target_schema}")
