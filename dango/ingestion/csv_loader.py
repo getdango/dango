@@ -117,7 +117,9 @@ class CSVLoader:
         # module at its own top level, so a top-level import here would cycle back.
         from dango.ingestion.dlt_runner import _connect_with_lock_retry
 
-        conn = _connect_with_lock_retry(self.duckdb_path, source_name, "csv-loader-write")
+        conn = _connect_with_lock_retry(
+            self.duckdb_path, source_name, "csv-loader-write", project_root=self.project_root
+        )
 
         # Create schema
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {target_schema}")
