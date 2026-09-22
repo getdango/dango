@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dango telemetry` command (`status` / `on` / `off`) — control telemetry for Dango, dbt, dlt, and Metabase together with `--all`, or one at a time with `--provider`
 - `/settings/telemetry` page — toggle telemetry status from the web UI, matching the CLI command
 - MCP server — `dango mcp setup` configures Claude Code, Cursor, or Windsurf to talk to your Dango project; 15 tools cover reading (sources, schema, catalog, lineage, models, SQL, sync history, ad-hoc queries) and making changes (running syncs/transforms/doctor, adding sources/schedules, creating models) through the same functions the CLI itself uses
-- `dango init`, `dango source add`, and `dango model add` now generate and keep a `CLAUDE.md` file up to date in the project, summarizing its purpose, sources, and models for AI coding assistants
+- `dango init` now generates both `CLAUDE.md` and `AGENTS.md` (identical content) in the project, so Cursor, Windsurf, and other AGENTS.md-aware tools get the same onboarding guidance Claude Code does — not just Claude Code
 - `dango validate` now warns when model or column descriptions are missing or left as `# TODO` placeholders
 - Deploy output now warns when backups aren't configured for BYOS/self-hosted deploys, with a link to the backup setup docs
 - Data Pipeline Health dashboard now shows real sync history, dbt test results, and source counts instead of placeholder queries
@@ -58,6 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Metabase: `refresh_metabase_connection()`'s post-restart readiness check now uses the same proven log-based signal as first-run setup, with a realistic timeout — previously a fixed 20-second budget was often too short for a real restart, silently skipping the post-sync schema refresh that makes new tables visible in Metabase
 - `dango start` no longer kills another project's live server when the configured port is already in use — it now verifies the process is this project's own before stopping it, and shows a clear error if it can't confirm that instead
 - `docker-compose.yml` is now regenerated from current config before every `dango start` — previously it was only written once at `dango init`, so changing `metabase_port`/`dbt_docs_port` afterward (including via this project's own suggested port-conflict fix) silently had no effect
+- CSV and local-files sources (and a few related write paths) could fail a sync outright if Metabase happened to be querying the database at that exact moment — now retried automatically, and as a last resort Metabase is temporarily stopped to force a write window through rather than giving up
+- `dango source add`'s final hint for how to sync a newly added source referenced a `--source` flag that doesn't exist (`dango sync --source my_api`), which errored immediately — the correct syntax, `dango sync my_api`, is used everywhere now (11 sites across 4 files had the same wrong pattern)
+- A few error-recovery hints referenced commands that were renamed and never updated — `dango transform` (dbt build failures) is now `dango run`, and `dango restore <path>` (a failed-migration rollback hint) is now `dango backup restore <path>`
 
 ### Security
 
@@ -69,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP server setup (`dango mcp setup`) now configures Claude Code via its own `claude mcp add --scope local` command instead of writing directly into `~/.claude/settings.json` — the entry is now private to the current project instead of shared machine-wide across every Dango project. Cursor gets a project-scoped, git-committable `.cursor/mcp.json`. Windsurf keeps a machine-wide config (no per-project option exists in Windsurf itself), now with the current project's path included so at least one project is unambiguous. New `dango mcp remove` command reverses whatever `dango mcp setup` configured
 - `dango source add --help` and `dango status`'s Metabase row no longer show a stale source count or a hardcoded port — both now read from the live configuration/registry
 - `/settings/telemetry` and `dango telemetry status` now state plainly that the dango/dbt/dlt toggles apply machine-wide (shared across every Dango project) while the Metabase toggle applies only to the current project; `dango init` on any project after the first now prints a one-line note when it silently inherits a telemetry decision made elsewhere, instead of staying completely silent
+- The first-run telemetry consent prompt no longer defaults to declining if you just press Enter — it keeps asking until you give a real yes/no. It also now states plainly that agreeing enables an ongoing periodic heartbeat, not just a one-time install ping
 - `dango model add`/`dango source add` no longer print two separate warnings for the same "you're on a protected branch" condition — only the more complete one remains
 
 ## [1.0.7] - 2026-08-27
